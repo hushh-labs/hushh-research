@@ -114,9 +114,15 @@ vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultOwnerToken: "in-memory-owner-token" }),
 }));
 
+// Mutable so a case can assert the NATIVE branch. `setPadding` is a real
+// camera inset on iOS/Android but a zoom-out on the @capacitor/google-maps web
+// shim, so the two runtimes have genuinely different contracts here and both
+// need covering.
+const platformHarness = vi.hoisted(() => ({ native: false }));
+
 vi.mock("@/lib/capacitor/platform", () => ({
-  getPlatform: () => "web",
-  isNative: () => false,
+  getPlatform: () => (platformHarness.native ? "ios" : "web"),
+  isNative: () => platformHarness.native,
 }));
 
 vi.mock("@/lib/one-location/maps-config", () => ({
@@ -275,6 +281,22 @@ vi.mock("sonner", () => ({
   },
 }));
 
+// Only reached by cases that put real (non-demo) markers on the map. Every
+// other case leaves `getMapState` returning no markers, so this never runs for
+// them.
+vi.mock("@/lib/one-location/encryption", () => ({
+  decryptLocationEnvelope: vi.fn(
+    async ({ envelope }: { envelope: { plainPointForTest: unknown } }) =>
+      envelope.plainPointForTest,
+  ),
+  encryptLocationForRecipient: vi.fn(async () => ({
+    id: "envelope-id",
+    capturedAt: "2026-07-23T00:00:00.000Z",
+  })),
+}));
+
+import { toast } from "sonner";
+
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { beginNearbyPrivateReturn } from "@/lib/one-location/nearby-private-navigation";
 import {
@@ -305,6 +327,7 @@ Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
 });
 
 beforeEach(() => {
+  platformHarness.native = false;
   trayHeaderHeightStub = 72;
   trayContentHeightStub = 260;
   // Lanes are module state: without this a superseded claim or a queued
@@ -554,7 +577,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -605,7 +628,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -690,7 +713,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -711,7 +734,7 @@ describe("LocationImmersiveMap demo experience", () => {
     });
     expect(
       screen.getByTestId("one-location-nearby-search-area-legend"),
-    ).toHaveTextContent("500 m search area");
+    ).toHaveTextContent("500 m around you");
     expect(mapHarness.map.fitBounds).toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId("clear-nearby-search-area"));
@@ -721,6 +744,39 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(
       screen.queryByTestId("one-location-nearby-search-area-legend"),
     ).not.toBeInTheDocument();
+  });
+
+  it("never sends camera padding to the web map renderer", async () => {
+    // Regression, QA "uppr gap kyu aa raha hai": on iOS/Android `setPadding` is
+    // a true camera inset — same zoom, map still edge to edge. The
+    // @capacitor/google-maps WEB shim is `fitBounds(map.getBounds(), padding)`,
+    // i.e. it re-fits the visible world into a box shrunk by the padding. That
+    // is a zoom-out, and a raster map snaps to a whole integer zoom, so the
+    // world stopped filling the container and Google's out-of-world grey showed
+    // as a band above and below the map. Web must never make this call.
+    platformHarness.native = false;
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+
+    render(<LocationImmersiveMap surface="check-in" />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    await waitFor(() => {
+      expect(mapHarness.map.addCircles).toHaveBeenCalled();
+    });
+
+    expect(mapHarness.map.setPadding).not.toHaveBeenCalled();
+    // The container itself is untouched by the fix and still owns the viewport.
+    expect(screen.getByTestId("one-location-map").className).toContain(
+      "h-[100dvh]",
+    );
   });
 
   it("never strands markers when the set changes mid-write", async () => {
@@ -750,7 +806,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -786,7 +842,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -865,7 +921,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -894,6 +950,8 @@ describe("LocationImmersiveMap demo experience", () => {
   });
 
   it("keeps the full search circle in the visible mobile viewport above the sheet", async () => {
+    // Camera padding is a NATIVE-only bridge call, so this case runs native.
+    platformHarness.native = true;
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     // Check-in is its own destination now; the legacy `?action=check-in`
@@ -940,7 +998,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -974,7 +1032,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -1015,7 +1073,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -1075,7 +1133,7 @@ describe("LocationImmersiveMap demo experience", () => {
       // correctly skipped on remount within the same session. Click it only
       // when it's actually there.
       const continueButton = screen.queryByRole("button", {
-        name: "Continue to Your Map",
+        name: "Continue",
       });
       if (continueButton) fireEvent.click(continueButton);
       await waitFor(() => {
@@ -1117,7 +1175,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
       render(<LocationImmersiveMap surface="check-in" />);
       fireEvent.click(
-        screen.getByRole("button", { name: "Continue to Your Map" }),
+        screen.getByRole("button", { name: "Continue" }),
       );
       await waitFor(() => {
         expect(
@@ -1151,7 +1209,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     const view = render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
@@ -1181,7 +1239,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
@@ -1220,6 +1278,7 @@ describe("LocationImmersiveMap demo experience", () => {
           id: "active-location-share",
           ownerUserId: "test-user",
           recipientUserId: "trusted-person",
+          recipientDisplayName: "Ankit Kumar Singh",
           recipientKeyId: "trusted-person-key",
           status: "active",
           consentScope: "location",
@@ -1231,7 +1290,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
 
     await waitFor(() => {
@@ -1263,10 +1322,25 @@ describe("LocationImmersiveMap demo experience", () => {
     });
     expect(
       screen.getByTestId("one-location-map-sharing-status"),
-    ).toHaveAttribute("role", "status");
+    ).toHaveAttribute("type", "button");
     expect(
       screen.getByTestId("one-location-map-sharing-status"),
-    ).toHaveAccessibleName("You are sharing your location with 1 person");
+    ).toHaveAccessibleName(
+      "Show who you are sharing your location with. 1 person.",
+    );
+
+    fireEvent.click(screen.getByTestId("one-location-map-sharing-status"));
+
+    expect(
+      screen.getByRole("list", { name: "People you are sharing with" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Ankit Kumar Singh")).toBeInTheDocument();
+
+    fireEvent.scroll(window);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Ankit Kumar Singh")).not.toBeInTheDocument();
+    });
   });
 
   it("does not build a synthetic history boundary on the check-in route", async () => {
@@ -1605,9 +1679,11 @@ describe("LocationImmersiveMap remount triggers", () => {
   });
 
   it("redirects the legacy check-in entry point off the map route", async () => {
-    // The Location hub still pushes /one/location/map?action=check-in, and the
-    // map route bounces it to the check-in route. That bounce is a second
-    // mount of this same component on the same native map id.
+    // Nothing inside the app sends check-in here any more -- the hub, the
+    // breadcrumb back button and the resume href all name the check-in route
+    // directly. What is left arriving on `?action=check-in` is links we do not
+    // own: notifications, bookmarks, anything already shared. They still work,
+    // at the cost of this one bounce.
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     experienceHarness.query = "action=check-in";
@@ -1622,6 +1698,7 @@ describe("LocationImmersiveMap remount triggers", () => {
     });
   });
 
+
   it("leaves a usable map behind when check-in is opened and dismissed", async () => {
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
@@ -1630,7 +1707,7 @@ describe("LocationImmersiveMap remount triggers", () => {
     render(<LocationImmersiveMap surface="check-in" />);
     // Renderer consent gates the sheet and the marker refresh alike.
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -1654,5 +1731,278 @@ describe("LocationImmersiveMap remount triggers", () => {
       "true",
     );
     expect(mapHarness.map.destroy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The five things QA reported on the shipped Location map, each locked by the
+ * behaviour a person actually performs. They are grouped because they share one
+ * root: a control that is visible but cannot answer is indistinguishable from a
+ * broken one, and every one of these was reported as "it is not working".
+ */
+describe("LocationImmersiveMap reported map defects", () => {
+  const ANKIT = "Ankit Kumar Singh";
+  const ABDUL = "Abdul Rashid";
+
+  function activeGrant(recipientDisplayName: string, id: string) {
+    return {
+      id,
+      ownerUserId: "test-user",
+      recipientUserId: `${id}-recipient`,
+      recipientDisplayName,
+      recipientKeyId: `${id}-key`,
+      status: "active",
+      consentScope: "location",
+      capabilityScopes: ["location.read"],
+      durationHours: 1,
+    };
+  }
+
+  /** An incoming pin: someone who shares their location back with this account. */
+  function incomingMarker(ownerDisplayName: string, lat: number, lng: number) {
+    return {
+      grant: { id: `${ownerDisplayName}-incoming`, ownerDisplayName },
+      envelope: {
+        id: `${ownerDisplayName}-envelope`,
+        capturedAt: "2026-07-23T00:00:00.000Z",
+        plainPointForTest: {
+          latitude: lat,
+          longitude: lng,
+          capturedAt: "2026-07-23T00:00:00.000Z",
+          sourcePlatform: "ios",
+        },
+      },
+    };
+  }
+
+  async function renderReadyMap() {
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+  }
+
+  beforeEach(() => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "source=map";
+  });
+
+  it("takes you to a person on the map when you tap their name in Sharing with", async () => {
+    // The reported flow: tap "Sharing with 2", see the people, tap one. The
+    // rows used to be inert <li> text, so the tap answered nothing.
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [activeGrant(ANKIT, "share-ankit")],
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      // Mutual: Ankit both receives this account's location and shares back, so
+      // he has a pin to fly to.
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-map-sharing-status"),
+      ).toHaveTextContent("Sharing with 1");
+    });
+    fireEvent.click(screen.getByTestId("one-location-map-sharing-status"));
+
+    const row = await screen.findByTestId("one-location-map-sharing-person");
+    // A real control, not decorated text.
+    expect(row.tagName).toBe("BUTTON");
+    expect(row).toHaveAttribute("data-has-pin", "true");
+    expect(row).toHaveAccessibleName(`Show ${ANKIT} on your map`);
+
+    mapHarness.map.setCamera.mockClear();
+    fireEvent.click(row);
+
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coordinate: { lat: 25.4358, lng: 81.8463 },
+        }),
+      );
+    });
+  });
+
+  it("sends you to Location to manage a share when that person has no pin", async () => {
+    // Sharing with someone does not put them on your map -- that only happens
+    // if they share back. Tapping the row still has to go somewhere, or it is
+    // the same dead control in a different place.
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [activeGrant(ABDUL, "share-abdul")],
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-map-sharing-status"),
+      ).toHaveTextContent("Sharing with 1");
+    });
+    fireEvent.click(screen.getByTestId("one-location-map-sharing-status"));
+
+    const row = await screen.findByTestId("one-location-map-sharing-person");
+    expect(row).toHaveAttribute("data-has-pin", "false");
+    expect(row).toHaveAccessibleName(
+      `Manage your location share with ${ABDUL}`,
+    );
+
+    navigationHarness.beginRouteTransition.mockClear();
+    fireEvent.click(row);
+
+    await waitFor(() => {
+      expect(navigationHarness.beginRouteTransition).toHaveBeenCalledWith(
+        "/one/location",
+        expect.any(Function),
+        "tap",
+        "full",
+      );
+    });
+  });
+
+  it("gives every Sharing with row a 44px touch target", async () => {
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [
+        activeGrant(ANKIT, "share-ankit"),
+        activeGrant(ABDUL, "share-abdul"),
+      ],
+    });
+
+    await renderReadyMap();
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-map-sharing-status"),
+      ).toHaveTextContent("Sharing with 2");
+    });
+    fireEvent.click(screen.getByTestId("one-location-map-sharing-status"));
+
+    const rows = await screen.findAllByTestId(
+      "one-location-map-sharing-person",
+    );
+    expect(rows).toHaveLength(2);
+    // min-h-11 is 44px, the platform minimum. Below it these rows are the kind
+    // of target that needs two or three tries on a phone.
+    for (const row of rows) expect(row).toHaveClass("min-h-11");
+  });
+
+  it("keeps Check in's whole label by giving Sharing its own row on phone widths", async () => {
+    // The break in the report: at 375px the header's symmetric `1fr auto 1fr`
+    // made the left column (one 56px X) as wide as Check-in + Locate, and the
+    // squeezed centre truncated the Check-in pill to the single letter "C".
+    // A product-owned action word is not a truncatable string.
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [activeGrant(ANKIT, "share-ankit")],
+    });
+
+    await renderReadyMap();
+
+    const header = screen.getByRole("banner", {
+      name: "Location map controls",
+    });
+    // Phone: two rows, columns sized to their content. Desktop keeps the
+    // true-centre three-column layout.
+    expect(header).toHaveClass("grid-cols-[auto_minmax(0,1fr)]");
+    expect(header).toHaveClass("sm:grid-cols-[1fr_auto_1fr]");
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-map-sharing-status"),
+      ).toBeInTheDocument();
+    });
+    const sharingRow = screen.getByTestId("one-location-map-sharing-status")
+      .parentElement as HTMLElement;
+    expect(sharingRow).toHaveClass("row-start-2", "col-span-2");
+    expect(sharingRow).toHaveClass("sm:row-start-1", "sm:col-start-2");
+
+    // The label survives intact -- this is the assertion that fails if anyone
+    // reintroduces a squeeze that ellipsises it.
+    expect(
+      screen.getByTestId("one-location-map-nearby-check-in"),
+    ).toHaveTextContent("Check in");
+    expect(
+      screen.getByTestId("one-location-map-nearby-check-in"),
+    ).toHaveAccessibleName("Check in nearby");
+  });
+
+  it("answers Everyone instead of sitting disabled when no one shares with you", async () => {
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [],
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+
+    const everyone = screen.getByTestId("one-location-map-show-everyone");
+    // Never disabled: a disabled control gives no reason, and on a touch screen
+    // is indistinguishable from a broken one.
+    expect(everyone).not.toBeDisabled();
+
+    vi.mocked(toast.message).mockClear();
+    fireEvent.click(everyone);
+
+    await waitFor(() => {
+      expect(toast.message).toHaveBeenCalledWith(
+        "No one is sharing a live location with you yet.",
+      );
+    });
+  });
+
+  it("frames the people who do share with you when Everyone is pressed", async () => {
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [],
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [
+        incomingMarker(ANKIT, 25.4358, 81.8463),
+        incomingMarker(ABDUL, 25.4501, 81.8201),
+      ],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-marker-count",
+        "2",
+      );
+    });
+
+    vi.mocked(toast.message).mockClear();
+    mapHarness.map.fitBounds.mockClear();
+    fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
+
+    await waitFor(() => {
+      expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+    });
+    // With people to show it frames them and says nothing -- the message is
+    // reserved for the empty case it explains.
+    expect(toast.message).not.toHaveBeenCalledWith(
+      "No one is sharing a live location with you yet.",
+    );
   });
 });

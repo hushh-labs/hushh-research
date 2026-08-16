@@ -55,7 +55,11 @@ function titleizeSegment(segment: string): string {
 function oneLocationActionLabel(action: string): string {
   const labels: Record<string, string> = {
     share: "Share location",
-    ask: "Ask someone",
+    // Sentence case, matching every sibling crumb ("Share location", "Active
+    // shares", "Public link") and the screen's own TaskFlowHeader title. The
+    // crumb and the title must read as the same words or the trail and the
+    // screen stop agreeing.
+    ask: "Request location",
     invite: "Invite to Circle",
     "temp-link": "Public link",
     "check-in": "Check-In",
@@ -258,7 +262,9 @@ function resolveTopShellBreadcrumbInner(
       align: "center",
       items: [
         { label: "Set up", href: ROUTES.ONE_SETUP },
-        { label: "AI access" },
+        // Matches the on-screen title; a crumb that disagrees with the heading
+        // reads as two different screens.
+        { label: "Choose your AI" },
       ],
     };
   }
@@ -744,19 +750,36 @@ function resolveTopShellBreadcrumbInner(
       // reached from Settings AND from the middle of an SOS, so it retraces to
       // whichever one opened it (see resolveSmsContactsBackAction).
       const hubView = String(searchParams?.get("view") || "").trim();
+      // Name the tab even when it is the default one.
+      //
+      // Closing a flow used to return to a bare `/one/location`, and the App
+      // Router will not perform a navigation whose only change is that the
+      // whole query string disappears: the URL, `useSearchParams`, and every
+      // screen keyed off them stay exactly where they were. Measured on uat
+      // and on production, and not only here -- `/one/feed?tab=x`, `/one?x=1`
+      // and `/one/connect?x=1` all refuse the same way, while adding or
+      // changing a parameter works. That is why every Location flow became
+      // impossible to leave by its own back control while the phone's own
+      // back gesture, which never touches the router, still worked.
+      //
+      // `?view=now` is the hub's own default tab, so this is the same
+      // destination said explicitly rather than by omission.
       const hubBackHref =
         action === "sms-contacts"
           ? `${ROUTES.ONE_LOCATION}?action=${resolveSmsContactsBackAction(
               searchParams?.get("source"),
             )}`
-          : hubView
-            ? `${ROUTES.ONE_LOCATION}?view=${encodeURIComponent(hubView)}`
-            : ROUTES.ONE_LOCATION;
+          : `${ROUTES.ONE_LOCATION}?view=${encodeURIComponent(hubView || "now")}`;
       return {
         backHref: returnToNearbyCheckIn
           ? isNearbyPrivateReturnToken(nearbyReturnToken)
             ? buildNearbyCheckInResumeHref(nearbyReturnToken)
-            : `${ROUTES.ONE_LOCATION_MAP}?action=check-in`
+            : // Back from a private check-in goes to check-in's own route.
+              // Naming Your Map with `?action=check-in` sent the person to a
+              // screen that cannot show check-in, which then redirected here
+              // anyway -- a visible detour on the one control whose whole job
+              // is to retrace a step.
+              ROUTES.ONE_LOCATION_CHECK_IN
           : hubBackHref,
         width: "profile",
         align: "center",

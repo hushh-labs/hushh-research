@@ -57,6 +57,8 @@ import type {
   OneLocationCircleMemberInvite,
   OneLocationCircleSummary,
 } from "@/lib/one-location/types";
+import { filterPeopleByQuery } from "@/lib/one-location/people-search";
+import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { cn } from "@/lib/utils";
 
 const CIRCLES_GROUP_SURFACE =
@@ -414,7 +416,9 @@ export function CreateCircleFlow({
 }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<OneLocationCircleKind>("family");
-  const canSubmit = name.trim().length >= 2 && !busy;
+  // One typed character is a name. Requiring two silently withheld the button
+  // from anyone naming a circle "A", with nothing on screen saying why.
+  const canSubmit = name.trim().length >= 1 && !busy;
 
   const submit = async () => {
     try {
@@ -478,7 +482,10 @@ export function CreateCircleFlow({
         disabled={!canSubmit}
         isLoading={busy}
         onClick={() => void submit()}
-        className="h-12 w-full rounded-full text-base font-semibold"
+        className={cn(
+          "h-12 w-full rounded-full text-base font-semibold",
+          BLOCKED_CTA,
+        )}
       >
         Create circle
       </Button>
@@ -624,16 +631,14 @@ export function JoinCircleFlow({
           disabled={normalizedLength !== 12 || busy}
           isLoading={busy}
           onClick={() => void resolve()}
-          className="h-12 w-full rounded-full text-base font-semibold"
+          className={cn(
+            "h-12 w-full rounded-full text-base font-semibold",
+            BLOCKED_CTA,
+          )}
         >
           Preview circle
         </Button>
       )}
-
-      <TrustNoteCard
-        title="No request wait"
-        description="Join the Circle. Location stays explicit."
-      />
     </div>
   );
 }
@@ -874,7 +879,7 @@ export function CircleDetailFlow({
   const circleNameDirty =
     Boolean(circle) && trimmedCircleName !== circle?.name;
   const canSaveCircleName =
-    circleNameDirty && trimmedCircleName.length >= 2 && !savingName && !busy;
+    circleNameDirty && trimmedCircleName.length >= 1 && !savingName && !busy;
   const canInviteMembers =
     circle?.viewerCapabilities?.canInviteMembers ?? Boolean(isOwner);
   const canViewInviteCode =
@@ -897,13 +902,15 @@ export function CircleDetailFlow({
     [members, currentUserId],
   );
 
-  const filteredEligibleConnections = useMemo(() => {
-    const query = peopleSearch.trim().toLocaleLowerCase();
-    if (!query) return eligibleConnections;
-    return eligibleConnections.filter((connection) =>
-      connection.displayName.toLocaleLowerCase().includes(query),
-    );
-  }, [eligibleConnections, peopleSearch]);
+  const filteredEligibleConnections = useMemo(
+    () =>
+      filterPeopleByQuery(
+        eligibleConnections,
+        peopleSearch,
+        (connection) => connection.displayName,
+      ),
+    [eligibleConnections, peopleSearch],
+  );
 
   const loadEligibleConnections = async () => {
     if (!circle || !canInviteMembers) return;
@@ -1034,7 +1041,7 @@ export function CircleDetailFlow({
   // waiting for a refetch.
   const renameCircle = async () => {
     const nextName = circleName.trim();
-    if (!circle || savingName || nextName.length < 2 || nextName === circle.name)
+    if (!circle || savingName || nextName.length < 1 || nextName === circle.name)
       return;
     setSavingName(true);
     try {
@@ -1173,8 +1180,8 @@ export function CircleDetailFlow({
                 )}
               </div>
               <p className={cn(MUTED_TEXT, "mt-2")}>
-                {circleNameDirty && trimmedCircleName.length < 2
-                  ? "Use at least 2 characters."
+                {circleNameDirty && trimmedCircleName.length < 1
+                  ? "Enter a name."
                   : circleNameDirty
                     ? "Tap Save — everyone in this Circle will see the new name."
                     : "Everyone in this Circle sees this name."}
@@ -1305,7 +1312,19 @@ export function CircleDetailFlow({
           >
             <SheetContent
               side="bottom"
-              className="mx-auto flex max-h-[88dvh] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
+              // Swiping down through the results is how a phone scrolls a list
+              // back up. Left on, it drags the sheet away instead and can close
+              // it outright, losing the query and every person already ticked.
+              dragDismiss={false}
+              // The keyboard height MUST stay in this max-height. SheetContent's
+              // default is `max-h-[calc(85dvh-var(--kb-height,0px))]` paired with
+              // `bottom-[var(--kb-height,0px)]`: the sheet lifts above the
+              // keyboard and shrinks by the same amount. A bare dvh max-height
+              // wins the tailwind-merge and drops only the shrink — so the sheet
+              // still lifts, and the title and the search field the person just
+              // tapped slide off the top of the screen. They then type into a
+              // field they cannot see.
+              className="mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
             >
               <SheetHeader className="text-left">
                 <SheetTitle>Add people to {circle.name}</SheetTitle>
@@ -1484,7 +1503,10 @@ export function CircleDetailFlow({
                   }
                   isLoading={peopleSubmitting}
                   onClick={() => void sendMemberInvites()}
-                  className="h-12 w-full shrink-0 rounded-full text-base font-semibold"
+                  className={cn(
+                    "h-12 w-full shrink-0 rounded-full text-base font-semibold",
+                    BLOCKED_CTA,
+                  )}
                 >
                   {selectedConnectionIds.size
                     ? `Invite ${selectedConnectionIds.size} ${

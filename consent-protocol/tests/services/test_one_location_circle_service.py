@@ -18,6 +18,24 @@ from hushh_mcp.services.one_location_circle_service import (
 from hushh_mcp.services.push_notifications import send_circle_member_invite_push
 
 
+def test_circle_name_accepts_one_character_and_still_bounds_the_column() -> None:
+    clean = circle_service_module._clean_name
+
+    # One character is a name. The old two-character floor left the Create
+    # button dead with nothing on screen explaining the refusal.
+    assert clean("A") == "A"
+    assert clean("  A  ") == "A"
+    # Interior whitespace still collapses to one space.
+    assert clean("Meena   Family") == "Meena Family"
+    assert clean("x" * 80) == "x" * 80
+
+    # Empty, whitespace-only, and over-length remain refusals.
+    for rejected in ("", "   ", "x" * 81):
+        with pytest.raises(OneLocationCircleError) as excinfo:
+            clean(rejected)
+        assert excinfo.value.code == "LOCATION_CIRCLE_NAME_INVALID"
+
+
 def test_circle_member_payload_includes_public_recipient_key_for_group_selection() -> None:
     payload = OneLocationCircleService._member_payload(
         {

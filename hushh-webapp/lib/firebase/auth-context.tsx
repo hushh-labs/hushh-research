@@ -49,6 +49,7 @@ import {
 } from "@/lib/utils/session-storage";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { ApiService } from "@/lib/services/api-service";
+import { setObservabilityUserId } from "@/lib/observability/identity";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
@@ -151,6 +152,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser(nextUser);
     setUserId(nextUser?.uid ?? null);
     setPhoneNumber(nextUser?.phoneNumber ?? null);
+    // Binds the cross-surface analytics identity (a salted digest, never the
+    // UID) so web, iOS and Android resolve to one user in GA4. Deliberately
+    // not awaited: analytics identity must never sit on the auth critical path.
+    void setObservabilityUserId(nextUser?.uid ?? null);
     if (nextUser?.uid) {
       void import("@/lib/services/connected-systems-resource-service")
         .then(async ({ ConnectedSystemsResourceService }) => {

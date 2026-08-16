@@ -41,6 +41,7 @@ import type {
   OneLocationPublicInviteSubmission,
   OneLocationRecipient,
   OneLocationReferral,
+  OneLocationShareDurationMode,
   OneLocationState,
   PlainLocationPoint,
   DriveDestination,
@@ -940,7 +941,8 @@ export class OneLocationService {
     vaultOwnerToken: string;
     recipientUserId: string;
     recipientKeyId: string;
-    durationHours: number;
+    durationHours?: number | null;
+    durationMode?: OneLocationShareDurationMode;
     reason?: string;
     shareKind?: string;
     sourceCircleId?: string;
@@ -953,7 +955,10 @@ export class OneLocationService {
         body: JSON.stringify({
           recipientUserId: params.recipientUserId,
           recipientKeyId: params.recipientKeyId,
-          durationHours: params.durationHours,
+          ...(typeof params.durationHours === "number"
+            ? { durationHours: params.durationHours }
+            : {}),
+          ...(params.durationMode ? { durationMode: params.durationMode } : {}),
           ...(params.reason ? { reason: params.reason } : {}),
           ...(params.shareKind ? { shareKind: params.shareKind } : {}),
           ...(params.sourceCircleId
@@ -1060,7 +1065,8 @@ export class OneLocationService {
     vaultOwnerToken: string;
     recipientUserId: string;
     recipientKeyId: string;
-    durationHours: number;
+    durationHours?: number | null;
+    durationMode?: OneLocationShareDurationMode;
     clientOperationId: string;
     confirmedAt: string;
     envelope: OneLocationEncryptedEnvelope;
@@ -1079,7 +1085,10 @@ export class OneLocationService {
         body: JSON.stringify({
           recipientUserId: params.recipientUserId,
           recipientKeyId: params.recipientKeyId,
-          durationHours: params.durationHours,
+          ...(typeof params.durationHours === "number"
+            ? { durationHours: params.durationHours }
+            : {}),
+          ...(params.durationMode ? { durationMode: params.durationMode } : {}),
           clientOperationId: params.clientOperationId,
           confirmedAt: params.confirmedAt,
           envelope: params.envelope,

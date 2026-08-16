@@ -26,25 +26,28 @@ export type QuickActionTone = "green" | "red" | "blue" | "violet" | "slate";
  * stay neutral through the shared typography roles.
  */
 const TONE_STYLES: Record<QuickActionTone, { tile: string; icon: string }> = {
+  // Tokens, not literals: these hard-coded the LIGHT hex, so in dark mode the
+  // glyphs stayed at the light-appearance shade while every other semantic
+  // colour on the screen switched.
   green: {
-    tile: "bg-[color:var(--app-success)]",
-    icon: "text-white",
+    tile: "bg-[color:var(--app-success)]/12",
+    icon: "text-[color:var(--app-success)]",
   },
   red: {
-    tile: "bg-[color:var(--app-destructive)]",
-    icon: "text-white",
+    tile: "bg-[color:var(--app-destructive)]/12",
+    icon: "text-[color:var(--app-destructive)]",
   },
   blue: {
-    tile: "bg-[color:var(--app-accent)]",
-    icon: "text-white",
+    tile: "bg-[color:var(--app-accent-surface)]",
+    icon: "text-[color:var(--app-accent-deep)]",
   },
   violet: {
-    tile: "bg-[color:var(--app-purple)]",
-    icon: "text-white",
+    tile: "bg-[color:var(--app-accent-surface)]",
+    icon: "text-[color:var(--app-accent-deep)]",
   },
   slate: {
-    tile: "bg-[color:var(--app-icon-tile-background)]",
-    icon: "text-white",
+    tile: "bg-[#E5E5EA]",
+    icon: "text-[#6E6E73]",
   },
 };
 
@@ -88,29 +91,29 @@ export function QuickActionCard({
       aria-disabled={!interactive}
       data-voice-control-id={controlId}
       className={cn(
-        "group flex min-h-[96px] w-full min-w-0 flex-col gap-2.5 rounded-[var(--app-card-radius-standard,24px)] bg-white p-3.5 text-left shadow-[var(--app-card-shadow-standard)] transition-all duration-200 dark:bg-[color:var(--app-card-surface-default-solid)]",
+        "group flex min-h-[112px] w-full min-w-0 flex-col gap-2.5 rounded-[18px] border border-[rgba(60,60,67,0.10)] bg-white p-3.5 text-left shadow-none transition-colors duration-150 dark:border-white/10 dark:bg-[color:var(--app-card-surface-default-solid)]",
         interactive
-          ? "cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          ? "cursor-pointer active:bg-[rgba(120,120,128,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           : "cursor-not-allowed",
       )}
     >
       <div className="flex w-full items-start justify-between gap-2">
         <span
           className={cn(
-            "flex h-[38px] w-[38px] items-center justify-center rounded-[12px] [&_svg]:h-[20px] [&_svg]:w-[20px]",
+            "flex h-9 w-9 items-center justify-center rounded-[9px] [&_svg]:h-[18px] [&_svg]:w-[18px] [&_svg]:stroke-[1.8]",
             palette.tile,
             palette.icon,
           )}
         >
           {icon}
         </span>
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] dark:bg-white/10">
-          <ChevronRight className="h-3 w-3 text-[color:var(--app-tertiary-label)]" />
+        <span className="flex h-6 w-6 shrink-0 items-center justify-end">
+          <ChevronRight className="h-3.5 w-3.5 text-[#C7C7CC] [stroke-width:1.8]" />
         </span>
       </div>
 
       <div className="mt-auto w-full min-w-0">
-        <RowLabel as="p" className="truncate">
+        <RowLabel as="p" className="truncate !font-medium">
           {title}
         </RowLabel>
         <RowDescription as="span" className="mt-1 block truncate">

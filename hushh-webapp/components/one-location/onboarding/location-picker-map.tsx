@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 import { useTheme } from "next-themes";
 import { GoogleMap } from "@capacitor/google-maps";
 import { Check, Crosshair, Loader2, MapPin, X } from "lucide-react";
@@ -28,7 +36,21 @@ export type PickedLocation = {
   address: string | null;
 };
 
+/**
+ * Lets the surrounding carousel commit the pin from a swipe or a dot tap, not
+ * only from the Confirm button. The pin, the settle state and the resolved
+ * address all live in here, so the parent cannot decide on its own whether a
+ * confirm is safe -- it has to ask.
+ */
+export type LocationPickerMapHandle = {
+  /** True when the pin has settled and its address lookup has finished. */
+  canConfirm: () => boolean;
+  /** Commit the current pin. Returns false when it was not safe to. */
+  confirm: () => boolean;
+};
+
 export interface LocationPickerMapProps {
+  ref?: Ref<LocationPickerMapHandle>;
   /** Where the map centers when it first opens. */
   initialLatitude: number;
   initialLongitude: number;
@@ -42,6 +64,12 @@ export interface LocationPickerMapProps {
   onLocateMe?: () => Promise<{ latitude: number; longitude: number } | null>;
   /** Emitted when the owner confirms the pin position. */
   onConfirm: (picked: PickedLocation) => void;
+  /**
+   * Fires whenever "this pin is ready to commit" changes, so a surrounding
+   * carousel can enable its own forward affordance from real state instead of
+   * reading the imperative handle during render -- where a ref is still null.
+   */
+  onReadyChange?: (ready: boolean) => void;
   /** Dismiss the map without changing the captured point. */
   onCancel: () => void;
   /**
@@ -91,6 +119,7 @@ function isValidCoordinate(lat: number, lng: number): boolean {
  *   transparency class while the pin + controls stay as regular web UI on top.
  */
 export function LocationPickerMap({
+  ref,
   initialLatitude,
   initialLongitude,
   initialAddress = null,
@@ -98,6 +127,7 @@ export function LocationPickerMap({
   reverseGeocode,
   onLocateMe,
   onConfirm,
+  onReadyChange,
   onCancel,
   rendererDisclosureAccepted = false,
   onAcceptRendererDisclosure,
@@ -474,17 +504,32 @@ export function LocationPickerMap({
         setResolving(true);
         centerRef.current = { lat: fix.latitude, lng: fix.longitude };
         if (native) {
-          const map = nativeMapRef.current;
-          if (map) {
+          // `setCamera` reads `mapViewController.GMapView`, which the plugin
+          // declares as an implicitly unwrapped `GMSMapView!`. Calling it while
+          // the native map is being created or destroyed hits a nil there and
+          // traps -- EXC_BREAKPOINT in Map.setCamera(config:), which kills the
+          // app outright rather than throwing something JS could catch. The
+          // teardown above clears `nativeMapRef` synchronously but destroys the
+          // map asynchronously inside the lock, and the create effect re-runs
+          // when the theme resolves, so a tap landing in that window crashed.
+          //
+          // Take the same lock the create and destroy take, and re-read the ref
+          // inside it, so this can never overlap either one.
+          let moved = false;
+          await withNativeMapLock(PICKER_NATIVE_MAP_ID, async () => {
+            const map = nativeMapRef.current;
+            if (!map || status !== "ready") return;
             // The camera-idle listener re-resolves the address after the move.
             await map.setCamera({
               coordinate: { lat: fix.latitude, lng: fix.longitude },
               zoom: 17,
               animate: true,
             });
-          } else {
-            scheduleResolve(fix.latitude, fix.longitude);
-          }
+            moved = true;
+          }).catch(() => undefined);
+          // No map to move (torn down, or still coming up): resolve the address
+          // for the fix directly so the pin still follows the person.
+          if (!moved) scheduleResolve(fix.latitude, fix.longitude);
         } else {
           const map = mapRef.current;
           if (map) {
@@ -502,18 +547,42 @@ export function LocationPickerMap({
     } finally {
       setLocating(false);
     }
-  }, [locating, native, onLocateMe, scheduleResolve]);
-
-  const handleConfirm = useCallback(() => {
-    const { lat, lng } = centerRef.current;
-    if (!isValidCoordinate(lat, lng)) return;
-    onConfirm({ latitude: lat, longitude: lng, address });
-  }, [address, onConfirm]);
+  }, [locating, native, onLocateMe, scheduleResolve, status]);
 
   // Treat a hard SDK error OR the 5s load timeout as "unavailable" so the owner
   // is never trapped behind an infinite "Loading map…"; both fall back to the
   // captured-point confirm flow below.
   const unavailable = status === "error" || timedOut;
+
+  // The single definition of "this pin is ready to commit", so the Confirm
+  // button, its colour, the carousel swipe and the carousel dots can never
+  // disagree about it.
+  const canConfirm =
+    !dragging &&
+    !resolving &&
+    !locating &&
+    (unavailable || status === "ready") &&
+    isValidCoordinate(centerRef.current.lat, centerRef.current.lng);
+
+  const handleConfirm = useCallback(() => {
+    const { lat, lng } = centerRef.current;
+    if (!isValidCoordinate(lat, lng)) return false;
+    onConfirm({ latitude: lat, longitude: lng, address });
+    return true;
+  }, [address, onConfirm]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      canConfirm: () => canConfirm,
+      confirm: () => (canConfirm ? handleConfirm() : false),
+    }),
+    [canConfirm, handleConfirm],
+  );
+
+  useEffect(() => {
+    onReadyChange?.(canConfirm);
+  }, [canConfirm, onReadyChange]);
 
   const accuracyHint = unavailable
     ? "Review the pin, then continue."
@@ -536,13 +605,22 @@ export function LocationPickerMap({
           type="button"
           onClick={onCancel}
           aria-label="Close map"
-          className="press-scale flex h-8 w-8 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] dark:bg-white/[0.08] dark:text-[#aeb8c7]"
+          className={cn(
+            "press-scale flex h-8 w-8 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] dark:bg-white/[0.08] dark:text-[#aeb8c7]",
+            // 32px circle, 44x44 tappable. The `::after` box is painted, not
+            // laid out, so the header row does not move.
+            "relative after:absolute after:left-1/2 after:top-1/2 after:h-11 after:w-11 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']",
+          )}
         >
           <X className="h-4 w-4" strokeWidth={2.4} />
         </button>
       </div>
 
       <div
+        // Panning the map is a horizontal drag too. Marked so an enclosing
+        // carousel can ignore gestures that start here instead of stealing
+        // them and sliding the sheet while the person is moving the pin.
+        data-location-picker-surface
         className={cn(
           "relative h-[min(56vh,420px)] w-full overflow-hidden rounded-2xl border border-black/[0.08] shadow-[0_8px_24px_rgba(16,24,40,0.12)] ring-1 ring-black/[0.02] dark:border-white/[0.1] dark:shadow-[0_8px_24px_rgba(0,0,0,0.4)]",
           // The native map draws below the WebView, so the surface must stay
@@ -722,14 +800,20 @@ export function LocationPickerMap({
       <div className="flex flex-col gap-2.5">
         <button
           type="button"
-          onClick={handleConfirm}
-          disabled={status === "loading" || dragging || resolving || locating}
+          onClick={() => void handleConfirm()}
+          disabled={!canConfirm}
           aria-describedby={
             unavailable ? mapUnavailableDescriptionId : undefined
           }
           className={cn(
-            "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[16px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-45",
-            "bg-[color:var(--app-accent,#087ff5)] text-[color:var(--app-accent-fg,#ffffff)] hover:bg-[color:var(--app-accent-hover,#0b62c4)]",
+            "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[16px] font-bold transition-colors disabled:cursor-not-allowed",
+            // Blue means "this will take you forward". While the pin is still
+            // settling or its address is still resolving it cannot, so it does
+            // not get to look like it can -- a dimmed blue button still reads
+            // as the live primary action and invites a dead tap.
+            canConfirm
+              ? "bg-[color:var(--app-accent,#087ff5)] text-[color:var(--app-accent-fg,#ffffff)] hover:bg-[color:var(--app-accent-hover,#0b62c4)]"
+              : "bg-[#e6e9ef] text-[#98a1ae] dark:bg-white/[0.08] dark:text-[#6d7787]",
           )}
         >
           <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />

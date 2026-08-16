@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { LockKeyhole, PlugZap } from "lucide-react";
+import { PlugZap } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -211,7 +211,7 @@ export function OneSetupHub() {
       return;
     }
     if (!vaultKey || !vaultOwnerToken) {
-      throw new Error("Your private vault is not ready yet. Try again.");
+      throw new Error("Not ready yet. Try again.");
     }
     if (finalizationInFlightRef.current) {
       return finalizationInFlightRef.current;
@@ -264,7 +264,7 @@ export function OneSetupHub() {
       setFinalizationError(
         error instanceof Error
           ? error.message
-          : "We could not protect your setup. Try again.",
+          : "Couldn't save your setup. Try again.",
       );
       throw error;
     } finally {
@@ -340,15 +340,20 @@ export function OneSetupHub() {
       if (!runtimeChoiceConfirmed) {
         return {
           status: "blocked" as const,
-          summary: "Choose AI access before continuing.",
+          summary: "Choose your AI first.",
         };
       }
 
       if (!isVaultUnlocked) {
+        // No screen in between. Finish setup opens the lock step itself; the
+        // reassurance the old invitation screen carried ("only you can open
+        // what you save") now lives on the lock step's own first screen, so
+        // nothing is lost and a whole tap disappears.
         setVaultInvitationOpen(true);
+        setVaultDialogOpen(true);
         return {
           status: "succeeded" as const,
-          summary: "Continue to set up your private vault.",
+          summary: "One step left: set a lock.",
         };
       }
       await completeSetupAfterVault();
@@ -368,13 +373,21 @@ export function OneSetupHub() {
     return handleMasterAck();
   });
 
+  // Phones get the master action as a bare header link with no supporting line
+  // under it, so the one mandatory step has to be named somewhere they can read
+  // it before they tap. The header description is the only copy both layouts
+  // share, so the blocker rides there rather than only in the desktop footer.
+  //
+  // It carries ONLY that. The segmented progress bar below already renders
+  // "done of total"; repeating the count in words was two facts competing for
+  // the one line people actually read.
   const summary = hubStateLoading
-    ? "Checking what's set up…"
+    ? "One moment…"
     : allReady
-      ? "Everything's set up. You're good to go."
-      : `${done} of ${total} ready, ${remaining} left to set up.`;
-  const showVaultInvitation =
-    vaultInvitationOpen && Boolean(user) && !isVaultUnlocked;
+      ? "Add more any time."
+      : !runtimeChoiceComplete
+        ? "Choose your AI first."
+        : `${remaining} left.`;
 
   return (
     <AppPageShell
@@ -393,22 +406,25 @@ export function OneSetupHub() {
             was absolutely positioned over the header before, so the large
             display title ran underneath it and the two overlapped. A flex row
             with a min-w-0 title column and a shrink-0 button keeps real
-            horizontal separation; the title shrinks within its column. */}
-        <div className="flex items-start gap-3">
-          <div className="min-w-0 flex-1">
+            horizontal separation; the title shrinks within its column.
+
+            The row wraps, and the title column holds a floor before it does.
+            `min-w-0` let the title shrink to nothing while a shrink-0 action
+            whose label cannot wrap took what it needed first -- at 320px with
+            200% text that left the title 60px to paint 180px of "Finish
+            setting up One", which overflowed a visible box straight through
+            the action (measured: 96px of overlap, in every hub state). The
+            floor has to be min-width, not flex-basis: `flex-1` is
+            `flex: 1 1 0%`, so a basis utility next to it is simply overwritten
+            and the row never wraps. In rem, so it grows with the text setting
+            that causes the squeeze; above that threshold nothing moves. */}
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="min-w-[8rem] flex-1">
           <PageHeader
             title={
-              showVaultInvitation
-                ? "A private place for what matters"
-                : !hubStateLoading && allReady
-                  ? "You're all set"
-                  : "Finish setting up One"
+              !hubStateLoading && allReady ? "You're all set" : "Set up One"
             }
-            description={
-              showVaultInvitation
-                ? "Your vault is required to finish setup."
-                : summary
-            }
+            description={summary}
             accent="neutral"
             className={styles.setupHeader}
           />
@@ -416,18 +432,19 @@ export function OneSetupHub() {
           {/* Mobile surfaces the master Skip/Finish action top-right in the
               header so it is always reachable and never hides behind the fixed
               "Talk to One" agent bar. Desktop keeps the in-flow footer below. */}
-          {!hubStateLoading && !showVaultInvitation ? (
+          {!hubStateLoading ? (
             <button
               type="button"
               onClick={() => void handleMasterAck()}
               disabled={dismissing || !runtimeChoiceComplete}
               title={
-                !runtimeChoiceComplete
-                  ? "Choose an AI access option before continuing."
-                  : undefined
+                !runtimeChoiceComplete ? "Choose your AI first." : undefined
               }
               data-testid="one-setup-master-ack-mobile"
-              className="mt-1 shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:opacity-40 sm:hidden"
+              // Same rule as the desktop footer: the accent is reserved for a
+              // tap that can actually finish. A faded accent still reads blue,
+              // so a blocked finish goes neutral rather than dimmed.
+              className="mt-1 shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:text-muted-foreground disabled:opacity-100 sm:hidden"
             >
               {masterActionLabel}
             </button>
@@ -436,44 +453,7 @@ export function OneSetupHub() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        {showVaultInvitation ? (
-          <section
-            className="motion-step-enter mx-auto flex min-h-[18rem] w-full max-w-[30rem] flex-col items-center justify-center text-center"
-            aria-labelledby="one-setup-vault-invitation-title"
-            data-testid="one-setup-vault-invitation"
-          >
-            <div
-              className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--app-accent-tint)] text-[var(--app-accent-deep)]"
-              aria-hidden="true"
-            >
-              <LockKeyhole className="h-6 w-6" />
-            </div>
-            <h2
-              id="one-setup-vault-invitation-title"
-              className="mt-5 text-balance type-title2 text-foreground"
-            >
-              One last step: protect what you save.
-            </h2>
-            <p className="mt-3 max-w-[28rem] text-pretty type-subhead text-muted-foreground">
-              Your private vault gives One end-to-end encryption. Only you hold
-              the key.
-            </p>
-            <div className="mt-8 flex w-full max-w-[24rem] flex-col gap-3">
-              <Button
-                type="button"
-                variant="blue-gradient"
-                effect="fill"
-                size="lg"
-                fullWidth
-                className="min-h-14 justify-center text-center"
-                onClick={() => setVaultDialogOpen(true)}
-                data-testid="one-setup-vault-invitation-open"
-              >
-                Set up private vault
-              </Button>
-            </div>
-          </section>
-        ) : hubStateLoading ? (
+        {hubStateLoading ? (
           <SetupHubLoadingState />
         ) : (
           <>
@@ -503,13 +483,18 @@ export function OneSetupHub() {
                 {!runtimeChoiceComplete ? (
                   <SetupNavigationTile
                     id="connections"
-                    title="AI access"
-                    description="Choose Hussh managed Gemini or your own Gemini access."
+                    title="Choose your AI"
+                    description="Use ours, or bring your own."
                     href={ROUTES.ONE_SETUP_CONNECTIONS}
                     voiceControlId="one_setup_tile_connections"
                     icon={lucideCapabilityIcon(PlugZap)}
                     tone="connected"
                     statusLabel="Required"
+                    // The one row that blocks the exit. A muted grey "Required"
+                    // reads like every other trailing label, so it gets the
+                    // accent pill and the current-step role instead.
+                    statusTone="required"
+                    isCurrent
                   />
                 ) : null}
                 {remainingItems.map((item) => (
@@ -539,8 +524,8 @@ export function OneSetupHub() {
                   {runtimeChoiceComplete ? (
                     <SetupNavigationTile
                       id="connections"
-                      title="AI access"
-                      description="Change how One reaches Gemini."
+                      title="Choose your AI"
+                      description="Change this any time."
                       href={ROUTES.ONE_SETUP_CONNECTIONS}
                       voiceControlId="one_setup_tile_connections"
                       icon={lucideCapabilityIcon(PlugZap)}
@@ -586,8 +571,8 @@ export function OneSetupHub() {
                 }
                 supportingText={
                   !runtimeChoiceComplete
-                    ? "Choose an AI access option before continuing."
-                    : "Your vault is required. You can add more capabilities any time."
+                    ? "Choose your AI first."
+                    : "Add the rest any time."
                 }
                 variant="blue-gradient"
                 effect="fill"
@@ -619,8 +604,8 @@ export function OneSetupHub() {
           onOpenChange={setVaultDialogOpen}
           dismissible={false}
           enableGeneratedDefault
-          title="Set up your private vault"
-          description="Create a private place for the details you choose to save."
+          title="Set a lock"
+          description="Only you can open what you save. Not even we can read it."
           onSuccess={() => undefined}
         />
       ) : null}
@@ -636,7 +621,7 @@ function SetupHubLoadingState() {
       aria-busy="true"
       aria-label="Checking setup progress"
     >
-      Checking your setup choices…
+      Checking your setup…
     </div>
   );
 }

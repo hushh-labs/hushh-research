@@ -366,6 +366,16 @@ vi.mock("@/lib/one-location/saved-locations", () => ({
   DuplicateSavedLocationError: class extends Error {},
   addSavedLocation: mockAddSavedLocation,
   loadSavedLocations: mockLoadSavedLocations,
+  // Real behaviour, not a stub: the save sheet opens on whatever this returns,
+  // and a stub would hide a label being pre-selected over a saved place.
+  defaultSavedLocationCategory: (
+    existing: ReadonlyArray<{ category: string }> = [],
+  ) => {
+    const taken = new Set(existing.map((location) => location.category));
+    if (!taken.has("home")) return "home";
+    if (!taken.has("work")) return "work";
+    return "other";
+  },
 }));
 
 vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({
@@ -611,7 +621,7 @@ async function openLocationFeatureStep() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
   expect(
     await screen.findByRole("heading", {
-      name: "Stay connected",
+      name: "Need to keep people updated?",
     }),
   ).toBeTruthy();
 }
@@ -779,7 +789,7 @@ async function openLocationPermissionsStep() {
 }
 
 async function switchLocationTab(
-  name: "Now" | "People" | "Links",
+  name: "Menu" | "People" | "Links",
   expectedHeading: string,
 ) {
   fireEvent.click(screen.getByRole("button", { name }));
@@ -818,7 +828,7 @@ async function openShareConfirmStep() {
 async function openAskFlow() {
   fireEvent.click(screen.getByRole("button", { name: /Request location/i }));
   expect(
-    await screen.findByRole("heading", { name: "Ask clearly" }),
+    await screen.findByRole("heading", { name: "Request location" }),
   ).toBeTruthy();
 }
 
@@ -869,6 +879,13 @@ describe("OneLocationAgentPage", () => {
     // snapshot cannot leak into the next test's initial render.
     const { CacheService } = await import("@/lib/services/cache-service");
     CacheService.getInstance().clear();
+    // Clearing the cache does not clear the resource's in-flight map. A test
+    // that leaves a request pending would otherwise hand its dead promise to
+    // the next test, which then never calls getState at all.
+    const { OneLocationStateResource } = await import(
+      "@/lib/one-location/one-location-state-resource"
+    );
+    OneLocationStateResource.invalidate("user_a");
     const { forgetOneLocationControlPreference } =
       await import("@/lib/one-location/location-control-state");
     forgetOneLocationControlPreference("user_a");
@@ -1145,6 +1162,84 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("keeps every counted Now-hub row neutral while its count is zero", async () => {
+    // State beats category. Colour on these three rows means "there is
+    // something here", never "this row exists" — an empty Location screen
+    // reporting 0, 0, 0 in three saturated tiles spends colour on nothing and
+    // leaves none for the rows that do carry state.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [],
+      requests: [],
+    });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    const toneOf = async (title: string) => {
+      const row = (await screen.findByText(title)).closest(
+        '[data-slot="settings-row"], button, a, div[role="button"]',
+      );
+      return row
+        ?.querySelector('[data-slot="settings-row-icon"]')
+        ?.getAttribute("data-icon-tone");
+    };
+
+    expect(await toneOf("Active shares")).toBe("gray");
+    expect(await toneOf("Shared with me")).toBe("gray");
+    expect(await toneOf("Needs my review")).toBe("gray");
+  });
+
+  it("colours each counted Now-hub row by its own state once it is non-zero", async () => {
+    // Green = sharing is live (same family as the header switch and Check-In),
+    // indigo = other people, orange = something is waiting on you. Each row
+    // reads its OWN count, so one being populated must not colour the others.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      receivedGrants: [
+        {
+          id: "grant_in",
+          ownerUserId: "user_b",
+          recipientUserId: "user_a",
+          ownerDisplayName: "Trusted B",
+          recipientKeyId: "key_a",
+          status: "active",
+          consentScope: "cap.location.live.view",
+          capabilityScopes: ["cap.location.live.view"],
+          durationHours: 1,
+          expiresAt: "2099-05-20T08:00:00.000Z",
+        },
+      ],
+      requests: [
+        {
+          id: "request_1",
+          ownerUserId: "user_a",
+          requesterUserId: "user_b",
+          status: "pending",
+          requestedAt: "2026-05-20T07:30:00.000Z",
+        },
+      ],
+    });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    const toneOf = async (title: string) => {
+      const row = (await screen.findByText(title)).closest(
+        '[data-slot="settings-row"], button, a, div[role="button"]',
+      );
+      return row
+        ?.querySelector('[data-slot="settings-row-icon"]')
+        ?.getAttribute("data-icon-tone");
+    };
+
+    // locationState() already carries one active ownerGrant.
+    expect(await toneOf("Active shares")).toBe("green");
+    expect(await toneOf("Shared with me")).toBe("indigo");
+    expect(await toneOf("Needs my review")).toBe("orange");
+  });
+
   it("keeps the heading and location toggle inline as the only header action", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
@@ -1155,7 +1250,7 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     const headerActions = screen.getByRole("group", {
-      name: "Location preview control",
+      name: "Location",
     });
     expect(headerActions.className).toContain("ml-auto");
     expect(headerActions.className).toContain("justify-end");
@@ -1177,8 +1272,27 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("switch", { name: "Turn location on" }),
     ).toHaveAttribute("data-size", "ios");
-    expect(screen.getByText("Location off").className).toContain("sm:inline");
-    expect(screen.getByText("Location off").className).toContain(
+    // The status text is the ONLY thing on this screen that says what the
+    // switch is for, so it has to render at every width. It used to be
+    // `hidden … sm:inline` + aria-hidden, i.e. present on a desktop browser and
+    // absent from every iPhone and from VoiceOver — which is exactly what QA
+    // hit ("location toggle kis liye hai? iOS pe how user gonna find that?").
+    const locationStatus = screen.getByTestId("one-location-header-status");
+    expect(locationStatus.className).not.toContain("hidden");
+    // Two forms of the same state, one per breakpoint, and NEITHER is hidden at
+    // every width the way the old single `hidden … sm:inline` span was. Phones
+    // get the one-word form because the 28px title has no width to spare there
+    // (the full string measured two title lines at 320/360/375/390); from `sm`
+    // up the full string renders inline exactly as it does today.
+    const compact = locationStatus.querySelector(".sm\\:hidden");
+    const full = locationStatus.querySelector(".hidden.sm\\:inline");
+    expect(compact?.textContent).toBe("Off");
+    expect(full?.textContent).toBe("Location off");
+    expect(locationStatus).not.toHaveAttribute("aria-hidden");
+    expect(
+      screen.getByRole("switch", { name: "Turn location on" }),
+    ).toHaveAttribute("aria-describedby", locationStatus.id);
+    expect(locationStatus.className).toContain(
       "text-[color:var(--app-secondary-label)]",
     );
     expect(headerActions.innerHTML).not.toContain("--app-neutral-fill");
@@ -1482,7 +1596,7 @@ describe("OneLocationAgentPage", () => {
     await openSharePersonStep();
 
     expect(screen.queryByText("Ready for private sharing")).toBeNull();
-    expect(screen.getByText("Invite first to enable sharing")).toBeTruthy();
+    expect(screen.getByText("Invite them first")).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -1512,20 +1626,24 @@ describe("OneLocationAgentPage", () => {
     });
     expect(within(people).getByText("Trusted B")).toBeTruthy();
 
-    const duration = screen.getByRole("combobox", { name: "Duration" });
-    expect(duration.textContent).toContain("30 min");
-    fireEvent.click(duration);
-    const options = await screen.findAllByRole("option");
-    expect(options.map((option) => option.textContent)).toEqual([
-      "30 min",
-      "1 hour",
-      "4 hours",
-      "24 hours",
-    ]);
-    fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
-    expect(duration.textContent).toContain("4 hours");
+    // The quick-pick dropdown is gone -- duration is a scroll wheel now, so
+    // the default is read off its Hours/Minutes spinbuttons directly.
+    const durationHoursWheel = screen.getByRole("spinbutton", {
+      name: "Hours",
+    });
+    const durationMinutesWheel = screen.getByRole("spinbutton", {
+      name: "Minutes",
+    });
+    expect(durationHoursWheel).toHaveAttribute("aria-valuetext", "0 hr");
+    expect(durationMinutesWheel).toHaveAttribute("aria-valuetext", "15 min");
+    // One step on the Hours wheel (0 -> 1hr). Minutes has no exact "on the
+    // hour" mark -- the grid floors at 15 minutes -- so this lands on
+    // 1h15m, not a clean 1h, per DurationWheelPicker's own rounding
+    // contract (see duration-wheel-picker.tsx's `nearestGridMinutes`).
+    fireEvent.keyDown(durationHoursWheel, { key: "ArrowDown" });
+    expect(durationHoursWheel).toHaveAttribute("aria-valuetext", "1 hr");
     // The duration reads back as a clock time on the same screen that set it.
-    expect(screen.getByText(/^Access ends around /)).toBeTruthy();
+    expect(screen.getByText(/^Sharing ends at /)).toBeTruthy();
 
     const note = screen.getByRole("textbox", { name: "Optional note" });
     const startButton = screen.getByRole("button", { name: "Start sharing" });
@@ -1534,16 +1652,16 @@ describe("OneLocationAgentPage", () => {
     fireEvent.change(note, { target: { value: "a".repeat(140) } });
     expect(screen.getByText("140/140")).toBeTruthy();
     expect(startButton).toBeEnabled();
-    expect(screen.queryByText("character limit exceed")).toBeNull();
+    expect(screen.queryByText("Note is too long")).toBeNull();
 
     fireEvent.change(note, { target: { value: "a".repeat(141) } });
     expect(screen.getByText("141/140")).toBeTruthy();
-    expect(screen.getByText("character limit exceed")).toBeTruthy();
+    expect(screen.getByText("Note is too long")).toBeTruthy();
     expect(startButton).toBeDisabled();
 
     fireEvent.change(note, { target: { value: "On my way" } });
     expect(screen.getByText("9/140")).toBeTruthy();
-    expect(screen.queryByText("character limit exceed")).toBeNull();
+    expect(screen.queryByText("Note is too long")).toBeNull();
     expect(startButton).toBeEnabled();
 
     expect(
@@ -1554,7 +1672,8 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
     expect(mockCreateGrant).toHaveBeenCalledWith(
       expect.objectContaining({
-        durationHours: 4,
+        durationHours: 1.25,
+        durationMode: "timed",
         reason: "On my way",
         shareKind: "share",
       }),
@@ -1647,8 +1766,11 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Ready to share?" }),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("combobox", { name: "Duration" }));
-    fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
+    // Move the duration wheel off its default so the reset below has
+    // something to actually reset.
+    fireEvent.keyDown(screen.getByRole("spinbutton", { name: "Hours" }), {
+      key: "ArrowDown",
+    });
     fireEvent.change(screen.getByRole("textbox", { name: "Optional note" }), {
       target: { value: "Meet me by the entrance" },
     });
@@ -1686,7 +1808,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByPlaceholderText("Search trusted people"),
     ).toHaveValue("Investor");
-    fireEvent.click(screen.getByRole("button", { name: "Now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Menu" }));
     fireEvent.click(screen.getByRole("button", { name: /^Share location$/i }));
     expect(
       await screen.findByRole("heading", { name: "Who can see you?" }),
@@ -1731,8 +1853,11 @@ describe("OneLocationAgentPage", () => {
       screen.queryByRole("radio", { name: /Approximate area/i }),
     ).toBeNull();
     expect(
-      screen.getByRole("combobox", { name: "Duration" }).textContent,
-    ).toContain("30 min");
+      screen.getByRole("spinbutton", { name: "Hours" }),
+    ).toHaveAttribute("aria-valuetext", "0 hr");
+    expect(
+      screen.getByRole("spinbutton", { name: "Minutes" }),
+    ).toHaveAttribute("aria-valuetext", "15 min");
     expect(screen.getByRole("textbox", { name: "Optional note" })).toHaveValue(
       "",
     );
@@ -2188,7 +2313,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockReverseGeocode).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -2278,7 +2403,7 @@ describe("OneLocationAgentPage", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Second user's home" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -2458,7 +2583,7 @@ describe("OneLocationAgentPage", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -2656,13 +2781,13 @@ describe("OneLocationAgentPage", () => {
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Tower 2, Floor 4" },
     });
     fireEvent.change(screen.getByLabelText(/Building colour/), {
       target: { value: "White gate" },
     });
-    fireEvent.change(screen.getByLabelText(/Nearby landmark/), {
+    fireEvent.change(screen.getByLabelText(/Landmark/), {
       target: { value: "India Gate" },
     });
 
@@ -2709,7 +2834,7 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
-          name: "Stay connected",
+          name: "Need to keep people updated?",
         }),
       ).toBeNull();
       expect(
@@ -2738,7 +2863,7 @@ describe("OneLocationAgentPage", () => {
     );
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Menu" }));
     expect(screen.getByRole("button", { name: /Active shares/i })).toBeTruthy();
     await openSharePersonStep();
     fireEvent.change(screen.getByPlaceholderText("Search trusted people"), {
@@ -2747,7 +2872,7 @@ describe("OneLocationAgentPage", () => {
 
     expect(screen.getAllByText("Advisor C").length).toBeGreaterThan(0);
     expect(
-      screen.getAllByText("Invite first to enable sharing").length,
+      screen.getAllByText("Invite them first").length,
     ).toBeGreaterThan(0);
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
   });
@@ -3134,12 +3259,11 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     await waitFor(() => expect(mockViewEnvelope).toHaveBeenCalled());
     expect(
-      await screen.findByText(
-        "Location update may be stale. Ask them to refresh sharing.",
-      ),
+      await screen.findByText("Location may be stale."),
     ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ask to refresh" })).toBeTruthy();
 
-    expect(screen.getByText("Access active")).toBeTruthy();
+    expect(screen.getByText("Active")).toBeTruthy();
     expect(screen.getByText(/^Access until /)).toBeTruthy();
     expect(screen.queryByText(/^Live$/)).toBeNull();
     expect(screen.queryByText(/^Live until /)).toBeNull();
@@ -3186,7 +3310,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(collapseButton);
 
     expect(screen.queryByTitle("Live location map preview")).toBeNull();
-    expect(screen.getByText("Trusted A is sharing with you")).toBeTruthy();
+    expect(screen.getByText("Trusted A")).toBeTruthy();
     expect(screen.getByRole("button", { name: "View location" })).toBeTruthy();
     const expandButton = screen.getByRole("button", {
       name: "Expand shared location from Trusted A",
@@ -3295,9 +3419,11 @@ describe("OneLocationAgentPage", () => {
       vaultOwnerToken: "vault-token",
       recipientUserId: "user_b",
       recipientKeyId: "key_b",
-      durationHours: 0.5,
+      durationHours: 0.25,
+      durationMode: "timed",
       reason: undefined,
       shareKind: "share",
+      sourceCircleId: undefined,
     });
     expect(mockCaptureCurrentPosition).toHaveBeenCalled();
     expect(mockEncryptLocationForRecipient).toHaveBeenCalledWith(
@@ -3324,7 +3450,7 @@ describe("OneLocationAgentPage", () => {
         route_id: "one_location",
         result: "success",
         selected_count: 1,
-        duration_bucket: "30m",
+        duration_bucket: "15m",
       }),
       expect.any(Object),
     );
@@ -3532,7 +3658,7 @@ describe("OneLocationAgentPage", () => {
     ).toEqual(["user_b", "user_d"]);
     expect(
       mockCreateGrant.mock.calls.map(([payload]) => payload.durationHours),
-    ).toEqual([0.5, 0.5]);
+    ).toEqual([0.25, 0.25]);
     expect(
       mockEncryptLocationForRecipient.mock.calls.map(
         ([payload]) => payload.recipientKeyId,
@@ -3576,7 +3702,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openSharePersonStep();
     expect(screen.getByText("Advisor C")).toBeTruthy();
-    expect(screen.getByText("Invite first to enable sharing")).toBeTruthy();
+    expect(screen.getByText("Invite them first")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /Select Advisor C/i }),
     ).toBeNull();
@@ -3634,6 +3760,163 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  // Reported from the field: "can't send req to rest after 1 cycle". Asking
+  // three people left the Send button latched to a disabled green "Sent", so the
+  // rest of the list could be ticked but never actually asked -- the only way
+  // out was to leave the screen and come back.
+  it("lets you ask more people after a request has already been sent", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Trusted B for location request/i,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
+    await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Request sent."),
+    );
+
+    // Sending clears the composer, so with nobody chosen there is nothing to
+    // send -- but the button must be a live control, not a spent one.
+    const sendButton = screen.getByRole("button", { name: /Send request/i });
+    expect(sendButton.hasAttribute("disabled")).toBe(true);
+
+    // Choosing the next person re-arms Send and retires the previous
+    // confirmation, which described a request that is no longer on screen.
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Advisor C for location request/i,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: /Send request/i })
+          .hasAttribute("disabled"),
+      ).toBe(false),
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
+    await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(2));
+    expect(mockRequestAccess).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ownerUserId: "user_c" }),
+    );
+  });
+
+  // Sending takes several round trips. Anyone tapped while they were in flight
+  // used to be erased by the blanket composer reset that ran when the send
+  // landed -- the pick just disappeared, with no request and no error.
+  it("keeps a person picked while the send is still in flight", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    let releaseFirstRequest: (() => void) | null = null;
+    mockRequestAccess.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseFirstRequest = () => resolve();
+        }),
+    );
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Trusted B for location request/i,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
+    await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
+
+    // Mid-flight, the user lines up the next person.
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Advisor C for location request/i,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: /Deselect Advisor C for location request/i,
+        }),
+      ).toBeTruthy(),
+    );
+
+    await act(async () => {
+      releaseFirstRequest?.();
+      await Promise.resolve();
+    });
+
+    // Trusted B was asked and is gone from the composer; Advisor C survives and
+    // can still be sent, with no confirmation claiming their request went out.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: /Deselect Advisor C for location request/i,
+        }),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.getByRole("button", { name: /Send request/i }).hasAttribute("disabled"),
+    ).toBe(false);
+    expect(screen.queryByRole("status")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
+    await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(2));
+    expect(mockRequestAccess).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ownerUserId: "user_c" }),
+    );
+  });
+
+  // The confirmation used to latch the instant the button was tapped, so a send
+  // that failed still reported "Request sent."
+  it("does not claim a request was sent when the send fails", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+    mockRequestAccess.mockRejectedValueOnce(new Error("network down"));
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Trusted B for location request/i,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
+
+    await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
+    // No confirmation, and the composer stays usable so the ask can be retried.
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: /Send request/i })
+          .hasAttribute("disabled"),
+      ).toBe(false),
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("renders my requests with safe labels instead of raw owner ids", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
@@ -3686,10 +3969,12 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Requests sent" }),
     ).toBeTruthy();
-    // A live request shows a real Delete action, not a static "Active" label
-    // with no way off the list.
+    // A live request shows a real stop action, not a static "Active" label
+    // with no way off the list. The label is "Stop", not "Delete": it is the
+    // same vm.onStopGrant handler the other two revoke buttons use, and it ends
+    // access rather than erasing anything.
     expect(screen.queryByText("Active")).toBeNull();
-    const deleteButton = screen.getByRole("button", { name: "Delete" });
+    const deleteButton = screen.getByRole("button", { name: "Stop" });
     fireEvent.click(deleteButton);
     await waitFor(() =>
       expect(mockRevokeGrant).toHaveBeenCalledWith({
@@ -3819,24 +4104,90 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  /**
+   * A live received share, expiring `minutes` from the real clock so the
+   * inline duration editor is judged against a time that is actually left --
+   * which is the whole question it has to answer.
+   */
+  function liveReceivedGrant(minutes: number) {
+    return {
+      id: "grant_live_ask",
+      ownerUserId: "user_b",
+      recipientUserId: "user_a",
+      ownerDisplayName: "Trusted B",
+      recipientKeyId: "key_a",
+      status: "active",
+      consentScope: "cap.location.live.view",
+      capabilityScopes: ["cap.location.live.view"],
+      durationHours: minutes / 60,
+      expiresAt: new Date(Date.now() + minutes * 60_000).toISOString(),
+    };
+  }
+
   it("edits an already-live person's duration from the Ask flow's own list", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
-      receivedGrants: [
-        {
-          id: "grant_live_ask",
-          ownerUserId: "user_b",
-          recipientUserId: "user_a",
-          ownerDisplayName: "Trusted B",
-          recipientKeyId: "key_a",
-          status: "active",
-          consentScope: "cap.location.live.view",
-          capabilityScopes: ["cap.location.live.view"],
-          durationHours: 1,
-          expiresAt: "2099-05-20T08:00:00.000Z",
-        },
-      ],
+      receivedGrants: [liveReceivedGrant(4 * 60)],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit access for Trusted B" }),
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "New duration" }));
+    fireEvent.click(screen.getByRole("option", { name: "30 min" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(mockShortenGrant).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        grantId: "grant_live_ask",
+        durationHours: 0.5,
+      }),
+    );
+    // Shortening is the recipient's own call to make -- nobody is asked.
+    expect(mockRequestAccess).not.toHaveBeenCalled();
+  });
+
+  it("opens the duration editor on what the share actually has left", async () => {
+    // It opened on "1 hour" every time, one line under "Sharing with you,
+    // 4 more hours". So the field was never the current duration, and Save on
+    // the untouched default asked for MORE time instead of changing anything.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [liveReceivedGrant(4 * 60)],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit access for Trusted B" }),
+    );
+
+    expect(
+      screen.getByRole("combobox", { name: "New duration" }).textContent,
+    ).toContain("4 hours");
+  });
+
+  it("does nothing at all when Save is pressed on an untouched duration", async () => {
+    // A one-hour share a minute old reads "59 more min" and the picker opens
+    // on "1 hour", because that is what it is. Pressing Save there is not a
+    // request for one more minute of somebody's location: it used to spend a
+    // refused shorten, then ask the owner, then report "Asked Trusted B for
+    // more time" over a row whose time never moved.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [liveReceivedGrant(59)],
     });
 
     render(<OneLocationAgentPage />);
@@ -3849,13 +4200,151 @@ describe("OneLocationAgentPage", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
+    // The editor closes, and no call goes anywhere.
     await waitFor(() =>
-      expect(mockShortenGrant).toHaveBeenCalledWith({
+      expect(screen.queryByRole("button", { name: "Save" })).toBeNull(),
+    );
+    expect(mockShortenGrant).not.toHaveBeenCalled();
+    expect(mockRequestAccess).not.toHaveBeenCalled();
+  });
+
+  it("asks the owner for more time without first spending a refused shorten", async () => {
+    // Every ask-for-more-time used to call shorten_grant, wait for the 422,
+    // and only then send the request the user was always going to need. Two
+    // round trips to change nothing on screen is the "Save is slow" report;
+    // the expiry needed to skip the first one is already rendered as
+    // "12 more min" one line above the picker.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [liveReceivedGrant(12)],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit access for Trusted B" }),
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "New duration" }));
+    fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(mockRequestAccess).toHaveBeenCalledWith({
         vaultOwnerToken: "vault-token",
-        grantId: "grant_live_ask",
-        durationHours: 1,
+        ownerUserId: "user_b",
+        message: "Requesting more time.",
       }),
     );
+    expect(mockShortenGrant).not.toHaveBeenCalled();
+  });
+
+  it("says what to do when shortening fails, and lets the row be tried again", async () => {
+    // A toast that only names the failure ("Could not update access.") leaves
+    // the person with no idea whether to wait, retry, or go elsewhere.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [liveReceivedGrant(4 * 60)],
+    });
+    // Not an Error instance, so no backend-curated message exists to prefer.
+    mockShortenGrant.mockRejectedValueOnce({ code: "BOOM" });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit access for Trusted B" }),
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "New duration" }));
+    fireEvent.click(screen.getByRole("option", { name: "30 min" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "Couldn't change the time. Try again.",
+      ),
+    );
+    // A failed save is not a reason to strand the row: the editor stays open
+    // on what was picked, and Save is pressable again.
+    const retry = await screen.findByRole("button", { name: "Save" });
+    expect(retry.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("says what to do when asking the owner for more time fails", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [liveReceivedGrant(12)],
+    });
+    mockRequestAccess.mockRejectedValueOnce({ code: "BOOM" });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit access for Trusted B" }),
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "New duration" }));
+    fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "Couldn't ask Trusted B for more time. Try again.",
+      ),
+    );
+    const retry = await screen.findByRole("button", { name: "Save" });
+    expect(retry.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("leaves the row usable after a duration save, instead of stuck busy", async () => {
+    // The save flag was the revoke flag, and the shorten path returned
+    // without clearing it. So one successful save disabled that person's
+    // Remove button for good, and the next Edit opened with Save already
+    // spinning and permanently disabled -- the "save button taking more time
+    // after edit time" report.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [liveReceivedGrant(4 * 60)],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit access for Trusted B" }),
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "New duration" }));
+    fireEvent.click(screen.getByRole("option", { name: "30 min" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mockShortenGrant).toHaveBeenCalled());
+
+    // Remove never belonged to the save in the first place.
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Remove Trusted B's access" })
+          .hasAttribute("disabled"),
+      ).toBe(false),
+    );
+
+    // And the same person can be edited again straight away.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit access for Trusted B" }),
+    );
+    const saveAgain = await screen.findByRole("button", { name: "Save" });
+    expect(saveAgain.hasAttribute("disabled")).toBe(false);
   });
 
   it("fans out approval-first requests to multiple selected owners without coordinates", async () => {
@@ -3940,13 +4429,13 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    // The populated People tab exposes a compact "Sync contacts" circle action.
+    // The populated People tab exposes a compact "Find contacts" circle action.
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(
       await screen.findByRole("button", { name: /Add people/i }),
     ).toBeTruthy();
     fireEvent.click(
-      await screen.findByRole("button", { name: /Sync contacts/i }),
+      await screen.findByRole("button", { name: /Find contacts/i }),
     );
 
     await waitFor(() =>
@@ -4043,7 +4532,7 @@ describe("OneLocationAgentPage", () => {
     // reads as the default rather than one of four equal choices.
     const addPeople = screen.getByRole("button", { name: /Add people/i });
     const syncContacts = screen.getByRole("button", {
-      name: /Sync contacts/i,
+      name: /Find contacts/i,
     });
     expect(addPeople).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Invite$/i })).toBeTruthy();
@@ -4085,7 +4574,7 @@ describe("OneLocationAgentPage", () => {
       const addPeople = screen.getByRole("button", { name: /Add people/i });
       const search = await screen.findByPlaceholderText("Search trusted people");
       const syncContacts = screen.getByRole("button", {
-        name: /Sync contacts/i,
+        name: /Find contacts/i,
       });
       const invite = screen.getByRole("button", { name: /^Invite$/i });
 
@@ -4236,7 +4725,7 @@ describe("OneLocationAgentPage", () => {
     // approval explainer must not add another card below these actions.
     expect(screen.getByRole("button", { name: /Add people/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Invite$/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Sync contacts/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Find contacts/i })).toBeTruthy();
     // "Share to contacts" is deliberately absent: it minted a PUBLIC link,
     // which is the Links tab's job, not a control belonging beside named
     // trusted people.
@@ -4310,5 +4799,138 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByTestId("one-location-onboarding-contacts"),
     ).toBeNull();
+  });
+
+  /* ------------------------------------------------------------------ *
+   * Live share continuity
+   *
+   * Choosing "1 hour" is a promise, and the screen has to keep showing it
+   * being kept. Before this, the Now screen reported "Active shares: 1" and
+   * nothing else — and for the first second or two after re-entering the
+   * route, with the memory-only state snapshot expired, it reported 0.
+   * ------------------------------------------------------------------ */
+
+  /** Fixture grant `grant_1` ends at 08:00, so this leaves exactly 30 minutes. */
+  const DURING_A_LIVE_SHARE = "2026-05-20T07:30:00.000Z";
+
+  function countdownSeconds(): number {
+    const text =
+      screen.getByTestId("one-location-live-share-countdown").textContent ?? "";
+    const [minutes = "0", seconds = "0"] = text.split(":");
+    return Number(minutes) * 60 + Number(seconds);
+  }
+
+  it("keeps a running share on screen with a countdown that moves", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+      const card = await screen.findByTestId("one-location-live-share");
+      expect(within(card).getByText("Sharing with Trusted B")).toBeTruthy();
+
+      const first = countdownSeconds();
+      expect(first).toBeGreaterThan(29 * 60);
+      expect(first).toBeLessThanOrEqual(30 * 60);
+
+      await act(async () => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(countdownSeconds()).toBeLessThanOrEqual(first - 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("remembers the running share on the device, and only ids and times", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+      await waitFor(() => {
+        const raw = window.localStorage.getItem(
+          "one_location_live_share_v1:user_a",
+        );
+        expect(raw).toBeTruthy();
+        expect(JSON.parse(raw ?? "[]")).toEqual([
+          {
+            grantId: "grant_1",
+            startedAt: expect.any(String),
+            expiresAt: "2026-05-20T08:00:00.000Z",
+          },
+        ]);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the running share on re-entry before the network answers", async () => {
+    // The regression this fixes: the state snapshot is memory-only and expires
+    // after a minute, so coming back to Location a few minutes later rendered a
+    // screen that believed nothing was live until getState resolved.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    try {
+      window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+      window.localStorage.setItem(
+        "one_location_live_share_v1:user_a",
+        JSON.stringify([
+          {
+            grantId: "grant_1",
+            startedAt: "2026-05-20T07:00:00.000Z",
+            expiresAt: "2026-05-20T08:00:00.000Z",
+          },
+        ]),
+      );
+      mockGetState.mockImplementation(() => new Promise(() => {}));
+
+      render(<OneLocationAgentPage />);
+
+      const card = await screen.findByTestId("one-location-live-share");
+      // No server state means no names — the count still has to be true.
+      expect(within(card).getByText("Sharing with 1 person")).toBeTruthy();
+      expect(countdownSeconds()).toBeGreaterThan(29 * 60);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not resurrect a share the server has already stopped", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    try {
+      window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+      window.localStorage.setItem(
+        "one_location_live_share_v1:user_a",
+        JSON.stringify([
+          {
+            grantId: "grant_1",
+            startedAt: "2026-05-20T07:00:00.000Z",
+            expiresAt: "2026-05-20T08:00:00.000Z",
+          },
+        ]),
+      );
+      mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+
+      render(<OneLocationAgentPage />);
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+      await waitFor(() =>
+        expect(screen.queryByTestId("one-location-live-share")).toBeNull(),
+      );
+      await waitFor(() =>
+        expect(
+          window.localStorage.getItem("one_location_live_share_v1:user_a"),
+        ).toBeNull(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

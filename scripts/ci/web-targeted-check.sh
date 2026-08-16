@@ -64,6 +64,26 @@ if has_match '^(hushh-webapp/(ios/|android/|capacitor\.config|scripts/native/|pu
   ran=1
 fi
 
+# Connect People search is an alphabetical index, not a filtered page (fixed in
+# 2afe801be). The behaviour lives in two halves that can disagree: the server
+# matches, ranks and orders ahead of LIMIT, and the client renders that page
+# unchanged. Re-introducing a client-side filter or sort on top of a paged
+# server result IS the original bug, and it is one merge-conflict resolution
+# away at all times -- branches cut before the fix still carry the old
+# `sortedPeople` filter verbatim, and a merge that resolves the wrong way puts
+# it straight back with nothing to notice.
+#
+# These tests already existed and already named the behaviour. They simply
+# never ran on a pull request: ci.yml has no vitest lane, so the full suite
+# only executes in the merge queue -- which every review-bypass user skips.
+# That asymmetry is why a red contract test sat unnoticed on main for a day.
+# Run them wherever the behaviour can be touched, including from the backend
+# half, because the client contract is "render the page you were handed".
+if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
+  run_check "Connect people search" npm run verify:connect-search
+  ran=1
+fi
+
 if [ "$ran" -eq 0 ]; then
   echo "No focused web contract pack matched the changed files."
 fi

@@ -12,6 +12,9 @@ import hushh_mcp.services.one_location_agent_service as one_location_agent_modul
 import hushh_mcp.services.one_location_agent_service as one_location_service_module
 from hushh_mcp.operons.location.policy import normalize_duration_hours
 from hushh_mcp.services.one_location_agent_service import (
+    _DIRECTORY_SEPARATOR_FOLD,
+    _DIRECTORY_SEPARATOR_SQL,
+    _DIRECTORY_SEPARATORS,
     OneLocationAgentError,
     OneLocationAgentService,
     _contains_plaintext_location_key,
@@ -208,6 +211,7 @@ class AtomicPrivateShareProbe(OneLocationAgentService):
                     if self.expired_replay
                     else values["expires_at"]
                 ),
+                "duration_mode": values.get("duration_mode", "timed"),
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
@@ -1025,7 +1029,12 @@ class FourUserMemoryService(OneLocationAgentService):
                     "request_id": None,
                     "referral_id": None,
                     "event_type": "location_share_created",
-                    "metadata_json": json.dumps({"duration_hours": grant_params["duration_hours"]}),
+                    "metadata_json": json.dumps(
+                        {
+                            "duration_hours": grant_params["duration_hours"],
+                            "duration_mode": grant_params.get("duration_mode", "timed"),
+                        }
+                    ),
                 },
             )
         return row
@@ -1819,6 +1828,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 "capability_scopes": params["capability_scopes"],
                 "duration_hours": params["duration_hours"],
                 "expires_at": params["expires_at"],
+                "duration_mode": params.get("duration_mode", "timed"),
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
@@ -1939,7 +1949,10 @@ class FourUserMemoryService(OneLocationAgentService):
                 grant
                 and grant["recipient_user_id"] == params["referring_user_id"]
                 and grant["status"] == "active"
-                and grant["expires_at"] > datetime.now(timezone.utc)
+                and (
+                    grant.get("expires_at") is None
+                    or grant["expires_at"] > datetime.now(timezone.utc)
+                )
             ):
                 return grant
             return None
@@ -2116,15 +2129,16 @@ class FourUserMemoryService(OneLocationAgentService):
                 grant["revoked_at"] = datetime.now(timezone.utc)
                 return grant
             return None
-        if "SET expires_at = :new_expires_at" in sql:
+        if "UPDATE one_location_share_grants" in sql and "expires_at = :new_expires_at" in sql:
             grant = self.grants.get(params["grant_id"])
             if (
                 grant
-                and params["owner_user_id"]
-                in {grant["owner_user_id"], grant["recipient_user_id"]}
+                and params["owner_user_id"] in {grant["owner_user_id"], grant["recipient_user_id"]}
                 and grant["status"] == "active"
             ):
                 grant["expires_at"] = params["new_expires_at"]
+                grant["duration_hours"] = params.get("duration_hours")
+                grant["duration_mode"] = "timed"
                 grant["updated_at"] = datetime.now(timezone.utc)
                 return grant
             return None
@@ -2487,6 +2501,9 @@ def test_directory_candidate_search_filters_before_pagination(
         "query": "cara",
         "name_prefix": "cara%",
         "word_prefix": "% cara%",
+        # Every caller that predates the advisor split still asks for both
+        # halves, so adding the tab changed nobody else's result set.
+        "audience": "all",
         "fetch_limit": 21,
         "offset": 40,
     }
@@ -2494,6 +2511,36 @@ def test_directory_candidate_search_filters_before_pagination(
     # screen: it selected the page under one rule while the caller narrowed it
     # under another. It must not come back.
     assert "LIKE '%' || :query || '%'" not in service.sql
+
+
+def test_directory_candidate_search_splits_advisors_inside_the_statement() -> None:
+    """The advisor/people split has to be in the query, beside the matching.
+
+    Applied after LIMIT it could only subtract from a page that was already
+    chosen wrongly -- uneven pages, and every advisor past the first one
+    unreachable. That is the same bug the prefix ranking above exists to
+    prevent, in a second guise.
+    """
+    service = RecipientDirectoryProbe()
+
+    service.search_directory_candidates(owner_user_id="owner", audience="ria")
+
+    assert service.params["audience"] == "ria"
+    assert "FROM ria_profiles rp_audience" in service.sql
+    assert "LIMIT :fetch_limit OFFSET :offset" in service.sql
+    # The gate must accept every status the RIA verification path can write, or
+    # a genuinely verified adviser is missing from the tab built for them.
+    for status in ("active", "verified", "finra_verified"):
+        assert f"'{status}'" in service.sql
+
+
+def test_directory_candidate_search_widens_on_an_unknown_audience() -> None:
+    """A typo in a caller must not silently empty the directory."""
+    service = RecipientDirectoryProbe()
+
+    service.search_directory_candidates(owner_user_id="owner", audience="advisors")
+
+    assert service.params["audience"] == "all"
 
 
 def test_directory_search_matches_prefixes_not_substrings() -> None:
@@ -2529,6 +2576,34 @@ def test_directory_search_ranks_name_prefix_above_word_prefix_then_alphabeticall
     assert ordering.strip().endswith("a.user_id")
 
 
+def test_directory_search_ranks_the_tier_before_the_alphabet() -> None:
+    """The tier CASE must be the FIRST key, not merely present in the clause.
+
+    The test above checks which fragments the ORDER BY contains. Move the
+    alphabetical key above the CASE and every one of those assertions stays
+    true -- the CASE is still there, ``ELSE 1`` is still there, the LOWER(...)
+    key is still there, ``a.user_id`` is still last -- while the two tiers stop
+    existing. "n" then comes back as one flat A-Z list with surname matches
+    shuffled in among the first names: Abdul Nasser, Nilesh, Nirmal, Nolan.
+
+    That is exactly the shape people report as "the search went alphabetical",
+    and a clause checked only for which fragments it contains cannot see it.
+    Assert the ORDER of the keys, not their presence.
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="r")
+
+    # Whitespace-folded so this is an assertion about key order, not indentation.
+    ordering = " ".join(
+        service.sql.rsplit("ORDER BY", 1)[1].rsplit("LIMIT", 1)[0].split()
+    )
+    assert ordering.startswith("CASE ")
+    assert ordering.index("END,") < ordering.index(
+        "LOWER(COALESCE(NULLIF(BTRIM(a.display_name), '')"
+    )
+    assert ordering.endswith("a.user_id")
+
+
 def test_directory_search_folds_separators_so_tiering_is_about_the_name() -> None:
     service = RecipientDirectoryProbe()
     service.search_directory_candidates(owner_user_id="owner", query="r")
@@ -2547,9 +2622,14 @@ def test_directory_search_folds_separators_so_tiering_is_about_the_name() -> Non
     ("typed", "expected_name_prefix"),
     [
         ("%", "!%%"),
-        ("_", "!_%"),
         ("!", "!!%"),
-        ("50%_off", "50!%!_off%"),
+        # "_" is a separator before it is ever a wildcard: the stored name has
+        # already had it folded to a space, so matching it literally could only
+        # return nothing. Folded and trimmed, a lone "_" carries no letters at
+        # all and reads as an unfilled box -- never as the match-anything
+        # wildcard it would be unescaped.
+        ("_", "%"),
+        ("50%_off", "50!% off%"),
     ],
 )
 def test_directory_search_escapes_like_metacharacters(
@@ -2558,11 +2638,70 @@ def test_directory_search_escapes_like_metacharacters(
     service = RecipientDirectoryProbe()
     service.search_directory_candidates(owner_user_id="owner", query=typed)
 
-    # Unescaped, a typed "%" is a wildcard that matches the entire directory
-    # and "_" matches any single character. They are characters someone typed
-    # into a name box, not query syntax.
+    # Unescaped, a typed "%" is a wildcard that matches the entire directory.
+    # It is a character someone typed into a name box, not query syntax.
     assert service.params["name_prefix"] == expected_name_prefix
     assert service.params["word_prefix"] == f"% {expected_name_prefix}"
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected_needle"),
+    [
+        ("O'Brien", "o brien"),
+        ("Jean-Luc", "jean luc"),
+        ("K.R.", "k r"),
+        ("Smith-Jones", "smith jones"),
+        ("de/la", "de la"),
+        ("Singh, Ankit", "singh  ankit"),
+    ],
+)
+def test_directory_search_folds_the_typed_name_the_same_way_as_the_stored_one(
+    typed: str, expected_needle: str
+) -> None:
+    """Typing a name the way it is spelled has to find it.
+
+    The statement folds a stored name's separators to spaces before matching,
+    so "O'Brien" is compared as "o brien". The query used to keep its
+    punctuation, so the pattern "o'brien%" was tested against "o brien" and
+    could never match -- and deleting the punctuation ("obrien") could not
+    match either. Every name with an apostrophe, a hyphen or an initial was
+    unreachable through the search box.
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query=typed)
+
+    assert service.params["query"] == expected_needle
+    assert service.params["name_prefix"] == f"{expected_needle}%"
+    assert service.params["word_prefix"] == f"% {expected_needle}%"
+
+
+def test_directory_search_folds_both_sides_with_one_separator_list() -> None:
+    """The Python fold and the SQL fold cannot drift apart.
+
+    They are two halves of one comparison. If either list of separators is
+    edited alone, names carrying the character that was added or removed stop
+    matching, and nothing else in the suite would notice.
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="n")
+
+    assert service.sql.count(_DIRECTORY_SEPARATOR_SQL) == 3
+    # The Python side folds exactly the characters the SQL side names.
+    for separator in _DIRECTORY_SEPARATORS:
+        assert f"a{separator}b".translate(_DIRECTORY_SEPARATOR_FOLD) == "a b"
+
+
+def test_directory_search_treats_a_query_of_only_separators_as_empty() -> None:
+    """A box holding "-" is a box the reader has not filled in yet.
+
+    Folded, it carries no letters at all. Matching it literally would search
+    for a name beginning with a space and return nothing, which reads as "you
+    have no connections" rather than "keep typing".
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="-.")
+
+    assert service.params["query"] == ""
 
 
 def test_directory_search_preserves_sql_order_against_recommendation_ranking() -> None:
@@ -3008,9 +3147,7 @@ def test_shorten_grant_lets_either_party_bring_expiry_earlier() -> None:
     original_expires_at = service.grants[grant["id"]]["expires_at"]
 
     with pytest.raises(OneLocationAgentError) as unrelated:
-        service.shorten_grant(
-            caller_user_id="user_c", grant_id=grant["id"], duration_hours=1
-        )
+        service.shorten_grant(caller_user_id="user_c", grant_id=grant["id"], duration_hours=1)
     assert unrelated.value.code == "LOCATION_GRANT_NOT_FOUND"
 
     # The recipient gives back time early -- self-limiting, needs no
@@ -3031,7 +3168,7 @@ def test_shorten_grant_lets_either_party_bring_expiry_earlier() -> None:
     assert service.notifications[-1]["user_id"] == "user_a"
 
     # The owner may also shorten their own exposure further.
-    service.shorten_grant(caller_user_id="user_a", grant_id=grant["id"], duration_hours=0.1)
+    service.shorten_grant(caller_user_id="user_a", grant_id=grant["id"], duration_hours=0.25)
     assert service.grants[grant["id"]]["expires_at"] < new_expires_at
 
 
@@ -3060,9 +3197,7 @@ def test_shorten_grant_rejects_any_attempt_to_extend() -> None:
     original_expires_at = service.grants[grant["id"]]["expires_at"]
 
     with pytest.raises(OneLocationAgentError) as extend_attempt:
-        service.shorten_grant(
-            caller_user_id="user_b", grant_id=grant["id"], duration_hours=24
-        )
+        service.shorten_grant(caller_user_id="user_b", grant_id=grant["id"], duration_hours=24)
     assert extend_attempt.value.code == "LOCATION_GRANT_SHORTEN_ONLY"
     assert service.grants[grant["id"]]["expires_at"] == original_expires_at
 
@@ -3168,6 +3303,63 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
     )
     assert "0100002" not in user_visible_text
     assert "0002" not in user_visible_text
+
+
+def test_until_stopped_private_grant_is_revocable_not_timeboxed() -> None:
+    service = FourUserMemoryService()
+    owner = "user_a"
+    recipient = "user_b"
+    service.register_recipient_key(
+        user_id=recipient,
+        key_id=f"key-{recipient}",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": recipient, "y": recipient},
+    )
+
+    grant = service.create_grant(
+        owner_user_id=owner,
+        recipient_user_id=recipient,
+        recipient_key_id=f"key-{recipient}",
+        duration_hours=None,
+        duration_mode="until_stopped",
+    )
+
+    assert grant["durationMode"] == "until_stopped"
+    assert grant["durationHours"] is None
+    assert grant["expiresAt"] is None
+    assert service.grants[grant["id"]]["expires_at"] is None
+
+    service.store_encrypted_envelope(
+        owner_user_id=owner,
+        grant_id=grant["id"],
+        envelope=encrypted_envelope(f"key-{recipient}", "ciphertext-for-b"),
+    )
+    viewed = service.view_latest_envelope(recipient_user_id=recipient, grant_id=grant["id"])
+    assert viewed["grant"]["durationMode"] == "until_stopped"
+    assert viewed["envelope"]["ciphertext"] == "ciphertext-for-b"
+
+
+def test_until_stopped_is_rejected_for_check_in_grants() -> None:
+    service = FourUserMemoryService()
+    owner = "user_a"
+    recipient = "user_b"
+    service.register_recipient_key(
+        user_id=recipient,
+        key_id=f"key-{recipient}",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": recipient, "y": recipient},
+    )
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.create_grant(
+            owner_user_id=owner,
+            recipient_user_id=recipient,
+            recipient_key_id=f"key-{recipient}",
+            duration_hours=None,
+            duration_mode="until_stopped",
+            share_kind="check_in",
+            reason="check_in",
+        )
+
+    assert exc.value.code == "LOCATION_DURATION_MODE_NOT_ALLOWED"
 
 
 def test_public_invite_is_request_only_and_token_hash_only() -> None:

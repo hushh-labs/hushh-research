@@ -251,6 +251,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     typeof window !== "undefined"
       ? window.__HUSHH_NATIVE_TEST__?.bootstrapState ?? ""
       : "";
+
   if (nativeTestBootstrapManaged && bootstrapState === "uid_mismatch") {
     return (
       <div
@@ -269,7 +270,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   // ============================================================================
   // SLOW PATH: Vault not unlocked, need to check auth and show appropriate UI
   // ============================================================================
-  
+
   // Auth still loading - show loader
   if (authLoading) {
     return <HushhLoader label="Checking session..." />;
@@ -303,8 +304,8 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     }
   }
 
-  // User exists but vault is locked. This is a focused credential gate, not a
-  // route overlay: it uses the unlock dialog's opaque hard-gate canvas so
+  // User exists but vault is locked. This is a focused credential gate, not
+  // a route overlay: it uses the unlock dialog's opaque hard-gate canvas so
   // persistent app chrome, the Agent Bar, and the route underneath never
   // compete with credential entry.
   return (
@@ -318,10 +319,10 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
       description="Unlock your Vault to continue."
       onSuccess={() => undefined}
       // Escape hatch for the HARD gate only: a user who forgot their vault
-      // password has no other way out (the focused credential surface covers
-      // persistent chrome). signOut() fully clears the session and redirects
-      // to the welcome screen. Not passed by the dismissible top-bar unlock
-      // (there the user can just close the sheet).
+      // password has no other way out (the focused credential surface
+      // covers persistent chrome). signOut() fully clears the session and
+      // redirects to the welcome screen. Not passed by the dismissible
+      // top-bar unlock (there the user can just close the sheet).
       onSignOut={() => signOut()}
     />
   );

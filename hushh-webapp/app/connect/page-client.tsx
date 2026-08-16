@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Search as SearchIcon, UserRound, Users, X } from "lucide-react";
+import { BadgeCheck, Lock, Search as SearchIcon, UserRound, Users, X } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -41,10 +41,10 @@ import { Button } from "@/lib/morphy-ux/button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import {
   ConnectionsService,
-  type ConnectionInformationScopeCatalog,
   type ConnectionRelationship,
   type ConnectionScopeCatalog,
   type ConnectionSummaryEntry,
+  type DirectoryAudience,
   type DirectoryPerson,
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
@@ -56,12 +56,80 @@ import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { getDirectoryPersonDescription } from "./directory-person-label";
 import { cn } from "@/lib/utils";
 
-type ConnectTab = "people" | "nearby";
+type ConnectTab = "people" | "advisors" | "nearby";
 
-const CONNECT_TABS = [
-  { value: "people", label: "People" },
-  { value: "nearby", label: "Around you" },
-];
+/**
+ * "RIAs" rather than "Advisors", which is the plainer word.
+ *
+ * Around you already owns a sub-tab called Advisors, and both strips are on
+ * screen together whenever that tab is open -- two controls with one name, a
+ * few pixels apart, meaning different things: every registered adviser on
+ * Hussh, and the advisers near this phone right now. The regulatory term is the
+ * one thing that cannot be confused with "advisers nearby", and it is the word
+ * the people who hold these profiles use for themselves.
+ */
+const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
+  people: "People",
+  advisors: "RIAs",
+  nearby: "Around you",
+};
+
+const CONNECT_TABS = (
+  ["people", "advisors", "nearby"] as const
+).map((value) => ({ value, label: CONNECT_TAB_LABEL[value] }));
+
+/**
+ * Which half of the directory each tab pages through.
+ *
+ * The split is a server-side audience rather than a filter over the rendered
+ * page, because a filter applied after the page is cut can only ever subtract
+ * from a page that was already chosen wrongly: pages of uneven size, and every
+ * advisor past the first one unreachable.
+ *
+ * People and Advisors partition the directory, so putting advisors in their own
+ * tab hides nobody -- everyone findable before is still findable, in exactly
+ * one of the two.
+ */
+const CONNECT_TAB_AUDIENCE: Record<ConnectTab, DirectoryAudience> = {
+  people: "people",
+  advisors: "ria",
+  // Around you runs its own directories; the value is never used for it.
+  nearby: "all",
+};
+
+/**
+ * How many directory reads or connection writes may be in flight at once.
+ *
+ * A bulk action of 8 people is 8 catalog reads and then up to 8 writes, and
+ * each write holds a database connection for its whole transaction. The pool is
+ * 5 connections with 10 overflow, and production runs a smaller instance than
+ * UAT does, so an unbounded Promise.all is the shape that exhausts it. Three at
+ * a time keeps the action quick without ever being the reason a request fails.
+ */
+const CONNECT_REQUEST_CONCURRENCY = 3;
+
+/** Run `task` over `items`, at most `limit` at a time, preserving order. */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  task: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, limit), items.length) },
+    async () => {
+      for (;;) {
+        const index = cursor++;
+        const item = items[index];
+        if (index >= items.length || item === undefined) return;
+        results[index] = await task(item, index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
 
 /**
  * How many people the unsearched People tab offers.
@@ -240,11 +308,6 @@ export default function ConnectPageClient() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
-  const [informationScopeDraft, setInformationScopeDraft] = useState<{
-    connection: ConnectionSummaryEntry;
-    catalog: ConnectionInformationScopeCatalog;
-  } | null>(null);
-  const [informationScopeQuery, setInformationScopeQuery] = useState("");
   const [scopeDraft, setScopeDraft] = useState<{
     person: DirectoryPerson;
     catalog: ConnectionScopeCatalog;
@@ -252,10 +315,29 @@ export default function ConnectPageClient() {
     offeredHandles: string[];
   } | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
+  /**
+   * The people picked for a bulk request, held whole rather than by id.
+   *
+   * This was a Set of ids read back against the rendered page, which meant a
+   * selection only existed while its own page was on screen: picking four on
+   * page one and two on page two sent two requests, and the counter said 2/8.
+   * Paging is not deselecting, so the row is kept, not just its id.
+   */
+  const [selectedPeople, setSelectedPeople] = useState<
+    Map<string, DirectoryPerson>
+  >(new Map());
   const [isConnectingMultiple, setIsConnectingMultiple] = useState(false);
+  /** Which open of the review sheet is allowed to write its catalogs back. */
+  const batchDraftGenerationRef = useRef(0);
   const [batchConnectDraft, setBatchConnectDraft] = useState<{
     people: DirectoryPerson[];
+    /** Per person: what THEY can be asked for. Absent until loaded. */
+    catalogs: Record<string, ConnectionScopeCatalog>;
+    /** Per person, because a handle is only valid for its own owner. */
+    requestedHandles: Record<string, string[]>;
+    /** Not per person: these are the caller's own, identical to everyone. */
+    offeredHandles: string[];
+    loadingCatalogs: boolean;
   } | null>(null);
   const [showLimitBanner, setShowLimitBanner] = useState(false);
 
@@ -329,7 +411,13 @@ export default function ConnectPageClient() {
   // paged, with the discarded one free to resolve last and paint a page the
   // reader never asked for. React re-renders on a state change made during
   // render before running effects, so the stale page is never requested.
-  const resultSetKey = `${pageSize}:${trimmedQuery}`;
+  //
+  // The audience is part of the key: switching People <-> Advisors is a new
+  // result set, and asking for page 3 of a list the reader has just swapped is
+  // the same mistake as asking for page 3 of a query they just retyped.
+  const directoryAudience = CONNECT_TAB_AUDIENCE[tab];
+  const isAdvisorTab = tab === "advisors";
+  const resultSetKey = `${directoryAudience}:${pageSize}:${trimmedQuery}`;
   const [renderedResultSetKey, setRenderedResultSetKey] = useState(resultSetKey);
   if (renderedResultSetKey !== resultSetKey) {
     setRenderedResultSetKey(resultSetKey);
@@ -350,23 +438,21 @@ export default function ConnectPageClient() {
           query: trimmedQuery,
           page: currentPage,
           limit: pageSize,
+          audience: directoryAudience,
         });
         if (!cancelled) {
           // One page replaces the last. Appending was what made the directory
           // an endless scroll with no sense of position in it.
           setPeople(page.items);
           setHasMore(page.hasMore);
-          // Selections are counted on the "Connect to Selected (N)" button, so
-          // drop any that this result set no longer shows — an N the reader
-          // cannot see is a promise the surface can't account for.
-          setSelectedUserIds((current) => {
-            if (current.size === 0) return current;
-            const visible = new Set(page.items.map((person) => person.userId));
-            const next = new Set(
-              [...current].filter((userId) => visible.has(userId)),
-            );
-            return next.size === current.size ? current : next;
-          });
+          // Selections deliberately survive this. They used to be pruned to
+          // whoever the new page happened to show, on the reasoning that a
+          // count the reader cannot see is a promise the surface can't account
+          // for -- but the promise was real and the pruning silently broke it:
+          // four picked on page one became zero on arriving at page two, and
+          // two more picked there read as "2 of 8". The count is now backed by
+          // the rows themselves, and the sheet lists every one of them by name
+          // before anything is sent, so nothing is promised unseen.
         }
       } catch (loadError) {
         if (!cancelled)
@@ -383,7 +469,7 @@ export default function ConnectPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [user, trimmedQuery, currentPage, pageSize]);
+  }, [user, trimmedQuery, currentPage, pageSize, directoryAudience]);
 
   const goToPage = useCallback(
     (next: number) => {
@@ -451,10 +537,12 @@ export default function ConnectPageClient() {
           idToken,
           counterpartUserId: person.userId,
         });
-        if (catalog.items.length === 0 && catalog.offerableItems.length === 0) {
-          await sendConnectionRequest(person, [], []);
-          return;
-        }
+        // Always shown, including when there is nothing to grant. Sending
+        // straight through on an empty catalog made the two outcomes look
+        // identical from the outside: a request that carried access and a
+        // request that carried none both appeared as one tap and a toast, so
+        // "no dialog" read as a broken sheet rather than as an answer. A
+        // request that grants nothing is worth saying out loud.
         setScopeDraft({
           person,
           catalog,
@@ -471,7 +559,7 @@ export default function ConnectPageClient() {
         setBusyId((current) => (current === person.userId ? null : current));
       }
     },
-    [sendConnectionRequest, user],
+    [user],
   );
 
   const handleConnect = useCallback(
@@ -539,87 +627,201 @@ export default function ConnectPageClient() {
     [user],
   );
 
-  const viewInformationScopes = useCallback(
-    async (connection: ConnectionSummaryEntry) => {
-      if (!user) return;
+  // The per-connection "Scopes" viewer is deliberately absent. It opened a
+  // read-only dialog of raw scope handles with every row disabled — no action,
+  // no explanation, and mostly the internal handle string itself. Connect
+  // currently carries a single real capability, so the list told people
+  // nothing they could act on. Bring it back with the surface it describes.
+
+  /**
+   * The (person, capability) pairs a bulk request can ask for.
+   *
+   * Flattened here rather than in the sheet so the empty case is one check
+   * instead of a nested search through every person's catalog.
+   */
+  const batchRequestableRows = useMemo(() => {
+    if (!batchConnectDraft) return [];
+    return batchConnectDraft.people.flatMap((person) => {
+      const catalog = batchConnectDraft.catalogs[person.userId];
+      if (!catalog) return [];
+      return catalog.items.map((item) => ({
+        userId: person.userId,
+        title: person.displayName || person.email || person.userId,
+        item,
+      }));
+    });
+  }, [batchConnectDraft]);
+
+  /**
+   * What the caller can offer. Identical for every counterpart, because these
+   * handles belong to the caller, so the sheet asks once rather than per person.
+   */
+  const batchOfferableItems = useMemo(() => {
+    if (!batchConnectDraft) return [];
+    const byHandle = new Map<string, ConnectionScopeCatalog["items"][number]>();
+    for (const catalog of Object.values(batchConnectDraft.catalogs)) {
+      for (const item of catalog.offerableItems) {
+        if (!byHandle.has(item.handle)) byHandle.set(item.handle, item);
+      }
+    }
+    return [...byHandle.values()];
+  }, [batchConnectDraft]);
+
+  /**
+   * Open the review sheet for a bulk request, and load what each person can be
+   * asked for.
+   *
+   * The catalog is per counterpart, and its handles are per owner: the same
+   * capability has a different handle for every person. A bulk send that reused
+   * one person's handle for another would not fail -- the server drops an
+   * unrecognised handle and returns success -- so the reader would be told
+   * eight advisors had been asked for Picks when only one had been.
+   */
+  const openBatchConnectDraft = useCallback(
+    async (people: DirectoryPerson[]) => {
+      if (!user || people.length === 0) return;
+      // Close the sheet, change the selection, reopen: the first load is still
+      // in flight and would land on the second draft, clearing its loading flag
+      // before its own catalogs arrive. That un-holds Send with no handles
+      // collected -- a send reported as a success that asked for nothing, which
+      // is the failure this whole sheet exists to end. Only the newest open
+      // gets to write.
+      const generation = batchDraftGenerationRef.current + 1;
+      batchDraftGenerationRef.current = generation;
+      const isCurrent = () => batchDraftGenerationRef.current === generation;
+      setBatchConnectDraft({
+        people,
+        catalogs: {},
+        requestedHandles: {},
+        offeredHandles: [],
+        loadingCatalogs: true,
+      });
       try {
-        setBusyId(connection.connectionId);
         const idToken = await user.getIdToken();
-        const catalog = await ConnectionsService.searchInformationScopes({
-          idToken,
-          counterpartUserId: connection.userId,
-          limit: 50,
-        });
-        setInformationScopeQuery("");
-        setInformationScopeDraft({ connection, catalog });
-      } catch (scopeError) {
-        toast.error(
-          scopeError instanceof Error
-            ? scopeError.message
-            : "Could not load available scopes",
+        const loaded = await mapWithConcurrency(
+          people,
+          CONNECT_REQUEST_CONCURRENCY,
+          async (person) => {
+            try {
+              return await ConnectionsService.getScopeCatalog({
+                idToken,
+                counterpartUserId: person.userId,
+              });
+            } catch {
+              // One person's catalog being unavailable is not a reason to
+              // refuse the other seven. They are shown with nothing to ask
+              // for, which is what a scopeless request already means.
+              return null;
+            }
+          },
         );
-      } finally {
-        setBusyId(null);
+        const catalogs: Record<string, ConnectionScopeCatalog> = {};
+        loaded.forEach((catalog, index) => {
+          const person = people[index];
+          if (catalog && person) catalogs[person.userId] = catalog;
+        });
+        if (!isCurrent()) return;
+        setBatchConnectDraft((current) =>
+          current === null
+            ? current
+            : { ...current, catalogs, loadingCatalogs: false },
+        );
+      } catch {
+        if (!isCurrent()) return;
+        setBatchConnectDraft((current) =>
+          current === null ? current : { ...current, loadingCatalogs: false },
+        );
       }
     },
     [user],
   );
 
-  const visibleInformationScopes = informationScopeDraft?.catalog.items.filter(
-    (item) => {
-      const query = informationScopeQuery.trim().toLowerCase();
-      return !query || `${item.label ?? ""} ${item.scope}`.toLowerCase().includes(query);
+  const toggleBatchRequestedHandle = useCallback(
+    (userId: string, handle: string, checked: boolean) => {
+      setBatchConnectDraft((current) => {
+        if (!current) return current;
+        const existing = current.requestedHandles[userId] ?? [];
+        const next = checked
+          ? [...new Set([...existing, handle])]
+          : existing.filter((candidate) => candidate !== handle);
+        return {
+          ...current,
+          requestedHandles: { ...current.requestedHandles, [userId]: next },
+        };
+      });
     },
+    [],
+  );
+
+  const toggleBatchOfferedHandle = useCallback(
+    (handle: string, checked: boolean) => {
+      setBatchConnectDraft((current) => {
+        if (!current) return current;
+        const next = checked
+          ? [...new Set([...current.offeredHandles, handle])]
+          : current.offeredHandles.filter((candidate) => candidate !== handle);
+        return { ...current, offeredHandles: next };
+      });
+    },
+    [],
   );
 
   const handleConnectMultiple = useCallback(async () => {
     if (!user || !batchConnectDraft || batchConnectDraft.people.length === 0) return;
-    const selectedPeople = batchConnectDraft.people;
+    const draft = batchConnectDraft;
+    const draftPeople = draft.people;
 
     // Keep the dispatch boundary bounded even if selection state is restored or
     // changed outside the row controls.
-    if (selectedPeople.length > MAX_BULK_CONNECTION_REQUESTS) {
+    if (draftPeople.length > MAX_BULK_CONNECTION_REQUESTS) {
       toast.error(`Select no more than ${MAX_BULK_CONNECTION_REQUESTS} people at a time.`);
       return;
     }
 
     setIsConnectingMultiple(true);
-    let successCount = 0;
     const successfulUserIds = new Set<string>();
-    
+
     try {
       const idToken = await user.getIdToken();
-      
-      const requestPromises = selectedPeople
-        .filter((person) => person.relationship === "none")
-        .map(async (person) => {
+
+      // Anyone already asked is skipped: a pending request in either direction
+      // makes the server return the existing one and discard the scopes, so
+      // including them would report a send that attached nothing.
+      const sendable = draftPeople.filter(
+        (person) => person.relationship === "none",
+      );
+
+      const results = await mapWithConcurrency(
+        sendable,
+        CONNECT_REQUEST_CONCURRENCY,
+        async (person) => {
           try {
             const request = await ConnectionsService.sendRequest({
               idToken,
               addresseeUserId: person.userId,
-              requestedScopeHandles: [],
-              offeredScopeHandles: [],
+              // This person's own handles, never another's.
+              requestedScopeHandles: draft.requestedHandles[person.userId] ?? [],
+              offeredScopeHandles: draft.offeredHandles,
             });
             return { success: true, person, request } as const;
-          } catch (_err) {
-            console.error(`Failed to send request to ${person.userId}`, _err);
+          } catch (sendError) {
+            console.error(`Failed to send request to ${person.userId}`, sendError);
             return { success: false, person } as const;
           }
-        });
+        },
+      );
 
-      const results = await Promise.all(requestPromises);
-
+      const outgoing: Record<string, string> = {};
       for (const result of results) {
         if (result.success) {
-          setOutgoingRequestIds((current) => ({
-            ...current,
-            [result.person.userId]: result.request.id,
-          }));
+          outgoing[result.person.userId] = result.request.id;
           successfulUserIds.add(result.person.userId);
-          successCount++;
         }
       }
-      
+      if (successfulUserIds.size > 0) {
+        setOutgoingRequestIds((current) => ({ ...current, ...outgoing }));
+      }
+
       setPeople((prev) =>
         prev.map((p) =>
           successfulUserIds.has(p.userId) && p.relationship === "none"
@@ -627,20 +829,55 @@ export default function ConnectPageClient() {
             : p,
         ),
       );
-      
-      if (successCount > 0) {
+
+      const failedCount = sendable.length - successfulUserIds.size;
+      if (successfulUserIds.size > 0) {
         CacheSyncService.onConnectionCapabilityMutated(user.uid);
-        toast.success(`Sent ${successCount} connection request${successCount !== 1 ? 's' : ''}`);
+        // Report what happened rather than only what worked. A partial send
+        // that says "Sent 6 requests" leaves two people quietly unasked.
+        toast.success(
+          failedCount > 0
+            ? `Sent ${successfulUserIds.size}. ${failedCount} couldn't be sent.`
+            : `Sent ${successfulUserIds.size} request${successfulUserIds.size !== 1 ? "s" : ""}.`,
+        );
+      } else if (sendable.length === 0) {
+        toast.error("Already asked.");
       } else {
-        toast.error("Failed to send requests or they were already sent.");
+        toast.error("Couldn't send. Try again.");
       }
-    } catch (_err) {
-      toast.error("An error occurred while sending requests.");
+
+      // Only the people who were actually sent leave the selection. Anyone who
+      // failed stays picked, so retrying does not mean finding them again --
+      // which, now that picks survive paging, could otherwise mean paging back
+      // through the directory to rebuild a selection that already existed.
+      setSelectedPeople((current) => {
+        if (successfulUserIds.size === 0 && sendable.length > 0) return current;
+        const next = new Map(current);
+        // Nobody sendable means nothing here is still actionable, so the whole
+        // selection goes rather than leaving rows checked that cannot be sent.
+        if (sendable.length === 0) return new Map();
+        successfulUserIds.forEach((userId) => next.delete(userId));
+        return next;
+      });
+      if (successfulUserIds.size === sendable.length) {
+        setIsSelectionMode(false);
+        setBatchConnectDraft(null);
+      } else {
+        setBatchConnectDraft((current) =>
+          current === null
+            ? current
+            : {
+                ...current,
+                people: current.people.filter(
+                  (person) => !successfulUserIds.has(person.userId),
+                ),
+              },
+        );
+      }
+    } catch {
+      toast.error("Couldn't send. Try again.");
     } finally {
       setIsConnectingMultiple(false);
-      setIsSelectionMode(false);
-      setSelectedUserIds(new Set());
-      setBatchConnectDraft(null);
     }
   }, [user, batchConnectDraft]);
 
@@ -736,9 +973,10 @@ export default function ConnectPageClient() {
       // to say aloud, so this screen names only itself.
       primaryEntity: null,
       selectedEntity: null,
-      spokenSubject: tab === "nearby" ? "Connect, Around you tab" : "Connect, People tab",
+      spokenSubject: `Connect, ${CONNECT_TAB_LABEL[tab]} tab`,
       sections: [
         { id: "people", title: "People", purpose: "Search everyone you could connect with, and manage existing connections." },
+        { id: "advisors", title: "Advisors", purpose: "Search only people whose registered investment adviser profile is verified." },
         { id: "nearby", title: "Around you", purpose: "Find verified advisors and insurance agents, and businesses, near your current location." },
       ],
       actions: [
@@ -762,13 +1000,15 @@ export default function ConnectPageClient() {
           aliases: ["connection", "connections", "connected people"],
         },
       ],
-      activeSection: tab === "nearby" ? "Around you" : "People",
+      activeSection: CONNECT_TAB_LABEL[tab],
       activeTab: tab,
       visibleModules:
         tab === "nearby"
           ? ["Advisors near you", "Insurance agents near you", "Places near you"]
-          : ["Your connections", "People directory"],
-      focusedWidget: tab === "nearby" ? "Around you tab" : "People tab",
+          : tab === "advisors"
+            ? ["Your connections", "Verified advisers directory"]
+            : ["Your connections", "People directory"],
+      focusedWidget: `${CONNECT_TAB_LABEL[tab]} tab`,
       availableActions: ["Open Connect people", "Open advisors around you", "Search for someone to connect with"],
       activeControlId: null,
       lastInteractedControlId: null,
@@ -1166,6 +1406,18 @@ export default function ConnectPageClient() {
               value={tab}
               onValueChange={(value) => setTab(value as ConnectTab)}
               options={CONNECT_TABS}
+              // A third tab takes a third of the strip, and the option's own
+              // 16px side padding then costs more than the widest label has
+              // left: measured on a 375px screen, "Around you" rendered as
+              // "Around yo…". Tab titles are ours, not user content, so an
+              // ellipsis in one is a defect rather than a graceful degradation.
+              //
+              // Padding is the thing that gives, which is the cheapest rung on
+              // the ladder -- the strip keeps its height, its grid, its type
+              // and its active pill, and nothing changes from 640px up, where
+              // there was never any pressure. Scoped to this strip rather than
+              // pushed into SegmentedTabs so no other surface's spacing moves.
+              className="[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5"
             />
 
             {tab === "nearby" ? (
@@ -1189,21 +1441,11 @@ export default function ConnectPageClient() {
                     key={connection.connectionId}
                     icon={Users}
                     iconTone="blue"
+                    stackTrailingOnMobile
                     title={connection.displayName || connection.userId}
                     density="compact"
                     trailing={
                       <span className="flex shrink-0 items-center justify-end gap-1.5 whitespace-nowrap">
-                        <Button
-                          type="button"
-                          variant="none"
-                          effect="fade"
-                          size="sm"
-                          className={CONNECT_INLINE_BUTTON_CLASSNAME}
-                          disabled={busyId === connection.connectionId}
-                          onClick={() => void viewInformationScopes(connection)}
-                        >
-                          {busyId === connection.connectionId ? "Loading…" : "Scopes"}
-                        </Button>
                         {pendingRemoveId === connection.connectionId ? (
                           <>
                             <Button
@@ -1333,7 +1575,7 @@ export default function ConnectPageClient() {
                   disabled={loading || people.length === 0}
                   onClick={() => {
                     setIsSelectionMode((current) => !current);
-                    setSelectedUserIds(new Set());
+                    setSelectedPeople(new Map());
                     setShowLimitBanner(false);
                   }}
                 >
@@ -1341,14 +1583,16 @@ export default function ConnectPageClient() {
                 </Button>
               </div>
               <SettingsGroup
-                title="People"
+                title={CONNECT_TAB_LABEL[tab]}
                 description={
                   isSelectionMode
                     ? (
                         <span id="connect-selection-limit">
-                          Pick up to {MAX_BULK_CONNECTION_REQUESTS} people. Send requests together.
+                          Pick up to {MAX_BULK_CONNECTION_REQUESTS}, across pages.
                         </span>
                       )
+                    : isAdvisorTab
+                    ? "Advisors with a verified profile."
                     : hasQuery
                     ? "Send a request."
                     : "Search by name."
@@ -1363,7 +1607,11 @@ export default function ConnectPageClient() {
                   />
                 ) : error ? (
                   <SettingsRow
-                    title="People are unavailable"
+                    title={
+                      isAdvisorTab
+                        ? "Advisors are unavailable"
+                        : "People are unavailable"
+                    }
                     description={error}
                     density="compact"
                     tone="destructive"
@@ -1379,13 +1627,17 @@ export default function ConnectPageClient() {
                   hasQuery ? (
                     <SettingsRow
                       title={`No one matches "${trimmedQuery}"`}
-                      description="Try their full name."
+                      description={
+                        isAdvisorTab
+                          ? "Try People, or their full name."
+                          : "Try their full name."
+                      }
                       density="compact"
                       disabled
                     />
                   ) : (
                     <SettingsRow
-                      title="No people yet"
+                      title={isAdvisorTab ? "No advisors yet" : "No people yet"}
                       description="Search by name."
                       density="compact"
                       disabled
@@ -1397,12 +1649,16 @@ export default function ConnectPageClient() {
                     const title =
                       person.displayName || person.email || person.userId;
                     const description = getDirectoryPersonDescription(person);
-                    const isSelected = selectedUserIds.has(person.userId);
+                    const isSelected = selectedPeople.has(person.userId);
                     return (
                       <SettingsRow
                         key={person.userId}
-                        icon={UserRound}
-                        iconTone="blue"
+                        // Verified is a state, and green is what this design
+                        // system already spends on a verified one. It is on the
+                        // row rather than on the tab so the mark still means
+                        // something in a search that spans both.
+                        icon={person.isRia ? BadgeCheck : UserRound}
+                        iconTone={person.isRia ? "green" : "blue"}
                         title={<span className="block min-w-0 truncate">{title}</span>}
                         description={
                           description ? (
@@ -1437,7 +1693,7 @@ export default function ConnectPageClient() {
                             ) : (
                               <Checkbox
                                 checked={isSelected}
-                                disabled={!isSelected && selectedUserIds.size >= MAX_BULK_CONNECTION_REQUESTS}
+                                disabled={!isSelected && selectedPeople.size >= MAX_BULK_CONNECTION_REQUESTS}
                                 // The default unchecked border (border-input)
                                 // reads as near-invisible on this row's light
                                 // background -- readers couldn't tell an
@@ -1448,17 +1704,20 @@ export default function ConnectPageClient() {
                                 className="border-2 border-foreground/50"
                                 aria-describedby="connect-selection-limit"
                                 onCheckedChange={(checked) => {
-                                  if (checked && selectedUserIds.size >= MAX_BULK_CONNECTION_REQUESTS) {
+                                  if (checked && selectedPeople.size >= MAX_BULK_CONNECTION_REQUESTS) {
                                     toast.error(
                                       `You can only select up to ${MAX_BULK_CONNECTION_REQUESTS} people at a time.`,
                                     );
                                     setShowLimitBanner(true);
                                     return;
                                   }
-                                  setSelectedUserIds((current) => {
-                                    const next = new Set(current);
+                                  setSelectedPeople((current) => {
+                                    const next = new Map(current);
                                     if (checked) {
-                                      next.add(person.userId);
+                                      // The whole row, not the id: this person
+                                      // has to survive the reader turning the
+                                      // page away from them.
+                                      next.set(person.userId, person);
                                     } else {
                                       next.delete(person.userId);
                                       if (next.size < MAX_BULK_CONNECTION_REQUESTS) {
@@ -1574,7 +1833,7 @@ export default function ConnectPageClient() {
                     </div>
                   </div>
                 ) : null}
-                {isSelectionMode && selectedUserIds.size > 0 && batchConnectDraft === null && (
+                {isSelectionMode && selectedPeople.size > 0 && batchConnectDraft === null && (
                   <div className="flex justify-center border-t border-[color:var(--app-card-border-standard)] px-3 py-4">
                     <Button
                       type="button"
@@ -1582,14 +1841,14 @@ export default function ConnectPageClient() {
                       effect="fill"
                       disabled={isConnectingMultiple}
                       onClick={() => {
-                        const selectedPeople = people
-                          .filter((p) => selectedUserIds.has(p.userId));
-                        setBatchConnectDraft({ people: selectedPeople });
+                        // Everyone picked, not everyone picked who is still on
+                        // screen. Reading the selection back off the rendered
+                        // page is what dropped page one's picks on reaching
+                        // page two.
+                        void openBatchConnectDraft([...selectedPeople.values()]);
                       }}
                     >
-                      {isConnectingMultiple
-                        ? "Sending…"
-                        : `Send requests (${selectedUserIds.size}/${MAX_BULK_CONNECTION_REQUESTS})`}
+                      {`Review ${selectedPeople.size} of ${MAX_BULK_CONNECTION_REQUESTS}`}
                     </Button>
                   </div>
                 )}
@@ -1684,9 +1943,16 @@ export default function ConnectPageClient() {
               ) : null}
               {scopeDraft.catalog.items.length === 0 &&
               scopeDraft.catalog.offerableItems.length === 0 ? (
-                <p className="ui-text-helper-text px-1 text-[color:var(--app-secondary-label)]">
-                  No sharing access is included.
-                </p>
+                <SettingsGroup title="Connection access" separatorInset>
+                  <SettingsRow
+                    icon={Lock}
+                    iconTone="gray"
+                    title="No access yet"
+                    description="This only sends a request."
+                    density="compact"
+                    disabled
+                  />
+                </SettingsGroup>
               ) : null}
             </div>
           ) : null}
@@ -1735,8 +2001,15 @@ export default function ConnectPageClient() {
           <div className="shrink-0 space-y-5">
             <DialogHeader className="text-left">
               <DialogTitle>Send connection requests</DialogTitle>
+              {/*
+                This said "This only sends a connection request." That was true
+                while the bulk path could not carry capabilities. It can now, so
+                the sentence became a promise the sheet no longer keeps whenever
+                a Pick is ticked below. Matches the one-person sheet's wording,
+                which is accurate either way.
+              */}
               <DialogDescription>
-                This only sends a connection request.
+                Start safe. Add sharing only if you choose.
               </DialogDescription>
             </DialogHeader>
           </div>
@@ -1749,8 +2022,8 @@ export default function ConnectPageClient() {
                   return (
                     <SettingsRow
                       key={`batch-${person.userId}`}
-                      icon={UserRound}
-                      iconTone="blue"
+                      icon={person.isRia ? BadgeCheck : UserRound}
+                      iconTone={person.isRia ? "green" : "blue"}
                       title={<span className="block min-w-0 truncate">{title}</span>}
                       density="compact"
                       trailing={
@@ -1767,12 +2040,20 @@ export default function ConnectPageClient() {
                               if (updated.length === 0) {
                                 return null;
                               }
-                              return { people: updated };
+                              const {
+                                [person.userId]: _dropped,
+                                ...remainingHandles
+                              } = current.requestedHandles;
+                              return {
+                                ...current,
+                                people: updated,
+                                requestedHandles: remainingHandles,
+                              };
                             });
                             // Keep the underlying selection synchronized so the UI
                             // doesn't show them checked if the dialog is closed.
-                            setSelectedUserIds((current) => {
-                              const next = new Set(current);
+                            setSelectedPeople((current) => {
+                              const next = new Map(current);
                               next.delete(person.userId);
                               return next;
                             });
@@ -1786,6 +2067,103 @@ export default function ConnectPageClient() {
                   );
                 })}
               </SettingsGroup>
+
+              {batchConnectDraft.loadingCatalogs ? (
+                <SettingsGroup title="Connection access" separatorInset>
+                  <SettingsRow
+                    title="Checking what they can share…"
+                    density="compact"
+                    disabled
+                  />
+                </SettingsGroup>
+              ) : batchRequestableRows.length > 0 ? (
+                // One row per person per capability, because a handle is only
+                // valid for its own owner. Asking four advisors for Picks is
+                // four separate asks, and each is shown as one.
+                <SettingsGroup
+                  title="Ask from them"
+                  description="Optional. Each person can decline."
+                  separatorInset
+                >
+                  {batchRequestableRows.map((row) => (
+                    <SettingsRow
+                      key={`batch-request-${row.userId}-${row.item.handle}`}
+                      icon={BadgeCheck}
+                      iconTone="green"
+                      title={
+                        <span className="block min-w-0 truncate">{row.title}</span>
+                      }
+                      description={row.item.label}
+                      density="compact"
+                      trailing={
+                        <Checkbox
+                          checked={(
+                            batchConnectDraft.requestedHandles[row.userId] ?? []
+                          ).includes(row.item.handle)}
+                          disabled={isConnectingMultiple}
+                          className="border-2 border-foreground/50"
+                          onCheckedChange={(checked) =>
+                            toggleBatchRequestedHandle(
+                              row.userId,
+                              row.item.handle,
+                              checked === true,
+                            )
+                          }
+                          aria-label={`Ask ${row.title} for ${row.item.label}`}
+                        />
+                      }
+                    />
+                  ))}
+                </SettingsGroup>
+              ) : null}
+
+              {!batchConnectDraft.loadingCatalogs &&
+              batchOfferableItems.length > 0 ? (
+                // Not per person: these handles are the caller's own, so one
+                // choice is the same offer to everyone selected.
+                <SettingsGroup
+                  title="Offer now"
+                  description="Offered to everyone selected. They approve first."
+                  separatorInset
+                >
+                  {batchOfferableItems.map((item) => (
+                    <SettingsRow
+                      key={`batch-offer-${item.handle}`}
+                      title={item.label}
+                      description={item.description}
+                      density="compact"
+                      trailing={
+                        <Checkbox
+                          checked={batchConnectDraft.offeredHandles.includes(
+                            item.handle,
+                          )}
+                          disabled={isConnectingMultiple}
+                          className="border-2 border-foreground/50"
+                          onCheckedChange={(checked) =>
+                            toggleBatchOfferedHandle(item.handle, checked === true)
+                          }
+                          aria-label={`Offer ${item.label}`}
+                        />
+                      }
+                    />
+                  ))}
+                </SettingsGroup>
+              ) : null}
+
+              {!batchConnectDraft.loadingCatalogs &&
+              batchRequestableRows.length === 0 &&
+              batchOfferableItems.length === 0 ? (
+                <SettingsGroup title="Connection access" separatorInset>
+                  <SettingsRow
+                    icon={Lock}
+                    iconTone="gray"
+                    title="No access yet"
+                    description="These only send requests."
+                    density="compact"
+                    disabled
+                  />
+                </SettingsGroup>
+              ) : null}
             </div>
           ) : null}
 
@@ -1805,72 +2183,34 @@ export default function ConnectPageClient() {
               variant="blue"
               effect="fill"
               className="min-w-[148px]"
-              disabled={!batchConnectDraft || isConnectingMultiple}
+              // Held until the catalogs land. Sending first is not a slower
+              // version of the same thing -- it is a send with no picks
+              // attached, reported as a success, which is the exact failure
+              // this sheet exists to end.
+              disabled={
+                !batchConnectDraft ||
+                isConnectingMultiple ||
+                batchConnectDraft.loadingCatalogs
+              }
               onClick={() => void handleConnectMultiple()}
             >
-              {isConnectingMultiple ? "Sending…" : "Send requests"}
+              {/*
+                A disabled Button in this system still renders full Action
+                Blue, so a held button that kept its ready label would look
+                tappable and read as a dead tap. The label carries the state
+                instead of the colour.
+              */}
+              {isConnectingMultiple
+                ? "Sending…"
+                : batchConnectDraft?.loadingCatalogs
+                  ? "Checking…"
+                  : "Send requests"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
 
-      <Dialog
-        open={informationScopeDraft !== null}
-        onOpenChange={(open) => {
-          if (!open) setInformationScopeDraft(null);
-        }}
-      >
-        <DialogContent className="gap-5">
-          <DialogHeader className="text-left">
-            <DialogTitle>Available details</DialogTitle>
-            <DialogDescription>
-              They choose what appears here.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            type="search"
-            value={informationScopeQuery}
-            onChange={(event) => setInformationScopeQuery(event.target.value)}
-            placeholder="Search details"
-            aria-label="Search details"
-          />
-          <div className="max-h-[45vh] overflow-y-auto">
-            {visibleInformationScopes && visibleInformationScopes.length > 0 ? (
-              <SettingsGroup title="Available" separatorInset>
-                {visibleInformationScopes.map((item) => (
-                  <SettingsRow
-                    key={item.scope}
-                    title={item.label || item.scope}
-                    description={item.scope}
-                    density="compact"
-                    disabled
-                  />
-                ))}
-              </SettingsGroup>
-            ) : (
-              <SettingsGroup title="No matches" separatorInset>
-                <SettingsRow
-                  title="Nothing found"
-                  description="Private details stay hidden."
-                  density="compact"
-                  disabled
-                />
-              </SettingsGroup>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="none"
-              effect="fade"
-              onClick={() => setInformationScopeDraft(null)}
-            >
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       {showLimitBanner && (
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[9999] w-[92%] max-w-md rounded-2xl bg-popover/95 backdrop-blur-md p-3.5 shadow-xl border border-border/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-200">
           <span className="text-xs font-medium text-foreground">
@@ -1895,11 +2235,8 @@ export default function ConnectPageClient() {
               className="h-7 rounded-xl px-3 text-xs font-medium"
               onClick={() => {
                 setShowLimitBanner(false);
-                const selectedPeople = people.filter((p) =>
-                  selectedUserIds.has(p.userId)
-                );
-                if (selectedPeople.length === 0) return;
-                setBatchConnectDraft({ people: selectedPeople });
+                if (selectedPeople.size === 0) return;
+                void openBatchConnectDraft([...selectedPeople.values()]);
               }}
             >
               Review

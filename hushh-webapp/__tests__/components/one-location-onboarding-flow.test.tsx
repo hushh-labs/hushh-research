@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 
 import { OneLocationOnboardingFlow } from "@/components/one-location/onboarding/one-location-onboarding-flow";
+import { READY_PANEL_CLASSNAME } from "@/components/one-location/onboarding/ready-panel-layout";
 
 vi.mock("sonner", () => ({
   toast: {
@@ -809,6 +810,54 @@ describe("OneLocationOnboardingFlow", () => {
       ).toBeTruthy();
     });
 
+    it("lines the join card up with the invite card stacked above it", async () => {
+      openJoin({
+        onPrepareOnboardingCircleInvite: vi.fn().mockResolvedValue(invite),
+      });
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "ABCDEFGHJKLM" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+
+      const inviteCard = screen.getByTestId(
+        "one-location-onboarding-invite-card",
+      );
+      const joinCard = await screen.findByTestId(
+        "onboarding-join-circle-preview",
+      );
+
+      // These two are siblings at the same width, so any difference in inset
+      // or radius shows up as a ragged left edge down the panel -- the join
+      // card used to sit 4px inside the code card's text column.
+      for (const geometry of ["p-5", "rounded-[20px]"]) {
+        expect(inviteCard.className).toContain(geometry);
+        expect(joinCard.className).toContain(geometry);
+      }
+    });
+
+    it("keeps the accepted confirmation on the same left edge as the cards", async () => {
+      openJoin({
+        onPrepareOnboardingCircleInvite: vi.fn().mockResolvedValue(invite),
+      });
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "ABCDEFGHJKLM" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: /Join Meena Family/ }),
+      );
+
+      const confirmation = await screen.findByRole("status");
+      // The confirmation replaces the join card in place. Its horizontal inset
+      // has to match, or the panel's left edge jumps the moment someone joins.
+      expect(confirmation.className).toContain("px-5");
+      expect(confirmation.className).toContain("rounded-[20px]");
+    });
+
     it("does not offer to join a circle the person is already in", async () => {
       const props = openJoin({
         onPreviewCircleCode: vi
@@ -1259,6 +1308,32 @@ describe("OneLocationOnboardingFlow", () => {
       expect(sheet?.className).toContain("bg-white");
       expect(sheet?.className).not.toMatch(/bg-white\/\d/u);
       expect(map.contains(seat)).toBe(false);
+    });
+
+    it("centers the invite panel on wide viewports instead of pinning it right", () => {
+      renderFlow({ mapPoint: { lat: 19.076, lng: 72.8777 } });
+      openInviteScreen();
+
+      const sheet = screen.getByTestId("one-location-onboarding-ready-panel");
+
+      // The panel must render the shared contract verbatim -- that is what
+      // e2e/one-location-ready-panel.layout.spec.ts measures in a real browser.
+      // JSDOM performs no layout, so this half only proves the classes reach
+      // the DOM; the browser half proves they actually centre the box.
+      expect(sheet.className).toBe(READY_PANEL_CLASSNAME);
+
+      // It reads as a dialog over the map, so it belongs in the middle of it.
+      // Anchored to the right edge it looked like a panel that had slid off.
+      expect(sheet.className).toContain("md:left-1/2");
+      expect(sheet.className).toContain("md:-translate-x-1/2");
+      expect(sheet.className).toContain("md:top-1/2");
+      expect(sheet.className).toContain("md:-translate-y-1/2");
+      expect(sheet.className).not.toMatch(/md:right-/u);
+
+      // Phone width -- which is what the iOS build renders at -- keeps the
+      // full-width bottom sheet untouched. The centering is a md: concern only.
+      expect(sheet.className).not.toMatch(/(^|\s)left-1\/2(\s|$)/u);
+      expect(sheet.className).not.toMatch(/(^|\s)absolute(\s|$)/u);
     });
 
     it("yields map height on short windows so the join link stays on screen", () => {

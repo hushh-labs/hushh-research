@@ -377,6 +377,10 @@ textarea {
   --system-red: var(--app-destructive);
   --system-orange: var(--app-warning);
   --app-purple: #af52de;
+  /* People, circles, private sharing. Sits beside the other five semantic
+     hues rather than inline in a component, and gives the profile screens'
+     existing [data-icon-tone="indigo"] rules something to reference. */
+  --app-indigo: #5856d6;
   --app-info: var(--app-accent);
   --app-focus-ring: rgba(0, 122, 255, 0.25);
   --app-glass-surface: rgba(255, 255, 255, 0.78);
@@ -944,6 +948,10 @@ textarea {
   --app-success: #30d158;
   --app-warning: #ff9f0a;
   --app-purple: #bf5af2;
+  /* Brightened for dark exactly like --app-warning and --app-destructive are.
+     The raw system value (#5e5ce6) measures 2.77:1 on the 20% tile — the only
+     tone in the map under 3:1 — where every sibling sits above 4.7. */
+  --app-indigo: #7d7aff;
   --app-info: var(--app-accent);
   --app-focus-ring: rgba(10, 132, 255, 0.3);
   --app-glass-surface: rgba(28, 28, 30, 0.78);
@@ -998,14 +1006,15 @@ textarea {
 
 [data-profile-stack-screen="account"] [data-profile-stack-content],
 [data-profile-stack-screen="panel:account"] [data-profile-stack-content] {
-  max-width: 720px !important;
+  max-width: 560px !important;
   padding-inline: var(--page-inline-gutter-standard) !important;
   padding-top: 0 !important;
+  padding-bottom: var(--app-bottom-content-clearance) !important;
 }
 
 [data-profile-stack-screen="account"] [data-profile-stack-header],
 [data-profile-stack-screen="panel:account"] [data-profile-stack-header] {
-  max-width: 720px !important;
+  max-width: 560px !important;
   padding-inline: var(--page-inline-gutter-standard) !important;
   padding-top: 18px !important;
 }
@@ -1120,20 +1129,29 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-account-content {
-  --settings-group-stack-gap: var(--ios-account-section-header-bottom-gap);
+  --settings-group-stack-gap: 4px;
   --settings-heading-stack-gap: 4px;
-  --settings-row-px: var(--ios-account-card-leading-inset);
-  --settings-row-py: var(--ios-account-row-vertical-pad);
+  --settings-row-px: 16px;
+  --settings-row-py: 9px;
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: 100%;
-  gap: var(--ios-account-section-gap);
+  min-height: auto;
+  gap: 10px;
   margin-top: 0;
 }
 
 .profile-account-content [data-testid="settings-group"] {
   margin-inline: var(--ios-account-card-outer-offset);
+}
+
+.profile-account-content [data-testid="settings-group"] > div:first-child {
+  margin-bottom: 8px;
+  margin-top: 14px;
+}
+
+.profile-account-content [data-testid="settings-group"]:first-child > div:first-child {
+  margin-top: 8px;
 }
 
 .profile-account-content [data-slot="settings-group-heading"] {
@@ -1151,7 +1169,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 [data-profile-stack-screen="account"] [data-slot="settings-group-shell"],
 [data-profile-stack-screen="panel:account"] [data-slot="settings-group-shell"],
 .profile-account-content [data-slot="settings-group-shell"] {
-  --settings-group-radius: var(--ios-account-card-radius);
+  --settings-group-radius: 22px;
   background: var(--ios-account-card-background);
   border-color: transparent;
   box-shadow: none;
@@ -1161,7 +1179,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 [data-profile-stack-screen="panel:account"] [data-testid="settings-row"],
 .profile-account-content [data-testid="settings-row"] {
   background: var(--ios-account-card-background);
-  min-height: var(--ios-account-row-min-height);
+  min-height: 56px;
 }
 
 [data-profile-stack-screen="account"] [data-testid="settings-row"]::after,
@@ -1176,19 +1194,19 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 [data-profile-stack-screen="panel:account"] [data-slot="settings-row-icon"],
 .profile-account-content [data-slot="settings-row-icon"] {
   background: var(--ios-account-utility-icon-tile-background) !important;
-  border-radius: var(--ios-account-icon-tile-radius) !important;
+  border-radius: 8px !important;
   color: var(--ios-account-utility-icon-glyph) !important;
-  height: var(--ios-account-icon-tile-size) !important;
-  width: var(--ios-account-icon-tile-size) !important;
+  height: 32px !important;
+  width: 32px !important;
 }
 
 [data-profile-stack-screen="account"] [data-slot="settings-row-icon"] svg,
 [data-profile-stack-screen="panel:account"] [data-slot="settings-row-icon"] svg,
 .profile-account-content [data-slot="settings-row-icon"] svg {
   color: var(--ios-account-utility-icon-glyph) !important;
-  height: var(--ios-account-icon-glyph-size) !important;
+  height: 17px !important;
   stroke-width: 1.65 !important;
-  width: var(--ios-account-icon-glyph-size) !important;
+  width: 17px !important;
 }
 
 [data-profile-stack-screen="account"] [data-icon-tone="blue"],
@@ -1216,7 +1234,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 [data-profile-stack-screen="panel:account"] [data-icon-tone="indigo"],
 .profile-account-content [data-icon-tone="indigo"],
 .profile-home-content [data-icon-tone="indigo"] {
-  background: #5856d6 !important;
+  background: var(--app-indigo) !important;
 }
 
 [data-profile-stack-screen="account"] [data-icon-tone="purple"],
@@ -1325,7 +1343,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-account-content
   .profile-account-reset-row
   [data-slot="settings-row-icon"] {
-  background: #3a3a3c !important;
+  background: var(--ios-account-utility-icon-tile-background) !important;
   color: #ffffff !important;
 }
 
@@ -1414,13 +1432,13 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-screen {
   --settings-group-stack-gap: 8px;
   --settings-heading-stack-gap: 4px;
-  --settings-row-px: 20px;
-  --settings-row-py: 10px;
+  --settings-row-px: 16px;
+  --settings-row-py: 9px;
   --settings-row-gap: 12px;
   color: var(--ios-account-label);
   display: flex;
   flex-direction: column;
-  min-height: calc(100dvh - var(--top-shell-reserved-height, 0px));
+  min-height: auto;
   /* Was a hardcoded `env(safe-area-inset-bottom) + 2rem` on main (uat had its
    * own stale `7.5rem`), sized only for the bottom nav bar. That left the
    * last "Your settings" rows (Account access → Sign out) tucked under the
@@ -1433,32 +1451,43 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 
 .profile-home-screen .app-page-header-region {
   margin-inline: auto;
-  max-width: 720px;
+  max-width: 520px;
+  width: 100%;
 }
 
 .profile-home-screen .app-page-content-region {
   margin-inline: auto;
-  max-width: 720px;
+  max-width: 520px;
   width: 100%;
 }
 
 .profile-home-hero {
   gap: 8px !important;
-  padding-top: 8px;
+  padding-top: 0;
 }
 
 .profile-home-screen [data-profile-avatar-frame="true"] {
   background: #d1d1d6 !important;
   box-shadow: none !important;
   display: inline-flex;
-  height: 96px !important;
+  height: 88px !important;
   justify-content: center;
   padding: 0 !important;
   position: relative;
-  width: 96px !important;
+  width: 88px !important;
 }
 
 .profile-home-screen [data-profile-avatar-display="true"] {
+  align-items: center;
+  background: var(--ios-account-accent) !important;
+  color: var(--ios-account-on-accent) !important;
+  display: inline-flex;
+  font-family: var(--font-app-display);
+  font-size: 34px !important;
+  font-weight: 600 !important;
+  justify-content: center;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
   overflow: hidden;
   transition:
     opacity 180ms ease,
@@ -1476,8 +1505,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   background: var(--ios-account-accent) !important;
   box-shadow: none !important;
   color: var(--ios-account-on-accent) !important;
-  height: 26px !important;
-  width: 26px !important;
+  height: 24px !important;
+  width: 24px !important;
 }
 
 .profile-home-screen [data-profile-avatar-camera="true"]:active {
@@ -1494,6 +1523,18 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   border-radius: 9999px;
 }
 
+.profile-home-screen
+  [data-profile-avatar-frame="true"]
+  [data-slot="avatar-fallback"] {
+  background: var(--ios-account-accent) !important;
+  color: var(--ios-account-on-accent) !important;
+  font-family: var(--font-app-display);
+  font-size: 34px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+}
+
 .profile-home-copy {
   display: flex;
   flex-direction: column;
@@ -1503,20 +1544,20 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-name {
   color: var(--ios-account-label) !important;
   font-family: var(--font-app-display);
-  font-size: 32px !important;
+  font-size: 27px !important;
   font-weight: 700 !important;
   letter-spacing: 0 !important;
-  line-height: 1.12 !important;
+  line-height: 32px !important;
 }
 
 .profile-home-meta {
   color: var(--ios-account-secondary-label) !important;
   font-family: var(--font-app-body);
-  font-size: 13px !important;
+  font-size: 15px !important;
   margin-top: 0 !important;
   font-weight: 400;
   letter-spacing: 0 !important;
-  line-height: 18px !important;
+  line-height: 20px !important;
 }
 
 .profile-home-meta svg {
@@ -1534,8 +1575,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-content {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 0;
+  gap: 10px;
+  margin-top: 2px;
   width: 100%;
 }
 
@@ -1544,7 +1585,12 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-content [data-testid="settings-group"] > div:first-child {
-  margin-top: 0;
+  margin-bottom: 7px;
+  margin-top: 18px;
+}
+
+.profile-home-content [data-testid="settings-group"]:first-child > div:first-child {
+  margin-top: 8px;
 }
 
 .profile-home-content [data-slot="settings-group-heading"] {
@@ -1559,7 +1605,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-content [data-slot="settings-group-shell"] {
-  --settings-group-radius: var(--ios-account-card-radius);
+  --settings-group-radius: 22px;
   background: var(--ios-account-card-background);
   border-color: transparent;
   box-shadow: none;
@@ -1567,7 +1613,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 
 .profile-home-content [data-testid="settings-row"] {
   background: var(--ios-account-card-background);
-  min-height: var(--ios-account-row-min-height);
+  min-height: 56px;
 }
 
 .profile-home-content [data-testid="settings-row"]::after {
@@ -1578,17 +1624,17 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 
 .profile-home-content [data-slot="settings-row-icon"] {
   background: var(--ios-account-utility-icon-tile-background) !important;
-  border-radius: var(--ios-account-icon-tile-radius) !important;
+  border-radius: 8px !important;
   color: var(--ios-account-utility-icon-glyph) !important;
-  height: var(--ios-account-icon-tile-size) !important;
-  width: var(--ios-account-icon-tile-size) !important;
+  height: 32px !important;
+  width: 32px !important;
 }
 
 .profile-home-content [data-slot="settings-row-icon"] svg {
   color: var(--ios-account-utility-icon-glyph) !important;
-  height: var(--ios-account-icon-glyph-size) !important;
+  height: 17px !important;
   stroke-width: 1.65 !important;
-  width: var(--ios-account-icon-glyph-size) !important;
+  width: 17px !important;
 }
 
 .profile-home-content [data-icon-tone="blue"] {
@@ -1604,7 +1650,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-content [data-icon-tone="purple"] {
-  background: var(--app-purple) !important;
+  background: var(--ios-account-utility-icon-tile-background) !important;
 }
 
 .profile-home-content [data-icon-tone="red"] {
@@ -3685,6 +3731,21 @@ html.native-ios [data-testid="one-location-onboarding"] {
     text-transform: none !important;
   }
 
+  .app-page-shell
+    .profile-home-content
+    [data-slot="settings-group-heading"],
+  .app-page-shell
+    .profile-home-content
+    [data-slot="settings-group-heading"][role="heading"][aria-level="2"] {
+    font-family: var(--font-app-body);
+    font-size: var(--ios-account-section-header-size) !important;
+    line-height: var(--ios-account-section-header-line) !important;
+    font-weight: var(--ios-account-medium-weight) !important;
+    letter-spacing: -0.01em !important;
+    color: #6e6e73 !important;
+    text-transform: none !important;
+  }
+
   .app-page-shell .profile-account-content [data-slot="settings-row-title"] {
     font-family: var(--font-app-body);
     font-size: var(--ios-account-row-title-size) !important;
@@ -3834,6 +3895,8 @@ html.native-ios [data-testid="one-location-onboarding"] {
    * The pin, "Selected spot" card, and buttons keep their own backgrounds and
    * stay readable on top. Scoped to the save-location modal so no other dialog
    * is affected. */
+  /* The sheet has to stay transparent: its own background would paint UNDER the
+   * map box and the hole would show the sheet rather than the map. */
   html.one-location-map-native [data-testid="save-location-modal"],
   html.one-location-map-native
     [data-testid="save-location-modal"]
@@ -3846,6 +3909,30 @@ html.native-ios [data-testid="one-location-onboarding"] {
     box-shadow: none !important;
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
+  }
+
+  /* And the page behind it has to be HIDDEN, not merely transparent.
+   *
+   * That distinction is the whole bug. The native map draws below the entire
+   * WebView, so the hole only reaches it if every layer above is clear -- which
+   * means the scrim has to go too. But the scrim was the only thing concealing
+   * the screen the picker opened on top of, so clearing it left the onboarding
+   * features screen and the picker drawn over each other.
+   *
+   * Transparent backgrounds do not hide content. While the picker is mounted the
+   * page behind is hidden outright, leaving the sheet, the map inside its box,
+   * and nothing else. The dialog is portalled to <body>, so it is untouched.
+   *
+   * Both surfaces are body-level portals, so this cannot go through the app
+   * scroll root: onboarding deliberately portals to <body> at z-560 to clear the
+   * shell's stacking context, and the saved-places list renders in the shell. */
+  html.one-location-map-native
+    body:has([data-testid="save-location-modal"])
+    [data-testid="one-location-onboarding"],
+  html.one-location-map-native
+    body:has([data-testid="save-location-modal"])
+    [data-app-scroll-root="true"] {
+    visibility: hidden !important;
   }
 
   html {
@@ -4407,11 +4494,17 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .bottom-chrome-surface,
 .kai-bottom-nav-pill {
   color: var(--foreground);
-  border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent) !important;
-  background: color-mix(in srgb, var(--background) 74%, transparent) !important;
+  border: 0.5px solid rgba(60, 60, 67, 0.18) !important;
+  background: rgba(255, 255, 255, 0.78) !important;
   box-shadow: none !important;
-  -webkit-backdrop-filter: blur(12px) saturate(130%);
-  backdrop-filter: blur(12px) saturate(130%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+}
+
+.dark .bottom-chrome-surface,
+.dark .kai-bottom-nav-pill {
+  border-color: rgba(84, 84, 88, 0.58) !important;
+  background: rgba(28, 28, 30, 0.78) !important;
 }
 
 .kai-bottom-nav-pill [data-segment-indicator] {
@@ -4437,7 +4530,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .kai-bottom-nav-pill [role="radio"] {
-  color: color-mix(in srgb, var(--foreground) 70%, transparent) !important;
+  color: #6e6e73 !important;
   min-height: 44px;
   gap: 3px !important;
   padding: 4px 2px !important;
@@ -4445,8 +4538,16 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
-  color: var(--app-accent) !important;
+  color: var(--app-accent-deep) !important;
   font-weight: 500;
+}
+
+.dark .kai-bottom-nav-pill [role="radio"] {
+  color: #98989d !important;
+}
+
+.dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
+  color: var(--app-accent-bright) !important;
 }
 
 .kai-bottom-nav-pill [role="radio"] svg {

@@ -376,9 +376,7 @@ def test_accept_request_never_imports_or_calls_location_service():
     from hushh_mcp.services.connections_service import ConnectionsService
 
     lines = inspect.getsource(ConnectionsService.accept_request).splitlines()
-    code_only = "\n".join(
-        line for line in lines if not line.strip().startswith("#")
-    )
+    code_only = "\n".join(line for line in lines if not line.strip().startswith("#"))
     assert "one_location_agent_service" not in code_only.lower()
     assert "OneLocationAgentService" not in code_only
     assert "auto_start_share_for_new_peer" not in code_only
@@ -707,11 +705,157 @@ def test_search_directory_delegates_pagination_to_eligible_directory_query():
                 "maskedPhone": "******4455",
                 "maskedEmail": "c***a@example.com",
                 "relationship": "none",
+                "isRia": False,
             }
         ],
         "page": 2,
         "hasMore": True,
+        "audience": "all",
     }
+
+
+class _RiaAwareDB:
+    """Answers by what the statement asks, not by call order.
+
+    The directory read now issues an RIA lookup as well as the three
+    connection-graph reads, and their order is an implementation detail; a
+    queue-based double would make these tests fail whenever that order moved.
+    """
+
+    def __init__(self, ria_user_ids: set[str]):
+        self._ria_user_ids = set(ria_user_ids)
+        self.calls: list[tuple[str, dict]] = []
+
+    def execute_raw(self, sql, params=None):
+        self.calls.append((sql, params or {}))
+        if "ria_profiles" in sql:
+            requested = set((params or {}).get("user_ids") or [])
+            return SimpleNamespace(
+                data=[{"user_id": uid} for uid in sorted(self._ria_user_ids & requested)]
+            )
+        return SimpleNamespace(data=[])
+
+
+def test_search_directory_passes_audience_to_a_directory_that_understands_it():
+    """The advisor split belongs in the query, not in a filter over the page.
+
+    A filter applied after LIMIT can only subtract from a page that was already
+    chosen wrongly: "advisors, page 2" would be page 2 of everyone with the
+    non-advisors removed -- pages of uneven size, and every advisor past the
+    first page unreachable.
+    """
+    calls: list[dict[str, object]] = []
+
+    def directory_search(
+        owner_user_id: str,
+        *,
+        query: str,
+        page: int,
+        limit: int,
+        audience: str = "all",
+    ) -> dict[str, object]:
+        calls.append({"query": query, "page": page, "limit": limit, "audience": audience})
+        return {"items": [], "page": page, "hasMore": False}
+
+    svc = ConnectionsService(directory_search=directory_search)
+    db = _RecordingDB([[], [], []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", query="", page=1, limit=8, audience="ria")
+
+    assert calls == [{"query": "", "page": 1, "limit": 8, "audience": "ria"}]
+    assert out["audience"] == "ria"
+
+
+def test_search_directory_still_splits_when_the_directory_predates_audience():
+    """A directory double that never declared `audience` must not silently
+    return everyone to the advisor tab."""
+    people = [
+        {"userId": "u-ria", "displayName": "Ada Advisor"},
+        {"userId": "u-person", "displayName": "Ben Person"},
+    ]
+
+    def legacy_directory_search(
+        owner_user_id: str, *, query: str, page: int, limit: int
+    ) -> dict[str, object]:
+        return {"items": people, "page": page, "hasMore": False}
+
+    svc = ConnectionsService(directory_search=legacy_directory_search)
+    db = _RiaAwareDB({"u-ria"})
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", page=1, limit=8, audience="ria")
+
+    assert [i["userId"] for i in out["items"]] == ["u-ria"]
+    assert out["items"][0]["isRia"] is True
+
+
+def test_search_directory_audiences_partition_the_directory():
+    """Everyone lands in exactly one tab, so separating advisors never makes a
+    person unreachable."""
+    people = [
+        {"userId": "u-ria", "displayName": "Ada Advisor"},
+        {"userId": "u-person", "displayName": "Ben Person"},
+    ]
+
+    def legacy_directory_search(
+        owner_user_id: str, *, query: str, page: int, limit: int
+    ) -> dict[str, object]:
+        return {"items": people, "page": page, "hasMore": False}
+
+    svc = ConnectionsService(directory_search=legacy_directory_search)
+    db = _RiaAwareDB({"u-ria"})
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", page=1, limit=8, audience="people")
+
+    assert [i["userId"] for i in out["items"]] == ["u-person"]
+    assert out["items"][0]["isRia"] is False
+
+
+def test_search_directory_unknown_audience_widens_instead_of_hiding_people():
+    """A typo in a caller must not silently empty the directory."""
+
+    def legacy_directory_search(
+        owner_user_id: str, *, query: str, page: int, limit: int
+    ) -> dict[str, object]:
+        return {
+            "items": [{"userId": "u-person", "displayName": "Ben Person"}],
+            "page": page,
+            "hasMore": False,
+        }
+
+    svc = ConnectionsService(directory_search=legacy_directory_search)
+    db = _RecordingDB([[], [], []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", page=1, limit=8, audience="advisors")
+
+    assert out["audience"] == "all"
+    assert [i["userId"] for i in out["items"]] == ["u-person"]
+
+
+def test_directory_audience_gate_matches_the_capability_gate():
+    """The advisor tab and the capability catalog must agree on who is an RIA.
+
+    If the tab used a looser rule, it would list people whose only possible
+    outcome is an empty capability sheet -- an advisor directory whose rows
+    cannot advise.
+    """
+    from hushh_mcp.services.connections_service import _RIA_VERIFIED_STATUS_SQL
+    from hushh_mcp.services.ria_iam_service import RIAIAMService
+
+    for status in RIAIAMService._RIA_VERIFIED_STATUSES:
+        assert f"'{status}'" in _RIA_VERIFIED_STATUS_SQL, f"audience gate omits '{status}'"
+
+    svc = _svc()
+    captured: dict[str, str] = {}
+
+    def fake_execute_many(sql, params=None):
+        captured["sql"] = sql
+        return []
+
+    svc._execute_many = fake_execute_many
+    svc._verified_ria_user_ids(["u-1"])
+
+    for status in RIAIAMService._RIA_VERIFIED_STATUSES:
+        assert f"'{status}'" in captured["sql"], f"annotation gate omits '{status}'"
 
 
 def test_list_connections_maps_rows():

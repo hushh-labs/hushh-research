@@ -22,7 +22,10 @@ from hushh_mcp.consent.token import issue_token, validate_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.location.policy import (
     LOCATION_CAPABILITY_SCOPES,
+    TIMED_LOCATION_SHARE_DURATION_MODE,
+    UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
     normalize_duration_hours,
+    normalize_duration_mode,
     normalize_source_platform,
 )
 from hushh_mcp.types import AgentID, UserID
@@ -255,7 +258,8 @@ def _private_share_operation_fingerprint(
     *,
     recipient_user_id: str,
     recipient_key_id: str,
-    duration_hours: float,
+    duration_hours: float | None,
+    duration_mode: str,
     reason: str | None,
     share_kind: str,
     confirmed_at: datetime,
@@ -268,6 +272,7 @@ def _private_share_operation_fingerprint(
             "recipient_user_id": recipient_user_id,
             "recipient_key_id": recipient_key_id,
             "duration_hours": duration_hours,
+            "duration_mode": duration_mode,
             "reason": reason or "",
             "share_kind": share_kind,
             "confirmed_at": confirmed_at.isoformat(),
@@ -445,6 +450,27 @@ def _circle_invite_url(token: str) -> str:
     return f"/one/location/invite/{token}"
 
 
+#: Characters that separate one word of a name from the next, folded to spaces
+#: before a directory search compares anything. Names are not stored tidily --
+#: "Abdul-Rashid", "Abdul R.", "O'Brien" -- and a reader treats all of these as
+#: two words, so the search has to as well.
+#:
+#: Both sides of the comparison MUST use this one list: the stored name is
+#: folded by ``_DIRECTORY_SEPARATOR_SQL`` inside the statement, the typed query
+#: by ``_DIRECTORY_SEPARATOR_FOLD`` in Python. When only one side was folded,
+#: every name carrying punctuation became unsearchable.
+_DIRECTORY_SEPARATORS = "-'._/,"
+_DIRECTORY_SEPARATOR_FOLD = str.maketrans(_DIRECTORY_SEPARATORS, " " * len(_DIRECTORY_SEPARATORS))
+#: The SQL half of the same fold, written out so a test can assert the
+#: statement below still contains exactly this and nothing has drifted.
+_DIRECTORY_SEPARATOR_SQL = (
+    "TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '{}', '{}')".format(
+        _DIRECTORY_SEPARATORS.replace("'", "''"),
+        " " * len(_DIRECTORY_SEPARATORS),
+    )
+)
+
+
 def _identity_display_label(row: dict[str, Any] | None, fallback: str = "A trusted person") -> str:
     if not row:
         return fallback
@@ -516,6 +542,64 @@ def _classify_share_kind(reason: str | None) -> str:
     if not text or text in {"owner_approved", "request_approved"}:
         return "share"
     return "check_in"
+
+
+def _is_until_stopped_share(duration_mode: str | None) -> bool:
+    return duration_mode == UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+
+
+def _resolve_share_duration(
+    *,
+    duration_hours: float | None,
+    duration_mode: str | None,
+    share_kind: str,
+    now: datetime,
+) -> tuple[float | None, datetime | None, str]:
+    try:
+        mode = normalize_duration_mode(duration_mode)
+    except ValueError as exc:
+        raise OneLocationAgentError(
+            "LOCATION_DURATION_MODE_INVALID",
+            str(exc),
+            status_code=422,
+        ) from exc
+    if _is_until_stopped_share(mode):
+        if share_kind in {"sos", "check_in"}:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_MODE_NOT_ALLOWED",
+                "Until I stop is only available for trusted live shares.",
+                status_code=422,
+            )
+        return None, None, mode
+    try:
+        duration = normalize_duration_hours(duration_hours)
+    except ValueError as exc:
+        raise OneLocationAgentError(
+            "LOCATION_DURATION_INVALID",
+            str(exc),
+            status_code=422,
+        ) from exc
+    return duration, now + timedelta(hours=duration), TIMED_LOCATION_SHARE_DURATION_MODE
+
+
+def _duration_metadata_value(duration_hours: float | None) -> float | None:
+    return float(duration_hours) if duration_hours is not None else None
+
+
+def _grant_expires_at_is_past(row: dict[str, Any]) -> bool:
+    expires_at_raw = row.get("expires_at")
+    if expires_at_raw is None:
+        return str(row.get("duration_mode") or "") != UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+    expires_at = _parse_datetime(expires_at_raw, field_name="expires_at")
+    return expires_at <= _utcnow()
+
+
+def _payload_expires_at_is_past(grant: dict[str, Any]) -> bool:
+    expires_at_raw = grant.get("expiresAt")
+    if not expires_at_raw:
+        return str(grant.get("durationMode") or "") != UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+    expires_at = _parse_datetime(expires_at_raw, field_name="expiresAt")
+    return expires_at <= _utcnow()
 
 
 def _visible_share_message(reason: str | None) -> str | None:
@@ -1955,6 +2039,11 @@ class OneLocationAgentService:
         metadata = _loads_json(row.get("metadata"))
         reason = metadata.get("reason") if isinstance(metadata, dict) else None
         stored_kind = metadata.get("share_kind") if isinstance(metadata, dict) else None
+        duration_mode = str(
+            row.get("duration_mode")
+            or (metadata.get("duration_mode") if isinstance(metadata, dict) else "")
+            or TIMED_LOCATION_SHARE_DURATION_MODE
+        )
         share_kind = stored_kind or _classify_share_kind(reason)
         share_message = _visible_share_message(reason)
         return {
@@ -1969,7 +2058,10 @@ class OneLocationAgentService:
             "status": str(row.get("status") or ""),
             "consentScope": str(row.get("consent_scope") or "cap.location.live.view"),
             "capabilityScopes": _loads_json(row.get("capability_scopes")) or [],
-            "durationHours": float(row.get("duration_hours") or 0),
+            "durationMode": duration_mode,
+            "durationHours": (
+                float(row.get("duration_hours")) if row.get("duration_hours") is not None else None
+            ),
             "expiresAt": _iso(row.get("expires_at")),
             "createdAt": _iso(row.get("created_at")),
             "updatedAt": _iso(row.get("updated_at")),
@@ -3159,8 +3251,15 @@ class OneLocationAgentService:
         page: int = 1,
         limit: int = 20,
         candidate_user_id: str | None = None,
+        audience: str = "all",
     ) -> dict[str, Any]:
         """Search the eligible Connect directory before pagination.
+
+        ``audience`` splits the same eligible directory in two: ``"ria"`` keeps
+        only people holding a capability-bearing RIA profile, ``"people"`` keeps
+        only those who do not, and ``"all"`` (the default, and what every
+        pre-existing caller gets) keeps both. It is applied HERE, in the same
+        statement, for the same reason the matching is -- see below.
 
         This preserves the existing discovery policy while preventing callers
         from being limited by an in-memory first page.  The result remains a
@@ -3188,12 +3287,33 @@ class OneLocationAgentService:
         # here, so it cannot use this to request an unbounded directory.
         limit = max(1, min(int(limit or 20), 100))
         offset = (page - 1) * limit
-        needle = (query or "").strip().lower()
+        # Fold the typed query exactly the way the stored name is folded.
+        #
+        # Only one side of the comparison used to be folded. The statement
+        # below rewrites a stored name's separators to spaces, so "O'Brien" is
+        # matched as "o brien" -- but the query kept its punctuation, and
+        # "o'brien%" cannot match "o brien". Typing a name the way it is
+        # actually spelled returned nothing, and every apostrophe, hyphen and
+        # initial did it: O'Brien, D'Souza, Jean-Luc, Smith-Jones, "K.R.".
+        # Deleting the punctuation instead ("obrien") failed too, so the search
+        # box looked broken for these names with no way to type around it.
+        #
+        # Fold first, then escape. "_" is on both lists -- a separator here and
+        # a LIKE wildcard below -- and folding settles which one it is: the
+        # stored side has already turned it into a space, so matching it as a
+        # literal could only ever return nothing. Once folded it is a space, so
+        # it reaches LIKE as a space and cannot act as a wildcard either.
+        needle = (query or "").strip().lower().translate(_DIRECTORY_SEPARATOR_FOLD).strip()
         target = (candidate_user_id or "").strip() or None
+        # An unrecognised audience widens to "all" rather than narrowing: a typo
+        # in a caller must not silently hide people who are really there.
+        requested_audience = (audience or "all").strip().lower()
+        if requested_audience not in ("all", "people", "ria"):
+            requested_audience = "all"
         # LIKE metacharacters in a typed name are literal characters, not
         # wildcards. Unescaped, a single "%" typed into Connect matches every
-        # row in the directory and "_" matches any letter, so the escape is
-        # what keeps the pattern describing the name the person actually typed.
+        # row in the directory, so the escape is what keeps the pattern
+        # describing the name the person actually typed.
         #
         # "!" is the escape character rather than the conventional backslash on
         # purpose: a backslash would have to survive both Python's string
@@ -3282,6 +3402,18 @@ class OneLocationAgentService:
                 OR TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')
                      LIKE :word_prefix ESCAPE '!'
               )
+              AND (
+                :audience = 'all'
+                OR (
+                  :audience = 'ria'
+                ) = EXISTS (
+                  SELECT 1
+                  FROM ria_profiles rp_audience
+                  WHERE rp_audience.user_id = a.user_id
+                    AND rp_audience.verification_status
+                          IN ('active', 'verified', 'finra_verified')
+                )
+              )
             ORDER BY
               CASE
                 WHEN :query = '' THEN 0
@@ -3299,6 +3431,7 @@ class OneLocationAgentService:
                 "query": needle,
                 "name_prefix": name_prefix_pattern,
                 "word_prefix": word_prefix_pattern,
+                "audience": requested_audience,
                 "fetch_limit": limit + 1,
                 "offset": offset,
             },
@@ -3691,7 +3824,7 @@ class OneLocationAgentService:
         grant: dict[str, Any],
         owner_user_id: str,
         recipient_user_id: str,
-        duration: float,
+        duration: float | None,
         reason: str | None,
         resolved_kind: str,
     ) -> bool:
@@ -3752,7 +3885,10 @@ class OneLocationAgentService:
                 "grant_id": grant["id"],
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
-                "duration_hours": str(duration),
+                "duration_hours": str(duration) if duration is not None else "",
+                "duration_mode": str(
+                    grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE
+                ),
                 "expires_at": grant.get("expiresAt"),
                 "share_kind": resolved_kind,
                 **(
@@ -3940,7 +4076,13 @@ class OneLocationAgentService:
                     recipient_user_id=recipient_user_id,
                     requested_circle_id=requested_circle_id,
                 )
-                params = {**grant_params, "source_circle_id": source_circle_id}
+                params = {
+                    **grant_params,
+                    "duration_mode": grant_params.get(
+                        "duration_mode", TIMED_LOCATION_SHARE_DURATION_MODE
+                    ),
+                    "source_circle_id": source_circle_id,
+                }
                 conn.execute(
                     text(
                         """
@@ -3960,13 +4102,14 @@ class OneLocationAgentService:
                             INSERT INTO one_location_share_grants (
                               owner_user_id, recipient_user_id, recipient_key_id, status,
                               consent_scope, capability_scopes, duration_hours, expires_at,
-                              source_circle_id, created_at, updated_at, metadata
+                              duration_mode, source_circle_id, created_at, updated_at, metadata
                             )
                             VALUES (
                               :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                               'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                              :duration_hours, :expires_at, CAST(:source_circle_id AS UUID),
-                              NOW(), NOW(), CAST(:metadata_json AS JSONB)
+                              :duration_hours, :expires_at, :duration_mode,
+                              CAST(:source_circle_id AS UUID), NOW(), NOW(),
+                              CAST(:metadata_json AS JSONB)
                             )
                             RETURNING *,
                               :recipient_display_name AS recipient_display_name,
@@ -4000,6 +4143,7 @@ class OneLocationAgentService:
                         "event_metadata_json": _json_param(
                             {
                                 "duration_hours": params["duration_hours"],
+                                "duration_mode": params["duration_mode"],
                                 "counterpart_label": str(
                                     params.get("recipient_display_name") or ""
                                 ).strip()
@@ -4025,7 +4169,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_user_id: str,
         recipient_key_id: str | None,
-        duration_hours: float,
+        duration_hours: float | None,
+        duration_mode: str = TIMED_LOCATION_SHARE_DURATION_MODE,
         reason: str | None = None,
         share_kind: str | None = None,
         source_circle_id: str | None = None,
@@ -4050,6 +4195,7 @@ class OneLocationAgentService:
                     recipient_user_id=recipient_user_id,
                     recipient_key_id=recipient_key_id,
                     duration_hours=duration_hours,
+                    duration_mode=duration_mode,
                     reason=reason,
                     share_kind=share_kind,
                     source_circle_id=source_circle_id,
@@ -4065,7 +4211,7 @@ class OneLocationAgentService:
                     grant=grant,
                     owner_user_id=owner_user_id,
                     recipient_user_id=recipient_user_id,
-                    duration=float(grant.get("durationHours") or duration_hours),
+                    duration=_duration_metadata_value(grant.get("durationHours")),
                     reason=reason,
                     resolved_kind=resolved_kind,
                 )
@@ -4086,15 +4232,13 @@ class OneLocationAgentService:
                 LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
                 status_code=403,
             )
-        try:
-            duration = normalize_duration_hours(duration_hours)
-        except ValueError as exc:
-            raise OneLocationAgentError(
-                "LOCATION_DURATION_INVALID",
-                str(exc),
-                status_code=422,
-            ) from exc
         resolved_kind = share_kind or _classify_share_kind(reason)
+        duration, expires_at, resolved_duration_mode = _resolve_share_duration(
+            duration_hours=duration_hours,
+            duration_mode=duration_mode,
+            share_kind=resolved_kind,
+            now=_utcnow(),
+        )
         if resolved_kind == "sos" and not self._is_sms_contact(
             owner_user_id=owner_user_id, contact_user_id=recipient_user_id
         ):
@@ -4109,12 +4253,23 @@ class OneLocationAgentService:
             require_phone_verified=require_recipient_phone_verified,
         )
         key_id = str(recipient.get("key_id") or "")
-        expires_at = _utcnow() + timedelta(hours=duration)
-        capability = self._mint_grant_capability_token(
-            owner_user_id=owner_user_id,
-            recipient_user_id=recipient_user_id,
-            duration_hours=duration,
+        capability = (
+            self._mint_grant_capability_token(
+                owner_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+                duration_hours=duration,
+            )
+            if duration is not None
+            else None
         )
+        metadata = {
+            "reason": reason or "owner_approved",
+            "share_kind": resolved_kind,
+            "duration_mode": resolved_duration_mode,
+            "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
+        }
+        if capability is not None:
+            metadata["capability_token"] = capability["token"]
         grant_params = {
             "owner_user_id": owner_user_id,
             "recipient_user_id": recipient_user_id,
@@ -4122,15 +4277,9 @@ class OneLocationAgentService:
             "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
             "duration_hours": duration,
             "expires_at": expires_at,
+            "duration_mode": resolved_duration_mode,
             "source_circle_id": source_circle_id,
-            "metadata_json": _json_param(
-                {
-                    "reason": reason or "owner_approved",
-                    "share_kind": resolved_kind,
-                    "capability_token": capability["token"],
-                    "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
-                }
-            ),
+            "metadata_json": _json_param(metadata),
             "recipient_display_name": recipient.get("display_name"),
             "recipient_phone_number": recipient.get("phone_number"),
         }
@@ -4161,13 +4310,14 @@ class OneLocationAgentService:
                 INSERT INTO one_location_share_grants (
                   owner_user_id, recipient_user_id, recipient_key_id, status,
                   consent_scope, capability_scopes, duration_hours, expires_at,
-                  source_circle_id, created_at, updated_at, metadata
+                  duration_mode, source_circle_id, created_at, updated_at, metadata
                 )
                 VALUES (
                   :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                   'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                  :duration_hours, :expires_at, CAST(:source_circle_id AS UUID),
-                  NOW(), NOW(), CAST(:metadata_json AS JSONB)
+                  :duration_hours, :expires_at, :duration_mode,
+                  CAST(:source_circle_id AS UUID), NOW(), NOW(),
+                  CAST(:metadata_json AS JSONB)
                 )
                 RETURNING *,
                   :recipient_display_name AS recipient_display_name,
@@ -4190,7 +4340,18 @@ class OneLocationAgentService:
                 recipient_user_id=recipient_user_id,
                 grant_id=grant["id"],
                 event_type="location_share_created",
-                metadata={"duration_hours": duration, "counterpart_label": recipient_label},
+                metadata={
+                    "duration_hours": _duration_metadata_value(duration),
+                    "duration_mode": resolved_duration_mode,
+                    "counterpart_label": recipient_label,
+                    # Why this grant exists. The audit ledger keeps the row
+                    # either way; the Feed fan-out trigger reads this to drop
+                    # the duplicate. Approving a request already writes
+                    # `location_access_approved` right after this call, and one
+                    # tap that produces two Feed rows reads as two things
+                    # happening. Same rule the notification below applies.
+                    "reason": reason or "",
+                },
             )
         # Request approval has its own richer notification immediately after
         # this call. Sending share-created as well produces two alerts for one
@@ -4201,7 +4362,7 @@ class OneLocationAgentService:
                 grant=grant,
                 owner_user_id=owner_user_id,
                 recipient_user_id=recipient_user_id,
-                duration=duration,
+                duration=_duration_metadata_value(duration),
                 reason=reason,
                 resolved_kind=resolved_kind,
             )
@@ -4213,10 +4374,11 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_user_id: str,
         recipient_key_id: str | None,
-        duration_hours: float,
+        duration_hours: float | None,
         client_operation_id: str,
         confirmed_at: datetime | str,
         envelope: dict[str, Any],
+        duration_mode: str = TIMED_LOCATION_SHARE_DURATION_MODE,
         reason: str | None = None,
         share_kind: str | None = None,
         source_circle_id: str | None = None,
@@ -4252,15 +4414,13 @@ class OneLocationAgentService:
                 "The approved recipient key is required.",
                 status_code=422,
             )
-        try:
-            duration = normalize_duration_hours(duration_hours)
-        except ValueError as exc:
-            raise OneLocationAgentError(
-                "LOCATION_DURATION_INVALID",
-                str(exc),
-                status_code=422,
-            ) from exc
         resolved_kind = share_kind or _classify_share_kind(reason)
+        duration, expires_at, resolved_duration_mode = _resolve_share_duration(
+            duration_hours=duration_hours,
+            duration_mode=duration_mode,
+            share_kind=resolved_kind,
+            now=_utcnow(),
+        )
         # Record which relationship authorized this share. When the caller names
         # a Circle it must be that Circle; otherwise a Circle-only peer still
         # gets its source Circle stamped, so revoking the Circle later revokes
@@ -4307,6 +4467,7 @@ class OneLocationAgentService:
             recipient_user_id=recipient_user_id,
             recipient_key_id=key_id,
             duration_hours=duration,
+            duration_mode=resolved_duration_mode,
             reason=stored_reason,
             share_kind=resolved_kind,
             confirmed_at=confirmed_at_value,
@@ -4317,23 +4478,27 @@ class OneLocationAgentService:
             recipient_user_id=recipient_user_id,
             client_operation_id=operation_id,
         )
-        expires_at = now + timedelta(hours=duration)
-        capability = self._mint_grant_capability_token(
-            owner_user_id=owner_user_id,
-            recipient_user_id=recipient_user_id,
-            duration_hours=duration,
+        capability = (
+            self._mint_grant_capability_token(
+                owner_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+                duration_hours=duration,
+            )
+            if duration is not None
+            else None
         )
-        metadata_json = _json_param(
-            {
-                "reason": stored_reason or "owner_approved",
-                "share_kind": resolved_kind,
-                "capability_token": capability["token"],
-                "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
-                "client_operation_id": operation_id,
-                "client_operation_fingerprint": operation_fingerprint,
-                "confirmed_at": confirmed_at_value.isoformat(),
-            }
-        )
+        metadata = {
+            "reason": stored_reason or "owner_approved",
+            "share_kind": resolved_kind,
+            "duration_mode": resolved_duration_mode,
+            "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
+            "client_operation_id": operation_id,
+            "client_operation_fingerprint": operation_fingerprint,
+            "confirmed_at": confirmed_at_value.isoformat(),
+        }
+        if capability is not None:
+            metadata["capability_token"] = capability["token"]
+        metadata_json = _json_param(metadata)
         row = self._execute_atomic_private_share(
             recipient_key_lock_key=f"one-location-recipient-key:{recipient_user_id}",
             pair_lock_key=f"one-location-grant:{owner_user_id}:{recipient_user_id}",
@@ -4450,13 +4615,13 @@ class OneLocationAgentService:
               INSERT INTO one_location_share_grants (
                 id, owner_user_id, recipient_user_id, recipient_key_id,
                 status, consent_scope, capability_scopes, duration_hours,
-                expires_at, source_circle_id, created_at, updated_at, metadata
+                expires_at, duration_mode, source_circle_id, created_at, updated_at, metadata
               )
               SELECT
                 CAST(:grant_id AS UUID),
                 :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                 'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                :duration_hours, :expires_at,
+                :duration_hours, :expires_at, :duration_mode,
                 CAST(:source_circle_id AS UUID), NOW(), NOW(),
                 CAST(:metadata_json AS JSONB)
               FROM eligible_recipient
@@ -4497,6 +4662,7 @@ class OneLocationAgentService:
                 'location_share_created',
                 jsonb_build_object(
                   'duration_hours', g.duration_hours,
+                  'duration_mode', g.duration_mode,
                   'counterpart_label', COALESCE(NULLIF(e.display_name, ''), 'A trusted person')
                 ),
                 NOW()
@@ -4563,6 +4729,7 @@ class OneLocationAgentService:
                 "recipient_key_id": key_id,
                 "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
                 "duration_hours": duration,
+                "duration_mode": resolved_duration_mode,
                 "expires_at": expires_at,
                 "metadata_json": metadata_json,
                 "freshness_valid": freshness_error is None,
@@ -4653,11 +4820,7 @@ class OneLocationAgentService:
                 "The recipient's secure location key changed. Review and share again.",
                 status_code=409,
             )
-        grant_expires_at = _parse_datetime(
-            grant.get("expiresAt"),
-            field_name="expiresAt",
-        )
-        if grant_expires_at <= _utcnow():
+        if _payload_expires_at_is_past(grant):
             # Expiry is lazily materialized elsewhere. Never report a stale
             # deterministic replay as active; normalize it before failing.
             self._expire_stale_grants(recipient_user_id)
@@ -4768,8 +4931,7 @@ class OneLocationAgentService:
                 "LOCATION_GRANT_NOT_ACTIVE", "Location share is not active.", status_code=409
             )
         is_first_envelope = not bool(grant_row.get("latest_envelope_id"))
-        expires_at = _parse_datetime(grant_row.get("expires_at"), field_name="expires_at")
-        if expires_at <= _utcnow():
+        if _grant_expires_at_is_past(grant_row):
             self._expire_stale_grants(owner_user_id)
             raise OneLocationAgentError(
                 "LOCATION_GRANT_EXPIRED", "Location share has expired.", status_code=410
@@ -5081,7 +5243,7 @@ class OneLocationAgentService:
             ) envelope ON TRUE
             WHERE g.recipient_user_id = :user_id
               AND g.status = 'active'
-              AND g.expires_at > NOW()
+              AND (g.expires_at IS NULL OR g.expires_at > NOW())
             ORDER BY envelope.captured_at DESC
             LIMIT 100
             """,
@@ -5137,8 +5299,7 @@ class OneLocationAgentService:
         """Project wall-clock expiry for read models without mutating storage."""
         if not row or str(row.get("status") or "") != "active":
             return row
-        expires_at = _parse_datetime(row.get("expires_at"), field_name="expires_at")
-        return {**row, "status": "expired"} if expires_at <= _utcnow() else row
+        return {**row, "status": "expired"} if _grant_expires_at_is_past(row) else row
 
     def _expire_circle_invite(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not row or str(row.get("status") or "") != "active":
@@ -6180,7 +6341,15 @@ class OneLocationAgentService:
         if str(row.get("status") or "") != "active":
             return self._grant_payload(row) or {}
 
-        candidate_expires_at = datetime.now(timezone.utc) + timedelta(hours=duration_hours)
+        try:
+            duration = normalize_duration_hours(duration_hours)
+        except ValueError as exc:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_INVALID",
+                str(exc),
+                status_code=422,
+            ) from exc
+        candidate_expires_at = datetime.now(timezone.utc) + timedelta(hours=duration)
         current_expires_at = row.get("expires_at")
         if current_expires_at is not None:
             if current_expires_at.tzinfo is None:
@@ -6195,7 +6364,10 @@ class OneLocationAgentService:
         updated = self._execute_one(
             """
             UPDATE one_location_share_grants
-            SET expires_at = :new_expires_at, updated_at = NOW()
+            SET duration_mode = 'timed',
+                duration_hours = :duration_hours,
+                expires_at = :new_expires_at,
+                updated_at = NOW()
             WHERE id = CAST(:grant_id AS UUID)
               AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
               AND status = 'active'
@@ -6204,6 +6376,7 @@ class OneLocationAgentService:
             {
                 "grant_id": grant_id,
                 "owner_user_id": caller_user_id,
+                "duration_hours": duration,
                 "new_expires_at": candidate_expires_at,
             },
         )
@@ -6375,7 +6548,8 @@ class OneLocationAgentService:
         *,
         owner_user_id: str,
         request_id: str,
-        duration_hours: float,
+        duration_hours: float | None,
+        duration_mode: str = TIMED_LOCATION_SHARE_DURATION_MODE,
     ) -> dict[str, Any]:
         request_row = self._execute_one(
             """
@@ -6400,6 +6574,7 @@ class OneLocationAgentService:
             recipient_user_id=requester_user_id,
             recipient_key_id=None,
             duration_hours=duration_hours,
+            duration_mode=duration_mode,
             reason="request_approved",
             require_recipient_phone_verified=False,
         )
@@ -6423,7 +6598,8 @@ class OneLocationAgentService:
             request_id=request_id,
             event_type="location_access_approved",
             metadata={
-                "duration_hours": normalize_duration_hours(duration_hours),
+                "duration_hours": _duration_metadata_value(grant.get("durationHours")),
+                "duration_mode": grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE,
                 "counterpart_label": requester_label,
             },
         )
@@ -6510,7 +6686,7 @@ class OneLocationAgentService:
             WHERE id = CAST(:grant_id AS UUID)
               AND recipient_user_id = :referring_user_id
               AND status = 'active'
-              AND expires_at > NOW()
+              AND (expires_at IS NULL OR expires_at > NOW())
             LIMIT 1
             """,
             {"grant_id": grant_id, "referring_user_id": referring_user_id},

@@ -137,6 +137,41 @@ def test_atomic_private_share_route_binds_owner_from_token(monkeypatch) -> None:
     assert service.calls[0]["enforce_connection"] is True
 
 
+def test_private_share_route_threads_until_stopped_duration_mode(monkeypatch) -> None:
+    class GrantRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def create_grant(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "id": "grant-1",
+                "status": "active",
+                "durationMode": "until_stopped",
+                "durationHours": None,
+                "expiresAt": None,
+            }
+
+    service = GrantRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    response = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "recipient",
+            "recipientKeyId": "recipient-key",
+            "durationMode": "until_stopped",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["grant"]["expiresAt"] is None
+    assert service.calls[0]["duration_mode"] == "until_stopped"
+    assert service.calls[0]["duration_hours"] is None
+    assert service.calls[0]["enforce_connection"] is True
+
+
 def test_view_envelope_route_threads_allow_empty_query_param(monkeypatch) -> None:
     """The opt-in must reach the service, and must default to off.
 

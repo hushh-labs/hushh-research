@@ -12,6 +12,7 @@
 
 import { useId, useState, type ReactNode } from "react";
 import {
+  AlertTriangle,
   ChevronDown,
   Clock3,
   Copy,
@@ -327,6 +328,24 @@ export function RequestCard({
 /* SharedWithMeCard (focused received-share detail)                   */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Why a received share has nothing on the map yet.
+ *
+ * `waiting` is a healthy share whose owner has not published a point yet —
+ * the most common state on the receiving side, and a success. It gets calm
+ * muted copy and no action, because it resolves itself on the next poll.
+ *
+ * `blocked` is a share the recipient genuinely cannot open and that will not
+ * fix itself. Only this earns the alert treatment and the recovery action.
+ *
+ * Collapsing these two into one "error" string is what left recipients staring
+ * at a card with a name, a date, and no explanation of any kind.
+ */
+export type GrantViewStatus = {
+  message: string;
+  tone: "waiting" | "blocked";
+};
+
 export function SharedWithMeCard({
   name,
   statusLine,
@@ -343,6 +362,9 @@ export function SharedWithMeCard({
   address,
   addressLoading,
   coordinatesFallback,
+  viewStatus,
+  onAskReshare,
+  askReshareBusy,
 }: {
   name: string;
   statusLine: string;
@@ -365,6 +387,15 @@ export function SharedWithMeCard({
   addressLoading?: boolean;
   /** "lat, lng" shown when no street address is available. */
   coordinatesFallback?: string;
+  /**
+   * Why there is no location on screen. Rendered only while nothing has been
+   * decrypted yet — once a point arrives it is the answer, and a stale status
+   * line underneath it would contradict what the person is looking at.
+   */
+  viewStatus?: GrantViewStatus | null;
+  /** Re-request access from the owner. Offered only for the `blocked` tone. */
+  onAskReshare?: () => void;
+  askReshareBusy?: boolean;
 }) {
   const canOpenMap = Boolean(previewExpanded && mapHref);
   const previewRegionId = useId();
@@ -384,12 +415,12 @@ export function SharedWithMeCard({
         <Avatar initials={initialsFrom(name)} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-semibold text-foreground">
-            {name} is sharing with you
+            {name}
           </p>
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
             <p className={cn(MUTED_TEXT, "min-w-0 truncate")}>{statusLine}</p>
             <StatusPill tone="ready" className="shrink-0">
-              Access active
+              Active
             </StatusPill>
           </div>
         </div>
@@ -448,6 +479,50 @@ export function SharedWithMeCard({
             </p>
           )}
         </div>
+      ) : null}
+      {viewStatus ? (
+        viewStatus.tone === "waiting" ? (
+          // Deliberately not `role="alert"`, not amber, not an icon that reads
+          // as a problem. Nothing is wrong: the share is live and the first
+          // point simply has not arrived. `aria-live="polite"` announces it
+          // once without interrupting, which is what a status is.
+          <p
+            aria-live="polite"
+            className={cn(MUTED_TEXT, "flex items-start gap-1.5 text-sm")}
+          >
+            <Clock3
+              className="mt-0.5 h-3.5 w-3.5 shrink-0"
+              aria-hidden="true"
+            />
+            <span className="min-w-0 break-words">{viewStatus.message}</span>
+          </p>
+        ) : (
+          <div
+            role="alert"
+            className="flex flex-col gap-2.5 rounded-2xl border border-[#ff9f0a]/25 bg-[#ff9f0a]/[0.08] p-3 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle
+                className="mt-0.5 h-4 w-4 shrink-0 text-[#c77700] dark:text-[#ffb340]"
+                aria-hidden="true"
+              />
+              <p className="min-w-0 break-words text-[12.5px] font-medium leading-snug text-[#8a5a00] [overflow-wrap:anywhere] dark:text-[#ffcf8a]">
+                {viewStatus.message}
+              </p>
+            </div>
+            {onAskReshare ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onAskReshare}
+                isLoading={askReshareBusy}
+                className="w-full shrink-0 rounded-full border-[#ff9f0a]/30 bg-white/70 text-[#8a5a00] hover:bg-white sm:w-auto dark:border-[#ffb340]/25 dark:bg-white/10 dark:text-[#ffcf8a] dark:hover:bg-white/15"
+              >
+                Ask to refresh
+              </Button>
+            ) : null}
+          </div>
+        )
       ) : null}
       <div id={previewRegionId} hidden={!isPreviewExpanded}>
         {children}

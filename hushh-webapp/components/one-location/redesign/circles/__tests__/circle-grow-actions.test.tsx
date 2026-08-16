@@ -11,6 +11,7 @@ import {
   CircleGrowActions,
   CircleInvitePeopleSheet,
 } from "@/components/one-location/redesign/circles/circle-grow-actions";
+import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 
 vi.mock("sonner", () => ({
   toast: {
@@ -92,6 +93,77 @@ describe("CircleGrowActions", () => {
 describe("CircleInvitePeopleSheet", () => {
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("paints its blocked Select people CTA the same as the Circle detail copy", async () => {
+    // This sheet exists twice — here, reached from Check-In, and in the Circle
+    // detail flow. A user meeting the same sheet by a different route must not
+    // see a different button, so both read the one BLOCKED_CTA definition.
+    render(
+      <CircleInvitePeopleSheet
+        open
+        onOpenChange={vi.fn()}
+        circleId="circle-1"
+        circleName="Meena Family"
+        onLoadEligibleConnections={vi.fn().mockResolvedValue({
+          eligibleConnections: [
+            {
+              userId: "conn-1",
+              displayName: "Asha Meena",
+              connectionOrigin: "one" as const,
+            },
+          ],
+          pendingInvites: [],
+          remainingCapacity: 5,
+        })}
+        onInviteConnections={vi.fn().mockResolvedValue(undefined)}
+        onCancelMemberInvite={vi.fn()}
+      />,
+    );
+
+    const cta = await screen.findByRole("button", { name: "Select people" });
+    expect(cta).toBeDisabled();
+    for (const rule of BLOCKED_CTA.split(" ")) {
+      expect(cta.className).toContain(rule);
+    }
+    // The half-opacity accent fill is what made a blocked button read as live.
+    expect(cta.className).not.toContain("disabled:opacity-50");
+  });
+
+  it("finds a connection from the first letter here too", async () => {
+    render(
+      <CircleInvitePeopleSheet
+        open
+        onOpenChange={vi.fn()}
+        circleId="circle-1"
+        circleName="Meena Family"
+        onLoadEligibleConnections={vi.fn().mockResolvedValue({
+          eligibleConnections: [
+            {
+              userId: "conn-1",
+              displayName: "Asha Meena",
+              connectionOrigin: "one" as const,
+            },
+            {
+              userId: "conn-2",
+              displayName: "Neel Shah",
+              connectionOrigin: "one" as const,
+            },
+          ],
+          pendingInvites: [],
+          remainingCapacity: 5,
+        })}
+        onInviteConnections={vi.fn().mockResolvedValue(undefined)}
+        onCancelMemberInvite={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("Asha Meena")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Search connections"), {
+      target: { value: "n" },
+    });
+    expect(screen.getByText("Neel Shah")).toBeTruthy();
+    expect(screen.queryByText("Asha Meena")).toBeNull();
   });
 
   it("cancels a pending invitation and reloads eligibility", async () => {

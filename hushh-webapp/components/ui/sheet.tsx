@@ -97,6 +97,22 @@ type SheetContentProps =
     showDragHandle?: boolean
     /** Optional surface-specific scrim treatment for a semantic app sheet. */
     overlayClassName?: string
+    /**
+     * Renders the full-screen scrim behind the sheet. On by default, because a
+     * sheet normally IS the whole task and everything behind it should be
+     * inert.
+     *
+     * A sheet anchored to a live surface is the exception, and it is not a
+     * cosmetic one: the scrim is `fixed inset-0 z-[711] touch-none`, so it
+     * covers -- and swallows every tap on -- anything the host screen keeps
+     * on top, no matter how the host layers it. On the Location map that meant
+     * the close X, Locate and Check-in controls stayed fully visible through a
+     * 22%-black blur and did nothing when pressed, which reads to anyone
+     * holding the phone as "the cross is broken". Such a sheet passes
+     * `showOverlay={false}` (with `modal={false}`) so the surface behind it
+     * stays both readable and operable.
+     */
+    showOverlay?: boolean
   }
 
 function SheetContent(
@@ -105,6 +121,7 @@ function SheetContent(
     children,
     side = "right",
     showCloseButton = true,
+    showOverlay = true,
     dragDismiss = true,
     showDragHandle,
     overlayClassName,
@@ -134,7 +151,7 @@ function SheetContent(
 
   return (
     <SheetPortal>
-      <SheetOverlay className={overlayClassName} />
+      {showOverlay ? <SheetOverlay className={overlayClassName} /> : null}
       <SheetPrimitive.Content
         ref={setSheetContentRef}
         data-slot="sheet-content"
@@ -195,8 +212,16 @@ function SheetContent(
           </div>
         ) : null}
         {children}
+        {/*
+          The visible circle stays exactly 32px (p-2 + size-4) so no sheet
+          changes appearance. `after:-inset-1.5` extends only the HIT region to
+          44x44, the platform minimum -- at 32px in a screen corner, next to a
+          drag-dismiss region, this was a genuinely hard target to hit on a
+          phone, and a close button that needs two or three tries is
+          indistinguishable from one that does not work.
+        */}
         {showCloseButton && (
-          <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-4 right-4 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+          <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-4 right-4 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity after:absolute after:-inset-1.5 after:content-[''] hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
             <XIcon className="size-4" />
             <span className="sr-only">Close</span>
           </SheetPrimitive.Close>

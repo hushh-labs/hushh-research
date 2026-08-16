@@ -82,20 +82,28 @@ function debugLog(...args: unknown[]) {
   console.info("[observability]", ...args.map(redactObservabilityLogValue));
 }
 
+/**
+ * Returns whether the event was handed to an adapter.
+ *
+ * Callers that record a once-per-user milestone need to know: marking such a
+ * milestone as sent when sampling or a disabled kill-switch dropped it burns
+ * that step permanently for the device. Every existing caller ignores the
+ * return value, so this is additive.
+ */
 export function trackEvent<T extends ObservabilityEventName>(
   eventName: T,
   payload: EventPayloadFor<T>,
   options: TrackOptions = {}
-): void {
-  if (!isObservabilityEnabled()) return;
-  if (!shouldSample(resolveObservabilitySampleRate())) return;
+): boolean {
+  if (!isObservabilityEnabled()) return false;
+  if (!shouldSample(resolveObservabilitySampleRate())) return false;
 
   const dedupeKey = options.dedupeKey;
   if (dedupeKey) {
     const dedupeWindowMs = options.dedupeWindowMs ?? DEFAULT_DEDUPE_WINDOW_MS;
     if (shouldDropByDedupe(dedupeKey, dedupeWindowMs)) {
       debugLog("deduped", eventName, dedupeKey);
-      return;
+      return false;
     }
   }
 
@@ -115,7 +123,7 @@ export function trackEvent<T extends ObservabilityEventName>(
   const activeAdapters = ADAPTERS.filter((adapter) => adapter.isAvailable());
   if (activeAdapters.length === 0) {
     debugLog("no_adapter", eventName);
-    return;
+    return false;
   }
 
   void Promise.allSettled(
@@ -125,6 +133,7 @@ export function trackEvent<T extends ObservabilityEventName>(
       })
     )
   );
+  return true;
 }
 
 export function trackPageView(pathname: string, navType: "route_change" | "initial_load" | "redirect" = "route_change"): void {

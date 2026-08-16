@@ -1084,14 +1084,14 @@ export function NearbyCheckInSheet({
     return () => window.clearTimeout(timer);
   }, [open, ownerId, point, search, vaultOwnerToken]);
 
-  // Keep the selection inside whatever is on screen. Runs after every list
-  // change (chip switch, search, reload) so the confirm button never points at
-  // a row the owner can no longer see.
+  // Keep the selection inside whatever is on screen without making a choice for
+  // the owner. If a chip switch, search, or reload hides the selected row, the
+  // owner must intentionally choose another place before checking in.
   useEffect(() => {
     setSelectedPlaceId((current) =>
       places.some((place) => place.placeId === current)
         ? current
-        : (places[0]?.placeId ?? ""),
+        : "",
     );
   }, [places]);
 
@@ -1490,13 +1490,41 @@ export function NearbyCheckInSheet({
     }
   };
 
+  // Deliberately NOT modal, and deliberately without a scrim.
+  //
+  // Check-in is a question about the map -- "which of these nearby places are
+  // you at?" -- so the map has to stay readable and pannable to answer it. The
+  // map already proves that intent elsewhere: it publishes camera padding from
+  // this sheet's own rect so the pins stay framed above it. A modal sheet
+  // contradicted that with a `fixed inset-0 z-[711] touch-none` scrim over the
+  // whole screen, which blurred the very map it was asking about and left the
+  // map's close X, Locate and Check-in controls visible but completely
+  // untappable underneath it.
+  //
+  // Outside interactions are swallowed instead of dismissing, so panning or
+  // zooming to find a place cannot close the sheet mid-answer. That makes the
+  // close X the dismissal, which is why it needed a real 44px target (see
+  // SheetContent).
   return (
-    <Sheet modal open={open} onOpenChange={onOpenChange}>
+    <Sheet modal={false} open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
         dragDismiss={false}
         showDragHandle={false}
-        className="gap-0 overflow-hidden px-0 pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[26rem] md:rounded-none md:rounded-l-[var(--app-card-radius-feature)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right"
+        showOverlay={false}
+        onInteractOutside={(event) => event.preventDefault()}
+        // The map is a native view below the WebView, so a tap that lands on it
+        // never reaches Radix as a normal outside-pointer event on some
+        // platforms and does on others. Refusing both keeps dismissal identical
+        // on web and on device instead of platform-dependent.
+        onPointerDownOutside={(event) => event.preventDefault()}
+        // Stop short of the map header instead of the default 85dvh. With the
+        // scrim gone the controls behind are live again, so the sheet must not
+        // be the thing covering them: 8.5rem clears the header's real stack
+        // (56px control row + 8px gap + the Sharing row + its 16px padding)
+        // plus the top safe area, and leaves a visible strip of map between the
+        // two. Phone-only; the md rail is a side sheet and sets max-h-none.
+        className="max-h-[calc(100dvh-env(safe-area-inset-top)-8.5rem-var(--kb-height,0px))] gap-0 overflow-hidden px-0 pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[26rem] md:rounded-none md:rounded-l-[var(--app-card-radius-feature)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right"
         data-testid="one-location-nearby-check-in-sheet"
         data-one-location-nearby-check-in-sheet=""
       >
@@ -1611,9 +1639,15 @@ export function NearbyCheckInSheet({
                         interactionDisabled={busy !== null}
                         onConnect={() => void connect(attendee)}
                         onRespond={() =>
+                          // Back from Consent Center returns to the screen this
+                          // was opened from -- check-in's own route. Naming Your
+                          // Map here sent the person to a screen that withholds
+                          // the check-in sheet, which then redirected on to the
+                          // same place: the flow they had left visibly rebuilt
+                          // itself twice before reappearing.
                           router.push(
                             buildConsentCenterHref("pending", {
-                              from: `${ROUTES.ONE_LOCATION_MAP}?action=check-in`,
+                              from: ROUTES.ONE_LOCATION_CHECK_IN,
                             }),
                           )
                         }
@@ -1656,11 +1690,6 @@ export function NearbyCheckInSheet({
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h2 className="font-semibold">Places within 500 m</h2>
-                    <p className="text-sm text-muted-foreground">
-                      {typedSearchActive
-                        ? "Search results stay inside the same 500 m area."
-                        : "Every place we can find around you. The closest is selected."}
-                    </p>
                   </div>
                   {capturing ? (
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -1763,7 +1792,7 @@ export function NearbyCheckInSheet({
                     ) : null}
                     <label className="relative mt-3 block">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <span className="sr-only">Search for another place</span>
+                      <span className="sr-only">Search</span>
                       <Input
                         value={search}
                         onChange={(event) => {
@@ -1779,7 +1808,7 @@ export function NearbyCheckInSheet({
                           }
                         }}
                         disabled={!point || capturing}
-                        placeholder="Search for another place"
+                        placeholder="Search"
                         className="h-11 rounded-full pl-9"
                       />
                       {searching ? (
@@ -2005,28 +2034,10 @@ export function NearbyCheckInSheet({
                   </span>
                 </label>
 
-                <details className="group rounded-xl bg-muted/45 px-3 py-2 text-xs leading-4 text-muted-foreground">
-                  <summary className="cursor-pointer list-none font-medium text-foreground/80">
-                    How sharing works
-                  </summary>
-                  <p className="mt-2">
-                    Your current point is sent to Google to suggest nearby
-                    places; searching may send it again to improve results. At
-                    confirmation, Hussh stores your check-in point only as
-                    short-lived encrypted data to match opted-in people within
-                    500 metres. They see your display name in their list, never
-                    your point or exact distance. It is cleared on checkout or
-                    expiry. Closing the app does not check you out.
-                  </p>
-                </details>
-
                 <div className="flex items-center justify-between gap-4 border-t border-border/60 pt-3">
                   <div>
                     <p className="text-sm font-semibold">
                       Connection requests
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Off by default.
                     </p>
                   </div>
                   <Switch
@@ -2039,7 +2050,7 @@ export function NearbyCheckInSheet({
 
               <Button
                 type="button"
-                className="h-12 w-full"
+                className="h-12 w-full disabled:!bg-muted disabled:!text-muted-foreground disabled:!opacity-100"
                 disabled={
                   busy !== null ||
                   capturing ||

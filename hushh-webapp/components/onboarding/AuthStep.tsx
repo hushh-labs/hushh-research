@@ -1134,19 +1134,19 @@ export function AuthStep({
                   className="text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]"
                 />
                 <span className="type-footnote text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]">
-                  Consent-first. Nothing moves without your yes.
+                  You choose what One can see.
                 </span>
               </div>
 
               <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[#86868b] dark:text-white/45">
-                By continuing, you agree to the{" "}
+                By continuing you agree to our{" "}
                 <button
                   type="button"
                   onClick={() => void openLegalDoc("terms")}
                   data-voice-control-id="auth_terms"
                   className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
                 >
-                  Terms of Service
+                  Terms
                 </button>
                 <span aria-hidden="true"> and </span>
                 <button

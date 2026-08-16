@@ -1,10 +1,24 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2, Users } from "lucide-react";
 
+import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import {
+  CaptionText,
+  CardTitle,
+  RowDescription,
+} from "@/components/app-ui/typography";
+import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import {
   CIRCLE_JOIN_CODE_PARAM,
@@ -13,6 +27,15 @@ import {
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleInvitePreview } from "@/lib/one-location/types";
 
+/**
+ * An invitation is one short column. `width="reading"` (54rem) stretches it
+ * into a banner on a laptop, and the measure cannot be a utility class: the
+ * shell sets its width through `.app-page-shell[data-app-shell-width="reading"]`,
+ * which outranks one. `AppPageShell` exports `APP_MEASURE_STYLES` for the same
+ * reason -- an inline max-width is the established way to narrow a shell.
+ */
+const INVITE_MEASURE: CSSProperties = { maxWidth: "30rem" };
+
 function joinPath(code: string): string {
   const query = new URLSearchParams({ action: "join-circle" });
   if (code) query.set(CIRCLE_JOIN_CODE_PARAM, code);
@@ -20,10 +43,24 @@ function joinPath(code: string): string {
 }
 
 function loginHref(code: string): string {
-  // Back to this same landing rather than to the hub, so the code survives the
-  // round trip through sign-in and the preview below is what greets them.
+  // Return to this same landing rather than to the hub, so the code survives
+  // the round trip through sign-in and the preview below is what greets them.
   const here = `/circle/join?${CIRCLE_JOIN_CODE_PARAM}=${encodeURIComponent(code)}`;
   return `/login?redirect=${encodeURIComponent(here)}`;
+}
+
+// The API types these as required, but the backend coerces a missing owner to a
+// placeholder and an unnamed Circle to "". Render what a person can read.
+function circleName(preview: OneLocationCircleInvitePreview): string {
+  return preview.name.trim() || "This Circle";
+}
+
+function memberSummary(preview: OneLocationCircleInvitePreview): string {
+  const owner = preview.ownerDisplayName.trim() || "A Circle owner";
+  if (preview.memberCount <= 0) return owner;
+  const people =
+    preview.memberCount === 1 ? "1 person" : `${preview.memberCount} people`;
+  return `${owner} · ${people}`;
 }
 
 /**
@@ -35,6 +72,16 @@ function loginHref(code: string): string {
  * only context they had. Someone deciding whether to share their live location
  * deserves to see whose Circle it is first -- which is the one thing every
  * comparable product shows at this exact moment.
+ *
+ * Layout note: this route renders INSIDE the signed-in shell. Its contract
+ * entry says `mode: "redirect"`, but only "flow", "hidden" and
+ * `persistentChrome: "none"` change chrome, so the top bar and the bottom
+ * "Talk to One" composer are both drawn here. The shell already reserves both
+ * edges -- a spacer sized to `--app-top-content-offset` precedes this page and
+ * the scroll root carries `--app-scroll-bottom-pad`. A viewport height here
+ * therefore double-counts that reservation: it pushed the invitation into the
+ * header and left a dead scroll region above the composer. `AppPageShell` with
+ * `fitContent` is the primitive that measures to its content instead.
  */
 function CircleJoinLanding() {
   const router = useRouter();
@@ -57,11 +104,13 @@ function CircleJoinLanding() {
         await OneLocationService.previewOnboardingCircleCode({ idToken, code }),
       );
     } catch (caught) {
-      setError(
-        caught instanceof Error && caught.message
-          ? caught.message
-          : "That code did not match a Circle. Ask for a fresh one.",
-      );
+      // The service rethrows the transport error untouched, so `caught.message`
+      // can be "Request failed: 422", "Rate limit exceeded: 10 per 1 minute" or
+      // "Invalid Firebase ID token". None of that is readable, and none of it
+      // tells the person what to do. Keep the detail in the console for
+      // diagnostics and show one sentence they can act on.
+      console.error("[circle-join] preview failed", caught);
+      setError("That code didn't work. Ask for a new link.");
     } finally {
       setLoading(false);
     }
@@ -77,91 +126,127 @@ function CircleJoinLanding() {
     if (!code) router.replace(joinPath(""));
   }, [code, router]);
 
+  // Effects run after paint, so rendering the invitation here would commit a
+  // codeless "You're invited" -- and a sign-in link carrying an empty code --
+  // for one frame before the redirect above fires.
+  if (!code) return null;
+
+  const showPreview = auth.isAuthenticated && !auth.loading;
+  const canJoin = Boolean(preview) && !preview?.alreadyMember;
+
   return (
-    <main className="mx-auto flex min-h-[100svh] w-full max-w-[30rem] flex-col justify-center px-6 py-12">
-      <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
-        <Users className="h-7 w-7" strokeWidth={2} />
-      </span>
+    <AppPageShell
+      as="main"
+      width="reading"
+      fitContent
+      style={INVITE_MEASURE}
+      data-testid="circle-join-landing"
+    >
+      <PageHeader
+        title="You're invited"
+        eyebrow="Circle invite"
+        description="Your location stays private until you choose to share it."
+        leading={
+          <span className="flex h-11 w-11 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+            <Users className="h-[22px] w-[22px]" aria-hidden="true" />
+          </span>
+        }
+        testId="circle-join-header"
+      />
 
-      <h1 className="ui-text-agent-title mt-5 text-balance">
-        You&apos;ve been invited to a Circle
-      </h1>
-
-      {code ? (
+      {/* One surface holds everything known about the invitation: the code the
+          sender read out, and -- once it resolves -- whose Circle it is. Three
+          floating blocks read as three unrelated things. */}
+      <section
+        className="mt-6 rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] p-5"
+        data-testid="circle-join-card"
+      >
+        <CaptionText className="text-muted-foreground">Invite code</CaptionText>
         <p
-          className="mt-3 select-all font-mono text-[clamp(18px,5.5vw,24px)] font-bold uppercase tracking-[0.12em]"
+          className="mt-1 select-all break-all font-mono text-[19px] font-bold uppercase leading-6 tracking-[0.1em]"
           data-testid="circle-join-code"
         >
           {formatCircleCodeForDisplay(code)}
         </p>
-      ) : null}
 
-      {auth.loading ? (
-        <p className="mt-6 flex items-center gap-2 text-sm text-muted-foreground">
+        {showPreview ? (
+          <div className="mt-4 border-t border-[color:var(--app-separator)] pt-4">
+            {loading ? (
+              <p className="flex items-center gap-2 text-[15px] leading-5 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                Looking up this Circle
+              </p>
+            ) : preview ? (
+              <div className="min-w-0" data-testid="circle-join-preview">
+                <CardTitle className="break-words">
+                  {circleName(preview)}
+                </CardTitle>
+                <RowDescription className="mt-1 break-words">
+                  {memberSummary(preview)}
+                </RowDescription>
+                {preview.alreadyMember ? (
+                  <RowDescription className="mt-2">
+                    You&apos;re already in this Circle.
+                  </RowDescription>
+                ) : null}
+              </div>
+            ) : error ? (
+              <p
+                className="text-[15px] leading-5 text-[color:var(--app-destructive)]"
+                data-testid="circle-join-error"
+              >
+                {error}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+
+      {/* Pre-mounted so a screen reader announces the lookup result. An element
+          that only exists once the message does is never announced. */}
+      <p className="sr-only" role="status" aria-live="polite">
+        {loading
+          ? "Looking up this Circle"
+          : error
+            ? error
+            : preview
+              ? `${circleName(preview)}. ${memberSummary(preview)}.`
+              : ""}
+      </p>
+
+      {showPreview ? (
+        // Always offered, even when the lookup failed: the hub can take a
+        // retyped code, so a bad preview is never the end of the road.
+        <Button
+          type="button"
+          size="lg"
+          className="mt-6 w-full"
+          onClick={() => router.replace(joinPath(code))}
+          data-testid="circle-join-continue"
+        >
+          {canJoin ? "Join this Circle" : "Open One Location"}
+        </Button>
+      ) : auth.loading ? (
+        <p className="mt-6 flex items-center gap-2 text-[15px] leading-5 text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           Checking your account
         </p>
-      ) : !auth.isAuthenticated ? (
-        <>
-          <p className="mt-4 text-[15px] leading-6 text-muted-foreground">
-            Sign in to see whose Circle this is. Your location stays private
-            until you choose to share it.
-          </p>
-          <Link
-            href={loginHref(code)}
-            className="press-scale mt-6 flex h-14 w-full items-center justify-center rounded-full bg-[color:var(--app-accent)] text-[17px] font-bold text-[color:var(--app-accent-fg)]"
-            data-testid="circle-join-sign-in"
-          >
-            Sign in to continue
-          </Link>
-        </>
       ) : (
         <>
-          {loading ? (
-            <p className="mt-6 flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              Looking up this Circle
-            </p>
-          ) : preview ? (
-            <div
-              className="mt-6 rounded-[20px] border border-border/60 bg-muted/30 p-5"
-              data-testid="circle-join-preview"
-            >
-              <p className="text-[17px] font-bold leading-6">{preview.name}</p>
-              <p className="mt-1 text-[14px] leading-5 text-muted-foreground">
-                {preview.ownerDisplayName} &middot; {preview.memberCount}{" "}
-                {preview.memberCount === 1 ? "person" : "people"}
-              </p>
-              {preview.alreadyMember ? (
-                <p className="mt-3 text-[14px] leading-5 text-muted-foreground">
-                  You&apos;re already in this Circle.
-                </p>
-              ) : null}
-            </div>
-          ) : error ? (
-            <p
-              className="mt-6 text-[15px] leading-6 text-[#c8372d] dark:text-[#ff9a90]"
-              role="status"
-            >
-              {error}
-            </p>
-          ) : null}
-
-          {/* Always offered, even when the lookup failed: the hub can take a
-              retyped code, so a bad preview is never the end of the road. */}
-          <button
-            type="button"
-            onClick={() => router.replace(joinPath(code))}
-            className="press-scale mt-6 flex h-14 w-full items-center justify-center rounded-full bg-[color:var(--app-accent)] text-[17px] font-bold text-[color:var(--app-accent-fg)]"
-            data-testid="circle-join-continue"
+          <p className="mt-6 text-[15px] leading-5 text-muted-foreground">
+            Sign in to see whose Circle this is.
+          </p>
+          <Button
+            asChild
+            size="lg"
+            className="mt-4 w-full"
+            data-testid="circle-join-sign-in"
           >
-            {preview && !preview.alreadyMember
-              ? `Join ${preview.name}`
-              : "Open One Location"}
-          </button>
+            <Link href={loginHref(code)}>Sign in</Link>
+          </Button>
         </>
       )}
-    </main>
+    </AppPageShell>
   );
 }
 

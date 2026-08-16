@@ -83,6 +83,13 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   // "Someone" last). Used to turn vague, subjectless lines like "A live
   // location share was revoked" into explicit subject-action-object sentences.
   const who = resolveCounterpartName(item.metadata);
+  // Whose side of the event this row is. A location share writes one row to
+  // the person sharing and one to the person shared with (migration 152); only
+  // the second carries this marker, and only the second reads as "someone did
+  // this to me" rather than "I did this". Rows written before that migration
+  // have no marker and stay on the owner's wording, which is what they were.
+  const sharedWithMe =
+    metadataString(item.metadata, "feed_audience") === "recipient";
 
   switch (item.event_type) {
     case "consent_requested":
@@ -121,7 +128,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: "Started sharing location",
+        description: sharedWithMe
+          ? "Shared their location with you"
+          : "Started sharing location",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -132,7 +141,15 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: ownerRevoked ? "You stopped sharing location" : "Stopped sharing location",
+        // `reason` describes what the OWNER did, so on the recipient's row
+        // "owner_revoke" is still true and "You stopped sharing location"
+        // would be shown to the one person who did not stop anything.
+        // Audience decides the sentence; reason only refines the owner's.
+        description: sharedWithMe
+          ? "Stopped sharing their location"
+          : ownerRevoked
+            ? "You stopped sharing location"
+            : "Stopped sharing location",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -142,7 +159,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: "Location share expired",
+        // No audience split: this line names no subject, and the row's title is
+        // already the other person, so it reads correctly from both sides.
+        description: "Stopped sharing - time ran out",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -162,7 +181,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: "You approved the location request",
+        description: "You approved. Now sharing.",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -212,7 +231,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "KYC status updated",
-        description: status ? `Your KYC workflow is now ${status}.` : "Your KYC workflow status changed.",
+        description: status
+          ? `Your KYC check is now ${status}.`
+          : "Your KYC check moved on.",
         href: ROUTES.ONE_KYC,
       };
     }
@@ -221,24 +242,24 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       return {
         icon,
         domainLabel,
-        label: "System connected",
-        description: "A connected system finished syncing.",
+        label: "App connected",
+        description: "Your data finished coming in.",
         href: ROUTES.CONNECTED_SYSTEMS,
       };
     case "connected_systems_rejected":
       return {
         icon,
         domainLabel,
-        label: "System connection rejected",
-        description: "A connected-system request was rejected.",
+        label: "Connection turned down",
+        description: "That app wasn't connected.",
         href: ROUTES.CONNECTED_SYSTEMS,
       };
     case "connected_systems_failed":
       return {
         icon,
         domainLabel,
-        label: "System sync failed",
-        description: "A connected-system action failed.",
+        label: "Couldn't get your data",
+        description: "Something went wrong bringing it in.",
         href: ROUTES.CONNECTED_SYSTEMS,
       };
     // Connection events use the same person-first layout: title is the other
@@ -294,7 +315,10 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Activity",
-        description: "Something happened in your account.",
+        // No pretend explanation for an event this build has no line for.
+        // "Something happened in your account." told the reader nothing and
+        // read like a bug.
+        description: "",
         href: null,
       };
   }

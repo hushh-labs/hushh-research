@@ -4537,8 +4537,10 @@
     {
       "action_id": "location.open_now",
       "surface_id": "one_location",
-      "label": "Open Location now",
+      "label": "Open Location overview",
       "aliases": [
+        "location overview",
+        "overview tab",
         "location now",
         "now tab",
         "location home",
@@ -4546,12 +4548,13 @@
         "am i sharing my location"
       ],
       "search_keywords": [
+        "overview",
         "now",
         "location",
         "status",
         "sharing"
       ],
-      "meaning": "Opens the Now tab of Location, which shows current sharing status and the quick actions.",
+      "meaning": "Opens the Overview tab of Location, which shows current sharing status and the quick actions.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -4613,7 +4616,7 @@
           {
             "type": "action",
             "action_id": "location.open_now",
-            "label": "Open Location now",
+            "label": "Open Location overview",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/location",
@@ -5525,10 +5528,12 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/location"
+          "/one/location",
+          "/one/location/map"
         ],
         "screens": [
-          "one_location"
+          "one_location",
+          "one_location_map"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [],
@@ -5547,10 +5552,11 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/location?action=check-in"
+        "target": "/one/location/check-in"
       },
       "control_ids": [
-        "one-location-action-check-in"
+        "one-location-action-check-in",
+        "one-location-map-nearby-check-in"
       ],
       "state_exposure": [
         "active location flow"
@@ -5562,7 +5568,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/location?action=check-in"
+          "current route becomes /one/location/check-in"
         ],
         "backend_effects": []
       },
@@ -5587,7 +5593,7 @@
             "label": "Check in",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/location?action=check-in",
+              "route": "/one/location/check-in",
               "screen": "one_location"
             }
           }
@@ -17060,9 +17066,11 @@
     {
       "action_id": "setup.open_connections",
       "surface_id": "one_setup_hub",
-      "label": "Set up AI access",
+      "label": "Choose your AI",
       "aliases": [
+        "choose my ai",
         "set up AI access",
+        "ai access",
         "choose gemini",
         "configure one",
         "use my gemini key"
@@ -17074,7 +17082,7 @@
         "key",
         "setup"
       ],
-      "meaning": "Opens AI access setup so the person can choose Hussh managed Gemini or validate and protect their own Gemini access.",
+      "meaning": "Opens the AI access choice so the person can use Hussh's Gemini or add their own Gemini key.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -17138,7 +17146,7 @@
           {
             "type": "action",
             "action_id": "setup.open_connections",
-            "label": "Set up AI access",
+            "label": "Choose your AI",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/connections",
@@ -17490,8 +17498,10 @@
     {
       "action_id": "setup.open_email",
       "surface_id": "one_setup_hub",
-      "label": "KYC",
+      "label": "Identity checks",
       "aliases": [
+        "identity checks",
+        "kyc",
         "set up kyc",
         "open kyc setup",
         "let one draft for me",
@@ -17568,7 +17578,7 @@
           {
             "type": "action",
             "action_id": "setup.open_email",
-            "label": "KYC",
+            "label": "Identity checks",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/email",
@@ -17599,9 +17609,10 @@
     {
       "action_id": "setup.open_finance",
       "surface_id": "one_setup_hub",
-      "label": "Set up your finances",
+      "label": "Set up your money",
       "aliases": [
         "set up finance",
+        "set up my money",
         "open finance setup",
         "set up investing"
       ],
@@ -17675,7 +17686,7 @@
           {
             "type": "action",
             "action_id": "setup.open_finance",
-            "label": "Set up your finances",
+            "label": "Set up your money",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/finance",
@@ -17706,7 +17717,7 @@
     {
       "action_id": "setup.open_ria",
       "surface_id": "one_setup_hub",
-      "label": "Set up RIA",
+      "label": "Set up your advisor profile",
       "aliases": [
         "set up ria",
         "set up my advisor profile",
@@ -17783,7 +17794,7 @@
           {
             "type": "action",
             "action_id": "setup.open_ria",
-            "label": "Set up RIA",
+            "label": "Set up your advisor profile",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/ria",
@@ -17814,14 +17825,15 @@
     {
       "action_id": "setup.open_connected_systems",
       "surface_id": "one_setup_hub",
-      "label": "CRM",
+      "label": "Connect your CRM",
       "aliases": [
         "link my record to external systems",
         "link my record",
         "link my tools",
         "set up connected systems",
         "show crm systems",
-        "connect crm"
+        "connect crm",
+        "connect my crm"
       ],
       "search_keywords": [
         "link tools",
@@ -17894,7 +17906,7 @@
           {
             "type": "action",
             "action_id": "setup.open_connected_systems",
-            "label": "CRM",
+            "label": "Connect your CRM",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/connected-systems",

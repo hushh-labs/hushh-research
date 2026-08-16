@@ -86,7 +86,12 @@ class CreateGrantRequest(_CamelModel):
         default=None,
         alias="sourceCircleId",
     )
-    duration_hours: float = Field(alias="durationHours", gt=0, le=24)
+    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
+    duration_mode: str = Field(
+        default="timed",
+        alias="durationMode",
+        pattern="^(timed|until_stopped)$",
+    )
     reason: str | None = Field(default=None, max_length=300)
     share_kind: str | None = Field(default=None, alias="shareKind", max_length=40)
 
@@ -143,7 +148,12 @@ class CreateAccessRequest(_CamelModel):
 
 
 class ResolveAccessRequest(_CamelModel):
-    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=24)
+    duration_hours: float | None = Field(default=1, alias="durationHours", gt=0, le=24)
+    duration_mode: str = Field(
+        default="timed",
+        alias="durationMode",
+        pattern="^(timed|until_stopped)$",
+    )
 
 
 class ShortenGrantRequest(_CamelModel):
@@ -170,18 +180,18 @@ class ClaimCircleInviteRequest(_CamelModel):
 
 
 class CreateNamedCircleRequest(_CamelModel):
-    name: str = Field(min_length=2, max_length=80)
+    name: str = Field(min_length=1, max_length=80)
     kind: str = Field(default="other", pattern="^(family|friends|other)$")
 
 
 class BootstrapNamedCircleRequest(_CamelModel):
     # No circle id and no kind: onboarding may only ever create the caller their
     # own first Circle, so there is nothing for a caller to point this at.
-    name: str = Field(min_length=2, max_length=80)
+    name: str = Field(min_length=1, max_length=80)
 
 
 class UpdateNamedCircleRequest(_CamelModel):
-    name: str | None = Field(default=None, min_length=2, max_length=80)
+    name: str | None = Field(default=None, min_length=1, max_length=80)
     kind: str | None = Field(default=None, pattern="^(family|friends|other)$")
 
 
@@ -1325,6 +1335,7 @@ def create_location_grant(
                 recipient_user_id=payload.recipient_user_id,
                 recipient_key_id=payload.recipient_key_id,
                 duration_hours=payload.duration_hours,
+                duration_mode=payload.duration_mode,
                 reason=payload.reason,
                 share_kind=payload.share_kind,
                 source_circle_id=(
@@ -1350,6 +1361,7 @@ def create_location_grant_with_envelope(
             recipient_user_id=payload.recipient_user_id,
             recipient_key_id=payload.recipient_key_id,
             duration_hours=payload.duration_hours,
+            duration_mode=payload.duration_mode,
             client_operation_id=payload.client_operation_id,
             confirmed_at=payload.confirmed_at,
             envelope=payload.envelope,
@@ -1479,6 +1491,7 @@ def approve_location_access_request(
             owner_user_id=_user_id(token_data),
             request_id=request_id,
             duration_hours=payload.duration_hours,
+            duration_mode=payload.duration_mode,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc

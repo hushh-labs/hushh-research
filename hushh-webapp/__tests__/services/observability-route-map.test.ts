@@ -240,3 +240,63 @@ describe("observability route map", () => {
     expect(resolveRouteId("/KAI/PORTFOLIO")).toBe("unknown");
   });
 });
+
+/**
+ * The native build sets `trailingSlash: true` (next.config.ts, gated on
+ * isCapacitorBuild), so every iOS and Android route arrives with a trailing
+ * slash. Before these cases, that meant essentially every native screen
+ * reported as "unknown" -- 117 iOS users and 7,504 views in 30 days -- while
+ * the handful of routes matched by a `startsWith(".../")` prefix looked fine,
+ * which is what made it survive so long.
+ */
+describe("route ids from the native (trailing-slash) build", () => {
+  it("resolves every first-party route in its native trailing-slash form", () => {
+    // Derived from the route tree rather than a hand-written list, so a route
+    // added later with a `startsWith(".../")` prefix cannot regress on
+    // iOS/Android unnoticed -- which is exactly how `/ria/clients/` came to
+    // report the per-client workspace id for the clients list screen.
+    const appDir = path.resolve(process.cwd(), "app");
+    for (const route of collectAppPageRoutes(appDir)) {
+      const web = route.replace(/\[[^\]]+\]/g, "sample");
+      const native = web === "/" ? "/" : `${web}/`;
+      expect(resolveRouteId(native)).toBe(resolveRouteId(web));
+      expect(resolveRouteId(native)).not.toBe("unknown");
+    }
+  });
+
+  it("treats a static-export index document as its directory route", () => {
+    expect(resolveRouteId("/one/location/index.html")).toBe(
+      resolveRouteId("/one/location"),
+    );
+    expect(resolveRouteId("/index.html")).toBe(resolveRouteId("/"));
+  });
+
+  it("does not mistake the blog index for a post on native", () => {
+    // "/blog/" previously matched startsWith("/blog/") and reported the index
+    // as a post, so this was wrong rather than merely missing.
+    expect(resolveRouteId("/blog/")).toBe("blog");
+    expect(resolveRouteId("/blog/some-post/")).toBe("blog_post");
+  });
+
+  it("still resolves token routes, which must never fall through", () => {
+    // Falling through logs the raw pathname, and on these routes the pathname
+    // carries the token.
+    expect(resolveRouteId("/one/location/request/abc123/")).toBe(
+      "one_location_public_request",
+    );
+    expect(resolveRouteId("/one/location/invite/abc123/")).toBe(
+      "one_location_circle_invite",
+    );
+    expect(resolveRouteId("/circle/join/")).toBe("one_location_circle_join");
+    expect(resolveRouteId("/c/abc123/")).toBe("wallet_card_public");
+  });
+
+  it("degrades a full href to its route rather than to unknown", () => {
+    expect(resolveRouteId("/one/location?action=share")).toBe("one_location");
+    expect(resolveRouteId("/one/location/#people")).toBe("one_location");
+  });
+
+  it("keeps empty and root pathnames on the dashboard", () => {
+    expect(resolveRouteId("")).toBe(resolveRouteId("/"));
+  });
+});
