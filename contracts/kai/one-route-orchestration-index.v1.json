@@ -4459,8 +4459,9 @@
         "screen": "one_setup_hub",
         "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
         "proactivity": "on_entry",
-        "primary_action_id": "setup.open_connections",
+        "primary_action_id": "setup.open_cloud",
         "happy_path_action_ids": [
+          "setup.open_cloud",
           "setup.open_connections",
           "setup.open_gmail",
           "setup.open_calendar",
@@ -4649,7 +4650,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-one-setup-cloud"
     },
     {
       "route_pattern": "/one/setup/connected-systems",
