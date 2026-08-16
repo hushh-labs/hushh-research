@@ -219,7 +219,11 @@ export function CircleInvitePeopleSheet({
     >
       <SheetContent
         side="bottom"
-        className="mx-auto flex max-h-[88dvh] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
+        // Same pair as the Circle detail sheet: keep the drag gesture off a
+        // scrollable list, and keep the keyboard height inside the max-height
+        // so the search field does not leave the screen when the keyboard opens.
+        dragDismiss={false}
+        className="mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
       >
         <SheetHeader className="text-left">
           <SheetTitle>Add people to {circleName}</SheetTitle>
