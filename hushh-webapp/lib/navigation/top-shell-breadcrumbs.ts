@@ -774,7 +774,12 @@ function resolveTopShellBreadcrumbInner(
         backHref: returnToNearbyCheckIn
           ? isNearbyPrivateReturnToken(nearbyReturnToken)
             ? buildNearbyCheckInResumeHref(nearbyReturnToken)
-            : `${ROUTES.ONE_LOCATION_MAP}?action=check-in`
+            : // Back from a private check-in goes to check-in's own route.
+              // Naming Your Map with `?action=check-in` sent the person to a
+              // screen that cannot show check-in, which then redirected here
+              // anyway -- a visible detour on the one control whose whole job
+              // is to retrace a step.
+              ROUTES.ONE_LOCATION_CHECK_IN
           : hubBackHref,
         width: "profile",
         align: "center",

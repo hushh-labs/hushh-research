@@ -695,7 +695,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const nearbyCheckInReturnHref =
     nearbyPrivateCheckIn && isNearbyPrivateReturnToken(nearbyReturnToken)
       ? buildNearbyCheckInResumeHref(nearbyReturnToken)
-      : `${ROUTES.ONE_LOCATION_MAP}?action=check-in`;
+      : ROUTES.ONE_LOCATION_CHECK_IN;
   const [tab, setTabState] = useState<LocationHubTab>(() =>
     resolveLocationHubTab(searchParams.get(LOCATION_HUB_TAB_PARAM)),
   );
@@ -934,7 +934,16 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       nearbyCheckInAvailable &&
       (action === "check-in" || action === "event-check-in")
     ) {
-      router.replace(`${ROUTES.ONE_LOCATION_MAP}?action=check-in`, {
+      // Straight to the screen that owns the flow. This used to hand off to
+      // `/one/location/map?action=check-in`, which mounts Your Map -- a screen
+      // that structurally cannot show check-in, since the sheet and the place
+      // list are withheld unless `surface="check-in"` -- and lets its own
+      // redirect carry on to the same destination. The person saw the wrong
+      // map appear and jump away, the Google renderer was built and torn down
+      // for nothing, and an extra history entry was left behind. Anyone
+      // arriving on `?action=check-in` from outside the app still gets that
+      // legacy redirect; nothing inside the app should be using it.
+      router.replace(ROUTES.ONE_LOCATION_CHECK_IN, {
         scroll: false,
       });
       return;
@@ -1186,7 +1195,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               }}
               onCheckIn={() =>
                 nearbyCheckInAvailable
-                  ? router.push(`${ROUTES.ONE_LOCATION_MAP}?action=check-in`)
+                  ? router.push(ROUTES.ONE_LOCATION_CHECK_IN)
                   : openFlow("check-in")
               }
               checkInSubtitle={
