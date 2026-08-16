@@ -1698,27 +1698,6 @@ describe("LocationImmersiveMap remount triggers", () => {
     });
   });
 
-  it("sends a check-in arrival to the hub flow when nearby check-in is off", async () => {
-    // Every button into check-in is gated on availability, so this is reached
-    // only by a link: a bookmark, or a notification from before the build
-    // turned the flow off. Opening a place list the backend then refuses is a
-    // dead end with nothing on screen to explain it, so it goes to the plain
-    // check-in the hub still renders.
-    experienceHarness.demoMode = false;
-    experienceHarness.nearbyAvailable = false;
-    experienceHarness.query = "";
-
-    render(<LocationImmersiveMap surface="check-in" />);
-
-    await waitFor(() => {
-      expect(navigationHarness.replace).toHaveBeenCalledWith(
-        "/one/location?action=check-in",
-        { scroll: false },
-      );
-    });
-    // And it does not open the sheet on the way out.
-    expect(screen.queryByTestId("dismiss-nearby-check-in")).toBeNull();
-  });
 
   it("leaves a usable map behind when check-in is opened and dismissed", async () => {
     experienceHarness.demoMode = false;

@@ -5552,7 +5552,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/location?action=check-in"
+        "target": "/one/location/check-in"
       },
       "control_ids": [
         "one-location-action-check-in",
@@ -5568,7 +5568,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/location?action=check-in"
+          "current route becomes /one/location/check-in"
         ],
         "backend_effects": []
       },
@@ -5593,7 +5593,7 @@
             "label": "Check in",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/location?action=check-in",
+              "route": "/one/location/check-in",
               "screen": "one_location"
             }
           }

@@ -114,10 +114,13 @@ describe("nearby check-in destination", () => {
   it("sends check-in arrivals to the hub flow when nearby check-in is off", () => {
     // Buttons are all gated on availability; a bookmark or an old notification
     // is not, and landing on a place list the backend will refuse is a dead
-    // end with nothing on screen to explain it.
-    const map = source("components/one-location/location-immersive-map.tsx");
-    expect(map).toContain("if (isCheckInSurface && !nearbyCheckInAvailable)");
-    expect(map).toContain("`${ROUTES.ONE_LOCATION}?action=check-in`");
+    // end with nothing on screen to explain it. Held on the page, before the
+    // map renders: a screen that cannot show check-in must not be built at all,
+    // not built and then redirected off a frame later.
+    const page = source("app/one/location/check-in/page.tsx");
+    expect(page).toContain("isOneLocationNearbyCheckInAvailable()");
+    expect(page).toContain("`${ROUTES.ONE_LOCATION}?action=check-in`");
+    expect(page).toContain("if (!nearbyAvailable) return null;");
   });
 });
 
@@ -159,10 +162,20 @@ describe("check-in is reachable by voice from Your Map", () => {
     );
     expect(action?.reachability?.screens).toContain("one_location_map");
     expect(action?.reachability?.routes).toContain(ROUTES.ONE_LOCATION_MAP);
-    // The target stays the hub's `?action=check-in`, on purpose: whether this
-    // build has nearby check-in decides which of two different screens the
-    // flow is, and the hub is the only place that knows. It forwards to
-    // `/one/location/check-in` in one replace, without Your Map in between.
-    expect(action?.execution_target?.target).toBe("/one/location?action=check-in");
+  });
+
+  it("names a target One can actually watch arrive", () => {
+    const action = gateway.actions.find(
+      (candidate) => candidate.action_id === "location.open_check_in",
+    );
+    // Settlement matches the target exactly when it carries a query
+    // (`routeMatchesTarget` in lib/voice/voice-action-settlement.ts), so a
+    // target that redirects can never be observed arriving. The old
+    // `/one/location?action=check-in` was replaced within the frame, so One
+    // waited out its 1800 ms window and reported "the next screen is still
+    // settling" on a check-in that had in fact opened. Naming the destination
+    // is what makes the wait end.
+    expect(action?.execution_target?.target).toBe(ROUTES.ONE_LOCATION_CHECK_IN);
+    expect(action?.execution_target?.target).not.toContain("?");
   });
 });

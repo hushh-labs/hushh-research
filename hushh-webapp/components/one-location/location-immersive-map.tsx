@@ -496,19 +496,6 @@ export function LocationImmersiveMap({
 
   useEffect(() => {
     const action = searchParams.get("action");
-    // Check-in's own route is now the single in-app destination for the flow,
-    // so it is also the one place that has to answer for a build where nearby
-    // check-in is switched off. Every button leading here is already gated;
-    // a bookmark, a shared link or an old notification is not, and without
-    // this it opened a place list the backend would refuse. The hub still
-    // renders the plain check-in flow, so that is where those arrivals go.
-    if (isCheckInSurface && !nearbyCheckInAvailable) {
-      router.replace(`${ROUTES.ONE_LOCATION}?action=check-in`, {
-        scroll: false,
-      });
-      setNearbyCheckInOpen(false);
-      return;
-    }
     if (
       !nearbyCheckInAvailable &&
       (action === "check-in" || action === "event-check-in")
