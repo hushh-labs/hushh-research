@@ -59,7 +59,7 @@ describe("top shell back action", () => {
       }),
     ).toBe(true);
     expect(navigate).toHaveBeenCalledWith({
-      href: "/one/location",
+      href: "/one/location?view=now",
       mode: "replace",
       transitionMode: "contextual",
     });
@@ -75,7 +75,10 @@ describe("top shell back action", () => {
         pathname: "/one/location",
         searchParams: new URLSearchParams("action=needs-review"),
       }),
-    ).toMatchObject({ href: "/one/location", transitionMode: "contextual" });
+    ).toMatchObject({
+      href: "/one/location?view=now",
+      transitionMode: "contextual",
+    });
 
     expect(
       resolveTopShellBackAction({

@@ -4052,6 +4052,8 @@ html.native-ios [data-testid="one-location-onboarding"] {
    * The pin, "Selected spot" card, and buttons keep their own backgrounds and
    * stay readable on top. Scoped to the save-location modal so no other dialog
    * is affected. */
+  /* The sheet has to stay transparent: its own background would paint UNDER the
+   * map box and the hole would show the sheet rather than the map. */
   html.one-location-map-native [data-testid="save-location-modal"],
   html.one-location-map-native
     [data-testid="save-location-modal"]
@@ -4064,6 +4066,30 @@ html.native-ios [data-testid="one-location-onboarding"] {
     box-shadow: none !important;
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
+  }
+
+  /* And the page behind it has to be HIDDEN, not merely transparent.
+   *
+   * That distinction is the whole bug. The native map draws below the entire
+   * WebView, so the hole only reaches it if every layer above is clear -- which
+   * means the scrim has to go too. But the scrim was the only thing concealing
+   * the screen the picker opened on top of, so clearing it left the onboarding
+   * features screen and the picker drawn over each other.
+   *
+   * Transparent backgrounds do not hide content. While the picker is mounted the
+   * page behind is hidden outright, leaving the sheet, the map inside its box,
+   * and nothing else. The dialog is portalled to <body>, so it is untouched.
+   *
+   * Both surfaces are body-level portals, so this cannot go through the app
+   * scroll root: onboarding deliberately portals to <body> at z-560 to clear the
+   * shell's stacking context, and the saved-places list renders in the shell. */
+  html.one-location-map-native
+    body:has([data-testid="save-location-modal"])
+    [data-testid="one-location-onboarding"],
+  html.one-location-map-native
+    body:has([data-testid="save-location-modal"])
+    [data-app-scroll-root="true"] {
+    visibility: hidden !important;
   }
 
   html {

@@ -1666,9 +1666,15 @@ export function NearbyCheckInSheet({
                         interactionDisabled={busy !== null}
                         onConnect={() => void connect(attendee)}
                         onRespond={() =>
+                          // Back from Consent Center returns to the screen this
+                          // was opened from -- check-in's own route. Naming Your
+                          // Map here sent the person to a screen that withholds
+                          // the check-in sheet, which then redirected on to the
+                          // same place: the flow they had left visibly rebuilt
+                          // itself twice before reappearing.
                           router.push(
                             buildConsentCenterHref("pending", {
-                              from: `${ROUTES.ONE_LOCATION_MAP}?action=check-in`,
+                              from: ROUTES.ONE_LOCATION_CHECK_IN,
                             }),
                           )
                         }
