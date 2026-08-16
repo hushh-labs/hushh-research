@@ -58,6 +58,7 @@ import {
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
+import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import {
   LOCATION_COPY,
   isLocationPermissionDeniedError,
@@ -1748,13 +1749,10 @@ export function LocationImmersiveMap({
     vaultOwnerToken,
   ]);
 
-  const filteredPeople = useMemo(() => {
-    const query = searchQuery.trim().toLocaleLowerCase();
-    if (!query) return markers;
-    return markers.filter((marker) =>
-      marker.label.toLocaleLowerCase().includes(query),
-    );
-  }, [markers, searchQuery]);
+  const filteredPeople = useMemo(
+    () => filterPeopleByQuery(markers, searchQuery, (marker) => marker.label),
+    [markers, searchQuery],
+  );
 
   const nearbyAttendees = useMemo(
     () => (nearbyPresenceState.presence ? nearbyPresenceState.attendees : []),

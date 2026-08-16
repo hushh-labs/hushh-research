@@ -264,6 +264,7 @@ import type {
   OneLocationState,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
+import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import {
   isCircleSelectionFullySelected,
@@ -2655,20 +2656,24 @@ export function OneLocationAgentPageContent({
       ),
     [rankedRecipients, selectedShareCircleSelection],
   );
-  const visibleRecipients = useMemo(() => {
-    const query = recipientSearch.trim().toLowerCase();
-    if (!query) return rankedRecipients;
-    return rankedRecipients.filter((recipient) =>
-      recommendationSearchText(recipient).includes(query),
-    );
-  }, [rankedRecipients, recipientSearch]);
-  const visibleShareRecipients = useMemo(() => {
-    const query = shareRecipientSearch.trim().toLowerCase();
-    if (!query) return rankedRecipients;
-    return rankedRecipients.filter((recipient) =>
-      recommendationSearchText(recipient).includes(query),
-    );
-  }, [rankedRecipients, shareRecipientSearch]);
+  const visibleRecipients = useMemo(
+    () =>
+      filterPeopleByQuery(
+        rankedRecipients,
+        recipientSearch,
+        recommendationSearchText,
+      ),
+    [rankedRecipients, recipientSearch],
+  );
+  const visibleShareRecipients = useMemo(
+    () =>
+      filterPeopleByQuery(
+        rankedRecipients,
+        shareRecipientSearch,
+        recommendationSearchText,
+      ),
+    [rankedRecipients, shareRecipientSearch],
+  );
   const hasMoreVisibleRecipients =
     visibleRecipients.length > ONE_NETWORK_PREVIEW_LIMIT;
   const showExpandedOneNetworkList =
