@@ -21,7 +21,11 @@ import {
   type PickedLocation,
 } from "@/components/one-location/onboarding/location-picker-map";
 import { cn } from "@/lib/utils";
-import type { SavedLocationCategory } from "@/lib/one-location/saved-locations";
+import {
+  defaultSavedLocationCategory,
+  type SavedLocation,
+  type SavedLocationCategory,
+} from "@/lib/one-location/saved-locations";
 import {
   EMPTY_SAVED_LOCATION_ADDRESS_DETAILS,
   inferSavedLocationAddressDetails,
@@ -178,6 +182,12 @@ export type SaveLocationModalProps = {
   collectAddressDetails?: boolean;
   /** Pre-select a category when editing an existing saved place. */
   initialCategory?: SavedLocationCategory | null;
+  /**
+   * Places already saved. Only their categories are read, to pre-select a label
+   * that is still free -- Home and Work are singletons, so pre-selecting an
+   * occupied one would overwrite that place on save.
+   */
+  existingLocations?: readonly Pick<SavedLocation, "category">[];
   /** Pre-fill the custom label (for an "Other" place) when editing. */
   initialCustomLabel?: string | null;
   /** Pre-fill the structured address detail fields when editing. */
@@ -304,6 +314,7 @@ export function SaveLocationModal({
   startWithMapPicker = false,
   collectAddressDetails = false,
   initialCategory = null,
+  existingLocations = [],
   initialCustomLabel = null,
   initialDetails = null,
   saveLabel = "Save location",
@@ -370,7 +381,12 @@ export function SaveLocationModal({
       houseOrFlatEditedRef.current = Boolean(
         initialDetails && initialDetails.houseOrFlat,
       );
-      setCategory(initialCategory ?? null);
+      // Editing keeps the place's own label; a new place opens on the first
+      // label still free, so the primary button is live on arrival instead of
+      // waiting behind "Pick Home, Work or Other first."
+      setCategory(
+        initialCategory ?? defaultSavedLocationCategory(existingLocations),
+      );
       setCustomLabel(initialCustomLabel ?? "");
       setEditingPlace(false);
       setPickedAddress(null);
