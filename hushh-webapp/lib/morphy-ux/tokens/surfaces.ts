@@ -57,6 +57,24 @@ export const PILL_NEUTRAL =
 /** Shared readable section label. */
 export const EYEBROW = "ui-text-section-label";
 
+/**
+ * The eyebrow above a screen title. Deliberately NOT `EYEBROW`.
+ *
+ * `EYEBROW` and `SECTION_HEADING` are the same string, and that string resolves
+ * to 15px/500 in the same grey as `.ui-text-page-subtitle` (`--app-section-label`
+ * and `--app-secondary-label` are the identical hex in both themes). So above a
+ * title the eyebrow and the description underneath differed by font-weight
+ * alone, and the eyebrow read as a stray first line of body copy rather than a
+ * label — which is exactly how it was reported.
+ *
+ * 12px/600 with a little tracking against a 28px/700 title and a 15px/400
+ * description gives three unmistakable levels. Sentence case, not uppercase:
+ * `scripts/design/verify-apple-hierarchy.mjs` fails this file for shouting, and
+ * several of these eyebrows are phrases ("Copy, share or revoke"), not labels.
+ */
+export const SCREEN_EYEBROW =
+  "text-[12px] font-semibold leading-4 tracking-[0.04em] text-[color:var(--app-section-label)]";
+
 /** Warning / caution banner surface. */
 export const WARNING_SURFACE =
   "rounded-[var(--app-card-radius-compact,16px)] border border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200";

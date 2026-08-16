@@ -1628,7 +1628,7 @@ export default function ConnectPageClient() {
                   aria-label={
                     isSelectionMode
                       ? "Cancel selecting people"
-                      : "Select several people"
+                      : "Select many people"
                   }
                   onClick={() => {
                     setIsSelectionMode((current) => !current);
@@ -1636,7 +1636,11 @@ export default function ConnectPageClient() {
                     setShowLimitBanner(false);
                   }}
                 >
-                  {isSelectionMode ? "Cancel" : "Select"}
+                  {/* "Select many", not "Select": this enters multi-select,
+                      and a lone "Select" reads as picking the one thing you are
+                      looking at. The visible label and the accessible name now
+                      say the same thing. */}
+                  {isSelectionMode ? "Cancel" : "Select many"}
                 </Button>
               </div>
               <SettingsGroup

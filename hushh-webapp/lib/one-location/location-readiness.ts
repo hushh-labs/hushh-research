@@ -144,30 +144,26 @@ export function locationReadiness(params: {
 }
 
 /**
- * Short status text for the Location header.
+ * Status text for the Location header.
  *
- * `compact` drops the leading "Location", for the phone layout where the switch
- * sits under a 28px title that already says Location. Two reasons, both
- * measured rather than assumed: the word is pure repetition of the screen
- * title, and at 320-390px the longer string is wide enough to push "Location
- * Agent" onto a second line. The precedence lives here once so the two forms
- * can never disagree about which state wins.
+ * There used to be a `compact` form that dropped the leading "Location" so the
+ * string would fit beside the switch without wrapping the 28px title. It fit,
+ * and it cost the label its meaning: on iOS the header showed a bare green
+ * switch over the single word "On", which never said what it switched. The
+ * status now renders under the title instead of beside the switch, so it costs
+ * the title no width and can always say the whole thing.
  */
 export function locationStatusLabel(params: {
   readiness: LocationReadiness;
   previewOn: boolean;
   paused: boolean;
   accuracyLimited: boolean;
-  compact?: boolean;
 }): string {
-  const prefix = params.compact ? "" : "Location ";
-  const word = (compact: string, full: string) =>
-    params.compact ? compact : `${prefix}${full}`;
-  if (params.paused) return word("Paused", "paused");
-  if (params.readiness === "blocked") return word("Blocked", "blocked");
-  if (!params.previewOn) return word("Off", "off");
-  if (params.accuracyLimited) return word("Limited", "limited");
-  return word("On", "on");
+  if (params.paused) return "Location paused";
+  if (params.readiness === "blocked") return "Location blocked";
+  if (!params.previewOn) return "Location off";
+  if (params.accuracyLimited) return "Location limited";
+  return "Location on";
 }
 
 /**

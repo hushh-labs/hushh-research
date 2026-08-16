@@ -741,7 +741,7 @@ function CheckInFeatureCard() {
             clean building artwork on its own. The [data-one-checkin-pin]
             responsive rules below are harmless no-ops now. */}
         <span
-          className="absolute bottom-12 left-1/2 w-[54%] -translate-x-1/2"
+          className="absolute bottom-[48%] left-1/2 w-[54%] -translate-x-1/2"
           style={{ perspective: "320px", perspectiveOrigin: "50% 100%" }}
           data-one-checkin-art
         >
@@ -890,6 +890,13 @@ function FeaturesScreen({
         onSkip={onSkip}
         disabled={leaving}
         busy={leaving}
+        /* Same rail as the header and card grid below (both max-w-[700px]).
+           Without it the nav was the only full-width row on the screen, so past
+           md — where this root drops its 430px cap — Back and Skip slid out to
+           the viewport edges while everything else stayed in the column. Passed
+           here rather than inside OnboardingNavigation: the welcome screen's
+           copy of that nav is already railed at 560 by its parent. */
+        className="mx-auto w-full max-w-[700px]"
       />
       <div
         className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
@@ -1113,7 +1120,6 @@ function FeaturesScreen({
           }
           [data-one-feature-card="checkin"] [data-one-checkin-art] {
             left: 50%;
-            bottom: 20px;
             width: 42%;
           }
           [data-one-feature-card="sms"] [data-one-feature-art-region] {
@@ -1246,9 +1252,6 @@ function FeaturesScreen({
             top: 14px;
             bottom: auto;
           }
-          [data-one-checkin-art] {
-            bottom: clamp(54px, calc(65vh - 486.6px), 120px);
-          }
           [data-one-feature-card="sms"] [data-one-feature-art-region] {
             align-items: flex-start;
             padding-top: 12px;
@@ -1310,7 +1313,7 @@ function FeaturesScreen({
             height: 12px;
           }
           [data-one-checkin-pin] { top: 22px; bottom: auto; width: 24px; height: 24px; }
-          [data-one-checkin-art] { bottom: 36px; width: 52%; }
+          [data-one-checkin-art] { width: 52%; }
           [data-one-sms-radar-clearance] { width: 54px; height: 54px; }
           [data-one-sms-radar] { width: 40px; height: 40px; }
           [data-one-sms-core] { width: 32px; height: 32px; font-size: 13px; }
@@ -1341,14 +1344,6 @@ function FeaturesScreen({
           [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 14px; }
           [data-one-feature-card="checkin"] [data-one-feature-body],
           [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11px; }
-        }
-        @media (max-width: 365px) and (min-height: 681px) {
-          [data-one-checkin-pin] {
-            bottom: clamp(54px, calc(40vh - 179.4px), 194px);
-          }
-          [data-one-checkin-art] {
-            bottom: clamp(43px, calc(40vh - 218.4px), 155px);
-          }
         }
         @media (max-width: 431px) and (max-height: 560px) {
           [data-one-feature-screen] {
@@ -1437,7 +1432,7 @@ function FeaturesScreen({
             height: 11px;
           }
           [data-one-checkin-pin] { top: 8px; }
-          [data-one-checkin-art] { bottom: 36px; width: 44%; }
+          [data-one-checkin-art] { width: 44%; }
           [data-one-sms-radar-clearance] { width: 40px; height: 40px; }
           [data-one-sms-radar] { width: 32px; height: 32px; }
           [data-one-sms-core] { width: 28px; height: 28px; font-size: 11px; }

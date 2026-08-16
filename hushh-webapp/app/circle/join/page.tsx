@@ -143,6 +143,9 @@ function CircleJoinLanding() {
       data-testid="circle-join-landing"
     >
       <PageHeader
+        // The description is two lines; letting it share the icon row
+        // stretched that row and pushed the tile away from the title.
+        descriptionFullWidth
         title="You're invited"
         eyebrow="Circle invite"
         description="Your location stays private until you choose to share it."

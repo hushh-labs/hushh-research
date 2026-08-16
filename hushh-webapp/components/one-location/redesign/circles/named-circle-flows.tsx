@@ -63,7 +63,10 @@ import type {
   OneLocationCircleMemberInvite,
   OneLocationCircleSummary,
 } from "@/lib/one-location/types";
-import { filterPeopleByQuery } from "@/lib/one-location/people-search";
+import {
+  filterPeopleByQuery,
+  sortPeopleByName,
+} from "@/lib/one-location/people-search";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { cn } from "@/lib/utils";
 
@@ -953,8 +956,12 @@ export function CircleDetailFlow({
 
   const filteredEligibleConnections = useMemo(
     () =>
+      // Sorted before filtering, like every other people picker in Location.
+      // These two sheets were rendering whatever order the server returned, so
+      // the same two connections could swap places between two openings and a
+      // long list had nowhere to start looking.
       filterPeopleByQuery(
-        eligibleConnections,
+        sortPeopleByName(eligibleConnections, (connection) => connection.displayName),
         peopleSearch,
         (connection) => connection.displayName,
       ),
