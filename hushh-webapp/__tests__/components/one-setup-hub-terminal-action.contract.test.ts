@@ -208,7 +208,10 @@ describe("One setup hub terminal action contract", () => {
 
     expect(hub).toContain("Only you can open what you save.");
     expect(hub).toContain("Not even we can read it.");
-    expect(hub).toContain('"Add the rest any time."');
+    // "Add" was the wrong verb for a list of things you SET UP, and the line
+    // is the last thing read before "Finish setup".
+    expect(hub).toContain('"Set up the rest later."');
+    expect(hub).not.toContain('"Add the rest any time."');
   });
 
   it("keeps the quiet Morphy action legible on hover and while disabled", () => {

@@ -86,16 +86,33 @@ export function filterPeopleByQuery<T>(
   const needle = normalize(query);
   if (!needle) return [...items];
 
+  // `leading` is split out of `beginners` for ONE character only: a person
+  // typing a single letter is almost always reaching for someone whose name
+  // STARTS with it, and without this tier "r" put Abdul Rashid above Roopmann
+  // — both correct word-beginning matches, but the wrong one first. Reported
+  // as "search is not effective at one character".
+  //
+  // This changes the ORDER, never the SET. Which people a query returns is a
+  // protected behaviour (config/protected-behaviors.json,
+  // "location-people-search-finds-a-person-from-one-letter"); requiring two
+  // characters, as the report suggested, would delete it. Two-or-more stays
+  // byte-identical so the documented "A-Z inside each group" still holds.
+  const leading: T[] = [];
   const beginners: T[] = [];
   const loose: T[] = [];
 
   for (const item of items) {
     const haystack = normalize(searchTextOf(item));
-    if (beginsAWord(haystack, needle)) beginners.push(item);
-    else if (haystack.includes(needle)) loose.push(item);
+    if (beginsAWord(haystack, needle)) {
+      if (needle.length === 1 && haystack.startsWith(needle)) leading.push(item);
+      else beginners.push(item);
+    } else if (haystack.includes(needle)) loose.push(item);
   }
 
-  if (needle.length === 1) return beginners.length ? beginners : loose;
+  if (needle.length === 1) {
+    const begins = [...leading, ...beginners];
+    return begins.length ? begins : loose;
+  }
   return [...beginners, ...loose];
 }
 

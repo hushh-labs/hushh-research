@@ -656,7 +656,7 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
     expect(await screen.findByText("Bulk person 0")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select several people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select many people" }));
 
     expect(
       screen.getByText("Pick up to 8, across pages."),
@@ -715,7 +715,7 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
     expect(await screen.findByText("Person 0")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select several people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select many people" }));
     fireEvent.click(screen.getByLabelText("Select Person 0"));
     expect(screen.getByText("Review 1 of 8")).toBeTruthy();
 
@@ -768,7 +768,7 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
     expect(await screen.findByText("Connected Carl")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select several people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select many people" }));
 
     // Eligible: a real, enabled checkbox.
     expect(
@@ -848,7 +848,7 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
     expect(await screen.findByText("Ada Advisor")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select several people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select many people" }));
     fireEvent.click(screen.getByLabelText("Select Ada Advisor"));
     fireEvent.click(screen.getByLabelText("Select Ben Advisor"));
     fireEvent.click(screen.getByRole("button", { name: "Review 2 of 8" }));
@@ -1136,14 +1136,24 @@ describe("Connect — the phone-width geometry QA reported", () => {
     ).toBe(true);
   });
 
-  it("keeps the selection toggle to one word, without hiding what it does", async () => {
+  it("says on its face that the toggle selects more than one person", async () => {
+    // This used to assert the label was exactly "Select", on width grounds.
+    // It fit, and it read as "select this one" — the opposite of what the
+    // control does — so a tester asked whether anyone would know it starts
+    // multi-select. The durable invariant underneath that test is WCAG 2.5.3,
+    // not the word count: the accessible name must start with the visible
+    // label, or "tap Select many" is an instruction voice control cannot
+    // follow. Both are asserted here; the width is proved in a real browser by
+    // e2e/connect-circle-cta.layout.spec.ts, which jsdom cannot do.
     render(<ConnectPageClient />);
     const toggle = await screen.findByRole("button", {
-      name: "Select several people",
+      name: "Select many people",
     });
-    expect(toggle.textContent).toBe("Select");
+    expect(toggle.textContent).toBe("Select many");
     expect(toggle.getAttribute("aria-label")!.startsWith(toggle.textContent!)).toBe(
       true,
     );
+    // Not a single bare verb: the label has to carry the plural.
+    expect(toggle.textContent!.split(/\s+/).length).toBeGreaterThan(1);
   });
 });

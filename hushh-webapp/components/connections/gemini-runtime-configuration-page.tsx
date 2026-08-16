@@ -211,10 +211,12 @@ export function GeminiRuntimeConfigurationPage({
                       : `${provider.name} is coming soon`
                   }
                 >
-                  <RuntimeProviderMark
-                    provider={provider}
-                    className={provider.id === "gemini" ? "h-9 w-9" : undefined}
-                  />
+                  {/* One size for every mark. The row gave each provider a
+                      36px slot but only Gemini was sized to it — the other four
+                      kept the mark's own 48px default, so they overflowed their
+                      slots and overlapped each other by 4px, which is why the
+                      logos looked cramped and Grok came out clipped. */}
+                  <RuntimeProviderMark provider={provider} className="h-9 w-9" />
                 </span>
                 <span className="sr-only">
                   {provider.availability === "available"

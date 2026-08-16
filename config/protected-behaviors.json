@@ -241,6 +241,92 @@
           ]
         }
       ]
+    },
+    {
+      "name": "one-location-onboarding-art-is-not-positioned-from-the-viewport",
+      "summary": "The Check-in card's artwork is anchored in a percentage of its own region, so its place inside the card does not change when the viewport height changes. The copy and the artwork never overlap.",
+      "fixed_by": "#5363",
+      "why_it_needs_a_lock": [
+        "This shipped as five separate `bottom` rules on [data-one-checkin-art] --",
+        "two `vh` clamps and three fixed pixel values inside width/height media",
+        "queries -- each of which outranks the element's own class by source order.",
+        "The card's size is width-driven and never moved; the art slid up inside it",
+        "as the phone got taller, until it ran over the body copy. A tester found it",
+        "by stepping from a 393x852 iPhone 14 Pro to a 430x932 Pro Max.",
+        "",
+        "A width-only sweep cannot catch this, and neither can reading the source:",
+        "the first attempt at this fix removed ONE clamp and the browser test found",
+        "four more overrides still winning. The lock is the height sweep."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/e2e/one-location-checkin-card.layout.spec.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 6,
+          "required_titles": [
+            "the artwork is not positioned from the viewport"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "gemini-endpoint-select-matches-the-key-field-on-webkit",
+      "summary": "The API endpoint picker and the key field under it share a radius, height and text inset \u2014 including under WebKit, where a native <select> ignores author border-radius unless appearance is removed.",
+      "fixed_by": "#5363",
+      "why_it_needs_a_lock": [
+        "`appearance-none` looks like a cosmetic class and is the entire fix. Under",
+        "WebKit's default `appearance: menulist` the engine draws the control and",
+        "overrides the author's border-radius: measured 5px against the input's",
+        "14px, before AND after handing the select the input's classes.",
+        "",
+        "Chromium honours the author radius either way, so a Chromium-only test",
+        "passes the broken control. The iOS app is a WKWebView. Deleting the class,",
+        "or letting this spec fall out of the webkit project's testMatch, silently",
+        "restores the defect on the platform most of our users are on."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/e2e/gemini-endpoint-fields.layout.spec.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 6,
+          "required_titles": [
+            "appearance-none is load-bearing, not decoration"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "location-header-status-names-what-the-switch-controls",
+      "summary": "The Location header's status always reads \"Location on/off/paused/blocked/limited\" at every width, and renders under the title rather than beside the switch.",
+      "fixed_by": "#5363",
+      "why_it_needs_a_lock": [
+        "The full string beside the switch wrapped the 28px title on every iPhone,",
+        "so it was shortened to one word on phones. That fit, and it cost the label",
+        "its meaning: iOS showed a bare green switch over the word \"On\", which",
+        "never said what it switched. Reported from the device.",
+        "",
+        "The one-word form is the tempting fix every time the title wraps again.",
+        "Moving the status under the title is what makes the full string affordable;",
+        "putting it back in the actions column brings the abbreviation back with it."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 400,
+          "required_titles": [
+            "keeps the heading and location toggle inline as the only header action"
+          ]
+        },
+        {
+          "path": "hushh-webapp/lib/one-location/__tests__/location-readiness.test.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 30,
+          "required_titles": [
+            "names what the switch controls in every state, at every width"
+          ]
+        }
+      ]
     }
   ]
 }

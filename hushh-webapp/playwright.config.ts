@@ -47,8 +47,13 @@ export default defineConfig({
       // Opt specs in as they are made WebKit-clean.
       name: "webkit",
       use: { ...devices["Desktop Safari"] },
+      // `gemini-endpoint-fields.layout` is opted in deliberately and is the
+      // reason this project matters: a native <select> under WebKit's
+      // `appearance: menulist` ignores the author's border-radius, so the
+      // radius defect it covers is INVISIBLE in Chromium. A Chromium-only run
+      // passes the broken control.
       testMatch:
-        /(circle-join-responsive-contract|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",

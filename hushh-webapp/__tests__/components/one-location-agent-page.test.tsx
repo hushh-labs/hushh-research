@@ -1258,7 +1258,20 @@ describe("OneLocationAgentPage", () => {
     });
     expect(headerActions.className).toContain("ml-auto");
     expect(headerActions.className).toContain("justify-end");
-    expect(headerActions.className).toContain("max-w-full");
+    // The actions column holds the switch and nothing else now, so it no
+    // longer needs `max-w-full` to survive wrapping text. The status words that
+    // used to sit here moved under the title — see the status assertions below.
+    const status = screen.getByTestId("one-location-header-status");
+    expect(headerActions.contains(status)).toBe(false);
+    // iOS used to get the one-word form: a bare green switch over "On", which
+    // never said what it switched. Reported from the device.
+    expect(status.textContent).toBe("Location off");
+    // Still the switch's description wherever it renders.
+    expect(
+      screen
+        .getByRole("switch", { name: "Turn location on" })
+        .getAttribute("aria-describedby"),
+    ).toBe(status.id);
     expect(
       screen.queryByRole("button", { name: "Refresh location" }),
     ).toBeNull();
@@ -1283,15 +1296,17 @@ describe("OneLocationAgentPage", () => {
     // hit ("location toggle kis liye hai? iOS pe how user gonna find that?").
     const locationStatus = screen.getByTestId("one-location-header-status");
     expect(locationStatus.className).not.toContain("hidden");
-    // Two forms of the same state, one per breakpoint, and NEITHER is hidden at
-    // every width the way the old single `hidden … sm:inline` span was. Phones
-    // get the one-word form because the 28px title has no width to spare there
-    // (the full string measured two title lines at 320/360/375/390); from `sm`
-    // up the full string renders inline exactly as it does today.
-    const compact = locationStatus.querySelector(".sm\\:hidden");
-    const full = locationStatus.querySelector(".hidden.sm\\:inline");
-    expect(compact?.textContent).toBe("Off");
-    expect(full?.textContent).toBe("Location off");
+    // ONE form now, at every width, naming the thing it switches.
+    //
+    // This used to be two breakpoint spans: the full string from `sm` up and a
+    // one-word form on phones, because the full string in the actions column
+    // wrapped the 28px title at 320-390px. That fit, and it cost iOS the
+    // meaning — the device showed a bare green switch over the word "On". The
+    // status now renders under the title instead of beside the switch, so it
+    // takes no width from the title and never has to abbreviate.
+    expect(locationStatus.querySelector(".sm\\:hidden")).toBeNull();
+    expect(locationStatus.querySelector(".hidden.sm\\:inline")).toBeNull();
+    expect(locationStatus.textContent).toBe("Location off");
     expect(locationStatus).not.toHaveAttribute("aria-hidden");
     expect(
       screen.getByRole("switch", { name: "Turn location on" }),

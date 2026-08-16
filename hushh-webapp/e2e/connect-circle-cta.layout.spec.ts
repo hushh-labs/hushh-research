@@ -376,7 +376,7 @@ const searchRowBody = (empty: boolean) => `<div class="flex w-full items-center 
       }" />
   </div>
   <button data-testid="connect-select-toggle"
-    class="${BUTTON_BASE} min-h-9 h-9 ${CONNECT_SELECT_TOGGLE_CLASSNAME}">Select</button>
+    class="${BUTTON_BASE} min-h-9 h-9 ${CONNECT_SELECT_TOGGLE_CLASSNAME}">Select many</button>
 </div>`;
 
 /** The same row before this change, for the mutation check. */
@@ -479,23 +479,58 @@ test.describe("Connect search row", () => {
     expect(empty.available).toBeGreaterThan(typed.available);
   });
 
-  test("the selection toggle is a fixed width, so the field never resizes", async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 375, height: 844 });
-    await page.goto(
-      await buildFixture("connect-toggle", searchRowBody(true), SEARCH_CANDIDATES),
-    );
+  // Every compact width the product supports, not just 375. The label grew from
+  // "Select" to "Select many" so the control says on its face that it selects
+  // more than one person, and the whole risk of that change is the narrowest
+  // phone — which is the one width the old single-viewport test never ran.
+  for (const width of [320, 360, 375, 390, 430] as const) {
+    test(`the selection toggle holds its label and its width at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(
+        await buildFixture("connect-toggle", searchRowBody(true), SEARCH_CANDIDATES),
+      );
 
-    const toggle = await boxOf(page, '[data-testid="connect-select-toggle"]');
-    const field = await boxOf(page, '[data-testid="connect-search"]');
+      const toggle = await boxOf(page, '[data-testid="connect-select-toggle"]');
+      const field = await boxOf(page, '[data-testid="connect-search"]');
 
-    // "Select" and "Cancel" are different lengths; a content-sized toggle would
-    // hand the difference to the search field and move it on every tap.
-    expect(Math.abs(toggle.width - 84)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(toggle.left - field.right - CONNECT_SEARCH_ROW_GAP_PX)).toBeLessThanOrEqual(0.5);
-    expect(toggle.right).toBeLessThanOrEqual(375 - PAGE_PADDING_PX + 1);
-  });
+      // Fixed width: "Select many" and "Cancel" are different lengths, and a
+      // content-sized toggle would hand the difference to the search field and
+      // move it on every tap. The number is read off the shipped token rather
+      // than written down twice.
+      const tokenWidth = Number(
+        /w-\[(\d+)px\]/.exec(CONNECT_SELECT_TOGGLE_CLASSNAME)?.[1],
+      );
+      expect(Number.isFinite(tokenWidth)).toBe(true);
+      expect(Math.abs(toggle.width - tokenWidth)).toBeLessThanOrEqual(0.5);
+
+      // The label FITS. This is the assertion the width number cannot make on
+      // its own: a wider label inside an unchanged box would still measure the
+      // box correctly and ship clipped text.
+      const label = await page.evaluate(() => {
+        const el = document.querySelector(
+          '[data-testid="connect-select-toggle"]',
+        ) as HTMLElement;
+        return {
+          text: el.textContent ?? "",
+          scrollWidth: el.scrollWidth,
+          clientWidth: el.clientWidth,
+          lines: el.getClientRects().length,
+        };
+      });
+      expect(label.text).toBe("Select many");
+      expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth + 1);
+      expect(label.lines).toBe(1);
+
+      // The field still owns the rest of the row, and nothing leaves the page.
+      expect(
+        Math.abs(toggle.left - field.right - CONNECT_SEARCH_ROW_GAP_PX),
+      ).toBeLessThanOrEqual(0.5);
+      expect(toggle.right).toBeLessThanOrEqual(width - PAGE_PADDING_PX + 1);
+      expect(field.width).toBeGreaterThan(120);
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------

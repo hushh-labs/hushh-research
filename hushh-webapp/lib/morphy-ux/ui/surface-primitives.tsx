@@ -23,7 +23,7 @@ import {
   ACCENT_ICON_BUBBLE,
   AVATAR_BUBBLE,
   CARD_SURFACE,
-  EYEBROW,
+  SCREEN_EYEBROW,
   MUTED_TEXT,
   PILL_LIVE,
   PILL_NEUTRAL,
@@ -66,7 +66,7 @@ export function TaskFlowHeader({
               <ChevronRight className="h-5 w-5 rotate-180" />
             </button>
           ) : null}
-          {eyebrow ? <p className={EYEBROW}>{eyebrow}</p> : null}
+          {eyebrow ? <p className={SCREEN_EYEBROW}>{eyebrow}</p> : null}
         </div>
       ) : null}
       <h1 className={SCREEN_TITLE}>{title}</h1>
