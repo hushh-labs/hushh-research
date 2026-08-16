@@ -5504,7 +5504,7 @@ export function OneLocationAgentPageContent({
               toast.error(
                 error instanceof Error
                   ? error.message
-                  : "Could not update access.",
+                  : "Couldn't change the time. Try again.",
               );
               return;
             }
@@ -5526,7 +5526,7 @@ export function OneLocationAgentPageContent({
           toast.error(
             error instanceof Error
               ? error.message
-              : `Could not ask ${ownerLabel} for more time.`,
+              : `Couldn't ask ${ownerLabel} for more time. Try again.`,
           );
         }
       } finally {
