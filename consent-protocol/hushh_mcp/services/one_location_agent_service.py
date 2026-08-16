@@ -3230,8 +3230,15 @@ class OneLocationAgentService:
         page: int = 1,
         limit: int = 20,
         candidate_user_id: str | None = None,
+        audience: str = "all",
     ) -> dict[str, Any]:
         """Search the eligible Connect directory before pagination.
+
+        ``audience`` splits the same eligible directory in two: ``"ria"`` keeps
+        only people holding a capability-bearing RIA profile, ``"people"`` keeps
+        only those who do not, and ``"all"`` (the default, and what every
+        pre-existing caller gets) keeps both. It is applied HERE, in the same
+        statement, for the same reason the matching is -- see below.
 
         This preserves the existing discovery policy while preventing callers
         from being limited by an in-memory first page.  The result remains a
@@ -3261,6 +3268,11 @@ class OneLocationAgentService:
         offset = (page - 1) * limit
         needle = (query or "").strip().lower()
         target = (candidate_user_id or "").strip() or None
+        # An unrecognised audience widens to "all" rather than narrowing: a typo
+        # in a caller must not silently hide people who are really there.
+        requested_audience = (audience or "all").strip().lower()
+        if requested_audience not in ("all", "people", "ria"):
+            requested_audience = "all"
         # LIKE metacharacters in a typed name are literal characters, not
         # wildcards. Unescaped, a single "%" typed into Connect matches every
         # row in the directory and "_" matches any letter, so the escape is
@@ -3353,6 +3365,18 @@ class OneLocationAgentService:
                 OR TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')
                      LIKE :word_prefix ESCAPE '!'
               )
+              AND (
+                :audience = 'all'
+                OR (
+                  :audience = 'ria'
+                ) = EXISTS (
+                  SELECT 1
+                  FROM ria_profiles rp_audience
+                  WHERE rp_audience.user_id = a.user_id
+                    AND rp_audience.verification_status
+                          IN ('active', 'verified', 'finra_verified')
+                )
+              )
             ORDER BY
               CASE
                 WHEN :query = '' THEN 0
@@ -3370,6 +3394,7 @@ class OneLocationAgentService:
                 "query": needle,
                 "name_prefix": name_prefix_pattern,
                 "word_prefix": word_prefix_pattern,
+                "audience": requested_audience,
                 "fetch_limit": limit + 1,
                 "offset": offset,
             },

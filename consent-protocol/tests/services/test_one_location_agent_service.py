@@ -2498,6 +2498,9 @@ def test_directory_candidate_search_filters_before_pagination(
         "query": "cara",
         "name_prefix": "cara%",
         "word_prefix": "% cara%",
+        # Every caller that predates the advisor split still asks for both
+        # halves, so adding the tab changed nobody else's result set.
+        "audience": "all",
         "fetch_limit": 21,
         "offset": 40,
     }
@@ -2505,6 +2508,36 @@ def test_directory_candidate_search_filters_before_pagination(
     # screen: it selected the page under one rule while the caller narrowed it
     # under another. It must not come back.
     assert "LIKE '%' || :query || '%'" not in service.sql
+
+
+def test_directory_candidate_search_splits_advisors_inside_the_statement() -> None:
+    """The advisor/people split has to be in the query, beside the matching.
+
+    Applied after LIMIT it could only subtract from a page that was already
+    chosen wrongly -- uneven pages, and every advisor past the first one
+    unreachable. That is the same bug the prefix ranking above exists to
+    prevent, in a second guise.
+    """
+    service = RecipientDirectoryProbe()
+
+    service.search_directory_candidates(owner_user_id="owner", audience="ria")
+
+    assert service.params["audience"] == "ria"
+    assert "FROM ria_profiles rp_audience" in service.sql
+    assert "LIMIT :fetch_limit OFFSET :offset" in service.sql
+    # The gate must accept every status the RIA verification path can write, or
+    # a genuinely verified adviser is missing from the tab built for them.
+    for status in ("active", "verified", "finra_verified"):
+        assert f"'{status}'" in service.sql
+
+
+def test_directory_candidate_search_widens_on_an_unknown_audience() -> None:
+    """A typo in a caller must not silently empty the directory."""
+    service = RecipientDirectoryProbe()
+
+    service.search_directory_candidates(owner_user_id="owner", audience="advisors")
+
+    assert service.params["audience"] == "all"
 
 
 def test_directory_search_matches_prefixes_not_substrings() -> None:
