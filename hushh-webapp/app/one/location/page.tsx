@@ -3874,10 +3874,26 @@ export function OneLocationAgentPageContent({
     setShareDurationHours(ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS);
     setShareMessage("");
   }, [setSelectedRecipientIds]);
-  const resetRequestComposer = useCallback(() => {
+  /**
+   * Clears the ask composer after a send.
+   *
+   * `sentUserIds` is subtracted rather than the whole selection being dropped:
+   * sending takes several round trips (identity sync, key registration, then one
+   * request per person), and anybody tapped during that window used to be wiped
+   * by a blanket clear when it finally landed. Their pick simply vanished, with
+   * no error and no request. Only the people actually asked are removed.
+   */
+  const resetRequestComposer = useCallback((sentUserIds?: readonly string[]) => {
     suppressAutoRecipientSelectionRef.current = true;
     setSelectedRequestOwnerId("");
-    setSelectedRequestOwnerIds([]);
+    if (!sentUserIds) {
+      setSelectedRequestOwnerIds([]);
+    } else {
+      const sent = new Set(sentUserIds);
+      setSelectedRequestOwnerIds((current) =>
+        current.filter((id) => !sent.has(id)),
+      );
+    }
     setRequestMessage("");
   }, []);
 
@@ -5800,17 +5816,22 @@ export function OneLocationAgentPageContent({
     handleSyncContactSignalRef.current = handleSyncContactSignal;
   }, [handleSyncContactSignal]);
 
+  // Resolves true only when at least one request actually reached the server.
+  // The Ask screen latches its "Request sent." confirmation on this, so a failed
+  // send can never leave a success message on screen (it used to latch
+  // optimistically the moment the button was tapped).
   const handleRequestAccess = useCallback(async (reason?: string | null) => {
-    if (!vaultOwnerToken || !selectedRequestOwners.length) return;
+    if (!vaultOwnerToken || !selectedRequestOwners.length) return false;
     if (!auth.user || !auth.userId) {
       toast.error("Refresh your session before sending a location request.");
-      return;
+      return false;
     }
     const activeUser = auth.user;
     const activeUserId = auth.userId;
     const activeVaultOwnerToken = vaultOwnerToken;
     setBusy("request");
     let successCount = 0;
+    const sentUserIds: string[] = [];
     try {
       await AccountIdentityService.syncCurrentUser(activeUser).catch(
         (error) => {
@@ -5843,6 +5864,10 @@ export function OneLocationAgentPageContent({
           message: buildOneLocationRequestMessage(reason, requestMessage),
         });
         successCount += 1;
+        // Recorded as each one lands, not from the selection up front: an id the
+        // recipient list cannot resolve is never actually sent, and subtracting
+        // it anyway would clear a person nobody asked.
+        sentUserIds.push(owner.userId);
       }
       trackEvent("one_location_request_sent", {
         route_id: "one_location",
@@ -5852,7 +5877,7 @@ export function OneLocationAgentPageContent({
         failure_count: 0,
         has_note: Boolean(requestMessage.trim()),
       });
-      resetRequestComposer();
+      resetRequestComposer(sentUserIds);
       playOneLocationNotificationSound();
       toast.success(
         selectedRequestOwners.length === 1
@@ -5862,6 +5887,7 @@ export function OneLocationAgentPageContent({
             )}. We'll notify you here when they respond.`,
       );
       void refresh().catch(() => null);
+      return true;
     } catch (error) {
       const failureCount = selectedRequestOwners.length - successCount || 1;
       trackEvent("one_location_request_sent", {
@@ -5876,6 +5902,10 @@ export function OneLocationAgentPageContent({
       if (isTransientOneApiError(error)) {
         await refresh().catch(() => null);
       }
+      // Partial success still counts: the people who were asked really were
+      // asked, and their rows now read "Asked". Only a total failure denies the
+      // confirmation.
+      return successCount > 0;
     } finally {
       setBusy(null);
     }
@@ -10088,7 +10118,7 @@ export function OneLocationAgentPageContent({
     onOpenShareReview: () => void handleOpenShareReview(),
     onEnterShareConfirm: announceShareReviewOpened,
     onConfirmShare: () => void handleShare(),
-    onSendRequest: (reason) => void handleRequestAccess(reason),
+    onSendRequest: (reason) => handleRequestAccess(reason),
     onApprove: (request) => void handleApprove(request),
     onDeny: (requestId) => void handleDeny(requestId),
     onViewGrant: (grant) => void handleView(grant),

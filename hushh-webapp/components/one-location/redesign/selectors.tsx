@@ -133,7 +133,7 @@ export function LocationTypeSelector({
     {
       value: "precise",
       title: "Precise live location",
-      description: "Updates while you move for your loved ones",
+      description: "Updates as you move.",
     },
   ];
   return (
@@ -207,7 +207,7 @@ export function ReasonChips({
   onChange,
   label = "Reason",
   presentation = "buttons",
-  placeholder = "Select a reason for request…",
+  placeholder = "Pick a reason…",
 }: {
   value: ReasonValue | null;
   onChange: (next: ReasonValue) => void;

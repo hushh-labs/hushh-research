@@ -3998,9 +3998,14 @@ md-ripple.morphy-md-ripple {
   will-change: background-color, backdrop-filter;
 }
 
-html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
-  --ambient-chrome-wash: 0%;
-}
+/* A priming gate used to hold the top chrome transparent until a script marked
+   the document ready. That script is gone, so nothing set the primed attribute
+   any more and the gate's `html:not(...)` selector matched forever — at (0,2,1)
+   it outranked the (0,1,0) rule below. The top bar's background was therefore
+   mixed to 0%: permanently, entirely see-through, with the page scrolling
+   visibly through the title and back arrow. That is the "header overlaying"
+   report. Removing the gate lets the intended material below actually paint.
+   Guarded by feed-live-and-cta.contract.test.ts. */
 
 .ambient-chrome-mask--top {
   --ambient-chrome-bg: var(--ambient-chrome-material-bg);
