@@ -731,6 +731,53 @@ read back this way is a hypothesis, not a finding.
 
 ---
 
+### R20 — A word-boundary regex built from `\p{L}\p{N}` silently shreds every Indic name
+
+**Incident (2026-08-16, making one-letter people search work — PR #5317, fixed
+in #5325).** A new people-search helper split names on `/[^\p{L}\p{N}]+/u` to
+find word beginnings, so typing `n` would surface "Neelesh" rather than every
+name merely containing an "n". It worked perfectly in Latin and shipped green:
+13 unit tests, typecheck, lint, a full-suite baseline comparison, and a verified
+UAT deploy. A matra is a combining mark (`\p{M}`) — neither a letter nor a
+digit — so the regex treated every one as a **word separator**. `झुम्मा` became
+`["झ","म","म",""]` and `नीलेश` became `["न","ल","श"]`: every syllable read as a
+separate word. "Begins a word" therefore meant nothing for exactly the names
+this product's users have. Because a one-character query keeps only
+word-beginning matches, it could **drop** a real match — `म` over `[सुमन, कमल]`
+returned `सुमन` alone. Nothing caught it because every fixture was Latin.
+
+**Rule.** Any regex that splits or tokenizes **user-supplied names or text**
+must include `\p{M}` with the `u` flag — `/[^\p{L}\p{N}\p{M}]+/u`, never
+`/[^\p{L}\p{N}]+/u`. Combining marks belong *inside* a word, never between
+words. Add at least one Devanagari fixture: a Latin-only fixture set cannot fail
+this. (`normalizeSpokenName` in `app/one/location/page.tsx` already had this
+right — copy it rather than re-deriving it.)
+
+Scope this to regexes that **split**. A deliberately lossy comparison key may
+strip marks on purpose — `comparable()` in
+`lib/one-location/saved-location-address.ts` strips spaces and punctuation too,
+so dropping marks matches its intent — and a postal-code validator is fine
+without `\p{M}` because Devanagari digits are already `\p{N}` (`११००११`
+validates). Both are expected hits below; neither is a bug.
+
+**Check.**
+```bash
+cd hushh-webapp
+# Boundary regexes missing \p{M}. Expect only the two known-benign hits in
+# saved-location-address.ts; anything else that SPLITS a name is the bug.
+grep -rnE '\\p\{L\}\\p\{N\}\]' --include='*.ts' --include='*.tsx' lib components app \
+  | grep -v '\\p{M}'
+
+# Prove the difference on a real name before trusting either form:
+node -e '
+const bad=/[^\p{L}\p{N}]+/u, good=/[^\p{L}\p{N}\p{M}]+/u;
+for (const n of ["झुम्मा","नीलेश","सुमन"])
+  console.log(n, JSON.stringify(n.split(bad)), "->", JSON.stringify(n.split(good)));'
+# bad splits each name into single consonants; good keeps it whole.
+```
+
+---
+
 
 ## Adding a rule
 
