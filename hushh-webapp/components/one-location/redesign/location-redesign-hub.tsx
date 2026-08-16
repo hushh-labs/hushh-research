@@ -101,7 +101,6 @@ import {
   DurationSelector,
   PersonSearchInput,
   ReasonChips,
-  REDESIGN_PRIVATE_SHARE_DURATION_OPTIONS,
   type ReasonValue,
 } from "./selectors";
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
@@ -2556,8 +2555,8 @@ function ShareFlow({
               <DurationSelector
                 value={vm.shareDurationHours}
                 onChange={vm.setShareDurationHours}
-                options={REDESIGN_PRIVATE_SHARE_DURATION_OPTIONS}
-                presentation="select"
+                presentation="wheel"
+                untilStopValue="until_stopped"
               />
               {/* The absolute end time is the part people actually reason
                   about; "4 hours" makes them do the arithmetic themselves. */}
@@ -3029,7 +3028,7 @@ function AskFlow({
           value={vm.durationHours}
           onChange={vm.setDurationHours}
           label=""
-          presentation="select"
+          presentation="wheel"
         />
       </SectionCard>
 
