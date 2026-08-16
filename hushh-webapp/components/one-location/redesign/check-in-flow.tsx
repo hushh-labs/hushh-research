@@ -46,6 +46,7 @@ import {
 } from "@/lib/one-location/circle-recipient-selection";
 import { CircleGrowActions } from "@/components/one-location/redesign/circles/circle-grow-actions";
 
+import { TaskFlowHeader } from "./primitives";
 import type { LocationHubViewModel } from "./location-redesign-hub";
 
 
@@ -475,15 +476,25 @@ export function CheckInFlow({
 
   return (
     <div>
-      {/* Header — title + Cancel link (no back arrow; Cancel dismisses). */}
+      {/* The last Location flow still drawing its own <h1>, which is how it
+          ended up with a title treatment no other screen has: 28px/bold from a
+          local class rather than the shared SCREEN_TITLE token. TaskFlowHeader
+          owns the <h1> everywhere else; the crumb for ?action=check-in is
+          "Check-In", so the title is too.
+
+          Cancel stays. It is a decision ("do not do this thing"), not a back
+          control — the shell already owns back — and it discards the pending
+          private check-in operation as well as closing. */}
       <div className="flex items-start justify-between gap-3">
-        <h1 className="max-w-[310px] text-[28px] font-bold leading-[1.12] tracking-normal text-foreground">
-          Let trusted people know you&apos;re here
-        </h1>
+        <TaskFlowHeader
+          eyebrow="Location"
+          title="Check-In"
+          description="Let trusted people know you're here."
+        />
         <button
           type="button"
           onClick={close}
-          className="shrink-0 pt-1 text-[15px] text-[color:var(--app-accent)] dark:text-[color:var(--app-accent)]"
+          className="shrink-0 pt-1 text-[15px] text-[color:var(--app-accent)]"
         >
           Cancel
         </button>
