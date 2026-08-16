@@ -9,12 +9,21 @@ import { cn } from "@/lib/utils";
 /** Mirrors check-in-flow.tsx's UNTIL_STOP_VALUE — the max accepted grant window. */
 export const DURATION_WHEEL_UNTIL_STOP_VALUE = "24";
 
-const HOURS_VALUES = Array.from({ length: 11 }, (_, i) => i); // 0..10
-// No "00" — the floor of the grid is 15 minutes, not a soft guard against it.
-const MINUTE_VALUES = [15, 30, 45];
+const HOURS_VALUES = Array.from({ length: 24 }, (_, i) => i); // 0..23
+// A literal 24 is deliberately excluded: the backend caps duration at
+// `le=24` (consent-protocol/api/routes/one/location.py), and any nonzero
+// minute past a 24th hour (e.g. 24h15m) would fail that check. 23h45m is
+// the real ceiling.
+//
+// "00" is now on the grid -- exact hours (1h, 2h, ...) are representable --
+// but 0h0m never is: it's filtered out of ALL_GRID_MINUTES below, and
+// DurationWheelPicker separately guards against reaching it by direct
+// interaction (the two wheels scroll independently, so 0h + 00min is
+// otherwise reachable by scrolling either one).
+const MINUTE_VALUES = [0, 15, 30, 45];
 const ALL_GRID_MINUTES = HOURS_VALUES.flatMap((h) =>
-  MINUTE_VALUES.map((m) => h * 60 + m),
-); // 15..645 in 15-minute steps, 0h0m is not a representable state
+  MINUTE_VALUES.filter((m) => h > 0 || m > 0).map((m) => h * 60 + m),
+); // 15..1425 in 15-minute steps (plus every exact hour); 0h0m excluded
 
 const ITEM_HEIGHT = 40;
 const VISIBLE_ROWS = 5;
@@ -263,13 +272,11 @@ function WheelColumn({
       aria-valuetext={`${formatLabel(items[selectedIndex] ?? 0)} ${unitSuffix}`}
       aria-disabled={disabled}
       onKeyDown={onKeyDown}
-      className="w-14 shrink-0 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+      className="w-16 shrink-0 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
       style={{
-        // Fixed, not flex-stretched: this column sits inside a `flex
-        // flex-col` header wrapper (label above it), and flex's default
-        // `align-items: stretch` only fills the CROSS axis of a
-        // column-direction parent (width), not its height. Without an
-        // explicit height here, this box takes its content's natural
+        // Fixed, not left to its content: this column sits inside a `flex
+        // items-center` row wrapper (its unit label beside it), and without
+        // an explicit height here it would take its content's natural
         // height instead of the fixed viewport.
         height: VIEWPORT_HEIGHT,
         WebkitMaskImage:
@@ -331,10 +338,10 @@ function WheelColumn({
 }
 
 /**
- * Apple-style two-column duration wheel (hours 0-10, minutes 15/30/45) plus
- * an "Until I stop" toggle. Keeps the same `value`/`onChange` decimal-hours
- * string contract as the DurationSelector it replaces, so callers need no
- * other changes.
+ * Apple-style two-column duration wheel (hours 0-23, minutes 00/15/30/45)
+ * plus an "Until I stop" toggle. Keeps the same `value`/`onChange`
+ * decimal-hours string contract as the DurationSelector it replaces, so
+ * callers need no other changes.
  */
 export function DurationWheelPicker({
   value,
@@ -363,12 +370,33 @@ export function DurationWheelPicker({
   const hoursApiRef = useRef<EmblaCarouselType | null>(null);
   const minutesApiRef = useRef<EmblaCarouselType | null>(null);
 
+  // The two wheels scroll independently, so 0h + 00min is reachable by
+  // direct interaction (scrolling Hours to 0 while Minutes sits on 00, or
+  // the reverse) even though 0h0m isn't a real duration. `minutesIndex`
+  // itself is corrected below (with a resync so the wheel visually catches
+  // up), but `effectiveMinutesIndex` is what's actually emitted and
+  // rendered as selected -- computed fresh every render, so the invalid
+  // combination is never emitted even for the one render before the
+  // correction effect runs.
+  const effectiveMinutesIndex =
+    hoursIndex === 0 && MINUTE_VALUES[minutesIndex] === 0
+      ? MINUTE_VALUES.indexOf(15)
+      : minutesIndex;
+
   useEffect(() => {
-    const next = untilStop ? untilStopValue : formatDurationHours(hoursIndex, minutesIndex);
+    if (effectiveMinutesIndex === minutesIndex) return;
+    setMinutesIndex(effectiveMinutesIndex);
+    setResyncToken((token) => token + 1);
+  }, [effectiveMinutesIndex, minutesIndex]);
+
+  useEffect(() => {
+    const next = untilStop
+      ? untilStopValue
+      : formatDurationHours(hoursIndex, effectiveMinutesIndex);
     if (next === lastEmittedRef.current) return;
     lastEmittedRef.current = next;
     onChange(next);
-  }, [untilStop, hoursIndex, minutesIndex, untilStopValue, onChange]);
+  }, [untilStop, hoursIndex, effectiveMinutesIndex, untilStopValue, onChange]);
 
   useEffect(() => {
     if (value === lastEmittedRef.current) return;
@@ -381,26 +409,10 @@ export function DurationWheelPicker({
   }, [value, untilStopValue]);
 
   return (
-    <div className="mx-auto max-w-[200px] space-y-3">
-      {/* Labels live in their OWN row, above the wheel row entirely -- not
-          stacked inside it. Mixing a label into each column's own flex-col
-          wrapper pushed that column down by the label's height, so the
-          selection highlight bar (centered against this whole block) no
-          longer lined up with either column's actual centered row. Keeping
-          the wheel row's only children the two fixed-height columns (plus
-          the highlight bar) means `top-1/2` here is guaranteed to be each
-          column's true center. */}
-      <div className="flex justify-center gap-6">
-        <span className="w-14 shrink-0 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Hours
-        </span>
-        <span className="w-14 shrink-0 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Minutes
-        </span>
-      </div>
+    <div className="mx-auto max-w-[260px] space-y-3">
       <div
         className={cn(
-          "relative mx-auto flex justify-center gap-6",
+          "relative mx-auto flex items-center justify-center gap-6",
           untilStop && "pointer-events-none opacity-40",
         )}
         style={{ height: VIEWPORT_HEIGHT }}
@@ -410,28 +422,48 @@ export function DurationWheelPicker({
           className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 rounded-[12px] border-y border-border/70 bg-muted/40"
           style={{ height: ITEM_HEIGHT }}
         />
-        <WheelColumn
-          items={HOURS_VALUES}
-          formatLabel={(h) => String(h)}
-          selectedIndex={hoursIndex}
-          onSettledIndex={setHoursIndex}
-          apiRef={hoursApiRef}
-          disabled={untilStop}
-          ariaLabel="Hours"
-          unitSuffix="hr"
-          resyncToken={resyncToken}
-        />
-        <WheelColumn
-          items={MINUTE_VALUES}
-          formatLabel={(m) => String(m).padStart(2, "0")}
-          selectedIndex={minutesIndex}
-          onSettledIndex={setMinutesIndex}
-          apiRef={minutesApiRef}
-          disabled={untilStop}
-          ariaLabel="Minutes"
-          unitSuffix="min"
-          resyncToken={resyncToken}
-        />
+        {/* Unit label sits INLINE, to the right of its column, not in a
+            header row above the wheel -- matches iOS's own Timer picker,
+            and gives the extra width this wheel gained (widened to close
+            up the empty gutters either side of it on a real device)
+            somewhere useful to go instead of just a bigger empty box.
+            Static/non-scrolling, and deliberately muted rather than styled
+            as part of the highlighted selection -- iOS keeps its unit
+            labels neutral too, even though the highlight bar (absolutely
+            positioned edge-to-edge on the row below) technically extends
+            behind them. */}
+        <div className="flex items-center gap-2">
+          <WheelColumn
+            items={HOURS_VALUES}
+            formatLabel={(h) => String(h)}
+            selectedIndex={hoursIndex}
+            onSettledIndex={setHoursIndex}
+            apiRef={hoursApiRef}
+            disabled={untilStop}
+            ariaLabel="Hours"
+            unitSuffix="hr"
+            resyncToken={resyncToken}
+          />
+          <span className="text-sm font-medium text-muted-foreground">
+            hours
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <WheelColumn
+            items={MINUTE_VALUES}
+            formatLabel={(m) => String(m)}
+            selectedIndex={effectiveMinutesIndex}
+            onSettledIndex={setMinutesIndex}
+            apiRef={minutesApiRef}
+            disabled={untilStop}
+            ariaLabel="Minutes"
+            unitSuffix="min"
+            resyncToken={resyncToken}
+          />
+          <span className="text-sm font-medium text-muted-foreground">
+            min
+          </span>
+        </div>
         {untilStop ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span className="rounded-full bg-background/90 px-3 py-1 text-sm font-semibold text-foreground shadow-sm">
@@ -458,7 +490,7 @@ export function DurationWheelPicker({
       <p className="sr-only" aria-live="polite">
         {untilStop
           ? "Duration: until you stop"
-          : `Duration: ${hoursIndex} hours ${MINUTE_VALUES[minutesIndex]} minutes`}
+          : `Duration: ${hoursIndex} hours ${MINUTE_VALUES[effectiveMinutesIndex]} minutes`}
       </p>
     </div>
   );

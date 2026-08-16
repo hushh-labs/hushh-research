@@ -135,6 +135,11 @@ import {
   publishPointFrom,
   shouldWarnOnPublishFailure,
 } from "@/lib/one-location/live-publish-decision";
+import {
+  isShareReadyRecipient,
+  recipientSelectionFromIds,
+  resolveEffectiveShareRecipients,
+} from "@/lib/one-location/share-recipient-selection";
 
 
 import {
@@ -213,6 +218,20 @@ import {
   ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
 } from "@/lib/one-location/nearby-check-in-availability";
 
+import {
+  clearLiveShareEntries,
+  liveShareEntriesEqual,
+  loadLiveShareEntries,
+  pruneLiveShareEntries,
+  reconcileLiveShareEntries,
+  saveLiveShareEntries,
+  summarizeLiveShareEntries,
+  type LiveShareSessionEntry,
+} from "@/lib/one-location/live-share-session";
+import {
+  LiveShareStatusCard,
+  type LiveShareStatus,
+} from "@/components/one-location/redesign/live-share-status-card";
 import {
   clearSosIncident,
   loadSosIncident,
@@ -858,20 +877,6 @@ function enrichRecipientsWithContactSignal(
   });
 }
 
-function recipientSelectionFromIds(
-  recipients: OneLocationRecipient[],
-  selectedIds: string[],
-): OneLocationRecipient[] {
-  const recipientById = new Map(
-    recipients.map((recipient) => [recipient.userId, recipient]),
-  );
-  return selectedIds
-    .map((recipientId) => recipientById.get(recipientId))
-    .filter((recipient): recipient is OneLocationRecipient =>
-      Boolean(recipient),
-    );
-}
-
 function addSelectedId(selectedIds: string[], recipientId: string): string[] {
   if (selectedIds.includes(recipientId)) return selectedIds;
   return [...selectedIds, recipientId];
@@ -890,11 +895,16 @@ function toggleSelectedId(
 function useShareRecipientSelectionState(): readonly [
   string[],
   (next: SetStateAction<string[]>) => string[],
+  MutableRefObject<string[]>,
 ] {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   // React can batch multiple share actions before rerendering. This cursor lets
   // each action compose from the latest queued selection while state remains
-  // the rendered source of truth.
+  // the rendered source of truth. Exposed (read-only by convention) so a
+  // handler that fires immediately after a select -- faster than the render
+  // that would otherwise make the pick visible -- can still read who was just
+  // chosen instead of the not-yet-committed empty state. See its use in
+  // handleShare's effectiveSelectedShareRecipients.
   const latestSelectedIdsRef = useRef<string[]>([]);
   const updateSelectedIds = useCallback(
     (next: SetStateAction<string[]>): string[] => {
@@ -906,20 +916,7 @@ function useShareRecipientSelectionState(): readonly [
     },
     [],
   );
-  return [selectedIds, updateSelectedIds] as const;
-}
-
-type ShareReadyRecipient = OneLocationRecipient & {
-  keyId: string;
-  publicKeyJwk: JsonWebKey;
-};
-
-function isShareReadyRecipient(
-  recipient: OneLocationRecipient,
-): recipient is ShareReadyRecipient {
-  return Boolean(
-    recipient.canReceiveLocation && recipient.keyId && recipient.publicKeyJwk,
-  );
+  return [selectedIds, updateSelectedIds, latestSelectedIdsRef] as const;
 }
 
 function peopleCountLabel(count: number): string {
@@ -2328,7 +2325,7 @@ export function OneLocationAgentPageContent({
   const [oneNetworkListExpanded, setOneNetworkListExpanded] = useState(false);
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [selectedRequestOwnerId, setSelectedRequestOwnerId] = useState("");
-  const [selectedRecipientIds, setSelectedRecipientIds] =
+  const [selectedRecipientIds, setSelectedRecipientIds, selectedRecipientIdsRef] =
     useShareRecipientSelectionState();
   const [selectedRequestOwnerIds, setSelectedRequestOwnerIds] = useState<
     string[]
@@ -2831,6 +2828,77 @@ export function OneLocationAgentPageContent({
       (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
     [state?.ownerGrants],
   );
+
+  /* ------------------------------------------------------------------ *
+   * Live share continuity
+   *
+   * `state` is a memory-only snapshot that expires after a minute, so leaving
+   * this route and returning re-entered the screen believing nothing was live
+   * until the network answered — a share deliberately set to "1 hour" appeared
+   * to have been forgotten. The device record below restores the running window
+   * on the first frame; the server stays the authority and reconciles into it.
+   * ------------------------------------------------------------------ */
+  const [liveShareEntries, setLiveShareEntries] = useState<
+    LiveShareSessionEntry[]
+  >(() => loadLiveShareEntries(auth.userId ?? ""));
+  const liveShareEntriesRef = useRef(liveShareEntries);
+  useEffect(() => {
+    liveShareEntriesRef.current = liveShareEntries;
+  }, [liveShareEntries]);
+
+  useEffect(() => {
+    const userId = auth.userId;
+    // Another account's shares must never render as yours, not even for one
+    // frame, so the record is keyed per owner and cleared on the way out.
+    setLiveShareEntries(userId ? loadLiveShareEntries(userId) : []);
+  }, [auth.userId]);
+
+  const commitLiveShareEntries = useCallback(
+    (next: LiveShareSessionEntry[]) => {
+      const userId = auth.userId;
+      if (liveShareEntriesEqual(next, liveShareEntriesRef.current)) return;
+      liveShareEntriesRef.current = next;
+      setLiveShareEntries(next);
+      if (!userId) return;
+      if (next.length) saveLiveShareEntries(userId, next);
+      else clearLiveShareEntries(userId);
+    },
+    [auth.userId],
+  );
+
+  useEffect(() => {
+    // Guarded on `state`: reconciling against an empty grant list before the
+    // first load lands would erase a genuinely running share.
+    if (!auth.userId || !state) return;
+    commitLiveShareEntries(
+      reconcileLiveShareEntries(liveShareEntriesRef.current, activeOwnerGrants),
+    );
+  }, [activeOwnerGrants, auth.userId, commitLiveShareEntries, state]);
+
+  const liveShareStatus = useMemo<LiveShareStatus | null>(() => {
+    const shareWindow = summarizeLiveShareEntries(liveShareEntries);
+    if (!shareWindow) return null;
+    const liveGrantIds = new Set(
+      liveShareEntries.map((entry) => entry.grantId),
+    );
+    return {
+      count: shareWindow.count,
+      // Names come from the server state only. The device record stays
+      // coordinate- and identity-free, so a cold start shows "2 people" rather
+      // than inventing who they are.
+      names: activeOwnerGrants
+        .filter((grant) => liveGrantIds.has(grant.id))
+        .map((grant) => grantCounterpartyLabel(grant))
+        .filter(Boolean),
+      startedAt: shareWindow.startedAt,
+      endsAt: shareWindow.endsAt,
+      stoppableGrantId:
+        liveShareEntries.length === 1
+          ? (liveShareEntries[0]?.grantId ?? null)
+          : null,
+    };
+  }, [activeOwnerGrants, liveShareEntries]);
+
   const locationEnabled =
     !locationControl.paused &&
     (locationControl.selfPreviewEnabled ||
@@ -3259,6 +3327,20 @@ export function OneLocationAgentPageContent({
       vaultOwnerToken,
     ],
   );
+
+  // The countdown hitting zero is the first moment anyone knows the share is
+  // over — the backend expires it silently. Drop the local record and pull the
+  // authoritative state so the screen agrees with the server within one round
+  // trip instead of sitting at 00:00.
+  const handleLiveShareEnded = useCallback(() => {
+    const userId = auth.userId;
+    commitLiveShareEntries(
+      pruneLiveShareEntries(liveShareEntriesRef.current, Date.now()),
+    );
+    if (!userId) return;
+    OneLocationStateResource.invalidate(userId);
+    void refresh({ background: true });
+  }, [auth.userId, commitLiveShareEntries, refresh]);
 
   const refreshLocationPermission = useCallback(async () => {
     // A failed read means we do not know, which is a reason to ask the device
@@ -3922,6 +4004,20 @@ export function OneLocationAgentPageContent({
     if (!vaultOwnerToken) {
       return { status: "blocked", summary: "Unlock One before sharing your location." };
     }
+    // See resolveEffectiveShareRecipients' doc comment for why an empty
+    // selectedShareRecipients falls back to the ref instead of being trusted
+    // as "nobody picked".
+    const effectiveSelectedShareRecipients = resolveEffectiveShareRecipients(
+      selectedShareRecipients,
+      shareRecipientPool,
+      selectedRecipientIdsRef.current,
+    );
+    const effectiveSetupNeededSelectedRecipients =
+      effectiveSelectedShareRecipients.filter(
+        (recipient) => !isShareReadyRecipient(recipient),
+      );
+    const effectiveShareReadySelectedRecipients =
+      effectiveSelectedShareRecipients.filter(isShareReadyRecipient);
     // Test the SELECTION, not the share-ready subset of it. Those differ
     // whenever someone is picked who has not finished their own Location
     // setup, and reading the subset made this answer "nobody is selected"
@@ -3929,18 +4025,18 @@ export function OneLocationAgentPageContent({
     // chain back to pick someone it had already picked. Observed live: the
     // pick settled "Matched Abdul Rashid", and the share that followed it
     // said nobody was selected.
-    if (!selectedShareRecipients.length) {
+    if (!effectiveSelectedShareRecipients.length) {
       return {
         status: "blocked",
         summary:
           "Nobody is selected yet. Pick who you want to share with, then say share again.",
       };
     }
-    if (setupNeededSelectedRecipients.length) {
+    if (effectiveSetupNeededSelectedRecipients.length) {
       // Name them. The person picked this contact by name a moment ago, so
       // the name is already theirs and already spoken; "someone you picked"
       // leaves them guessing which of several it means.
-      const blockedNames = setupNeededSelectedRecipients
+      const blockedNames = effectiveSetupNeededSelectedRecipients
         .map((recipient) => recipientLabel(recipient).trim())
         .filter(Boolean);
       return {
@@ -3986,7 +4082,7 @@ export function OneLocationAgentPageContent({
       // unbounded fan-out over a large Circle can exhaust a small connection
       // pool. Four at a time keeps the wall clock near a single round trip and
       // stays well inside the pool.
-      const pending = [...shareReadySelectedRecipients];
+      const pending = [...effectiveShareReadySelectedRecipients];
       const shareOne = async () => {
         for (;;) {
           const recipient = pending.shift();
@@ -4027,7 +4123,7 @@ export function OneLocationAgentPageContent({
       trackLocationShareConfirmed({
         route_id: "one_location",
         result: oneLocationEventResult(successCount, recipientFailureCount),
-        selected_count: shareReadySelectedRecipients.length,
+        selected_count: effectiveShareReadySelectedRecipients.length,
         success_count: successCount,
         failure_count: recipientFailureCount,
         duration_bucket: oneLocationDurationBucket(effectiveDurationHours),
@@ -4053,12 +4149,12 @@ export function OneLocationAgentPageContent({
     } catch (error) {
       const failureCount =
         recipientFailureCount ||
-        shareReadySelectedRecipients.length - successCount ||
+        effectiveShareReadySelectedRecipients.length - successCount ||
         1;
       trackLocationShareConfirmed({
         route_id: "one_location",
         result: oneLocationEventResult(successCount, failureCount),
-        selected_count: shareReadySelectedRecipients.length,
+        selected_count: effectiveShareReadySelectedRecipients.length,
         success_count: successCount,
         failure_count: failureCount,
         duration_bucket: oneLocationDurationBucket(effectiveDurationHours),
@@ -4079,14 +4175,12 @@ export function OneLocationAgentPageContent({
       publishEnvelopeWithRetry,
       refresh,
       resetShareComposer,
-      // The whole list, not just its length: the blocked message now names
-      // who is holding the share up.
-      setupNeededSelectedRecipients,
+      selectedRecipientIdsRef,
       selectedShareRecipients,
       shareDurationHours,
       shareMessage,
+      shareRecipientPool,
       shareReviewOpen,
-      shareReadySelectedRecipients,
       vaultOwnerToken,
     ],
   );
@@ -10080,6 +10174,8 @@ export function OneLocationAgentPageContent({
     visibleRecipients,
     visibleShareRecipients,
     activeOwnerGrants,
+    liveShare: liveShareStatus,
+    onLiveShareEnded: handleLiveShareEnded,
     // Received grants stay reachable in their focused detail view. Dismissing
     // a preview never mutates the durable grant or its revocation state.
     receivedGrants: activeReceivedGrants,
@@ -10275,7 +10371,35 @@ export function OneLocationAgentPageContent({
           ) : null}
 
           {showInitialSkeleton ? (
-            <HushhLoader variant="page" label="Loading location..." />
+            <>
+              {/* A running share is the one thing here that cannot wait for the
+                  network — it is already happening. Hiding a live privacy state
+                  behind a spinner is exactly what made a one-hour share look
+                  forgotten on the way back to this screen. Stopping works from
+                  here too; it needs the grant id, not the workspace. */}
+              {liveShareStatus ? (
+                <LiveShareStatusCard
+                  status={liveShareStatus}
+                  onManage={() =>
+                    router.push("/one/location?action=active-shares")
+                  }
+                  onStop={
+                    liveShareStatus.stoppableGrantId
+                      ? () =>
+                          void handleRevoke(
+                            liveShareStatus.stoppableGrantId ?? "",
+                          )
+                      : undefined
+                  }
+                  stopBusy={
+                    Boolean(liveShareStatus.stoppableGrantId) &&
+                    revokingGrantId === liveShareStatus.stoppableGrantId
+                  }
+                  onEnded={handleLiveShareEnded}
+                />
+              ) : null}
+              <HushhLoader variant="page" label="Loading location..." />
+            </>
           ) : (
             <LocationRedesignHub vm={locationHubVm} />
           )}
