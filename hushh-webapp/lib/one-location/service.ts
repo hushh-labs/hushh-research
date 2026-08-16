@@ -1500,6 +1500,27 @@ export class OneLocationService {
     return response.request;
   }
 
+  /**
+   * Take back a pending request you sent.
+   *
+   * Not the same call as `denyRequest`, which is the OWNER refusing an ask
+   * made of them. The backend keys this one on the requester, so it can only
+   * ever end a request the caller themselves sent.
+   */
+  static async withdrawRequest(params: {
+    vaultOwnerToken: string;
+    requestId: string;
+  }): Promise<OneLocationAccessRequest> {
+    const response = await apiJson<{ request: OneLocationAccessRequest }>(
+      `/api/one/location/requests/${encodeURIComponent(params.requestId)}/withdraw`,
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+      },
+    );
+    return response.request;
+  }
+
   static async referRecipient(params: {
     vaultOwnerToken: string;
     grantId: string;
