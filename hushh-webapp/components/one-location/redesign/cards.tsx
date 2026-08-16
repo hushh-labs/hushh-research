@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Button } from "@/components/ui/button";
 import { Avatar, StatusPill } from "./primitives";
@@ -397,6 +398,7 @@ export function SharedWithMeCard({
   onAskReshare?: () => void;
   askReshareBusy?: boolean;
 }) {
+  const warningRole = roleClasses("warning");
   const canOpenMap = Boolean(previewExpanded && mapHref);
   const previewRegionId = useId();
   const isPreviewExpanded = Boolean(previewExpanded);
@@ -497,16 +499,30 @@ export function SharedWithMeCard({
             <span className="min-w-0 break-words">{viewStatus.message}</span>
           </p>
         ) : (
+          // Five hand-mixed hexes stood here. #ff9f0a is the iOS DARK-mode
+          // orange used as a light-mode literal, and the 0.08 wash sat under
+          // the light token and roughly half the dark one, so the banner
+          // nearly vanished in dark. The warning role already encodes the
+          // light/dark pairing this was reaching for by hand.
           <div
             role="alert"
-            className="flex flex-col gap-2.5 rounded-2xl border border-[#ff9f0a]/25 bg-[#ff9f0a]/[0.08] p-3 sm:flex-row sm:items-center sm:justify-between"
+            className={cn(
+              "flex flex-col gap-2.5 rounded-[var(--app-card-radius-compact)] border p-3 sm:flex-row sm:items-center sm:justify-between",
+              warningRole.tile,
+              warningRole.border,
+            )}
           >
             <div className="flex items-start gap-2">
               <AlertTriangle
-                className="mt-0.5 h-4 w-4 shrink-0 text-[#c77700] dark:text-[#ffb340]"
+                className={cn("mt-0.5 h-4 w-4 shrink-0", warningRole.glyph)}
                 aria-hidden="true"
               />
-              <p className="min-w-0 break-words text-[12.5px] font-medium leading-snug text-[#8a5a00] [overflow-wrap:anywhere] dark:text-[#ffcf8a]">
+              <p
+                className={cn(
+                  "min-w-0 break-words text-[12.5px] font-medium leading-snug [overflow-wrap:anywhere]",
+                  warningRole.glyph,
+                )}
+              >
                 {viewStatus.message}
               </p>
             </div>
@@ -516,7 +532,11 @@ export function SharedWithMeCard({
                 size="sm"
                 onClick={onAskReshare}
                 isLoading={askReshareBusy}
-                className="w-full shrink-0 rounded-full border-[#ff9f0a]/30 bg-white/70 text-[#8a5a00] hover:bg-white sm:w-auto dark:border-[#ffb340]/25 dark:bg-white/10 dark:text-[#ffcf8a] dark:hover:bg-white/15"
+                className={cn(
+                  "w-full shrink-0 rounded-full bg-[color:var(--app-card-surface-default-solid)] sm:w-auto",
+                  warningRole.border,
+                  warningRole.glyph,
+                )}
               >
                 Ask to refresh
               </Button>
