@@ -338,6 +338,13 @@ pod_signing_key_secret=""
 pod_invoker_member=""
 pod_turn_enabled=""
 dev_simulation_enabled=""
+# BYOC locals, pre-initialised for `set -u`. They are assigned ONLY inside the dev
+# block, and every append_optional_env below runs unconditionally -- so without these
+# three lines an unset read would abort the deploy on uat and production, the two lanes
+# that never set them. That is the failure mode this file's own header warns about.
+consent_plane_sa=""
+user_gcp_live=""
+user_gcp_substrate_apply=""
 dev_phone_test_numbers=""
 dev_pod_state_bucket=""
 dev_pod_key_master_secret=""
@@ -403,6 +410,29 @@ if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   fi
   # The pod actually runs Agent One. Off => POST /api/one/pod/turn 404s.
   pod_turn_enabled="true"
+
+  # -- BYOC: the production path, exercised in dev against a real second project --
+  #
+  # Until now these were emitted NOWHERE, in any lane, so the BYO-GCP path could not
+  # be reached from a deployed hub at all: `resolve_substrate_ensurer` built a
+  # substrate in dry-run, `ensure()` returned applied=False, and provisioning raised
+  # SubstrateNotReadyError naming a step rather than the real cause. The capability was
+  # complete and the configuration for it did not exist.
+  #
+  # The consent-plane identity a person grants `serviceAccountTokenCreator` to. It is
+  # the value `POST /byoc/project/save` hands back as `hushhCaller`, and the
+  # authorization script cannot be run without it. Derived from the runtime SA rather
+  # than written twice, so the two can never disagree.
+  if [[ -n "${_RUNTIME_SERVICE_ACCOUNT}" ]]; then
+    consent_plane_sa="${_RUNTIME_SERVICE_ACCOUNT}"
+  fi
+  # Live provisioning into a project hushh does not own. Still refuses without a
+  # bootstrap account it was actually granted -- this flag does not bypass that.
+  user_gcp_live="true"
+  # Permission to CREATE resources in someone else's cloud. Kept as its own switch,
+  # separate from _LIVE, because the dry-run default is what makes "we rendered a plan"
+  # and "we built infrastructure in a customer project" different acts.
+  user_gcp_substrate_apply="true"
 fi
 append_optional_env "PERSONAL_AGENT_ENABLED" "${personal_agent_enabled}"
 append_optional_env "PERSONAL_AGENT_BACKEND" "${personal_agent_backend}"
@@ -414,6 +444,11 @@ append_optional_env "HUSSH_POD_TURN_ENABLED" "${pod_turn_enabled}"
 append_optional_env "HUSHH_DEV_SIMULATION_ENABLED" "${dev_simulation_enabled}"
 append_optional_env "HUSHH_DEV_PHONE_TEST_NUMBERS" "${dev_phone_test_numbers}"
 append_optional_env "POD_STORAGE_GCS_BUCKET" "${dev_pod_state_bucket}"
+# BYOC. Every one is empty outside dev, and append_optional_env drops empties, so the
+# production lane carries none of this by construction rather than by remembering.
+append_optional_env "HUSSH_CONSENT_PLANE_SA" "${consent_plane_sa}"
+append_optional_env "HUSSH_USER_GCP_LIVE" "${user_gcp_live}"
+append_optional_env "HUSSH_USER_GCP_SUBSTRATE_APPLY" "${user_gcp_substrate_apply}"
 # The other half of durable state. A SECRET, not an env literal: it derives every
 # managed pod's sealing keys, so it is the one value that must never appear in a
 # deploy log or a service description. append_optional_secret probes Secret Manager
