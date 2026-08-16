@@ -207,7 +207,83 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
             "phone_verified": None,
             "setup_capability_ids": [],
         },
+        "voice_settings": {
+            "voice_enabled": True,
+            "require_tap_confirmation": False,
+            "disabled_domains": [],
+        },
     }
+
+
+def test_voice_settings_fails_open_when_absent_or_malformed():
+    # Every field here is a person's own restriction on a capability they
+    # already have, not a grant -- missing or corrupted input must resolve to
+    # today's exact behavior, never to "block everything".
+    absent = _sanitize_live_context({"route_family": "/one/kai/market"})
+    assert absent["voice_settings"] == {
+        "voice_enabled": True,
+        "require_tap_confirmation": False,
+        "disabled_domains": [],
+    }
+
+    malformed = _sanitize_live_context(
+        {"route_family": "/one/kai/market", "voice_settings": "not-a-dict"}
+    )
+    assert malformed["voice_settings"] == {
+        "voice_enabled": True,
+        "require_tap_confirmation": False,
+        "disabled_domains": [],
+    }
+
+
+def test_voice_settings_honours_explicit_restrictions():
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/kai/market",
+            "voice_settings": {
+                "voice_enabled": False,
+                "require_tap_confirmation": True,
+                "disabled_domains": ["location", "kyc"],
+            },
+        }
+    )
+    assert context["voice_settings"] == {
+        "voice_enabled": False,
+        "require_tap_confirmation": True,
+        "disabled_domains": ["location", "kyc"],
+    }
+
+
+def test_voice_settings_drops_domains_the_server_cannot_enforce():
+    # "finance" and "calendar" are real domain keys the UI can show as
+    # "coming soon", but neither routes through a server-side choke point --
+    # accepting them here would let a client believe a restriction applies
+    # when nothing downstream checks it. Unrecognised strings are dropped the
+    # same way.
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/kai/market",
+            "voice_settings": {
+                "disabled_domains": ["location", "finance", "calendar", "not_a_real_domain"],
+            },
+        }
+    )
+    assert context["voice_settings"]["disabled_domains"] == ["location"]
+
+
+def test_voice_settings_caps_before_filtering_not_after():
+    # bounded_text_list truncates the RAW list at LIVE_MODULE_CAP before the
+    # allowlist filter ever runs, so a valid domain past the cap is dropped
+    # even though it would otherwise pass -- the same order enforced
+    # elsewhere in this module (available_action_ids, visible_modules, ...).
+    padding = [f"garbage_{i}" for i in range(10)]
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/kai/market",
+            "voice_settings": {"disabled_domains": [*padding, "location"]},
+        }
+    )
+    assert context["voice_settings"]["disabled_domains"] == []
 
 
 def test_live_context_keeps_only_generated_actions_from_the_top_modal_layer():

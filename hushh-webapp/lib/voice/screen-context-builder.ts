@@ -291,6 +291,12 @@ export type OneVoiceContextSnapshot = {
     callback_state: "none" | "pending" | "succeeded" | "cancelled" | "failed";
     setup_capability_ids: string[];
   };
+  /** The person's own restrictions on their already-authorized voice agent. */
+  voice_settings: {
+    voice_enabled: boolean;
+    require_tap_confirmation: boolean;
+    disabled_domains: string[];
+  };
   voice: {
     state: OneVoiceUiState;
     transition_seq: number;
@@ -921,6 +927,11 @@ export function buildOneVoiceContextSnapshot(args: {
     callbackState?: OneVoiceContextSnapshot["onboarding"]["callback_state"];
     setupCapabilityIds?: readonly string[];
   };
+  voiceSettings?: {
+    voiceEnabled?: boolean;
+    requireTapConfirmation?: boolean;
+    disabledDomains?: readonly string[];
+  };
   requireMountedLocalHandlers?: boolean;
 }): OneVoiceContextSnapshot {
   const publishedSurface =
@@ -1114,6 +1125,13 @@ export function buildOneVoiceContextSnapshot(args: {
       available: structured.persona.available,
     },
     onboarding,
+    voice_settings: {
+      voice_enabled: args.voiceSettings?.voiceEnabled ?? true,
+      require_tap_confirmation: args.voiceSettings?.requireTapConfirmation ?? false,
+      disabled_domains: uniqueStrings([
+        ...(args.voiceSettings?.disabledDomains || []),
+      ]),
+    },
     voice: {
       state: args.state ?? "idle",
       transition_seq: transitionSeq,

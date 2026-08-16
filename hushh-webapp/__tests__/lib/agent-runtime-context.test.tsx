@@ -15,6 +15,10 @@ import {
   registerMountedLocalActionHandler,
   unregisterMountedLocalActionHandler,
 } from "@/lib/agent/local-onboarding-actions";
+import {
+  forgetVoicePreferences,
+  updateVoicePreferences,
+} from "@/lib/agent/voice-preferences";
 
 let mockPathname = "/one/profile";
 const cacheMocks = vi.hoisted(() => ({
@@ -95,6 +99,7 @@ describe("AgentRuntimeStateProvider", () => {
     cacheMocks.values.clear();
     cacheMocks.listeners.clear();
     clearVoiceSurfaceMetadata("login_surface");
+    forgetVoicePreferences("user_1");
   });
 
   it("updates shared runtime context for query-only route changes", async () => {
@@ -209,6 +214,40 @@ describe("AgentRuntimeStateProvider", () => {
         "auth.open_terms",
         "runtime-context-test",
       );
+    });
+  });
+
+  it("reflects the person's own voice preferences in the live snapshot, reactively", async () => {
+    const seen: AgentRuntimeState[] = [];
+    render(
+      <AgentRuntimeStateProvider>
+        <Probe onValue={(value) => seen.push(value)} />
+      </AgentRuntimeStateProvider>
+    );
+
+    await waitFor(() => {
+      expect(seen.at(-1)?.oneVoiceContextSnapshot.voice_settings).toEqual({
+        voice_enabled: true,
+        require_tap_confirmation: false,
+        disabled_domains: [],
+      });
+    });
+
+    act(() => {
+      updateVoicePreferences("user_1", (current) => ({
+        ...current,
+        voiceEnabled: false,
+        requireTapConfirmation: true,
+        disabledDomains: ["location"],
+      }));
+    });
+
+    await waitFor(() => {
+      expect(seen.at(-1)?.oneVoiceContextSnapshot.voice_settings).toEqual({
+        voice_enabled: false,
+        require_tap_confirmation: true,
+        disabled_domains: ["location"],
+      });
     });
   });
 });
