@@ -617,7 +617,12 @@ describe("Connect — People", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Review 8 of 8" }));
     expect(await screen.findByRole("heading", { name: "Send connection requests" })).toBeTruthy();
-    expect(screen.getByText("This only sends a connection request.")).toBeTruthy();
+    // Not "This only sends a connection request." any more: the bulk path can
+    // now carry RIA Picks, so that sentence would be false the moment one is
+    // ticked. This wording is accurate whether or not any are.
+    expect(
+      screen.getByText("Start safe. Add sharing only if you choose."),
+    ).toBeTruthy();
     expect(screen.queryByText("Included now")).toBeNull();
     // Nobody here has a capability to grant, and the sheet says so rather than
     // leaving the reader to infer it from an absent section.

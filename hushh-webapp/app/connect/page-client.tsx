@@ -2045,8 +2045,15 @@ export default function ConnectPageClient() {
           <div className="shrink-0 space-y-5">
             <DialogHeader className="text-left">
               <DialogTitle>Send connection requests</DialogTitle>
+              {/*
+                This said "This only sends a connection request." That was true
+                while the bulk path could not carry capabilities. It can now, so
+                the sentence became a promise the sheet no longer keeps whenever
+                a Pick is ticked below. Matches the one-person sheet's wording,
+                which is accurate either way.
+              */}
               <DialogDescription>
-                This only sends a connection request.
+                Start safe. Add sharing only if you choose.
               </DialogDescription>
             </DialogHeader>
           </div>
