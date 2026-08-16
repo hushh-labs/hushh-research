@@ -1531,7 +1531,12 @@ function LocationDetailFlow({
               <SettingsRow
                 key={grant.id}
                 icon={UsersRound}
-                iconTone="purple"
+                // Green, matching the "Active shares" row that opens this
+                // screen. Each row here IS one of those live grants, and
+                // "purple" renders byte-identically to blue in the tone map —
+                // so tapping a green row reporting 3 landed on three blue rows
+                // for the same 3 grants. One object, one colour.
+                iconTone="green"
                 title={vm.grantRecipientLabel(grant)}
                 description={
                   grant.durationMode === "until_stopped"

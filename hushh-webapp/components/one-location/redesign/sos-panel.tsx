@@ -713,7 +713,11 @@ export function SosPanel({
                 role="alert"
                 className="text-[12px] text-[color:var(--app-destructive)]"
               >
-                character limit exceed
+                {/* Same defect the hub copy had: lowercase, verbless, and
+                    read aloud by screen readers via role="alert". This one is
+                    on the emergency surface, where a message that does not
+                    parse is worst. */}
+                Message is too long
               </p>
             ) : (
               <span />
