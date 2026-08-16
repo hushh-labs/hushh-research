@@ -152,12 +152,18 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     // (migration 152), so these three also render from both sides.
     case "location_share_created": {
       const hasWho = who !== "Someone";
+      const shareAmount = metadataDurationLabel(item.metadata, "duration");
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        // For an approval-born share this is the requester's ONLY row (152
+        // writes it; 153 deliberately does not add a second for the approval),
+        // so it names the granted amount that the event metadata carries.
         description: sharedWithMe
-          ? "Shared their location with you"
+          ? shareAmount
+            ? `Shared their location with you for ${shareAmount}`
+            : "Shared their location with you"
           : "Started sharing location",
         href: ROUTES.ONE_LOCATION,
       };

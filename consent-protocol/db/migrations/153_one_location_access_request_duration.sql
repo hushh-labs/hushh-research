@@ -146,9 +146,12 @@ ALTER TABLE one_location_events
 -- approval row. A different audience is an independent concern from different
 -- filtering, so the three compose in any merge order.
 --
--- Scope is the request lifecycle only (ask, approve, decline). The share
--- lifecycle already reaches the recipient through 152's own recipient trigger;
--- mirroring it here would write that person two rows for one event.
+-- Scope is the ask and the refusal. The APPROVAL is left out on purpose: 152
+-- already writes the requester a location_share_created row for the grant an
+-- approval mints, so fanning the approval out too would give that one person
+-- two rows for one tap -- the same duplication main's 151 removed from the
+-- owner's feed. The share row survives and carries the granted duration in its
+-- own metadata, so the amount is still there to read.
 --
 -- feed_audience is 152's marker, reused rather than reinvented, so a reader has
 -- exactly one question to ask about whose side a row is on. counterpart_label
@@ -166,9 +169,14 @@ RETURNS TRIGGER AS $$
 DECLARE
   owner_label TEXT;
 BEGIN
+  -- Approval is deliberately NOT here. 152 already writes the requester a
+  -- location_share_created row for the grant an approval mints, so fanning the
+  -- approval out as well gives that one person two rows for one tap -- exactly
+  -- the duplication main's 151 removed from the OWNER's feed. The share row is
+  -- the one that survives, and it carries the granted duration in its own
+  -- metadata, so nothing about the amount is lost by dropping this one.
   IF NEW.event_type NOT IN (
     'location_access_request',
-    'location_access_approved',
     'location_access_denied'
   ) THEN
     RETURN NEW;

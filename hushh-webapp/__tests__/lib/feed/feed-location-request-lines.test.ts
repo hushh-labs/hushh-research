@@ -108,19 +108,23 @@ describe("the requester's side of the same exchange", () => {
     expect(presented.href).toContain("section=my_requests");
   });
 
-  it("tells them how much they were actually given", () => {
+  it("tells them how much they were actually given, on the share row", () => {
+    // The approval itself is NOT fanned out to the requester -- 152 already
+    // writes them the share row it produced, and adding a second would give
+    // one person two rows for one tap. That surviving row names the amount.
     const presented = presentFeedItem(
       item({
-        event_type: "location_access_approved",
+        event_type: "location_share_created",
         metadata: {
           counterpart_label: "Neelesh",
-          feed_audience: "requester",
-          is_extension: true,
+          feed_audience: "recipient",
           duration_hours: 4,
         },
       }),
     );
-    expect(presented.description).toBe("Gave you 4 hours more");
+    expect(presented.description).toBe(
+      "Shared their location with you for 4 hours",
+    );
   });
 
   it("says a refused extension leaves current access alone", () => {
