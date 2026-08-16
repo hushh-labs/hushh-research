@@ -38,20 +38,45 @@ import styles from "./HushhIntroGate.module.css";
  * underneath — and only THEN does `VaultLockGuard` mount for the first
  * time and reveal the vault screen.
  *
- * Replay behaviour comes for free from how Next.js layouts work: this
- * component lives in the `/one` layout, which stays mounted across every
- * internal navigation between `/one/*` pages (Next only swaps the leaf
- * page), so the mount-once effect below never re-fires for in-app
- * navigation, and reading `useAuth()` here for the greeting does not
- * restart it either — the timers only ever depend on mount, not on any
- * auth/setup state re-rendering this component. The effect only re-fires
- * when the layout itself remounts — a real page load or refresh of `/one`,
- * or a fresh navigation into the section from outside it — which is
- * exactly "the app is opened."
+ * Plays once, ever, per browser — not on every open or refresh. A
+ * `localStorage` flag (`INTRO_SEEN_KEY`) is set the moment this decides
+ * to actually play the intro; every later mount (a new tab, a refresh
+ * next week, a different day) checks that flag first and, if set, skips
+ * straight to `{children}` with no overlay at all — the same bailout
+ * `prefers-reduced-motion` already used. Within a single "first play"
+ * session this component still lives in the `/one` layout, which stays
+ * mounted across every internal navigation between `/one/*` pages (Next
+ * only swaps the leaf page), so the mount-once effect below never
+ * re-fires mid-navigation either; reading `useAuth()` here for the
+ * greeting does not restart it, since the timers only ever depend on
+ * mount, not on any auth/setup state re-rendering this component.
  *
- * Fully skipped under prefers-reduced-motion — `VaultLockGuard` and
+ * Fully skipped under prefers-reduced-motion too — `VaultLockGuard` and
  * `{children}` mount immediately with no overlay at all.
  * ──────────────────────────────────────────────────────────── */
+
+const INTRO_SEEN_KEY = "hushh.one.intro.seen.v1";
+
+function hasSeenIntro(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(INTRO_SEEN_KEY) === "1";
+  } catch {
+    // Storage blocked (private browsing, disabled cookies/storage, etc).
+    // Fail open to "not seen" rather than throwing — worst case the
+    // splash plays again, which is the pre-existing behaviour.
+    return false;
+  }
+}
+
+function markIntroSeen(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(INTRO_SEEN_KEY, "1");
+  } catch {
+    // Nothing to fall back to; a future mount will just play it again.
+  }
+}
 
 type Phase = "idle" | "sweep" | "greet1" | "greet2" | "exit";
 
@@ -92,10 +117,12 @@ export function HushhIntroGate({ children }: { children: ReactNode }) {
   const firedRef = useRef(false);
 
   useEffect(() => {
-    if (prefersReducedMotion()) {
+    if (prefersReducedMotion() || hasSeenIntro()) {
       setIntroComplete(true);
       return;
     }
+
+    markIntroSeen();
 
     const timers: number[] = [];
     timers.push(window.setTimeout(() => setPhase("sweep"), SWEEP_DELAY_MS));
