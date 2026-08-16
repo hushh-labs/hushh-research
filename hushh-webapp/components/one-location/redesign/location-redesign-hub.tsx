@@ -84,6 +84,7 @@ import {
   Avatar,
   EmptyState,
   SectionCard,
+  StatusPill,
   TaskFlowHeader,
   TrustNoteCard,
   WarningCard,
@@ -2041,26 +2042,44 @@ function PeopleHub({
                         active={sharing || receiving}
                         first={i === 0}
                         action={
-                          sharing && grant ? (
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => vm.onStopGrant(grant.id)}
-                              isLoading={vm.revokingGrantId === grant.id}
-                              aria-label={`Stop sharing with ${name}`}
-                              className="relative h-9 min-h-9 rounded-full px-4 text-[15px] font-semibold after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] sm:px-5"
-                            >
-                              Stop
-                            </Button>
-                          ) : ready ? (
-                            <Button
-                              size="sm"
-                              onClick={() => onStartShare(r.userId)}
-                              aria-label={`Share with ${name}`}
-                              className="relative h-9 min-h-9 rounded-full bg-[color:var(--app-accent)] px-4 text-[15px] font-semibold text-[color:var(--app-accent-fg)] after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] hover:bg-[color:var(--app-accent-hover)] sm:px-5"
-                            >
-                              Share
-                            </Button>
+                          // Stop and Share are NOT alternatives. Making them
+                          // one either/or slot meant the moment a share went
+                          // live the only way back into the share flow for
+                          // that person disappeared, so "share with them for
+                          // longer" required stopping the share first and
+                          // could not be done at all until the current one ran
+                          // out. A repeat share is a normal, supported
+                          // mutation: the grant row for an owner/recipient
+                          // pair is replaced, not duplicated.
+                          ready || (sharing && grant) ? (
+                            <div className="flex items-center gap-2">
+                              {ready ? (
+                                <Button
+                                  size="sm"
+                                  onClick={() => onStartShare(r.userId)}
+                                  aria-label={
+                                    sharing
+                                      ? `Share again with ${name}`
+                                      : `Share with ${name}`
+                                  }
+                                  className="relative h-9 min-h-9 rounded-full bg-[color:var(--app-accent)] px-4 text-[15px] font-semibold text-[color:var(--app-accent-fg)] after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] hover:bg-[color:var(--app-accent-hover)] sm:px-5"
+                                >
+                                  {sharing ? "Share again" : "Share"}
+                                </Button>
+                              ) : null}
+                              {sharing && grant ? (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => vm.onStopGrant(grant.id)}
+                                  isLoading={vm.revokingGrantId === grant.id}
+                                  aria-label={`Stop sharing with ${name}`}
+                                  className="relative h-9 min-h-9 rounded-full px-4 text-[15px] font-semibold after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] sm:px-5"
+                                >
+                                  Stop
+                                </Button>
+                              ) : null}
+                            </div>
                           ) : null
                         }
                       />
@@ -2481,6 +2500,15 @@ function ShareFlow({
   }, [onEnterShareConfirm, step]);
 
   const filtered = vm.visibleShareRecipients;
+  // The outgoing shares that are live right now, by the person they point at.
+  // `activeOwnerGrants` is already the page's active-only slice, and a repeat
+  // share REPLACES the pair's row rather than adding one, so there is at most
+  // one entry per recipient. Read off `vm.nowMs` through
+  // `vm.expiresCountdownLabel`, the same 30s clock the Ask list and the share
+  // cards tick from, so no two surfaces can disagree about the time left.
+  const activeShareByRecipientId = new globalThis.Map(
+    vm.activeOwnerGrants.map((grant) => [grant.recipientUserId, grant]),
+  );
   const recipientById = new globalThis.Map(
     vm.recipients.map((recipient) => [recipient.userId, recipient]),
   );
@@ -2777,6 +2805,24 @@ function ShareFlow({
               );
               const ready = vm.isRecipientShareReady(recipient);
               const name = vm.recipientLabel(recipient);
+              // Same move the Ask list already made: state what is already
+              // true of this person before offering to do it again. Without
+              // it, somebody who shared an hour with Roopmann ten minutes ago
+              // came back to a row identical to everyone else's, with no way
+              // to tell from here that a share was live or when it ends --
+              // that answer only existed on Active shares, a screen away.
+              // Re-sharing stays allowed; this only makes the state visible.
+              const activeShare = activeShareByRecipientId.get(
+                recipient.userId,
+              );
+              const activeShareRemaining = activeShare
+                ? activeShare.durationMode === "until_stopped"
+                  ? "until you stop it"
+                  : vm.expiresCountdownLabel(activeShare.expiresAt)
+                : null;
+              const activeShareLine = activeShareRemaining
+                ? `Sharing now · ${activeShareRemaining}`
+                : null;
               return (
                 <button
                   key={recipient.userId}
@@ -2785,7 +2831,9 @@ function ShareFlow({
                   aria-pressed={ready ? selected : undefined}
                   aria-label={
                     ready
-                      ? `${selected ? "Deselect" : "Select"} ${name} for private sharing`
+                      ? `${selected ? "Deselect" : "Select"} ${name} for private sharing${
+                          activeShareLine ? `. ${activeShareLine}` : ""
+                        }`
                       : `${name} needs Location setup before sharing`
                   }
                   onClick={() =>
@@ -2808,8 +2856,17 @@ function ShareFlow({
                       <span className="mt-0.5 block truncate text-[14px] leading-[18px] text-[color:var(--app-secondary-label)]">
                         Invite first to enable sharing
                       </span>
+                    ) : activeShareLine ? (
+                      <span className="mt-0.5 block truncate text-[14px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                        {activeShareLine}
+                      </span>
                     ) : null}
                   </span>
+                  {activeShare ? (
+                    <StatusPill tone="ready" className="shrink-0">
+                      Live
+                    </StatusPill>
+                  ) : null}
                   <span
                     aria-hidden
                     className={cn(

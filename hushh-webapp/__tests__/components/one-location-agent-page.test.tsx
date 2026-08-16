@@ -1757,6 +1757,63 @@ describe("OneLocationAgentPage", () => {
     expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
+  it("shares again with someone already being shared with, and says how much of that share is left", async () => {
+    // Trusted B already holds an active grant in this state (grant_1, one
+    // hour). Sharing with the same person again is a supported mutation --
+    // the backend replaces the pair's grant row -- so neither the People list
+    // nor the share list may treat that person as unavailable.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [
+        {
+          ...locationState().ownerGrants[0],
+          expiresAt: new Date(Date.now() + 47 * 60_000).toISOString(),
+        },
+      ],
+    });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    fireEvent.change(
+      await screen.findByPlaceholderText("Search trusted people"),
+      { target: { value: "Trusted" } },
+    );
+    // Stop is not the only thing on offer any more: the row that used to hide
+    // its Share button behind a live grant now carries both.
+    expect(
+      screen.getByRole("button", { name: /Stop sharing with Trusted B/i }),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Share again with Trusted B/i }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Who can see you?" }),
+    ).toBeTruthy();
+    // The share list states the live share and the time left on it, on the
+    // person's own row, rather than leaving that answer on another screen.
+    expect(screen.getByText("Sharing now · Stops in 47 min")).toBeTruthy();
+    const trustedShareRow = screen.getByRole("button", {
+      name: /Deselect Trusted B for private sharing\. Sharing now · Stops in 47 min/i,
+    });
+    expect(within(trustedShareRow).getByText("Live")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      await screen.findByRole("heading", { name: "Ready to share?" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Start sharing" }));
+    await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
+    expect(mockCreateGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientUserId: "user_b",
+        shareKind: "share",
+      }),
+    );
+  });
+
   it("opens the canonical Location Settings URL and owns Saved Locations there", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
