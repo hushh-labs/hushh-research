@@ -21,7 +21,6 @@
 import {
   useCallback,
   useEffect,
-  useId,
   useRef,
   useState,
   type ReactNode,
@@ -645,36 +644,54 @@ export function resolveLocationDeepLinkFocus(input: {
   return { detailAction: null, nextTab: null };
 }
 
+/**
+ * The id the header switch points `aria-describedby` at. A constant, not
+ * `useId`: the status text now renders under the title while the switch stays
+ * in the actions column, and `aria-describedby` resolves by id anywhere in the
+ * document. There is exactly one Location header on screen.
+ */
+const LOCATION_HEADER_STATUS_ID = "one-location-header-status";
+
+/** What the header switch currently means, in words. */
+function locationHeaderStatusText(vm: LocationHubViewModel): string {
+  if (vm.locationAcquiring) return "Finding you\u2026";
+  return locationStatusLabel({
+    readiness: vm.locationBlocked
+      ? ("blocked" as const)
+      : vm.locationEnabled
+        ? ("ready" as const)
+        : ("askable" as const),
+    previewOn: vm.locationEnabled,
+    paused: vm.locationPaused,
+    accuracyLimited: vm.locationAccuracyLimited,
+  });
+}
+
+/**
+ * The status line for the Location header, rendered UNDER the title.
+ *
+ * It used to sit in the actions column beside the switch, and the full string
+ * made that column wide enough to wrap the 28px "Location Agent" title at every
+ * iPhone width. The fix for THAT was to shorten it to one word on phones — so
+ * iOS, the platform this control was designed for, showed a bare green switch
+ * over the single word "On", which never said what it switched. Under the title
+ * the line costs the title no width at all, so it can say the whole thing.
+ */
+function LocationHeaderStatus({ vm }: { vm: LocationHubViewModel }) {
+  return (
+    <span
+      id={LOCATION_HEADER_STATUS_ID}
+      data-testid="one-location-header-status"
+      className="ui-text-helper-text text-[color:var(--app-secondary-label)]"
+    >
+      {locationHeaderStatusText(vm)}
+    </span>
+  );
+}
+
 function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
-  const statusId = useId();
   const locationOn = vm.locationEnabled;
   const acquiring = vm.locationAcquiring;
-  const statusReadiness = vm.locationBlocked
-    ? ("blocked" as const)
-    : locationOn
-      ? ("ready" as const)
-      : ("askable" as const);
-  const statusLabel = acquiring
-    ? "Finding you…"
-    : locationStatusLabel({
-        readiness: statusReadiness,
-        previewOn: locationOn,
-        paused: vm.locationPaused,
-        accuracyLimited: vm.locationAccuracyLimited,
-      });
-  // One word on phones. Measured, not guessed: with the full "Location blocked"
-  // in this column the 28px "Location Agent" title wraps to two lines at every
-  // iPhone width (320/360/375/390); with the compact word the column stays the
-  // width of the switch and the title keeps its single line, exactly as today.
-  const compactStatusLabel = acquiring
-    ? "Finding…"
-    : locationStatusLabel({
-        readiness: statusReadiness,
-        previewOn: locationOn,
-        paused: vm.locationPaused,
-        accuracyLimited: vm.locationAccuracyLimited,
-        compact: true,
-      });
 
   const handleLocationChange = (checked: boolean) => {
     if (checked === locationOn) return;
@@ -689,13 +706,10 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
     <div
       role="group"
       aria-label="Location"
-      // Column on phones, row from `sm` up. The status text is the only thing
-      // that says what this switch is FOR, so it has to survive the compact
-      // layout; there is not enough width on a 320px screen to keep it beside
-      // the switch without wrapping the "Location Agent" title, so it moves
-      // underneath instead. From `sm` the order props restore the original
-      // single-row arrangement exactly: status, then switch.
-      className="ml-auto flex max-w-full shrink-0 flex-col items-end justify-center gap-1 sm:flex-row sm:items-center sm:justify-end sm:gap-0"
+      // Just the switch now. The status words moved under the title, which is
+      // what lets them be the full "Location on / off / paused / blocked" at
+      // every width instead of the single word "On" that iOS used to get.
+      className="ml-auto flex shrink-0 items-center justify-end"
       data-testid="one-location-header-actions"
     >
       <Switch
@@ -711,30 +725,15 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
         // The status text is the switch's description, not decoration. It used
         // to be aria-hidden, so a VoiceOver user got "Turn location on" and no
         // way to hear whether it was blocked, paused, or still finding them.
-        aria-describedby={statusId}
+        aria-describedby={LOCATION_HEADER_STATUS_ID}
         // The same pair of contract actions the Settings toggle carries.
         // Both are the same control in two places, so voice can offer
         // pause/resume from the Now tab without opening Settings first.
         data-voice-control-id="one-location-updates-toggle"
         // No colour override: the shared Switch already carries the iOS
         // system green, so this toggle reads the same as every other one.
-        className={cn(acquiring && "animate-pulse", "sm:order-2")}
+        className={cn(acquiring && "animate-pulse")}
       />
-      {/*
-        Visible at every width. It used to be `hidden … sm:inline`, which meant
-        the one label explaining the switch rendered on desktop and never on a
-        phone — the exact screen the switch was designed for. What was left on
-        iOS was a bare green switch under a title that names the agent, not the
-        control, so "what is this toggle for?" had no answer on the device.
-      */}
-      <span
-        id={statusId}
-        data-testid="one-location-header-status"
-        className="ui-text-helper-text whitespace-nowrap text-[color:var(--app-secondary-label)] sm:order-1 sm:pr-2"
-      >
-        <span className="sm:hidden">{compactStatusLabel}</span>
-        <span className="hidden sm:inline">{statusLabel}</span>
-      </span>
     </div>
   );
 }
@@ -1221,6 +1220,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         icon={MapPin}
         accent="location"
         titleRole="agent"
+        description={<LocationHeaderStatus vm={vm} />}
         actionsInlineMobile
         actions={<LocationHeaderActions vm={vm} />}
       />
@@ -2727,7 +2727,17 @@ function ShareFlow({
       : null;
     const peopleNoun = selectedReady.length === 1 ? "person" : "people";
     return (
-      <div className="space-y-5">
+      // A single-column consent form does not get wider just because the window
+      // does. Measured at 1440 this step rendered an 824px card holding a 420px
+      // control and a 792px note field — three widths in one card, and 372px of
+      // empty card to the right of the duration ladder.
+      //
+      // 560px is this feature's own column measure (the Location onboarding
+      // flow uses it at two places), so this adds no new number. Scoped to the
+      // Share confirm step rather than the shared flow root on purpose: that
+      // root also carries SmsContactsFlow, whose 680/720 desktop widths are
+      // deliberate and documented, plus two map previews.
+      <div className="mx-auto w-full max-w-[560px] space-y-5">
         {/* No description: the summary card directly below states who can see
             you, for how long and when it ends. Repeating that in prose above it
             is the design explaining itself. */}
@@ -2803,6 +2813,9 @@ function ShareFlow({
             <DurationSelector
               value={vm.shareDurationHours}
               onChange={vm.setShareDurationHours}
+              // The column above is already measured, so the control fills the
+              // card instead of stopping 108px short of the note field beside it.
+              maxWidthClassName={null}
               label="How long"
               hint={shareEndsAtLabel(vm.shareDurationHours, nowMs)}
               presentation="ladder"
@@ -3706,12 +3719,18 @@ function TemporaryLinkFlow({
           so it offers no precision card either. The "expires automatically"
           note that sat here was the third statement of the same fact — the
           warning above and the duration control already carry it. */}
+      {/* The label changes while it works. This press waits on a device fix
+          before it can post anything, so on a cold start it can sit for
+          several seconds — and it used to sit as a bare spinner with the label
+          hidden, which is why it read as "taking longer than expected" rather
+          than as "still finding you". Naming the wait is the fix available
+          here; the wait itself is a GPS acquisition. */}
       <Button
         onClick={vm.onCreatePublicInvite}
         isLoading={vm.busy === "publicInvite"}
-        className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+        className="h-12 min-h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
       >
-        Create link
+        {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
       </Button>
     </div>
   );

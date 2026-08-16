@@ -1258,7 +1258,20 @@ describe("OneLocationAgentPage", () => {
     });
     expect(headerActions.className).toContain("ml-auto");
     expect(headerActions.className).toContain("justify-end");
-    expect(headerActions.className).toContain("max-w-full");
+    // The actions column holds the switch and nothing else now, so it no
+    // longer needs `max-w-full` to survive wrapping text. The status words that
+    // used to sit here moved under the title — see the status assertions below.
+    const status = screen.getByTestId("one-location-header-status");
+    expect(headerActions.contains(status)).toBe(false);
+    // iOS used to get the one-word form: a bare green switch over "On", which
+    // never said what it switched. Reported from the device.
+    expect(status.textContent).toBe("Location off");
+    // Still the switch's description wherever it renders.
+    expect(
+      screen
+        .getByRole("switch", { name: "Turn location on" })
+        .getAttribute("aria-describedby"),
+    ).toBe(status.id);
     expect(
       screen.queryByRole("button", { name: "Refresh location" }),
     ).toBeNull();
@@ -1283,15 +1296,17 @@ describe("OneLocationAgentPage", () => {
     // hit ("location toggle kis liye hai? iOS pe how user gonna find that?").
     const locationStatus = screen.getByTestId("one-location-header-status");
     expect(locationStatus.className).not.toContain("hidden");
-    // Two forms of the same state, one per breakpoint, and NEITHER is hidden at
-    // every width the way the old single `hidden … sm:inline` span was. Phones
-    // get the one-word form because the 28px title has no width to spare there
-    // (the full string measured two title lines at 320/360/375/390); from `sm`
-    // up the full string renders inline exactly as it does today.
-    const compact = locationStatus.querySelector(".sm\\:hidden");
-    const full = locationStatus.querySelector(".hidden.sm\\:inline");
-    expect(compact?.textContent).toBe("Off");
-    expect(full?.textContent).toBe("Location off");
+    // ONE form now, at every width, naming the thing it switches.
+    //
+    // This used to be two breakpoint spans: the full string from `sm` up and a
+    // one-word form on phones, because the full string in the actions column
+    // wrapped the 28px title at 320-390px. That fit, and it cost iOS the
+    // meaning — the device showed a bare green switch over the word "On". The
+    // status now renders under the title instead of beside the switch, so it
+    // takes no width from the title and never has to abbreviate.
+    expect(locationStatus.querySelector(".sm\\:hidden")).toBeNull();
+    expect(locationStatus.querySelector(".hidden.sm\\:inline")).toBeNull();
+    expect(locationStatus.textContent).toBe("Location off");
     expect(locationStatus).not.toHaveAttribute("aria-hidden");
     expect(
       screen.getByRole("switch", { name: "Turn location on" }),
@@ -2853,6 +2868,55 @@ describe("OneLocationAgentPage", () => {
     expect(
       window.localStorage.getItem("one_location_onboarding_v2:user_a"),
     ).toBe("1");
+  });
+
+  it("turns location on once a place is confirmed in onboarding", async () => {
+    // Reported from UAT: "onboarding mein mera location save ho rha, i could
+    // able to confirm the location as home office others — then after
+    // redirecting to this main page why location off..."
+    //
+    // Onboarding captured a position directly instead of going through
+    // `ensureForegroundLocationReady`, so it never reached `activateMyLocation`
+    // and never set `selfPreviewEnabled`. A brand-new owner also has no grants
+    // and no nearby presence, so all three disjuncts behind `locationEnabled`
+    // were false and the hub greeted them with "Location off" — seconds after
+    // they granted permission, took a fix, dragged a pin and tagged it Home.
+    //
+    // Every other hub test reaches the hub through `skipLocationEntryFlow`,
+    // which presses "Skip for now" on this modal, so the save path never once
+    // reached an assertion about the header. That is why this shipped.
+    window.localStorage.removeItem(
+      "one_location_saved_location_prompt_v2:user_a",
+    );
+    mockLoadSavedLocations.mockResolvedValue([]);
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+
+    render(<OneLocationAgentPage />);
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openLocationPermissionsStep();
+
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+    await waitFor(() => expect(mockAddSavedLocation).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    await expectLocationInviteStep();
+    fireEvent.click(await locationFinishButton());
+    expect(
+      await screen.findByRole("heading", { name: "Location Agent" }),
+    ).toBeTruthy();
+
+    // The header agrees with what the person just did.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("one-location-header-status").textContent,
+      ).toBe("Location on"),
+    );
+    expect(
+      screen.getByRole("switch", { name: "Turn location off" }),
+    ).toHaveAttribute("aria-checked", "true");
   });
 
   it("reoffers the two-step saved-place flow when Location is already granted", async () => {

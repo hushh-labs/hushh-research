@@ -1036,7 +1036,15 @@ export function VaultFlow({
             >
               <VaultFlowHeader
                 icon={Lock}
-                title="Create your passphrase"
+                /* "Set a lock" — the phrase this product already uses for
+                   this exact dialog. one-setup-hub.tsx:607 passes it as the
+                   dialog's accessible title while the visible heading said
+                   something else, so the screen announced one name and showed
+                   another. It also stops naming the mechanism: what the person
+                   is doing is locking their private place, and the passphrase
+                   is merely how. The fields below still say "Passphrase",
+                   which is where that word belongs. */
+                title="Set a lock"
                 // Carries the promise the removed "private place" invitation
                 // screen used to make, on the step that actually needs it.
                 description="Only you can open what you save."

@@ -572,7 +572,7 @@ export function OneSetupHub() {
                 supportingText={
                   !runtimeChoiceComplete
                     ? "Choose your AI first."
-                    : "Add the rest any time."
+                    : "Set up the rest later."
                 }
                 variant="blue-gradient"
                 effect="fill"

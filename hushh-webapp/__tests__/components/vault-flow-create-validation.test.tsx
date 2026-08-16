@@ -205,7 +205,11 @@ describe("VaultFlow create validation", () => {
   it("opens fresh vault creation directly in the canonical credential layout", async () => {
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    expect(await screen.findByRole("heading", { name: "Create your passphrase" })).toBeTruthy();
+    // "Set a lock", not "Create your passphrase": the heading names the job,
+    // not the mechanism, and it is the same phrase one-setup-hub already passes
+    // as this dialog's accessible title — the screen used to announce one name
+    // and show another. "Passphrase" still labels the fields, where it belongs.
+    expect(await screen.findByRole("heading", { name: "Set a lock" })).toBeTruthy();
     expect(screen.getByLabelText("Passphrase")).toBeTruthy();
     expect(screen.getByLabelText("Confirm passphrase")).toBeTruthy();
     expect(screen.queryByText("Secure Your Digital Vault")).toBeNull();

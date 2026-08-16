@@ -32,11 +32,16 @@ export const CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME = "pr-11";
 export const CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME = "pr-3.5";
 
 /**
- * The selection toggle, at a fixed width so switching between "Select" and
- * "Cancel" cannot resize the search field beside it.
+ * The selection toggle, at a fixed width so switching between "Select many"
+ * and "Cancel" cannot resize the search field beside it.
+ *
+ * 104px, not 84px: the label has to say that it selects MORE THAN ONE person
+ * before it is pressed. "Select" alone read as "select this one", which is the
+ * opposite of what the control does. The width is measured against the widest
+ * of the two labels at 320px in `connect-circle-cta.layout.spec.ts`.
  */
 export const CONNECT_SELECT_TOGGLE_CLASSNAME =
-  "h-10 min-h-10 w-[84px] shrink-0 rounded-full px-0 text-[15px] font-semibold leading-5";
+  "h-10 min-h-10 w-[104px] shrink-0 rounded-full px-0 text-[15px] font-semibold leading-5";
 
 /** Gap between the field and the toggle (`gap-2`). */
 export const CONNECT_SEARCH_ROW_GAP_PX = 8;

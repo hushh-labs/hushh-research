@@ -31,6 +31,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { MapNameLabels } from "@/components/one-location/map-name-labels";
 import {
   NearbyCheckInSheet,
   type NearbyCheckInPlaceFocus,
@@ -53,6 +54,14 @@ import {
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
 import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
+import {
+  firstNameFromLabel,
+  layoutMapNameLabels,
+  MAP_NAME_LABEL_CLUSTERED_ANCHOR_DISTANCE_PX,
+  MAP_NAME_LABEL_MIN_ANCHOR_DISTANCE_PX,
+  type MapNameLabelCamera,
+  type PlacedMapNameLabel,
+} from "@/lib/one-location/map-name-labels";
 import {
   getBrowserMapsApiKey,
   getNativeMapsApiKey,
@@ -119,6 +128,13 @@ const TRAY_COLLAPSED_HEIGHT_PX = 56; // 3.5rem, the collapsed pill.
 // measured DOM element, so it stays a literal constant -- everything else
 // below is read from the real, rendered header and body instead of guessed.
 const TRAY_BORDER_HEIGHT_PX = 2;
+/**
+ * The check-in panel's footprint from `md` up, where it docks down the right
+ * side instead of rising from the bottom. Read by both the camera padding and
+ * the name-pill layer, because a strip of map one of them thinks is visible and
+ * the other does not is exactly how a name ends up behind the panel.
+ */
+const DESKTOP_CHECK_IN_PANEL_WIDTH_PX = 436;
 const MAP_ACCENT_CONTROL_CLASSNAME =
   "!border-[var(--app-accent-border)] !bg-[var(--app-accent-surface)] !text-[var(--app-accent-deep)] hover:!bg-[var(--app-accent-surface-strong)] dark:!text-[var(--app-accent-bright)]";
 const MAP_ACCENT_ACTIVE_CLASSNAME =
@@ -137,10 +153,39 @@ function activeShareLabels(grants: OneLocationGrant[]): string[] {
     );
 }
 
+/**
+ * The camera payload `onCameraIdle` and `onBoundsChanged` both deliver.
+ *
+ * Declared here rather than imported: @capacitor/google-maps keeps its callback
+ * data types in `./definitions` and its package root re-exports only the map
+ * primitives, so `CameraIdleCallbackData` is not importable at all. Naming just
+ * the fields this layer reads is also the narrower contract -- the pills need a
+ * viewport and an orientation, not a mapId or a centre.
+ */
+type MapCameraEvent = {
+  bounds?: {
+    northeast: { lat: number; lng: number };
+    southwest: { lat: number; lng: number };
+  };
+  zoom?: number;
+  bearing?: number;
+  tilt?: number;
+};
+
 type RenderMarker = {
   key: string;
   point: PlainLocationPoint;
   label: string;
+  /**
+   * What the pill above this pin says, which is never the whole of `label`:
+   * "Ankit Kumar Singh" is a form-field answer, and three words stacked over a
+   * pin is how a map with four people on it stops being readable. A first name
+   * for a person, "My location" for this device, the venue for a check-in.
+   *
+   * It stays in the WebView. The renderer is still handed the generic titles
+   * below -- this is the label layer's own copy, not a relaxation of that line.
+   */
+  shortLabel: string;
   /**
    * `place` is the venue the owner is checking in to. It is deliberately
    * distinct from `self`: the two are frequently a street apart, and collapsing
@@ -221,6 +266,17 @@ function isStaleAt(
 function displayLabel(marker: OneLocationMapMarker): string {
   return marker.grant.ownerDisplayName?.trim() || "A trusted person";
 }
+
+/** What this person's pin is called on the map itself. */
+function displayShortLabel(marker: OneLocationMapMarker): string {
+  const full = marker.grant.ownerDisplayName?.trim();
+  // The unnamed case never goes through the first-name split: "A trusted
+  // person" would come back as the single letter "A".
+  return (full ? firstNameFromLabel(full) : "") || "Trusted person";
+}
+
+/** The pill over this device's own pin. */
+const SELF_SHORT_LABEL = "My location";
 
 function personInitials(label: string): string {
   return label
@@ -474,6 +530,34 @@ export function LocationImmersiveMap({
     return () => window.clearInterval(timer);
   }, []);
   const [selfMarker, setSelfMarker] = useState<RenderMarker | null>(null);
+  /**
+   * What the renderer is currently showing, so the HTML name pills can be put
+   * over the right pins. Null until the first camera report lands, which is
+   * also why the layer simply does not exist on a renderer too old to send one.
+   */
+  const [mapCamera, setMapCamera] = useState<MapNameLabelCamera | null>(null);
+  /**
+   * iOS and Android report the camera only once it SETTLES, so between the
+   * gesture starting and it stopping the coordinates above describe where the
+   * map used to be. The pills fade out for that window rather than slide across
+   * the screen away from their pins. Web reports every frame and never sets it.
+   */
+  const [cameraMoving, setCameraMoving] = useState(false);
+  const [mapBox, setMapBox] = useState({
+    width: 0,
+    height: 0,
+    insetTop: 0,
+    insetBottom: 0,
+    insetLeft: 0,
+    insetRight: 0,
+  });
+  /**
+   * Web fires a bounds report per animation frame of a pan. Coalescing them
+   * into one state update per frame is what keeps a drag at 60fps with a
+   * screenful of names on it.
+   */
+  const cameraFrameRef = useRef<number | null>(null);
+  const pendingCameraRef = useRef<MapNameLabelCamera | null>(null);
   // Count of the account's own ACTIVE outgoing shares (people it is sharing
   // its location WITH). Sourced from the full getState (map-state only carries
   // incoming markers), so it's fetched on a lighter cadence than the 5s marker
@@ -782,6 +866,7 @@ export function LocationImmersiveMap({
         key: "current-device-location",
         kind: "self",
         label: "You",
+        shortLabel: SELF_SHORT_LABEL,
         point,
         tint: SELF_TINT,
       };
@@ -811,6 +896,7 @@ export function LocationImmersiveMap({
       key: "current-device-location",
       kind: "self",
       label: "You",
+      shortLabel: SELF_SHORT_LABEL,
       point,
       tint: SELF_TINT,
     });
@@ -834,6 +920,7 @@ export function LocationImmersiveMap({
         const demoMarkers = locationMapDemoPeople().map((person) => ({
           ...person,
           kind: "person" as const,
+          shortLabel: firstNameFromLabel(person.label) || person.label,
         }));
         markerSignatureRef.current = markerSignature(demoMarkers);
         setMarkers(demoMarkers);
@@ -854,6 +941,7 @@ export function LocationImmersiveMap({
                 `${marker.grant.id}:${marker.envelope.capturedAt}`,
               point,
               label: displayLabel(marker),
+              shortLabel: displayShortLabel(marker),
               kind: "person",
               grantId: marker.grant.id,
               capturedAt: marker.envelope.capturedAt ?? null,
@@ -1105,6 +1193,47 @@ export function LocationImmersiveMap({
         return;
       }
       mapRef.current = map;
+      // The name pills are HTML above the map, so they need to know what the
+      // renderer is showing. Both platforms emit `onBoundsChanged` beside
+      // `onCameraIdle`, but only web emits it DURING a gesture -- native sends
+      // both once the camera settles, which is what `onCameraMoveStarted`
+      // compensates for by fading the layer out for the length of a drag.
+      //
+      // Wrapped, and tried before `setMapReady`, because a renderer without
+      // camera listeners must still produce a working map: the only thing it
+      // loses is the names floating over its pins.
+      try {
+        const publishCamera = (data: MapCameraEvent | null) => {
+          const bounds = data?.bounds;
+          if (!bounds) return;
+          pendingCameraRef.current = {
+            north: bounds.northeast.lat,
+            south: bounds.southwest.lat,
+            east: bounds.northeast.lng,
+            west: bounds.southwest.lng,
+            zoom: Number(data.zoom) || 0,
+            bearing: Number(data.bearing) || 0,
+            tilt: Number(data.tilt) || 0,
+          };
+          if (cameraFrameRef.current !== null) return;
+          cameraFrameRef.current = window.requestAnimationFrame(() => {
+            cameraFrameRef.current = null;
+            const next = pendingCameraRef.current;
+            if (!next) return;
+            setMapCamera(next);
+            // A fresh camera IS the end of the stale window, whether it
+            // arrived from an idle event or from web's per-frame reports.
+            setCameraMoving(false);
+          });
+        };
+        await map.setOnBoundsChangedListener(publishCamera);
+        await map.setOnCameraIdleListener(publishCamera);
+        if (isNative()) {
+          await map.setOnCameraMoveStartedListener(() => setCameraMoving(true));
+        }
+      } catch {
+        // No camera reports, so no name pills. Everything else still works.
+      }
       await map.setOnMarkerClickListener((event) => {
         const marker = markerByMapIdRef.current.get(event.markerId);
         if (!marker) return;
@@ -1127,6 +1256,12 @@ export function LocationImmersiveMap({
     return () => {
       cancelled = true;
       setMapReady(false);
+      if (cameraFrameRef.current !== null) {
+        window.cancelAnimationFrame(cameraFrameRef.current);
+        cameraFrameRef.current = null;
+      }
+      pendingCameraRef.current = null;
+      setMapCamera(null);
       // Destroy the native map instance and drop the ref on teardown. Without
       // this, closing Your Map left the @capacitor/google-maps instance
       // (registered under MAP_ID) alive; re-opening then raced a fresh create()
@@ -1237,6 +1372,9 @@ export function LocationImmersiveMap({
       key: `nearby-place:${nearbyPlaceFocus.placeId || "active"}`,
       kind: "place",
       label: nearbyPlaceFocus.label,
+      // A venue is a public place the owner picked, so the pill may name it in
+      // full -- unlike a person, whose full name stays in the tray.
+      shortLabel: nearbyPlaceFocus.label,
       point: {
         latitude: nearbyPlaceFocus.latitude,
         longitude: nearbyPlaceFocus.longitude,
@@ -1259,6 +1397,53 @@ export function LocationImmersiveMap({
     if (nearbyPlaceMarker) next.push(nearbyPlaceMarker);
     return next;
   }, [isCheckInSurface, markers, nearbyPlaceMarker, selfMarker]);
+
+  /**
+   * Past this many pins the renderer merges neighbours into cluster bubbles, so
+   * a pin is no longer drawn at its own coordinate. Shared with the pill layer,
+   * which has to spread its names further apart while that is true or it would
+   * label bubbles that stand for four people with the name of one.
+   */
+  const clusteringActive = visibleMarkers.length > 8;
+
+  /**
+   * The names floating over the pins.
+   *
+   * Order and overlap are decided in `layoutMapNameLabels`, which is where the
+   * zoomed-out case is actually handled: at world zoom fifty shares fall within
+   * a few hundred pixels of each other, and the answer is a handful of readable
+   * names rather than fifty pills in a heap.
+   */
+  const nameLabels = useMemo<PlacedMapNameLabel[]>(() => {
+    if (!mapCamera || !rendererReady || status === "unavailable") return [];
+    return layoutMapNameLabels({
+      labels: visibleMarkers.map((marker) => ({
+        key: marker.key,
+        text: marker.shortLabel,
+        kind: marker.kind,
+        point: {
+          latitude: marker.point.latitude,
+          longitude: marker.point.longitude,
+        },
+        stale: isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs),
+        tintCss: marker.tint ? tintCss(marker.tint) : undefined,
+      })),
+      camera: mapCamera,
+      viewport: mapBox,
+      minAnchorDistancePx: clusteringActive
+        ? MAP_NAME_LABEL_CLUSTERED_ANCHOR_DISTANCE_PX
+        : MAP_NAME_LABEL_MIN_ANCHOR_DISTANCE_PX,
+    });
+  }, [
+    clusteringActive,
+    freshnessSeconds,
+    mapBox,
+    mapCamera,
+    rendererReady,
+    staleClockMs,
+    status,
+    visibleMarkers,
+  ]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1290,7 +1475,7 @@ export function LocationImmersiveMap({
         : 0;
       const padding = {
         top: Math.ceil(top + 12),
-        right: desktopCheckInOpen ? 436 : 20,
+        right: desktopCheckInOpen ? DESKTOP_CHECK_IN_PANEL_WIDTH_PX : 20,
         bottom: Math.ceil(
           Math.max(
             trayBottomInset + COLLAPSED_TRAY_HEIGHT + 12,
@@ -1348,6 +1533,85 @@ export function LocationImmersiveMap({
       window.removeEventListener("resize", schedulePadding);
     };
   }, [mapReady, nearbyCheckInOpen]);
+
+  // The pill layer is positioned in the map box's own pixels, so it needs that
+  // box's size and the room the floating chrome takes out of it. Measured from
+  // the real elements rather than assumed: the top controls are one row on a
+  // desktop and two on a phone, and that ~60px difference decides where the
+  // highest name on the map is allowed to sit.
+  useEffect(() => {
+    const element = mapElement.current;
+    if (!element || !mapReady) return;
+    let frame: number | null = null;
+    const measure = () => {
+      frame = null;
+      const rect = element.getBoundingClientRect();
+      const controlsBottom =
+        topControlsRef.current?.getBoundingClientRect().bottom ?? rect.top;
+      const trayRect = peopleTrayRef.current?.getBoundingClientRect();
+      // The tray's COLLAPSED footprint, not its live height -- opening the
+      // people list must not wipe every name out of the lower half of the map.
+      const trayInset = trayRect
+        ? Math.max(0, rect.bottom - trayRect.bottom) + TRAY_COLLAPSED_HEIGHT_PX
+        : TRAY_COLLAPSED_HEIGHT_PX;
+      // Check-in docks to the right from `md` up and rises from the bottom
+      // below it, so the room it takes is a different edge on each.
+      const checkInSheet = nearbyCheckInOpen
+        ? document.querySelector<HTMLElement>(
+            "[data-one-location-nearby-check-in-sheet]",
+          )
+        : null;
+      const desktopCheckInOpen =
+        nearbyCheckInOpen &&
+        window.matchMedia("(min-width: 768px)").matches;
+      const mobileSheetInset =
+        checkInSheet && !desktopCheckInOpen
+          ? Math.max(0, rect.bottom - checkInSheet.getBoundingClientRect().top)
+          : 0;
+      const next = {
+        width: rect.width,
+        height: rect.height,
+        insetTop: Math.max(0, controlsBottom - rect.top) + 8,
+        insetBottom: Math.max(trayInset, mobileSheetInset) + 8,
+        insetLeft: 8,
+        insetRight:
+          (desktopCheckInOpen ? DESKTOP_CHECK_IN_PANEL_WIDTH_PX : 0) + 8,
+      };
+      setMapBox((current) =>
+        current.width === next.width &&
+        current.height === next.height &&
+        current.insetTop === next.insetTop &&
+        current.insetBottom === next.insetBottom &&
+        current.insetLeft === next.insetLeft &&
+        current.insetRight === next.insetRight
+          ? current
+          : next,
+      );
+    };
+    const scheduleMeasure = () => {
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(measure);
+    };
+    measure();
+    const observer = new ResizeObserver(scheduleMeasure);
+    observer.observe(element);
+    if (topControlsRef.current) observer.observe(topControlsRef.current);
+    const checkInSheet = document.querySelector<HTMLElement>(
+      "[data-one-location-nearby-check-in-sheet]",
+    );
+    if (nearbyCheckInOpen && checkInSheet) observer.observe(checkInSheet);
+    window.addEventListener("resize", scheduleMeasure);
+    window.addEventListener("orientationchange", scheduleMeasure);
+    return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener("resize", scheduleMeasure);
+      window.removeEventListener("orientationchange", scheduleMeasure);
+    };
+    // rendererReady and isCheckInSurface decide whether the top controls and
+    // the people tray are mounted at all, and the check-in panel changes which
+    // edge of the map is spoken for, so all three have to re-run the measure.
+  }, [isCheckInSurface, mapReady, nearbyCheckInOpen, rendererReady]);
 
   // The tray body's rendered box is height-clamped by its scroll container,
   // so its own size never reflects how tall its content actually is. Track
@@ -1596,7 +1860,7 @@ export function LocationImmersiveMap({
           return marker ? [[id, marker] as const] : [];
         }),
       );
-      if (visibleMarkers.length > 8) {
+      if (clusteringActive) {
         await map.enableClustering(4);
       } else {
         await map.disableClustering();
@@ -1621,6 +1885,7 @@ export function LocationImmersiveMap({
     // keeps a live-coloured pin until some unrelated refresh happens to redraw
     // it.
   }, [
+    clusteringActive,
     entryLocationSettled,
     mapReady,
     visibleMarkers,
@@ -2083,6 +2348,16 @@ export function LocationImmersiveMap({
           closing ? "pointer-events-none" : ""
         }`}
       />
+      {/*
+        Who each pin is. A coloured pin says somebody is here; on a map with
+        two people on it that is not the question being asked. The names live
+        in the WebView above the map -- never handed to the renderer, which
+        keeps the private-share boundary exactly where the marker effect above
+        put it -- and are inert, so they cannot swallow a pan or a tap.
+      */}
+      {rendererReady && mapReady && status !== "unavailable" && !closing ? (
+        <MapNameLabels labels={nameLabels} stalePositions={cameraMoving} />
+      ) : null}
       <header
         ref={topControlsRef}
         aria-label={

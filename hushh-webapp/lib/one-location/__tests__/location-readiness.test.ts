@@ -186,26 +186,26 @@ describe("status label", () => {
     ).toBe("Location on");
   });
 
-  it("drops the repeated 'Location' for the phone header without changing which state wins", () => {
+  it("names what the switch controls in every state, at every width", () => {
     // The compact form exists because the phone header puts this text under a
     // 28px title that already says Location: the long string measured two title
     // lines at 320/360/375/390. It must agree with the full form on every
     // state, or the same switch would report differently on a phone and a
     // laptop.
     const cases = [
-      [{ readiness: "askable", previewOn: false, paused: false, accuracyLimited: false }, "Location off", "Off"],
-      [{ readiness: "blocked", previewOn: false, paused: false, accuracyLimited: false }, "Location blocked", "Blocked"],
-      [{ readiness: "blocked", previewOn: true, paused: true, accuracyLimited: true }, "Location paused", "Paused"],
-      [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: true }, "Location limited", "Limited"],
-      [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: false }, "Location on", "On"],
+      [{ readiness: "askable", previewOn: false, paused: false, accuracyLimited: false }, "Location off"],
+      [{ readiness: "blocked", previewOn: false, paused: false, accuracyLimited: false }, "Location blocked"],
+      [{ readiness: "blocked", previewOn: true, paused: true, accuracyLimited: true }, "Location paused"],
+      [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: true }, "Location limited"],
+      [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: false }, "Location on"],
     ] as const;
 
-    for (const [params, full, compact] of cases) {
+    for (const [params, full] of cases) {
       expect(locationStatusLabel(params)).toBe(full);
-      expect(locationStatusLabel({ ...params, compact: true })).toBe(compact);
-      // Same state, same word — the compact form is the full one minus the
-      // repeated noun, never a different verdict.
-      expect(full.toLowerCase().endsWith(compact.toLowerCase())).toBe(true);
+      // Every state names the thing being switched. The one-word form this
+      // used to also return is gone: it fit beside the switch and told an iOS
+      // user nothing, which is how the header ended up reading just "On".
+      expect(full.startsWith("Location ")).toBe(true);
     }
   });
 });
