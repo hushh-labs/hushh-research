@@ -88,12 +88,12 @@ describe("SetupCompletionFooter blocked state", () => {
   it("states what is still needed next to the blocked action", () => {
     renderFooter({
       disabled: true,
-      supportingText: "Choose AI access to finish.",
+      supportingText: "Choose your AI first.",
     });
 
     // Colour is never the only signal: the reason is readable text, so it
     // survives a screen reader and a person who cannot separate the two greys.
-    expect(screen.getByText("Choose AI access to finish.")).toBeTruthy();
+    expect(screen.getByText("Choose your AI first.")).toBeTruthy();
   });
 
   it("keeps the accent while a real completion is in flight", () => {

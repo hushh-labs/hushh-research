@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mapPickerMockState = vi.hoisted(() => ({
   picked: {
@@ -10,6 +10,13 @@ const mapPickerMockState = vi.hoisted(() => ({
   },
   /** Mirrors a settled pin whose address lookup has finished. */
   canConfirm: true,
+}));
+
+const platformMockState = { native: false };
+
+vi.mock("@/lib/capacitor/platform", () => ({
+  isNative: () => platformMockState.native,
+  getPlatform: () => (platformMockState.native ? "ios" : "web"),
 }));
 
 vi.mock("@/components/one-location/onboarding/location-picker-map", async () => {
@@ -102,6 +109,64 @@ describe("SaveLocationModal", () => {
       address: "Kartavya Path, New Delhi, Delhi 110001, India",
     };
     mapPickerMockState.canConfirm = true;
+  });
+
+  describe("the scrim must not paint over the native map", () => {
+    // @capacitor/google-maps draws the map BELOW the WebView and punches a hole
+    // through to it. The Radix overlay is a SIBLING of the sheet, so the rule
+    // that clears backgrounds inside [data-testid="save-location-modal"] never
+    // reached it -- and a 55% black scrim with a 10px blur covered the whole
+    // screen. The map was rendering the entire time, behind the scrim: the
+    // reported "no map behind it, just one pin" was the HTML pin sitting on top.
+    const mapProps = {
+      address: "Kartavya Path, New Delhi, Delhi 110001, India",
+      mapInitial: { latitude: 28.6139, longitude: 77.209 },
+      reverseGeocode: vi.fn(),
+      onPickExactLocation: vi.fn(),
+      startWithMapPicker: true,
+      collectAddressDetails: true,
+    } as const;
+
+    const overlay = () =>
+      document.querySelector('[data-slot="dialog-overlay"]');
+
+    afterEach(() => {
+      platformMockState.native = false;
+    });
+
+    it("drops the scrim and blur while the native map is on screen", () => {
+      platformMockState.native = true;
+      render(<SaveLocationModal {...baseProps} {...mapProps} />);
+
+      const className = overlay()?.className ?? "";
+      expect(className).toContain("bg-transparent");
+      expect(className).not.toMatch(/bg-black\//u);
+      expect(className).not.toMatch(/backdrop-blur-\[/u);
+    });
+
+    it("keeps the scrim on web, where the map is an ordinary element", () => {
+      platformMockState.native = false;
+      render(<SaveLocationModal {...baseProps} {...mapProps} />);
+
+      const className = overlay()?.className ?? "";
+      expect(className).toMatch(/bg-black\//u);
+      expect(className).toContain("backdrop-blur-[10px]");
+    });
+
+    it("restores the scrim on native once the map step is left", () => {
+      platformMockState.native = true;
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          {...mapProps}
+          startWithMapPicker={false}
+        />,
+      );
+
+      // No map on screen, so the sheet gets its normal separation back.
+      const className = overlay()?.className ?? "";
+      expect(className).toMatch(/bg-black\//u);
+    });
   });
 
   it("opens on Home so the primary button is live without a tap", () => {
@@ -1024,6 +1089,99 @@ describe("SaveLocationModal", () => {
         "",
         expect.objectContaining({ landmark: "Opposite City Mall" }),
         null,
+      );
+    });
+
+    it("unblocks the save once the person types an address line themselves", () => {
+      render(<SaveLocationModal {...strandedProps} />);
+      fireEvent.click(screen.getByRole("button", { name: "Home" }));
+
+      expect(
+        screen.getByRole("button", { name: "Save location" }),
+      ).toBeDisabled();
+
+      fireEvent.change(screen.getByLabelText(/Address line/), {
+        target: { value: "12 MG Road, Bengaluru" },
+      });
+
+      const save = screen.getByRole("button", { name: "Save location" });
+      expect(save).toBeEnabled();
+      fireEvent.click(save);
+
+      expect(baseProps.onSave).toHaveBeenCalledWith(
+        "home",
+        "",
+        expect.anything(),
+        "12 MG Road, Bengaluru",
+      );
+    });
+  });
+
+  describe("the Address line box", () => {
+    const HOUSE_NUMBER_ADDRESS =
+      "B-284/3, Rd Number 1, Chhatarpur Enclave Phase 2, New Delhi, Delhi 110074, India";
+
+    it("auto-populates from the detected address", () => {
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address={HOUSE_NUMBER_ADDRESS}
+          collectAddressDetails
+        />,
+      );
+
+      expect(screen.getByLabelText(/Address line/)).toHaveValue(
+        HOUSE_NUMBER_ADDRESS,
+      );
+    });
+
+    it("keeps what the person typed instead of the address that arrives later", () => {
+      const { rerender } = render(
+        <SaveLocationModal
+          {...baseProps}
+          address={HOUSE_NUMBER_ADDRESS}
+          collectAddressDetails
+        />,
+      );
+
+      fireEvent.change(screen.getByLabelText(/Address line/), {
+        target: { value: "My corrected street address" },
+      });
+
+      // A later reverse-geocode (or a repicked pin) must not take it back.
+      rerender(
+        <SaveLocationModal
+          {...baseProps}
+          address="C-11/2, Somewhere Else, Delhi 110088, India"
+          collectAddressDetails
+        />,
+      );
+
+      expect(screen.getByLabelText(/Address line/)).toHaveValue(
+        "My corrected street address",
+      );
+    });
+
+    it("saves the typed address line, not the raw detected address", () => {
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address={HOUSE_NUMBER_ADDRESS}
+          collectAddressDetails
+        />,
+      );
+
+      fireEvent.change(screen.getByLabelText(/Address line/), {
+        target: { value: "My corrected street address" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Home" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+
+      expect(baseProps.onSave).toHaveBeenCalledWith(
+        "home",
+        "",
+        expect.anything(),
+        "My corrected street address",
       );
     });
   });

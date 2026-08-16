@@ -20,6 +20,7 @@ import {
   type LocationPickerMapHandle,
   type PickedLocation,
 } from "@/components/one-location/onboarding/location-picker-map";
+import { isNative } from "@/lib/capacitor/platform";
 import { cn } from "@/lib/utils";
 import {
   defaultSavedLocationCategory,
@@ -367,6 +368,11 @@ export function SaveLocationModal({
   // gave -- a prefill that fights the typing is worse than no prefill.
   const postalCodeEditedRef = useRef(false);
   const houseOrFlatEditedRef = useRef(false);
+  // The address line itself, editable and separate from the entrance-detail
+  // fields below it -- it IS the detected address, not something inferred
+  // from it, so it is not governed by the "fill the fields below" checkbox.
+  const addressLineEditedRef = useRef(false);
+  const [addressLineValue, setAddressLineValue] = useState("");
 
   // Reset internal selection each time the modal (re)opens. When editing an
   // existing saved place, seed the category/label/detail fields from the
@@ -381,6 +387,8 @@ export function SaveLocationModal({
       houseOrFlatEditedRef.current = Boolean(
         initialDetails && initialDetails.houseOrFlat,
       );
+      addressLineEditedRef.current = false;
+      setAddressLineValue("");
       // Editing keeps the place's own label; a new place opens on the first
       // label still free, so the primary button is live on arrival instead of
       // waiting behind "Pick Home, Work or Other first."
@@ -461,6 +469,12 @@ export function SaveLocationModal({
     Number.isFinite(mapInitial.latitude) &&
     Number.isFinite(mapInitial.longitude),
   );
+  /**
+   * The native map is on screen, which means anything painted over the sheet is
+   * painted over the map itself. Only true on device: on web the map is an
+   * ordinary element inside the sheet and the scrim belongs there.
+   */
+  const nativeMapShowing = isNative() && flowStep === "map" && canPickOnMap;
   useEffect(() => {
     if (!open) return;
     if (startWithMapPicker && canPickOnMap) {
@@ -503,6 +517,14 @@ export function SaveLocationModal({
   const detectedAddress =
     stripPlusCodeSegment(pickedAddress) || resolvedAddress || "";
   /**
+   * The Address line box tracks the detected address until the person types
+   * over it -- the same "typed wins" rule as House/flat and PIN, just for the
+   * line those fields are extracted from rather than for one piece of it.
+   */
+  const effectiveAddressLine = addressLineEditedRef.current
+    ? addressLineValue
+    : detectedAddress;
+  /**
    * Something the person put in themselves. This matters because a pinned
    * point does not always come back with an address: on the native build
    * before the vault exists there is no server reverse-geocode and no browser
@@ -533,7 +555,7 @@ export function SaveLocationModal({
       : category === null
         ? "Pick Home, Work or Other first."
         : collectAddressDetails &&
-            detectedAddress.length === 0 &&
+            effectiveAddressLine.length === 0 &&
             !hasOwnAddressAnswer
           ? // The pin is fine; only its address lookup came back empty. Name
             // the way out that is actually open, rather than sending someone
@@ -667,7 +689,7 @@ export function SaveLocationModal({
         category,
         label ?? "",
         normalizedAddressDetails,
-        detectedAddress || null,
+        effectiveAddressLine.trim() || null,
       );
       return;
     }
@@ -706,7 +728,21 @@ export function SaveLocationModal({
         // sheet landed on a fully lit screen with no separation at all. That is
         // the "it looks like a patch": not a missing blur, a buried one.
         // Above the takeover, below the app's sheets/drawers at z-711.
-        overlayClassName="z-[600] bg-black/55 backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)]"
+        overlayClassName={cn(
+          "z-[600]",
+          nativeMapShowing
+            ? // The native map is not part of the page: @capacitor/google-maps
+              // draws it BELOW the WebView and the WebView is punched through to
+              // reveal it. This overlay is a Radix sibling of the sheet, so the
+              // rule that clears backgrounds inside [data-testid=
+              // "save-location-modal"] never reached it -- and a 55% black scrim
+              // with a 10px blur sat over the whole screen, hiding the map while
+              // the HTML pin and cards stayed crisp on top. That is exactly the
+              // "no map behind it, just one pin" report: the map was rendering
+              // the whole time, behind the scrim.
+              "bg-transparent backdrop-blur-none [-webkit-backdrop-filter:none]"
+            : "bg-black/55 backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)]",
+        )}
         onEscapeKeyDown={(event) => {
           if (interactionBusy) event.preventDefault();
         }}
@@ -839,6 +875,33 @@ export function SaveLocationModal({
                   Edit pin
                 </button>
               ) : null}
+            </div>
+
+            <div>
+              <label
+                htmlFor="saved-location-address-line"
+                className={controlLabelClassName}
+              >
+                Address line
+              </label>
+              <input
+                id="saved-location-address-line"
+                type="text"
+                value={effectiveAddressLine}
+                onChange={(event) => {
+                  addressLineEditedRef.current = true;
+                  setAddressLineValue(event.target.value);
+                }}
+                disabled={interactionBusy}
+                maxLength={300}
+                autoComplete={deferredUntilVault ? "off" : "street-address"}
+                placeholder={
+                  loadingAddress
+                    ? "Finding your address…"
+                    : "e.g. 12 MG Road, Bengaluru"
+                }
+                className={controlInputClassName}
+              />
             </div>
 
             {/* Ticked, the fields below are filled from that address and keep
