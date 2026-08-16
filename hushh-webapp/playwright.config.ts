@@ -47,7 +47,8 @@ export default defineConfig({
       // Opt specs in as they are made WebKit-clean.
       name: "webkit",
       use: { ...devices["Desktop Safari"] },
-      testMatch: /circle-join-responsive-contract\.spec\.ts/,
+      testMatch:
+        /(circle-join-responsive-contract|connect-circle-cta\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",

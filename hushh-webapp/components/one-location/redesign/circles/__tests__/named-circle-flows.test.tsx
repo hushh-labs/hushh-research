@@ -16,6 +16,7 @@ import {
   CreateCircleFlow,
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
+import { CIRCLE_NAME_ACTION_CLASSNAME } from "@/components/one-location/redesign/circles/circle-name-row-layout";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleInvitePreview,
@@ -925,6 +926,43 @@ describe("named Circle flows", () => {
       expect(screen.queryByRole("button", { name: "Save" })).toBeNull(),
     );
     expect(onLoad).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives Save and Edit one box, so the field never resizes mid-edit", async () => {
+    // QA: "Save CTA, not looking good". The cause was measurable. Save took
+    // `Button`'s `default` size, whose `min-h-[50px]` outlives an `h-11` --
+    // `h-` and `min-h-` are separate tailwind-merge groups -- so it rendered
+    // 50px against a 44px field. And because Save is wider than a pencil
+    // glyph, swapping one for the other resized the input on the first
+    // keystroke.
+    //
+    // JSDOM cannot see either of those; it applies no CSS. What it can prove is
+    // that both states are handed the one shared class string that
+    // `e2e/connect-circle-cta.layout.spec.ts` measured at 44px and a fixed
+    // width, on Chromium and on WebKit.
+    const onLoad = vi.fn(async () => circle("circle-1", "Meena Family"));
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    const input = (await screen.findByLabelText(
+      "Circle name",
+    )) as HTMLInputElement;
+
+    const edit = screen.getByRole("button", { name: "Edit Circle name" });
+    expect(edit.className).toContain(CIRCLE_NAME_ACTION_CLASSNAME);
+
+    fireEvent.change(input, { target: { value: "Meena Home" } });
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.className).toContain(CIRCLE_NAME_ACTION_CLASSNAME);
+
+    // The height override is only load-bearing with its `min-h` partner.
+    const tokens = new Set(CIRCLE_NAME_ACTION_CLASSNAME.split(/\s+/));
+    expect(tokens.has("h-11")).toBe(true);
+    expect(tokens.has("min-h-11")).toBe(true);
+
+    // A word alone. The check mark beside "Save" said the same thing twice and
+    // pulled the button's padding in through `has-[>svg]`.
+    expect(save.querySelector("svg")).toBeNull();
+    expect(save.textContent).toBe("Save");
   });
 
   it("saves the Circle name on Enter and reverts it on Escape", async () => {
