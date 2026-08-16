@@ -152,7 +152,7 @@ test.describe("Check-in duration pills reuse the ladder cell", () => {
   for (const width of WIDTHS) {
     test(`are 44px, not 50px, at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });
-      await page.goto(await buildFixture({ customOpen: false, width }));
+      await page.goto(await buildFixture(false));
 
       const cells = await page.evaluate(() => {
         return [...document.querySelectorAll("[data-grid] > button")].map((el) => {
