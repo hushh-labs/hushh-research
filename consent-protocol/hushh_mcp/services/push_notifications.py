@@ -170,6 +170,29 @@ def send_connection_request_push(addressee_user_id: str, requester_user_id: str)
     identity cache has a display name, and degrades to the generic line
     otherwise (best-effort; the lookup never blocks or raises)."""
     requester_name = _lookup_display_name(requester_user_id)
+    try:
+        import asyncio
+        from api.consent_listener import _push_to_consent_queue
+
+        sse_payload = {
+            "type": "connection_request",
+            "action": "REQUESTED",
+            "request_id": f"conn_req:{requester_user_id}",
+            "user_id": addressee_user_id,
+            "requester_user_id": requester_user_id,
+            "requester_label": requester_name or "Someone",
+            "title": "New connection request",
+            "body": _connection_request_body(requester_name),
+            "deep_link": "/one/consent?tab=connections",
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_push_to_consent_queue(addressee_user_id, sse_payload))
+        except RuntimeError:
+            pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("push.sse_queue_failed error=%s", exc)
+
     return send_user_data_push(
         addressee_user_id,
         notification_type="connection_request",
