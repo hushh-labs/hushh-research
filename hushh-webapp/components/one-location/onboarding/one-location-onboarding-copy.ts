@@ -36,7 +36,9 @@ export const LOCATION_ONBOARDING_COPY = {
     checkIn: {
       tag: "Check in",
       titleLines: ["Can’t find", "each other?"] as const,
-      body: "Check in. Your Circle knows.",
+      // Not "Check in ..." — the tag above already says that, and a card that
+      // opens with its own tag wastes the one line answering the title.
+      body: "Your Circle knows you’re there.",
       proof: "Checked in at Hotel Grand",
     },
     sos: {
