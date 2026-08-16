@@ -42,6 +42,15 @@ export interface ConnectionSummaryEntry {
   displayName: string | null;
   photoUrl: string | null;
   createdAt: string | null;
+  /**
+   * Whether this connection holds a verified RIA profile — the same
+   * server-annotated flag `DirectoryPerson` carries, from the same helper, so
+   * the two lists on the RIAs tab can never disagree about who is an advisor.
+   * Optional so a cached page written before the field existed still parses;
+   * absent reads as "not an advisor", which is the safe direction — it hides a
+   * row from the RIAs tab rather than claiming someone is verified.
+   */
+  isRia?: boolean;
 }
 
 export interface ConnectionRequest {

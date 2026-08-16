@@ -2615,6 +2615,79 @@ function ShareFlow({
   }, [onEnterShareConfirm, step]);
 
   const filtered = vm.visibleShareRecipients;
+  /**
+   * Who can already see you, by recipient — the same `activeOwnerGrants` the
+   * Active shares screen lists, read here for the first time.
+   *
+   * This list used to render every trusted person as an identical row with an
+   * identical Select control, so a screen you reached straight after sharing
+   * with three people looked exactly like one where you had shared with
+   * nobody. Two things went wrong with that. The obvious one is that there was
+   * no way to tell, and no way at all on a long list. The one that costs
+   * something is underneath: picking someone who already has an active grant
+   * does not extend it — the backend revokes the old grant and inserts a new
+   * one (`_create_enforced_grant_row`), so a re-pick silently restarts a timer
+   * that was already running. Showing the remaining time on the row is what
+   * makes that consequence visible before it is chosen.
+   */
+  const activeGrantByRecipientId = new globalThis.Map(
+    vm.activeOwnerGrants.map((grant) => [grant.recipientUserId, grant]),
+  );
+  const alreadySharing = filtered.filter((recipient) =>
+    activeGrantByRecipientId.has(recipient.userId),
+  );
+  const notSharing = filtered.filter(
+    (recipient) => !activeGrantByRecipientId.has(recipient.userId),
+  );
+  /**
+   * One row shape for both groups. Two copies of this JSX would be two places
+   * for the select behaviour, the disabled rule and the accessible name to
+   * drift apart, on a control whose whole job is to be unambiguous.
+   */
+  const renderShareRecipientRow = (
+    r: OneLocationRecipient,
+    activeGrant: OneLocationGrant | undefined,
+  ) => {
+    const selected = vm.selectedRecipientIds.includes(r.userId);
+    const ready = vm.isRecipientShareReady(r);
+    const label = vm.recipientLabel(r);
+    return (
+      <SettingsRow
+        key={r.userId}
+        density="compact"
+        disabled={!ready}
+        onClick={
+          ready ? () => vm.toggleShareRecipient(r.userId, "share_flow") : undefined
+        }
+        ariaPressed={ready ? selected : undefined}
+        ariaLabel={
+          ready
+            ? `${selected ? "Deselect" : "Select"} ${label} for private sharing`
+            : undefined
+        }
+        leading={<Avatar initials={initialsFrom(label)} />}
+        title={label}
+        // Only says something when there is something to say. A row that is
+        // ready needs no sentence explaining that it is ready — but a row whose
+        // share is already running has a number worth reading, and it is the
+        // SAME number, from the same object, that the Active shares screen
+        // shows. Two screens describing one grant must not disagree about how
+        // long is left on it.
+        description={
+          activeGrant ? (
+            activeGrant.durationMode === "until_stopped" ? (
+              "Until you stop"
+            ) : (
+              <ShareCountdownText expiresAt={activeGrant.expiresAt} />
+            )
+          ) : ready ? undefined : (
+            "Invite them first"
+          )
+        }
+        trailing={ready ? <SelectionDot selected={selected} /> : undefined}
+      />
+    );
+  };
   const recipientById = new globalThis.Map(
     vm.recipients.map((recipient) => [recipient.userId, recipient]),
   );
@@ -2892,43 +2965,37 @@ function ShareFlow({
         voiceControlId="one-location-share-recipient-search"
       />
       {filtered.length ? (
-        <SettingsGroup
-          title="People"
-          separatorInset
-          contentClassName={PEOPLE_LIST_SCROLL_CLASS}
-        >
-          {filtered.map((r) => {
-            const selected = vm.selectedRecipientIds.includes(r.userId);
-            const ready = vm.isRecipientShareReady(r);
-            const label = vm.recipientLabel(r);
-            return (
-              <SettingsRow
-                key={r.userId}
-                density="compact"
-                disabled={!ready}
-                onClick={
-                  ready
-                    ? () => vm.toggleShareRecipient(r.userId, "share_flow")
-                    : undefined
-                }
-                ariaPressed={ready ? selected : undefined}
-                ariaLabel={
-                  ready
-                    ? `${selected ? "Deselect" : "Select"} ${label} for private sharing`
-                    : undefined
-                }
-                leading={<Avatar initials={initialsFrom(label)} />}
-                title={label}
-                // Only says something when there is something to say. A row that
-                // is ready needs no sentence explaining that it is ready.
-                description={ready ? undefined : "Invite them first"}
-                trailing={
-                  ready ? <SelectionDot selected={selected} /> : undefined
-                }
-              />
-            );
-          })}
-        </SettingsGroup>
+        // ONE scroll region around BOTH groups, not one per group. The list had
+        // a 340px budget and a single scrolling surface; two capped groups
+        // would have stacked into 680px of nested scrollers and pushed
+        // "Continue" off a small iPhone. Same budget, same one surface, and the
+        // headings scroll with the rows they head.
+        <div className={PEOPLE_LIST_SCROLL_CLASS}>
+          {/* People who can already see you come FIRST and in their own group.
+              Sorting them to the top of one list would have been enough to find
+              them; it would not have said why they were at the top. The heading
+              is the sentence, so each row needs only its remaining time. */}
+          {alreadySharing.length ? (
+            <SettingsGroup
+              title={`Already sharing (${alreadySharing.length})`}
+              testId="one-location-share-already-sharing"
+              separatorInset
+            >
+              {alreadySharing.map((r) =>
+                renderShareRecipientRow(r, activeGrantByRecipientId.get(r.userId)),
+              )}
+            </SettingsGroup>
+          ) : null}
+          {notSharing.length ? (
+            <SettingsGroup
+              title="People"
+              testId="one-location-share-people"
+              separatorInset
+            >
+              {notSharing.map((r) => renderShareRecipientRow(r, undefined))}
+            </SettingsGroup>
+          ) : null}
+        </div>
       ) : vm.shareRecipientSearch.trim() ? (
         // A typo used to be reported as "you have no contacts", which sends a
         // person with twenty of them off to invite people they already have.

@@ -30,20 +30,60 @@ describe("DurationWheelPicker", () => {
     ).toHaveAttribute("aria-valuetext", "15 min");
   });
 
-  it("emits the until-stop alias and disables the wheel while toggled on", () => {
+  it("emits the until-stop alias and removes the wheel while toggled on", () => {
+    // The wheel used to stay mounted at opacity-40 with a chip reading "Until
+    // you stop" laid over it. Because the chip was a CHILD of the faded
+    // wrapper, the one label meant to state the choice rendered at 40% too --
+    // a grey sentence in the middle of a grey control, contradicting the blue
+    // "Until I stop" button under it. Choosing the open-ended option now
+    // collapses the wheel, exactly as the preset ladder already does.
     const onChange = vi.fn();
-    render(<DurationWheelPicker value="1" onChange={onChange} />);
+    const { container } = render(
+      <DurationWheelPicker value="1" onChange={onChange} />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Until I stop" }));
 
     expect(onChange).toHaveBeenCalledWith("until_stopped");
+    expect(screen.queryByRole("spinbutton", { name: "Hours" })).toBeNull();
+    expect(screen.queryByRole("spinbutton", { name: "Minutes" })).toBeNull();
+    // The second, contradicting label is gone with it.
+    expect(container.textContent).not.toContain("Until you stop");
+    // Nothing is left faded: the greyed-out remains of the control are the
+    // whole defect, so no surviving node may carry the fade.
+    expect(container.querySelector('[class*="opacity-40"]')).toBeNull();
+  });
+
+  it("says the same words the button says when the open-ended option is on", () => {
+    // The live region announced "until you stop" against a button reading
+    // "Until I stop" -- the screen reader and the screen describing one choice
+    // two different ways.
+    render(<DurationWheelPicker value="until_stopped" onChange={vi.fn()} />);
+
+    const live = document.querySelector('[aria-live="polite"]');
+    expect(live?.textContent).toBe("Duration: until I stop");
+  });
+
+  it("recovers a sentinel value into a real duration on a lane that hides the option", () => {
+    // The Request screen sets showUntilStop={false} because you cannot ask to
+    // watch someone until THEY stop. Handed the sentinel anyway, the wheel used
+    // to render a dead greyed control with no toggle to escape it, and kept
+    // emitting the non-numeric alias into a field that lane runs Number() over.
+    const onChange = vi.fn();
+    render(
+      <DurationWheelPicker
+        value="until_stopped"
+        onChange={onChange}
+        showUntilStop={false}
+      />,
+    );
+
+    expect(onChange).not.toHaveBeenCalledWith("until_stopped");
+    expect(Number(onChange.mock.calls.at(-1)?.[0])).toBeGreaterThan(0);
     expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
       "aria-disabled",
-      "true",
+      "false",
     );
-    expect(
-      screen.getByRole("spinbutton", { name: "Minutes" }),
-    ).toHaveAttribute("aria-disabled", "true");
   });
 
   it("restores the prior wheel value when until-stop is toggled back off", () => {
