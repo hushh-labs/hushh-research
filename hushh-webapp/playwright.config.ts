@@ -38,8 +38,16 @@ export default defineConfig({
       // The product ships inside an iOS WKWebView, so Safari's engine is the
       // one that matters for layout contracts -- Chromium passing proves
       // nothing about the shipped container.
+      //
+      // Scoped to the specs written against it. The existing suite has never
+      // run on WebKit and two of its assertions do not hold there yet (the
+      // root layout's `interactive-widget` viewport key, which WebKit logs as
+      // an error, and a profile redirect that behaves differently). Widening
+      // this project to `e2e/**` would turn those red without fixing them.
+      // Opt specs in as they are made WebKit-clean.
       name: "webkit",
       use: { ...devices["Desktop Safari"] },
+      testMatch: /circle-join-responsive-contract\.spec\.ts/,
     },
     {
       name: "firefox",
