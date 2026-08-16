@@ -56,6 +56,27 @@ function formatDurationHours(hoursIndex: number, minutesIndex: number): string {
   return String(Math.round((totalMinutes / 60) * 100) / 100);
 }
 
+/**
+ * The wheel value nearest `hours`, as the same decimal-hours string the wheel
+ * itself emits.
+ *
+ * For seeding the wheel from something measured rather than chosen — "what is
+ * left on this share" is 0.53 hours, and the wheel will show 30 min for it
+ * whatever the caller holds in state. Without this the two disagree: the
+ * screen reads 30 min and Save sends 0.53, which is a change the person never
+ * made and did not see.
+ *
+ * Clamped to the same grid the wheel offers: 15 minutes at the bottom, 23h45m
+ * at the top.
+ */
+export function snapToWheelDurationHours(hours: number): string {
+  const requested = Number.isFinite(hours) ? Math.round(hours * 60) : 15;
+  const minutes = nearestGridMinutes(
+    Math.min(Math.max(requested, 15), 23 * 60 + 45),
+  );
+  return String(Math.round((minutes / 60) * 100) / 100);
+}
+
 function parseDurationValue(
   value: string,
   untilStopValue: string,

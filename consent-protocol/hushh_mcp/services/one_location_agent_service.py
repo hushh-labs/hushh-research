@@ -586,6 +586,34 @@ def _duration_metadata_value(duration_hours: float | None) -> float | None:
     return float(duration_hours) if duration_hours is not None else None
 
 
+def _share_duration_change_direction(
+    *,
+    previous_expires_at: Any,
+    new_expires_at: datetime | None,
+    new_mode: str,
+) -> str:
+    """Which way the owner moved a running share's end time.
+
+    One event type carries both directions so the ledger keeps a single row
+    shape, which means the direction has to be recorded rather than implied by
+    the name.
+
+    A share that ran until stopped and now ends at a fixed time has no previous
+    expiry to compare against, and it has been *shortened*: an open-ended share
+    was just given an end.
+    """
+    if _is_until_stopped_share(new_mode):
+        return "until_stopped"
+    if new_expires_at is None:
+        return "until_stopped"
+    if previous_expires_at is None:
+        return "shortened"
+    previous = previous_expires_at
+    if previous.tzinfo is None:
+        previous = previous.replace(tzinfo=timezone.utc)
+    return "extended" if new_expires_at > previous else "shortened"
+
+
 def _grant_expires_at_is_past(row: dict[str, Any]) -> bool:
     expires_at_raw = row.get("expires_at")
     if expires_at_raw is None:
@@ -6429,6 +6457,151 @@ class OneLocationAgentService:
             data={
                 "grant_id": grant_id,
                 "owner_user_id": str(row.get("owner_user_id") or caller_user_id),
+                "owner_display_label": owner_label,
+                "recipient_user_id": recipient_user_id,
+                "recipient_display_label": recipient_label,
+            },
+        )
+        return self._grant_payload(updated) or {}
+
+    def set_grant_duration(
+        self,
+        *,
+        owner_user_id: str,
+        grant_id: str,
+        duration_hours: float | None,
+        duration_mode: str = TIMED_LOCATION_SHARE_DURATION_MODE,
+    ) -> dict[str, Any]:
+        """Set a new end time on a share that is already running. Owner only.
+
+        `shorten_grant` refuses to move an expiry later, and that refusal is
+        right for the person being shared *with*: more of somebody else's
+        location is not a thing you hand yourself. It was wrong for the person
+        doing the sharing. Picking 30 minutes and then wanting 45 is the owner
+        revising their own consent about their own location, and there is no
+        second party whose approval is missing -- so the app offered Stop and
+        nothing else, and "make it a bit longer" meant ending the share and
+        starting a new one.
+
+        The invariant is unchanged and now stated where it belongs: only the
+        owner may lengthen, and only ever their own share. The row is mutated
+        in place rather than revoked-and-recreated, because the grant id is
+        what the recipient's subscription, the stored envelope, and the SOS
+        teardown set are all keyed on -- replacing it to add fifteen minutes
+        blanks the recipient's map and sends them a share-ended alert for a
+        share that never ended.
+        """
+        row = self._execute_one(
+            """
+            SELECT id, owner_user_id, recipient_user_id, expires_at, status, metadata
+            FROM one_location_share_grants
+            WHERE id = CAST(:grant_id AS UUID)
+              AND owner_user_id = :owner_user_id
+            LIMIT 1
+            """,
+            {"grant_id": grant_id, "owner_user_id": owner_user_id},
+        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_GRANT_NOT_FOUND", "Location share was not found.", status_code=404
+            )
+        if str(row.get("status") or "") != "active":
+            return self._grant_payload(row) or {}
+
+        metadata = row.get("metadata")
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except (TypeError, ValueError):
+                metadata = {}
+        share_kind = str((metadata or {}).get("share_kind") or "") or "trusted"
+        # Reuses the create path's rules verbatim: the same 15-minute floor and
+        # 24-hour ceiling, and the same refusal to put an SOS or a check-in
+        # share on "until I stop". A share must not become, by editing, a shape
+        # it could never have been created in.
+        duration, expires_at, resolved_mode = _resolve_share_duration(
+            duration_hours=duration_hours,
+            duration_mode=duration_mode,
+            share_kind=share_kind,
+            now=_utcnow(),
+        )
+        # Read before the write, not after. Which way the owner moved the end
+        # time is a comparison against the expiry that is about to be replaced,
+        # and holding the row is not the same as holding its value.
+        previous_expires_at = row.get("expires_at")
+
+        updated = self._execute_one(
+            """
+            UPDATE one_location_share_grants
+            SET duration_mode = :duration_mode,
+                duration_hours = :duration_hours,
+                expires_at = :new_expires_at,
+                updated_at = NOW()
+            WHERE id = CAST(:grant_id AS UUID)
+              AND owner_user_id = :owner_user_id
+              AND status = 'active'
+            RETURNING *
+            """,
+            {
+                "grant_id": grant_id,
+                "owner_user_id": owner_user_id,
+                "duration_mode": resolved_mode,
+                "duration_hours": duration,
+                "new_expires_at": expires_at,
+            },
+        )
+        if not updated:
+            # Stopped between the read above and this write -- report the grant
+            # as it now stands rather than raising on a race.
+            existing_row = self._execute_one(
+                """
+                SELECT * FROM one_location_share_grants
+                WHERE id = CAST(:grant_id AS UUID)
+                LIMIT 1
+                """,
+                {"grant_id": grant_id},
+            )
+            return self._grant_payload(existing_row) or {}
+
+        direction = _share_duration_change_direction(
+            previous_expires_at=previous_expires_at,
+            new_expires_at=expires_at,
+            new_mode=resolved_mode,
+        )
+        recipient_user_id = str(row.get("recipient_user_id") or "") or None
+        owner_identity = self._identity_row(owner_user_id)
+        owner_label = _identity_notification_label(owner_identity)
+        recipient_identity = self._identity_row(recipient_user_id or "")
+        recipient_label = _identity_notification_label(recipient_identity)
+        self._insert_event(
+            owner_user_id=owner_user_id,
+            actor_user_id=owner_user_id,
+            recipient_user_id=recipient_user_id,
+            grant_id=grant_id,
+            event_type="location_share_duration_changed",
+            metadata={
+                "direction": direction,
+                "duration_hours": _duration_metadata_value(duration),
+                "duration_mode": resolved_mode,
+                "counterpart_label": recipient_label,
+            },
+        )
+        self._send_metadata_notification(
+            user_id=recipient_user_id or "",
+            notification_type="location_share_duration_changed",
+            title="Sharing time changed",
+            body=(
+                f"{owner_label} is sharing until they stop."
+                if direction == "until_stopped"
+                else f"{owner_label} gave you more time."
+                if direction == "extended"
+                else f"{owner_label} shortened your location access."
+            ),
+            notification_tag=f"one-location-duration:{grant_id}",
+            request_url=_one_location_url(grantId=grant_id, section="people"),
+            data={
+                "grant_id": grant_id,
+                "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
                 "recipient_user_id": recipient_user_id,
                 "recipient_display_label": recipient_label,

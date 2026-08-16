@@ -182,7 +182,9 @@ import {
   GRANT_EDIT_DURATION_FALLBACK,
   defaultEditDurationHours,
   grantDurationEditIntent,
+  grantRemainingHours,
 } from "@/lib/one-location/grant-duration-edit";
+import { snapToWheelDurationHours } from "@/components/one-location/redesign/duration-wheel-picker";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   describeContactSyncOutcome,
@@ -2197,6 +2199,18 @@ export function OneLocationAgentPageContent({
   const [editGrantDurationHours, setEditGrantDurationHours] = useState(
     GRANT_EDIT_DURATION_FALLBACK,
   );
+  /*
+   * The live share card's own time editor. Separate from the three flags above
+   * on purpose: those edit a share somebody else is giving you, where more time
+   * has to be asked for. This one edits the share you are giving, where more
+   * time is yours to grant and applies immediately.
+   */
+  const [liveShareDurationEditing, setLiveShareDurationEditing] =
+    useState(false);
+  const [liveShareDurationHours, setLiveShareDurationHours] = useState(
+    GRANT_EDIT_DURATION_FALLBACK,
+  );
+  const [liveShareDurationSaving, setLiveShareDurationSaving] = useState(false);
   // Opt-in: keep publishing location while the app is backgrounded (native only).
   const [backgroundShareEnabled, setBackgroundShareEnabled] = useState(false);
   // Monotonic counter bumped each time a share completes successfully, so the
@@ -5658,6 +5672,92 @@ export function OneLocationAgentPageContent({
     },
     [activeReceivedGrants, refresh, vaultOwnerToken],
   );
+
+  /**
+   * Open the live share card's time editor, seeded on what the share has left.
+   *
+   * Seeded, not defaulted: an editor that always opens on "1 hour" is not
+   * showing the share, and Save on that untouched field silently becomes a
+   * change nobody asked for. The wheel snaps to its own 15-minute grid, so the
+   * value we hold has to be snapped too, or the screen and the save disagree.
+   */
+  const handleEditLiveShareDurationStart = useCallback(() => {
+    const grantId = liveShareStatus?.stoppableGrantId;
+    const grant = grantId
+      ? activeOwnerGrants.find((row) => row.id === grantId)
+      : undefined;
+    if (grant?.durationMode === "until_stopped") {
+      setLiveShareDurationHours("until_stopped");
+    } else {
+      const remaining = grantRemainingHours(grant, Date.now());
+      setLiveShareDurationHours(
+        snapToWheelDurationHours(
+          remaining && remaining > 0 ? remaining : Number(GRANT_EDIT_DURATION_FALLBACK),
+        ),
+      );
+    }
+    setLiveShareDurationEditing(true);
+  }, [activeOwnerGrants, liveShareStatus?.stoppableGrantId]);
+
+  const handleSaveLiveShareDuration = useCallback(async () => {
+    const grantId = liveShareStatus?.stoppableGrantId;
+    if (!vaultOwnerToken || !grantId) return;
+    const grant = activeOwnerGrants.find((row) => row.id === grantId);
+    const untilStopped = liveShareDurationHours === "until_stopped";
+    const durationHours = untilStopped ? null : Number(liveShareDurationHours);
+
+    // Save on a wheel still showing what the share already has left is not a
+    // change. Sending it anyway spends a round trip, writes an audit row, and
+    // pushes the recipient an alert about a time that did not move.
+    if (
+      durationHours !== null &&
+      grant?.durationMode !== "until_stopped" &&
+      grantDurationEditIntent({
+        grant,
+        durationHours,
+        nowMs: Date.now(),
+      }) === "unchanged"
+    ) {
+      setLiveShareDurationEditing(false);
+      return;
+    }
+
+    setLiveShareDurationSaving(true);
+    try {
+      await OneLocationService.setGrantDuration({
+        vaultOwnerToken,
+        grantId,
+        durationHours,
+        durationMode: untilStopped ? "until_stopped" : "timed",
+      });
+      toast.success("Time updated.");
+      setLiveShareDurationEditing(false);
+      // Held until the list has reconciled, so the card's countdown is already
+      // reading the new expiry when the editor closes.
+      await refresh({ background: true }).catch(() => null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Couldn't change the time. Try again.",
+      );
+    } finally {
+      setLiveShareDurationSaving(false);
+    }
+  }, [
+    activeOwnerGrants,
+    liveShareDurationHours,
+    liveShareStatus?.stoppableGrantId,
+    refresh,
+    vaultOwnerToken,
+  ]);
+
+  // A share that ends, or a second share starting, takes the single grant this
+  // editor was opened against out from under it. Closing is the honest answer:
+  // the wheel would otherwise still be pointing at a share that is gone.
+  useEffect(() => {
+    if (!liveShareStatus?.stoppableGrantId) setLiveShareDurationEditing(false);
+  }, [liveShareStatus?.stoppableGrantId]);
 
   const handleStopSos = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -10244,6 +10344,13 @@ export function OneLocationAgentPageContent({
       setEditingGrantId(grantId);
     },
     onEditGrantCancel: () => setEditingGrantId(null),
+    liveShareDurationEditing,
+    liveShareDurationHours,
+    setLiveShareDurationHours,
+    liveShareDurationSaving,
+    onEditLiveShareDurationStart: handleEditLiveShareDurationStart,
+    onEditLiveShareDurationCancel: () => setLiveShareDurationEditing(false),
+    onSaveLiveShareDuration: () => void handleSaveLiveShareDuration(),
     editGrantDurationHours,
     setEditGrantDurationHours,
     onEditGrantSave: (params) =>

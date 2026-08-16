@@ -36,6 +36,7 @@ export type OneLocationWorkflowNotificationType =
   | "location_access_approved"
   | "location_share_revoked"
   | "location_share_shortened"
+  | "location_share_duration_changed"
   | "location_share_expired"
   | "location_access_request"
   | "location_access_denied"
@@ -72,6 +73,12 @@ const WORKFLOW_COPY: Record<
   location_share_shortened: {
     title: "Location access shortened",
     fallbackDescription: "A location share's remaining time was shortened.",
+  },
+  location_share_duration_changed: {
+    // One entry for both directions, because one event type carries both. The
+    // per-person line below names which way it went.
+    title: "Sharing time changed",
+    fallbackDescription: "A location share's end time changed.",
   },
   location_share_expired: {
     title: "Location access expired",
@@ -428,6 +435,7 @@ export function oneLocationSectionForWorkflowNotificationType(
     case "location_access_approved":
     case "location_share_revoked":
     case "location_share_shortened":
+    case "location_share_duration_changed":
     case "location_share_expired":
       return "shared";
     case "location_access_request":
@@ -605,6 +613,15 @@ export function locationWorkflowNotificationCopy(params: {
       return {
         title: copy.title,
         description: `${ownerLabel} shortened your location access.`,
+      };
+    case "location_share_duration_changed":
+      return {
+        title: copy.title,
+        // Deliberately not "gave you more time" / "shortened": which way it
+        // went lives in the event metadata, and this list is built from the
+        // notification alone. Naming the wrong direction is worse than naming
+        // none, and the share itself is one tap away with the real end time.
+        description: `${ownerLabel} changed the end time.`,
       };
     case "location_share_expired":
       return {

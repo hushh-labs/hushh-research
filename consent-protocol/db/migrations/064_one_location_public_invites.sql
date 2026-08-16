@@ -82,6 +82,10 @@ ALTER TABLE one_location_events
       -- first person to use it wrote a row this constraint rejects -- and this
       -- ADD is validating, so every replay after that died on it.
       'location_share_shortened',
+      -- The owner setting a new end time on a share that is already running,
+      -- in either direction. Added again by migration 153, which is the copy
+      -- that actually reaches an environment where 064 has already run.
+      'location_share_duration_changed',
       'location_share_expired',
       'location_access_request',
       'location_access_approved',
