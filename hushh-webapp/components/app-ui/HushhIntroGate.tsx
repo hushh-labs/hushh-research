@@ -26,7 +26,7 @@ import styles from "./HushhIntroGate.module.css";
  * Sequence — a soft splash, not a cinematic logo reveal: a slow mist of
  * blurred purple/pink/blue drifts up from below the screen through the
  * centre and out past the top (~2.5s, Zomato-referenced motion, an
- * original organic-cloud treatment); the 🤫 mark and "Hushh One." reveal
+ * original organic-cloud treatment); the 🤫 mark and "Hussh One." reveal
  * gradually through the still-moving mist; that holds for 1.5s; it then
  * slowly cross-dissolves over 750ms — with a soft blur and a light upward
  * drift, never an instant swap — into "Hi, {first name}" / "Welcome to
@@ -138,7 +138,7 @@ export function HushhIntroGate({ children }: { children: ReactNode }) {
       </div>
       <div className={styles.textStack}>
         <p className={styles.label1}>
-          Hushh <span className={styles.label1Accent}>One.</span>
+          Hussh <span className={styles.label1Accent}>One.</span>
         </p>
         <div className={styles.label2}>
           <p className={`${styles.greetingLine} ${styles.greetingLineFirst}`}>

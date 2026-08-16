@@ -3,7 +3,7 @@
  * mist of blurred purple/pink/blue blobs travels from below the screen,
  * through the centre, and out past the top over ~2.5s (Zomato-referenced
  * motion, an original organic-cloud treatment). The 🤫 mark and
- * "Hushh One." reveal gradually through the still-moving, still-visible
+ * "Hussh One." reveal gradually through the still-moving, still-visible
  * mist, hold for 1.5s, then slowly cross-dissolve — with a soft blur and
  * a light upward drift, never an instant swap — into "Hi, {name}" /
  * "Welcome to One.", hold for another 1.5s, and the whole screen fades —
@@ -36,7 +36,7 @@
  *   uninterrupted across every later phase, so the animation is never
  *   re-triggered or reset by the phase changes driving the rest of the
  *   scene — it just plays through once on its own clock, and stays fully
- *   visible well past the point the mark and "Hushh One." start
+ *   visible well past the point the mark and "Hussh One." start
  *   appearing through it, rather than fading out beforehand).
  * - Everything else (halo, mark, both text labels) is driven by a single
  *   `data-phase` attribute on the root via plain `transition`s: every
@@ -295,7 +295,7 @@
   transform: translateY(0);
 }
 
-/* ── Text stack: label1 ("Hushh One.") and label2 ("Hi, {name}" / "Welcome
+/* ── Text stack: label1 ("Hussh One.") and label2 ("Hi, {name}" / "Welcome
    to One.") occupy the same spot and cross-dissolve — never both fully
    visible at once, so the transition reads as one label slowly becoming
    the other (with a soft blur and a light upward drift, like an iOS
