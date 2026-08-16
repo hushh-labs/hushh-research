@@ -565,4 +565,3 @@ async def test_upsert_identity_ensures_actor_profile_spine_row(
     assert len(executed_statements) == 2
     assert "INSERT INTO actor_profiles" in executed_statements[0]
     assert "INSERT INTO actor_identity_cache" in executed_statements[1]
-

@@ -24,6 +24,7 @@ from hushh_mcp.operons.location.policy import (
     LOCATION_CAPABILITY_SCOPES,
     TIMED_LOCATION_SHARE_DURATION_MODE,
     UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
+    format_duration_label,
     normalize_duration_hours,
     normalize_duration_mode,
     normalize_source_platform,
@@ -586,6 +587,88 @@ def _resolve_share_duration(
 
 def _duration_metadata_value(duration_hours: float | None) -> float | None:
     return float(duration_hours) if duration_hours is not None else None
+
+
+# What an approval falls back to when neither the owner nor the requester named
+# a duration. Kept here rather than inline in the route default so approve_request
+# can tell "the owner deliberately chose an hour" apart from "nobody said".
+DEFAULT_APPROVAL_DURATION_HOURS = 1.0
+
+
+def _normalized_requested_duration(
+    *,
+    duration_hours: Any,
+    duration_mode: Any,
+) -> tuple[float | None, str | None]:
+    """Validate a requester's asked-for duration into (hours, mode).
+
+    Returns ``(None, None)`` when the requester expressed no preference, which
+    is the pre-existing behaviour every older client still has: the owner picks
+    the number, exactly as before. An until-stopped ask carries no hours. A
+    timed ask is bounded by the same policy that bounds a grant, so a request
+    can never carry an amount an approval could not honour.
+    """
+    if duration_mode is None and duration_hours is None:
+        return None, None
+    try:
+        mode = normalize_duration_mode(duration_mode)
+    except ValueError as exc:
+        raise OneLocationAgentError(
+            "LOCATION_DURATION_MODE_INVALID", str(exc), status_code=422
+        ) from exc
+    if _is_until_stopped_share(mode):
+        return None, mode
+    if duration_hours is None:
+        return None, None
+    try:
+        return normalize_duration_hours(duration_hours), mode
+    except ValueError as exc:
+        raise OneLocationAgentError("LOCATION_DURATION_INVALID", str(exc), status_code=422) from exc
+
+
+def _remaining_label(expires_at: Any, *, now: datetime | None = None) -> str:
+    """ "45 minutes"/"2 hours" of a live share still to run, or "" if none."""
+    if expires_at is None:
+        return ""
+    try:
+        parsed = _parse_datetime(expires_at, field_name="expires_at")
+    except OneLocationAgentError:
+        return ""
+    remaining = (parsed - (now or _utcnow())).total_seconds()
+    if remaining <= 0:
+        return ""
+    return format_duration_label(remaining / 3600.0)
+
+
+def _access_ask_summary(
+    *,
+    requested_duration_hours: float | None,
+    requested_duration_mode: str | None,
+    is_extension: bool,
+    remaining_label: str = "",
+) -> str:
+    """The one sentence that says WHAT was asked for, used everywhere.
+
+    The owner's push notification, the feed line, and the Consent Center row all
+    read from this, so the amount the owner is asked to approve is never worded
+    one way in the popup and another way in the feed. The extension wording
+    ("3 hours MORE") is deliberately different from the fresh-share wording
+    ("for 3 hours") -- they are different questions, and an owner skimming a
+    lock screen has to be able to tell them apart without opening anything.
+    """
+    amount = (
+        "as long as they need"
+        if requested_duration_mode == UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+        else format_duration_label(requested_duration_hours)
+    )
+    if is_extension:
+        if not amount:
+            return "is asking for more time on your live location."
+        tail = f" They have {remaining_label} left." if remaining_label else ""
+        return f"is asking for {amount} more of your live location.{tail}"
+    if not amount:
+        return "is asking to view your location."
+    return f"is asking to view your location for {amount}."
 
 
 def _share_duration_change_direction(
@@ -2127,6 +2210,18 @@ class OneLocationAgentService:
     def _request_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not row:
             return None
+        # How much time was asked for, and whether the ask is about time on a
+        # share that is already running. Every surface that has to say what the
+        # request IS -- the owner's approvals list and Approve control, the
+        # requester's own people row, the notification copy -- reads these
+        # rather than parsing the free-text message, which is why "Requesting
+        # more time." used to be the only trace of an extension anywhere.
+        extends_grant_id = str(row.get("extends_grant_id") or "") or None
+        requested_duration_hours = (
+            float(row["requested_duration_hours"])
+            if row.get("requested_duration_hours") is not None
+            else None
+        )
         return {
             "id": str(row.get("id") or ""),
             "ownerUserId": str(row.get("owner_user_id") or ""),
@@ -2139,6 +2234,15 @@ class OneLocationAgentService:
             "requestedAt": _iso(row.get("requested_at")),
             "resolvedAt": _iso(row.get("resolved_at")),
             "approvedGrantId": str(row.get("approved_grant_id") or "") or None,
+            "requestedDurationHours": requested_duration_hours,
+            "requestedDurationMode": str(row.get("requested_duration_mode") or "") or None,
+            "extendsGrantId": extends_grant_id,
+            "isExtension": bool(extends_grant_id),
+            # The live share's own expiry, joined in by the request reads so a
+            # surface can say "3 more hours on top of the 45 minutes left"
+            # without a second round trip per row.
+            "extendsGrantExpiresAt": _iso(row.get("extends_grant_expires_at")),
+            "requestRevision": int(row.get("request_revision") or 1),
         }
 
     @staticmethod
@@ -6074,9 +6178,14 @@ class OneLocationAgentService:
             SELECT
               req.*,
               requester.display_name AS requester_display_name,
-              requester.phone_number AS requester_phone_number
+              requester.phone_number AS requester_phone_number,
+              extended.expires_at AS extends_grant_expires_at
             FROM one_location_access_requests req
             LEFT JOIN actor_identity_cache requester ON requester.user_id = req.requester_user_id
+            -- The live share an extra-time ask is about. Joined here so both
+            -- sides can render "3 more hours on top of the 45 minutes left"
+            -- from the state they already load, with no per-row round trip.
+            LEFT JOIN one_location_share_grants extended ON extended.id = req.extends_grant_id
             WHERE req.owner_user_id = :user_id OR req.requester_user_id = :user_id
             ORDER BY req.requested_at DESC
             LIMIT 50
@@ -6472,6 +6581,24 @@ class OneLocationAgentService:
         )
         return self._grant_payload(updated) or {}
 
+    def _active_grant_between(
+        self, *, owner_user_id: str, recipient_user_id: str
+    ) -> dict[str, Any] | None:
+        """The live share from owner to recipient, if there is one right now."""
+        return self._execute_one(
+            """
+            SELECT id, expires_at, duration_mode, duration_hours
+            FROM one_location_share_grants
+            WHERE owner_user_id = :owner_user_id
+              AND recipient_user_id = :recipient_user_id
+              AND status = 'active'
+              AND (expires_at IS NULL OR expires_at > NOW())
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {"owner_user_id": owner_user_id, "recipient_user_id": recipient_user_id},
+        )
+
     def set_grant_duration(
         self,
         *,
@@ -6626,7 +6753,25 @@ class OneLocationAgentService:
         referred_by_user_id: str | None = None,
         notify_owner: bool = True,
         require_requester_key_material: bool = False,
+        requested_duration_hours: float | None = None,
+        requested_duration_mode: str | None = None,
+        extends_grant_id: str | None = None,
     ) -> dict[str, Any]:
+        """Ask an owner for location access -- optionally for a named duration.
+
+        A request now carries the amount of time the requester actually wants,
+        and, when they are already being shared with, the grant that time would
+        be added to. Neither widens access by itself: this still writes nothing
+        but a pending row, and only ``approve_request`` mints a grant. What they
+        buy is that the owner is asked a question with a number in it, and the
+        requester finds out which number they were given.
+
+        When the requester is already inside a live share, the ask is an
+        EXTENSION whether or not the caller says so -- detected from the grant,
+        not from the client -- so an older client that only sends a duration
+        still produces "asking for 3 hours more" rather than a second, confusing
+        "asking to view your location" for a person who is already visible.
+        """
         if requester_user_id == owner_user_id:
             raise OneLocationAgentError(
                 "LOCATION_REQUEST_SELF", "Request a different person's location.", status_code=422
@@ -6637,6 +6782,31 @@ class OneLocationAgentService:
                 require_phone_verified=False,
             )
         message_value = (message or "").strip()[:500] or None
+        duration_hours_value, duration_mode_value = _normalized_requested_duration(
+            duration_hours=requested_duration_hours,
+            duration_mode=requested_duration_mode,
+        )
+
+        # Resolve which live share (if any) this ask is about. A client-supplied
+        # id is a hint that must be verified -- it is only honoured when the
+        # grant really is this owner's live share with this requester, so a
+        # crafted id cannot attach an ask to somebody else's grant. When it does
+        # not check out we fall back to the real active grant rather than
+        # failing: the person is asking for time either way.
+        active_grant = self._active_grant_between(
+            owner_user_id=owner_user_id, recipient_user_id=requester_user_id
+        )
+        active_grant_id = str(active_grant.get("id") or "") if active_grant else ""
+        requested_grant_id = str(extends_grant_id or "").strip()
+        extends_grant_value = active_grant_id or None
+        if requested_grant_id and requested_grant_id != active_grant_id:
+            logger.info(
+                "one.location.extend_request_grant_mismatch owner=%s",
+                redact_log_field("user_id", owner_user_id),
+            )
+        remaining_label = _remaining_label(active_grant.get("expires_at")) if active_grant else ""
+        is_extension = bool(extends_grant_value)
+
         row = self._execute_one(
             """
             SELECT *
@@ -6659,11 +6829,15 @@ class OneLocationAgentService:
                 """
                 INSERT INTO one_location_access_requests (
                   owner_user_id, requester_user_id, referred_by_user_id, status,
-                  message, requested_at, metadata
+                  message, requested_at, metadata,
+                  requested_duration_hours, requested_duration_mode, extends_grant_id,
+                  request_revision
                 )
                 VALUES (
                   :owner_user_id, :requester_user_id, :referred_by_user_id, 'pending',
-                  :message, NOW(), '{}'::jsonb
+                  :message, NOW(), '{}'::jsonb,
+                  :requested_duration_hours, :requested_duration_mode,
+                  CAST(:extends_grant_id AS UUID), 1
                 )
                 RETURNING *
                 """,
@@ -6672,21 +6846,55 @@ class OneLocationAgentService:
                     "requester_user_id": requester_user_id,
                     "referred_by_user_id": referred_by_user_id,
                     "message": message_value,
+                    "requested_duration_hours": duration_hours_value,
+                    "requested_duration_mode": duration_mode_value,
+                    "extends_grant_id": extends_grant_value,
                 },
             )
-        elif message_value and str(row.get("message") or "") != message_value:
-            refreshed = self._execute_one(
-                """
-                UPDATE one_location_access_requests
-                SET message = :message,
-                    requested_at = NOW()
-                WHERE id = CAST(:request_id AS UUID)
-                  AND status = 'pending'
-                RETURNING *
-                """,
-                {"request_id": str(row.get("id") or ""), "message": message_value},
+        else:
+            # A pending ask already exists. Asking again for a DIFFERENT amount
+            # is a new question, not a duplicate: the row is updated in place
+            # (one pending ask per pair stays the invariant) and its revision is
+            # bumped so the owner's client treats the re-ask as a fresh event
+            # instead of de-duplicating it against the number it already showed.
+            existing_hours = (
+                float(row["requested_duration_hours"])
+                if row.get("requested_duration_hours") is not None
+                else None
             )
-            row = refreshed or row
+            existing_mode = str(row.get("requested_duration_mode") or "") or None
+            existing_grant = str(row.get("extends_grant_id") or "") or None
+            existing_message = str(row.get("message") or "") or None
+            ask_changed = (
+                existing_hours != duration_hours_value
+                or existing_mode != duration_mode_value
+                or existing_grant != extends_grant_value
+            )
+            message_changed = bool(message_value) and existing_message != message_value
+            if ask_changed or message_changed:
+                refreshed = self._execute_one(
+                    """
+                    UPDATE one_location_access_requests
+                    SET message = COALESCE(:message, message),
+                        requested_duration_hours = :requested_duration_hours,
+                        requested_duration_mode = :requested_duration_mode,
+                        extends_grant_id = CAST(:extends_grant_id AS UUID),
+                        request_revision = request_revision + CASE WHEN :ask_changed THEN 1 ELSE 0 END,
+                        requested_at = NOW()
+                    WHERE id = CAST(:request_id AS UUID)
+                      AND status = 'pending'
+                    RETURNING *
+                    """,
+                    {
+                        "request_id": str(row.get("id") or ""),
+                        "message": message_value,
+                        "requested_duration_hours": duration_hours_value,
+                        "requested_duration_mode": duration_mode_value,
+                        "extends_grant_id": extends_grant_value,
+                        "ask_changed": ask_changed,
+                    },
+                )
+                row = refreshed or row
         request = self._request_payload(row)
         if not request:
             raise OneLocationAgentError(
@@ -6694,8 +6902,21 @@ class OneLocationAgentService:
                 "Could not create the access request.",
                 status_code=500,
             )
+        # The joined column is absent on INSERT/UPDATE RETURNING, so fill the
+        # live share's expiry from the grant we already read. Surfaces render
+        # "3 more hours on top of the 45 minutes left" straight off the created
+        # request, without waiting for the next state refresh.
+        if is_extension and active_grant is not None:
+            request["extendsGrantExpiresAt"] = _iso(active_grant.get("expires_at"))
         requester_identity = self._identity_row(requester_user_id)
         requester_label = _identity_notification_label(requester_identity, fallback="Someone")
+        owner_label_for_feed = _identity_notification_label(self._identity_row(owner_user_id))
+        ask_summary = _access_ask_summary(
+            requested_duration_hours=request["requestedDurationHours"],
+            requested_duration_mode=request["requestedDurationMode"],
+            is_extension=is_extension,
+            remaining_label=remaining_label,
+        )
         self._insert_event(
             owner_user_id=owner_user_id,
             actor_user_id=requester_user_id,
@@ -6705,14 +6926,27 @@ class OneLocationAgentService:
             metadata={
                 "referred": bool(referred_by_user_id),
                 "counterpart_label": requester_label,
+                # The feed fan-out writes this row to BOTH parties and swaps
+                # counterpart_label for the requester's copy, so neither side
+                # reads its own name back as the other person.
+                "owner_label": owner_label_for_feed,
+                # The feed reads these to say "Asked for 3 hours more" instead
+                # of a subjectless "Requested your location".
+                "requested_duration_hours": request["requestedDurationHours"],
+                "requested_duration_mode": request["requestedDurationMode"],
+                "is_extension": is_extension,
+                "extends_grant_id": extends_grant_value,
+                "request_revision": request["requestRevision"],
             },
         )
         if notify_owner:
             self._send_metadata_notification(
                 user_id=owner_user_id,
                 notification_type="location_access_request",
-                title="Location access request",
-                body=f"{requester_label} is asking to view your location.",
+                title=(
+                    "More location time requested" if is_extension else "Location access request"
+                ),
+                body=f"{requester_label} {ask_summary}",
                 notification_tag=f"one-location-request:{request['id']}",
                 request_url=_one_location_url(requestId=request["id"], section="approvals"),
                 data={
@@ -6720,6 +6954,15 @@ class OneLocationAgentService:
                     "requester_user_id": requester_user_id,
                     "requester_display_label": requester_label,
                     "referred_by_user_id": referred_by_user_id,
+                    "requested_duration_hours": request["requestedDurationHours"],
+                    "requested_duration_mode": request["requestedDurationMode"],
+                    "is_extension": "true" if is_extension else None,
+                    "extends_grant_id": extends_grant_value,
+                    "extends_grant_expires_at": request.get("extendsGrantExpiresAt"),
+                    # Distinguishes a re-ask from the ask the client already
+                    # showed, so a raised number is never swallowed by the
+                    # client's per-request notification de-dup.
+                    "notification_revision": str(request["requestRevision"]),
                 },
             )
         return request
@@ -6730,8 +6973,18 @@ class OneLocationAgentService:
         owner_user_id: str,
         request_id: str,
         duration_hours: float | None,
-        duration_mode: str = TIMED_LOCATION_SHARE_DURATION_MODE,
+        duration_mode: str | None = None,
     ) -> dict[str, Any]:
+        """Grant the access that was asked for, defaulting to the amount asked.
+
+        ``duration_hours``/``duration_mode`` left as ``None`` means "give them
+        what they asked for" -- the owner approved a request that named a
+        number, and re-deriving a different number from a control they never
+        touched is how an approval used to silently hand out an hour to someone
+        who had asked for four. An explicitly supplied duration still wins: the
+        owner is always free to grant less (or more) than was asked, and the
+        approve control sends one whenever they adjust it.
+        """
         request_row = self._execute_one(
             """
             SELECT *
@@ -6750,12 +7003,31 @@ class OneLocationAgentService:
                 status_code=404,
             )
         requester_user_id = str(request_row.get("requester_user_id") or "")
+        requested_hours, requested_mode = _normalized_requested_duration(
+            duration_hours=request_row.get("requested_duration_hours"),
+            duration_mode=request_row.get("requested_duration_mode"),
+        )
+        was_extension = bool(str(request_row.get("extends_grant_id") or "").strip())
+        if duration_hours is None and duration_mode is None:
+            resolved_mode = requested_mode or TIMED_LOCATION_SHARE_DURATION_MODE
+            resolved_hours = (
+                None
+                if _is_until_stopped_share(resolved_mode)
+                else (
+                    requested_hours
+                    if requested_hours is not None
+                    else DEFAULT_APPROVAL_DURATION_HOURS
+                )
+            )
+        else:
+            resolved_mode = duration_mode or TIMED_LOCATION_SHARE_DURATION_MODE
+            resolved_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
         grant = self.create_grant(
             owner_user_id=owner_user_id,
             recipient_user_id=requester_user_id,
             recipient_key_id=None,
-            duration_hours=duration_hours,
-            duration_mode=duration_mode,
+            duration_hours=resolved_hours,
+            duration_mode=resolved_mode,
             reason="request_approved",
             require_recipient_phone_verified=False,
         )
@@ -6771,6 +7043,15 @@ class OneLocationAgentService:
             {"request_id": request_id, "grant_id": grant["id"]},
         )
         requester_label = _identity_notification_label(self._identity_row(requester_user_id))
+        owner_identity = self._identity_row(owner_user_id)
+        owner_label = _identity_notification_label(owner_identity)
+        granted_hours = _duration_metadata_value(grant.get("durationHours"))
+        granted_mode = grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE
+        granted_label = (
+            "for as long as you need"
+            if _is_until_stopped_share(str(granted_mode))
+            else format_duration_label(granted_hours)
+        )
         self._insert_event(
             owner_user_id=owner_user_id,
             actor_user_id=owner_user_id,
@@ -6779,18 +7060,30 @@ class OneLocationAgentService:
             request_id=request_id,
             event_type="location_access_approved",
             metadata={
-                "duration_hours": _duration_metadata_value(grant.get("durationHours")),
-                "duration_mode": grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE,
+                "duration_hours": granted_hours,
+                "duration_mode": granted_mode,
                 "counterpart_label": requester_label,
+                # Swapped in for the requester's copy of this feed row, so they
+                # read the owner's name rather than their own.
+                "owner_label": owner_label,
+                # Kept so the feed can say "You gave them 3 more hours" rather
+                # than reporting an extension as a brand-new share.
+                "is_extension": was_extension,
+                "requested_duration_hours": requested_hours,
+                "requested_duration_mode": requested_mode,
             },
         )
-        owner_identity = self._identity_row(owner_user_id)
-        owner_label = _identity_notification_label(owner_identity)
+        if granted_label and was_extension:
+            approved_body = f"{owner_label} gave you {granted_label} more of their live location."
+        elif granted_label:
+            approved_body = f"{owner_label} shared their live location with you {granted_label}."
+        else:
+            approved_body = f"{owner_label} approved your location request."
         self._send_metadata_notification(
             user_id=requester_user_id,
             notification_type="location_access_approved",
-            title="Location request approved",
-            body=f"{owner_label} approved your location request.",
+            title=("More location time approved" if was_extension else "Location request approved"),
+            body=approved_body,
             notification_tag=f"one-location-approved:{request_id}",
             request_url=_one_location_url(
                 requestId=request_id,
@@ -6803,6 +7096,10 @@ class OneLocationAgentService:
                 "grant_id": grant["id"],
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
+                "duration_hours": granted_hours,
+                "duration_mode": granted_mode,
+                "expires_at": grant.get("expiresAt"),
+                "is_extension": "true" if was_extension else None,
             },
         )
         return {"request": self._request_payload(resolved), "grant": grant}
@@ -6827,27 +7124,48 @@ class OneLocationAgentService:
             )
         requester_user_id = str(row.get("requester_user_id") or "") or None
         requester_label = _identity_notification_label(self._identity_row(requester_user_id or ""))
+        # Which ask was refused. Someone who asked for an hour, then for four,
+        # and is refused, is otherwise told only "denied" -- with no way to know
+        # whether they still hold the time they already had.
+        denied_hours, denied_mode = _normalized_requested_duration(
+            duration_hours=row.get("requested_duration_hours"),
+            duration_mode=row.get("requested_duration_mode"),
+        )
+        was_extension = bool(str(row.get("extends_grant_id") or "").strip())
+        owner_identity = self._identity_row(owner_user_id)
+        owner_label = _identity_notification_label(owner_identity)
         self._insert_event(
             owner_user_id=owner_user_id,
             actor_user_id=owner_user_id,
             recipient_user_id=requester_user_id,
             request_id=request_id,
             event_type="location_access_denied",
-            metadata={"counterpart_label": requester_label},
+            metadata={
+                "counterpart_label": requester_label,
+                "owner_label": owner_label,
+                "requested_duration_hours": denied_hours,
+                "requested_duration_mode": denied_mode,
+                "is_extension": was_extension,
+            },
         )
-        owner_identity = self._identity_row(owner_user_id)
-        owner_label = _identity_notification_label(owner_identity)
         self._send_metadata_notification(
             user_id=str(row.get("requester_user_id") or ""),
             notification_type="location_access_denied",
-            title="Location request denied",
-            body=f"{owner_label} denied your location request.",
+            title=("Extra time declined" if was_extension else "Location request denied"),
+            body=(
+                f"{owner_label} declined the extra time. Any access you already have is unchanged."
+                if was_extension
+                else f"{owner_label} denied your location request."
+            ),
             notification_tag=f"one-location-denied:{request_id}",
             request_url=_one_location_url(requestId=request_id, section="my_requests"),
             data={
                 "request_id": request_id,
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
+                "requested_duration_hours": denied_hours,
+                "requested_duration_mode": denied_mode,
+                "is_extension": "true" if was_extension else None,
             },
         )
         return self._request_payload(row) or {}

@@ -123,8 +123,11 @@ describe("SmsContactsFlow", () => {
     render(<SmsContactsFlow {...baseProps} onRemove={onRemove} />);
 
     const removeButton = screen.getByRole("button", { name: "Remove" });
+    // The ground is the semantic `-tint` partner, not a one-off alpha on the
+    // flat token. Hand-rolled alphas are what made the same destructive ground
+    // render a slightly different colour on every screen that spelled it out.
     expect(removeButton).toHaveClass(
-      "bg-[color:var(--app-destructive)]/10",
+      "bg-[color:var(--app-destructive-tint)]",
       "text-[color:var(--app-destructive)]",
     );
     fireEvent.click(removeButton);

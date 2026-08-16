@@ -109,13 +109,26 @@ async def revoke_location_share(grant_id: str) -> dict[str, Any]:
 
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_REQUEST, name="request_location_access")
-async def request_location_access(owner_user_id: str, message: str | None = None) -> dict[str, Any]:
-    """Request live-location access from an owner; this never grants access by itself."""
+async def request_location_access(
+    owner_user_id: str,
+    message: str | None = None,
+    requested_duration_hours: float | None = None,
+) -> dict[str, Any]:
+    """Request live-location access from an owner; this never grants access by itself.
+
+    ``requested_duration_hours`` says how long the requester wants, so "ask
+    Neelesh for three more hours" reaches the owner as three hours rather than
+    as an unquantified ask they have to guess at. Omit it to leave the amount
+    entirely to the owner. Whether this is extra time on a share already running
+    is detected server-side from the live grant, not asserted here.
+    """
     context = _ctx()
     return _service().request_access(
         requester_user_id=context.user_id,
         owner_user_id=owner_user_id,
         message=message,
+        requested_duration_hours=requested_duration_hours,
+        requested_duration_mode=("timed" if requested_duration_hours is not None else None),
     )
 
 

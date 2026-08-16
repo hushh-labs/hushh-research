@@ -24,6 +24,10 @@ import {
 } from "@/lib/services/cache-service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import {
+  locationApproveActionLabel,
+  locationAskPromptLine,
+} from "@/lib/one-location/duration-copy";
+import {
   DebateRunManagerService,
   type DebateRunTask,
 } from "@/lib/services/debate-run-manager";
@@ -553,9 +557,14 @@ export function useFeedActionables(): UseFeedActionablesResult {
       });
     }
 
-    // Location access requests — inline Approve (1h) / Deny. Only requests the
+    // Location access requests — inline Approve / Deny. Only requests the
     // viewer owns (and did not send) are actionable; outgoing requests must not
     // surface here as a self-addressed "wants to see your location" card.
+    //
+    // Approve grants exactly what was asked for. It used to send a flat
+    // durationHours: 1, so answering a four-hour ask from here handed out one
+    // hour -- and the card never said what had been asked, so the owner had no
+    // way to notice.
     const pendingLocation = (locationRequests ?? []).filter(
       (request: OneLocationAccessRequest) =>
         isIncomingLocationRequestActionable(request, userId),
@@ -567,7 +576,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
         icon: MapPin,
         iconTone: "blue",
         title: label,
-        description: request.message?.trim() || "Wants to see your location.",
+        // Names the amount, and says when it is extra time on a live share.
+        description: request.message?.trim() || locationAskPromptLine(request, Date.now()),
         actions: [
           {
             key: "deny",
@@ -588,15 +598,18 @@ export function useFeedActionables(): UseFeedActionablesResult {
           },
           {
             key: "approve",
-            label: "Approve",
+            label: locationApproveActionLabel(request, Date.now()),
             tone: "primary",
             disabled: !vaultOwnerToken,
             run: async () => {
               if (!vaultOwnerToken) return;
+              // No durationHours: omitting it means the server grants the
+              // amount that was requested, falling back to an hour only when
+              // the ask named none. Naming a number here is what silently
+              // turned a four-hour ask into a one-hour grant.
               await OneLocationService.approveRequest({
                 vaultOwnerToken,
                 requestId: request.id,
-                durationHours: 1,
               });
               if (userId) OneLocationStateResource.invalidate(userId);
               notifyFeedActionResolved();

@@ -900,11 +900,19 @@ function ConsentEntryDetail({
   isRequestBusy: (requestId?: string | null) => boolean;
   isScopeBusy: (scope?: string | null) => boolean;
 }) {
+  // `expiry_hours` is the key other consent domains use. One Location's
+  // contributor writes `requested_duration_hours` (see
+  // one_location_center_contributor._request_entry), so reading only the
+  // first meant every location request fell through to the 1-hour default --
+  // the row said "4 hours" in its title and the button granted one.
   const requestedDurationHours =
     typeof entry?.metadata?.expiry_hours === "number" ||
     typeof entry?.metadata?.expiry_hours === "string"
       ? entry.metadata.expiry_hours
-      : null;
+      : typeof entry?.metadata?.requested_duration_hours === "number" ||
+          typeof entry?.metadata?.requested_duration_hours === "string"
+        ? entry.metadata.requested_duration_hours
+        : null;
   const isLocationEntry = Boolean(
     entry && isLocationConsent(entry.metadata, entry.scope),
   );

@@ -1840,6 +1840,26 @@ class FourUserMemoryService(OneLocationAgentService):
             }
             self.grants[grant_id] = row
             return row
+        # "Is this owner already sharing live with this person?" -- the read
+        # that turns an ask into an ask for MORE time. Keyed on the pair, not on
+        # a grant id, so it must be matched before the by-id grant reads below.
+        if (
+            "FROM one_location_share_grants" in sql
+            and "recipient_user_id = :recipient_user_id" in sql
+            and "status = 'active'" in sql
+            and "grant_id" not in params
+        ):
+            now = datetime.now(timezone.utc)
+            live = [
+                grant
+                for grant in self.grants.values()
+                if grant["owner_user_id"] == params["owner_user_id"]
+                and grant["recipient_user_id"] == params["recipient_user_id"]
+                and grant["status"] == "active"
+                and (grant.get("expires_at") is None or grant["expires_at"] > now)
+            ]
+            live.sort(key=lambda item: item["created_at"], reverse=True)
+            return live[0] if live else None
         if "FROM one_location_share_grants" in sql and "owner_user_id = :owner_user_id" in sql:
             grant = self.grants.get(params["grant_id"])
             if (
@@ -1915,13 +1935,25 @@ class FourUserMemoryService(OneLocationAgentService):
                 "requested_at": datetime.now(timezone.utc),
                 "resolved_at": None,
                 "approved_grant_id": None,
+                "requested_duration_hours": params.get("requested_duration_hours"),
+                "requested_duration_mode": params.get("requested_duration_mode"),
+                "extends_grant_id": params.get("extends_grant_id"),
+                "request_revision": 1,
             }
             self.requests[request_id] = row
             return row
-        if "UPDATE one_location_access_requests" in sql and "SET message = :message" in sql:
+        if "UPDATE one_location_access_requests" in sql and "SET message = COALESCE" in sql:
             request = self.requests.get(params["request_id"])
             if request and request["status"] == "pending":
-                request["message"] = params["message"]
+                # COALESCE(:message, message): a re-ask that carries no note
+                # must not blank the note already on the row.
+                if params.get("message") is not None:
+                    request["message"] = params["message"]
+                request["requested_duration_hours"] = params.get("requested_duration_hours")
+                request["requested_duration_mode"] = params.get("requested_duration_mode")
+                request["extends_grant_id"] = params.get("extends_grant_id")
+                if params.get("ask_changed"):
+                    request["request_revision"] = int(request.get("request_revision") or 1) + 1
                 request["requested_at"] = datetime.now(timezone.utc)
                 return request
             return None
@@ -2623,9 +2655,7 @@ def test_directory_search_ranks_the_tier_before_the_alphabet() -> None:
     service.search_directory_candidates(owner_user_id="owner", query="r")
 
     # Whitespace-folded so this is an assertion about key order, not indentation.
-    ordering = " ".join(
-        service.sql.rsplit("ORDER BY", 1)[1].rsplit("LIMIT", 1)[0].split()
-    )
+    ordering = " ".join(service.sql.rsplit("ORDER BY", 1)[1].rsplit("LIMIT", 1)[0].split())
     assert ordering.startswith("CASE ")
     assert ordering.index("END,") < ordering.index(
         "LOWER(COALESCE(NULLIF(BTRIM(a.display_name), '')"
@@ -3296,9 +3326,7 @@ def test_owner_may_also_shorten_through_the_same_call() -> None:
     service, grant = _duration_service_with_grant(4)
     original_expires_at = service.grants[grant["id"]]["expires_at"]
 
-    service.set_grant_duration(
-        owner_user_id="user_a", grant_id=grant["id"], duration_hours=0.5
-    )
+    service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=0.5)
 
     assert service.grants[grant["id"]]["expires_at"] < original_expires_at
     events = [
@@ -3320,17 +3348,13 @@ def test_the_recipient_cannot_reach_the_owner_duration_call() -> None:
     original_expires_at = service.grants[grant["id"]]["expires_at"]
 
     with pytest.raises(OneLocationAgentError) as refused:
-        service.set_grant_duration(
-            owner_user_id="user_b", grant_id=grant["id"], duration_hours=24
-        )
+        service.set_grant_duration(owner_user_id="user_b", grant_id=grant["id"], duration_hours=24)
     assert refused.value.code == "LOCATION_GRANT_NOT_FOUND"
     assert service.grants[grant["id"]]["expires_at"] == original_expires_at
 
     # And a stranger fares no better.
     with pytest.raises(OneLocationAgentError) as unrelated:
-        service.set_grant_duration(
-            owner_user_id="user_c", grant_id=grant["id"], duration_hours=1
-        )
+        service.set_grant_duration(owner_user_id="user_c", grant_id=grant["id"], duration_hours=1)
     assert unrelated.value.code == "LOCATION_GRANT_NOT_FOUND"
 
 
@@ -3339,9 +3363,7 @@ def test_the_duration_change_event_names_which_way_it_went() -> None:
     # recorded rather than read off the name.
     service, grant = _duration_service_with_grant(0.5)
 
-    service.set_grant_duration(
-        owner_user_id="user_a", grant_id=grant["id"], duration_hours=3
-    )
+    service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=3)
 
     events = [
         event
@@ -3372,9 +3394,7 @@ def test_a_share_can_be_moved_to_until_stopped_and_back() -> None:
     assert row["duration_hours"] is None
     assert row["expires_at"] is None
 
-    service.set_grant_duration(
-        owner_user_id="user_a", grant_id=grant["id"], duration_hours=1
-    )
+    service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=1)
     row = service.grants[grant["id"]]
     assert row["duration_mode"] == "timed"
     assert row["expires_at"] is not None
@@ -3398,9 +3418,7 @@ def test_the_duration_change_obeys_the_same_bounds_as_creating_a_share() -> None
     assert too_short.value.code == "LOCATION_DURATION_INVALID"
 
     with pytest.raises(OneLocationAgentError) as too_long:
-        service.set_grant_duration(
-            owner_user_id="user_a", grant_id=grant["id"], duration_hours=30
-        )
+        service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=30)
     assert too_long.value.code == "LOCATION_DURATION_INVALID"
 
     with pytest.raises(OneLocationAgentError) as bad_mode:

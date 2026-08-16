@@ -15,6 +15,7 @@ export type FeedEventType =
   | "consent_revoked"
   | "location_share_created"
   | "location_share_revoked"
+  | "location_share_shortened"
   | "location_share_expired"
   | "location_access_request"
   | "location_access_approved"

@@ -180,19 +180,20 @@ Audited at PR #5251. Fix drift when you touch a row, don't leave it.
 | `/one/location` (hub) | Location | Location Agent | — | Hub, uses `PageHeader` — not a flow |
 | `?action=settings` | Settings | Settings | `Location` | ✅ **reference implementation** |
 | `?action=sos` | Save my Soul | Save my Soul | *none* | ✅ fixed in #5251 |
-| `?action=shared-with-me` | Shared with me | Shared with me | *none* | ⚠️ title matches crumb; eyebrow missing |
-| `?action=active-shares` | Active shares | Active shares | *none* | ⚠️ same |
-| `?action=needs-review` | Needs my review | Needs my review | *none* | ⚠️ same |
-| `?action=check-in` | Check-In | *raw `<h1>`* | *none* | ❌ no `TaskFlowHeader` |
+| `?action=shared-with-me` | Shared with me | Shared with me | `Location` | ✅ |
+| `?action=active-shares` | Active shares | Active shares | `Location` | ✅ |
+| `?action=needs-review` | Needs my review | Needs my review | `Location` | ✅ |
+| `?action=check-in` | Check-In | Check-In | `Location` | ✅ |
 | `?action=sms-contacts` | SMS contacts | SMS contacts | *none* | ✅ fixed in #5253 |
-| `?action=share` | Share location | Who can see you? / Ready to share? | `Step 1 of 2 · …` | ⚠️ eyebrow is a step, title ≠ crumb |
-| `?action=ask` | Ask someone | Ask clearly | `Request with context` | ⚠️ title ≠ crumb |
+| `?action=share` | Share location | Who can see you? / Ready to share? | `Step 1 of 2 · …` | 🟡 **deliberate exception** — see below |
+| `?action=ask` | Request location | Request location | `Location` | ✅ |
 | `?action=invite` | Invite to Circle | Invite to Circle | `Invite to One / Circle` | ⚠️ title ✅, eyebrow is a tagline |
 | `?action=temp-link` | Public link | Public location link active / Share outside your Circle | `Copy, share or revoke` / *none* | ⚠️ two titles, neither is the crumb |
 | `/one/location/map` | Your Map | — | — | Map route, own chrome |
 
-**Check-In is the one row still broken**, the same way SOS was: no `TaskFlowHeader`, so
-no shared title treatment.
+Every row in this table now uses `TaskFlowHeader`. Check-In was the last one drawing
+its own `<h1>` — a local 28px/bold instead of the shared `SCREEN_TITLE` token — and
+was fixed the same way SOS was.
 
 Note what `sms-contacts` needed on top of the component fix. Its back target is not the
 hub — it is reachable from Settings *and* from the middle of an SOS, and returning that
@@ -202,6 +203,18 @@ moment. The hub records the origin as `?source=sos`; `resolveSmsContactsBackActi
 `resolveSmsContactsBackFlow` delegates to it. **When you delete a flow's in-content back
 button, check what that button knew that the breadcrumb does not** — a hardcoded
 `backHref` will silently lose it.
+
+### The one deliberate exception: Share location
+
+`?action=share` keeps "Who can see you?" and "Ready to share?" as its titles under
+a `Share location` crumb. That breaks the title-equals-crumb rule, and it is a
+product decision, not drift: the supplied design for that screen leads with the
+question, and the two steps are told apart by their titles rather than by the
+eyebrow alone. `shareStep` is component-local state and never reaches the URL, so
+the crumb could not track the step even if it wanted to.
+
+Do not "fix" this row without the design owner. Every other flow in the table
+follows the rule, and a second exception should have to argue for itself.
 
 ### The eyebrow is being used two ways
 

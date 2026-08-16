@@ -467,7 +467,7 @@ function oneLocationNetworkLabel(data: Record<string, string>): string {
 }
 
 function oneLocationNotificationId(data: Record<string, string>): string {
-  return (
+  const base =
     String(data.grant_id || "").trim() ||
     String(data.approved_grant_id || "").trim() ||
     String(data.request_id || "").trim() ||
@@ -475,8 +475,14 @@ function oneLocationNotificationId(data: Record<string, string>): string {
     String(data.referral_id || "").trim() ||
     String(data.connection_id || "").trim() ||
     String(data.invite_id || "").trim() ||
-    String(data.notification_tag || "").trim()
-  );
+    String(data.notification_tag || "").trim();
+  // A still-pending request whose ask CHANGED is a new event on the same row.
+  // De-dup is keyed by (type, id) and persists in localStorage, so without the
+  // revision somebody who asked for an hour and then for four would have the
+  // second ask swallowed — and the owner would be left approving the first
+  // number, having never been told it moved.
+  const revision = String(data.notification_revision || "").trim();
+  return base && revision && revision !== "1" ? `${base}#${revision}` : base;
 }
 
 /**
@@ -899,6 +905,16 @@ export function ConsentNotificationProvider({
         referringLabel: oneLocationReferringLabel(data),
         visitorLabel: oneLocationVisitorLabel(data),
         networkLabel: oneLocationNetworkLabel(data),
+        // How much time the ask is about. Both delivery paths carry these —
+        // the FCM payload from the service, and the reconciliation payload
+        // built from state — so the popup names the same number the feed and
+        // the approvals card do.
+        requestedDurationHours: data.requested_duration_hours || null,
+        requestedDurationMode: data.requested_duration_mode || null,
+        isExtension: String(data.is_extension || "").trim() === "true",
+        extendsGrantExpiresAt: data.extends_grant_expires_at || null,
+        grantedDurationHours: data.duration_hours || null,
+        grantedDurationMode: data.duration_mode || null,
       });
       const copy = {
         title:

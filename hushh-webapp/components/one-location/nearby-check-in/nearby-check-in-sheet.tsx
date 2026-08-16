@@ -54,7 +54,11 @@ import type {
 } from "@/lib/one-location/types";
 import { isNative } from "@/lib/capacitor/platform";
 import { ROUTES } from "@/lib/navigation/routes";
+import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
+
+const SUCCESS_ROLE = SEMANTIC_ROLE_CLASSES.success;
+const NEUTRAL_ROLE = SEMANTIC_ROLE_CLASSES.neutral;
 
 const DURATIONS = [
   { value: 30 as const, label: "30 min" },
@@ -1531,7 +1535,19 @@ export function NearbyCheckInSheet({
         <SheetHeader className="gap-0 border-b border-border/60 px-5 py-4 text-left">
           <div className="flex min-h-9 items-center gap-2 pr-10">
             <SheetTitle className="text-[17px] leading-6">Check in</SheetTitle>
-            <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+            {/* Preview reports how finished the FEATURE is, not a state the
+                person is in, so it is secondary utility and takes the resting
+                neutral. Orange is spent elsewhere on Location for "awaiting
+                acceptance" and "needs my review"; spending it on a build label
+                too would dilute the one attention signal. The word keeps the
+                label tone so a 10px uppercase badge stays readable. */}
+            <span
+              className={cn(
+                "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                NEUTRAL_ROLE.tile,
+                "text-[color:var(--app-label)]",
+              )}
+            >
               Preview
             </span>
           </div>
@@ -1576,9 +1592,20 @@ export function NearbyCheckInSheet({
 
           {loadingPresence && !state.presence ? null : state.presence ? (
             <div className="space-y-4" data-testid="nearby-presence-active">
-              <section className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+              {/* Only rendered while a check-in is actually live, so the green
+                  is reporting state, not labelling the category. The wash and
+                  the hairline carry it; the shield keeps the foreground tone,
+                  because --app-success on --app-success-tint measures ~1.9:1
+                  and a glyph has to clear 3:1. */}
+              <section
+                className={cn(
+                  "rounded-2xl border p-4",
+                  SUCCESS_ROLE.border,
+                  SUCCESS_ROLE.tile,
+                )}
+              >
                 <div className="flex items-start gap-3">
-                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold">You’re visible nearby</p>
                     <p className="mt-0.5 text-sm leading-5 text-muted-foreground">

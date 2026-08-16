@@ -341,7 +341,7 @@ export function PersonSearchInput({
             field.scrollIntoView({ block: "center", behavior: "smooth" });
           }, 250);
         }}
-        className="h-11 w-full rounded-[14px] border border-border/70 bg-background pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-[color:var(--app-accent-ring)] [&::-webkit-search-cancel-button]:appearance-none"
+        className="h-11 w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-[color:var(--app-accent-ring)] [&::-webkit-search-cancel-button]:appearance-none"
       />
     </div>
   );

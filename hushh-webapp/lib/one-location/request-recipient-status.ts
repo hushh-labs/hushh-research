@@ -1,3 +1,7 @@
+import {
+  formatLocationDurationLabel,
+  formatLocationRemaining,
+} from "@/lib/one-location/duration-copy";
 import type {
   OneLocationAccessRequest,
   OneLocationGrant,
@@ -61,14 +65,16 @@ export function shortAgo(fromMs: number, nowMs: number): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-/** "for 55 more minutes", "for 3 more hours" -- how much access is left. */
+/**
+ * "55 more min", "1h 30m more", "3 more hours" -- how much access is left.
+ *
+ * Delegates to the shared formatter so this row, the countdown on the share
+ * card, and the notification copy cannot drift apart. The old local rounding
+ * turned 90 minutes into "2 more hours", which overstated the time left on the
+ * exact number people use to decide when to leave.
+ */
 export function shortRemaining(untilMs: number, nowMs: number): string | null {
-  const remaining = untilMs - nowMs;
-  if (remaining <= 0) return null;
-  const minutes = Math.ceil(remaining / 60_000);
-  if (minutes < 60) return `${minutes} more min`;
-  const hours = Math.round(minutes / 60);
-  return hours === 1 ? "1 more hour" : `${hours} more hours`;
+  return formatLocationRemaining(untilMs, nowMs);
 }
 
 export function requestRecipientStatus(input: {
@@ -81,27 +87,11 @@ export function requestRecipientStatus(input: {
 }): RequestRecipientStatus {
   const { recipientUserId, requestedByMe, receivedGrants, nowMs } = input;
 
-  // Already sharing beats everything else. Asking somebody to share when they
-  // already are is the clearest possible sign the list is not looking.
-  const activeGrant = receivedGrants.find(
-    (grant) =>
-      grant.ownerUserId === recipientUserId && grant.status === "active",
-  );
-  if (activeGrant) {
-    const expiresAt = timestamp(activeGrant.expiresAt);
-    const remaining = expiresAt === null ? null : shortRemaining(expiresAt, nowMs);
-    return {
-      subtitle: remaining
-        ? `Sharing with you, ${remaining}`
-        : "Sharing with you now",
-      tone: "ready",
-      statusLabel: "Live",
-      selectable: false,
-    };
-  }
-
-  // The unanswered ask. This is the row the report was about: it has to say
-  // that it happened and when, and it must not offer to do it again.
+  // The unanswered ask, whatever else is true. Resolved before the active-grant
+  // branch because a request for MORE time is made by someone who is already
+  // being shared with -- so a row that let "Live" win said "Sharing with you,
+  // 59 more min" and nothing else, and the extra time this person had just
+  // asked for left no trace anywhere on the screen they asked it from.
   const pending = requestedByMe
     .filter(
       (request) =>
@@ -111,12 +101,62 @@ export function requestRecipientStatus(input: {
       (left, right) =>
         (timestamp(right.requestedAt) ?? 0) - (timestamp(left.requestedAt) ?? 0),
     )[0];
+
+  // Already sharing beats everything else. Asking somebody to share when they
+  // already are is the clearest possible sign the list is not looking.
+  const activeGrant = receivedGrants.find(
+    (grant) =>
+      grant.ownerUserId === recipientUserId && grant.status === "active",
+  );
+  if (activeGrant) {
+    const expiresAt = timestamp(activeGrant.expiresAt);
+    const remaining = expiresAt === null ? null : shortRemaining(expiresAt, nowMs);
+    const live = remaining ? `Sharing with you, ${remaining}` : "Sharing with you now";
+    if (pending) {
+      // Both facts at once, because both are true and each one alone misleads:
+      // the share IS live, and more time HAS been asked for and not answered.
+      const askedFor =
+        pending.requestedDurationMode === "until_stopped"
+          ? "no end time"
+          : formatLocationDurationLabel(pending.requestedDurationHours)
+            ? `${formatLocationDurationLabel(pending.requestedDurationHours)} more`
+            : "";
+      return {
+        subtitle: askedFor
+          ? `${live} · asked for ${askedFor}`
+          : `${live} · asked for more time`,
+        tone: "pending",
+        statusLabel: "Asked",
+        // The extra time is the owner's to give. Asking a third time from here
+        // would only overwrite the number they are already looking at.
+        selectable: false,
+      };
+    }
+    return {
+      subtitle: live,
+      tone: "ready",
+      statusLabel: "Live",
+      selectable: false,
+    };
+  }
+
+  // The unanswered ask with no live share behind it. This is the row the
+  // original report was about: it has to say that it happened and when, and it
+  // must not offer to do it again.
   if (pending) {
     const askedAt = timestamp(pending.requestedAt);
+    // Name the amount. "Asked 17m ago" says a request exists; it does not say
+    // what was asked, so the person who picked four hours has no way to check
+    // that four hours is what is actually waiting on the other side.
+    const askedFor =
+      pending.requestedDurationMode === "until_stopped"
+        ? "no end time"
+        : formatLocationDurationLabel(pending.requestedDurationHours);
+    const when = askedAt ? `Asked ${shortAgo(askedAt, nowMs)}` : "Asked already";
     return {
-      subtitle: askedAt
-        ? `Asked ${shortAgo(askedAt, nowMs)}, waiting on them`
-        : "Asked already, waiting on them",
+      subtitle: askedFor
+        ? `${when} for ${askedFor}, waiting on them`
+        : `${when}, waiting on them`,
       tone: "pending",
       statusLabel: "Asked",
       // Nothing here can APPROVE this -- it is the other person's to answer.

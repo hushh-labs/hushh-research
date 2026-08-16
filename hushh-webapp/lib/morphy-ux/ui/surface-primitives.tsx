@@ -54,19 +54,21 @@ export function TaskFlowHeader({
 }) {
   return (
     <header className="space-y-1.5">
-      <div className="flex items-center gap-2">
-        {onBack ? (
-          <button
-            type="button"
-            onClick={onBack}
-            className="-ml-1 flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-            aria-label="Back"
-          >
-            <ChevronRight className="h-5 w-5 rotate-180" />
-          </button>
-        ) : null}
-        {eyebrow ? <p className={EYEBROW}>{eyebrow}</p> : null}
-      </div>
+      {onBack || eyebrow ? (
+        <div className="flex items-center gap-2">
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="-ml-1 flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+              aria-label="Back"
+            >
+              <ChevronRight className="h-5 w-5 rotate-180" />
+            </button>
+          ) : null}
+          {eyebrow ? <p className={EYEBROW}>{eyebrow}</p> : null}
+        </div>
+      ) : null}
       <h1 className={SCREEN_TITLE}>{title}</h1>
       {description ? <p className="ui-text-page-subtitle">{description}</p> : null}
     </header>

@@ -3741,10 +3741,15 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
 
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
+    // The picked duration travels WITH the request. The Ask screen has
+    // always shown a "Duration requested" control; it used to be dropped at
+    // this boundary, so the owner approved from their own unrelated one.
     expect(mockRequestAccess).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
       ownerUserId: "user_b",
       message: "Safety check-in — Need pickup coordination",
+      requestedDurationHours: 1,
+      requestedDurationMode: "timed",
     });
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
@@ -4060,11 +4065,19 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
+    // The amount asked for travels with the request, and the grant it
+    // would lengthen is named. This used to send the literal string
+    // "Requesting more time." -- the number the person had just picked
+    // from the control above the button was the one fact the owner
+    // never received.
     await waitFor(() =>
       expect(mockRequestAccess).toHaveBeenCalledWith({
         vaultOwnerToken: "vault-token",
         ownerUserId: "user_b",
-        message: "Requesting more time.",
+        message: "Requesting 1 hour more of your live location.",
+        requestedDurationHours: 1,
+        requestedDurationMode: "timed",
+        extendsGrantId: "grant_from_request_live",
       }),
     );
   });
@@ -4236,11 +4249,19 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
+    // The amount asked for travels with the request, and the grant it
+    // would lengthen is named. This used to send the literal string
+    // "Requesting more time." -- the number the person had just picked
+    // from the control above the button was the one fact the owner
+    // never received.
     await waitFor(() =>
       expect(mockRequestAccess).toHaveBeenCalledWith({
         vaultOwnerToken: "vault-token",
         ownerUserId: "user_b",
-        message: "Requesting more time.",
+        message: "Requesting 4 hours more of your live location.",
+        requestedDurationHours: 4,
+        requestedDurationMode: "timed",
+        extendsGrantId: "grant_live_ask",
       }),
     );
     expect(mockShortenGrant).not.toHaveBeenCalled();

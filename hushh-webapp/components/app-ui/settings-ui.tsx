@@ -288,6 +288,7 @@ export function SettingsRow({
   voiceLabel,
   voicePurpose,
   ariaPressed,
+  ariaLabel,
   testId = "settings-row",
 }: {
   asChild?: boolean;
@@ -313,6 +314,16 @@ export function SettingsRow({
   voicePurpose?: string;
   /** Selected state for button-backed toggle rows. */
   ariaPressed?: boolean;
+  /**
+   * Explicit accessible name for a row that is itself the control.
+   *
+   * A selectable row's button otherwise takes its name from the title, so
+   * it announces "Trusted B" -- the subject, with no verb. Callers that
+   * turn a whole row into a select/toggle affordance pass the action here
+   * ("Select Trusted B for private sharing") so the control still says
+   * what it does. Omit it and the title-derived name is used, unchanged.
+   */
+  ariaLabel?: string;
   testId?: string;
 }) {
   const presentation = useContext(SettingsPresentationContext);
@@ -488,6 +499,7 @@ export function SettingsRow({
             onClick={onClick}
             disabled={disabled}
             aria-pressed={ariaPressed}
+            aria-label={ariaLabel}
             className={primaryActionClassName}
             {...voiceProps}
           >
@@ -543,6 +555,7 @@ export function SettingsRow({
               onClick,
               disabled,
               "aria-pressed": ariaPressed,
+              "aria-label": ariaLabel,
             }
           : { "aria-disabled": disabled || undefined })}
         className={sharedClassName}

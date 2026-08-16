@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import { cn } from "@/lib/utils";
+
 const STACK_TRANSITION_MS = 260;
 
 export type ProfileStackEntry = {
@@ -39,30 +42,6 @@ function stackPrefixMatches(
     }
   }
   return true;
-}
-
-function StackHeader({
-  title,
-  description,
-}: {
-  title: ReactNode;
-  description?: ReactNode;
-}) {
-  return (
-    <div
-      className="mx-auto flex w-full max-w-[520px] flex-col gap-1 px-[var(--page-inline-gutter-standard)] pb-1 pt-3"
-      data-profile-stack-header="true"
-    >
-      <h1 className="profile-home-name ui-text-identity-name text-[32px] font-bold tracking-tight text-[color:var(--ios-account-label)]">
-        {title}
-      </h1>
-      {description ? (
-        <p className="ui-text-page-subtitle text-[color:var(--ios-account-secondary-label)]">
-          {description}
-        </p>
-      ) : null}
-    </div>
-  );
 }
 
 export function ProfileStackNavigator({
@@ -161,52 +140,65 @@ export function ProfileStackNavigator({
     }),
   ];
 
+  /* Panes are stacked in a single grid cell instead of laid out as a 100%-wide
+   * horizontal track inside a `100dvh` box.
+   *
+   * The old shape gave Profile its own viewport-height scroller nested inside
+   * the document scroll, so the page rendered two scrollbars and stranded the
+   * last rows ("Account access" → "Sign out") in a dead region under the
+   * floating Talk to One bar. Here only the active pane is in flow, so the
+   * stack is exactly as tall as the screen being shown and the document does
+   * all the scrolling — the same model every other route (One Location
+   * included) already uses. Inactive panes stay mounted so their state and
+   * in-flight data survive a push/pop; they are transparent and out of flow,
+   * so they cost no height and still slide. */
   return (
     <div
-      className="relative w-full overflow-x-hidden flex flex-col flex-1 bg-[color:var(--ios-account-screen-background)]"
+      className="relative w-full overflow-x-clip"
       data-profile-stack="true"
     >
-      <div
-        className="flex w-full items-start transition-transform duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
-        style={{ transform: `translateX(-${Math.max(activeIndex, 0) * 100}%)` }}
-      >
-        {/* No screen owns a scroll container of its own -- the page's single
-            shared scroll root (data-app-scroll-root, in app/providers.tsx) is
-            the only thing that ever scrolls. A screen not currently in view
-            is still mounted here (so the horizontal slide has both ends to
-            animate between) but is inert: it is only ever reached by tabbing
-            or clicking through the active screen, never independently
-            scrolled or focused. */}
+      <div className="grid w-full grid-cols-1 [grid-template-areas:'stack']">
         {screens.map((entry, index) => {
-          const isActiveScreen = index === activeIndex;
+          const offset = index - Math.max(activeIndex, 0);
+          const isActive = offset === 0;
           return (
             <section
               key={entry.key}
-              className="flex min-w-full w-full shrink-0 flex-col"
-              aria-hidden={isActiveScreen ? undefined : true}
-              inert={!isActiveScreen}
+              className={cn(
+                "w-full min-w-0 [grid-area:stack] transition-[transform,opacity] duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+                isActive
+                  ? "relative z-10 opacity-100"
+                  : "pointer-events-none absolute inset-x-0 top-0 opacity-0",
+              )}
+              style={{ transform: `translateX(${offset * 100}%)` }}
+              aria-hidden={isActive ? undefined : true}
               data-profile-stack-screen={entry.key}
+              data-profile-stack-active={isActive ? "true" : undefined}
             >
               {entry.isRoot ? (
-                <div className="flex flex-1 flex-col">{entry.content}</div>
+                entry.content
               ) : (
-                <>
-                  <StackHeader
+                <div
+                  data-profile-stack-content="true"
+                  /* pb reserves room for BOTH fixed bottom bars (nav + the
+                   * floating Talk to One bar) via the runtime-measured
+                   * clearance token. Only the account screen used to get this,
+                   * so every other pushed screen ended with its last row
+                   * underneath the agent bar. */
+                  className="mx-auto flex w-full max-w-[720px] flex-col gap-[var(--page-header-section-gap)] px-[var(--page-inline-gutter-standard)] pb-[var(--app-bottom-content-clearance)] pt-[var(--page-header-section-gap)]"
+                >
+                  <PageHeader
                     title={entry.title}
                     description={entry.description}
+                    testId="profile-stack-page-header"
                   />
-                  <div
-                    className="mx-auto flex w-full max-w-[520px] flex-1 flex-col gap-4 px-[var(--page-inline-gutter-standard)] pt-1"
-                    data-profile-stack-content="true"
+                  <SettingsPresentationProvider
+                    separatorInset
+                    density="compact"
                   >
-                    <SettingsPresentationProvider
-                      separatorInset
-                      density="compact"
-                    >
-                      {entry.content}
-                    </SettingsPresentationProvider>
-                  </div>
-                </>
+                    {entry.content}
+                  </SettingsPresentationProvider>
+                </div>
               )}
             </section>
           );
