@@ -134,6 +134,19 @@ def mint_bootstrap_token(
         creds.refresh(Request())
         source_token = creds.token
 
+    # A caller with no token of its own is a HUSHH-side fault, and it must not be
+    # reported as the customer's. Without this check the request goes out with an empty
+    # bearer, IAM answers 401, and the handler below blames "the user's grant" -- which
+    # sends an operator into someone else's project looking for a binding that is
+    # present and fine. Observed live on 2026-08-16: an impersonation that failed on
+    # hushh's side produced a message naming the customer.
+    if not str(source_token or "").strip():
+        raise BootstrapError(
+            "cannot impersonate: hushh has no caller credential to present. This is a "
+            "hushh-side failure, NOT a missing grant in the user's project -- check the "
+            "consent plane's own identity before touching anything in their cloud."
+        )
+
     response = session.post(
         f"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{bootstrap_sa}"
         ":generateAccessToken",
@@ -144,11 +157,22 @@ def mint_bootstrap_token(
         },
         timeout=60,
     )
-    if getattr(response, "status_code", 0) != 200:
+    status = getattr(response, "status_code", 0)
+    if status != 200:
+        # 403 is the customer's binding; 401 is ours. Naming the wrong one costs an
+        # operator a trip into a project they cannot see, looking for a grant that is
+        # already there.
+        blame = (
+            "The user's grant of roles/iam.serviceAccountTokenCreator is missing or revoked"
+            if status == 403
+            else "hushh's own caller credential was rejected, so this is a hushh-side "
+            "failure rather than a missing grant in the user's project"
+            if status == 401
+            else "IAM refused the impersonation"
+        )
         raise BootstrapError(
-            f"could not impersonate {bootstrap_sa} ({getattr(response, 'status_code', '?')}). "
-            "The user's grant of roles/iam.serviceAccountTokenCreator is missing or "
-            f"revoked: {getattr(response, 'text', '')[:200]}"
+            f"could not impersonate {bootstrap_sa} ({status or '?'}). "
+            f"{blame}: {getattr(response, 'text', '')[:200]}"
         )
     return str(response.json()["accessToken"])
 
