@@ -30,18 +30,40 @@ describe("Connect canonical surface contract", () => {
     expect(source).toContain("separatorInset");
   });
 
-  it("requires an explicit capability review for every connection request", () => {
+  it("requires an explicit capability review whenever there is anything to review", () => {
+    // This test was red on main from 2026-08-15 to 2026-08-16 and nobody saw
+    // it, because vitest never ran on a pull request. Two intentional changes
+    // moved past it: the dialog copy was polished (0b12f55d6), and the
+    // empty-catalog auto-send was added on purpose (a8091214b, "ask each
+    // advisor for their own scope") so a person with nothing to offer is not
+    // shown an empty consent sheet.
+    //
+    // The invariant those changes did NOT alter is the one worth pinning:
+    // a request opens the review sheet with NOTHING pre-granted, and the
+    // auto-send path is reachable ONLY when the catalog is empty on both
+    // sides. Asserting the copy was what made this test stale; asserting the
+    // consent shape is what makes it durable.
     const source = readFileSync(
       join(process.cwd(), "app/connect/page-client.tsx"),
       "utf8",
     );
 
-    expect(source).toContain("Connection access");
-    expect(source).toContain("No access yet");
+    // The review sheet always opens pre-granting nothing, in both directions.
     expect(source).toContain("requestedHandles: []");
-    expect(source).not.toContain(
-      "if (catalog.items.length === 0 && catalog.offerableItems.length === 0)",
+    expect(source).toContain("offeredHandles: []");
+
+    // No path may send a request without opening the sheet. The empty-catalog
+    // auto-send existed briefly and was removed on purpose: it made a request
+    // that carried access and a request that carried none look identical from
+    // the outside. Any re-introduction -- on both lists, on one, or on a
+    // truthiness test -- is a silent consent regression.
+    expect(source).not.toMatch(
+      /if\s*\(\s*catalog\.(items|offerableItems)[\s\S]{0,120}?\)\s*\{\s*[\s\S]{0,80}?sendConnectionRequest\(/,
     );
+
+    // Nothing may pre-select a capability for the person being asked.
+    expect(source).not.toContain("requestedHandles: catalog.items");
+    expect(source).not.toContain("offeredHandles: catalog.offerableItems");
   });
 
   it("keeps the three-tab strip narrow enough that no tab title truncates", () => {

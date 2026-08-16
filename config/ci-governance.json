@@ -57,15 +57,15 @@
       "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
-      "parthmawai",
-      "Roopmann30"
+      "parthmawai"
     ],
     "protected_pipeline_paths": [
       ".github/workflows/",
       ".github/actions/",
       "scripts/ci/",
       "deploy/",
-      "config/ci-governance.json"
+      "config/ci-governance.json",
+      "config/protected-behaviors.json"
     ]
   },
   "pr_train": {
@@ -133,11 +133,7 @@
       "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
-      "parthmawai",
-      "abdulbeast4-creator",
-      "smirthi-dharma",
-      "anoushkauoc",
-      "Roopmann30"
+      "parthmawai"
     ]
   },
   "production": {
@@ -150,8 +146,7 @@
       "kushaltrivedi5",
       "ankitkumarsingh1702",
       "RGlodAkshat",
-      "DamriaNeelesh",
-      "Roopmann30"
+      "DamriaNeelesh"
     ],
     "owner_environment": "production"
   }

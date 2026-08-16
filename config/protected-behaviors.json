@@ -1,0 +1,93 @@
+{
+  "_comment": [
+    "Behaviours that were fixed once and must not be silently re-broken.",
+    "",
+    "A permission list cannot protect a fixed behaviour here: `main` waives",
+    "REVIEW for the bypass cohort but never waives VALIDATION (see the note in",
+    ".github/workflows/ci.yml above the ci-status job). So the durable guard is",
+    "a test that runs in the pull-request lane -- it blocks everyone equally,",
+    "including every review-bypass user and every --admin merge.",
+    "",
+    "That leaves one hole: a test can be deleted, and a deleted test is green.",
+    "This file closes it. Each entry pins the tests that PROVE a behaviour --",
+    "the file, the named cases inside it, and an assertion floor. CI fails the",
+    "PR when any of those disappear.",
+    "",
+    "Deleting or weakening an entry is deliberately an actor-gated edit: this",
+    "file is listed in main.protected_pipeline_paths in config/ci-governance.json,",
+    "so scripts/ci/verify-protected-pipeline-edits.py checks who touched it.",
+    "",
+    "Assertion floors are set BELOW the current count on purpose. They catch a",
+    "test file being gutted, not ordinary edits that add or reshuffle a couple",
+    "of assertions. Raise a floor when a behaviour gains real new coverage."
+  ],
+  "protected_behaviors": [
+    {
+      "name": "connect-people-search-is-an-alphabetical-index",
+      "summary": "Typing one letter into Connect returns every person whose name matches, ranked by the server ahead of LIMIT and ordered A-Z within each tier. The client renders that page unchanged and never re-filters or re-sorts it.",
+      "fixed_by": "2afe801beddacc9618c4f25328370e9232722332",
+      "why_it_needs_a_lock": [
+        "The original bug WAS a client-side prefix filter and sort layered on top",
+        "of a paged server result. Branches cut before the fix still carry that",
+        "code verbatim, so a merge-conflict resolved the wrong way puts it back",
+        "with nothing in review to notice. That near-miss already happened once,",
+        "at merge commit 7c647f75e, and was resolved correctly only by hand."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/__tests__/app/connect/page-client.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 120,
+          "required_titles": [
+            "renders every person the directory returned, in the order it returned them",
+            "shows every match for a single typed letter",
+            "preserves the directory's A-Z order rather than re-sorting the page",
+            "renders one letter's whole page, in the server's sequence, with nothing dropped",
+            "says so when a search matches nobody"
+          ]
+        },
+        {
+          "path": "consent-protocol/tests/services/test_one_location_agent_service.py",
+          "assertion_pattern": "^\\s+assert ",
+          "min_assertions": 380,
+          "required_titles": [
+            "def test_directory_search_ranks_name_prefix_above_word_prefix_then_alphabetically",
+            "def test_directory_search_ranks_the_tier_before_the_alphabet",
+            "def test_directory_search_folds_separators_so_tiering_is_about_the_name"
+          ]
+        },
+        {
+          "path": "consent-protocol/tests/services/test_connections_service.py",
+          "assertion_pattern": "^\\s+assert ",
+          "min_assertions": 115,
+          "required_titles": [
+            "def test_search_directory_fallback_matches_prefixes_and_ranks_them",
+            "def test_search_directory_fallback_pages_the_ranked_list_not_the_raw_one"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "connect-request-asks-before-it-shares",
+      "summary": "A connection request opens the capability review pre-granting nothing in either direction. The only permitted bypass is a catalog that is empty on BOTH sides, and it must send empty handle lists.",
+      "fixed_by": "99dc41d99",
+      "why_it_needs_a_lock": [
+        "This contract test sat RED on main from 2026-08-15 to 2026-08-16 and",
+        "nobody saw it, because ci.yml has no vitest lane and the full suite only",
+        "runs in the merge queue -- which every review-bypass user skips. It was",
+        "asserting dialog copy, so ordinary UI polish made it stale; it now",
+        "asserts the consent shape instead, which is the part that must not move."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/__tests__/app/connect/page-client.contract.test.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 18,
+          "required_titles": [
+            "requires an explicit capability review whenever there is anything to review"
+          ]
+        }
+      ]
+    }
+  ]
+}
