@@ -874,9 +874,9 @@ export default function ConnectPageClient() {
             : `Sent ${successfulUserIds.size} request${successfulUserIds.size !== 1 ? "s" : ""}.`,
         );
       } else if (sendable.length === 0) {
-        toast.error("These people have already been asked.");
+        toast.error("Already asked.");
       } else {
-        toast.error("Couldn't send these requests. Try again.");
+        toast.error("Couldn't send. Try again.");
       }
 
       // Only the people who were actually sent leave the selection. Anyone who
@@ -908,7 +908,7 @@ export default function ConnectPageClient() {
         );
       }
     } catch {
-      toast.error("Couldn't send these requests. Try again.");
+      toast.error("Couldn't send. Try again.");
     } finally {
       setIsConnectingMultiple(false);
     }
@@ -1632,11 +1632,11 @@ export default function ConnectPageClient() {
                   isSelectionMode
                     ? (
                         <span id="connect-selection-limit">
-                          Pick up to {MAX_BULK_CONNECTION_REQUESTS}. Picks are kept across pages.
+                          Pick up to {MAX_BULK_CONNECTION_REQUESTS}, across pages.
                         </span>
                       )
                     : isAdvisorTab
-                    ? "Advisers with a verified profile."
+                    ? "Advisors with a verified profile."
                     : hasQuery
                     ? "Send a request."
                     : "Search by name."
@@ -2160,7 +2160,7 @@ export default function ConnectPageClient() {
                 // choice is the same offer to everyone selected.
                 <SettingsGroup
                   title="Offer now"
-                  description="Offered to everyone selected. They approve before access."
+                  description="Offered to everyone selected. They approve first."
                   separatorInset
                 >
                   {batchOfferableItems.map((item) => (

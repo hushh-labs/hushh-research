@@ -595,7 +595,7 @@ describe("Connect — People", () => {
     fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
 
     expect(
-      screen.getByText("Pick up to 8. Picks are kept across pages."),
+      screen.getByText("Pick up to 8, across pages."),
     ).toBeTruthy();
 
     for (let index = 0; index < 8; index += 1) {
