@@ -123,6 +123,7 @@ import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
+import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveSmsContactsBackAction } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
@@ -3009,7 +3010,8 @@ function AskFlow({
       ) : null}
 
 
-      <SectionCard title="Person">
+      <section className="space-y-3">
+        <AppSectionLabel as="h2">People</AppSectionLabel>
         <PersonSearchInput
           value={vm.recipientSearch}
           onChange={vm.setRecipientSearch}
@@ -3128,7 +3130,7 @@ function AskFlow({
             )}
           </div>
         )}
-      </SectionCard>
+      </section>
 
       <SectionCard title="How long">
         {/* Dropdown picker (not chips) to match the Share location screen's
