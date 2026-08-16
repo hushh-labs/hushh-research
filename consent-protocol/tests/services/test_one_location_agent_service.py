@@ -2573,6 +2573,34 @@ def test_directory_search_ranks_name_prefix_above_word_prefix_then_alphabeticall
     assert ordering.strip().endswith("a.user_id")
 
 
+def test_directory_search_ranks_the_tier_before_the_alphabet() -> None:
+    """The tier CASE must be the FIRST key, not merely present in the clause.
+
+    The test above checks which fragments the ORDER BY contains. Move the
+    alphabetical key above the CASE and every one of those assertions stays
+    true -- the CASE is still there, ``ELSE 1`` is still there, the LOWER(...)
+    key is still there, ``a.user_id`` is still last -- while the two tiers stop
+    existing. "n" then comes back as one flat A-Z list with surname matches
+    shuffled in among the first names: Abdul Nasser, Nilesh, Nirmal, Nolan.
+
+    That is exactly the shape people report as "the search went alphabetical",
+    and a clause checked only for which fragments it contains cannot see it.
+    Assert the ORDER of the keys, not their presence.
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="r")
+
+    # Whitespace-folded so this is an assertion about key order, not indentation.
+    ordering = " ".join(
+        service.sql.rsplit("ORDER BY", 1)[1].rsplit("LIMIT", 1)[0].split()
+    )
+    assert ordering.startswith("CASE ")
+    assert ordering.index("END,") < ordering.index(
+        "LOWER(COALESCE(NULLIF(BTRIM(a.display_name), '')"
+    )
+    assert ordering.endswith("a.user_id")
+
+
 def test_directory_search_folds_separators_so_tiering_is_about_the_name() -> None:
     service = RecipientDirectoryProbe()
     service.search_directory_candidates(owner_user_id="owner", query="r")
