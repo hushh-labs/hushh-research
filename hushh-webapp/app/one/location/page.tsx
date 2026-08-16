@@ -200,6 +200,10 @@ import {
   type PrivateCheckInRequest,
   type PrivateCheckInResult,
 } from "@/components/one-location/redesign/location-redesign-hub";
+import {
+  SHARE_DURATION_LADDER,
+  SHARE_DURATION_UNTIL_STOP_VALUE,
+} from "@/components/one-location/redesign/duration-presets";
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
@@ -350,10 +354,31 @@ const DURATION_OPTIONS = [
   { value: "24", label: "24 hours" },
 ];
 
+/**
+ * Mirrors SHARE_DURATION_LADDER in components/one-location/redesign/
+ * duration-presets.tsx. "Today" is gone: `Number("today")` is NaN, so the
+ * picker resolved that token to 15 minutes and wrote "0.25" back over it.
+ */
+/**
+ * What One will accept when someone says "share my location for ...".
+ *
+ * The ladder plus the two lengths the ladder does not show but the picker can
+ * still reach through Custom, so a spoken "half an hour" or "a full day" is
+ * not refused for being off the grid.
+ */
+const SHARE_VOICE_DURATION_VALUES = new Set<string>([
+  ...SHARE_DURATION_LADDER.map((rung) => rung.value),
+  SHARE_DURATION_UNTIL_STOP_VALUE,
+  "0.5",
+  "24",
+]);
+
 const PRIVATE_SHARE_DURATION_LABELS: Record<string, string> = {
   "0.25": "15 min",
   "1": "1 hour",
-  today: "Today",
+  "2": "2 hours",
+  "4": "4 hours",
+  "8": "8 hours",
   until_stopped: "Until I stop",
 };
 
@@ -614,9 +639,10 @@ type OneLocationDurationBucket =
   | "15m"
   | "30m"
   | "1h"
+  | "2h"
   | "4h"
+  | "8h"
   | "24h"
-  | "today"
   | "until_stopped"
   | "custom";
 type OneLocationForegroundOperation = "publish" | "view";
@@ -989,17 +1015,39 @@ function oneLocationDurationBucket(value: string): OneLocationDurationBucket {
       return "30m";
     case "1":
       return "1h";
+    case "2":
+      return "2h";
     case "4":
       return "4h";
+    case "8":
+      return "8h";
     case "24":
       return "24h";
-    case "today":
-      return "today";
     case "until_stopped":
       return "until_stopped";
     default:
       return "custom";
   }
+}
+
+/**
+ * A public link is readable by anyone who has it, so its ceiling is one hour
+ * and the screen says so.
+ *
+ * The ceiling was defeatable: one `durationHours` string is shared by the
+ * public-link lane, the circle-invite lane (which offers 24 hours) and the
+ * request composer, so picking 24 on one screen made the next public link
+ * post 24 — and the backend accepts it (`le=24`). The UI cap was the only
+ * thing enforcing this, and it was not enforcing it.
+ */
+const PUBLIC_INVITE_MAX_DURATION_HOURS = 1;
+
+function publicInviteDurationHours(value: string): number {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) {
+    return PUBLIC_INVITE_MAX_DURATION_HOURS;
+  }
+  return Math.min(PUBLIC_INVITE_MAX_DURATION_HOURS, hours);
 }
 
 function privateShareDurationPayload(value: string): {
@@ -1009,17 +1057,15 @@ function privateShareDurationPayload(value: string): {
   if (value === "until_stopped") {
     return { durationMode: "until_stopped" };
   }
-  if (value === "today") {
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 0, 0);
-    const diffHours = (endOfDay.getTime() - Date.now()) / 3_600_000;
-    return {
-      durationHours: Math.min(24, Math.max(0.25, Number(diffHours.toFixed(2)))),
-      durationMode: "timed",
-    };
-  }
+  // No "today" branch: the token cannot reach here any more (the picker has
+  // no such rung, and `Number("today")` is NaN so the wheel rewrote it to
+  // "0.25" on sight). Anything else is clamped into the window the backend
+  // accepts — `gt=0, le=24` — rather than posted and rejected.
+  const hours = Number(value);
   return {
-    durationHours: Number(value),
+    durationHours: Number.isFinite(hours)
+      ? Math.min(24, Math.max(0.25, hours))
+      : 0.25,
     durationMode: "timed",
   };
 }
@@ -6036,7 +6082,7 @@ export function OneLocationAgentPageContent({
       const point = readiness.point;
       const response = await OneLocationService.createPublicInvite({
         vaultOwnerToken,
-        durationHours: Number(durationHours),
+        durationHours: publicInviteDurationHours(durationHours),
         locationSnapshot: point,
       });
       const url = publicInviteUrlLabel(response.publicUrl);
@@ -6126,7 +6172,7 @@ export function OneLocationAgentPageContent({
         const point = readiness.point;
         const response = await OneLocationService.createPublicInvite({
           vaultOwnerToken,
-          durationHours: Number(durationHours),
+          durationHours: publicInviteDurationHours(durationHours),
           locationSnapshot: point,
         });
         url = publicInviteUrlLabel(response.publicUrl);
@@ -8681,10 +8727,15 @@ export function OneLocationAgentPageContent({
 
   useLocalOnboardingActionHandler("location.share_selected", async (slots) => {
     const requested = String(slots?.duration_hours ?? "").trim();
-    // Only the durations the composer itself offers. An unrecognised value is
-    // ignored in favour of what is on screen rather than coerced into some
-    // nearest number the person never asked for.
-    const duration = DURATION_OPTIONS.some((option) => option.value === requested)
+    // Only the durations the share composer itself offers. An unrecognised
+    // value is ignored in favour of what is on screen rather than coerced
+    // into some nearest number the person never asked for.
+    //
+    // This used to check DURATION_OPTIONS — a different list belonging to a
+    // different screen — so "2 hours", "8 hours" and "until I stop" were all
+    // refused by voice while "24 hours" was accepted and then silently
+    // rewritten to 23h45m by the picker's grid.
+    const duration = SHARE_VOICE_DURATION_VALUES.has(requested)
       ? requested
       : undefined;
     if (duration) setShareDurationHours(duration);

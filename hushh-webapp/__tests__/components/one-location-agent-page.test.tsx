@@ -1626,24 +1626,33 @@ describe("OneLocationAgentPage", () => {
     });
     expect(within(people).getByText("Trusted B")).toBeTruthy();
 
-    // The quick-pick dropdown is gone -- duration is a scroll wheel now, so
-    // the default is read off its Hours/Minutes spinbuttons directly.
-    const durationHoursWheel = screen.getByRole("spinbutton", {
-      name: "Hours",
-    });
-    const durationMinutesWheel = screen.getByRole("spinbutton", {
-      name: "Minutes",
-    });
-    expect(durationHoursWheel).toHaveAttribute("aria-valuetext", "0 hr");
-    expect(durationMinutesWheel).toHaveAttribute("aria-valuetext", "15 min");
-    // One step on the Hours wheel (0 -> 1hr). Minutes has no exact "on the
-    // hour" mark -- the grid floors at 15 minutes -- so this lands on
-    // 1h15m, not a clean 1h, per DurationWheelPicker's own rounding
-    // contract (see duration-wheel-picker.tsx's `nearestGridMinutes`).
-    fireEvent.keyDown(durationHoursWheel, { key: "ArrowDown" });
-    expect(durationHoursWheel).toHaveAttribute("aria-valuetext", "1 hr");
+    // Duration is a preset ladder now, not a scroll wheel: the wheel cost
+    // 200px and two coordinated drags to reach a length almost everyone
+    // picks off a list. It is still there behind "Custom", but it must not
+    // be mounted until asked for -- that is the whole saving.
+    expect(screen.queryByRole("spinbutton", { name: "Hours" })).toBeNull();
+    expect(screen.queryByRole("spinbutton", { name: "Minutes" })).toBeNull();
+    expect(screen.getByRole("button", { name: "15 min" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    // Exactly one rung reads as chosen. Two pressed cells is the failure the
+    // wheel had in a different form -- state and highlight disagreeing.
+    const pressedRungs = screen
+      .getAllByRole("button")
+      .filter((node) => node.getAttribute("aria-pressed") === "true");
+    expect(pressedRungs).toHaveLength(1);
+
+    // The founder's literal complaint: "when choosing hours, people are
+    // unable to choose 1 hour, 2 hours". One tap, exactly one hour, no
+    // rounding to 1h15m.
+    fireEvent.click(screen.getByRole("button", { name: "1 hour" }));
+    expect(screen.getByRole("button", { name: "1 hour" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     // The duration reads back as a clock time on the same screen that set it.
-    expect(screen.getByText(/^Sharing ends at /)).toBeTruthy();
+    expect(screen.getByText(/^Ends /)).toBeTruthy();
 
     const note = screen.getByRole("textbox", { name: "Optional note" });
     const startButton = screen.getByRole("button", { name: "Start sharing" });
@@ -1672,7 +1681,9 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
     expect(mockCreateGrant).toHaveBeenCalledWith(
       expect.objectContaining({
-        durationHours: 1.25,
+        // Exactly 1, not the 1.25 the wheel used to round a single Hours
+        // step up to.
+        durationHours: 1,
         durationMode: "timed",
         reason: "On my way",
         shareKind: "share",
@@ -1766,18 +1777,16 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Ready to share?" }),
     ).toBeTruthy();
-    // Move the duration wheel off its default so the reset below has
-    // something to actually reset.
-    fireEvent.keyDown(screen.getByRole("spinbutton", { name: "Hours" }), {
-      key: "ArrowDown",
-    });
+    // Move the duration off its default so the reset below has something to
+    // actually reset.
+    fireEvent.click(screen.getByRole("button", { name: "4 hours" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Optional note" }), {
       target: { value: "Meet me by the entrance" },
     });
 
     // Back to the people step so the pending permission below is attached to
     // Continue — the one control that now runs the device pre-flight.
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Change who can see you" }));
     expect(
       await screen.findByRole("heading", { name: "Who can see you?" }),
     ).toBeTruthy();
@@ -1852,12 +1861,17 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByRole("radio", { name: /Approximate area/i }),
     ).toBeNull();
-    expect(
-      screen.getByRole("spinbutton", { name: "Hours" }),
-    ).toHaveAttribute("aria-valuetext", "0 hr");
-    expect(
-      screen.getByRole("spinbutton", { name: "Minutes" }),
-    ).toHaveAttribute("aria-valuetext", "15 min");
+    // Back to the 15-minute default, and back to the collapsed ladder — a
+    // reopened flow that kept "4 hours" pressed would be offering a length
+    // this share never chose.
+    expect(screen.getByRole("button", { name: "15 min" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "4 hours" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
     expect(screen.getByRole("textbox", { name: "Optional note" })).toHaveValue(
       "",
     );

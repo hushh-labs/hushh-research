@@ -133,6 +133,87 @@ describe("DurationWheelPicker", () => {
     expect(onChange).not.toHaveBeenCalledWith("0");
   });
 
+  it("drops the :00 row from Minutes entirely while Hours is 0", () => {
+    // The old build offered :00 at zero hours and then yanked the wheel back
+    // to :15 under the person's finger. The constraint is the same; showing
+    // it instead of enforcing it invisibly is what stops minutes-first
+    // scrolling from bouncing.
+    render(<DurationWheelPicker value="0.5" onChange={vi.fn()} />);
+
+    const minutesWheel = screen.getByRole("spinbutton", { name: "Minutes" });
+    expect(minutesWheel).toHaveAttribute("aria-valuemax", "2");
+    expect(within(minutesWheel).queryByText("0")).toBeNull();
+  });
+
+  it("round-trips a literal 24 instead of silently shrinking it to 23h45m", () => {
+    // With a caller-supplied sentinel ("until_stopped"), the string "24" is
+    // an ordinary duration and must survive. It did not: the grid stopped at
+    // 23h45m, so a spoken "share for 24 hours" read back as 23h 45m.
+    const onChange = vi.fn();
+    render(
+      <DurationWheelPicker
+        value="24"
+        onChange={onChange}
+        untilStopValue="until_stopped"
+      />,
+    );
+
+    expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
+      "aria-valuetext",
+      "24 hr",
+    );
+    expect(
+      screen.getByRole("spinbutton", { name: "Minutes" }),
+    ).toHaveAttribute("aria-valuetext", "0 min");
+    expect(onChange).not.toHaveBeenCalledWith("23.75");
+  });
+
+  it("offers only :00 at the 24-hour ceiling, because 24h15m is rejected by the backend", () => {
+    render(
+      <DurationWheelPicker
+        value="24"
+        onChange={vi.fn()}
+        untilStopValue="until_stopped"
+      />,
+    );
+
+    expect(
+      screen.getByRole("spinbutton", { name: "Minutes" }),
+    ).toHaveAttribute("aria-valuemax", "0");
+  });
+
+  it("renders a 120px viewport in 3-row mode and 200px by default", () => {
+    // The compact panel inside the preset ladder. 5 rows is 200px on a
+    // screen the founder already called too tall.
+    const { unmount } = render(
+      <DurationWheelPicker value="1" onChange={vi.fn()} visibleRows={3} />,
+    );
+    expect(
+      screen.getByRole("spinbutton", { name: "Hours" }).style.height,
+    ).toBe("120px");
+    unmount();
+
+    render(<DurationWheelPicker value="1" onChange={vi.fn()} />);
+    expect(
+      screen.getByRole("spinbutton", { name: "Hours" }).style.height,
+    ).toBe("200px");
+  });
+
+  it("removes the until-stop toggle entirely when the caller owns that option", () => {
+    const { container } = render(
+      <DurationWheelPicker value="1" onChange={vi.fn()} showUntilStop={false} />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Until I stop" })).toBeNull();
+    // `getByRole` skips hidden elements, so a toggle rendered with `hidden`
+    // would pass the query above while still occupying the DOM.
+    expect(container.textContent).not.toContain("Until I stop");
+    expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
+      "aria-disabled",
+      "false",
+    );
+  });
+
   it("reaches 0 minutes smoothly via keyboard when Hours is above zero (no guard interference)", () => {
     // Regression check: the 0h0m guard must only apply when Hours is
     // exactly 0 -- it must never block Minutes from reaching "0" while

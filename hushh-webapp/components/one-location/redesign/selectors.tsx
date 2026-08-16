@@ -21,20 +21,20 @@ import {
 import { cn } from "@/lib/utils";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { DurationWheelPicker } from "./duration-wheel-picker";
+import { DurationPresetPicker } from "./duration-presets";
 
-/** Mirrors the existing page DURATION_OPTIONS so the Select/menu values stay identical. */
+/**
+ * Mirrors the existing page DURATION_OPTIONS so the Select/menu values stay
+ * identical. `0.25` is here because 15 minutes is the product floor for a
+ * share, and the grant editor could not previously reach it — its shortest
+ * option was 30 minutes, twice the floor.
+ */
 export const REDESIGN_DURATION_OPTIONS: { value: string; label: string }[] = [
+  { value: "0.25", label: "15 min" },
   { value: "0.5", label: "30 min" },
   { value: "1", label: "1 hour" },
   { value: "4", label: "4 hours" },
   { value: "24", label: "24 hours" },
-];
-
-export const REDESIGN_PRIVATE_SHARE_DURATION_OPTIONS: { value: string; label: string }[] = [
-  { value: "0.25", label: "15 min" },
-  { value: "1", label: "1 hour" },
-  { value: "today", label: "Today" },
-  { value: "until_stopped", label: "Until I stop" },
 ];
 
 export function DurationSelector({
@@ -42,31 +42,60 @@ export function DurationSelector({
   onChange,
   options = REDESIGN_DURATION_OPTIONS,
   label = "Duration",
+  hint,
   presentation = "buttons",
   untilStopValue,
+  allowUntilStop = true,
 }: {
   value: string;
   onChange: (next: string) => void;
   options?: { value: string; label: string }[];
   label?: string;
-  presentation?: "buttons" | "select" | "wheel";
-  /** Forwarded to DurationWheelPicker — the sentinel value its "Until I stop"
-   * toggle emits. Defaults to the wheel's own alias when omitted. */
+  /**
+   * Read-back of what the current value means, on the label's own line
+   * rather than a line of its own beneath the control — the two together
+   * are one statement ("How long … Ends 4:35 PM") and cost 18px less.
+   */
+  hint?: string;
+  presentation?: "buttons" | "select" | "wheel" | "ladder";
+  /** Forwarded to the picker — the sentinel value its open-ended option
+   * emits. Defaults to the wheel's own alias when omitted. */
   untilStopValue?: string;
+  /** `ladder` only. False hides the open-ended rung — see DurationPresetPicker. */
+  allowUntilStop?: boolean;
 }) {
   const labelId = useId();
 
   return (
     <div className="space-y-2.5">
-      {label ? (
-        <p
-          id={labelId}
-          className="text-sm font-semibold text-foreground"
-        >
-          {label}
-        </p>
+      {label || hint ? (
+        <div className="flex items-baseline justify-between gap-3">
+          {label ? (
+            <p
+              id={labelId}
+              className="text-sm font-semibold text-foreground"
+            >
+              {label}
+            </p>
+          ) : (
+            <span aria-hidden />
+          )}
+          {hint ? (
+            <p className={cn(MUTED_TEXT, "shrink-0 text-right")} aria-live="polite">
+              {hint}
+            </p>
+          ) : null}
+        </div>
       ) : null}
-      {presentation === "wheel" ? (
+      {presentation === "ladder" ? (
+        <DurationPresetPicker
+          value={value}
+          onChange={onChange}
+          allowUntilStop={allowUntilStop}
+          labelledBy={label ? labelId : undefined}
+          {...(untilStopValue ? { untilStopValue } : {})}
+        />
+      ) : presentation === "wheel" ? (
         <DurationWheelPicker
           value={value}
           onChange={onChange}
