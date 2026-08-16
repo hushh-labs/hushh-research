@@ -2785,6 +2785,42 @@
     }
   },
   {
+    "route": "/one/profile/preferences/voice",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.preferences.voice",
+      "purpose": "Help the person manage One's own voice controls -- on/off, tap-confirmation, and which domains it may act in.",
+      "screen": "profile_preferences",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/one/profile/security",
     "mode": "standard",
     "shellVerification": {
