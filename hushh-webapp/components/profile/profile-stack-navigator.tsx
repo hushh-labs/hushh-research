@@ -75,7 +75,6 @@ export function ProfileStackNavigator({
   const [activeIndex, setActiveIndex] = useState(entries.length);
   const [renderedEntries, setRenderedEntries] = useState(entries);
   const pruneTimerRef = useRef<number | null>(null);
-  const scrollRegionRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   useEffect(() => {
     return () => {
@@ -132,22 +131,16 @@ export function ProfileStackNavigator({
   }, [entries, renderedEntries]);
 
   useEffect(() => {
+    // Detail content now flows into the app's own scroll root instead of a
+    // nested scroll region of its own, so pushing a new screen must reset
+    // that shared scroll position -- otherwise a detail screen mounts
+    // already scrolled to wherever the previous screen left off.
     if (typeof document === "undefined") return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow =
-      activeIndex > 0 ? "hidden" : previousOverflow;
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
+    const scrollRoot = document.querySelector<HTMLElement>(
+      '[data-app-scroll-root="true"]',
+    );
+    scrollRoot?.scrollTo({ top: 0 });
   }, [activeIndex]);
-
-  useEffect(() => {
-    if (activeIndex <= 0) return;
-    const frame = window.requestAnimationFrame(() => {
-      scrollRegionRefs.current[activeIndex]?.scrollTo({ top: 0 });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [activeIndex, renderedEntries]);
 
   const screens = [
     {
@@ -170,38 +163,40 @@ export function ProfileStackNavigator({
 
   return (
     <div
-      className="relative h-[calc(100dvh-var(--top-shell-reserved-height,0px))] w-full overflow-hidden flex flex-col flex-1 bg-[color:var(--ios-account-screen-background)]"
+      className="relative w-full overflow-x-hidden flex flex-col flex-1 bg-[color:var(--ios-account-screen-background)]"
       data-profile-stack="true"
     >
       <div
-        className="flex h-full w-full transition-transform duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+        className="flex w-full items-start transition-transform duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
         style={{ transform: `translateX(-${Math.max(activeIndex, 0) * 100}%)` }}
       >
-        {screens.map((entry, index) => (
-          <section
-            key={entry.key}
-            className="flex h-full min-h-full min-w-full w-full shrink-0 flex-col overflow-hidden"
-            data-profile-stack-screen={entry.key}
-          >
-            {entry.isRoot ? (
-              <div className="flex h-full min-h-full flex-1 flex-col overflow-y-auto">
-                {entry.content}
-              </div>
-            ) : (
-              <>
-                <StackHeader
-                  title={entry.title}
-                  description={entry.description}
-                />
-                <div
-                  ref={(node) => {
-                    scrollRegionRefs.current[index] = node;
-                  }}
-                  data-profile-stack-scroll="true"
-                  className="flex flex-1 flex-col overflow-y-auto overscroll-contain"
-                >
+        {/* No screen owns a scroll container of its own -- the page's single
+            shared scroll root (data-app-scroll-root, in app/providers.tsx) is
+            the only thing that ever scrolls. A screen not currently in view
+            is still mounted here (so the horizontal slide has both ends to
+            animate between) but is inert: it is only ever reached by tabbing
+            or clicking through the active screen, never independently
+            scrolled or focused. */}
+        {screens.map((entry, index) => {
+          const isActiveScreen = index === activeIndex;
+          return (
+            <section
+              key={entry.key}
+              className="flex min-w-full w-full shrink-0 flex-col"
+              aria-hidden={isActiveScreen ? undefined : true}
+              inert={!isActiveScreen}
+              data-profile-stack-screen={entry.key}
+            >
+              {entry.isRoot ? (
+                <div className="flex flex-1 flex-col">{entry.content}</div>
+              ) : (
+                <>
+                  <StackHeader
+                    title={entry.title}
+                    description={entry.description}
+                  />
                   <div
-                    className="mx-auto flex w-full max-w-[520px] flex-1 flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-4 pt-1"
+                    className="mx-auto flex w-full max-w-[520px] flex-1 flex-col gap-4 px-[var(--page-inline-gutter-standard)] pt-1"
                     data-profile-stack-content="true"
                   >
                     <SettingsPresentationProvider
@@ -211,11 +206,11 @@ export function ProfileStackNavigator({
                       {entry.content}
                     </SettingsPresentationProvider>
                   </div>
-                </div>
-              </>
-            )}
-          </section>
-        ))}
+                </>
+              )}
+            </section>
+          );
+        })}
       </div>
     </div>
   );

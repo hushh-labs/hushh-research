@@ -18,7 +18,7 @@ import {
 } from "@/lib/agent/voice-engine-changelog";
 import { VOICE_ENGINE_DOMAINS } from "@/lib/agent/voice-engine-domains";
 
-const CHANGELOG_PREVIEW_COUNT = 4;
+const CHANGELOG_PREVIEW_COUNT = 2;
 
 function VoiceHeader() {
   return (
