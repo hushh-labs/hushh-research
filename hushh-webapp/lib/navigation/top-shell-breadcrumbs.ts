@@ -748,14 +748,26 @@ function resolveTopShellBreadcrumbInner(
       // reached from Settings AND from the middle of an SOS, so it retraces to
       // whichever one opened it (see resolveSmsContactsBackAction).
       const hubView = String(searchParams?.get("view") || "").trim();
+      // Name the tab even when it is the default one.
+      //
+      // Closing a flow used to return to a bare `/one/location`, and the App
+      // Router will not perform a navigation whose only change is that the
+      // whole query string disappears: the URL, `useSearchParams`, and every
+      // screen keyed off them stay exactly where they were. Measured on uat
+      // and on production, and not only here -- `/one/feed?tab=x`, `/one?x=1`
+      // and `/one/connect?x=1` all refuse the same way, while adding or
+      // changing a parameter works. That is why every Location flow became
+      // impossible to leave by its own back control while the phone's own
+      // back gesture, which never touches the router, still worked.
+      //
+      // `?view=now` is the hub's own default tab, so this is the same
+      // destination said explicitly rather than by omission.
       const hubBackHref =
         action === "sms-contacts"
           ? `${ROUTES.ONE_LOCATION}?action=${resolveSmsContactsBackAction(
               searchParams?.get("source"),
             )}`
-          : hubView
-            ? `${ROUTES.ONE_LOCATION}?view=${encodeURIComponent(hubView)}`
-            : ROUTES.ONE_LOCATION;
+          : `${ROUTES.ONE_LOCATION}?view=${encodeURIComponent(hubView || "now")}`;
       return {
         backHref: returnToNearbyCheckIn
           ? isNearbyPrivateReturnToken(nearbyReturnToken)
