@@ -88,6 +88,8 @@ def _payload_string(value: object | None) -> str:
 
 
 def _sse_payload_from_event_payload(payload: dict[str, object]) -> dict[str, object]:
+    if str(payload.get("type") or "").strip() == "connection_request":
+        return payload
     metadata = _payload_map(payload.get("metadata"))
     request_id = _payload_string(payload.get("request_id"))
     bundle_id = _payload_string(payload.get("bundle_id")) or _payload_string(

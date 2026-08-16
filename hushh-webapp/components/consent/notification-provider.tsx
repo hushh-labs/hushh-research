@@ -389,7 +389,7 @@ function shouldPrioritizeConsentRealtime(pathname: string): boolean {
     normalized.startsWith("/agent") ||
     normalized.startsWith(ROUTES.CONSENTS) ||
     normalized.startsWith(ROUTES.LEGACY_CONSENTS) ||
-    normalized.startsWith("/one/profile") ||
+    normalized.startsWith("/one") ||
     normalized.startsWith("/ria")
   );
 }
@@ -1204,11 +1204,13 @@ export function ConsentNotificationProvider({
                 .trim()
                 .toUpperCase();
               const type =
-                normalizedAction === "REQUESTED"
-                  ? "consent_request"
-                  : normalizedAction === "NOTIFICATION_OPENED"
-                    ? "consent_opened"
-                    : "consent_resolved";
+                payload.type === "connection_request"
+                  ? "connection_request"
+                  : normalizedAction === "REQUESTED"
+                    ? "consent_request"
+                    : normalizedAction === "NOTIFICATION_OPENED"
+                      ? "consent_opened"
+                      : "consent_resolved";
               window.dispatchEvent(
                 new CustomEvent(FCM_MESSAGE_EVENT, {
                   detail: {
@@ -1550,6 +1552,39 @@ export function ConsentNotificationProvider({
           source: "fcm_connection_request",
           reconcile: true,
         });
+
+        // Interactive top-center toast banner for connection request
+        const toastKey = `connection_request:${data.requester_user_id || "new"}`;
+        if (!toastedIdsRef.current.has(toastKey)) {
+          toastedIdsRef.current.add(toastKey);
+          toast(
+            <div className="flex flex-col gap-2">
+              <div className="space-y-0.5">
+                <p className="line-clamp-1 text-sm font-semibold">New Connection Request</p>
+                <p className="line-clamp-1 text-xs text-muted-foreground">
+                  {data.requester_label || "Someone"} wants to connect with you on hushh.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    toast.dismiss(toastKey);
+                    router.push("/one/consent?tab=connections", { scroll: false });
+                  }}
+                  className="px-4 py-2 bg-foreground text-background text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  View Request
+                </button>
+              </div>
+            </div>,
+            {
+              id: toastKey,
+              duration: 8000,
+              position: "top-center",
+            },
+          );
+        }
       }
     };
 
@@ -1559,6 +1594,7 @@ export function ConsentNotificationProvider({
   }, [
     isNativePlatform,
     isVaultUnlocked,
+    router,
     showConsentToast,
     showOneLocationWorkflowNotification,
     user?.uid,
