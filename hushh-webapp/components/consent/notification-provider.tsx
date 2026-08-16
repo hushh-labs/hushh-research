@@ -1594,6 +1594,7 @@ export function ConsentNotificationProvider({
   }, [
     isNativePlatform,
     isVaultUnlocked,
+    router,
     showConsentToast,
     showOneLocationWorkflowNotification,
     user?.uid,
