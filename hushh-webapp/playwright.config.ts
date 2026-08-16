@@ -35,6 +35,13 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      // The product ships inside an iOS WKWebView, so Safari's engine is the
+      // one that matters for layout contracts -- Chromium passing proves
+      // nothing about the shipped container.
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+    {
       name: "firefox",
       use: { ...devices["Desktop Firefox"] },
     },
