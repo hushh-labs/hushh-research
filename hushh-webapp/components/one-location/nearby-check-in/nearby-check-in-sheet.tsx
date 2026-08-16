@@ -21,6 +21,13 @@ import {
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import {
+  DURATION_CELL_CLASS,
+  DURATION_CELL_OFF_CLASS,
+  DURATION_CELL_ON_CLASS,
+  DURATION_GRID_CLASS,
+} from "@/components/one-location/redesign/duration-presets";
+
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -2023,21 +2030,30 @@ export function NearbyCheckInSheet({
                   <Clock3 className="h-4 w-4 text-muted-foreground" />
                   <h2 className="font-semibold">Stay visible for</h2>
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2">
+                {/* Raw <button>, not the morphy <Button>: at `size="default"`
+                    that component carries min-h-[50px] in a different
+                    tailwind-merge group from h-*, and `.ui-text-button-label`
+                    forces 17px !important — so it cannot be made compact from
+                    the outside. These are the same class strings the share
+                    duration ladder uses for the identical role (44px, 15px),
+                    so the two duration controls in this product can no longer
+                    disagree about how big a duration choice is. */}
+                <div className={cn("mt-3", DURATION_GRID_CLASS)}>
                   {DURATIONS.map((duration) => (
-                    <Button
+                    <button
                       key={duration.value}
                       type="button"
-                      variant={
-                        durationMinutes === duration.value
-                          ? "default"
-                          : "secondary"
-                      }
                       aria-pressed={durationMinutes === duration.value}
                       onClick={() => setDurationMinutes(duration.value)}
+                      className={cn(
+                        DURATION_CELL_CLASS,
+                        durationMinutes === duration.value
+                          ? DURATION_CELL_ON_CLASS
+                          : DURATION_CELL_OFF_CLASS,
+                      )}
                     >
                       {duration.label}
-                    </Button>
+                    </button>
                   ))}
                 </div>
               </section>
@@ -2077,7 +2093,10 @@ export function NearbyCheckInSheet({
 
               <Button
                 type="button"
-                className="h-12 w-full disabled:!bg-muted disabled:!text-muted-foreground disabled:!opacity-100"
+                // Both halves, or neither lands: `h-12` alone loses to the
+                // size variant's own min-h-[50px], which is why this button has
+                // been 50px the whole time its class said 48.
+                className="h-12 min-h-12 w-full disabled:!bg-muted disabled:!text-muted-foreground disabled:!opacity-100"
                 disabled={
                   busy !== null ||
                   capturing ||

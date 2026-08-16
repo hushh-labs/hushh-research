@@ -2870,6 +2870,55 @@ describe("OneLocationAgentPage", () => {
     ).toBe("1");
   });
 
+  it("turns location on once a place is confirmed in onboarding", async () => {
+    // Reported from UAT: "onboarding mein mera location save ho rha, i could
+    // able to confirm the location as home office others — then after
+    // redirecting to this main page why location off..."
+    //
+    // Onboarding captured a position directly instead of going through
+    // `ensureForegroundLocationReady`, so it never reached `activateMyLocation`
+    // and never set `selfPreviewEnabled`. A brand-new owner also has no grants
+    // and no nearby presence, so all three disjuncts behind `locationEnabled`
+    // were false and the hub greeted them with "Location off" — seconds after
+    // they granted permission, took a fix, dragged a pin and tagged it Home.
+    //
+    // Every other hub test reaches the hub through `skipLocationEntryFlow`,
+    // which presses "Skip for now" on this modal, so the save path never once
+    // reached an assertion about the header. That is why this shipped.
+    window.localStorage.removeItem(
+      "one_location_saved_location_prompt_v2:user_a",
+    );
+    mockLoadSavedLocations.mockResolvedValue([]);
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+
+    render(<OneLocationAgentPage />);
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openLocationPermissionsStep();
+
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+    await waitFor(() => expect(mockAddSavedLocation).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    await expectLocationInviteStep();
+    fireEvent.click(await locationFinishButton());
+    expect(
+      await screen.findByRole("heading", { name: "Location Agent" }),
+    ).toBeTruthy();
+
+    // The header agrees with what the person just did.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("one-location-header-status").textContent,
+      ).toBe("Location on"),
+    );
+    expect(
+      screen.getByRole("switch", { name: "Turn location off" }),
+    ).toHaveAttribute("aria-checked", "true");
+  });
+
   it("reoffers the two-step saved-place flow when Location is already granted", async () => {
     window.localStorage.removeItem(
       "one_location_saved_location_prompt_v2:user_a",

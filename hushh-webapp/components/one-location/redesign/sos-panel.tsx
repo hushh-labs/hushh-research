@@ -404,12 +404,16 @@ export function SosPanel({
           the heading are the same words. Back lives in the top bar only. */}
       <TaskFlowHeader
         title="Save my Soul"
-        // Says what the alert ACTUALLY does. It previously promised text-message
-        // delivery that works offline; neither is true — this flow creates a
-        // location grant and fires one push, and it needs the network. Someone
-        // can hold this button instead of calling for help, so the promise has
-        // to be the truth.
-        description="Hold to alert your emergency contacts and give them your live location."
+        // Two facts, and only the two the screen cannot show: who it reaches,
+        // and that it sends where you are. "Hold to…" was the third statement
+        // of an instruction the button itself carries and the line under it
+        // repeats verbatim.
+        //
+        // Still the literal truth, which matters more here than anywhere else
+        // in the product: this creates a location grant and fires one push, so
+        // it needs the network and it is not an offline text message. Someone
+        // may hold this instead of calling for help.
+        description="Alerts your emergency contacts with your live location."
       />
 
       {/* The design's top-right actions. The screen's own title moved into the
@@ -580,8 +584,14 @@ export function SosPanel({
                     : "0 0 64px 4px rgb(var(--sos-glow-rgb) / 0.2), inset 0 1px 0 rgba(255,255,255,0.24)",
               }}
             >
+              {/* "SMS", the name this feature carries everywhere else in the
+                  product — the Location menu tile is "SMS / Save my soul", and
+                  the outgoing message is an SMS. Only the visible glyph
+                  changes: every identifier (data-testid, event name, scope
+                  handle, backend enum) still says sos, because those are
+                  contracts, not copy. */}
               <span className="text-[44px] font-semibold tracking-[1.5px] lg:text-[64px] lg:tracking-[2px]">
-                SOS
+                SMS
               </span>
             </button>
           )}
@@ -769,8 +779,12 @@ export function SosPanel({
           ) : null}
         </div>
 
-        {/* The dialer. A text row, not a filled pill — it is the last resort,
-            not a peer of the SOS control. */}
+        {/* The dialer. Outlined and tinted, never filled — it needs to read as
+            tappable without becoming a peer of the SOS control.
+            It had no surface at all and measured ~35px tall, under the 44px
+            this product enforces everywhere else, on the one screen where the
+            person is least able to aim. An outline buys the affordance; the
+            filled treatment stays reserved for SOS. */}
         <div className="mt-10 flex min-h-[52px] items-center justify-center lg:mt-14">
           {emergencyStatus === "resolved" && emergency ? (
             shouldFallbackWindowsEmergencyCall ? (
@@ -778,7 +792,7 @@ export function SosPanel({
                 type="button"
                 onClick={handleWindowsEmergencyCopy}
                 aria-label={`Copy ${emergency.number} emergency services (${emergency.countryName})`}
-                className="press-scale flex items-center gap-2.5 text-[color:var(--app-destructive)] transition-opacity hover:opacity-70"
+                className="press-scale flex min-h-11 items-center gap-2.5 rounded-full border border-[color:var(--app-destructive)]/25 bg-[color:var(--app-destructive)]/8 px-4 py-2 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/14"
               >
                 <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
                 <span className="text-left leading-tight">
@@ -798,7 +812,7 @@ export function SosPanel({
               <a
                 href={`tel:${emergency.number}`}
                 aria-label={`Call ${emergency.number} emergency services (${emergency.countryName})`}
-                className="press-scale flex items-center gap-2.5 text-[color:var(--app-destructive)] transition-opacity hover:opacity-70"
+                className="press-scale flex min-h-11 items-center gap-2.5 rounded-full border border-[color:var(--app-destructive)]/25 bg-[color:var(--app-destructive)]/8 px-4 py-2 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/14"
               >
                 <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
                 <span className="text-left leading-tight">

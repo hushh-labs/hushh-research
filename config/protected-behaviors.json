@@ -327,6 +327,61 @@
           ]
         }
       ]
+    },
+    {
+      "name": "confirming-a-place-in-onboarding-turns-location-on",
+      "summary": "Saving and labelling a place during Location onboarding sets the live preview on, so the hub the person is redirected to does not greet them with \"Location off\" seconds after they granted permission and dropped a pin.",
+      "fixed_by": "fix/location-polish-round3",
+      "why_it_needs_a_lock": [
+        "Onboarding captures a position DIRECTLY rather than through",
+        "`ensureForegroundLocationReady`, so it never reaches `activateMyLocation`",
+        "and never sets `selfPreviewEnabled`. A new owner also has no grants and no",
+        "nearby presence, so all three disjuncts behind `locationEnabled` are false.",
+        "",
+        "It shipped because every hub test reaches the hub through",
+        "`skipLocationEntryFlow`, which presses \"Skip for now\" on the save modal \u2014",
+        "so the save path never once reached an assertion about the header. The",
+        "guard has to be a test that SAVES.",
+        "",
+        "The write is two fields on the same call the header switch itself uses.",
+        "Deleting it restores a hub that contradicts what the person just did."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 400,
+          "required_titles": [
+            "turns location on once a place is confirmed in onboarding"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "duration-cells-stay-compact-wherever-they-render",
+      "summary": "Every duration choice in Location renders at the 44px / 15px cell, including the nearby Check-in sheet's \"Stay visible for\" pills, which now reuse the ladder's exported class strings instead of a morphy Button.",
+      "fixed_by": "fix/location-polish-round3",
+      "why_it_needs_a_lock": [
+        "A morphy <Button> at size=\"default\" is 50px tall with a 17px label, and",
+        "neither can be overridden from outside: min-h-[50px] sits in a different",
+        "tailwind-merge group from h-*, and .ui-text-button-label forces 17px",
+        "!important. So the Check-in sheet rendered the SAME role 6px taller and 2px",
+        "larger than this app's own duration control, and the only way back is a raw",
+        "<button> carrying the ladder's classes.",
+        "",
+        "Reaching for <Button> while tidying this sheet is the obvious move and it",
+        "silently undoes the fix. The geometry test is what catches that."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/e2e/one-location-duration-ladder.layout.spec.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 20,
+          "required_titles": [
+            "Check-in duration pills reuse the ladder cell"
+          ]
+        }
+      ]
     }
   ]
 }
