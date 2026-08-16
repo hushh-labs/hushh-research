@@ -117,7 +117,7 @@ export function toInvestorVaultUnlockError(value: unknown): string {
     lowered.includes("recovery key") &&
     lowered.includes("did not match")
   ) {
-    return "That recovery key did not match. Please try again.";
+    return "Wrong recovery key. Try again.";
   }
 
   return toInvestorMessage("VAULT_UNLOCK_FAILED");

@@ -18,6 +18,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { LOCATION_ONBOARDING_COPY } from "@/components/one-location/onboarding/one-location-onboarding-copy";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
 import {
   READY_MAP_CLASSNAME,
@@ -414,15 +415,13 @@ function WelcomeScreen({
                 strokeWidth={2.5}
                 data-testid="location-agent-heading-icon"
               />
-              Location Agent
+              {LOCATION_ONBOARDING_COPY.welcome.eyebrow}
             </p>
             <h1
               className="mx-auto mt-5 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.015em]"
               data-one-welcome-heading
             >
-              Share your location
-              <br />
-              easily with anyone.
+              {LOCATION_ONBOARDING_COPY.welcome.heading}
             </h1>
           </div>
           <div className="flex min-h-0 flex-1 items-center justify-center py-4">
@@ -430,7 +429,7 @@ function WelcomeScreen({
           </div>
           <div className="shrink-0">
             <PrimaryButton inverse onClick={onStart}>
-              Get started
+              {LOCATION_ONBOARDING_COPY.welcome.cta}
             </PrimaryButton>
           </div>
         </div>
@@ -641,17 +640,17 @@ function ShareLocationFeatureCard() {
           className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)]"
           data-one-use-case-tag
         >
-          Share location
+          {LOCATION_ONBOARDING_COPY.features.share.tag}
         </span>
         <TwoLineFeatureTitle
-          lines={["Can’t explain", "where you are?"]}
+          lines={LOCATION_ONBOARDING_COPY.features.share.titleLines}
           className="font-[family-name:var(--font-app-display)] text-[21px]"
         />
         <p
           className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Share once. Your Circle can find you safely.
+          {LOCATION_ONBOARDING_COPY.features.share.body}
         </p>
       </div>
       <div
@@ -698,7 +697,7 @@ function ShareLocationFeatureCard() {
         ))}
       </div>
       <FeatureStatusRow className="px-5">
-        Sharing with Mom, Driver +1
+        {LOCATION_ONBOARDING_COPY.features.share.proof}
       </FeatureStatusRow>
     </article>
   );
@@ -717,17 +716,17 @@ function CheckInFeatureCard() {
           className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f] dark:bg-[#1c3f2b] dark:text-[#78d69a]"
           data-one-use-case-tag
         >
-          Check in
+          {LOCATION_ONBOARDING_COPY.features.checkIn.tag}
         </span>
         <TwoLineFeatureTitle
-          lines={["At the venue, but", "can\u2019t find each other?"]}
+          lines={LOCATION_ONBOARDING_COPY.features.checkIn.titleLines}
           className="text-[19px]"
         />
         <p
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Check in anywhere. Your Circle knows you arrived.
+          {LOCATION_ONBOARDING_COPY.features.checkIn.body}
         </p>
       </div>
       <div
@@ -759,7 +758,7 @@ function CheckInFeatureCard() {
         </span>
       </div>
       <FeatureStatusRow className="px-3">
-        Checked in at Hotel Grand
+        {LOCATION_ONBOARDING_COPY.features.checkIn.proof}
       </FeatureStatusRow>
     </article>
   );
@@ -778,17 +777,17 @@ function SaveMySoulFeatureCard() {
           className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[#55252a] dark:text-[#ff9a98]"
           data-one-use-case-tag
         >
-          SMS &middot; Save My Soul
+          {LOCATION_ONBOARDING_COPY.features.sos.tag}
         </span>
         <TwoLineFeatureTitle
-          lines={["Need help but can\u2019t", "call or speak?"]}
+          lines={LOCATION_ONBOARDING_COPY.features.sos.titleLines}
           className="text-[19px]"
         />
         <p
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#c2aeb2]"
           data-one-feature-body
         >
-          Send your location when you need help fast.
+          {LOCATION_ONBOARDING_COPY.features.sos.body}
         </p>
       </div>
       <div
@@ -831,7 +830,7 @@ function SaveMySoulFeatureCard() {
         </div>
       </div>
       <FeatureStatusRow className="px-3">
-        Alerted 3 contacts
+        {LOCATION_ONBOARDING_COPY.features.sos.proof}
       </FeatureStatusRow>
     </article>
   );
@@ -900,14 +899,10 @@ function FeaturesScreen({
             className="ui-text-agent-title text-[#111823] dark:!text-[#f6f8fc]"
             data-one-feature-heading
           >
-            Need to keep people updated?
+            {LOCATION_ONBOARDING_COPY.features.heading}
           </h1>
-          <p
-            className="mt-3 text-[15px] font-normal leading-[20px] text-[#737a84] dark:text-[#aeb8c7]"
-            data-one-feature-subtitle
-          >
-            Share location, check in, or send help in seconds.
-          </p>
+          {/* No subtitle: the three cards below ARE "share location, check in,
+              send help". The line only repeated them. */}
         </header>
         <div className="mx-auto mt-6 grid w-full max-w-[700px] shrink-0 gap-4" data-one-feature-grid>
           <ShareLocationFeatureCard />
@@ -939,7 +934,9 @@ function FeaturesScreen({
           {/* Names the next screen, which is finding people you already know.
               A deliberately distinct string also keeps the reviewer flow's
               exact button match from colliding with a generic "Continue". */}
-          {locationPreparationRetry ? "Try again" : "Find my people"}
+          {locationPreparationRetry
+            ? LOCATION_ONBOARDING_COPY.features.retryCta
+            : LOCATION_ONBOARDING_COPY.features.cta}
         </PrimaryButton>
       </div>
       <style>{`
@@ -991,7 +988,6 @@ function FeaturesScreen({
           [data-one-onboarding-navigation] { height: 52px; }
           [data-one-feature-header] { margin-top: 8px; }
           [data-one-feature-heading] { --foundation-title1-size: 32px; }
-          [data-one-feature-subtitle] { margin-top: 9px; font-size: 15px; line-height: 21px; }
           [data-one-feature-grid] { margin-top: 14px; gap: 12px; }
           [data-one-feature-lower-grid] { gap: 12px; }
           [data-one-feature-cta] { padding-top: 14px; }
@@ -1005,12 +1001,6 @@ function FeaturesScreen({
           [data-one-onboarding-navigation] { height: 44px; }
           [data-one-feature-header] { margin-top: 4px; }
           [data-one-feature-heading] { --foundation-title1-size: 30px; }
-          [data-one-feature-subtitle] {
-            margin-top: 6px;
-            font-size: 13px;
-            line-height: 17px;
-            white-space: nowrap;
-          }
           [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
           [data-one-feature-lower-grid] { gap: 8px; }
           [data-one-feature-cta] { padding-top: 8px; }
@@ -1023,7 +1013,6 @@ function FeaturesScreen({
         @media (max-width: 431px) {
           [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
           [data-one-feature-heading] { --foundation-title1-size: 34px; }
-          [data-one-feature-subtitle] { font-size: 15px; line-height: 22px; }
           [data-one-feature-grid] {
             gap: 12px;
           }
@@ -1317,12 +1306,6 @@ function FeaturesScreen({
         }
         @media (max-width: 431px) and (max-height: 680px) {
           [data-one-feature-heading] { --foundation-title1-size: 30px; }
-          [data-one-feature-subtitle] {
-            margin-top: 6px;
-            font-size: 13px;
-            line-height: 17px;
-            white-space: nowrap;
-          }
           [data-one-feature-card="share"] [data-one-feature-title] { font-size: 17px; }
           [data-one-feature-card="share"] [data-one-feature-body] { font-size: 12px; }
           [data-one-feature-card="checkin"] [data-one-feature-title],
@@ -1358,11 +1341,6 @@ function FeaturesScreen({
           [data-one-onboarding-navigation] { height: 38px; }
           [data-one-feature-header] { margin-top: 2px; }
           [data-one-feature-heading] { --foundation-title1-size: 28px; }
-          [data-one-feature-subtitle] {
-            margin-top: 4px;
-            font-size: 11.5px;
-            line-height: 15px;
-          }
           [data-one-feature-grid] {
             grid-template-rows: auto;
             margin-top: 6px;

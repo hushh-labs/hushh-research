@@ -1134,7 +1134,7 @@ export function AuthStep({
                   className="text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]"
                 />
                 <span className="type-footnote text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]">
-                  You choose what One can see.
+                  You choose what One sees.
                 </span>
               </div>
 

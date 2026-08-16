@@ -460,7 +460,6 @@ final class AppUITests: XCTestCase {
         let exactLabels = [
             "Don\u{2019}t Allow",
             "Don't Allow",
-            "Not now, continue with passphrase",
             "Not now",
             "Skip",
             "Skip tour",

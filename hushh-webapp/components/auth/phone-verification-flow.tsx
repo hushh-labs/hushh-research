@@ -1071,10 +1071,14 @@ export function PhoneVerificationFlow({
             </Field>
           </FieldGroup>
 
-          <FieldDescription className="type-callout text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
-            {helperText ||
-              "Choose your country code and enter your phone number. We’ll send you a verification code."}
-          </FieldDescription>
+          {/* No default helper text: the two field labels and the button
+              already say what to enter and what happens next. A caller passes
+              helperText only when its screen adds something they don't. */}
+          {helperText ? (
+            <FieldDescription className="type-callout text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
+              {helperText}
+            </FieldDescription>
+          ) : null}
           <div className="grid gap-3">
             <Button
               type="submit"
@@ -1088,7 +1092,7 @@ export function PhoneVerificationFlow({
               {busy ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
-                "Send verification code"
+                "Send code"
               )}
             </Button>
             {onCancel ? (
@@ -1109,15 +1113,17 @@ export function PhoneVerificationFlow({
       ) : (
         <>
           <p className="text-center text-sm leading-6 text-muted-foreground">
-            Enter the code sent to{" "}
+            Code sent to{" "}
             <span className="font-semibold text-foreground">
               {maskPhoneNumberForOtp(submittedPhoneNumber)}
             </span>
             .
           </p>
 
+          {/* Visible label is short because the line above names the code and
+              the number. The input keeps the specific accessible name. */}
           <Field className="gap-2.5">
-            <FieldLabel htmlFor="phone-flow-code">One-time code</FieldLabel>
+            <FieldLabel htmlFor="phone-flow-code">Code</FieldLabel>
             <div className="relative">
               <div className="flex gap-2.5">
                 {Array.from({ length: 6 }).map((_, index) => {
@@ -1175,7 +1181,7 @@ export function PhoneVerificationFlow({
             {busy ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             ) : (
-              confirmLabel || "Verify and continue"
+              confirmLabel || "Verify"
             )}
           </Button>
 
@@ -1197,7 +1203,7 @@ export function PhoneVerificationFlow({
               disabled={busy}
               className="font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
             >
-              Use a different number
+              Change number
             </button>
           </div>
         </>

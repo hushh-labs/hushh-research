@@ -167,7 +167,7 @@ describe("PhoneVerificationFlow country selector", () => {
       target: { value: "8004482372" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Send verification code" }),
+      screen.getByRole("button", { name: "Send code" }),
     );
 
     await waitFor(() => {
@@ -189,7 +189,7 @@ describe("PhoneVerificationFlow country selector", () => {
     fireEvent.change(phoneInput, { target: { value: "0800448237" } });
     expect(phoneInput.value).toBe("0800448237");
     fireEvent.click(
-      screen.getByRole("button", { name: "Send verification code" }),
+      screen.getByRole("button", { name: "Send code" }),
     );
 
     await waitFor(() => expect(startVerification).not.toHaveBeenCalled());
@@ -220,7 +220,7 @@ describe("PhoneVerificationFlow country selector", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Send verification code" }),
+      screen.getByRole("button", { name: "Send code" }),
     );
     await waitFor(() => expect(startVerification).not.toHaveBeenCalled());
   });
@@ -242,7 +242,7 @@ describe("PhoneVerificationFlow country selector", () => {
     expect(countryInput.value).toBe("Jamaica (+1)");
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Send verification code" }),
+      screen.getByRole("button", { name: "Send code" }),
     );
     await waitFor(() => {
       expect(startVerification).toHaveBeenCalledWith("+16582101234", {
@@ -259,7 +259,7 @@ describe("PhoneVerificationFlow country selector", () => {
       target: { value: "8004482372" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Send verification code" }),
+      screen.getByRole("button", { name: "Send code" }),
     );
 
     expect(await screen.findByText("•••••• 2372")).toBeTruthy();
