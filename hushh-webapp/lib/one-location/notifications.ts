@@ -2,6 +2,11 @@
 
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import {
+  describeLocationAsk,
+  formatLocationDurationLabel,
+  locationAskFacts,
+} from "@/lib/one-location/duration-copy";
 
 export const ONE_LOCATION_GRANT_OPENED_EVENT =
   "hushh:one-location-grant-opened";
@@ -587,6 +592,22 @@ export function locationWorkflowNotificationCopy(params: {
   referringLabel?: string | null;
   visitorLabel?: string | null;
   networkLabel?: string | null;
+  /**
+   * The ask, when this notification is about one. Without these an access
+   * request reads "Someone is asking to view your location" whether they want
+   * fifteen minutes or a day, and an approval reads "approved" without ever
+   * telling the person who asked which number they were given.
+   */
+  requestedDurationHours?: number | string | null;
+  requestedDurationMode?: string | null;
+  isExtension?: boolean;
+  /** Expiry of the share being extended, for "they have 45 more min left". */
+  extendsGrantExpiresAt?: string | null;
+  /** The duration actually granted, for approval copy. */
+  grantedDurationHours?: number | string | null;
+  grantedDurationMode?: string | null;
+  /** Clock injected so a list of notifications agrees on "now". */
+  nowMs?: number;
 }): { title: string; description: string } {
   const copy = WORKFLOW_COPY[params.type];
   const ownerLabel = privacySafeOneLocationNotificationLabel(params.ownerLabel);
@@ -604,10 +625,46 @@ export function locationWorkflowNotificationCopy(params: {
   const networkLabel = privacySafeOneLocationNotificationLabel(
     params.networkLabel,
   );
+  const nowMs = params.nowMs ?? Date.now();
+  const askFacts = locationAskFacts(
+    {
+      requestedDurationHours:
+        params.requestedDurationHours === null ||
+        params.requestedDurationHours === undefined
+          ? null
+          : Number(params.requestedDurationHours),
+      requestedDurationMode: params.requestedDurationMode ?? null,
+      isExtension: params.isExtension,
+      extendsGrantExpiresAt: params.extendsGrantExpiresAt ?? null,
+    },
+    nowMs,
+  );
+  const grantedLabel =
+    params.grantedDurationMode === "until_stopped"
+      ? "for as long as you need"
+      : formatLocationDurationLabel(params.grantedDurationHours);
 
   switch (params.type) {
     case "location_share_created":
+      return {
+        title: copy.title,
+        description: locationShareNotificationDescription(ownerLabel),
+      };
     case "location_access_approved":
+      // Name the number. "Approved" alone left the person who asked for four
+      // hours with no way to learn they had been given one until it ran out.
+      if (grantedLabel && askFacts.isExtension) {
+        return {
+          title: "More location time approved",
+          description: `${ownerLabel} gave you ${grantedLabel} more of their live location.`,
+        };
+      }
+      if (grantedLabel) {
+        return {
+          title: copy.title,
+          description: `${ownerLabel} shared their live location with you ${grantedLabel}.`,
+        };
+      }
       return {
         title: copy.title,
         description: locationShareNotificationDescription(ownerLabel),
@@ -638,10 +695,20 @@ export function locationWorkflowNotificationCopy(params: {
       };
     case "location_access_request":
       return {
-        title: copy.title,
-        description: `${requesterLabel} is asking to view your location.`,
+        title: askFacts.isExtension
+          ? "More location time requested"
+          : copy.title,
+        description: `${requesterLabel} ${describeLocationAsk(askFacts)}`,
       };
     case "location_access_denied":
+      // A refused extension has to say the access already held is untouched.
+      // Read as a bare "denied", it looks like everything just stopped.
+      if (askFacts.isExtension) {
+        return {
+          title: "Extra time declined",
+          description: `${ownerLabel} declined the extra time. Any access you already have is unchanged.`,
+        };
+      }
       return {
         title: copy.title,
         description: `${ownerLabel} denied your location request.`,

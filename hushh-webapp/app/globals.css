@@ -22,6 +22,15 @@
 @source "../components/one-location/live-map.tsx";
 @source "../components/one-location/location-immersive-map.tsx";
 
+/*
+ * The semantic role layer holds class strings that exist in no .tsx file at
+ * all — a component asks for a role and renders whatever the layer returns —
+ * so the scanner has nothing in the mounted tree to infer them from. Without
+ * this entry the wash and hairline utilities it owns are never emitted and a
+ * status pill loses its fill entirely.
+ */
+@source "../lib/morphy-ux/tokens/semantic-roles.ts";
+
 /* ============================================================================
  * MOBILE UX & ACCESSIBILITY FIXES
  * ============================================================================ */
@@ -338,6 +347,11 @@ textarea {
   --app-accent-deep: #007aff; /* TEXT / icons on light = same system blue */
   --app-accent-bright: #4a9eff; /* dark-mode solid partner */
   --app-accent-tint: rgba(0, 122, 255, 0.1);
+  /* Soft accent well behind an accent glyph. Eight call sites across Location
+     have asked for this since the redesign landed and it was defined nowhere,
+     so every one of those wells rendered unpainted in BOTH themes. Aliased to
+     the tint rather than given its own literal, so it tracks the accent. */
+  --app-accent-soft: var(--app-accent-tint);
   --app-accent-surface: #e6f0ff; /* Location's active-pill fill */
   --app-accent-surface-strong: #d4e5ff;
   --app-accent-border: rgba(0, 122, 255, 0.32);
@@ -382,6 +396,94 @@ textarea {
      existing [data-icon-tone="indigo"] rules something to reference. */
   --app-indigo: #5856d6;
   --app-info: var(--app-accent);
+
+  /* ── Semantic role families (light) ──────────────────────────────
+     Derived partners for the FLAT status roles above. They use the
+     slot names the --app-accent-* family already uses, and match its
+     -tint / -border alphas value-for-value, so a semantic role tile
+     composes the way an accent tile does. -surface is the one slot
+     that does not line up; the bullet below says why.
+
+     Why they exist: without them each component hand-rolls a one-off
+     alpha (bg-[color:var(--app-success)]/12, border-...(--app-success)/30,
+     raw bg-emerald-500/15), so the SAME status renders a slightly
+     different wash on every screen.
+
+     Slot contract (identical for every role, accent included):
+     - -tint    the quiet wash behind an icon glyph or a compact pill.
+                Value-for-value the accent's tint alpha (0.10 light /
+                0.15 dark), so an `action` tile and a `success` tile
+                sitting in the same row read at the same strength.
+     - -surface the one step up from -tint, for a selected control or a
+                status banner that has to hold its own against the card
+                behind it. NOTE the one place this family does not
+                follow the accent: --app-accent-surface is an opaque
+                hex (#e6f0ff) that predates these roles, so it
+                composites differently from the alphas here. Do not
+                read the two as interchangeable, and do not flood a
+                whole card with either.
+     - -border  the hairline that pairs with -tint or -surface. Same
+                alpha as --app-accent-border (0.32 light / 0.35 dark).
+     - -deep    the TEXT/glyph-legible tone on LIGHT surfaces, exactly
+                as --app-accent-deep is. The flat role token is a FILL
+                tone and must not paint a glyph: #34c759 measures
+                2.22:1 on white and 2.04:1 on its own tint, below even
+                the 3:1 non-text floor. Each -deep below clears 4.5:1
+                on white, on the grouped canvas, and on its own tint
+                over both.
+     - -bright  the same legible tone for DARK surfaces, exactly as
+                --app-accent-bright is. Green and orange already clear
+                4.5:1 on dark washes, so their -bright IS the dark flat
+                token; red (4.23:1) and indigo (2.91:1) do not, so
+                those two lift to a brighter partner.
+     - -fg      text sitting ON the SOLID role colour — the same
+                contract as --app-accent-fg, and NOT the tone for a
+                tint (that is -deep / -bright). Green and orange carry
+                DARK -fg because white on them measures ~2.2:1; red and
+                indigo carry white. This follows the file's own
+                precedent, where the gold accent sets
+                --app-accent-fg: #1d1d1f for the same reason.
+
+     These roles are deliberately ACCENT-INVARIANT: the gold accent
+     preference must repaint only the --app-accent family, so success /
+     warning / danger / people are intentionally NOT overridden in the
+     html[data-accent="gold"] blocks below.
+
+     Alpha form for the washes is used on purpose: they sit on white
+     cards, on the grouped #f2f2f7 canvas and on elevated surfaces
+     alike, so they have to composite with whatever is behind them. */
+  --app-success-tint: rgba(52, 199, 89, 0.1);
+  --app-success-surface: rgba(52, 199, 89, 0.18);
+  --app-success-border: rgba(52, 199, 89, 0.32);
+  --app-success-deep: #137a35;
+  --app-success-bright: #30d158;
+  --app-success-fg: #1d1d1f;
+  --app-warning-tint: rgba(255, 149, 0, 0.1);
+  --app-warning-surface: rgba(255, 149, 0, 0.18);
+  --app-warning-border: rgba(255, 149, 0, 0.32);
+  --app-warning-deep: #9a5b00;
+  --app-warning-bright: #ff9f0a;
+  --app-warning-fg: #1d1d1f;
+  --app-destructive-tint: rgba(255, 59, 48, 0.1);
+  --app-destructive-surface: rgba(255, 59, 48, 0.18);
+  --app-destructive-border: rgba(255, 59, 48, 0.32);
+  --app-destructive-deep: #c31d13;
+  --app-destructive-bright: #ff6961;
+  --app-destructive-fg: #ffffff;
+
+  /* People / circles / trusted groups / private sharing.
+     iOS systemIndigo. Deliberately NOT --app-purple (#af52de,
+     systemPurple), which already carries the link/share tile meaning —
+     reusing it would make "a person" and "a shared link" the same
+     colour. */
+  --app-people: #5856d6;
+  --app-people-tint: rgba(88, 86, 214, 0.1);
+  --app-people-surface: rgba(88, 86, 214, 0.18);
+  --app-people-border: rgba(88, 86, 214, 0.32);
+  --app-people-deep: #4340b8;
+  --app-people-bright: #a5a3ff;
+  --app-people-fg: #ffffff;
+
   --app-focus-ring: rgba(0, 122, 255, 0.25);
   --app-glass-surface: rgba(255, 255, 255, 0.78);
   --app-glass-border: rgba(60, 60, 67, 0.18);
@@ -645,19 +747,28 @@ textarea {
   --settings-row-py: 11px;
   --settings-row-gap: 12px;
   --settings-row-stack-gap: 10px;
-  --ios-account-screen-background: #f2f2f7;
-  --ios-account-card-background: #ffffff;
-  --ios-account-label: #1d1d1f;
-  --ios-account-secondary-label: #8e8e93;
+  /* Profile surface tokens are ALIASES onto the app-wide design system, not a
+   * second palette. They used to hardcode their own hexes (#007aff accent,
+   * #f2f2f7/#000 canvases), which meant Profile silently opted out of the
+   * accent preference — Molten Gold changed every screen except this one —
+   * and painted card surfaces the One Location screens do not use. Keeping the
+   * token NAMES lets the existing Profile rules stay untouched while the
+   * VALUES now resolve through --app-* exactly like SurfaceCard and the
+   * morphy-ux surface primitives. Fallbacks preserve the old values if a
+   * token is ever missing. Never reintroduce a literal accent hex here. */
+  --ios-account-screen-background: var(--background, #f2f2f7);
+  --ios-account-card-background: var(--app-card-surface-default-solid, #ffffff);
+  --ios-account-label: var(--foreground, #1d1d1f);
+  --ios-account-secondary-label: var(--muted-foreground, #8e8e93);
   --ios-account-tertiary-label: #aeaeb2;
-  --ios-account-separator: rgba(60, 60, 67, 0.1);
+  --ios-account-separator: var(--app-card-border-standard, rgba(60, 60, 67, 0.1));
   --ios-account-icon-tile-background: rgba(120, 120, 128, 0.12);
-  --ios-account-utility-icon-tile-background: #8e8e93;
-  --ios-account-utility-icon-glyph: #ffffff;
+  --ios-account-utility-icon-tile-background: var(--app-icon-tile-background, #8e8e93);
+  --ios-account-utility-icon-glyph: var(--app-icon-tile-foreground, #ffffff);
   --ios-account-service-icon-tile-background: #1c1c1e;
   --ios-account-service-icon-glyph: #ffffff;
-  --ios-account-accent: #007aff;
-  --ios-account-destructive: #ff3b30;
+  --ios-account-accent: var(--app-accent, #007aff);
+  --ios-account-destructive: var(--app-destructive, #ff3b30);
   --ios-account-on-accent: #ffffff;
   --ios-account-title-size: var(--type-page-title-size);
   --ios-account-title-line: var(--type-page-title-line);
@@ -953,23 +1064,71 @@ textarea {
      tone in the map under 3:1 — where every sibling sits above 4.7. */
   --app-indigo: #7d7aff;
   --app-info: var(--app-accent);
+
+  /* ── Semantic role families (dark) ───────────────────────────────
+     Dark partners of the light families defined in :root. Same names,
+     same MEANING (see the light block for the full contract); the wash
+     strengths lift (tint 0.10 -> 0.15 and border 0.32 -> 0.35, the
+     accent family's own dark values; surface 0.18 -> 0.24) because a
+     low-alpha colour disappears against the near-black canvas.
+
+     Each role is seeded from the DARK base tone declared just above
+     (#30d158 / #ff9f0a / #ff453a), not the light one, so the wash and
+     its solid partner stay the same hue.
+
+     -deep is the LIGHT-surface text tone, so it is not restated here;
+     it is inherited unchanged and the `dark:` half of a glyph class
+     selects -bright instead. Green and orange keep the flat dark token
+     as their -bright (6.36:1 / 6.22:1 on their own washes); red and
+     indigo lift, because #ff453a measures 4.23:1 and #5e5ce6 only
+     2.91:1 on theirs.
+
+     Accent-invariant, exactly as in light: no gold override. */
+  --app-success-tint: rgba(48, 209, 88, 0.15);
+  --app-success-surface: rgba(48, 209, 88, 0.24);
+  --app-success-border: rgba(48, 209, 88, 0.35);
+  --app-success-bright: #30d158;
+  --app-success-fg: #1d1d1f;
+  --app-warning-tint: rgba(255, 159, 10, 0.15);
+  --app-warning-surface: rgba(255, 159, 10, 0.24);
+  --app-warning-border: rgba(255, 159, 10, 0.35);
+  --app-warning-bright: #ff9f0a;
+  --app-warning-fg: #1d1d1f;
+  --app-destructive-tint: rgba(255, 69, 58, 0.15);
+  --app-destructive-surface: rgba(255, 69, 58, 0.24);
+  --app-destructive-border: rgba(255, 69, 58, 0.35);
+  --app-destructive-bright: #ff6961;
+  --app-destructive-fg: #ffffff;
+
+  /* iOS systemIndigo (dark). Same people/circles meaning as light. */
+  --app-people: #5e5ce6;
+  --app-people-tint: rgba(94, 92, 230, 0.15);
+  --app-people-surface: rgba(94, 92, 230, 0.24);
+  --app-people-border: rgba(94, 92, 230, 0.35);
+  --app-people-bright: #a5a3ff;
+  --app-people-fg: #ffffff;
+
   --app-focus-ring: rgba(10, 132, 255, 0.3);
   --app-glass-surface: rgba(28, 28, 30, 0.78);
   --app-glass-border: rgba(84, 84, 88, 0.65);
   --app-glass-shadow: 0 12px 32px -24px rgba(0, 0, 0, 0.85);
-  --ios-account-screen-background: #000000;
-  --ios-account-card-background: #1c1c1e;
-  --ios-account-label: #ffffff;
-  --ios-account-secondary-label: #98989d;
+  /* Dark Profile aliases — same rule as the light block above. The literals
+   * here were the visible dark-mode divergence: a pure #000 canvas with
+   * #1c1c1e cards, where every One Location screen uses the shared
+   * --app-card-surface-default-solid (#2c2c2e) on the app canvas. */
+  --ios-account-screen-background: var(--background, #000000);
+  --ios-account-card-background: var(--app-card-surface-default-solid, #1c1c1e);
+  --ios-account-label: var(--foreground, #ffffff);
+  --ios-account-secondary-label: var(--muted-foreground, #98989d);
   --ios-account-tertiary-label: #636366;
-  --ios-account-separator: rgba(84, 84, 88, 0.65);
+  --ios-account-separator: var(--app-card-border-standard, rgba(84, 84, 88, 0.65));
   --ios-account-icon-tile-background: rgba(120, 120, 128, 0.24);
-  --ios-account-utility-icon-tile-background: #636366;
-  --ios-account-utility-icon-glyph: #ffffff;
+  --ios-account-utility-icon-tile-background: var(--app-icon-tile-background, #636366);
+  --ios-account-utility-icon-glyph: var(--app-icon-tile-foreground, #ffffff);
   --ios-account-service-icon-tile-background: #3a3a3c;
   --ios-account-service-icon-glyph: #ffffff;
-  --ios-account-accent: #0a84ff;
-  --ios-account-destructive: #ff453a;
+  --ios-account-accent: var(--app-accent, #0a84ff);
+  --ios-account-destructive: var(--app-destructive, #ff453a);
   --ios-account-on-accent: #ffffff;
   --ios-account-nav-material-background: rgba(28, 28, 30, 0.82);
   --ios-account-nav-material-border: rgba(84, 84, 88, 0.65);
@@ -1004,12 +1163,14 @@ textarea {
   font-optical-sizing: auto;
 }
 
+/* The account screen no longer overrides the shared measure or the header gap.
+ * It used to force a 560px column and `padding-top: 0`, so it sat at a
+ * different width and header offset than every sibling Profile screen; the
+ * navigator now supplies the 720px measure, the header gap, and the bottom
+ * clearance uniformly. Only the inline gutter stays pinned here. */
 [data-profile-stack-screen="account"] [data-profile-stack-content],
 [data-profile-stack-screen="panel:account"] [data-profile-stack-content] {
-  max-width: 560px !important;
-  padding-inline: var(--page-inline-gutter-standard) !important;
-  padding-top: 0 !important;
-  padding-bottom: var(--app-bottom-content-clearance) !important;
+  padding-inline: var(--page-inline-gutter-standard);
 }
 
 [data-profile-stack-screen="account"] [data-profile-stack-header],
@@ -1449,15 +1610,14 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   padding-bottom: var(--app-bottom-content-clearance);
 }
 
-.profile-home-screen .app-page-header-region {
-  margin-inline: auto;
-  max-width: 520px;
-  width: 100%;
-}
-
+/* Measure is owned by AppPageShell (width="reading" → 720px) so the Profile
+ * root, the pushed Profile screens, and the One Location screens all share one
+ * column. These used to re-cap themselves at 520px, which made Profile a
+ * visibly narrower page than every other route on the same breakpoint. */
+.profile-home-screen .app-page-header-region,
 .profile-home-screen .app-page-content-region {
   margin-inline: auto;
-  max-width: 520px;
+  max-width: 720px;
   width: 100%;
 }
 
@@ -1467,7 +1627,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-screen [data-profile-avatar-frame="true"] {
-  background: #d1d1d6 !important;
+  /* Was a literal #d1d1d6, which stayed a light-grey disc in dark mode. Uses
+   * the same muted surface token as AVATAR_BUBBLE in surface-primitives. */
+  background: var(--app-card-surface-muted, #d1d1d6) !important;
   box-shadow: none !important;
   display: inline-flex;
   height: 88px !important;
@@ -3350,6 +3512,7 @@ html.native-ios [data-testid="one-location-onboarding"] {
   --app-accent-deep: #007aff; /* TEXT / icons = same system blue */
   --app-accent-bright: #4a9eff;
   --app-accent-tint: rgba(0, 122, 255, 0.15);
+  --app-accent-soft: var(--app-accent-tint);
   --app-accent-surface: rgba(0, 122, 255, 0.15);
   --app-accent-surface-strong: rgba(0, 122, 255, 0.24);
   --app-accent-border: rgba(0, 122, 255, 0.35);

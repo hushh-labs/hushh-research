@@ -166,6 +166,11 @@ import {
   playOneLocationNotificationSound,
   type OneLocationNotificationSection,
 } from "@/lib/one-location/notifications";
+import {
+  formatLocationDurationLabel,
+  locationApproveActionLabel,
+  locationAskPromptLine,
+} from "@/lib/one-location/duration-copy";
 import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import {
@@ -716,11 +721,16 @@ function expiresLabel(grant: OneLocationGrant): string {
 // 14 min"). This is a key confidence cue: the user can always see that sharing
 // is time-boxed and will end on its own. Falls back to the absolute time when
 // the window is long, and degrades gracefully if the timestamp is missing.
-function expiresCountdownLabel(value?: string | null): string | null {
+function expiresCountdownLabel(
+  value?: string | null,
+  // Injected so every countdown on the screen ticks off one clock. Defaulted
+  // for the handful of callers that render once and do not need to move.
+  nowMs: number = Date.now(),
+): string | null {
   if (!value) return null;
   const expiresAt = new Date(value).getTime();
   if (!Number.isFinite(expiresAt)) return null;
-  const diffMs = expiresAt - Date.now();
+  const diffMs = expiresAt - nowMs;
   if (diffMs <= 0) return "Stopping now";
   const minutes = Math.round(diffMs / 60000);
   if (minutes < 60) {
@@ -1033,6 +1043,28 @@ function oneLocationDurationBucket(value: string): OneLocationDurationBucket {
 }
 
 /**
+ * The invite lanes read one shared `durationHours` string with `Number()`,
+ * and that string is written by several screens. Two ways it can be a value
+ * they cannot post:
+ *
+ *   - a non-numeric sentinel ("until_stopped"), which is `NaN` against a
+ *     `gt=0` field — a 422 the person sees as an invite that just failed
+ *   - a length another lane chose, above this lane's own ceiling
+ *
+ * Neither is reachable from the invite screens themselves, which is why it
+ * went unnoticed: both arrive from whatever the share or request composer
+ * left in state.
+ */
+function inviteDurationHours(value: string, maxHours: number): number {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return Math.min(1, maxHours);
+  return Math.min(maxHours, hours);
+}
+
+/** `le=24` on CreateCircleInviteRequest, and the screen offers 1 or 24. */
+const CIRCLE_INVITE_MAX_DURATION_HOURS = 24;
+
+/**
  * A public link is readable by anyone who has it, so its ceiling is one hour
  * and the screen says so.
  *
@@ -1045,11 +1077,7 @@ function oneLocationDurationBucket(value: string): OneLocationDurationBucket {
 const PUBLIC_INVITE_MAX_DURATION_HOURS = 1;
 
 function publicInviteDurationHours(value: string): number {
-  const hours = Number(value);
-  if (!Number.isFinite(hours) || hours <= 0) {
-    return PUBLIC_INVITE_MAX_DURATION_HOURS;
-  }
-  return Math.min(PUBLIC_INVITE_MAX_DURATION_HOURS, hours);
+  return inviteDurationHours(value, PUBLIC_INVITE_MAX_DURATION_HOURS);
 }
 
 function privateShareDurationPayload(value: string): {
@@ -2249,6 +2277,30 @@ export function OneLocationAgentPageContent({
   const [editGrantDurationHours, setEditGrantDurationHours] = useState(
     GRANT_EDIT_DURATION_FALLBACK,
   );
+  // One clock for every "time left" on this screen. The countdowns read
+  // Date.now() at render and nothing re-rendered them, so "Stops in 59 min"
+  // was true when the screen opened and stayed on the glass as the hour ran
+  // out -- the single number people use to decide when to ask for more time
+  // was the one that had quietly stopped moving. 30s, not 1s: these labels
+  // are minute-grained, and re-rendering to move nothing is cost with no
+  // reader.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    // A screen returning from background can be minutes stale; refresh the
+    // clock on the way in rather than waiting out the next tick.
+    const syncNow = () => setNowMs(Date.now());
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", syncNow);
+    }
+    return () => {
+      window.clearInterval(timer);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", syncNow);
+      }
+    };
+  }, []);
+  const approvalsNowMs = nowMs;
   /*
    * The live share card's own time editor. Separate from the three flags above
    * on purpose: those edit a share somebody else is giving you, where more time
@@ -5734,12 +5786,26 @@ export function OneLocationAgentPageContent({
         // Extending needs the owner's approval again -- send a new request
         // rather than silently lengthening the existing grant.
         try {
+          // The amount travels WITH the request now. This used to send the
+          // literal string "Requesting more time." and nothing else, so the
+          // number the person had just chosen from the picker directly above
+          // this button was the one fact the owner never received.
+          const durationLabel = formatLocationDurationLabel(durationHours);
           await OneLocationService.requestAccess({
             vaultOwnerToken,
             ownerUserId,
-            message: "Requesting more time.",
+            message: durationLabel
+              ? `Requesting ${durationLabel} more of your live location.`
+              : "Requesting more time.",
+            requestedDurationHours: durationHours,
+            requestedDurationMode: "timed",
+            extendsGrantId: grantId,
           });
-          toast.success(`Asked ${ownerLabel} for more time.`);
+          toast.success(
+            durationLabel
+              ? `Asked ${ownerLabel} for ${durationLabel} more.`
+              : `Asked ${ownerLabel} for more time.`,
+          );
           setEditingGrantId(null);
           await refresh({ background: true }).catch(() => null);
         } catch (error) {
@@ -6143,10 +6209,16 @@ export function OneLocationAgentPageContent({
         }
       })();
       for (const owner of selectedRequestOwners) {
+        // Send the duration the person actually picked. The Ask screen has
+        // shown a "Duration requested" control all along; it was collected
+        // and then dropped here, so the owner was asked an unquantified
+        // question and approved whatever their own control happened to say.
         await OneLocationService.requestAccess({
           vaultOwnerToken: activeVaultOwnerToken,
           ownerUserId: owner.userId,
           message: buildOneLocationRequestMessage(reason, requestMessage),
+          requestedDurationHours: Number(durationHours),
+          requestedDurationMode: "timed",
         });
         successCount += 1;
         // Recorded as each one lands, not from the selection up front: an id the
@@ -6197,6 +6269,10 @@ export function OneLocationAgentPageContent({
   }, [
     auth.user,
     auth.userId,
+    // The request now carries the duration this composer is showing, so the
+    // callback has to be rebuilt when that changes -- otherwise it closes over
+    // the value the screen opened with and sends a stale amount.
+    durationHours,
     refresh,
     requestMessage,
     resetRequestComposer,
@@ -6361,7 +6437,10 @@ export function OneLocationAgentPageContent({
     try {
       const response = await OneLocationService.createCircleInvite({
         vaultOwnerToken,
-        durationHours: Number(durationHours),
+        durationHours: inviteDurationHours(
+          durationHours,
+          CIRCLE_INVITE_MAX_DURATION_HOURS,
+        ),
         message: "Join me on One.",
       });
       const url = publicInviteUrlLabel(response.inviteUrl);
@@ -7294,10 +7373,24 @@ export function OneLocationAgentPageContent({
       }
       if (!automatic) setBusy("approve");
       try {
+        // Grant what they asked for. The owner is answering a request that
+        // named an amount -- their own duration control belongs to shares
+        // THEY start, and reading it here is how a person who asked for four
+        // hours silently got one. Fall back to the owner's control only when
+        // the ask carried no amount (older clients, referral requests).
+        const requestedHours = Number(request.requestedDurationHours);
+        const approvedHours =
+          Number.isFinite(requestedHours) && requestedHours > 0
+            ? requestedHours
+            : Number(durationHours);
         const response = await OneLocationService.approveRequest({
           vaultOwnerToken,
           requestId: request.id,
-          durationHours: Number(durationHours),
+          durationHours: approvedHours,
+          durationMode:
+            request.requestedDurationMode === "until_stopped"
+              ? "until_stopped"
+              : "timed",
         });
         await publishEnvelopeWithRetry(response.grant, requester, "manual");
         // Name the person. An automatic approval is still a share starting
@@ -10489,7 +10582,9 @@ export function OneLocationAgentPageContent({
     formatDateTime,
     expiresLabel: (value) =>
       value ? `Live until ${formatDateTime(value)}` : "Live now",
-    expiresCountdownLabel: (value) => expiresCountdownLabel(value) ?? "Active",
+    expiresCountdownLabel: (value) =>
+      expiresCountdownLabel(value, nowMs) ?? "Active",
+    nowMs,
     renderMapPreview: (point, showNavigation, viewportResetKey, staleAction) => (
       <LocalMapPreview
         point={point}
@@ -11406,6 +11501,13 @@ export function OneLocationAgentPageContent({
                           <h3 className="break-words text-[16px] font-semibold tracking-tight text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
                             {requestLabel(request)}
                           </h3>
+                          {/* What is being asked, before anything else. The
+                              amount and whether it is extra time on a live
+                              share are the whole decision; the free-text
+                              note and timestamp are context underneath. */}
+                          <p className="text-[13px] font-semibold leading-relaxed text-[#1c1c1e] dark:text-white">
+                            {locationAskPromptLine(request, approvalsNowMs)}
+                          </p>
                           <p className="text-[13px] font-medium leading-relaxed text-[#8e8e93] dark:text-white/55">
                             {request.message ||
                               `Requested ${formatDateTime(request.requestedAt)}`}
@@ -11425,7 +11527,13 @@ export function OneLocationAgentPageContent({
                               onClick={() => void handleApprove(request)}
                               className="h-9 flex-1 rounded-[12px] bg-[color:var(--app-accent)] font-semibold text-[color:var(--app-accent-fg)] shadow-[0_2px_8px_var(--app-accent-ring)] hover:bg-[color:var(--app-accent-hover)]"
                             >
-                              Approve
+                              {/* The button names the amount, so pressing it is
+                                  agreeing to a number rather than finding out
+                                  which one afterwards. */}
+                              {locationApproveActionLabel(
+                                request,
+                                approvalsNowMs,
+                              )}
                             </ActionButton>
                           </div>
                         </div>
@@ -11690,13 +11798,13 @@ export function OneLocationAgentPageContent({
                                   {grant.status}
                                 </Badge>
                                 {grant.status === "active" &&
-                                expiresCountdownLabel(grant.expiresAt) ? (
+                                expiresCountdownLabel(grant.expiresAt, nowMs) ? (
                                   <span className="inline-flex items-center gap-1 rounded-full bg-[#34c759]/12 px-2 py-0.5 text-[11px] font-semibold text-[#2dbd5a] dark:bg-[#34c759]/15">
                                     <Clock3
                                       className="h-3 w-3"
                                       aria-hidden="true"
                                     />
-                                    {expiresCountdownLabel(grant.expiresAt)}
+                                    {expiresCountdownLabel(grant.expiresAt, nowMs)}
                                   </span>
                                 ) : null}
                                 <span className="min-w-0 break-words text-[12px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">

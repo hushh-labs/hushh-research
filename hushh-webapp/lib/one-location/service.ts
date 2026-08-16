@@ -1450,6 +1450,21 @@ export class OneLocationService {
   }
 
   /**
+   * Ask an owner for location access, for a specific amount of time.
+   *
+   * `requestedDurationHours` is what the person actually picked. It used to be
+   * collected by the Ask screen and dropped at this boundary, so the owner was
+   * asked an unquantified question and approved whatever their own control
+   * happened to say. It is a REQUEST, never an authorization — the grant is
+   * still written only when the owner approves.
+   *
+   * `extendsGrantId` marks this as extra time on a share already running. The
+   * backend verifies it against the real grant between the two people and
+   * detects the extension itself if it is omitted, so passing it is a hint that
+   * sharpens the copy, never something a caller can use to claim time.
+   */
+
+  /**
    * Set a new end time on a share you own, longer or shorter.
    *
    * `shortenGrant` above is the recipient's control and stays shorten-only.
@@ -1484,7 +1499,11 @@ export class OneLocationService {
     vaultOwnerToken: string;
     ownerUserId: string;
     message?: string;
+    requestedDurationHours?: number | null;
+    requestedDurationMode?: string | null;
+    extendsGrantId?: string | null;
   }): Promise<OneLocationAccessRequest> {
+    const durationHours = Number(params.requestedDurationHours);
     const response = await apiJsonWithRetry<{
       request: OneLocationAccessRequest;
     }>(
@@ -1495,6 +1514,11 @@ export class OneLocationService {
         body: JSON.stringify({
           ownerUserId: params.ownerUserId,
           message: params.message,
+          requestedDurationHours: Number.isFinite(durationHours) && durationHours > 0
+            ? durationHours
+            : undefined,
+          requestedDurationMode: params.requestedDurationMode || undefined,
+          extendsGrantId: params.extendsGrantId || undefined,
         }),
       },
       1,
@@ -1502,17 +1526,30 @@ export class OneLocationService {
     return response.request;
   }
 
+  /**
+   * Approve a pending request. Omitting `durationHours` grants exactly what was
+   * asked for — the owner pressed a button that named the amount, so re-deriving
+   * a different one from a control they never touched is how an approval used to
+   * hand an hour to someone who had asked for four.
+   */
   static async approveRequest(params: {
     vaultOwnerToken: string;
     requestId: string;
-    durationHours: number;
+    durationHours?: number | null;
+    durationMode?: string | null;
   }): Promise<{ request: OneLocationAccessRequest; grant: OneLocationGrant }> {
+    const durationHours = Number(params.durationHours);
     return apiJson(
       `/api/one/location/requests/${encodeURIComponent(params.requestId)}/approve`,
       {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        body: JSON.stringify({ durationHours: params.durationHours }),
+        body: JSON.stringify({
+          durationHours: Number.isFinite(durationHours) && durationHours > 0
+            ? durationHours
+            : undefined,
+          durationMode: params.durationMode || undefined,
+        }),
       },
     );
   }

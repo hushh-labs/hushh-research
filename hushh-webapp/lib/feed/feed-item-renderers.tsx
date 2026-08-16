@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { formatLocationDurationLabel } from "@/lib/one-location/duration-copy";
 import { buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
 import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -48,6 +49,26 @@ function metadataString(metadata: Record<string, unknown>, key: string): string 
 
 function metadataBool(metadata: Record<string, unknown>, key: string): boolean {
   return metadata[key] === true;
+}
+
+/**
+ * "3 hours" / "as long as they need" for a `<prefix>_hours` + `<prefix>_mode`
+ * metadata pair, or "" when no real amount was recorded.
+ *
+ * Shares `formatLocationDurationLabel` with the notification and approvals copy
+ * on purpose: the feed entry for an ask has to name the same number, worded the
+ * same way, as the popup that announced it.
+ */
+function metadataDurationLabel(
+  metadata: Record<string, unknown>,
+  prefix: string,
+): string {
+  if (metadata[`${prefix}_mode`] === "until_stopped") {
+    return "as long as they need";
+  }
+  return formatLocationDurationLabel(
+    metadata[`${prefix}_hours`] as number | string | null | undefined,
+  );
 }
 
 /**
@@ -90,6 +111,11 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   // have no marker and stay on the owner's wording, which is what they were.
   const sharedWithMe =
     metadataString(item.metadata, "feed_audience") === "recipient";
+  // The same marker on a request-lifecycle row (migration 153), naming the
+  // person who did the asking. One key, two named facts -- not a second
+  // convention per fan-out.
+  const iAskedForThis =
+    metadataString(item.metadata, "feed_audience") === "requester";
 
   switch (item.event_type) {
     case "consent_requested":
@@ -122,14 +148,22 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     // name (falling back to "Location" only when no name is resolvable), and the
     // subtitle is the action. The name arrives via `counterpart_label` in the
     // backend feed metadata (one_location_agent_service.py).
+    // The share lifecycle reaches the recipient through its own fan-out
+    // (migration 152), so these three also render from both sides.
     case "location_share_created": {
       const hasWho = who !== "Someone";
+      const shareAmount = metadataDurationLabel(item.metadata, "duration");
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        // For an approval-born share this is the requester's ONLY row (152
+        // writes it; 153 deliberately does not add a second for the approval),
+        // so it names the granted amount that the event metadata carries.
         description: sharedWithMe
-          ? "Shared their location with you"
+          ? shareAmount
+            ? `Shared their location with you for ${shareAmount}`
+            : "Shared their location with you"
           : "Started sharing location",
         href: ROUTES.ONE_LOCATION,
       };
@@ -165,33 +199,109 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         href: ROUTES.ONE_LOCATION,
       };
     }
+    // The three request lines carry the AMOUNT of time asked for and whether it
+    // was extra time on a share already running. A feed that says only
+    // "Requested your location" for a person asking to extend by three hours is
+    // reporting that something happened, not what.
+    //
+    // These rows now reach BOTH parties, so each one reads its own side:
+    // `viewer_role` says whether this copy belongs to the person whose location
+    // it is or to the person who asked for it. Rows written before that fan-out
+    // landed carry no role and keep the owner wording they were written for.
     case "location_access_request": {
       const hasWho = who !== "Someone";
+      const isExtension = metadataBool(item.metadata, "is_extension");
+      const amount = metadataDurationLabel(item.metadata, "requested_duration");
+      const asRequester = iAskedForThis;
+      const description = asRequester
+        ? isExtension
+          ? amount
+            ? `You asked for ${amount} more`
+            : "You asked for more location time"
+          : amount
+            ? `You asked to see their location for ${amount}`
+            : "You asked to see their location"
+        : isExtension
+          ? amount
+            ? `Asked for ${amount} more`
+            : "Asked for more location time"
+          : amount
+            ? `Requested your location for ${amount}`
+            : "Requested your location";
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: "Requested your location",
-        href: ROUTES.ONE_LOCATION,
+        description,
+        href: buildOneLocationWorkflowHref({
+          requestId: metadataString(item.metadata, "request_id") || undefined,
+          section: asRequester ? "my_requests" : "approvals",
+        }),
       };
     }
     case "location_access_approved": {
       const hasWho = who !== "Someone";
+      const isExtension = metadataBool(item.metadata, "is_extension");
+      const amount = metadataDurationLabel(item.metadata, "duration");
+      const asRequester = iAskedForThis;
+      const description = asRequester
+        ? isExtension
+          ? amount
+            ? `Gave you ${amount} more`
+            : "Gave you more location time"
+          : amount
+            ? `Shared their location with you for ${amount}`
+            : "Approved your location request"
+        : isExtension
+          ? amount
+            ? `You gave them ${amount} more`
+            : "You gave them more location time"
+          : amount
+            // Migration 151 stopped forwarding the approval-born
+            // location_share_created row, so this line is now the only report
+            // of that whole tap. It has to say the share STARTED, not just
+            // that a request was answered -- main's wording, carrying the
+            // amount this branch adds.
+            ? `You approved ${amount}. Now sharing.`
+            : "You approved. Now sharing.";
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: "You approved. Now sharing.",
+        description,
         href: ROUTES.ONE_LOCATION,
       };
     }
     case "location_access_denied": {
       const hasWho = who !== "Someone";
+      const isExtension = metadataBool(item.metadata, "is_extension");
+      const asRequester = iAskedForThis;
+      const description = asRequester
+        ? isExtension
+          ? "Declined the extra time — your current access is unchanged"
+          : "Declined your location request"
+        : isExtension
+          ? "You declined the extra time"
+          : "You declined the location request";
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: "You declined the location request",
+        description,
+        href: ROUTES.ONE_LOCATION,
+      };
+    }
+    case "location_share_shortened": {
+      const hasWho = who !== "Someone";
+      const ownerShortened =
+        metadataString(item.metadata, "reason") === "owner_shorten";
+      return {
+        icon,
+        domainLabel,
+        label: hasWho ? who : "Location",
+        description: ownerShortened
+          ? "You shortened their location access"
+          : "Gave back their remaining time early",
         href: ROUTES.ONE_LOCATION,
       };
     }

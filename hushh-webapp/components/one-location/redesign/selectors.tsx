@@ -61,7 +61,11 @@ export function DurationSelector({
   /** Forwarded to the picker — the sentinel value its open-ended option
    * emits. Defaults to the wheel's own alias when omitted. */
   untilStopValue?: string;
-  /** `ladder` only. False hides the open-ended rung — see DurationPresetPicker. */
+  /**
+   * False hides the open-ended option entirely — the rung on `ladder`, the
+   * toggle on `wheel`. Set it on any lane whose value is later read with
+   * `Number()`, because the sentinel is a non-numeric string.
+   */
   allowUntilStop?: boolean;
 }) {
   const labelId = useId();
@@ -99,6 +103,7 @@ export function DurationSelector({
         <DurationWheelPicker
           value={value}
           onChange={onChange}
+          showUntilStop={allowUntilStop}
           {...(untilStopValue ? { untilStopValue } : {})}
         />
       ) : presentation === "select" ? (
@@ -370,7 +375,7 @@ export function PersonSearchInput({
             field.scrollIntoView({ block: "center", behavior: "smooth" });
           }, 250);
         }}
-        className="h-11 w-full rounded-[14px] border border-border/70 bg-background pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-[color:var(--app-accent-ring)] [&::-webkit-search-cancel-button]:appearance-none"
+        className="h-11 w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-[color:var(--app-accent-ring)] [&::-webkit-search-cancel-button]:appearance-none"
       />
     </div>
   );

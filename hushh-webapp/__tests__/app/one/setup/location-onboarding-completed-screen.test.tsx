@@ -1,5 +1,10 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -17,20 +22,6 @@ const coordinatorMocks = vi.hoisted(() => ({
 vi.mock("@/app/one/location/page", () => ({
   default: () => (
     <div data-testid="location-onboarding-journey">Location onboarding</div>
-  ),
-}));
-
-vi.mock("@/components/onboarding/setup/capability-cinematic-intro", () => ({
-  CapabilityCinematicIntroGate: ({ children }: { children: ReactNode }) => (
-    <div data-testid="location-cinematic-intro">{children}</div>
-  ),
-}));
-
-// The permission ask is a gate of its own, covered by its own test. Here it is
-// a passthrough so these cases stay about which step the coordinator renders.
-vi.mock("@/components/onboarding/setup/location-permission-primer", () => ({
-  LocationPermissionPrimerGate: ({ children }: { children: ReactNode }) => (
-    <div data-testid="location-permission-primer-gate">{children}</div>
   ),
 }));
 
@@ -70,8 +61,9 @@ describe("completed Location onboarding re-entry", () => {
   it("keeps the full onboarding journey for an incomplete Location setup", () => {
     render(<LocationOnboardingSetupClient />);
 
-    expect(screen.getByTestId("location-cinematic-intro")).toBeTruthy();
     expect(screen.getByTestId("location-onboarding-journey")).toBeTruthy();
+    expect(screen.queryByTestId("location-cinematic-intro")).toBeNull();
+    expect(screen.queryByTestId("location-permission-primer-gate")).toBeNull();
     expect(screen.queryByTestId("location-onboarding-completed")).toBeNull();
   });
 
@@ -85,9 +77,7 @@ describe("completed Location onboarding re-entry", () => {
         name: "Your Location onboarding is complete",
       }),
     ).toBeTruthy();
-    const completedScreen = screen.getByTestId(
-      "location-onboarding-completed",
-    );
+    const completedScreen = screen.getByTestId("location-onboarding-completed");
     expect(
       completedScreen.getAttribute("data-fullscreen-flow-shell-width"),
     ).toBe("reading");

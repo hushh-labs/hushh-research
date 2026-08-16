@@ -15,11 +15,31 @@ import { driveEtaText } from "@/app/one/location/drive-eta";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  roleClasses,
+  roleSolid,
+  type SemanticRole,
+} from "@/lib/morphy-ux/tokens/semantic-roles";
 import { OneLocationService } from "@/lib/one-location/service";
 import type {
   OneLocationPublicInvite,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
+
+/**
+ * The link resolved and the window is open — there is simply no snapshot on
+ * it yet. That is an empty state, not a failure, so it takes the resting
+ * neutral rather than the warning family it used to borrow. It also has to
+ * agree with the header bubble above it, which reports the same state.
+ */
+const NO_SNAPSHOT_TONE = roleClasses("neutral");
+
+/**
+ * Anything sitting ON the solid accent chip over the map. Hard-coded white
+ * stops being readable the moment the accent preference switches to gold;
+ * this is the accent's own declared foreground.
+ */
+const ON_ACCENT_FG = roleSolid("action").fg;
 
 function formatDateTime(value?: string | null): string {
   if (!value) return "Not set";
@@ -74,8 +94,12 @@ function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
           allowFullScreen
           className="h-full w-full border-0"
         />
-        <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-[color:var(--app-accent)]/80 px-3 py-1.5 text-[12px] font-semibold leading-4 text-white backdrop-blur-xl">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-sky-300" />
+        <div
+          className={`pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-[color:var(--app-accent)]/80 px-3 py-1.5 text-[12px] font-semibold leading-4 backdrop-blur-xl ${ON_ACCENT_FG}`}
+        >
+          {/* Same foreground as the label beside it: the live dot reads as
+              part of the chip, not as a second (cyan) location colour. */}
+          <span className="h-2 w-2 animate-pulse rounded-full bg-[color:var(--app-accent-fg)]" />
           Public location
         </div>
         <Button
@@ -99,7 +123,7 @@ function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
           </p>
         </div>
         {point.drive ? (
-          <div className="rounded-[12px] bg-[color:var(--app-accent)]/10 p-3">
+          <div className="rounded-[12px] bg-[color:var(--app-accent-tint)] p-3">
             <p className="flex items-center gap-1.5 text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)]">
               <Route className="h-3.5 w-3.5" aria-hidden="true" />
               Driving to {point.drive.destination.label}
@@ -138,6 +162,18 @@ export default function PublicLocationRequestPageClient() {
     useState<PlainLocationPoint | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Three opposite states shared one action-blue bubble, so an unusable link
+  // was painted the same colour as a working one and only the glyph told the
+  // truth. The glyph stays exactly as it is; the bubble now agrees with it.
+  // No snapshot (and the checking-the-link moment) is an empty state, not an
+  // action and not a failure — it rests on neutral.
+  const headerRole: SemanticRole = error
+    ? "danger"
+    : publicLocation
+      ? "success"
+      : "neutral";
+  const headerTone = roleClasses(headerRole);
 
   useEffect(() => {
     let cancelled = false;
@@ -179,7 +215,9 @@ export default function PublicLocationRequestPageClient() {
       <div className="mx-auto flex min-h-screen w-full max-w-[720px] flex-col px-5 pb-10 pt-[max(48px,calc(env(safe-area-inset-top)+28px))] sm:px-6 sm:pt-[max(64px,calc(env(safe-area-inset-top)+40px))]">
         <div className="space-y-6 rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-none sm:p-6">
           <div className="flex items-start gap-4">
-            <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+            <div
+              className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] ${headerTone.tile} ${headerTone.glyph}`}
+            >
               {error ? (
                 <AlertTriangle className="h-[17px] w-[17px]" aria-hidden="true" />
               ) : publicLocation ? (
@@ -228,7 +266,9 @@ export default function PublicLocationRequestPageClient() {
               {publicLocation ? (
                 <PublicLocationMap point={publicLocation} />
               ) : (
-                <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-warning)]/10 p-4 text-[15px] leading-5 text-[color:var(--app-warning)]">
+                <div
+                  className={`rounded-[var(--app-card-radius-compact)] p-4 text-[15px] leading-5 ${NO_SNAPSHOT_TONE.tile} ${NO_SNAPSHOT_TONE.glyph}`}
+                >
                   This link opened correctly, but no public location is attached.
                   Ask the sender to create a fresh public location link.
                 </div>

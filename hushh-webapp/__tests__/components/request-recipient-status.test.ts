@@ -85,6 +85,16 @@ describe("someone you already asked", () => {
     expect(status.subtitle).toBe("Asked 1m ago, waiting on them");
   });
 
+  it("names the amount asked for, not just that an ask exists", () => {
+    // "Asked 6m ago" says a request is out there; it does not say what was
+    // asked, so the person who picked four hours had no way to check that four
+    // hours is what is actually waiting on the other side.
+    const status = statusFor({
+      requestedByMe: [request({ requestedDurationHours: 4 })],
+    });
+    expect(status.subtitle).toBe("Asked 6m ago for 4 hours, waiting on them");
+  });
+
   it("hands the row the request to take back", () => {
     // Reported from QA: two people asked, both rows reading "Asked", and no
     // way off either one. The row cannot offer a take-back without knowing
@@ -117,12 +127,48 @@ describe("someone already sharing with you", () => {
     expect(status.selectable).toBe(false);
   });
 
-  it("outranks a pending request to the same person", () => {
+  it("says both when there is also an unanswered ask, because both are true", () => {
+    // "Live" used to win outright. But a request for MORE time is made by
+    // somebody who is already being shared with, so the row showed "Sharing
+    // with you, 55 more min" and nothing else -- the extra time they had just
+    // asked for left no trace on the screen they asked it from.
+    const status = statusFor({
+      requestedByMe: [request({ requestedDurationHours: 4 })],
+      receivedGrants: [grant({})],
+    });
+    expect(status.subtitle).toBe(
+      "Sharing with you, 55 more min · asked for 4 hours more",
+    );
+    expect(status.statusLabel).toBe("Asked");
+    expect(status.selectable).toBe(false);
+  });
+
+  it("still says only Live when nothing is pending", () => {
+    const status = statusFor({
+      requestedByMe: [request({ status: "approved" })],
+      receivedGrants: [grant({})],
+    });
+    expect(status.statusLabel).toBe("Live");
+  });
+
+  it("falls back to an unquantified line when the ask named no amount", () => {
     const status = statusFor({
       requestedByMe: [request({})],
       receivedGrants: [grant({})],
     });
-    expect(status.statusLabel).toBe("Live");
+    expect(status.subtitle).toBe(
+      "Sharing with you, 55 more min · asked for more time",
+    );
+  });
+
+  it("names an until-stopped ask as having no end time", () => {
+    const status = statusFor({
+      requestedByMe: [request({ requestedDurationMode: "until_stopped" })],
+      receivedGrants: [grant({})],
+    });
+    expect(status.subtitle).toBe(
+      "Sharing with you, 55 more min · asked for no end time",
+    );
   });
 
   it("ignores a grant that is no longer active", () => {
@@ -162,5 +208,13 @@ describe("relative labels", () => {
     expect(shortRemaining(NOW + 55 * 60_000, NOW)).toBe("55 more min");
     expect(shortRemaining(NOW + 60 * 60_000, NOW)).toBe("1 more hour");
     expect(shortRemaining(NOW + 3 * 3_600_000, NOW)).toBe("3 more hours");
+  });
+
+  it("never overstates the time left", () => {
+    // 90 minutes used to round to "2 more hours". A countdown that claims more
+    // time than exists is worse than none: it is the number people use to
+    // decide when to leave, or when to ask for more.
+    expect(shortRemaining(NOW + 90 * 60_000, NOW)).toBe("1h 30m more");
+    expect(shortRemaining(NOW + 119 * 60_000, NOW)).toBe("1h 59m more");
   });
 });

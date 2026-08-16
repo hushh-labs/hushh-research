@@ -131,7 +131,8 @@
     "150_one_location_until_stopped_grants.sql",
     "151_feed_events_dedupe_approved_share.sql",
     "152_feed_events_recipient_fanout.sql",
-    "153_one_location_duration_changed_event.sql"
+    "153_one_location_duration_changed_event.sql",
+    "154_one_location_access_request_duration.sql"
   ],
   "groups": {
     "iam": [
@@ -217,7 +218,8 @@
       "150_one_location_until_stopped_grants.sql",
       "151_feed_events_dedupe_approved_share.sql",
       "152_feed_events_recipient_fanout.sql",
-      "153_one_location_duration_changed_event.sql"
+      "153_one_location_duration_changed_event.sql",
+      "154_one_location_access_request_duration.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

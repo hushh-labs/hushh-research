@@ -19,6 +19,17 @@ import type {
 } from "@/lib/one-location/types";
 import { SECTION_HEADING } from "@/components/one-location/redesign/tokens";
 import { TaskFlowHeader } from "@/components/one-location/redesign/primitives";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
+
+/**
+ * A person avatar reports no state of its own — the initials identify, the
+ * trailing control acts. Keeping it neutral leaves exactly one accent per row
+ * (the Add button) instead of two blues competing across the same 58px.
+ */
+const CONTACT_AVATAR_TONE = cn(
+  roleClasses("neutral").tile,
+  roleClasses("neutral").glyph,
+);
 
 type SmsContactsFlowProps = {
   recipients: OneLocationRecipient[];
@@ -61,7 +72,10 @@ function ContactRow({
   return (
     <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
       <span
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent)]/12 text-[15px] font-semibold text-[color:var(--app-accent)]"
+        className={cn(
+          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[15px] font-semibold",
+          CONTACT_AVATAR_TONE,
+        )}
         aria-hidden
       >
         {initials(label)}
@@ -76,7 +90,7 @@ function ContactRow({
           type="button"
           onClick={onAskRemove}
           disabled={busy}
-          className="press-scale flex h-8 min-w-[76px] items-center justify-center rounded-full bg-[color:var(--app-destructive)]/10 px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:opacity-45"
+          className="press-scale flex h-8 min-w-[76px] items-center justify-center rounded-full bg-[color:var(--app-destructive-tint)] px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:opacity-45"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Remove"}
         </button>
@@ -179,6 +193,14 @@ export function SmsContactsFlow({
             <ContactGroup>
               {circles.map((circle, index) => {
                 const circleBusy = busyKey === `sms-circle:${circle.id}`;
+                // STATE BEATS CATEGORY: a circle is the people role, but one
+                // holding nobody except the viewer has nothing to report and
+                // stays neutral. `memberCount` includes the viewer, so the
+                // count that decides this is `memberCount - 1` — the same test
+                // the Circles list and the check-in flow apply.
+                const circleRole = roleClasses("people", {
+                  inactive: Math.max(0, circle.memberCount - 1) === 0,
+                });
                 return (
                   <div
                     key={circle.id}
@@ -188,7 +210,13 @@ export function SmsContactsFlow({
                         "border-b border-[color:var(--app-separator)]",
                     )}
                   >
-                    <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+                    <span
+                      className={cn(
+                        "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px]",
+                        circleRole.tile,
+                        circleRole.glyph,
+                      )}
+                    >
                       <UsersRound className="h-[17px] w-[17px]" />
                     </span>
                     <span className="min-w-0 flex-1">
@@ -294,8 +322,15 @@ export function SmsContactsFlow({
           className="!bottom-0 !left-1/2 !top-auto !w-full !max-w-[430px] !-translate-x-1/2 !translate-y-0 !gap-0 !rounded-b-none !rounded-t-[24px] !border-0 !bg-[color:var(--app-card-surface-default-solid)] !px-4 !pb-[max(20px,env(safe-area-inset-bottom))] !pt-5 !shadow-none md:!bottom-auto md:!top-1/2 md:!max-w-[400px] md:!-translate-y-1/2 md:!rounded-b-[24px] md:!pb-5 md:!shadow-xl"
         >
           <AlertDialogHeader className="!place-items-center !text-center sm:!place-items-center sm:!text-center">
+            {/* The person being removed, not a warning about them. A solid
+                orange well read as "attention" on a face, and white on
+                --app-warning measures ~2.2:1. The danger in this dialog is
+                carried by the red Remove button and the title copy. */}
             <span
-              className="flex h-[52px] w-[52px] items-center justify-center rounded-[16px] bg-[color:var(--app-warning)] text-xl font-semibold text-white"
+              className={cn(
+                "flex h-[52px] w-[52px] items-center justify-center rounded-[16px] text-xl font-semibold",
+                CONTACT_AVATAR_TONE,
+              )}
               aria-hidden
             >
               {pendingRemoval ? initials(recipientLabel(pendingRemoval)) : "?"}
@@ -320,7 +355,7 @@ export function SmsContactsFlow({
                 event.preventDefault();
                 void removePending();
               }}
-              className="!h-12 !rounded-full !bg-[color:var(--app-destructive)] !text-[15px] !font-semibold !text-white hover:!bg-[color:var(--app-destructive)]/90 disabled:!opacity-60"
+              className="!h-12 !rounded-full !bg-[color:var(--app-destructive)] !text-[15px] !font-semibold !text-[color:var(--app-destructive-fg)] hover:!bg-[color:var(--app-destructive)]/90 disabled:!opacity-60"
             >
               {removing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />

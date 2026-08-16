@@ -564,7 +564,7 @@ export function SosPanel({
               onContextMenu={(event) => event.preventDefault()}
               data-sos-core={busy ? "" : undefined}
               className={cn(
-                "relative z-10 flex h-[81%] w-[81%] touch-none select-none items-center justify-center rounded-full text-white outline-none",
+                "relative z-10 flex h-[81%] w-[81%] touch-none select-none items-center justify-center rounded-full text-[color:var(--app-destructive-fg)] outline-none",
                 "transition-[transform,box-shadow] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background",
                 progress > 0 && "scale-[0.96]",
@@ -643,8 +643,19 @@ export function SosPanel({
                   }
                   className={cn(
                     quickPill,
+                    // Picking a preset is SELECTION, not danger. It stays in
+                    // the screen's red family — this is the emergency surface
+                    // — but as the quiet wash, so the only solid emergency red
+                    // on the screen remains the control that actually sends.
+                    //
+                    // The wash carries the state; the label keeps the same
+                    // high-contrast control text its unselected siblings use.
+                    // Red-on-red-wash falls to ~2.8:1 at this 16px size, on
+                    // the one screen where a message gets picked under stress.
+                    // `aria-pressed` and the weight change carry the state
+                    // alongside the colour either way.
                     selected
-                      ? "bg-[color:var(--app-destructive)] font-semibold text-white"
+                      ? "bg-[color:var(--app-destructive-surface)] font-semibold text-[color:var(--sos-control-text)]"
                       : "bg-[color:var(--sos-control-surface)] text-[color:var(--sos-control-text)] hover:bg-[color:var(--sos-control-surface-hover)] active:bg-[color:var(--sos-control-surface-active)]",
                     messageLocked && "cursor-not-allowed opacity-50",
                   )}
@@ -693,9 +704,12 @@ export function SosPanel({
               aria-label="Send this SMS alert"
               className={cn(
                 "press-scale absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full transition-colors",
+                // Solid emergency red is deliberate here and nowhere else in
+                // the message box: this button IS the send, so it is the one
+                // control whose consequence is the alert going out.
                 hardDisabled || !selectedMessage
                   ? "bg-[color:var(--sos-control-surface-active)] text-[color:var(--sos-label)]"
-                  : "bg-[color:var(--app-destructive)] text-white",
+                  : "bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]",
               )}
             >
               {busy ? (

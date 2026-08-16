@@ -148,7 +148,9 @@ describe("OneLocationOnboardingFlow", () => {
       const surface = screen.getByTestId(testId);
       const header = headerOf(testId);
       const inset =
-        (header?.className ?? "") + " " + (surface.firstElementChild?.className ?? "");
+        (header?.className ?? "") +
+        " " +
+        (surface.firstElementChild?.className ?? "");
       expect(inset).toContain("--app-safe-area-top-effective");
       if (header) expect(header.className).not.toMatch(/h-16/u);
       if (next) fireEvent.click(screen.getByRole("button", { name: next }));
@@ -175,12 +177,7 @@ describe("OneLocationOnboardingFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     record("one-location-onboarding-invite");
 
-    expect(widths).toEqual([
-      "none",
-      "none",
-      "max-w-[430px]",
-      "none",
-    ]);
+    expect(widths).toEqual(["none", "none", "max-w-[430px]", "none"]);
   });
 
   it("keeps the mobile feature screen readable without forced card compression", () => {
@@ -195,7 +192,9 @@ describe("OneLocationOnboardingFlow", () => {
     expect(featureSurface?.className).toContain("max-[431px]:max-w-none");
     expect(featureSurface?.className).toContain("overflow-hidden");
     expect(featureSurface?.className).toContain("flex-col");
-    expect(featureSurface?.className).toContain("bg-white");
+    expect(featureSurface?.className).toContain(
+      "bg-[color:var(--app-grouped-background)]",
+    );
     expect(featureSurface?.className).toContain("px-5");
     expect(featureSurface?.className).toContain("sm:px-8");
     expect(featureSurface?.className).toContain(
@@ -232,15 +231,11 @@ describe("OneLocationOnboardingFlow", () => {
     expect(responsiveStyles).not.toContain(
       "grid-template-rows: minmax(0, 0.82fr) minmax(0, 1fr)",
     );
-    expect(responsiveStyles).toContain("@media (min-width: 768px)");
+    expect(responsiveStyles).toContain("@media (min-width: 1024px)");
     expect(responsiveStyles).toContain("flex: 0 0 auto");
-    expect(responsiveStyles).toContain(
-      "font-size: clamp(14px, 9.5cqw, 15px)",
-    );
-    expect(responsiveStyles).toContain("--foundation-title1-size: 34px");
-    expect(responsiveStyles).not.toContain(
-      "--foundation-title1-size: clamp(36px, 3vw, 40px)",
-    );
+    expect(responsiveStyles).toContain("font-size: clamp(14px, 9.5cqw, 15px)");
+    expect(responsiveStyles).toContain("--type-agent-title-size: 34px");
+    expect(responsiveStyles).not.toContain("--foundation-title1-size");
     expect(responsiveStyles).not.toContain("aspect-ratio: 2.5 / 1");
     expect(responsiveStyles).not.toContain("aspect-ratio: 1.6 / 1");
     expect(responsiveStyles).toContain("grid-template-areas:");
@@ -264,16 +259,15 @@ describe("OneLocationOnboardingFlow", () => {
     expect(responsiveStyles).toContain("align-items: flex-start");
     expect(responsiveStyles).toContain("--one-feature-copy-gap: 12px");
     expect(responsiveStyles).toContain("gap: var(--one-feature-copy-gap)");
-    expect(responsiveStyles).toContain(
-      "--one-feature-copy-gap: 8px",
-    );
-    expect(responsiveStyles).toContain(
-      "--one-feature-copy-gap: 4px",
-    );
+    expect(responsiveStyles).toContain("--one-feature-copy-gap: 8px");
+    expect(responsiveStyles).toContain("--one-feature-copy-gap: 4px");
     expect(responsiveStyles).toContain(
       "@media (max-width: 431px) and (max-height: 560px)",
     );
-    expect(responsiveStyles).not.toContain("font-size: 7.5px");
+    expect(responsiveStyles).toContain("@media (max-width: 359px)");
+    expect(responsiveStyles).toContain("grid-template-columns: minmax(0, 1fr)");
+    expect(responsiveStyles).not.toMatch(/font-size:\s*(?:8|9|9\.5|10)px/u);
+    expect(responsiveStyles).not.toContain("min-height: 42px");
 
     const cards = document.querySelectorAll("[data-one-use-case-card]");
     expect(cards).toHaveLength(3);
@@ -328,9 +322,7 @@ describe("OneLocationOnboardingFlow", () => {
       screen.getByRole("heading", { name: "Need to keep people updated?" }),
     ).toBeTruthy();
     expect(
-      screen.getByText(
-        "Share location, check in, or send help in seconds.",
-      ),
+      screen.getByText("Share location, check in, or send help in seconds."),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
@@ -381,15 +373,15 @@ describe("OneLocationOnboardingFlow", () => {
       expect(ring.className).toContain("animation:oneSmsRadar");
     }
 
-    expect(screen.getByTestId("location-use-case-trip").className).toContain(
-      "bg-[#f2f5f8]",
-    );
-    expect(screen.getByTestId("location-use-case-checkin").className).toContain(
-      "bg-[#f4f6f8]",
-    );
-    expect(screen.getByTestId("location-use-case-sos").className).toContain(
-      "bg-[#fff3f2]",
-    );
+    for (const testId of [
+      "location-use-case-trip",
+      "location-use-case-checkin",
+      "location-use-case-sos",
+    ]) {
+      expect(screen.getByTestId(testId).className).toContain(
+        "bg-[color:var(--app-primary-surface)]",
+      );
+    }
 
     const checkInCard = screen.getByTestId("location-use-case-checkin");
     expect(checkInCard.querySelector("[data-one-checkin-pin]")).toBeNull();
@@ -423,7 +415,6 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
     expect(screen.queryByText("Connected Person")).toBeNull();
   });
-
 
   it("requests only missing permissions as screen two opens", () => {
     const props = renderFlow();
@@ -557,7 +548,6 @@ describe("OneLocationOnboardingFlow", () => {
       expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
     });
   });
-
 
   it("completes from the invite screen on one press, and never on its own", async () => {
     vi.useFakeTimers();
@@ -716,15 +706,31 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onComplete).not.toHaveBeenCalled();
   });
 
-  it("keeps explicit dark surfaces on every onboarding screen", () => {
+  it("uses one semantic light and dark surface contract on every onboarding screen", () => {
     renderFlow();
+    const root = screen.getByTestId("one-location-onboarding");
+    expect(root).toHaveAttribute(
+      "data-one-onboarding-design",
+      "location-agent-v2",
+    );
+    expect(root.className).toContain(
+      "bg-[color:var(--app-grouped-background)]",
+    );
+    expect(root.className).toContain("[--type-agent-title-size:34px]");
+    expect(root.className).toContain("sm:[--type-agent-title-size:44px]");
+
     const welcome = screen.getByTestId("one-location-onboarding-welcome");
-    expect(welcome.firstElementChild?.className).toContain("dark:bg-[#073d78]");
+    expect(welcome.firstElementChild?.className).toContain(
+      "bg-[color:var(--app-grouped-background)]",
+    );
+    expect(welcome.firstElementChild?.className).not.toMatch(
+      /#087ff5|#073d78/u,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
     const features = screen.getByTestId("one-location-onboarding-features");
     expect(features.firstElementChild?.className).toContain(
-      "dark:bg-[#0c1017]",
+      "bg-[color:var(--app-grouped-background)]",
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
@@ -732,13 +738,13 @@ describe("OneLocationOnboardingFlow", () => {
       "one-location-onboarding-contacts",
     );
     expect(contactsScreen.firstElementChild?.className).toContain(
-      "dark:bg-[#14171d]",
+      "bg-[color:var(--app-grouped-background)]",
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     const inviteScreen = screen.getByTestId("one-location-onboarding-invite");
     expect(inviteScreen.firstElementChild?.className).toContain(
-      "dark:bg-[#14171d]",
+      "bg-[color:var(--app-grouped-background)]",
     );
   });
 
@@ -767,16 +773,16 @@ describe("OneLocationOnboardingFlow", () => {
     it("shows who is behind a code before asking anyone to join", async () => {
       const props = openJoin();
 
-      fireEvent.click(
-        screen.getByText("Someone sent you a code?"),
-      );
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
       fireEvent.change(screen.getByLabelText("Circle code"), {
         target: { value: "abcd-efgh-jklm" },
       });
       fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
 
       await waitFor(() =>
-        expect(props.onPreviewCircleCode).toHaveBeenCalledWith("abcd-efgh-jklm"),
+        expect(props.onPreviewCircleCode).toHaveBeenCalledWith(
+          "abcd-efgh-jklm",
+        ),
       );
 
       // Name, owner and size: deciding to share your location with a group is
@@ -894,9 +900,7 @@ describe("OneLocationOnboardingFlow", () => {
       fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
 
       expect(await screen.findByText("That code has expired.")).toBeTruthy();
-      expect(
-        screen.queryByTestId("onboarding-join-circle-preview"),
-      ).toBeNull();
+      expect(screen.queryByTestId("onboarding-join-circle-preview")).toBeNull();
 
       // A wrong code is not a dead end.
       fireEvent.click(finishButton());
@@ -945,13 +949,9 @@ describe("OneLocationOnboardingFlow", () => {
 
       // Previewing replaces the input, so without a way back a wrong code
       // stranded the person looking at someone else's circle.
-      fireEvent.click(
-        screen.getByTestId("onboarding-join-circle-reset"),
-      );
+      fireEvent.click(screen.getByTestId("onboarding-join-circle-reset"));
 
-      expect(
-        screen.queryByTestId("onboarding-join-circle-preview"),
-      ).toBeNull();
+      expect(screen.queryByTestId("onboarding-join-circle-preview")).toBeNull();
       const field = screen.getByLabelText("Circle code") as HTMLInputElement;
       // The typed code survives, so fixing one wrong character is an edit
       // rather than retyping all twelve.
@@ -1012,7 +1012,9 @@ describe("OneLocationOnboardingFlow", () => {
       // The OS contacts prompt is the single most declinable moment in the
       // flow. Firing it on mount is what makes people say no; it fires on tap.
       expect(onSyncOnboardingContacts).not.toHaveBeenCalled();
-      expect(screen.getByRole("button", { name: "Check my contacts" })).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Check my contacts" }),
+      ).toBeTruthy();
       expect(screen.getByRole("button", { name: "Not now" })).toBeTruthy();
     });
 
@@ -1024,7 +1026,9 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ onSyncOnboardingContacts, onAddOnboardingContact });
       openContactsScreen();
 
-      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Check my contacts" }),
+      );
 
       expect(await screen.findByText("Trusted B")).toBeTruthy();
       expect(screen.getByText("Advisor C")).toBeTruthy();
@@ -1035,7 +1039,9 @@ describe("OneLocationOnboardingFlow", () => {
       await waitFor(() =>
         expect(onAddOnboardingContact).toHaveBeenCalledWith("user_b"),
       );
-      expect(await screen.findByRole("button", { name: /Requested/ })).toBeTruthy();
+      expect(
+        await screen.findByRole("button", { name: /Requested/ }),
+      ).toBeTruthy();
       // Adding someone is not leaving the flow.
       expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
     });
@@ -1049,7 +1055,9 @@ describe("OneLocationOnboardingFlow", () => {
         .mockRejectedValue(new Error("network"));
       renderFlow({ onSyncOnboardingContacts, onAddOnboardingContact });
       openContactsScreen();
-      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Check my contacts" }),
+      );
 
       const addButtons = await screen.findAllByRole("button", { name: "Add" });
       fireEvent.click(addButtons[0]!);
@@ -1067,7 +1075,9 @@ describe("OneLocationOnboardingFlow", () => {
         .mockResolvedValue({ status: "none", partial: false });
       renderFlow({ onSyncOnboardingContacts });
       openContactsScreen();
-      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Check my contacts" }),
+      );
 
       expect(
         await screen.findByText(/None of your contacts are on One yet/i),
@@ -1082,7 +1092,9 @@ describe("OneLocationOnboardingFlow", () => {
         .mockResolvedValue({ status: "none", partial: true });
       renderFlow({ onSyncOnboardingContacts });
       openContactsScreen();
-      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Check my contacts" }),
+      );
 
       // iOS limited access and the web picker return a hand-picked subset, so
       // an empty result is inconclusive and must not be reported as a whole
@@ -1102,7 +1114,9 @@ describe("OneLocationOnboardingFlow", () => {
       const onOpenContactSettings = vi.fn();
       renderFlow({ onSyncOnboardingContacts, onOpenContactSettings });
       openContactsScreen();
-      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Check my contacts" }),
+      );
 
       expect(
         await screen.findByText(/does not have access to your contacts/i),
@@ -1120,7 +1134,9 @@ describe("OneLocationOnboardingFlow", () => {
         .mockRejectedValue(new Error("plugin exploded"));
       renderFlow({ onSyncOnboardingContacts });
       openContactsScreen();
-      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Check my contacts" }),
+      );
 
       expect(await screen.findByText("plugin exploded")).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -1152,7 +1168,9 @@ describe("OneLocationOnboardingFlow", () => {
       fireEvent.click(screen.getByRole("button", { name: "Go back" }));
 
       // Back must not land on a screen that was never shown.
-      expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+      expect(
+        screen.getByTestId("one-location-onboarding-features"),
+      ).toBeTruthy();
     });
 
     it("still completes when the step is skipped", () => {
@@ -1180,9 +1198,7 @@ describe("OneLocationOnboardingFlow", () => {
 
   describe("circle invite screen (final screen)", () => {
     it("shows the invite code and lets the user copy/share it", async () => {
-      const onPrepareOnboardingCircleInvite = vi
-        .fn()
-        .mockResolvedValue(invite);
+      const onPrepareOnboardingCircleInvite = vi.fn().mockResolvedValue(invite);
       const onCopyOnboardingCircleCode = vi.fn();
       const onShareOnboardingCircleCode = vi.fn();
       const props = renderFlow({
@@ -1193,23 +1209,20 @@ describe("OneLocationOnboardingFlow", () => {
 
       openInviteScreen();
 
-      expect(
-        screen.getByTestId("one-location-onboarding-invite"),
-      ).toBeTruthy();
+      expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
       expect(onPrepareOnboardingCircleInvite).toHaveBeenCalledTimes(1);
 
       await waitFor(() =>
         expect(
-          screen.getByTestId("one-location-onboarding-invite-code")
-            .textContent,
+          screen.getByTestId("one-location-onboarding-invite-code").textContent,
         ).toContain("ABCD-EFGH-JKLM"),
       );
-      expect(screen.getByText(/Bring your people to Meena Family/)).toBeTruthy();
+      expect(
+        screen.getByText(/Bring your people to Meena Family/),
+      ).toBeTruthy();
 
       fireEvent.click(screen.getByRole("button", { name: /Copy/ }));
-      expect(onCopyOnboardingCircleCode).toHaveBeenCalledWith(
-        "ABCDEFGHJKLM",
-      );
+      expect(onCopyOnboardingCircleCode).toHaveBeenCalledWith("ABCDEFGHJKLM");
 
       fireEvent.click(screen.getByRole("button", { name: /Share/ }));
       expect(onShareOnboardingCircleCode).toHaveBeenCalledWith(invite);
@@ -1229,9 +1242,7 @@ describe("OneLocationOnboardingFlow", () => {
 
       openInviteScreen();
 
-      await waitFor(() =>
-        expect(screen.getByText("temporary")).toBeTruthy(),
-      );
+      await waitFor(() => expect(screen.getByText("temporary")).toBeTruthy());
 
       fireEvent.click(screen.getByRole("button", { name: "Try again" }));
       await waitFor(() =>
@@ -1239,8 +1250,7 @@ describe("OneLocationOnboardingFlow", () => {
       );
       await waitFor(() =>
         expect(
-          screen.getByTestId("one-location-onboarding-invite-code")
-            .textContent,
+          screen.getByTestId("one-location-onboarding-invite-code").textContent,
         ).toContain("ABCD-EFGH-JKLM"),
       );
     });
@@ -1305,7 +1315,9 @@ describe("OneLocationOnboardingFlow", () => {
       expect(map.className).toContain("shrink-0");
       expect(map.className).toContain("md:absolute");
       expect(map.className).not.toMatch(/(^|\s)absolute(\s|$)/u);
-      expect(sheet?.className).toContain("bg-white");
+      expect(sheet?.className).toContain(
+        "bg-[color:var(--app-primary-surface)]",
+      );
       expect(sheet?.className).not.toMatch(/bg-white\/\d/u);
       expect(map.contains(seat)).toBe(false);
     });
@@ -1389,9 +1401,7 @@ describe("OneLocationOnboardingFlow", () => {
     });
 
     it("keeps the final screen fitted and iOS-safe on a small phone", async () => {
-      const onPrepareOnboardingCircleInvite = vi
-        .fn()
-        .mockResolvedValue(invite);
+      const onPrepareOnboardingCircleInvite = vi.fn().mockResolvedValue(invite);
       renderFlow({ onPrepareOnboardingCircleInvite });
       openInviteScreen();
 
