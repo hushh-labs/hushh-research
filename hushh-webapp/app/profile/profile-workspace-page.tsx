@@ -24,6 +24,7 @@ import {
   LogOut,
   Mail,
   MapPin,
+  Mic,
   MessageCircleQuestion,
   Monitor,
   Phone,
@@ -68,6 +69,7 @@ import {
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
 import { GeminiLogo } from "@/components/brand/gemini-logo";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
+import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
@@ -3195,6 +3197,18 @@ function ProfilePageContent() {
             )
           }
         />
+        <SettingsRow
+          icon={Mic}
+          title="Voice"
+          description="What One's voice can do, and its safety controls."
+          chevron
+          onClick={() =>
+            updateProfileView(
+              { panel: "preferences", detail: "voice" },
+              "push",
+            )
+          }
+        />
       </SettingsGroup>
     </div>
   );
@@ -3903,6 +3917,13 @@ function ProfilePageContent() {
             onRequestVaultUnlock={() => requestVaultUnlock("profile_data")}
           />
         ),
+      });
+    } else if (activeDetail === "voice") {
+      profileStackEntries.push({
+        key: "detail:voice",
+        title: "Voice",
+        description: "One's voice controls.",
+        content: <VoicePreferencesPanel userId={user.uid} />,
       });
     }
   } else if (!routeBlockedByVault && activePanel === "security") {

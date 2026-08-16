@@ -109,18 +109,17 @@ export function ProfileStackNavigator({
     setActiveIndex(nextLength);
   }, [entries, renderedEntries]);
 
-  /* Pushing a screen starts the reader at its header rather than wherever the
-   * previous screen was scrolled to. The stack no longer owns a scroll
-   * container (see below), so this scrolls the document — the same thing a
-   * route change does everywhere else in the app. */
   useEffect(() => {
-    if (activeIndex <= 0) return;
-    if (typeof window === "undefined") return;
-    const frame = window.requestAnimationFrame(() => {
-      window.scrollTo({ top: 0 });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [activeIndex, renderedEntries]);
+    // Detail content now flows into the app's own scroll root instead of a
+    // nested scroll region of its own, so pushing a new screen must reset
+    // that shared scroll position -- otherwise a detail screen mounts
+    // already scrolled to wherever the previous screen left off.
+    if (typeof document === "undefined") return;
+    const scrollRoot = document.querySelector<HTMLElement>(
+      '[data-app-scroll-root="true"]',
+    );
+    scrollRoot?.scrollTo({ top: 0 });
+  }, [activeIndex]);
 
   const screens = [
     {

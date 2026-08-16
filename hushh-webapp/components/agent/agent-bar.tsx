@@ -33,6 +33,7 @@ import {
 } from "@/lib/agent/agent-action-runtime";
 import { settleAgentGatewayAction } from "@/lib/agent/agent-gateway-action-settlement";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
+import { requiresHardTapConfirmation } from "@/lib/agent/confirmation-tap-policy";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { ApiService } from "@/lib/services/api-service";
 import {
@@ -1122,10 +1123,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           .then((confirmation) => {
             if (voiceLeaseRef.current?.id !== pending.leaseId) return;
             const authorized = { ...pending, receipt: confirmation.receipt };
-            if (
-              getKaiActionById(pending.actionId)?.activation_policy ===
-              "trusted_activation_required"
-            ) {
+            const confirmingAction = getKaiActionById(pending.actionId);
+            const requiresRealTap = requiresHardTapConfirmation(
+              confirmingAction,
+              runtime?.oneVoiceContextSnapshot.voice_settings.require_tap_confirmation ===
+                true,
+            );
+            if (requiresRealTap) {
               // A popup must be opened during a fresh physical gesture. The
               // first tap only receives ledger authority; preserve the second
               // tap as the platform-required activation boundary.

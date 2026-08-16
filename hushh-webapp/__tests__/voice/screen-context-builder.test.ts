@@ -1010,6 +1010,35 @@ describe("buildStructuredScreenContext", () => {
     expect(snapshot.cache.freshness).toBe("locked");
   });
 
+  it("defaults voice_settings to today's exact behavior when none is provided", () => {
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/kai", "kai"),
+    });
+
+    expect(snapshot.voice_settings).toEqual({
+      voice_enabled: true,
+      require_tap_confirmation: false,
+      disabled_domains: [],
+    });
+  });
+
+  it("carries the person's own voice restrictions into the live snapshot", () => {
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/kai", "kai"),
+      voiceSettings: {
+        voiceEnabled: false,
+        requireTapConfirmation: true,
+        disabledDomains: ["location", "location", "kyc"],
+      },
+    });
+
+    expect(snapshot.voice_settings).toEqual({
+      voice_enabled: false,
+      require_tap_confirmation: true,
+      disabled_domains: ["location", "kyc"],
+    });
+  });
+
   it("carries only bounded onboarding progress into the live snapshot", () => {
     const snapshot = buildOneVoiceContextSnapshot({
       appRuntimeState: makeRuntimeState("/one/setup/kai", "one_setup"),

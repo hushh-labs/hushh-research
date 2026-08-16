@@ -40,6 +40,11 @@ import {
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
+import {
+  readVoicePreferences,
+  subscribeVoicePreferences,
+  type OneVoicePreferencesState,
+} from "@/lib/agent/voice-preferences";
 import type { Persona } from "@/lib/services/ria-service";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import {
@@ -282,6 +287,15 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     return () => unsubscribe();
   }, [uid]);
 
+  const [voicePreferences, setVoicePreferences] = useState<OneVoicePreferencesState>(
+    () => readVoicePreferences(uid),
+  );
+  useEffect(() => {
+    setVoicePreferences(readVoicePreferences(uid));
+    if (!uid) return;
+    return subscribeVoicePreferences(uid, setVoicePreferences);
+  }, [uid]);
+
   const availablePersonas = useMemo(() => {
     const personas = new Set<Persona>([activePersona]);
     personas.add("investor");
@@ -383,6 +397,11 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
         surfaceMetadata,
         state: oneVoiceState,
         lastTransition: lastVoiceTransition,
+        voiceSettings: {
+          voiceEnabled: voicePreferences.voiceEnabled,
+          requireTapConfirmation: voicePreferences.requireTapConfirmation,
+          disabledDomains: voicePreferences.disabledDomains,
+        },
         onboarding: {
           phase: (path === ROUTES.GETTING_STARTED || path === ROUTES.LOGIN || path === ROUTES.PHONE_MANDATE || path.startsWith(ROUTES.ONE_SETUP))
             ? resolveOnboardingPhase({
@@ -448,6 +467,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       signedIn,
       surfaceMetadata,
       localHandlerRevision,
+      voicePreferences,
     ]
   );
 

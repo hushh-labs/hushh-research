@@ -343,6 +343,60 @@ class TestSpecialistTurn:
         assert result["status"] == "unavailable"
 
     @pytest.mark.asyncio
+    async def test_refuses_a_specialist_the_user_turned_off_in_voice_settings(self):
+        result = await _specialist_turn(
+            "agent_location",
+            "share my location with Sarah",
+            _tool_context(
+                {
+                    STATE_USER_ID: "u1",
+                    STATE_CONSENT_TOKEN: "t1",
+                    STATE_VOICE_CONTEXT: {
+                        "voice_settings": {"disabled_domains": ["location"]},
+                    },
+                }
+            ),
+        )
+        assert result["status"] == "domain_disabled"
+        assert result["reason"] == "voice_domain_disabled_by_user"
+        assert "Location" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_domain_disabled_takes_priority_over_missing_auth(self):
+        # The restriction is a fact about the request itself (which specialist,
+        # which domain), not about the session -- it must refuse the same way
+        # whether or not the person is signed in yet.
+        result = await _specialist_turn(
+            "agent_location",
+            "share my location",
+            _tool_context(
+                {
+                    STATE_VOICE_CONTEXT: {
+                        "voice_settings": {"disabled_domains": ["location"]},
+                    },
+                }
+            ),
+        )
+        assert result["status"] == "domain_disabled"
+
+    @pytest.mark.asyncio
+    async def test_does_not_restrict_a_domain_the_user_left_enabled(self):
+        result = await _specialist_turn(
+            "agent_location",
+            "where am I sharing my location",
+            _tool_context(
+                {
+                    STATE_USER_ID: "u1",
+                    STATE_CONSENT_TOKEN: "t1",
+                    STATE_VOICE_CONTEXT: {
+                        "voice_settings": {"disabled_domains": ["kyc"]},
+                    },
+                }
+            ),
+        )
+        assert result["status"] != "domain_disabled"
+
+    @pytest.mark.asyncio
     async def test_connected_systems_unavailable_result_is_user_grounded(self):
         result = await _specialist_turn(
             "agent_connected_systems",
@@ -693,6 +747,79 @@ class TestRunAppAction:
             "needsConfirmation": True,
             "trustedActivationRequired": True,
         }
+
+    @pytest.mark.asyncio
+    async def test_run_app_action_refuses_when_domain_disabled_by_user(self):
+        state = {
+            "hussh:voice_context": {
+                "available_action_ids": ["location.pause_updates"],
+                "voice_settings": {"disabled_domains": ["location"]},
+            }
+        }
+        result = await run_app_action("location.pause_updates", {}, _tool_context(state))
+        assert result["status"] == "domain_disabled"
+        assert "Location" in result["message"]
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
+
+    @pytest.mark.asyncio
+    async def test_run_app_action_allows_when_domain_not_disabled(self):
+        state = {
+            "hussh:voice_context": {
+                "available_action_ids": ["location.pause_updates"],
+                "voice_settings": {"disabled_domains": ["kyc"]},
+            }
+        }
+        result = await run_app_action("location.pause_updates", {}, _tool_context(state))
+        assert result["status"] != "domain_disabled"
+
+    @pytest.mark.asyncio
+    async def test_run_app_action_allows_when_voice_settings_absent(self):
+        # No live context at all (a non-live caller) must behave exactly as it
+        # did before this feature existed -- fail open, never "domain_disabled".
+        state: dict = {}
+        result = await run_app_action("location.pause_updates", {}, _tool_context(state))
+        assert result["status"] != "domain_disabled"
+
+    @pytest.mark.asyncio
+    async def test_start_app_goal_refuses_when_domain_disabled_by_user(self):
+        # start_app_goal must not let a settled-journey or navigation-journey
+        # entry bypass the same restriction run_app_action enforces.
+        state = {
+            "hussh:voice_context": {
+                "available_action_ids": ["location.select_share_recipient"],
+                "voice_settings": {"disabled_domains": ["location"]},
+            }
+        }
+        result = await start_app_goal(
+            "location.select_share_recipient", {"person": "Sarah"}, _tool_context(state)
+        )
+        assert result["status"] == "domain_disabled"
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
+        assert _STATE_GOAL_RUN not in state
+
+    def test_directive_flags_ignores_the_opt_in_when_it_is_off(self):
+        entry = get_action_gateway_action("location.share_selected")
+        assert entry is not None
+        assert entry.get("execution_policy") == "confirm_required"
+        flags = _directive_flags(entry, require_tap_confirmation=False)
+        assert flags == {"needsConfirmation": False, "trustedActivationRequired": False}
+
+    def test_directive_flags_requires_confirmation_when_the_user_opted_in(self):
+        entry = get_action_gateway_action("location.share_selected")
+        assert entry is not None
+        flags = _directive_flags(entry, require_tap_confirmation=True)
+        assert flags == {"needsConfirmation": True, "trustedActivationRequired": False}
+
+    def test_directive_flags_opt_in_does_not_touch_allow_direct_actions(self):
+        # The opt-in only ever adds a confirmation to confirm_required actions.
+        # An allow_direct action must stay hands-free regardless of the
+        # person's tap-confirmation preference -- that setting is scoped to
+        # actions the contract already calls risky, not to everything.
+        entry = get_action_gateway_action("location.pause_updates")
+        assert entry is not None
+        assert entry.get("execution_policy") == "allow_direct"
+        flags = _directive_flags(entry, require_tap_confirmation=True)
+        assert flags == {"needsConfirmation": False, "trustedActivationRequired": False}
 
     @pytest.mark.asyncio
     async def test_allow_direct_missing_slot_asks_exactly_one_input(self):
