@@ -3980,6 +3980,69 @@ describe("OneLocationAgentPage", () => {
     expect(mockShortenGrant).not.toHaveBeenCalled();
   });
 
+  it("says what to do when shortening fails, and lets the row be tried again", async () => {
+    // A toast that only names the failure ("Could not update access.") leaves
+    // the person with no idea whether to wait, retry, or go elsewhere.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [liveReceivedGrant(4 * 60)],
+    });
+    // Not an Error instance, so no backend-curated message exists to prefer.
+    mockShortenGrant.mockRejectedValueOnce({ code: "BOOM" });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit access for Trusted B" }),
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "New duration" }));
+    fireEvent.click(screen.getByRole("option", { name: "30 min" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "Couldn't change the time. Try again.",
+      ),
+    );
+    // A failed save is not a reason to strand the row: the editor stays open
+    // on what was picked, and Save is pressable again.
+    const retry = await screen.findByRole("button", { name: "Save" });
+    expect(retry.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("says what to do when asking the owner for more time fails", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [liveReceivedGrant(12)],
+    });
+    mockRequestAccess.mockRejectedValueOnce({ code: "BOOM" });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit access for Trusted B" }),
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "New duration" }));
+    fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "Couldn't ask Trusted B for more time. Try again.",
+      ),
+    );
+    const retry = await screen.findByRole("button", { name: "Save" });
+    expect(retry.hasAttribute("disabled")).toBe(false);
+  });
+
   it("leaves the row usable after a duration save, instead of stuck busy", async () => {
     // The save flag was the revoke flag, and the shorten path returned
     // without clearing it. So one successful save disabled that person's
