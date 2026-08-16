@@ -58,6 +58,7 @@ import type {
   OneLocationCircleSummary,
 } from "@/lib/one-location/types";
 import { filterPeopleByQuery } from "@/lib/one-location/people-search";
+import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { cn } from "@/lib/utils";
 
 const CIRCLES_GROUP_SURFACE =
@@ -65,17 +66,6 @@ const CIRCLES_GROUP_SURFACE =
 
 const CIRCLES_EMPTY_STATE_WRAPPER =
   "[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)]";
-
-/**
- * A primary action that cannot fire yet has to LOOK like it cannot fire.
- * The shared button only dims to 50% opacity, and half-opacity accent over
- * these light sheets still reads as a live button — so "Create circle" and
- * "Select people" were reported as broken rather than understood as blocked.
- * This is the neutral disabled fill the Location hub's own primary CTAs
- * already use, so nothing new is being invented here.
- */
-const BLOCKED_CTA =
-  "disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35";
 
 function circleInitials(value: string): string {
   return value

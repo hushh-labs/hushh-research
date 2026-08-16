@@ -96,6 +96,31 @@ describe("filterPeopleByQuery", () => {
     ).toEqual([people[0]]);
   });
 
+  it("keeps an Indic name whole instead of splitting it at every matra", () => {
+    // A matra is a combining mark, not a letter. Without \p{M} in the word
+    // boundary, "झुम्मा" splits into ["झ","म","म",""] and every syllable reads
+    // as a separate word — so a mid-word letter counts as a beginning and a
+    // genuine match gets dropped.
+    const people = ["सुमन", "कमल"];
+
+    expect(filterPeopleByQuery(people, "म", nameOf)).toEqual(people);
+    expect(filterPeopleByQuery(["झुम्मा", "नीलेश"], "झ", nameOf)).toEqual([
+      "झुम्मा",
+    ]);
+    expect(filterPeopleByQuery(["नीलेश", "सुमन"], "न", nameOf)).toEqual([
+      "नीलेश",
+    ]);
+  });
+
+  it("still finds an Indic name by a syllable inside it", () => {
+    expect(filterPeopleByQuery(["नीलेश मीणा"], "मी", nameOf)).toEqual([
+      "नीलेश मीणा",
+    ]);
+    expect(filterPeopleByQuery(["झुम्मा कुमारी"], "कु", nameOf)).toEqual([
+      "झुम्मा कुमारी",
+    ]);
+  });
+
   it("drops a person no part of whose text matches", () => {
     const people = ["Ankit Kumar Singh", "Neelesh Meena"];
 
