@@ -23,23 +23,20 @@ import styles from "./HushhIntroGate.module.css";
  * own render fall through to `{children}` (the home page), with no splash
  * of any kind.
  *
- * Sequence — an original, cinematic logo-reveal treatment (paced like a
- * premium streaming intro; no logo, animation, palette, or sound copied
- * from any specific one): the screen opens on a near-black background;
- * thin purple/pink/blue light streaks rise and sweep toward the centre,
- * each blurred and moving at a different depth so the convergence reads
- * as dimensional rather than flat; they gather into a soft glow bloom,
- * out of which the 🤫 mark and "Hushh One." wordmark resolve from a blur
- * into sharp focus; that holds for 1.5s; it then slowly cross-dissolves
- * over 750ms — with a soft blur and a light upward drift, never an
- * instant swap — into "Hi, {first name}" / "Welcome to One." (the real
- * signed-in user's first name — already available here via Firebase auth,
- * which resolves before the vault ever does; "Hi there" is only a
- * fallback for the rare case neither a display name nor an email
- * local-part exists); that holds for another 1.5s; the whole screen then
- * fades gently — opacity only, no colour keyframe to jump through, so
- * there is no flash of any kind — and only THEN does `VaultLockGuard`
- * mount for the first time and reveal the vault screen underneath.
+ * Sequence — a soft splash, not a cinematic logo reveal: a slow mist of
+ * blurred purple/pink/blue drifts up from below the screen through the
+ * centre and out past the top (~2.5s, Zomato-referenced motion, an
+ * original organic-cloud treatment); the 🤫 mark and "Hussh One." reveal
+ * gradually through the still-moving mist; that holds for 1.5s; it then
+ * slowly cross-dissolves over 750ms — with a soft blur and a light upward
+ * drift, never an instant swap — into "Hi, {first name}" / "Welcome to
+ * One." (the real signed-in user's first name — already available here
+ * via Firebase auth, which resolves before the vault ever does; "Hi
+ * there" is only a fallback for the rare case neither a display name nor
+ * an email local-part exists); that holds for another 1.5s; the whole
+ * screen then fades gently to reveal whatever's already mounted
+ * underneath — and only THEN does `VaultLockGuard` mount for the first
+ * time and reveal the vault screen.
  *
  * Replay behaviour comes for free from how Next.js layouts work: this
  * component lives in the `/one` layout, which stays mounted across every
@@ -59,13 +56,13 @@ import styles from "./HushhIntroGate.module.css";
 type Phase = "idle" | "sweep" | "greet1" | "greet2" | "exit";
 
 const SWEEP_DELAY_MS = 20;
-const CONVERGE_TO_MARK_MS = 1250;
+const MIST_TO_MARK_MS = 1250;
 const GREET1_HOLD_MS = 1500;
 const GREET2_HOLD_MS = 1500;
 const EXIT_DURATION_MS = 420;
 const EXIT_BUFFER_MS = 80;
 
-const GREET1_AT_MS = SWEEP_DELAY_MS + CONVERGE_TO_MARK_MS;
+const GREET1_AT_MS = SWEEP_DELAY_MS + MIST_TO_MARK_MS;
 const GREET2_AT_MS = GREET1_AT_MS + GREET1_HOLD_MS;
 const EXIT_AT_MS = GREET2_AT_MS + GREET2_HOLD_MS;
 const TOTAL_DURATION_MS = EXIT_AT_MS + EXIT_DURATION_MS + EXIT_BUFFER_MS;
@@ -130,11 +127,10 @@ export function HushhIntroGate({ children }: { children: ReactNode }) {
 
   return (
     <div aria-hidden="true" className={styles.root} data-phase={phase}>
-      <div className={styles.beams}>
-        <div className={`${styles.streak} ${styles.streakPurpleFar}`} />
-        <div className={`${styles.streak} ${styles.streakPink}`} />
-        <div className={`${styles.streak} ${styles.streakBlue}`} />
-        <div className={`${styles.streak} ${styles.streakPurpleNear}`} />
+      <div className={styles.mist}>
+        <div className={`${styles.blob} ${styles.blobPurple}`} />
+        <div className={`${styles.blob} ${styles.blobPink}`} />
+        <div className={`${styles.blob} ${styles.blobBlue}`} />
       </div>
       <div className={styles.halo} />
       <div className={styles.iconWrap}>
@@ -142,7 +138,7 @@ export function HushhIntroGate({ children }: { children: ReactNode }) {
       </div>
       <div className={styles.textStack}>
         <p className={styles.label1}>
-          Hushh <span className={styles.label1Accent}>One.</span>
+          Hussh <span className={styles.label1Accent}>One.</span>
         </p>
         <div className={styles.label2}>
           <p className={`${styles.greetingLine} ${styles.greetingLineFirst}`}>
