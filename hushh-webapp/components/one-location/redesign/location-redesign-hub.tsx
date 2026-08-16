@@ -296,7 +296,8 @@ export type LocationHubViewModel = {
    */
   onEnterShareConfirm: () => void;
   onConfirmShare: () => void;
-  onSendRequest: (reason?: string | null) => void;
+  /** Resolves true when at least one request actually reached the server. */
+  onSendRequest: (reason?: string | null) => Promise<boolean>;
   onAskReshare: (grant: OneLocationGrant) => void;
   onApprove: (request: OneLocationAccessRequest) => void;
   onDeny: (requestId: string) => void;
@@ -913,7 +914,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       params.delete(FLOW_ACTION_PARAM);
       params.delete(LOCATION_HUB_TAB_PARAM);
       const query = params.toString();
-      toast.message("This location action is no longer available.");
+      toast.message("That's no longer there.");
       router.replace(query ? `${pathname}?${query}` : pathname, {
         scroll: false,
       });
@@ -1649,7 +1650,7 @@ function LocationDetailFlow({
         ) : (
           <EmptyState
             title="Nothing shared with you"
-            description="Shares appear here."
+            description="Ask someone to share."
           />
         )
       ) : null}
@@ -1670,7 +1671,6 @@ function LocationDetailFlow({
         ) : (
           <EmptyState
             title="Nothing to review"
-            description="Requests appear here."
           />
         )
       ) : null}
@@ -2077,7 +2077,7 @@ function PeopleHub({
                     description={
                       hasSearch
                         ? "Try a different name."
-                        : "Add people or send an invite to start sharing."
+                        : "Invite someone to start sharing."
                     }
                   />
                 </div>
@@ -2528,7 +2528,7 @@ function ShareFlow({
             </ul>
           ) : (
             <p className={MUTED_TEXT}>
-              Nobody is selected yet. Tap Edit to choose people.
+              Tap Edit to choose people.
             </p>
           )}
         </SectionCard>
@@ -2636,7 +2636,7 @@ function ShareFlow({
       <TaskFlowHeader
         eyebrow="Step 1 of 2 · Choose people"
         title="Who can see you?"
-        description="Only ready people appear."
+        description="Only people set up to receive it."
       />
       {vm.circles.length ? (
         <SectionCard title="Share with a Circle">
@@ -2764,7 +2764,7 @@ function ShareFlow({
 }
 
 /**
- * "Access ends at 4:35 PM" — the confirm step's read-back of the duration.
+ * "Sharing ends at 4:35 PM" — the confirm step's read-back of the duration.
  *
  * A duration is a promise about a moment, and "4 hours" makes the reader do the
  * arithmetic. Stating the clock time is what lets someone notice that a share
@@ -2785,10 +2785,11 @@ function shareEndsAtLabel(durationHours: string, nowMs: number): string {
       hour: "numeric",
       minute: "2-digit",
     });
-    return `Access ends at ${time} today.`;
+    return `Sharing ends at ${time} today.`;
   }
   const hours = Number(durationHours);
-  if (!Number.isFinite(hours) || hours <= 0) return "Access ends when time is up.";
+  if (!Number.isFinite(hours) || hours <= 0)
+    return "Sharing ends when the time runs out.";
   const endsAt = new Date(nowMs + Math.round(hours * 60) * 60_000);
   const time = endsAt.toLocaleTimeString(undefined, {
     hour: "numeric",
@@ -2796,9 +2797,9 @@ function shareEndsAtLabel(durationHours: string, nowMs: number): string {
   });
   if (hours >= 12) {
     const day = endsAt.toLocaleDateString(undefined, { weekday: "long" });
-    return `Access ends at ${time} on ${day}.`;
+    return `Sharing ends at ${time} on ${day}.`;
   }
-  return `Access ends at ${time}.`;
+  return `Sharing ends at ${time}.`;
 }
 
 /* =================================================================== */
@@ -2819,8 +2820,33 @@ function AskFlow({
   const filtered = vm.visibleRecipients;
   // Keep the person on this screen after sending so the confirmation is tied to
   // the specific request they just made, rather than popping straight back to
-  // the hub. `justSent` latches the success state and blocks duplicate submits.
+  // the hub.
+  //
+  // `justSent` is a confirmation, NOT a one-shot lock. It used to latch true
+  // forever the moment the button was tapped, which meant (a) a failed send
+  // still said "Request sent." and (b) after one round the button stayed
+  // disabled, so somebody who asked three people could not then ask the rest
+  // without leaving the screen and coming back. Now it is set from the resolved
+  // result, and choosing the next person clears it and re-arms Send.
   const [justSent, setJustSent] = useState(false);
+  // Who the last send was for. Anyone selected who is NOT in it is a person
+  // being lined up for a new ask, which is what retires the confirmation and
+  // re-arms Send.
+  //
+  // Compared as a set rather than counted: sending subtracts only the people it
+  // actually asked, so a person tapped mid-send survives into a non-empty
+  // selection, and a count would read that leftover as "nothing new here".
+  const sentSelectionRef = useRef<readonly string[]>([]);
+  const selectedRequestOwnerIds = vm.selectedRequestOwnerIds;
+  useEffect(() => {
+    const hasNewPick = selectedRequestOwnerIds.some(
+      (id) => !sentSelectionRef.current.includes(id),
+    );
+    if (hasNewPick) setJustSent(false);
+  }, [selectedRequestOwnerIds]);
+  // Guards a double-tap inside the same frame, where `vm.busy` has not yet
+  // re-rendered the button as disabled.
+  const sendInFlightRef = useRef(false);
   // "Asked 6m ago" is only true at the moment it renders. Without a clock the
   // list freezes at whatever it said when the screen opened, which is how a
   // request sent half an hour ago still reads as just now.
@@ -2963,7 +2989,7 @@ function AskFlow({
         )}
       </SectionCard>
 
-      <SectionCard title="Duration requested">
+      <SectionCard title="How long">
         {/* Dropdown picker (not chips) to match the Share location screen's
             duration field — same shared DurationSelector `select` presentation. */}
         <DurationSelector
@@ -2998,8 +3024,12 @@ function AskFlow({
       {/* Send is enabled once at least one recipient is chosen. Duration and
           reason default to sensible values, so gating Send on them too (added
           in #5108) blocked submitting even when the request was already valid;
-          that extra gating is intentionally removed here. The "Request Sent"
-          success latch below is preserved. */}
+          that extra gating is intentionally removed here.
+
+          The button keeps the action accent in every state. Success is a status,
+          and it is already said twice — by the banner above and by each person's
+          row turning to "Asked" — so recolouring the primary action green said it
+          a third time and cost the screen its one action colour. */}
       {(() => {
         const isFormValid = vm.selectedRequestOwnerIds.length > 0;
         const sending = vm.busy === "request";
@@ -3007,34 +3037,27 @@ function AskFlow({
           <Button
             onClick={() => {
               // Never submit an incomplete form even if the click somehow
-              // reaches the handler (e.g. keyboard/AT), and never double-fire
-              // once it has already succeeded.
-              if (!isFormValid || sending || justSent) return;
-              vm.onSendRequest(reason);
-              // Stay on this screen and show inline confirmation tied to THIS
-              // request instead of popping straight back to the hub. The button
-              // latches to a disabled "Request Sent" success state so a second
-              // tap cannot fire a duplicate request.
-              setJustSent(true);
+              // reaches the handler (e.g. keyboard/AT), and never double-fire.
+              if (!isFormValid || sending || sendInFlightRef.current) return;
+              sendInFlightRef.current = true;
+              sentSelectionRef.current = vm.selectedRequestOwnerIds;
+              void (async () => {
+                try {
+                  // Confirm only what actually happened: the banner appears on a
+                  // resolved success, and a failure leaves the composer intact
+                  // with its own error toast.
+                  setJustSent(await vm.onSendRequest(reason));
+                } finally {
+                  sendInFlightRef.current = false;
+                }
+              })();
             }}
-            disabled={!isFormValid || sending || justSent}
-            aria-disabled={!isFormValid || sending || justSent}
+            disabled={!isFormValid || sending}
+            aria-disabled={!isFormValid || sending}
             isLoading={sending}
-            className={cn(
-              "h-12 w-full rounded-2xl text-base font-semibold text-[color:var(--app-accent-fg)] disabled:pointer-events-none",
-              justSent
-                ? "bg-[color:var(--app-success)] opacity-100 hover:bg-[color:var(--app-success)]"
-                : "bg-[color:var(--app-accent)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35",
-            )}
+            className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
           >
-            {justSent ? (
-              <>
-                <ShieldCheck className="mr-1.5 h-[18px] w-[18px]" aria-hidden />
-                Sent
-              </>
-            ) : (
-              "Send request"
-            )}
+            Send request
           </Button>
         );
       })()}
@@ -3196,7 +3219,7 @@ function TemporaryLinkFlow({
         />
         <WarningCard
           title="Anyone with the link can view you."
-          description="Access expires automatically."
+          description="The link stops on its own."
         />
         {invite ? (
           <TemporaryLinkCard
@@ -3229,7 +3252,7 @@ function TemporaryLinkFlow({
       <TaskFlowHeader title="Share outside your Circle" />
       <WarningCard
         title="Anyone with this link can see you"
-        description="Access ends when the link expires."
+        description="The link stops on its own."
       />
       <SectionCard title="Duration">
         <DurationSelector

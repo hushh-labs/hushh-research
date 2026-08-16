@@ -128,7 +128,8 @@
     "147_retire_crm_zk_runtime_profiles.sql",
     "148_nws_nearby_marketplace_actions.sql",
     "149_external_crm_dynamic_registry.sql",
-    "150_one_location_until_stopped_grants.sql"
+    "150_one_location_until_stopped_grants.sql",
+    "151_feed_events_dedupe_approved_share.sql"
   ],
   "groups": {
     "iam": [
@@ -211,7 +212,8 @@
       "147_retire_crm_zk_runtime_profiles.sql",
       "148_nws_nearby_marketplace_actions.sql",
       "149_external_crm_dynamic_registry.sql",
-      "150_one_location_until_stopped_grants.sql"
+      "150_one_location_until_stopped_grants.sql",
+      "151_feed_events_dedupe_approved_share.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

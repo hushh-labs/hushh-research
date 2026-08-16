@@ -1622,7 +1622,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("option", { name: "1 hour" }));
     expect(duration.textContent).toContain("1 hour");
     // The duration reads back as a clock time on the same screen that set it.
-    expect(screen.getByText(/^Access ends at /)).toBeTruthy();
+    expect(screen.getByText(/^Sharing ends at /)).toBeTruthy();
 
     const note = screen.getByRole("textbox", { name: "Optional note" });
     const startButton = screen.getByRole("button", { name: "Start sharing" });
@@ -3731,6 +3731,163 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() =>
       expect(screen.getByRole("status")).toHaveTextContent("Request sent."),
     );
+  });
+
+  // Reported from the field: "can't send req to rest after 1 cycle". Asking
+  // three people left the Send button latched to a disabled green "Sent", so the
+  // rest of the list could be ticked but never actually asked -- the only way
+  // out was to leave the screen and come back.
+  it("lets you ask more people after a request has already been sent", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Trusted B for location request/i,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
+    await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Request sent."),
+    );
+
+    // Sending clears the composer, so with nobody chosen there is nothing to
+    // send -- but the button must be a live control, not a spent one.
+    const sendButton = screen.getByRole("button", { name: /Send request/i });
+    expect(sendButton.hasAttribute("disabled")).toBe(true);
+
+    // Choosing the next person re-arms Send and retires the previous
+    // confirmation, which described a request that is no longer on screen.
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Advisor C for location request/i,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: /Send request/i })
+          .hasAttribute("disabled"),
+      ).toBe(false),
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
+    await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(2));
+    expect(mockRequestAccess).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ownerUserId: "user_c" }),
+    );
+  });
+
+  // Sending takes several round trips. Anyone tapped while they were in flight
+  // used to be erased by the blanket composer reset that ran when the send
+  // landed -- the pick just disappeared, with no request and no error.
+  it("keeps a person picked while the send is still in flight", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    let releaseFirstRequest: (() => void) | null = null;
+    mockRequestAccess.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseFirstRequest = () => resolve();
+        }),
+    );
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Trusted B for location request/i,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
+    await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
+
+    // Mid-flight, the user lines up the next person.
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Advisor C for location request/i,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: /Deselect Advisor C for location request/i,
+        }),
+      ).toBeTruthy(),
+    );
+
+    await act(async () => {
+      releaseFirstRequest?.();
+      await Promise.resolve();
+    });
+
+    // Trusted B was asked and is gone from the composer; Advisor C survives and
+    // can still be sent, with no confirmation claiming their request went out.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: /Deselect Advisor C for location request/i,
+        }),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.getByRole("button", { name: /Send request/i }).hasAttribute("disabled"),
+    ).toBe(false);
+    expect(screen.queryByRole("status")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
+    await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(2));
+    expect(mockRequestAccess).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ownerUserId: "user_c" }),
+    );
+  });
+
+  // The confirmation used to latch the instant the button was tapped, so a send
+  // that failed still reported "Request sent."
+  it("does not claim a request was sent when the send fails", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+    mockRequestAccess.mockRejectedValueOnce(new Error("network down"));
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Trusted B for location request/i,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
+
+    await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
+    // No confirmation, and the composer stays usable so the ask can be retried.
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: /Send request/i })
+          .hasAttribute("disabled"),
+      ).toBe(false),
+    );
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("renders my requests with safe labels instead of raw owner ids", async () => {
