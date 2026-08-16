@@ -20,6 +20,7 @@ import {
   type LocationPickerMapHandle,
   type PickedLocation,
 } from "@/components/one-location/onboarding/location-picker-map";
+import { isNative } from "@/lib/capacitor/platform";
 import { cn } from "@/lib/utils";
 import {
   defaultSavedLocationCategory,
@@ -461,6 +462,12 @@ export function SaveLocationModal({
     Number.isFinite(mapInitial.latitude) &&
     Number.isFinite(mapInitial.longitude),
   );
+  /**
+   * The native map is on screen, which means anything painted over the sheet is
+   * painted over the map itself. Only true on device: on web the map is an
+   * ordinary element inside the sheet and the scrim belongs there.
+   */
+  const nativeMapShowing = isNative() && flowStep === "map" && canPickOnMap;
   useEffect(() => {
     if (!open) return;
     if (startWithMapPicker && canPickOnMap) {
@@ -706,7 +713,21 @@ export function SaveLocationModal({
         // sheet landed on a fully lit screen with no separation at all. That is
         // the "it looks like a patch": not a missing blur, a buried one.
         // Above the takeover, below the app's sheets/drawers at z-711.
-        overlayClassName="z-[600] bg-black/55 backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)]"
+        overlayClassName={cn(
+          "z-[600]",
+          nativeMapShowing
+            ? // The native map is not part of the page: @capacitor/google-maps
+              // draws it BELOW the WebView and the WebView is punched through to
+              // reveal it. This overlay is a Radix sibling of the sheet, so the
+              // rule that clears backgrounds inside [data-testid=
+              // "save-location-modal"] never reached it -- and a 55% black scrim
+              // with a 10px blur sat over the whole screen, hiding the map while
+              // the HTML pin and cards stayed crisp on top. That is exactly the
+              // "no map behind it, just one pin" report: the map was rendering
+              // the whole time, behind the scrim.
+              "bg-transparent backdrop-blur-none [-webkit-backdrop-filter:none]"
+            : "bg-black/55 backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)]",
+        )}
         onEscapeKeyDown={(event) => {
           if (interactionBusy) event.preventDefault();
         }}

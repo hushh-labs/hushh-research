@@ -366,6 +366,16 @@ vi.mock("@/lib/one-location/saved-locations", () => ({
   DuplicateSavedLocationError: class extends Error {},
   addSavedLocation: mockAddSavedLocation,
   loadSavedLocations: mockLoadSavedLocations,
+  // Real behaviour, not a stub: the save sheet opens on whatever this returns,
+  // and a stub would hide a label being pre-selected over a saved place.
+  defaultSavedLocationCategory: (
+    existing: ReadonlyArray<{ category: string }> = [],
+  ) => {
+    const taken = new Set(existing.map((location) => location.category));
+    if (!taken.has("home")) return "home";
+    if (!taken.has("work")) return "work";
+    return "other";
+  },
 }));
 
 vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({
