@@ -517,6 +517,27 @@ def _one_runtime_instruction(context: Any) -> str:
     if not isinstance(voice_context, dict):
         return ONE_IDENTITY_INSTRUCTION + pkm_instruction
 
+    # Gate 1/Gate 2 already refuse every actual tool call while voice is off,
+    # but a plain "what can you do" question never reaches a tool -- it is
+    # answered straight from this instruction, so the off state has to be
+    # stated here too or the model just describes capabilities as if voice
+    # were still on.
+    voice_settings = voice_context.get("voice_settings")
+    voice_settings = voice_settings if isinstance(voice_settings, dict) else {}
+    voice_disabled_instruction = ""
+    if voice_settings.get("voice_enabled") is False:
+        voice_disabled_instruction = (
+            "\n\nVOICE CONTROL IS OFF: the person has turned off voice control "
+            "in their own settings (Profile, Preferences, Voice). Every app "
+            "action and specialist delegation will be refused while this is "
+            "off. Do not describe, offer, or attempt any action, and do not "
+            "list what you can do as if voice were on. If asked what you can "
+            "do, say plainly that voice control is off and tell them to turn "
+            "it back on in Profile, Preferences, Voice, or to do things by tap "
+            "instead. You may still answer general questions that need no app "
+            "action."
+        )
+
     available_action_ids = voice_context.get("available_action_ids")
     verified_action_ids = (
         [
@@ -643,7 +664,13 @@ def _one_runtime_instruction(context: Any) -> str:
 
     playbook = voice_context.get("route_playbook")
     if not isinstance(playbook, dict):
-        return ONE_IDENTITY_INSTRUCTION + layer_instruction + action_inventory + pkm_instruction
+        return (
+            ONE_IDENTITY_INSTRUCTION
+            + layer_instruction
+            + action_inventory
+            + pkm_instruction
+            + voice_disabled_instruction
+        )
 
     purpose = bounded(playbook.get("purpose"), 480)
     entry_cue = bounded(playbook.get("entry_cue"), 240)
@@ -663,6 +690,7 @@ def _one_runtime_instruction(context: Any) -> str:
         + "remain the only execution authority."
         + action_inventory
         + pkm_instruction
+        + voice_disabled_instruction
     )
 
 
@@ -841,15 +869,23 @@ async def _specialist_turn(
             ),
         }
     if availability.state == "domain_disabled":
+        message = (
+            (
+                "Voice control is turned off in your settings. Turn it back on "
+                "in Profile, Preferences, Voice, or do this by tap instead."
+            )
+            if availability.reason_code == "voice_disabled_by_user"
+            else (
+                f"Voice control is turned off for {specialist_label(agent_id)} "
+                "in your settings. Turn it back on in Profile, Preferences, "
+                "Voice, or do this by tap instead."
+            )
+        )
         return {
             "status": availability.state,
             "reason": availability.reason_code,
             "availability": availability_payload,
-            "message": (
-                f"Voice control is turned off for {specialist_label(agent_id)} "
-                "in your settings. Turn it back on in Profile, Preferences, "
-                "Voice, or do this by tap instead."
-            ),
+            "message": message,
         }
     if availability.state in {"needs_auth", "vault_locked"}:
         return {

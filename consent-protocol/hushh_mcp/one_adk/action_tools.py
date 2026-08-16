@@ -29,6 +29,7 @@ from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.one_adk.voice_domain_policy import (
     is_voice_domain_disabled,
+    is_voice_entirely_disabled,
     resolve_voice_domain,
     voice_domain_label,
 )
@@ -415,6 +416,15 @@ async def run_app_action(
         }
 
     voice_settings = _voice_settings(tool_context)
+    if is_voice_entirely_disabled(voice_settings):
+        logger.info("one_adk_action_decision action=%s status=domain_disabled domain=all", clean_id)
+        return {
+            "status": "domain_disabled",
+            "message": (
+                "Voice control is turned off in your settings. Turn it back on "
+                "in Profile, Preferences, Voice, or do this by tap instead."
+            ),
+        }
     voice_domain = resolve_voice_domain(clean_id)
     if is_voice_domain_disabled(voice_domain, voice_settings.get("disabled_domains")):
         logger.info(
@@ -954,10 +964,18 @@ async def start_app_goal(
     # navigation journey only reaches it (via the non-journey fallthrough)
     # after parking its own navigation directive first. One check here covers
     # both; the plain run_app_action call further down repeats it harmlessly.
+    goal_voice_settings = _voice_settings(tool_context)
+    if is_voice_entirely_disabled(goal_voice_settings):
+        logger.info("one_adk_goal_decision action=%s status=domain_disabled domain=all", clean_id)
+        return {
+            "status": "domain_disabled",
+            "message": (
+                "Voice control is turned off in your settings. Turn it back on "
+                "in Profile, Preferences, Voice, or do this by tap instead."
+            ),
+        }
     voice_domain = resolve_voice_domain(clean_id)
-    if is_voice_domain_disabled(
-        voice_domain, _voice_settings(tool_context).get("disabled_domains")
-    ):
+    if is_voice_domain_disabled(voice_domain, goal_voice_settings.get("disabled_domains")):
         logger.info(
             "one_adk_goal_decision action=%s status=domain_disabled domain=%s",
             clean_id,
