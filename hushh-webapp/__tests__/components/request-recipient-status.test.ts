@@ -94,6 +94,27 @@ describe("someone you already asked", () => {
     });
     expect(status.subtitle).toBe("Asked 6m ago for 4 hours, waiting on them");
   });
+
+  it("hands the row the request to take back", () => {
+    // Reported from QA: two people asked, both rows reading "Asked", and no
+    // way off either one. The row cannot offer a take-back without knowing
+    // WHICH request it would be taking back.
+    const status = statusFor({ requestedByMe: [request({ id: "req_live" })] });
+    expect(status.pendingRequestId).toBe("req_live");
+  });
+
+  it("offers the take-back for the ask it is reporting", () => {
+    // The subtitle names the newest ask; a take-back wired to the older one
+    // would end a request the row is not talking about and leave the visible
+    // one standing.
+    const status = statusFor({
+      requestedByMe: [
+        request({ id: "old", requestedAt: new Date(NOW - 5 * 3_600_000).toISOString() }),
+        request({ id: "new", requestedAt: new Date(NOW - 60_000).toISOString() }),
+      ],
+    });
+    expect(status.pendingRequestId).toBe("new");
+  });
 });
 
 describe("someone already sharing with you", () => {

@@ -36,7 +36,7 @@ describe("DurationWheelPicker", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Until I stop" }));
 
-    expect(onChange).toHaveBeenCalledWith("24");
+    expect(onChange).toHaveBeenCalledWith("until_stopped");
     expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
       "aria-disabled",
       "true",
@@ -78,11 +78,28 @@ describe("DurationWheelPicker", () => {
   });
 
   it("treats the until-stop alias value as already-toggled-on when passed in externally", () => {
-    render(<DurationWheelPicker value="24" onChange={vi.fn()} />);
+    render(<DurationWheelPicker value="until_stopped" onChange={vi.fn()} />);
 
     expect(
       screen.getByRole("button", { name: "Until I stop" }),
     ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("treats a literal 24 as an ordinary 24-hour duration, not the until-stop alias", () => {
+    // "24" used to BE the sentinel; now that a literal 24h0m is reachable
+    // on the wheel, it has to resolve as a real duration instead.
+    render(<DurationWheelPicker value="24" onChange={vi.fn()} />);
+
+    expect(
+      screen.getByRole("button", { name: "Until I stop" }),
+    ).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
+      "aria-valuetext",
+      "24 hr",
+    );
+    expect(
+      screen.getByRole("spinbutton", { name: "Minutes" }),
+    ).toHaveAttribute("aria-valuetext", "0 min");
   });
 
   it("labels both columns visibly, not just for screen readers", () => {
@@ -131,6 +148,51 @@ describe("DurationWheelPicker", () => {
       screen.getByRole("spinbutton", { name: "Minutes" }),
     ).toHaveAttribute("aria-valuetext", "15 min");
     expect(onChange).not.toHaveBeenCalledWith("0");
+  });
+
+  it("keeps 24h45m unreachable, snapping Minutes to 0 the instant Hours reaches 24", () => {
+    const onChange = vi.fn();
+    render(<DurationWheelPicker value="23.75" onChange={onChange} />);
+    // 23.75h = 23h45m -> Minutes starts on "45".
+    expect(
+      screen.getByRole("spinbutton", { name: "Minutes" }),
+    ).toHaveAttribute("aria-valuetext", "45 min");
+
+    // Scroll Hours up from 23 to 24 while Minutes is still sitting on "45"
+    // -- the forbidden 24h45m combination is reachable this way even though
+    // neither wheel alone ever "chose" it.
+    fireEvent.keyDown(screen.getByRole("spinbutton", { name: "Hours" }), {
+      key: "ArrowDown",
+    });
+
+    expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
+      "aria-valuetext",
+      "24 hr",
+    );
+    expect(
+      screen.getByRole("spinbutton", { name: "Minutes" }),
+    ).toHaveAttribute("aria-valuetext", "0 min");
+    expect(onChange).not.toHaveBeenCalledWith("24.75");
+    expect(onChange).not.toHaveBeenCalledWith("24.25");
+    expect(onChange).not.toHaveBeenCalledWith("24.5");
+  });
+
+  it("locks Minutes to 0 while Hours sits at the 24 ceiling", () => {
+    render(<DurationWheelPicker value="24" onChange={vi.fn()} />);
+    expect(
+      screen.getByRole("spinbutton", { name: "Hours" }),
+    ).toHaveAttribute("aria-valuemax", "24");
+    const minutesWheel = screen.getByRole("spinbutton", { name: "Minutes" });
+    expect(minutesWheel).toHaveAttribute("aria-valuetext", "0 min");
+
+    // Any attempt to move Minutes off 0 while Hours is still 24 snaps
+    // straight back -- mirrors Minutes refusing to sit on 0 while Hours is 0.
+    fireEvent.keyDown(minutesWheel, { key: "ArrowDown" });
+    expect(minutesWheel).toHaveAttribute("aria-valuetext", "0 min");
+    expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
+      "aria-valuetext",
+      "24 hr",
+    );
   });
 
   it("reaches 0 minutes smoothly via keyboard when Hours is above zero (no guard interference)", () => {

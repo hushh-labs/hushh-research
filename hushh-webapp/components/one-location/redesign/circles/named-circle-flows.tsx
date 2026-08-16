@@ -47,6 +47,11 @@ import {
 } from "@/components/one-location/redesign/primitives";
 import { MUTED_TEXT } from "@/components/one-location/redesign/tokens";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
+import {
+  CIRCLE_NAME_ACTION_CLASSNAME,
+  CIRCLE_NAME_INPUT_CLASSNAME,
+  CIRCLE_NAME_ROW_CLASSNAME,
+} from "@/components/one-location/redesign/circles/circle-name-row-layout";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnection,
@@ -95,29 +100,25 @@ function circleInitials(value: string): string {
     .toUpperCase();
 }
 
-function circleKindLabel(kind: OneLocationCircleKind): string {
-  if (kind === "family") return "Family";
-  if (kind === "friends") return "Friends";
-  return "Other";
-}
-
 /**
- * Subtitle for the "Your circles" list row, e.g. "Friends · 2 members".
+ * Subtitle for the "Your circles" list row, e.g. "2 members".
  *
  * Counts OTHER members (everyone except the viewer) so it matches the Circle
  * Detail subtitle, which filters out the current user. The backend
  * `memberCount` includes the viewer — always a member of a circle shown in
  * their own list — so subtracting one yields the same number both places.
  * `Math.max(0, ...)` guards a transient zero.
+ *
+ * The kind used to lead this line — "Family · 0 members". Reported from QA:
+ * the circle created during onboarding is filed under Family by default and
+ * the person was never asked, so the row opened by telling them a category
+ * they had not picked, ahead of the only number on the line that was true.
+ * There are three kinds and nothing on this screen acts on any of them, so
+ * the word was decoration in front of the fact. The count stands alone.
  */
-function circleListMemberCountLabel(
-  kind: OneLocationCircleKind,
-  memberCount: number,
-): string {
+function circleListMemberCountLabel(memberCount: number): string {
   const others = Math.max(0, memberCount - 1);
-  return `${circleKindLabel(kind)} · ${others} ${
-    others === 1 ? "member" : "members"
-  }`;
+  return `${others} ${others === 1 ? "member" : "members"}`;
 }
 
 function circleFlowErrorMessage(error: unknown, fallback: string): string {
@@ -373,43 +374,39 @@ export function CirclesSection({
           {circles.map((circle) => {
             // STATE BEATS CATEGORY: a circle is the people role, but one
             // holding nobody except the viewer has nothing to report and
-            // stays neutral. `memberCount` includes the viewer, so the count
-            // that decides this is `memberCount - 1` — the same test the
-            // check-in flow and the SMS contacts list apply, and the same
-            // count this row's own subtitle already shows.
+            // stays neutral. `memberCount` includes the viewer, so the
+            // count that decides this is `memberCount - 1` — the same
+            // test the check-in flow and the SMS contacts list apply.
             const circleRole = roleClasses("people", {
               inactive: Math.max(0, circle.memberCount - 1) === 0,
             });
             return (
-              <SettingsRow
-                key={circle.id}
-                leading={
-                  <span
-                    className={cn(
-                      "flex h-11 w-11 items-center justify-center rounded-[12px]",
-                      circleRole.tile,
-                      circleRole.glyph,
-                    )}
-                  >
-                    <UsersRound className="h-5 w-5" />
-                  </span>
-                }
-                title={circle.name}
-                description={circleListMemberCountLabel(
-                  circle.kind,
-                  circle.memberCount,
-                )}
-                trailing={circle.role === "owner" ? "Owner" : "Member"}
-                chevron
-                onClick={() => onOpen(circle.id)}
-                className={cn(
-                  "[--settings-row-gap:16px] [--settings-row-px:20px] [--settings-row-py:20px] sm:[--settings-row-gap:18px] sm:[--settings-row-px:24px] sm:[--settings-row-py:22px]",
-                  "[&>button]:min-h-[84px] sm:[&>button]:min-h-[92px]",
-                  "[&_[data-slot=settings-row-title]]:!text-[18px] [&_[data-slot=settings-row-title]]:!font-semibold [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.35px] sm:[&_[data-slot=settings-row-title]]:!text-[19px] sm:[&_[data-slot=settings-row-title]]:!leading-6 sm:[&_[data-slot=settings-row-title]]:!tracking-[-0.4px]",
-                  "[&_[data-slot=settings-row-description]]:!text-[14px] [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px] sm:[&_[data-slot=settings-row-description]]:!text-[15px] sm:[&_[data-slot=settings-row-description]]:!leading-5 sm:[&_[data-slot=settings-row-description]]:!tracking-[-0.24px]",
-                )}
-                testId={`one-location-circle-${circle.id}`}
-              />
+            <SettingsRow
+              key={circle.id}
+              leading={
+                <span
+                  className={cn(
+                    "flex h-11 w-11 items-center justify-center rounded-[12px]",
+                    circleRole.tile,
+                    circleRole.glyph,
+                  )}
+                >
+                  <UsersRound className="h-5 w-5" />
+                </span>
+              }
+              title={circle.name}
+              description={circleListMemberCountLabel(circle.memberCount)}
+              trailing={circle.role === "owner" ? "Owner" : "Member"}
+              chevron
+              onClick={() => onOpen(circle.id)}
+              className={cn(
+                "[--settings-row-gap:16px] [--settings-row-px:20px] [--settings-row-py:20px] sm:[--settings-row-gap:18px] sm:[--settings-row-px:24px] sm:[--settings-row-py:22px]",
+                "[&>button]:min-h-[84px] sm:[&>button]:min-h-[92px]",
+                "[&_[data-slot=settings-row-title]]:!text-[18px] [&_[data-slot=settings-row-title]]:!font-semibold [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.35px] sm:[&_[data-slot=settings-row-title]]:!text-[19px] sm:[&_[data-slot=settings-row-title]]:!leading-6 sm:[&_[data-slot=settings-row-title]]:!tracking-[-0.4px]",
+                "[&_[data-slot=settings-row-description]]:!text-[14px] [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px] sm:[&_[data-slot=settings-row-description]]:!text-[15px] sm:[&_[data-slot=settings-row-description]]:!leading-5 sm:[&_[data-slot=settings-row-description]]:!tracking-[-0.24px]",
+              )}
+              testId={`one-location-circle-${circle.id}`}
+            />
             );
           })}
         </SettingsGroup>
@@ -1152,7 +1149,10 @@ export function CircleDetailFlow({
         title={circle?.name ?? "Circle"}
         description={
           circle
-            ? `${circleKindLabel(circle.kind)} · ${externalMembersCount} ${
+            ? // Same line as the list row this screen was opened from, so the
+              // count does not change wording between the two. The kind is
+              // dropped here for the same reason it is dropped there.
+              `${externalMembersCount} ${
                 externalMembersCount === 1 ? "member" : "members"
               }`
             : "Loading Circle…"
@@ -1191,7 +1191,7 @@ export function CircleDetailFlow({
               >
                 Circle name
               </label>
-              <div className="mt-2 flex gap-2">
+              <div className={CIRCLE_NAME_ROW_CLASSNAME}>
                 <input
                   id={CIRCLE_NAME_INPUT_ID}
                   ref={nameInputRef}
@@ -1208,28 +1208,28 @@ export function CircleDetailFlow({
                   }}
                   maxLength={80}
                   autoComplete="off"
-                  className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-base outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+                  className={CIRCLE_NAME_INPUT_CLASSNAME}
                 />
                 {circleNameDirty ? (
                   <Button
                     type="button"
+                    size="sm"
                     disabled={!canSaveCircleName}
                     isLoading={savingName}
                     onClick={() => void renameCircle()}
-                    className="h-11 shrink-0 rounded-xl px-4 font-semibold"
+                    className={CIRCLE_NAME_ACTION_CLASSNAME}
                     data-testid="one-location-circle-name-save"
                   >
-                    <Check className="mr-1.5 h-4 w-4" />
                     Save
                   </Button>
                 ) : (
                   <Button
                     type="button"
+                    size="sm"
                     variant="outline"
-                    size="icon"
                     aria-label="Edit Circle name"
                     onClick={() => nameInputRef.current?.focus()}
-                    className="h-11 w-11 shrink-0 rounded-xl"
+                    className={CIRCLE_NAME_ACTION_CLASSNAME}
                   >
                     <Pencil className="h-4 w-4" />
                   </Button>
@@ -1239,8 +1239,8 @@ export function CircleDetailFlow({
                 {circleNameDirty && trimmedCircleName.length < 1
                   ? "Enter a name."
                   : circleNameDirty
-                    ? "Tap Save — everyone in this Circle will see the new name."
-                    : "Everyone in this Circle sees this name."}
+                    ? "Tap Save to rename."
+                    : "Circle members see this."}
               </p>
             </div>
           ) : null}

@@ -2200,6 +2200,10 @@ export function OneLocationAgentPageContent({
   // Per-grant revoke tracking so "Stop sharing" only spins on the specific
   // active-share card the user tapped, not every active share at once.
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+  /** Which sent request is being taken back. Keyed by request, not by grant. */
+  const [withdrawingRequestId, setWithdrawingRequestId] = useState<
+    string | null
+  >(null);
   /** Which grant is showing the inline duration editor, wherever it's listed. */
   const [editingGrantId, setEditingGrantId] = useState<string | null>(null);
   /** Which grant's duration is being saved. Separate from revoke on purpose. */
@@ -5592,6 +5596,39 @@ export function OneLocationAgentPageContent({
         );
       } finally {
         setRevokingGrantId(null);
+      }
+    },
+    [refresh, vaultOwnerToken],
+  );
+
+  /**
+   * Take back a request you sent, before the other person has answered it.
+   *
+   * Reported from QA: two requests sent, both rows reading "Asked", and no way
+   * off either one -- a wrong person or a changed mind was permanent until the
+   * other side happened to answer. Asking is a consent act, so undoing it is
+   * the asker's own to make.
+   *
+   * Its own busy flag, not `revokingGrantId`: that one is keyed by grant, and
+   * a pending request has no grant to key on.
+   */
+  const handleWithdrawRequest = useCallback(
+    async (requestId: string) => {
+      if (!vaultOwnerToken) return;
+      setWithdrawingRequestId(requestId);
+      try {
+        await OneLocationService.withdrawRequest({
+          vaultOwnerToken,
+          requestId,
+        });
+        toast.success("Request taken back.");
+        void refresh().catch(() => null);
+      } catch (error) {
+        toast.error(
+          oneLocationErrorMessage(error, "Could not take back request."),
+        );
+      } finally {
+        setWithdrawingRequestId(null);
       }
     },
     [refresh, vaultOwnerToken],
@@ -10205,6 +10242,7 @@ export function OneLocationAgentPageContent({
     canShare,
     busy,
     revokingGrantId,
+    withdrawingRequestId,
     shareCompletedTick,
     shareCompletedDestination: shareCompletedDestinationRef.current,
     readiness: {
@@ -10297,6 +10335,7 @@ export function OneLocationAgentPageContent({
     onSendRequest: (reason) => handleRequestAccess(reason),
     onApprove: (request) => void handleApprove(request),
     onDeny: (requestId) => void handleDeny(requestId),
+    onWithdrawRequest: (requestId) => void handleWithdrawRequest(requestId),
     onViewGrant: (grant) => void handleView(grant),
     onStopGrant: (grantId) => void handleRevoke(grantId),
     onAskReshare: (grant) => void handleAskReshare(grant),

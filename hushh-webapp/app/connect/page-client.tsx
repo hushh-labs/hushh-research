@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { BadgeCheck, Lock, Search as SearchIcon, UserRound, Users, X } from "lucide-react";
+import { BadgeCheck, Loader2, Lock, Search as SearchIcon, UserRound, Users, X } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -54,6 +54,13 @@ import {
 } from "@/lib/voice/voice-action-card";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { getDirectoryPersonDescription } from "./directory-person-label";
+import {
+  CONNECT_SEARCH_INPUT_CLASSNAME,
+  CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME,
+  CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
+  CONNECT_SEARCH_PLACEHOLDER,
+  CONNECT_SELECT_TOGGLE_CLASSNAME,
+} from "./connect-search-layout";
 import { cn } from "@/lib/utils";
 
 type ConnectTab = "people" | "advisors" | "nearby";
@@ -1441,8 +1448,23 @@ export default function ConnectPageClient() {
                     key={connection.connectionId}
                     icon={Users}
                     iconTone="blue"
-                    stackTrailingOnMobile
-                    title={connection.displayName || connection.userId}
+                    // Deliberately NOT stackTrailingOnMobile. That prop drops
+                    // the trailing control onto its own line below the name on
+                    // every phone (`sm:` is 640px, so "mobile" here is every
+                    // iPhone), and it was doing so for a single 72px "Remove"
+                    // that had room to sit inline all along -- a connection
+                    // read as two rows, and the list lost its right-hand
+                    // column. The People list below has never stacked; these
+                    // two lists sit on the same screen and now agree.
+                    title={
+                      <span className="block min-w-0 truncate">
+                        {connection.displayName || connection.userId}
+                      </span>
+                    }
+                    // SettingsRow derives `data-voice-label` from a string
+                    // title, and this one is now an element so it can truncate.
+                    // Passing the name keeps the attribute the row already had.
+                    voiceLabel={connection.displayName || connection.userId}
                     density="compact"
                     trailing={
                       <span className="flex shrink-0 items-center justify-end gap-1.5 whitespace-nowrap">
@@ -1509,10 +1531,15 @@ export default function ConnectPageClient() {
                     type="text"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Search people by name"
+                    placeholder={CONNECT_SEARCH_PLACEHOLDER}
                     aria-label="Search people"
                     data-voice-control-id="one-connect-search"
-                    className="h-10 pl-11 pr-11"
+                    className={cn(
+                      CONNECT_SEARCH_INPUT_CLASSNAME,
+                      query
+                        ? CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME
+                        : CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
+                    )}
                     enterKeyHint="search"
                     onKeyDown={(event) => {
                       // iOS soft-keyboard "return" must dismiss the keyboard;
@@ -1571,15 +1598,20 @@ export default function ConnectPageClient() {
                   variant="none"
                   effect="fill"
                   size="sm"
-                  className="h-10 min-h-10 shrink-0 rounded-full px-4 text-[15px] font-semibold leading-5"
+                  className={CONNECT_SELECT_TOGGLE_CLASSNAME}
                   disabled={loading || people.length === 0}
+                  aria-label={
+                    isSelectionMode
+                      ? "Cancel selecting people"
+                      : "Select several people"
+                  }
                   onClick={() => {
                     setIsSelectionMode((current) => !current);
                     setSelectedPeople(new Map());
                     setShowLimitBanner(false);
                   }}
                 >
-                  {isSelectionMode ? "Cancel" : "Select multiple"}
+                  {isSelectionMode ? "Cancel" : "Select"}
                 </Button>
               </div>
               <SettingsGroup
@@ -1736,16 +1768,31 @@ export default function ConnectPageClient() {
                               variant="none"
                               effect="fill"
                               size="sm"
+                              // One word at the width of every other action in
+                              // this column. "Cancel request" plus a 100px
+                              // floor sized for "Cancelling…" made the widest
+                              // control on the screen the one belonging to the
+                              // least common row state -- 116px of a 375px row,
+                              // against 72px for Connect directly above it. The
+                              // in-flight state is a spinner in the same box
+                              // rather than a longer word, so the row never
+                              // reflows mid-tap. `loading` also sets aria-busy.
                               className={cn(
                                 CONNECT_ROW_ACTION_CLASSNAME,
-                                "min-w-[100px]"
+                                "w-[72px] px-0"
                               )}
-                              disabled={busyId === person.userId}
+                              loading={busyId === person.userId}
+                              aria-label={`Cancel your request to ${title}`}
                               onClick={() => void cancelConnectionRequest(person)}
                             >
-                              {busyId === person.userId
-                                ? "Cancelling…"
-                                : "Cancel request"}
+                              {busyId === person.userId ? (
+                                <Loader2
+                                  className="h-4 w-4 animate-spin"
+                                  aria-hidden="true"
+                                />
+                              ) : (
+                                "Cancel"
+                              )}
                             </Button>
                           ) : (
                             <Button

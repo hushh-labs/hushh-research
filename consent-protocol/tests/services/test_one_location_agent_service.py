@@ -1972,6 +1972,21 @@ class FourUserMemoryService(OneLocationAgentService):
             request["approved_grant_id"] = params["grant_id"]
             request["resolved_at"] = datetime.now(timezone.utc)
             return request
+        if "SET status = 'cancelled'" in sql:
+            # The asker taking their own ask back. Keyed on requester, not
+            # owner -- reproducing the real WHERE clause is the point, because
+            # the safety property being tested is that it cannot reach anybody
+            # else's request.
+            request = self.requests.get(params["request_id"])
+            if (
+                request
+                and request["requester_user_id"] == params["requester_user_id"]
+                and request["status"] == "pending"
+            ):
+                request["status"] = "cancelled"
+                request["resolved_at"] = datetime.now(timezone.utc)
+                return request
+            return None
         if "SET status = 'denied'" in sql:
             request = self.requests.get(params["request_id"])
             if (

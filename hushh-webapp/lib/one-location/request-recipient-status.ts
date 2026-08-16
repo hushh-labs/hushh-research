@@ -31,6 +31,14 @@ export type RequestRecipientStatus = {
    * you, or already holding your unanswered request, is not a person to ask.
    */
   selectable: boolean;
+  /**
+   * The unanswered request this row is about, when there is one.
+   *
+   * A row that is not selectable because somebody is already holding your ask
+   * used to be a dead end: nothing to press, and no way to take the ask back.
+   * This is what the row needs to offer that.
+   */
+  pendingRequestId?: string;
 };
 
 /** Milliseconds, or null when the timestamp is missing or unparseable. */
@@ -151,8 +159,11 @@ export function requestRecipientStatus(input: {
         : `${when}, waiting on them`,
       tone: "pending",
       statusLabel: "Asked",
-      // Nothing here can move this along -- it is the other person's to answer.
+      // Nothing here can APPROVE this -- it is the other person's to answer.
+      // Taking it back is the asker's own to do, and `pendingRequestId` is
+      // what lets the row offer it.
       selectable: false,
+      pendingRequestId: pending.id,
     };
   }
 

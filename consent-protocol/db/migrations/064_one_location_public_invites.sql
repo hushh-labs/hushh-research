@@ -86,6 +86,12 @@ ALTER TABLE one_location_events
       'location_access_request',
       'location_access_approved',
       'location_access_denied',
+      -- Emitted when the person who SENT a request takes it back, before the
+      -- owner has answered. Added here rather than in a later migration for
+      -- the reason the comment above records: this ADD is validating and UAT
+      -- replays the whole set, so a value only allowlisted downstream dies
+      -- here on the first replay after somebody uses the feature.
+      'location_access_request_withdrawn',
       'location_referral_invite',
       'location_public_invite_created',
       'location_public_invite_revoked',
