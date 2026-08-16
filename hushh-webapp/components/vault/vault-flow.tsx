@@ -1037,7 +1037,9 @@ export function VaultFlow({
               <VaultFlowHeader
                 icon={Lock}
                 title="Create your passphrase"
-                description="This is what opens your private place."
+                // Carries the promise the removed "private place" invitation
+                // screen used to make, on the step that actually needs it.
+                description="Only you can open what you save."
               />
               <div className="space-y-1.5">
                 <Label htmlFor="passphrase" className="type-footnote font-medium text-muted-foreground">

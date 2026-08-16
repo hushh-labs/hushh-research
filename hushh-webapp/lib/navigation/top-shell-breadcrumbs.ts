@@ -262,7 +262,9 @@ function resolveTopShellBreadcrumbInner(
       align: "center",
       items: [
         { label: "Set up", href: ROUTES.ONE_SETUP },
-        { label: "AI access" },
+        // Matches the on-screen title; a crumb that disagrees with the heading
+        // reads as two different screens.
+        { label: "Choose your AI" },
       ],
     };
   }
