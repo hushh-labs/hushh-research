@@ -77,29 +77,25 @@ function circleInitials(value: string): string {
     .toUpperCase();
 }
 
-function circleKindLabel(kind: OneLocationCircleKind): string {
-  if (kind === "family") return "Family";
-  if (kind === "friends") return "Friends";
-  return "Other";
-}
-
 /**
- * Subtitle for the "Your circles" list row, e.g. "Friends · 2 members".
+ * Subtitle for the "Your circles" list row, e.g. "2 members".
  *
  * Counts OTHER members (everyone except the viewer) so it matches the Circle
  * Detail subtitle, which filters out the current user. The backend
  * `memberCount` includes the viewer — always a member of a circle shown in
  * their own list — so subtracting one yields the same number both places.
  * `Math.max(0, ...)` guards a transient zero.
+ *
+ * The kind used to lead this line — "Family · 0 members". Reported from QA:
+ * the circle created during onboarding is filed under Family by default and
+ * the person was never asked, so the row opened by telling them a category
+ * they had not picked, ahead of the only number on the line that was true.
+ * There are three kinds and nothing on this screen acts on any of them, so
+ * the word was decoration in front of the fact. The count stands alone.
  */
-function circleListMemberCountLabel(
-  kind: OneLocationCircleKind,
-  memberCount: number,
-): string {
+function circleListMemberCountLabel(memberCount: number): string {
   const others = Math.max(0, memberCount - 1);
-  return `${circleKindLabel(kind)} · ${others} ${
-    others === 1 ? "member" : "members"
-  }`;
+  return `${others} ${others === 1 ? "member" : "members"}`;
 }
 
 function circleFlowErrorMessage(error: unknown, fallback: string): string {
@@ -356,10 +352,7 @@ export function CirclesSection({
                 </span>
               }
               title={circle.name}
-              description={circleListMemberCountLabel(
-                circle.kind,
-                circle.memberCount,
-              )}
+              description={circleListMemberCountLabel(circle.memberCount)}
               trailing={circle.role === "owner" ? "Owner" : "Member"}
               chevron
               onClick={() => onOpen(circle.id)}
@@ -1100,7 +1093,10 @@ export function CircleDetailFlow({
         title={circle?.name ?? "Circle"}
         description={
           circle
-            ? `${circleKindLabel(circle.kind)} · ${externalMembersCount} ${
+            ? // Same line as the list row this screen was opened from, so the
+              // count does not change wording between the two. The kind is
+              // dropped here for the same reason it is dropped there.
+              `${externalMembersCount} ${
                 externalMembersCount === 1 ? "member" : "members"
               }`
             : "Loading Circle…"

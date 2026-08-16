@@ -61,6 +61,7 @@ export function TrustedPersonCard({
   editActive,
   onRemove,
   removeBusy,
+  removeAriaLabel,
   expandedContent,
 }: {
   name: string;
@@ -80,6 +81,13 @@ export function TrustedPersonCard({
   /** Revoke this person's live grant. */
   onRemove?: () => void;
   removeBusy?: boolean;
+  /**
+   * What the X actually does on this row, for people using a screen reader.
+   * Defaults to ending access, because that is what it does on a live row --
+   * but on a row whose request is still unanswered it ends the ASK, and
+   * announcing that as "remove their access" describes the wrong act.
+   */
+  removeAriaLabel?: string;
   /** Full-width block below the row, e.g. the inline duration editor. */
   expandedContent?: ReactNode;
 }) {
@@ -134,7 +142,7 @@ export function TrustedPersonCard({
           <ShellActionSurface
             variant="icon"
             className="h-9 w-9 shrink-0 text-destructive"
-            aria-label={`Remove ${name}'s access`}
+            aria-label={removeAriaLabel ?? `Remove ${name}'s access`}
             onClick={onRemove}
             disabled={removeBusy}
           >
