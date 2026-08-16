@@ -9808,6 +9808,26 @@ export function OneLocationAgentPageContent({
           // existing Finish setup transaction commits it after vault unlock.
           PreVaultSensitiveDraftService.stageSavedLocation(auth.userId, input);
         }
+        // Confirming a place turns the live preview on.
+        //
+        // Onboarding captures a position directly rather than through
+        // `ensureForegroundLocationReady`, so it never reached
+        // `activateMyLocation` and never set `selfPreviewEnabled`. A brand-new
+        // owner also has no grants and no nearby presence, so all three
+        // disjuncts behind `locationEnabled` were false and the hub they are
+        // redirected to greeted them with "Location off" — seconds after they
+        // granted permission, let the device take a fix, dragged a pin and
+        // tagged it Home. Saving a place really is a different authority from
+        // sharing one, but "my location is off" is not a true reading of the
+        // state the person just created.
+        //
+        // The same two-field write the header switch itself performs, so both
+        // entry points leave the control in one state.
+        updateOneLocationControlState(auth.userId, (current) => ({
+          ...current,
+          paused: false,
+          selfPreviewEnabled: true,
+        }));
         if (
           savedLocationSessionEpochRef.current !== sessionEpoch ||
           savedLocationSessionUserId !== savingUserId

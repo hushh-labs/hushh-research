@@ -71,7 +71,13 @@ export function DurationSelector({
   const labelId = useId();
 
   return (
-    <div className="space-y-2.5">
+    // `max-w-[420px]` on the GROUP, not on the ladder inside it. The label and
+    // the "Ends 1:25 AM" read-back live at this level; clamping only the
+    // buttons left the hint floating ~370px to the right of the control it
+    // reads back, on an 880px shell. Inert on every phone — the card is
+    // narrower than 420 there — which is deliberate: this half of the report
+    // was a desktop screenshot of 258px-wide duration cells.
+    <div className="max-w-[420px] space-y-2.5">
       {label || hint ? (
         <div className="flex items-baseline justify-between gap-3">
           {label ? (

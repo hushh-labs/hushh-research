@@ -3706,12 +3706,18 @@ function TemporaryLinkFlow({
           so it offers no precision card either. The "expires automatically"
           note that sat here was the third statement of the same fact — the
           warning above and the duration control already carry it. */}
+      {/* The label changes while it works. This press waits on a device fix
+          before it can post anything, so on a cold start it can sit for
+          several seconds — and it used to sit as a bare spinner with the label
+          hidden, which is why it read as "taking longer than expected" rather
+          than as "still finding you". Naming the wait is the fix available
+          here; the wait itself is a GPS acquisition. */}
       <Button
         onClick={vm.onCreatePublicInvite}
         isLoading={vm.busy === "publicInvite"}
-        className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+        className="h-12 min-h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
       >
-        Create link
+        {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
       </Button>
     </div>
   );

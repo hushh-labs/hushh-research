@@ -205,13 +205,11 @@ export function DurationPresetPicker({
                40–80px. */
             visibleRows={DURATION_CUSTOM_VISIBLE_ROWS}
           />
-          <button
-            type="button"
-            onClick={() => setWheelOpen(false)}
-            className={cn(DURATION_CELL_CLASS, DURATION_CELL_OFF_CLASS, "w-full")}
-          >
-            Done
-          </button>
+          {/* No "Done" row. The wheel emits on every settle, so the value was
+              already chosen before that button existed — it confirmed nothing
+              and closed a panel the person can close by picking any other rung.
+              It cost 52px on the tallest state of the tallest control on this
+              screen, which is the screen that was called too busy. */}
         </div>
       ) : null}
     </div>
