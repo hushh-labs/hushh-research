@@ -38,6 +38,7 @@ import {
   Navigation,
   Plus,
   Send,
+  Check,
   Shield,
   ShieldCheck,
   UserPlus,
@@ -121,6 +122,7 @@ import {
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveSmsContactsBackAction } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
@@ -2731,52 +2733,45 @@ function ShareFlow({
         description="Only people set up to receive it."
       />
       {vm.circles.length ? (
-        <SectionCard title="Share with a Circle">
-          <div className="grid gap-2">
-            {vm.circles.map((circle) => {
-              const selected =
-                vm.selectedShareCircleSelection?.circle.id === circle.id &&
-                shareCircleFullySelected;
-              return (
-                <button
-                  key={circle.id}
-                  type="button"
-                  disabled={vm.busy === "shareCircle"}
-                  onClick={() => void vm.onSelectShareCircle(circle.id)}
-                  aria-pressed={selected}
-                  className={cn(
-                    "flex min-h-14 items-center gap-3 rounded-2xl border px-3.5 py-3 text-left transition",
-                    selected
-                      ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-soft)]"
-                      : "border-border/70 bg-background hover:bg-muted/45",
-                  )}
-                >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+        <SettingsGroup title="Circles" separatorInset>
+          {vm.circles.map((circle) => {
+            const selected =
+              vm.selectedShareCircleSelection?.circle.id === circle.id &&
+              shareCircleFullySelected;
+            const circleRole = roleClasses("people");
+            return (
+              <SettingsRow
+                key={circle.id}
+                density="compact"
+                disabled={vm.busy === "shareCircle"}
+                onClick={() => void vm.onSelectShareCircle(circle.id)}
+                ariaPressed={selected}
+                ariaLabel={`${selected ? "Deselect" : "Select"} the ${circle.name} Circle`}
+                leading={
+                  <span
+                    className={cn(
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                      circleRole.tile,
+                      circleRole.glyph,
+                    )}
+                  >
                     <UsersRound className="h-[18px] w-[18px]" />
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-foreground">
-                      {circle.name}
-                    </span>
-                    <span className="block text-[13px] leading-[18px] text-[#8E8E93]">
-                      {selected
-                        ? `${selectedReady.length} ready now`
-                        : `${circle.memberCount} ${
-                            circle.memberCount === 1 ? "member" : "members"
-                          }`}
-                    </span>
-                  </span>
-                  <span className="text-xs font-semibold text-[color:var(--app-accent)]">
-                    {vm.busy === "shareCircle"
-                      ? "Loading…"
-                      : selected
-                        ? "Selected"
-                        : "Select"}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                }
+                title={circle.name}
+                description={
+                  vm.busy === "shareCircle"
+                    ? "Loading…"
+                    : selected
+                      ? `${selectedReady.length} ready now`
+                      : `${circle.memberCount} ${
+                          circle.memberCount === 1 ? "member" : "members"
+                        }`
+                }
+                trailing={<SelectionDot selected={selected} />}
+              />
+            );
+          })}
           {vm.selectedShareCircleSelection && shareCircleFullySelected ? (
             <p className={cn(MUTED_TEXT, "mt-3")}>
               Current ready members only; future members are never added
@@ -2792,7 +2787,7 @@ function ShareFlow({
                 : ""}
             </p>
           ) : null}
-        </SectionCard>
+        </SettingsGroup>
       ) : null}
       <PersonSearchInput
         value={vm.shareRecipientSearch}
@@ -2800,40 +2795,43 @@ function ShareFlow({
         voiceControlId="one-location-share-recipient-search"
       />
       {filtered.length ? (
-        <div className={PEOPLE_LIST_SCROLL_CLASS}>
+        <SettingsGroup
+          title="People"
+          separatorInset
+          contentClassName={PEOPLE_LIST_SCROLL_CLASS}
+        >
           {filtered.map((r) => {
             const selected = vm.selectedRecipientIds.includes(r.userId);
             const ready = vm.isRecipientShareReady(r);
+            const label = vm.recipientLabel(r);
             return (
-              <TrustedPersonCard
+              <SettingsRow
                 key={r.userId}
-                name={vm.recipientLabel(r)}
-                subtitle={
-                  ready
-                    ? undefined
-                    : "Invite them first"
-                }
-                tone={ready ? "ready" : "pending"}
-                actionLabel={
-                  ready ? (selected ? "Selected" : "Select") : undefined
-                }
-                actionAriaLabel={
-                  ready
-                    ? `${selected ? "Deselect" : "Select"} ${vm.recipientLabel(
-                        r,
-                      )} for private sharing`
-                    : undefined
-                }
-                onAction={
+                density="compact"
+                disabled={!ready}
+                onClick={
                   ready
                     ? () => vm.toggleShareRecipient(r.userId, "share_flow")
                     : undefined
                 }
-                selected={selected}
+                ariaPressed={ready ? selected : undefined}
+                ariaLabel={
+                  ready
+                    ? `${selected ? "Deselect" : "Select"} ${label} for private sharing`
+                    : undefined
+                }
+                leading={<Avatar initials={initialsFrom(label)} />}
+                title={label}
+                // Only says something when there is something to say. A row that
+                // is ready needs no sentence explaining that it is ready.
+                description={ready ? undefined : "Invite them first"}
+                trailing={
+                  ready ? <SelectionDot selected={selected} /> : undefined
+                }
               />
             );
           })}
-        </div>
+        </SettingsGroup>
       ) : vm.shareRecipientSearch.trim() ? (
         // A typo used to be reported as "you have no contacts", which sends a
         // person with twenty of them off to invite people they already have.
@@ -2897,6 +2895,37 @@ function shareEndsAtLabel(durationHours: string, nowMs: number): string {
     return `Sharing ends at ${time} on ${day}.`;
   }
   return `Sharing ends at ${time}.`;
+}
+
+/**
+ * The trailing selector on a choose-people row.
+ *
+ * The rows used to end in the word "Select" / "Selected", which is a button
+ * label doing a checkbox's job: it states the action on an unselected row and
+ * the state on a selected one, so the column never means one thing. A dot is
+ * the same affordance the rest of the app uses for a multi-select list, and it
+ * reads down the column at a glance.
+ *
+ * Not colour-only: the ring thickens and fills, and the row still carries
+ * aria-pressed for anything that cannot see either.
+ */
+function SelectionDot({ selected }: { selected: boolean }) {
+  const role = roleClasses(selected ? "action" : "neutral");
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+        selected
+          ? cn(role.border, "bg-[color:var(--app-accent)]")
+          : "border-border/70",
+      )}
+    >
+      {selected ? (
+        <Check className="h-3 w-3 text-[color:var(--app-accent-fg)]" strokeWidth={3} />
+      ) : null}
+    </span>
+  );
 }
 
 /* =================================================================== */
