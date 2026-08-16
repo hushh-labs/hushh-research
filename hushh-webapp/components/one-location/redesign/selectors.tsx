@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
+import { DurationWheelPicker } from "./duration-wheel-picker";
 
 /** Mirrors the existing page DURATION_OPTIONS so the Select/menu values stay identical. */
 export const REDESIGN_DURATION_OPTIONS: { value: string; label: string }[] = [
@@ -42,12 +43,16 @@ export function DurationSelector({
   options = REDESIGN_DURATION_OPTIONS,
   label = "Duration",
   presentation = "buttons",
+  untilStopValue,
 }: {
   value: string;
   onChange: (next: string) => void;
   options?: { value: string; label: string }[];
   label?: string;
-  presentation?: "buttons" | "select";
+  presentation?: "buttons" | "select" | "wheel";
+  /** Forwarded to DurationWheelPicker — the sentinel value its "Until I stop"
+   * toggle emits. Defaults to the wheel's own alias when omitted. */
+  untilStopValue?: string;
 }) {
   const labelId = useId();
 
@@ -61,7 +66,13 @@ export function DurationSelector({
           {label}
         </p>
       ) : null}
-      {presentation === "select" ? (
+      {presentation === "wheel" ? (
+        <DurationWheelPicker
+          value={value}
+          onChange={onChange}
+          {...(untilStopValue ? { untilStopValue } : {})}
+        />
+      ) : presentation === "select" ? (
         <Select value={value} onValueChange={onChange}>
           <SelectTrigger
             aria-label={label || "Duration"}
