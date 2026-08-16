@@ -409,7 +409,7 @@ describe("runSosPanic", () => {
 
     expect(error).toBeInstanceOf(SosPanicError);
     expect(error).toMatchObject({
-      message: "character limit exceed",
+      message: "Message is too long",
       partialIncident: null,
     });
     expect(createGrantMock).not.toHaveBeenCalled();

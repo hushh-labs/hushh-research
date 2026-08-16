@@ -66,7 +66,24 @@ export function SegmentedTabs({
           >
             {/* Ripple sits BEHIND the label (z-0) and never intercepts taps. */}
             <MaterialRipple variant="none" effect="fade" className="z-0" />
-            <span className="ui-text-form-label relative z-10 block min-w-0 truncate text-center">
+            {/*
+              A tab label is product-owned copy, not user content, so it may
+              never resolve to an ellipsis: "Around yo…" is a defect, not
+              graceful degradation. `truncate` is still here because a label
+              that overflows must not blow the grid out instead -- the contract
+              marks the overflow as forbidden so a measurement can catch it,
+              rather than letting it silently look intentional.
+
+              These attributes are inert: no styling, no accessibility effect.
+              They exist so a headless width check can find every tab title in
+              the app from one shared primitive instead of per screen.
+            */}
+            <span
+              data-ui-contract="required-title"
+              data-ui-truncation="forbid"
+              data-ui-id={`segmented-tab-${option.value}`}
+              className="ui-text-form-label relative z-10 block min-w-0 truncate text-center"
+            >
               {option.label}
             </span>
           </button>

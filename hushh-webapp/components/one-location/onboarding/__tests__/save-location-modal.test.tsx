@@ -804,6 +804,49 @@ describe("SaveLocationModal", () => {
     });
   });
 
+  describe("controls stay tappable without moving", () => {
+    const detailProps = {
+      ...baseProps,
+      address: "Kartavya Path, New Delhi, Delhi 110001, India",
+      mapInitial: { latitude: 28.6139, longitude: 77.209 },
+      onPickExactLocation: vi.fn(),
+      startWithMapPicker: true,
+      collectAddressDetails: true,
+    };
+
+    it("keeps the corner buttons absolutely positioned while growing their hit area", () => {
+      // The hit area is grown with a painted `::after` box, which must NOT
+      // bring `relative` with it: two positioning utilities in one class
+      // string make tailwind-merge keep the last, which drops these out of
+      // absolute positioning and collapsed them from 36px to 18px.
+      render(<SaveLocationModal {...detailProps} />);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+
+      for (const name of ["Back to map", "Close"]) {
+        const button = screen.getByRole("button", { name });
+        expect(button.className).toContain("absolute");
+        expect(button.className).not.toMatch(/(^|\s)relative(\s|$)/);
+        expect(button.className).toContain("after:h-11");
+        expect(button.className).toContain("after:w-11");
+        // The painted circle is unchanged.
+        expect(button.className).toContain("h-9");
+        expect(button.className).toContain("w-9");
+      }
+    });
+
+    it("gives each carousel dot a real 44x44 instead of a grown one", () => {
+      // Two dots sit side by side, so faking the region with a `::after` box
+      // would overlap them and send an edge tap to the wrong slide.
+      render(<SaveLocationModal {...detailProps} />);
+
+      for (const dot of screen.getAllByRole("tab")) {
+        expect(dot.className).toContain("h-11");
+        expect(dot.className).toContain("w-11");
+        expect(dot.className).not.toContain("after:");
+      }
+    });
+  });
+
   describe("the sheet reads as a layer, not a patch", () => {
     it("puts its scrim above the full-screen onboarding takeover", () => {
       // Location onboarding is an OPAQUE fixed layer at z-560. The scrim used
@@ -865,9 +908,7 @@ describe("SaveLocationModal", () => {
       fireEvent.click(screen.getByRole("button", { name: "Home" }));
 
       expect(
-        screen.getByText(
-          "Add a house, landmark or PIN so this place can be found.",
-        ),
+        screen.getByText("Add a house, landmark or PIN."),
       ).toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: "Save location" }),

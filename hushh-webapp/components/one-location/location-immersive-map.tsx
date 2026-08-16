@@ -2341,11 +2341,23 @@ export function LocationImmersiveMap({
             GOOGLE_MAPS_RENDERER_CONSENT_VERSION. All three claims are
             load-bearing and none may be dropped for brevity — private shares
             are opened locally, Google Maps is told the minimum, and Nearby
-            Check-In is a separate opt-in. Only the wording was tightened.
+            Check-In is a separate opt-in.
+
+            Two words in the third claim are protected, and a previous trim of
+            this paragraph lost both:
+            - "only" is the exclusivity guarantee. The other two claims keep
+              theirs ("open only on this device", "gets only what it needs");
+              dropping it here alone said Check-In is separate without saying
+              nothing else can start it.
+            - "Nearby" is the feature's name, and the single word that says
+              this is the surface that shows you to people AROUND you rather
+              than to people you picked. Settings states the same strong form.
+            Shorten the connective tissue if you must; leave those two.
           */}
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
             Private shares open only on this device. Google Maps gets only what
-            it needs to draw them. Check-In is separate — you start it.
+            it needs to draw them. Nearby Check-In is separate — it starts only
+            when you do.
           </p>
           <Button
             className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}

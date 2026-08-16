@@ -247,4 +247,35 @@ describe("LocationBus.watch", () => {
     expect(LocationBus.getState().status).toBe("denied");
     expect(LocationBus.getState().error).toBe("blocked for this site");
   });
+
+  it("reports a NATIVE mid-watch revocation, which carries no numeric code", async () => {
+    // The case above is browser-shaped: `code: 1` is
+    // GeolocationPositionError.PERMISSION_DENIED. Capacitor's native reject
+    // has no numeric code at all — CAPPluginCall.reject takes `String?` and
+    // HushhLocationPlugin passes none — so a watch-path check written as
+    // `error.code === 1` is dead on iOS and Android. It looked covered because
+    // both existing cases feed a `code`, so the old comparison kept them green.
+    //
+    // This is the shape the device actually sends: the exact message
+    // HushhLocationPlugin.failWatches() rejects with when authorization flips
+    // to .denied while a watch is live. It must read as a denial, not as the
+    // routine between-fixes noise the branch above deliberately swallows.
+    let emit: ((point: unknown, error: unknown) => void) | null = null;
+    mockLocation.watchPosition.mockImplementation(
+      async (_options: unknown, callback: (p: unknown, e: unknown) => void) => {
+        emit = callback;
+        return "watch-1";
+      },
+    );
+
+    await LocationBus.watch();
+    emit?.(POINT, null);
+    emit?.(null, new Error("Location permission was not granted."));
+
+    expect(LocationBus.getState().status).toBe("denied");
+    expect(LocationBus.getState().permission).toBe("denied");
+    expect(LocationBus.getState().error).toBe(
+      "Location permission was not granted.",
+    );
+  });
 });

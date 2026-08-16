@@ -63,10 +63,15 @@ def connections_directory(
     query: str = Query(default="", max_length=160),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=50),
+    # Which half of the directory to page through. Defaults to "all", so every
+    # caller that predates the advisor split keeps the list it already had.
+    audience: str = Query(default="all", pattern="^(all|people|ria)$"),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     try:
-        return _service().search_directory(firebase_uid, query=query, page=page, limit=limit)
+        return _service().search_directory(
+            firebase_uid, query=query, page=page, limit=limit, audience=audience
+        )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 
