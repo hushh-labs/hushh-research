@@ -46,6 +46,11 @@ import {
   TrustNoteCard,
 } from "@/components/one-location/redesign/primitives";
 import { MUTED_TEXT } from "@/components/one-location/redesign/tokens";
+import {
+  CIRCLE_NAME_ACTION_CLASSNAME,
+  CIRCLE_NAME_INPUT_CLASSNAME,
+  CIRCLE_NAME_ROW_CLASSNAME,
+} from "@/components/one-location/redesign/circles/circle-name-row-layout";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnection,
@@ -1131,7 +1136,7 @@ export function CircleDetailFlow({
               >
                 Circle name
               </label>
-              <div className="mt-2 flex gap-2">
+              <div className={CIRCLE_NAME_ROW_CLASSNAME}>
                 <input
                   id={CIRCLE_NAME_INPUT_ID}
                   ref={nameInputRef}
@@ -1148,28 +1153,28 @@ export function CircleDetailFlow({
                   }}
                   maxLength={80}
                   autoComplete="off"
-                  className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-base outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+                  className={CIRCLE_NAME_INPUT_CLASSNAME}
                 />
                 {circleNameDirty ? (
                   <Button
                     type="button"
+                    size="sm"
                     disabled={!canSaveCircleName}
                     isLoading={savingName}
                     onClick={() => void renameCircle()}
-                    className="h-11 shrink-0 rounded-xl px-4 font-semibold"
+                    className={CIRCLE_NAME_ACTION_CLASSNAME}
                     data-testid="one-location-circle-name-save"
                   >
-                    <Check className="mr-1.5 h-4 w-4" />
                     Save
                   </Button>
                 ) : (
                   <Button
                     type="button"
+                    size="sm"
                     variant="outline"
-                    size="icon"
                     aria-label="Edit Circle name"
                     onClick={() => nameInputRef.current?.focus()}
-                    className="h-11 w-11 shrink-0 rounded-xl"
+                    className={CIRCLE_NAME_ACTION_CLASSNAME}
                   >
                     <Pencil className="h-4 w-4" />
                   </Button>
@@ -1179,8 +1184,8 @@ export function CircleDetailFlow({
                 {circleNameDirty && trimmedCircleName.length < 1
                   ? "Enter a name."
                   : circleNameDirty
-                    ? "Tap Save — everyone in this Circle will see the new name."
-                    : "Everyone in this Circle sees this name."}
+                    ? "Tap Save to rename."
+                    : "Circle members see this."}
               </p>
             </div>
           ) : null}
