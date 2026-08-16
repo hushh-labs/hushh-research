@@ -637,6 +637,58 @@ The first lists the base layers (`dialog`, `sheet`, `alert-dialog`, `card`,
 losing to one of them — read `getComputedStyle(el).boxShadow` in a browser before
 believing it rendered.
 
+### R17 — `git stash` is shared by every worktree; never use it to take a baseline
+
+**Incident (2026-08-16, proving a test failure was pre-existing on main.)**
+The plan was ordinary: `git stash -u`, run the suite at the base, `git stash
+pop`. But there was nothing local to stash — the work was already committed — so
+`stash -u` created no entry, and `pop` therefore popped **another agent's**
+wallet-card WIP into this worktree. It conflicted across 17 files. Nothing was
+lost (their two entries survived, because a conflicting pop does not drop the
+entry, and the real work was in a commit), but the tree had to be reset and the
+"baseline" proved nothing.
+
+The stash is a property of the **repository**, not the worktree or the branch.
+In a checkout several agents share, it is someone else's inbox.
+
+**Rule.** To compare against a base, add a throwaway worktree at that commit and
+run there. Never `git stash` in this repo — not to park work, not to peek at
+main. Commit to a branch instead; a commit is yours, a stash entry is everyone's.
+
+**Check.**
+```bash
+# Anything here belongs to somebody. If it is non-empty, do not pop.
+git stash list
+# The safe baseline instead:
+git worktree add /tmp/base-$$ origin/main && \
+  echo "run the check in /tmp/base-$$, then: git worktree remove /tmp/base-$$ --force"
+```
+
+### R18 — A width that "looks fine" is unmeasured; product titles need a number, not a glance
+
+**Incident (2026-08-16, adding a third tab to Connect.)** Three tabs plus the
+strip's stock 16px option padding left `Around you` 77px of the 80px it needs on
+a 375px screen, so it rendered `Around yo…`. Typecheck, lint, the full unit
+suite and every governance verifier were green: jsdom performs no layout, so a
+`truncate` class is invisible to it, and there was no horizontal scrollbar to
+notice. Measuring the real class strings against the built stylesheet in headless
+Chromium found it in seconds — and the same run found `Insurance` had been
+shipping as `Insuranc…` at 320px in the already-released *Around you* strip.
+
+**Rule.** A product-owned title may never resolve to an ellipsis. Adding an
+option to any segmented/tab strip, or lengthening a label, requires a measured
+width at 320-430px before it ships. Unbounded user content may truncate; copy we
+wrote may not.
+
+**Check.**
+```bash
+# Needs a build first — it measures the real stylesheet, not a copy of it.
+cd hushh-webapp && npx playwright test e2e/tab-title-integrity.spec.ts \
+  --project=chromium --reporter=line
+```
+Add every new strip's labels to `TAB_STRIPS` in that spec; a strip that is not
+listed is simply unmeasured.
+
 ## Adding a rule
 
 Every mistake found becomes a rule. Fix the **cause**, not the symptom, then add
