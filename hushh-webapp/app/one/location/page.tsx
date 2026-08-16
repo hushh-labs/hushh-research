@@ -890,11 +890,16 @@ function toggleSelectedId(
 function useShareRecipientSelectionState(): readonly [
   string[],
   (next: SetStateAction<string[]>) => string[],
+  MutableRefObject<string[]>,
 ] {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   // React can batch multiple share actions before rerendering. This cursor lets
   // each action compose from the latest queued selection while state remains
-  // the rendered source of truth.
+  // the rendered source of truth. Exposed (read-only by convention) so a
+  // handler that fires immediately after a select -- faster than the render
+  // that would otherwise make the pick visible -- can still read who was just
+  // chosen instead of the not-yet-committed empty state. See its use in
+  // handleShare's effectiveSelectedShareRecipients.
   const latestSelectedIdsRef = useRef<string[]>([]);
   const updateSelectedIds = useCallback(
     (next: SetStateAction<string[]>): string[] => {
@@ -906,7 +911,7 @@ function useShareRecipientSelectionState(): readonly [
     },
     [],
   );
-  return [selectedIds, updateSelectedIds] as const;
+  return [selectedIds, updateSelectedIds, latestSelectedIdsRef] as const;
 }
 
 type ShareReadyRecipient = OneLocationRecipient & {
@@ -2328,7 +2333,7 @@ export function OneLocationAgentPageContent({
   const [oneNetworkListExpanded, setOneNetworkListExpanded] = useState(false);
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [selectedRequestOwnerId, setSelectedRequestOwnerId] = useState("");
-  const [selectedRecipientIds, setSelectedRecipientIds] =
+  const [selectedRecipientIds, setSelectedRecipientIds, selectedRecipientIdsRef] =
     useShareRecipientSelectionState();
   const [selectedRequestOwnerIds, setSelectedRequestOwnerIds] = useState<
     string[]
@@ -3922,6 +3927,23 @@ export function OneLocationAgentPageContent({
     if (!vaultOwnerToken) {
       return { status: "blocked", summary: "Unlock One before sharing your location." };
     }
+    // Voice picks someone and immediately says "share" in the same breath --
+    // faster than the render that would make the pick visible in
+    // selectedShareRecipients, a value React has not recomputed yet. Falling
+    // back to shareRecipientIdsRef (updated synchronously by the same select,
+    // ahead of the render) is what lets this see a pick that just happened
+    // rather than the not-yet-committed empty selection. A tap-driven Share
+    // never hits the fallback: by the time a person can tap, a render has
+    // long since happened.
+    const effectiveSelectedShareRecipients = selectedShareRecipients.length
+      ? selectedShareRecipients
+      : recipientSelectionFromIds(shareRecipientPool, selectedRecipientIdsRef.current);
+    const effectiveSetupNeededSelectedRecipients =
+      effectiveSelectedShareRecipients.filter(
+        (recipient) => !isShareReadyRecipient(recipient),
+      );
+    const effectiveShareReadySelectedRecipients =
+      effectiveSelectedShareRecipients.filter(isShareReadyRecipient);
     // Test the SELECTION, not the share-ready subset of it. Those differ
     // whenever someone is picked who has not finished their own Location
     // setup, and reading the subset made this answer "nobody is selected"
@@ -3929,18 +3951,18 @@ export function OneLocationAgentPageContent({
     // chain back to pick someone it had already picked. Observed live: the
     // pick settled "Matched Abdul Rashid", and the share that followed it
     // said nobody was selected.
-    if (!selectedShareRecipients.length) {
+    if (!effectiveSelectedShareRecipients.length) {
       return {
         status: "blocked",
         summary:
           "Nobody is selected yet. Pick who you want to share with, then say share again.",
       };
     }
-    if (setupNeededSelectedRecipients.length) {
+    if (effectiveSetupNeededSelectedRecipients.length) {
       // Name them. The person picked this contact by name a moment ago, so
       // the name is already theirs and already spoken; "someone you picked"
       // leaves them guessing which of several it means.
-      const blockedNames = setupNeededSelectedRecipients
+      const blockedNames = effectiveSetupNeededSelectedRecipients
         .map((recipient) => recipientLabel(recipient).trim())
         .filter(Boolean);
       return {
@@ -3986,7 +4008,7 @@ export function OneLocationAgentPageContent({
       // unbounded fan-out over a large Circle can exhaust a small connection
       // pool. Four at a time keeps the wall clock near a single round trip and
       // stays well inside the pool.
-      const pending = [...shareReadySelectedRecipients];
+      const pending = [...effectiveShareReadySelectedRecipients];
       const shareOne = async () => {
         for (;;) {
           const recipient = pending.shift();
@@ -4027,7 +4049,7 @@ export function OneLocationAgentPageContent({
       trackLocationShareConfirmed({
         route_id: "one_location",
         result: oneLocationEventResult(successCount, recipientFailureCount),
-        selected_count: shareReadySelectedRecipients.length,
+        selected_count: effectiveShareReadySelectedRecipients.length,
         success_count: successCount,
         failure_count: recipientFailureCount,
         duration_bucket: oneLocationDurationBucket(effectiveDurationHours),
@@ -4053,12 +4075,12 @@ export function OneLocationAgentPageContent({
     } catch (error) {
       const failureCount =
         recipientFailureCount ||
-        shareReadySelectedRecipients.length - successCount ||
+        effectiveShareReadySelectedRecipients.length - successCount ||
         1;
       trackLocationShareConfirmed({
         route_id: "one_location",
         result: oneLocationEventResult(successCount, failureCount),
-        selected_count: shareReadySelectedRecipients.length,
+        selected_count: effectiveShareReadySelectedRecipients.length,
         success_count: successCount,
         failure_count: failureCount,
         duration_bucket: oneLocationDurationBucket(effectiveDurationHours),
@@ -4079,14 +4101,12 @@ export function OneLocationAgentPageContent({
       publishEnvelopeWithRetry,
       refresh,
       resetShareComposer,
-      // The whole list, not just its length: the blocked message now names
-      // who is holding the share up.
-      setupNeededSelectedRecipients,
+      selectedRecipientIdsRef,
       selectedShareRecipients,
       shareDurationHours,
       shareMessage,
+      shareRecipientPool,
       shareReviewOpen,
-      shareReadySelectedRecipients,
       vaultOwnerToken,
     ],
   );
