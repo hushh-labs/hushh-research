@@ -2968,6 +2968,7 @@
       "canonical_screen": "one_location_map",
       "voice_contract_file": null,
       "action_ids": [
+        "location.open_check_in",
         "location.open_map"
       ],
       "action_coverage": "inherited",

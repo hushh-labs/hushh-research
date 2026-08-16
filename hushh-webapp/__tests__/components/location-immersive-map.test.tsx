@@ -1679,9 +1679,11 @@ describe("LocationImmersiveMap remount triggers", () => {
   });
 
   it("redirects the legacy check-in entry point off the map route", async () => {
-    // The Location hub still pushes /one/location/map?action=check-in, and the
-    // map route bounces it to the check-in route. That bounce is a second
-    // mount of this same component on the same native map id.
+    // Nothing inside the app sends check-in here any more -- the hub, the
+    // breadcrumb back button and the resume href all name the check-in route
+    // directly. What is left arriving on `?action=check-in` is links we do not
+    // own: notifications, bookmarks, anything already shared. They still work,
+    // at the cost of this one bounce.
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     experienceHarness.query = "action=check-in";
@@ -1694,6 +1696,28 @@ describe("LocationImmersiveMap remount triggers", () => {
         { scroll: false },
       );
     });
+  });
+
+  it("sends a check-in arrival to the hub flow when nearby check-in is off", async () => {
+    // Every button into check-in is gated on availability, so this is reached
+    // only by a link: a bookmark, or a notification from before the build
+    // turned the flow off. Opening a place list the backend then refuses is a
+    // dead end with nothing on screen to explain it, so it goes to the plain
+    // check-in the hub still renders.
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = false;
+    experienceHarness.query = "";
+
+    render(<LocationImmersiveMap surface="check-in" />);
+
+    await waitFor(() => {
+      expect(navigationHarness.replace).toHaveBeenCalledWith(
+        "/one/location?action=check-in",
+        { scroll: false },
+      );
+    });
+    // And it does not open the sheet on the way out.
+    expect(screen.queryByTestId("dismiss-nearby-check-in")).toBeNull();
   });
 
   it("leaves a usable map behind when check-in is opened and dismissed", async () => {

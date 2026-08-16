@@ -5528,10 +5528,12 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/location"
+          "/one/location",
+          "/one/location/map"
         ],
         "screens": [
-          "one_location"
+          "one_location",
+          "one_location_map"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [],
@@ -5553,7 +5555,8 @@
         "target": "/one/location?action=check-in"
       },
       "control_ids": [
-        "one-location-action-check-in"
+        "one-location-action-check-in",
+        "one-location-map-nearby-check-in"
       ],
       "state_exposure": [
         "active location flow"
