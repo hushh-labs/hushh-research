@@ -19,6 +19,11 @@ import {
 } from "lucide-react";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
+import {
+  READY_MAP_CLASSNAME,
+  READY_PANEL_CLASSNAME,
+  READY_SURFACE_CLASSNAME,
+} from "@/components/one-location/onboarding/ready-panel-layout";
 import { normalizeCircleCode } from "@/lib/one-location/pending-circle-join";
 import { useGoogleMaps } from "@/lib/one-location/use-google-maps";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
@@ -1728,7 +1733,7 @@ function ReadyScreen({
 
   return (
     <div
-      className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white dark:bg-[#14171d] md:bg-[#eef3f8] md:dark:bg-[#070a0f]"
+      className={READY_SURFACE_CLASSNAME}
       data-testid="one-location-onboarding-ready-surface"
     >
       {/* The map gets its own band rather than sitting behind the copy.
@@ -1739,7 +1744,7 @@ function ReadyScreen({
           layout every map product converges on for the same reason. */}
       <OnboardingLiveMap
         point={mapPoint}
-        className="h-[34dvh] max-h-[300px] min-h-[190px] w-full shrink-0 md:absolute md:inset-0 md:h-full md:max-h-none md:min-h-0"
+        className={READY_MAP_CLASSNAME}
       />
 
       {/* Floats over the map: the controls stay reachable without stealing a
@@ -1762,7 +1767,7 @@ function ReadyScreen({
       </header>
 
       <div
-        className="relative z-10 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-[28px] bg-white shadow-[0_-8px_24px_rgba(24,57,91,0.10)] dark:bg-[#14171d] md:absolute md:left-1/2 md:top-1/2 md:mt-0 md:h-auto md:max-h-[calc(100dvh-96px)] md:w-[430px] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-[30px] md:shadow-[0_24px_80px_rgba(24,57,91,0.22)]"
+        className={READY_PANEL_CLASSNAME}
         data-testid="one-location-onboarding-ready-panel"
       >
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 pt-6 md:px-7 md:pb-5 md:pt-7">
