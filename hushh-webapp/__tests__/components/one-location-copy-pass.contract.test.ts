@@ -53,7 +53,11 @@ describe("One Location — link durations stay inside the server's ceiling", () 
     // bounds durationHours at `le=24` and normalize_duration_hours raises
     // "between 15 minutes and 24 hours", so picking it returned HTTP 422 —
     // a control that could only ever fail, with no explanation on screen.
-    const start = HUB_SOURCE.indexOf('<SectionCard title="Invite expires after">');
+    // Anchored on the row rather than the card that used to wrap it: the
+    // invite fields became one grouped card, so "Invite expires after" is now
+    // a SettingsRow titled "Expires after". What this test is about -- that no
+    // option exceeds the API's 24h ceiling -- is unchanged.
+    const start = HUB_SOURCE.indexOf('title="Expires after"');
     expect(start).toBeGreaterThan(-1);
     const inviteSection = HUB_SOURCE.slice(start, start + 1200);
 

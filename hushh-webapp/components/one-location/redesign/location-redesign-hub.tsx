@@ -2587,46 +2587,59 @@ function ShareFlow({
             is the design explaining itself. */}
         <TaskFlowHeader eyebrow="Step 2 of 2 · Confirm" title="Ready to share?" />
 
-        <SectionCard
-          title="Can see you"
-          description={
-            selectedCircle
-              ? `${selectedCircle.circle.name} · ${selectedReady.length} ${peopleNoun}`
-              : `${selectedReady.length} ${peopleNoun}`
-          }
-          action={
+        <section className="space-y-3">
+          {/* Label and its Edit action on one line, group beneath. The card
+              this replaced carried the action inside its own header; a group
+              owns its title, so the affordance sits beside the label it edits
+              rather than inside the surface it edits. */}
+          <div className="flex items-end justify-between gap-3 px-1">
+            <div className="min-w-0">
+              <AppSectionLabel as="h2">Can see you</AppSectionLabel>
+              <p className={MUTED_TEXT}>
+                {selectedCircle
+                  ? `${selectedCircle.circle.name} · ${selectedReady.length} ${peopleNoun}`
+                  : `${selectedReady.length} ${peopleNoun}`}
+              </p>
+            </div>
             <Button
               variant="ghost"
               onClick={backToPeople}
-              className="h-9 rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)] hover:text-[color:var(--app-accent)]"
+              className="h-9 shrink-0 rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)] hover:text-[color:var(--app-accent)]"
             >
               Edit
             </Button>
-          }
-        >
+          </div>
           {selectedReady.length ? (
+            /* A real <ul>, not a stack of divs: this is the read-back of who is
+               about to see you, and "list, 3 items" is exactly what a screen
+               reader should say here. Painted with the same surface, radius and
+               inset hairlines SettingsGroup uses, so it is the group shape with
+               the list semantics kept. */
             <ul
               aria-label="People who can see your location"
-              className="space-y-1"
+              className="divide-y divide-border/60 overflow-hidden rounded-[var(--app-card-radius-standard,24px)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]"
             >
               {selectedReady.map((recipient) => (
                 <li
                   key={recipient.userId}
-                  className="flex min-h-11 items-center gap-3"
+                  className="flex min-h-[56px] items-center gap-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]"
                 >
-                  <Avatar initials={initialsFrom(vm.recipientLabel(recipient))} />
-                  <span className="min-w-0 flex-1 break-words text-[15px] font-medium text-foreground [overflow-wrap:anywhere]">
+                  <Avatar
+                    initials={initialsFrom(vm.recipientLabel(recipient))}
+                  />
+                  <RowLabel as="span" className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
                     {vm.recipientLabel(recipient)}
-                  </span>
+                  </RowLabel>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className={MUTED_TEXT}>
-              Tap Edit to choose people.
-            </p>
+            <EmptyState
+              title="Nobody chosen yet"
+              description="Tap Edit to choose people."
+            />
           )}
-        </SectionCard>
+        </section>
 
         <SectionCard>
           <div className="space-y-5">
@@ -3325,13 +3338,17 @@ function InviteFlow({
         title="Invite to Circle"
         description="Invite before sharing."
       />
-      <SectionCard title="What happens next?">
-        <p className="text-sm text-muted-foreground">
-          They sign in, verify phone, and approve.
-        </p>
-      </SectionCard>
-      <SectionCard title="Invite expires after">
-        <DurationSelector
+      <SettingsGroup
+        title="Invite"
+        description="They sign in, verify phone, and approve."
+        separatorInset
+      >
+        <SettingsRow
+          title="Expires after"
+          description="How long the link stays usable."
+          stackTrailingOnMobile
+          trailing={
+            <DurationSelector
           value={vm.durationHours}
           onChange={vm.setDurationHours}
           label=""
@@ -3342,11 +3359,13 @@ function InviteFlow({
           // used to sit here could only ever return HTTP 422 — an invite the
           // owner watched fail with no idea why.
           options={[
-            { value: "1", label: "1 hour" },
-            { value: "24", label: "24 hours" },
-          ]}
+                { value: "1", label: "1 hour" },
+                { value: "24", label: "24 hours" },
+              ]}
+            />
+          }
         />
-      </SectionCard>
+      </SettingsGroup>
       <TrustNoteCard
         title="No location shared"
         description="They approve first."
@@ -3422,19 +3441,27 @@ function TemporaryLinkFlow({
         title="Anyone with this link can see you"
         description="The link stops on its own."
       />
-      <SectionCard title="Duration">
-        <DurationSelector
-          value={vm.durationHours}
-          onChange={vm.setDurationHours}
-          label=""
-          // Deliberately shorter than the trusted-share durations: anyone
-          // holding this link can watch, so the public ceiling stays at 1 hour.
-          options={[
-            { value: "0.5", label: "30 min" },
-            { value: "1", label: "1 hour" },
-          ]}
+      <SettingsGroup title="Duration" separatorInset>
+        <SettingsRow
+          title="Link stays live for"
+          description="Anyone holding it can watch until then."
+          stackTrailingOnMobile
+          trailing={
+            <DurationSelector
+              value={vm.durationHours}
+              onChange={vm.setDurationHours}
+              label=""
+              // Deliberately shorter than the trusted-share durations: anyone
+              // holding this link can watch, so the public ceiling stays at
+              // 1 hour.
+              options={[
+                { value: "0.5", label: "30 min" },
+                { value: "1", label: "1 hour" },
+              ]}
+            />
+          }
         />
-      </SectionCard>
+      </SettingsGroup>
       {/* The temporary link shares the same precise point as everything else,
           so it offers no precision card either. The "expires automatically"
           note that sat here was the third statement of the same fact — the
