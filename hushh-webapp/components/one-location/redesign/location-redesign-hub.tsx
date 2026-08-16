@@ -715,11 +715,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       if (next === tab) return;
       setTabState(next);
       const params = new URLSearchParams(searchParams.toString());
-      if (next === "now") {
-        params.delete(LOCATION_HUB_TAB_PARAM);
-      } else {
-        params.set(LOCATION_HUB_TAB_PARAM, next);
-      }
+      // Always name the tab, including the default one. Returning to Now by
+      // deleting the parameter can leave the query empty, and the App Router
+      // will not perform a navigation whose only change is that the whole
+      // query string disappears -- the tab would highlight while the URL, and
+      // anything reading it, stayed on the previous tab.
+      params.set(LOCATION_HUB_TAB_PARAM, next);
       const query = params.toString();
       const href = query ? `${pathname}?${query}` : pathname;
       beginRouteTransition(
@@ -761,15 +762,17 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     if (detailAction || nextTab || legacyInbox) {
       setFlow("none");
       const params = new URLSearchParams(searchParams.toString());
-      params.delete(LOCATION_HUB_TAB_PARAM);
       params.delete("section");
       if (detailAction) {
+        params.delete(LOCATION_HUB_TAB_PARAM);
         params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[detailAction]);
       } else {
         params.delete(FLOW_ACTION_PARAM);
-        if (nextTab) {
-          params.set(LOCATION_HUB_TAB_PARAM, nextTab);
-        }
+        // Name the tab, default included: a notification that resolves to the
+        // plain hub would otherwise leave an empty query, which the App Router
+        // declines to navigate to, stranding the person on the notification's
+        // own URL.
+        params.set(LOCATION_HUB_TAB_PARAM, nextTab ?? "now");
       }
       const query = params.toString();
       router.replace(query ? `${pathname}?${query}` : pathname, {
@@ -859,17 +862,18 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       params.delete(FLOW_ACTION_PARAM);
       params.delete("circleId");
       params.delete(FLOW_SOURCE_PARAM);
-      if (nextTab === "now") {
-        params.delete(LOCATION_HUB_TAB_PARAM);
-      } else if (nextTab) {
-        params.set(LOCATION_HUB_TAB_PARAM, nextTab);
-      }
+      // Name the tab the flow is closing onto, default included. Dropping
+      // `?action=` was often the only change left, and the App Router will not
+      // perform a navigation whose only change is that the whole query string
+      // disappears -- Cancel and Done would clear the flow's local state while
+      // the URL kept it open, and re-render it straight back.
+      params.set(LOCATION_HUB_TAB_PARAM, nextTab ?? tab);
       const query = params.toString();
       router.replace(query ? `${pathname}?${query}` : pathname, {
         scroll: false,
       });
     },
-    [flow, pathname, router, searchParams, vm],
+    [flow, pathname, router, searchParams, tab, vm],
   );
 
   const dismissFocusedCircleMemberInvite = useCallback(() => {
@@ -911,7 +915,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     if (RETIRED_ACTIONS.has(action)) {
       const params = new URLSearchParams(searchParams.toString());
       params.delete(FLOW_ACTION_PARAM);
-      params.delete(LOCATION_HUB_TAB_PARAM);
+      // Same reason as everywhere else in this file: dropping `?action=` was
+      // often the only change, and that navigation does not happen. The toast
+      // said the action was gone while the retired screen stayed on screen.
+      params.set(LOCATION_HUB_TAB_PARAM, "now");
       const query = params.toString();
       toast.message("That's no longer there.");
       router.replace(query ? `${pathname}?${query}` : pathname, {

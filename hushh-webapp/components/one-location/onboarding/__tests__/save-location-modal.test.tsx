@@ -284,7 +284,7 @@ describe("SaveLocationModal", () => {
       screen.getByText(/Tag where you are/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/stays encrypted in your vault/i),
+      screen.getByText(/stays private to you/i),
     ).toBeInTheDocument();
   });
 
@@ -316,7 +316,7 @@ describe("SaveLocationModal", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Other" }));
-    fireEvent.change(screen.getByLabelText(/give it a name/i), {
+    fireEvent.change(screen.getByLabelText(/name it/i), {
       target: { value: "Gym" },
     });
     fireEvent.click(screen.getByRole("button", { name: /save location/i }));
@@ -394,14 +394,14 @@ describe("SaveLocationModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
 
     expect(
-      screen.getByRole("dialog", { name: "Add your address details" }),
+      screen.getByRole("dialog", { name: "Address details" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Add your address details" }),
+      screen.getByRole("heading", { name: "Address details" }),
     ).toHaveFocus();
-    expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110001");
+    expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("110001");
     expect(
-      screen.getByText(/Saved after your vault is ready/i),
+      screen.getByText(/Saves once your lock is set/i),
     ).toBeInTheDocument();
     // The detected address is shown, and the fields below were filled from
     // it -- here only the PIN, since "Kartavya Path" is a street rather than
@@ -418,17 +418,17 @@ describe("SaveLocationModal", () => {
       screen.queryByText("Pick Home, Work or Other first."),
     ).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: " Flat 4B, Tower 2 " },
     });
     fireEvent.change(screen.getByLabelText(/Building colour/), {
       target: { value: "Blue gate" },
     });
-    fireEvent.change(screen.getByLabelText(/Nearby landmark/), {
+    fireEvent.change(screen.getByLabelText(/Landmark/), {
       target: { value: "Opposite City Mall" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Other" }));
-    fireEvent.change(screen.getByLabelText(/Give it a name/i), {
+    fireEvent.change(screen.getByLabelText(/Name it/i), {
       target: { value: " Parents' home " },
     });
 
@@ -496,14 +496,14 @@ describe("SaveLocationModal", () => {
       <SaveLocationModal {...props} rendererDisclosureAccepted={false} />,
     );
 
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
 
     rerender(<SaveLocationModal {...props} rendererDisclosureAccepted />);
 
-    expect(screen.getByLabelText(/House, flat, floor or block/)).toHaveValue(
+    expect(screen.getByLabelText(/House or flat/)).toHaveValue(
       "Flat 4B",
     );
     expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute(
@@ -521,15 +521,15 @@ describe("SaveLocationModal", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "12A" },
     });
-    fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
+    fireEvent.change(screen.getByLabelText(/PIN \/ postcode/), {
       target: { value: "!" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
 
-    expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveAttribute(
+    expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveAttribute(
       "aria-invalid",
       "true",
     );
@@ -583,7 +583,7 @@ describe("SaveLocationModal", () => {
       screen.getByRole("button", { name: "Save location" }),
     ).toBeEnabled();
 
-    fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
+    fireEvent.change(screen.getByLabelText(/PIN \/ postcode/), {
       target: { value: "!" },
     });
 
@@ -591,7 +591,7 @@ describe("SaveLocationModal", () => {
     // PIN or postal code." right beside the input. Two places worth looking,
     // not the same sentence twice.
     expect(
-      screen.getByText("Check the PIN or postal code above."),
+      screen.getByText("Check the PIN or postcode above."),
     ).toBeInTheDocument();
   });
 
@@ -611,10 +611,10 @@ describe("SaveLocationModal", () => {
         />,
       );
 
-      expect(screen.getByLabelText(/House, flat, floor or block/)).toHaveValue(
+      expect(screen.getByLabelText(/House or flat/)).toHaveValue(
         "B-284/3",
       );
-      expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110074");
+      expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("110074");
       // And the address itself is still shown, as it was before.
       expect(screen.getByText(HOUSE_NUMBER_ADDRESS)).toBeInTheDocument();
     });
@@ -631,10 +631,10 @@ describe("SaveLocationModal", () => {
         />,
       );
 
-      expect(screen.getByLabelText(/House, flat, floor or block/)).toHaveValue(
+      expect(screen.getByLabelText(/House or flat/)).toHaveValue(
         "",
       );
-      expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("560001");
+      expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("560001");
     });
 
     it("never overwrites a field the person typed in", () => {
@@ -646,7 +646,7 @@ describe("SaveLocationModal", () => {
         />,
       );
 
-      fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+      fireEvent.change(screen.getByLabelText(/House or flat/), {
         target: { value: "Flat 9, Rear block" },
       });
 
@@ -659,11 +659,11 @@ describe("SaveLocationModal", () => {
         />,
       );
 
-      expect(screen.getByLabelText(/House, flat, floor or block/)).toHaveValue(
+      expect(screen.getByLabelText(/House or flat/)).toHaveValue(
         "Flat 9, Rear block",
       );
       // The untouched field still follows the pin.
-      expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110088");
+      expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("110088");
     });
 
     it("clears the filled fields when unticked, and refills them when ticked again", () => {
@@ -676,21 +676,21 @@ describe("SaveLocationModal", () => {
       );
 
       const checkbox = screen.getByRole("checkbox", {
-        name: /fill the fields below/i,
+        name: /fill from this address/i,
       });
       expect(checkbox).toBeChecked();
 
       fireEvent.click(checkbox);
-      expect(screen.getByLabelText(/House, flat, floor or block/)).toHaveValue(
+      expect(screen.getByLabelText(/House or flat/)).toHaveValue(
         "",
       );
-      expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("");
+      expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("");
 
       fireEvent.click(checkbox);
-      expect(screen.getByLabelText(/House, flat, floor or block/)).toHaveValue(
+      expect(screen.getByLabelText(/House or flat/)).toHaveValue(
         "B-284/3",
       );
-      expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110074");
+      expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("110074");
     });
 
     it("does not save the house number twice when it came from the address", () => {
@@ -730,7 +730,7 @@ describe("SaveLocationModal", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110001");
+    expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("110001");
 
     mapPickerMockState.picked = {
       latitude: 12.9716,
@@ -740,7 +740,7 @@ describe("SaveLocationModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit pin" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
 
-    expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("560001");
+    expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("560001");
   });
 
   it("preserves a manually corrected postal code when the pin moves", () => {
@@ -756,7 +756,7 @@ describe("SaveLocationModal", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
+    fireEvent.change(screen.getByLabelText(/PIN \/ postcode/), {
       target: { value: "110002" },
     });
 
@@ -768,7 +768,7 @@ describe("SaveLocationModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit pin" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
 
-    expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110002");
+    expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("110002");
   });
 
   it("restores the inferred postal code when the same modal reopens", () => {
@@ -779,13 +779,13 @@ describe("SaveLocationModal", () => {
     };
     const { rerender } = render(<SaveLocationModal {...props} />);
 
-    fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
+    fireEvent.change(screen.getByLabelText(/PIN \/ postcode/), {
       target: { value: "110002" },
     });
     rerender(<SaveLocationModal {...props} open={false} />);
     rerender(<SaveLocationModal {...props} open />);
 
-    expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110001");
+    expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("110001");
   });
 
   it("maps Escape to the same safe skip action on the map step", () => {
@@ -880,7 +880,7 @@ describe("SaveLocationModal", () => {
 
       swipe(sheet, -120);
       expect(
-        screen.getByRole("dialog", { name: "Add your address details" }),
+        screen.getByRole("dialog", { name: "Address details" }),
       ).toBeInTheDocument();
 
       swipe(sheet, 120);
@@ -933,7 +933,7 @@ describe("SaveLocationModal", () => {
 
       expect(onPickExactLocation).toHaveBeenCalledTimes(1);
       expect(
-        screen.getByRole("dialog", { name: "Add your address details" }),
+        screen.getByRole("dialog", { name: "Address details" }),
       ).toBeInTheDocument();
     });
 
@@ -962,29 +962,37 @@ describe("SaveLocationModal", () => {
       collectAddressDetails: true,
     };
 
-    it("keeps the corner buttons absolutely positioned while growing their hit area", () => {
-      // The hit area is grown with a painted `::after` box, which must NOT
-      // bring `relative` with it: two positioning utilities in one class
-      // string make tailwind-merge keep the last, which drops these out of
-      // absolute positioning and collapsed them from 36px to 18px.
+    it("lays the details header's controls out beside the title instead of over it", () => {
+      // These used to be `absolute left-4/right-4 top-4` over a header padded
+      // to `px-9`. A 36px button starting at 16px ends at 52px, so it covered
+      // the title -- and because the sheet itself was the scroller, the two
+      // drifted apart the moment anyone scrolled. A flex row cannot overlap
+      // itself. `e2e/save-location-sheet.layout.spec.ts` measures it.
       render(<SaveLocationModal {...detailProps} />);
       fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
 
+      const header = screen
+        .getByRole("heading", { name: "Address details" })
+        .closest("header");
+      expect(header).not.toBeNull();
+
       for (const name of ["Back to map", "Close"]) {
         const button = screen.getByRole("button", { name });
-        expect(button.className).toContain("absolute");
-        expect(button.className).not.toMatch(/(^|\s)relative(\s|$)/);
+        expect(header!.contains(button)).toBe(true);
+        expect(button.className).not.toMatch(/(^|\s)absolute(\s|$)/);
+        // The hit area is still grown with a painted `::after` box, and the
+        // painted circle is unchanged.
         expect(button.className).toContain("after:h-11");
         expect(button.className).toContain("after:w-11");
-        // The painted circle is unchanged.
         expect(button.className).toContain("h-9");
         expect(button.className).toContain("w-9");
       }
     });
 
     it("gives each carousel dot a real 44x44 instead of a grown one", () => {
-      // Two dots sit side by side, so faking the region with a `::after` box
-      // would overlap them and send an edge tap to the wrong slide.
+      // Two dots sit side by side, so faking the horizontal region with a
+      // `::after` box would overlap them and send an edge tap to the wrong
+      // slide. Width therefore stays laid out on both variants.
       render(<SaveLocationModal {...detailProps} />);
 
       for (const dot of screen.getAllByRole("tab")) {
@@ -992,6 +1000,72 @@ describe("SaveLocationModal", () => {
         expect(dot.className).toContain("w-11");
         expect(dot.className).not.toContain("after:");
       }
+    });
+
+    it("shrinks the dots into the sheet grabber on the details slide", () => {
+      // In the pinned header they take the grabber's place rather than adding
+      // a third stacked row to the footer, so the height comes back through
+      // the painted box while the 44px of horizontal separation stays real.
+      render(<SaveLocationModal {...detailProps} />);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+
+      for (const dot of screen.getAllByRole("tab")) {
+        expect(dot.className).toContain("w-11");
+        expect(dot.className).toContain("h-[18px]");
+        expect(dot.className).toContain("after:h-11");
+        expect(dot.className).toContain("after:w-11");
+      }
+    });
+  });
+
+  describe("the details sheet is a frame, not one long scroll box", () => {
+    const detailProps = {
+      ...baseProps,
+      address: "Kartavya Path, New Delhi, Delhi 110001, India",
+      mapInitial: { latitude: 28.6139, longitude: 77.209 },
+      onPickExactLocation: vi.fn(),
+      startWithMapPicker: true,
+      collectAddressDetails: true,
+    };
+
+    it("scrolls the body only, so the pinned rows cannot be scrolled past", () => {
+      render(<SaveLocationModal {...detailProps} />);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+
+      const sheet = screen.getByTestId("save-location-modal");
+      // `overflow-y-hidden`, not `overflow-hidden`: tailwind-merge files those
+      // under different keys, so the primitive's own `overflow-y-auto` would
+      // survive and the whole sheet would keep scrolling behind the header.
+      expect(sheet.className).toContain("overflow-y-hidden");
+      expect(sheet.className).not.toContain("overflow-y-auto");
+
+      const save = screen.getByRole("button", { name: /Save location/ });
+      const footer = save.parentElement!;
+      const scroller = footer.previousElementSibling as HTMLElement;
+      expect(scroller.className).toContain("overflow-y-auto");
+      expect(scroller.className).toContain("flex-1");
+      expect(scroller.className).toContain("min-h-0");
+
+      // The last field belongs to the scroller, and the primary action does
+      // not -- which is what stops content bleeding under the button.
+      expect(scroller.contains(screen.getByLabelText(/Landmark/))).toBe(true);
+      expect(scroller.contains(save)).toBe(false);
+    });
+
+    it("puts the pinned footer on a solid surface", () => {
+      // It used to be `sticky bottom-0` on a `/95` background, so the field
+      // underneath showed through the button.
+      render(<SaveLocationModal {...detailProps} />);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+
+      const footer = screen.getByRole("button", { name: /Save location/ })
+        .parentElement!;
+      expect(footer.className).toContain(
+        "bg-[color:var(--app-card-surface-default-solid)]",
+      );
+      expect(footer.className).not.toContain("/95");
+      expect(footer.className).not.toContain("sticky");
+      expect(footer.className).toContain("shrink-0");
     });
   });
 
@@ -1036,13 +1110,13 @@ describe("SaveLocationModal", () => {
 
       // A dimmed blue still reads as the live primary action and earns a dead
       // tap, so a blocked CTA must not be blue at all.
-      fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
+      fireEvent.change(screen.getByLabelText(/PIN \/ postcode/), {
         target: { value: "!" },
       });
       expect(save).toBeDisabled();
       expect(save.className).not.toContain("var(--app-accent)");
 
-      fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
+      fireEvent.change(screen.getByLabelText(/PIN \/ postcode/), {
         target: { value: "110001" },
       });
       expect(save).toBeEnabled();
@@ -1076,7 +1150,7 @@ describe("SaveLocationModal", () => {
     it("saves once the person supplies it themselves", () => {
       render(<SaveLocationModal {...strandedProps} />);
       fireEvent.click(screen.getByRole("button", { name: "Home" }));
-      fireEvent.change(screen.getByLabelText(/Nearby landmark/), {
+      fireEvent.change(screen.getByLabelText(/Landmark/), {
         target: { value: "Opposite City Mall" },
       });
 
@@ -1100,7 +1174,7 @@ describe("SaveLocationModal", () => {
         screen.getByRole("button", { name: "Save location" }),
       ).toBeDisabled();
 
-      fireEvent.change(screen.getByLabelText(/Address line/), {
+      fireEvent.change(screen.getByLabelText(/^Address$/), {
         target: { value: "12 MG Road, Bengaluru" },
       });
 
@@ -1117,7 +1191,7 @@ describe("SaveLocationModal", () => {
     });
   });
 
-  describe("the Address line box", () => {
+  describe("the Address box", () => {
     const HOUSE_NUMBER_ADDRESS =
       "B-284/3, Rd Number 1, Chhatarpur Enclave Phase 2, New Delhi, Delhi 110074, India";
 
@@ -1130,7 +1204,7 @@ describe("SaveLocationModal", () => {
         />,
       );
 
-      expect(screen.getByLabelText(/Address line/)).toHaveValue(
+      expect(screen.getByLabelText(/^Address$/)).toHaveValue(
         HOUSE_NUMBER_ADDRESS,
       );
     });
@@ -1144,7 +1218,7 @@ describe("SaveLocationModal", () => {
         />,
       );
 
-      fireEvent.change(screen.getByLabelText(/Address line/), {
+      fireEvent.change(screen.getByLabelText(/^Address$/), {
         target: { value: "My corrected street address" },
       });
 
@@ -1157,7 +1231,7 @@ describe("SaveLocationModal", () => {
         />,
       );
 
-      expect(screen.getByLabelText(/Address line/)).toHaveValue(
+      expect(screen.getByLabelText(/^Address$/)).toHaveValue(
         "My corrected street address",
       );
     });
@@ -1171,7 +1245,7 @@ describe("SaveLocationModal", () => {
         />,
       );
 
-      fireEvent.change(screen.getByLabelText(/Address line/), {
+      fireEvent.change(screen.getByLabelText(/^Address$/), {
         target: { value: "My corrected street address" },
       });
       fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -1199,7 +1273,7 @@ describe("SaveLocationModal", () => {
       screen.getByText("Teliarganj, Prayagraj, Uttar Pradesh 211004, India"),
     ).toBeInTheDocument();
     // And it is not offered as a house number.
-    expect(screen.getByLabelText(/House, flat, floor or block/)).toHaveValue("");
-    expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("211004");
+    expect(screen.getByLabelText(/House or flat/)).toHaveValue("");
+    expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("211004");
   });
 });
