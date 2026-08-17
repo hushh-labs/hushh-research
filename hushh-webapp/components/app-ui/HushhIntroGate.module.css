@@ -92,6 +92,21 @@
   --sweep-blue-mix: 72%;
 }
 
+/* ── Accent coordination: two themes the app supports (set from
+   Profile → Preferences → Accent) — iOS Blue (default: purple, pink,
+   blue) and Molten Gold (`html[data-accent="gold"]`: purple, pink, gold).
+   Purple and pink are the mist's brand-signature hues and stay identical
+   in both themes; only the blue slot swaps to the app's own gold hero
+   token, reusing the exact same token the halo and the "One." accent
+   text below already ride (those already flip to gold on their own —
+   no override needed there), so mist/halo/accent text can never drift
+   out of sync with a future accent tweak. The mix percentage above
+   (tuned for legibility, not for a specific hue) still applies
+   unchanged in both themes. ── */
+:global(html[data-accent="gold"]) .root {
+  --sweep-blue: var(--app-accent-hero-mid);
+}
+
 /* ── Mist: three large, heavily blurred radial blobs (purple, pink, soft
    blue), each with its own size and drift path, so the rise reads as
    organic weather, not a mechanical wipe. No blob ever shows a hard
@@ -256,6 +271,11 @@
   filter: blur(28px);
   opacity: 0;
   transform: scale(0.6);
+  /* Short-lived (this whole component unmounts once the sequence ends),
+     so hinting every animated property up front — rather than only the
+     mist blobs, as before — costs nothing and avoids paying compositor
+     layer-promotion mid-transition, right when it would otherwise show. */
+  will-change: opacity, transform;
   transition:
     opacity 680ms var(--motion-ease-decelerate),
     transform 680ms var(--motion-ease-decelerate);
@@ -283,6 +303,7 @@
   line-height: 1;
   opacity: 0;
   transform: translateY(30px);
+  will-change: opacity, transform;
   transition:
     opacity 640ms var(--motion-ease-decelerate),
     transform 640ms var(--motion-ease-decelerate);
@@ -307,7 +328,11 @@
   position: relative;
   z-index: 1;
   margin-top: 30px;
-  min-height: 84px;
+  /* Sized to the taller of the two stacked labels once they're set to
+     the tightened title-scale leading below (was 84px, sized for the
+     inherited 1.5 body leading this used to run at — a looser fit than
+     an intentional display treatment should have). */
+  min-height: 72px;
   display: grid;
   place-items: start center;
 }
@@ -322,13 +347,20 @@
   font-size: 28px;
   font-weight: 400;
   color: var(--intro-ink);
-  letter-spacing: -0.2px;
+  /* Tracking and leading match the app's own `--foundation-title1-*`
+     scale (28px sits at that scale's low end) rather than a flat,
+     under-tightened -0.2px on top of the inherited 1.5 body leading:
+     display-scale text wants size-specific negative tracking and tight
+     leading, not body-copy defaults. */
+  letter-spacing: -0.02em;
+  line-height: 1.107;
   text-align: center;
   /* Not-yet-shown: sharp (no blur — the blur belongs to the retirement
      cross-dissolve, not the first entrance), waiting just below. */
   opacity: 0;
   transform: translateY(10px);
   filter: blur(0);
+  will-change: opacity, transform, filter;
   /* Arriving: decelerate — settles in rather than coasting to a stop. */
   transition:
     opacity 620ms var(--motion-ease-decelerate),
@@ -375,13 +407,18 @@
   font-size: 26px;
   font-weight: 400;
   color: var(--intro-ink);
-  letter-spacing: -0.2px;
+  /* Tracking and leading match the app's own `--foundation-title2-*`
+     scale (26px sits closer to title2 than title1) instead of the same
+     flat -0.2px label1 used to share regardless of size. */
+  letter-spacing: -0.016em;
+  line-height: 1.182;
   /* Not-yet-shown: arriving out of a soft blur from just below, matching
      label1's retirement so the cross-dissolve reads as one continuous
      motion rather than two unrelated animations. */
   opacity: 0;
   transform: translateY(14px);
   filter: blur(10px);
+  will-change: opacity, transform, filter;
   /* Arriving out of the blur: decelerate, same family as label1's own
      entrance, so the cross-dissolve reads as one motion, not two. */
   transition:

@@ -38,20 +38,42 @@ import styles from "./HushhIntroGate.module.css";
  * underneath — and only THEN does `VaultLockGuard` mount for the first
  * time and reveal the vault screen.
  *
- * Replay behaviour comes for free from how Next.js layouts work: this
- * component lives in the `/one` layout, which stays mounted across every
- * internal navigation between `/one/*` pages (Next only swaps the leaf
- * page), so the mount-once effect below never re-fires for in-app
- * navigation, and reading `useAuth()` here for the greeting does not
- * restart it either — the timers only ever depend on mount, not on any
- * auth/setup state re-rendering this component. The effect only re-fires
- * when the layout itself remounts — a real page load or refresh of `/one`,
- * or a fresh navigation into the section from outside it — which is
- * exactly "the app is opened."
+ * Plays only for a signed-in user who hasn't unlocked their vault yet this
+ * login — never for a logged-out visitor, and never again on refresh,
+ * navigation, or repeatedly within the same signed-in session. Three
+ * things working together:
  *
- * Fully skipped under prefers-reduced-motion — `VaultLockGuard` and
+ * - No uid, no splash: `shouldPlayIntro()` returns false outright when
+ *   `useAuth()` has no signed-in user, so a visitor who lands on `/one`
+ *   logged out sees nothing here — `{children}` (OneAuthGate) mounts
+ *   immediately and handles the redirect to `/login` on its own, with no
+ *   intro ever appearing in front of it. The intro's place in the flow is
+ *   strictly after a real login and before the vault, never before login.
+ * - This component lives in the `/one` layout, which stays mounted across
+ *   every internal navigation between `/one/*` pages (Next only swaps the
+ *   leaf page), so the mount-once effect below never re-fires for in-app
+ *   navigation — there is nothing to gate there, it simply never runs
+ *   again until the layout itself remounts (a real page load/refresh of
+ *   `/one`, or a fresh navigation into the section from outside it).
+ * - On every one of those remounts, once a uid is known, `shouldPlayIntro`
+ *   compares it against the uid stored in `localStorage` (`LAST_UID_KEY`)
+ *   the last time the intro actually played, and skips straight to
+ *   `{children}` when they match. A refresh or a fresh page load while the
+ *   same account is still signed in is the same login by this measure and
+ *   is skipped; a different uid — a real sign-out followed by a sign-in,
+ *   or a different account entirely — is not, and replays. This is keyed
+ *   to identity, not a session timer, because "genuinely fresh" means a
+ *   new login, not merely time having passed: `useAuth()` has already
+ *   resolved to a known user (or definitively no user) by the time this
+ *   mounts in practice, since the app-wide setup gate above `/one` only
+ *   admits the route once auth is settled — so the uid read here is not a
+ *   race against auth still loading.
+ *
+ * Fully skipped under prefers-reduced-motion too — `VaultLockGuard` and
  * `{children}` mount immediately with no overlay at all.
  * ──────────────────────────────────────────────────────────── */
+
+const LAST_UID_KEY = "hushh.one.intro.lastUid.v1";
 
 type Phase = "idle" | "sweep" | "greet1" | "greet2" | "exit";
 
@@ -85,6 +107,35 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
+// False with no signed-in uid: there is no one to greet yet, and this is
+// exactly the case of a logged-out visitor about to be redirected to
+// /login by OneAuthGate below — the intro must never play in front of
+// that redirect, only after a real login, before the vault. With a uid,
+// true unless the intro already played for that exact uid — i.e. true on
+// a real first-ever run for this browser, true again for a different uid
+// (a genuinely fresh login: sign-out/sign-in, or a different account).
+// Fails open toward "play it" on any storage error (private browsing,
+// storage disabled) once a uid is known — worst case there is a replay,
+// never a silent permanent skip for a real signed-in user.
+function shouldPlayIntro(uid: string | null): boolean {
+  if (!uid) return false;
+  if (typeof window === "undefined") return true;
+  try {
+    return window.localStorage.getItem(LAST_UID_KEY) !== uid;
+  } catch {
+    return true;
+  }
+}
+
+function markIntroShown(uid: string | null): void {
+  if (typeof window === "undefined" || !uid) return;
+  try {
+    window.localStorage.setItem(LAST_UID_KEY, uid);
+  } catch {
+    // Nothing to fall back to; the next mount will just decide fresh.
+  }
+}
+
 export function HushhIntroGate({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [introComplete, setIntroComplete] = useState(false);
@@ -92,10 +143,13 @@ export function HushhIntroGate({ children }: { children: ReactNode }) {
   const firedRef = useRef(false);
 
   useEffect(() => {
-    if (prefersReducedMotion()) {
+    const uid = user?.uid ?? null;
+    if (prefersReducedMotion() || !shouldPlayIntro(uid)) {
       setIntroComplete(true);
       return;
     }
+
+    markIntroShown(uid);
 
     const timers: number[] = [];
     timers.push(window.setTimeout(() => setPhase("sweep"), SWEEP_DELAY_MS));
@@ -114,9 +168,12 @@ export function HushhIntroGate({ children }: { children: ReactNode }) {
       timers.forEach((t) => window.clearTimeout(t));
     };
     // Runs once on mount only — this is the single source of truth for the
-    // whole sequence. Deliberately NOT depending on `user`: the greeting
-    // reads `user` fresh at render time below, but the timers themselves
-    // must never restart just because auth/setup state changes underneath.
+    // whole sequence. Deliberately NOT depending on `user`: `uid` above is
+    // read once, at the moment this decides whether to play at all; the
+    // greeting text reads `user` fresh at render time below instead, but
+    // the timers themselves must never restart just because auth/setup
+    // state changes underneath after this has already started playing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (introComplete) {
