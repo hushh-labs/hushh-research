@@ -38,6 +38,7 @@ import {
   Plus,
   Send,
   Check,
+  ChevronRight,
   Shield,
   ShieldCheck,
   UserPlus,
@@ -51,6 +52,10 @@ import {
   locationTimestampMs,
 } from "@/lib/one-location/duration-copy";
 import { formatShareEndsAt } from "@/lib/one-location/share-countdown";
+import {
+  isSmsTriggeredGrant,
+  ONE_LOCATION_GRANT_ID_PARAM,
+} from "@/lib/one-location/notifications";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -86,6 +91,7 @@ import {
   Avatar,
   EmptyState,
   SectionCard,
+  StatusPill,
   TaskFlowHeader,
   TrustNoteCard,
   WarningCard,
@@ -317,7 +323,6 @@ export type LocationHubViewModel = {
   /* actions — wired 1:1 to existing handlers */
   onShowMyLocation: () => void;
   onHideMyLocation: () => void;
-  onResumeMyLocation: () => void;
   onAutoApproveRequestsChange: (enabled: boolean) => void;
   onRequestPermission: () => void;
   onOpenLocationSettings: () => void;
@@ -1196,6 +1201,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <LocationDetailFlow
             kind={flow}
             vm={vm}
+            focusGrantId={searchParams.get(ONE_LOCATION_GRANT_ID_PARAM)}
             collapsedGrantIds={collapsedGrantIds}
             onCollapseGrant={(grantId) =>
               setCollapsedGrantIds((current) => new Set(current).add(grantId))
@@ -1306,7 +1312,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           </LocationHubPanel>
 
           <LocationHubPanel>
-            <LinksHub vm={vm} onCreateTempLink={() => openFlow("temp-link")} />
+            <LinksHub
+              vm={vm}
+              onCreateTempLink={() => openFlow("temp-link")}
+              onManageTempLink={() => openFlow("temp-link")}
+            />
           </LocationHubPanel>
         </SwipeViews>
       </div>
@@ -1560,12 +1570,16 @@ function NowHub({
 function LocationDetailFlow({
   kind,
   vm,
+  focusGrantId,
   collapsedGrantIds,
   onCollapseGrant,
   onExpandGrant,
 }: {
   kind: "active-shares" | "shared-with-me" | "needs-review";
   vm: LocationHubViewModel;
+  /** Grant id from a notification deep link (?grantId=...) to scroll to and
+   * briefly highlight once its card is on screen. */
+  focusGrantId?: string | null;
   collapsedGrantIds: Set<string>;
   onCollapseGrant: (grantId: string) => void;
   onExpandGrant: (grant: OneLocationGrant) => void;
@@ -1639,6 +1653,37 @@ function LocationDetailFlow({
     //    `settle` is keyed by coordinates, so a late resolution either lands
     //    on the row it belongs to or is ignored.
   }, [kind, reverseGeocodePoint, vm.receivedGrants, vm.decryptedPoints]);
+
+  // Deep link from an SOS notification (?grantId=...) scrolls to and briefly
+  // rings the matching card once it is on screen. Deliberately NOT keyed on
+  // `vm.receivedGrants`: that array gets a new reference on every live poll
+  // (LIVE_VIEW_REFRESH_INTERVAL_MS, ~5s), and re-running this per poll tick
+  // would re-scroll and re-flash the ring for as long as `grantId` stays in
+  // the URL. Instead this fires once per (kind, focusGrantId) and retries
+  // briefly on its own if the card isn't in the DOM yet (state still loading).
+  const dangerRole = roleClasses("danger");
+  useEffect(() => {
+    if (kind !== "shared-with-me" || !focusGrantId) return;
+    let cancelled = false;
+    let attempts = 0;
+    const tryHighlight = () => {
+      if (cancelled) return;
+      const node = document.querySelector(`[data-grant-id="${focusGrantId}"]`);
+      if (!node) {
+        if (attempts++ < 20) setTimeout(tryHighlight, 250);
+        return;
+      }
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+      node.classList.add("ring-2", dangerRole.border, "ring-offset-2");
+      setTimeout(() => {
+        node.classList.remove("ring-2", dangerRole.border, "ring-offset-2");
+      }, 2400);
+    };
+    tryHighlight();
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, focusGrantId, dangerRole.border]);
   const copy = {
     "active-shares": {
       title: "Active shares",
@@ -1711,8 +1756,9 @@ function LocationDetailFlow({
               const expanded =
                 Boolean(point) && !collapsedGrantIds.has(grant.id);
               return (
+                <div key={grant.id} data-grant-id={grant.id}>
                 <SharedWithMeCard
-                  key={grant.id}
+                  isSmsTriggered={isSmsTriggeredGrant(grant)}
                   name={vm.grantOwnerLabel(grant)}
                   statusLine={
                     grant.durationMode === "until_stopped"
@@ -1784,6 +1830,7 @@ function LocationDetailFlow({
                       )
                     : null}
                 </SharedWithMeCard>
+                </div>
               );
             })}
           </div>
@@ -1921,25 +1968,6 @@ function LocationSettingsFlow({
               onChange={vm.onMapPresenceChange}
               disabled={vm.mapPresenceEnabled === null}
               label="Show me on their map"
-            />
-          }
-          density="compact"
-        />
-        <SettingsRow
-          title="Pause my location"
-          description="Stops new updates and checks you out of Nearby."
-          trailing={
-            <LocationToggle
-              checked={vm.locationPaused}
-              onChange={(next) => {
-                if (next) {
-                  vm.onHideMyLocation();
-                  return;
-                }
-                vm.onResumeMyLocation();
-              }}
-              label="Pause my location"
-              voiceControlId="one-location-updates-toggle"
             />
           }
           density="compact"
@@ -2377,13 +2405,14 @@ function PeopleHub({
 /* LINKS HUB                                                            */
 /* =================================================================== */
 
-/** One active-link row: tinted icon tile · title · subtitle · Copy (design). */
+/** One active-link row: interactive selectable card with live status pill & quick copy. */
 function ActiveLinkRow({
   icon,
   tileClass,
   title,
   subtitle,
   onCopy,
+  onClick,
   first,
 }: {
   icon: ReactNode;
@@ -2391,49 +2420,73 @@ function ActiveLinkRow({
   title: string;
   subtitle: string;
   onCopy: () => void;
+  onClick?: () => void;
   first: boolean;
 }) {
   return (
     <div
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (onClick && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       className={cn(
-        "flex min-h-[60px] items-center gap-3.5 py-3.5",
+        "flex min-h-[64px] items-center gap-3.5 py-3.5 transition-colors",
+        onClick && "cursor-pointer hover:bg-muted/40 active:bg-muted/60",
         !first && "border-t border-[color:var(--app-separator)]",
       )}
     >
       <span
         className={cn(
-          "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px]",
+          "flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[10px]",
           tileClass,
         )}
       >
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <RowLabel as="p" className="truncate">
-          {title}
-        </RowLabel>
+        <div className="flex items-center gap-2">
+          <RowLabel as="p" className="truncate font-semibold">
+            {title}
+          </RowLabel>
+          <StatusPill tone="live" className="shrink-0 text-[11px] px-2 py-0">
+            Live
+          </StatusPill>
+        </div>
         <RowDescription as="p" className="mt-0.5 truncate">
           {subtitle}
         </RowDescription>
       </div>
       <Button
         variant="outline"
-        onClick={onCopy}
+        onClick={(e) => {
+          e.stopPropagation();
+          onCopy();
+        }}
         size="sm"
-        className="shrink-0 border-[color:var(--app-accent)] px-4 text-[color:var(--app-accent)]"
+        className="shrink-0 border-[color:var(--app-accent)] px-3.5 text-[color:var(--app-accent)]"
       >
         Copy
       </Button>
+      {onClick ? (
+        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      ) : null}
     </div>
   );
 }
 
-function LinksHub({
+export function LinksHub({
   vm,
   onCreateTempLink,
+  onManageTempLink,
 }: {
   vm: LocationHubViewModel;
   onCreateTempLink: () => void;
+  onManageTempLink?: () => void;
 }) {
   const temp = vm.latestActivePublicInvite;
   const invite = vm.latestActiveCircleInvite;
@@ -2443,10 +2496,6 @@ function LinksHub({
     <div className="space-y-4">
       <div className="px-[6px]">
         <SectionTitle as="h2">Active links</SectionTitle>
-        {/* This section lists two different things — a live location link and
-            a Circle invite link — and the invite shares no location at all.
-            Copy that described only the first was wrong for half the list,
-            and neither told a new user what a "link" is here. */}
         <RowDescription as="p" className="mt-1">
           Links you can send to anyone — to show where you are, or to invite
           them to a Circle.
@@ -2463,6 +2512,7 @@ function LinksHub({
               title="Live location link"
               subtitle={`${vm.expiresCountdownLabel(temp.expiresAt)} · anyone with the link`}
               onCopy={vm.onCopyPublicInvite}
+              onClick={onManageTempLink ?? onCreateTempLink}
             />
           ) : null}
           {invite ? (
@@ -2473,23 +2523,31 @@ function LinksHub({
               title="Invite link"
               subtitle={`${vm.expiresCountdownLabel(invite.expiresAt)} · one person`}
               onCopy={vm.onCopyCircleInvite}
+              onClick={onCreateTempLink}
             />
           ) : null}
         </div>
       ) : (
-        <EmptyState
-          title="No active links"
-        />
+        /* Empty State: ZERO empty white box / div container.
+           Show clear description and prominent Create Public Link CTA button directly. */
+        <div className="space-y-1 px-1 py-1">
+          <p className={MUTED_TEXT}>
+            Generate a temporary link to share your live location with anyone outside your Circle.
+          </p>
+        </div>
       )}
 
-      <Button
-        onClick={onCreateTempLink}
-        data-voice-control-id="one-location-action-temp-link"
-        className="w-full"
-      >
-        <Plus className="mr-2 h-4 w-4" />
-        Create link
-      </Button>
+      {/* Conditionally show "Create Public Link" CTA ONLY when NO active public link exists */}
+      {!temp ? (
+        <Button
+          onClick={onCreateTempLink}
+          data-voice-control-id="one-location-action-temp-link"
+          className="h-11 w-full rounded-full font-semibold"
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Create Public Link
+        </Button>
+      ) : null}
 
       <div className="flex items-start gap-2 px-1">
         <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />

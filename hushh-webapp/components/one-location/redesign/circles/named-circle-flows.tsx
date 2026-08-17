@@ -8,6 +8,7 @@ import {
   KeyRound,
   Loader2,
   LogOut,
+  MoreVertical,
   Pencil,
   Plus,
   RotateCw,
@@ -32,6 +33,12 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Sheet,
   SheetContent,
@@ -715,20 +722,22 @@ function CircleMemberRow({
   onShare: () => void;
   onRemove: () => Promise<void>;
 }) {
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const isCurrentUser = member.userId === currentUserId;
   const canShare =
     !isCurrentUser && member.phoneVerified && member.secureLocationReady;
+  const canRemove = isOwner && member.role !== "owner";
 
   return (
-    <div className="flex min-h-16 items-center gap-3 px-4 py-3">
-      <Avatar className="h-11 w-11">
+    <div className="flex items-start gap-3 px-4 py-3">
+      <Avatar className="mt-0.5 h-11 w-11 shrink-0">
         {member.photoUrl ? (
           <AvatarImage src={member.photoUrl} alt="" />
         ) : null}
         <AvatarFallback>{circleInitials(member.displayName)}</AvatarFallback>
       </Avatar>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] font-semibold text-foreground">
+      <div className="min-w-0 flex-1 py-1">
+        <p className="break-words text-[15px] font-semibold leading-snug text-foreground">
           {member.displayName}
           {isCurrentUser ? " (you)" : ""}
         </p>
@@ -740,31 +749,44 @@ function CircleMemberRow({
               : "Location setup needed"}
         </p>
       </div>
-      {canShare ? (
-        <Button
-          type="button"
-          size="sm"
-          disabled={busy}
-          onClick={onShare}
-          className="h-11 min-w-16 rounded-full"
-        >
-          Share
-        </Button>
-      ) : null}
-      {isOwner && member.role !== "owner" ? (
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
+      {canShare || canRemove ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
             <Button
               type="button"
-              size="sm"
+              size="icon"
               variant="ghost"
               disabled={busy}
-              aria-label={`Remove ${member.displayName} from this Circle`}
-              className="h-11 shrink-0 rounded-full px-3 font-semibold text-destructive hover:bg-destructive/10 hover:text-destructive"
+              aria-label={`Actions for ${member.displayName}`}
+              className="mt-0.5 h-11 w-11 shrink-0 rounded-full"
             >
-              Remove
+              <MoreVertical className="h-5 w-5" />
             </Button>
-          </AlertDialogTrigger>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {canShare ? (
+              <DropdownMenuItem onSelect={() => onShare()}>
+                <Share2 className="h-4 w-4" />
+                Share location
+              </DropdownMenuItem>
+            ) : null}
+            {canRemove ? (
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setConfirmRemoveOpen(true);
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+                Remove from Circle
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+      {canRemove ? (
+        <AlertDialog open={confirmRemoveOpen} onOpenChange={setConfirmRemoveOpen}>
           <AlertDialogContent size="sm">
             <AlertDialogHeader>
               <AlertDialogTitle>
