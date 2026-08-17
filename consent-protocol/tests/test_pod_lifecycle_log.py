@@ -163,19 +163,18 @@ def test_the_wake_route_mounts_on_the_hub_and_the_tick_on_the_pod():
     assert "/api/one/pod/wake" not in pod_paths, "the pod must not mount the wake"
 
 
-def test_the_tick_refuses_without_scheduler_identity():
-    """Fail-closed is the whole point: no audience, no allowlist, no work."""
-    import asyncio
+async def test_the_tick_refuses_without_scheduler_identity():
+    """Fail-closed is the whole point: no audience, no allowlist, no work.
 
+    An async test under the repo's pytest-asyncio auto mode -- the first cut
+    spun its own loop via get_event_loop(), which passed locally (a loop
+    happened to exist from neighbouring tests) and raised on CI's Python where
+    none did. The test now runs the way every other async test here runs.
+    """
     from fastapi import HTTPException
 
     from api.routes.one.pod_maintenance import pod_tick
 
-    async def _call():
-        return await pod_tick(request=None, authorization=None)
-
-    try:
-        asyncio.get_event_loop().run_until_complete(_call())
-        raise AssertionError("an unauthenticated tick was accepted")
-    except HTTPException as exc:
-        assert exc.status_code == 403
+    with pytest.raises(HTTPException) as refusal:
+        await pod_tick(request=None, authorization=None)
+    assert refusal.value.status_code == 403
