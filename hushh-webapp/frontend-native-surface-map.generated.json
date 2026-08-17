@@ -6931,8 +6931,10 @@
       "route_contract": {
         "mode": "flow",
         "exemption_reason": "Finance preferences use the existing full-height wizard inside the setup route.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "shell_verification_file": "app/one/setup/kai/page.tsx",
+        "shell_verification_includes": [
+          "--top-content-pad"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -6999,8 +7001,10 @@
       "route_contract": {
         "mode": "flow",
         "exemption_reason": "Finance source selection uses the existing import flow inside the setup route.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "shell_verification_file": "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
+        "shell_verification_includes": [
+          "FullscreenFlowShell"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -7280,8 +7284,10 @@
       "route_contract": {
         "mode": "flow",
         "exemption_reason": "RIA onboarding retains its existing full-screen verification flow inside the setup route.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "shell_verification_file": "app/ria/onboarding/page.tsx",
+        "shell_verification_includes": [
+          "FullscreenFlowShell"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -8634,5 +8640,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "128a0ca5dbb9ec21027b2cb4ed672026759a6050283cdda9229ce3d45028413d"
+  "content_sha256": "1ea5cd717667beb5ae731e6f6f191091f3768d410680f0d1baf8cbfa2f17f9ba"
 }
