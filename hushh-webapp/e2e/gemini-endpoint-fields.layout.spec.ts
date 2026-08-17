@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
+
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import { INPUT_CLASSNAME } from "../components/ui/input";
 
@@ -96,7 +98,8 @@ async function buildFixture(): Promise<string> {
     --app-accent: #087ff5;
     --app-focus-ring: rgba(8,127,245,.35);
   }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; }
+  body { margin: 0; }
+${productFontStyle()}
   .stack { display: grid; gap: 8px; padding: 0 16px; }
 </style></head><body><div class="stack">${markup}</div></body></html>`,
   );
@@ -133,6 +136,7 @@ test.describe("Choose your AI — API endpoint fields", () => {
     test(`the picker and the key field agree at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture());
+      await awaitProductFont(page);
 
       const select = await probe(page, "endpoint-select");
       const input = await probe(page, "key-input");
@@ -164,19 +168,40 @@ test.describe("Choose your AI — API endpoint fields", () => {
     // there — recording exactly why a Chromium-only run cannot gate this.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(await buildFixture());
+    await awaitProductFont(page);
 
     const input = await probe(page, "key-input");
     const withoutAppearance = await probe(page, "regression-select");
     const fixed = await probe(page, "endpoint-select");
 
+    // The product contract, on every engine: the shipped control matches the
+    // input it sits beside.
     expect(fixed.radius).toBe(input.radius);
 
-    if (browserName === "webkit") {
+    /*
+     * The mutation half is a statement about ONE renderer.
+     *
+     * "A native <select> ignores the author's border-radius" is macOS and iOS
+     * Safari behaviour, drawn by the platform's own menulist. Playwright's
+     * WebKit on Linux is WebKitGTK, which draws the control itself and honours
+     * the radius — so the un-fixed select there measures the same 14px as the
+     * input, and the mutation cannot be demonstrated at all.
+     *
+     * Asserting it anyway would not be a stricter test; it would be a test of
+     * which machine the runner is. The positive assertion above still runs
+     * everywhere, and this half runs where the behaviour it describes exists.
+     */
+    if (browserName === "webkit" && process.platform === "darwin") {
       expect(withoutAppearance.appearance).not.toBe("none");
       expect(withoutAppearance.radius).not.toBe(input.radius);
       expect(parseFloat(withoutAppearance.radius)).toBeLessThan(
         parseFloat(input.radius),
       );
+    } else if (browserName === "webkit") {
+      test.info().annotations.push({
+        type: "skipped-assertion",
+        description: `native-menulist mutation not asserted on ${process.platform} WebKit (radius ${withoutAppearance.radius}, appearance ${withoutAppearance.appearance}); macOS Safari is the renderer this describes`,
+      });
     }
   });
 });

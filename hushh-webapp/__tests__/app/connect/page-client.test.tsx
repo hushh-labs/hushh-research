@@ -1085,10 +1085,20 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(classes.has("justify-end")).toBe(true);
   });
 
-  it("asks for the search field in two words", async () => {
+  it("asks for the search field in one word, and still names it for a screen reader", async () => {
+    // Was two words. The browser contract measures the app's real typeface now,
+    // and in it "Search people" needs 116.2px of the 116.0px the field gives it
+    // at 320px — the same clipping QA reported as "Search people by nam", two
+    // words later. The glyph and the list underneath already say what is being
+    // searched.
     render(<ConnectPageClient />);
-    expect(await screen.findByPlaceholderText("Search people")).toBeTruthy();
+    const field = await screen.findByPlaceholderText("Search");
+    expect(field).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Search people")).toBeNull();
     expect(screen.queryByPlaceholderText("Search people by name")).toBeNull();
+    // The accessible name is NOT shortened with it: a one-word placeholder is
+    // clear beside a magnifier, a one-word accessible name is not.
+    expect(field.getAttribute("aria-label")).toBe("Search people");
   });
 
   it("reserves the clear-button gutter only once there is something to clear", async () => {
@@ -1096,7 +1106,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
     // placeholder is 44px the placeholder does not get.
     render(<ConnectPageClient />);
     const field = (await screen.findByPlaceholderText(
-      "Search people",
+      "Search",
     )) as HTMLInputElement;
 
     expect(field.className).toContain("pr-3.5");

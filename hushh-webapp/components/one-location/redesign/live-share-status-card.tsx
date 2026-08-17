@@ -160,10 +160,20 @@ export function LiveShareStatusCard({
     : describeShareRemaining(remainingMs ?? 0);
 
   const title = liveShareTitle(status);
+  /*
+   * `endsAt` is the LATEST end across every running share (see
+   * summarizeLiveShareEntries), which is the right number for one card: listing
+   * ten end times on the hub would be a crowd, and the last one is the moment
+   * after which nobody can see you.
+   *
+   * But "Ends 10:38 AM" over "Sharing with 2 people" reads as ONE window when
+   * the first of those two shares may stop in 29 minutes. One word fixes it,
+   * and only when there is more than one share to be last of.
+   */
   const footer = openEnded
     ? "Until you stop"
     : endsAtMs !== null
-      ? `Ends ${formatShareEndsAt(endsAtMs)}`
+      ? `${status.count > 1 ? "Last ends" : "Ends"} ${formatShareEndsAt(endsAtMs)}`
       : null;
 
   return (

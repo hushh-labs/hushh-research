@@ -180,12 +180,12 @@ export function ProfileStackNavigator({
               ) : (
                 <div
                   data-profile-stack-content="true"
-                  /* pb reserves room for BOTH fixed bottom bars (nav + the
-                   * floating Talk to One bar) via the runtime-measured
-                   * clearance token. Only the account screen used to get this,
-                   * so every other pushed screen ended with its last row
-                   * underneath the agent bar. */
-                  className="mx-auto flex w-full max-w-[720px] flex-col gap-[var(--page-header-section-gap)] px-[var(--page-inline-gutter-standard)] pb-[var(--app-bottom-content-clearance)] pt-[var(--page-header-section-gap)]"
+                  /* A reading gap, not a reserve for the fixed bottom bars.
+                   * This sits inside the scroll root, which already reserves
+                   * them — see --app-page-content-bottom-gap. It used to carry
+                   * --app-bottom-content-clearance, a second full copy of that
+                   * band, on top of the one .app-page-shell was also adding. */
+                  className="mx-auto flex w-full max-w-[720px] flex-col gap-[var(--page-header-section-gap)] px-[var(--page-inline-gutter-standard)] pb-[var(--app-page-content-bottom-gap)] pt-[var(--page-header-section-gap)]"
                 >
                   <PageHeader
                     title={entry.title}

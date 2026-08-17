@@ -48,6 +48,18 @@ const ALL_GRID_MINUTES = HOURS_VALUES.flatMap((h) =>
 /** Exported so a layout fixture can derive the wheel's height instead of
  *  hand-copying it and silently drifting when this changes. */
 export const DURATION_WHEEL_ITEM_HEIGHT_PX = 40;
+
+/**
+ * The wheel's own frame.
+ *
+ * Centred on a phone, where the 260px column IS the screen. Left-aligned from
+ * `sm` up: the ladder that opens it is a left-aligned chip row there, and a
+ * 260px wheel floating in the middle of a 790px card is the dead space the
+ * Custom panel was reported for. Exported for the same reason as the item
+ * height — e2e/one-location-duration-ladder.layout.spec.ts measures this exact
+ * string rather than a copy of it.
+ */
+export const DURATION_WHEEL_FRAME_CLASS = "mx-auto max-w-[260px] sm:mx-0";
 const ITEM_HEIGHT = DURATION_WHEEL_ITEM_HEIGHT_PX;
 const DEFAULT_VISIBLE_ROWS = 5;
 
@@ -521,7 +533,9 @@ export function DurationWheelPicker({
   const viewportHeight = ITEM_HEIGHT * visibleRows;
 
   return (
-    <div className={cn("mx-auto max-w-[260px]", showUntilStop && "space-y-3")}>
+    <div
+      className={cn(DURATION_WHEEL_FRAME_CLASS, showUntilStop && "space-y-3")}
+    >
       {/* Choosing the open-ended option COLLAPSES the wheel rather than
           greying it out. It used to stay mounted at `opacity-40` with a chip
           reading "Until you stop" laid over it -- and because that chip was a

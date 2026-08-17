@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
+
 /**
  * The onboarding Check-in card, measured across viewport HEIGHTS.
  *
@@ -74,7 +76,14 @@ const CARD = `
          data-testid="location-use-case-checkin" data-one-use-case-card data-one-feature-card="checkin">
   <div class="relative z-20 px-4 pt-4" data-one-feature-copy>
     <span class="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f]" data-one-use-case-tag>Check in</span>
-    <p class="text-[19px] font-bold leading-[1.15]" data-one-feature-title>At the venue, but<br />can&rsquo;t find each other?</p>
+    <!-- TwoLineFeatureTitle's real structure: two BLOCK spans, each
+         whitespace-nowrap, so the title is exactly two lines by construction.
+         This used to be one paragraph with a br, which is not the same thing —
+         a br only suggests a break, and the second half re-wrapped to a third
+         line once the fixture stopped using the machine's fallback font and
+         started using the InterVariable the product ships. That reported a 22px
+         overlap with the artwork at every width, on a card that is fine. -->
+    <div class="text-[19px] font-bold leading-[1.13] tracking-[-0.015em]" role="heading" aria-level="2" data-one-feature-title><span class="block whitespace-nowrap" data-one-feature-title-line>At the venue, but</span><span class="block whitespace-nowrap" data-one-feature-title-line>can&rsquo;t find each other?</span></div>
     <p class="text-[14px] leading-[1.4] text-[#747b86]" data-one-feature-body>Check in anywhere. Your Circle knows you arrived.</p>
   </div>
   <div class="absolute inset-x-0 bottom-0 h-[47%]" data-one-use-case-art aria-hidden="true">
@@ -135,7 +144,8 @@ async function buildFixture(): Promise<string> {
     `<!doctype html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="fixture.css">
 <style>
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; }
+  body { margin: 0; }
+${productFontStyle()}
   /* Half the feature grid's width, which is what a card gets on this screen. */
   .grid { display: grid; grid-template-columns: ${CARD_WIDTH_PX}px; gap: 16px; padding: 16px; }
   ${cardStyleFromSource()}
@@ -157,6 +167,7 @@ test.describe("One Location onboarding — check-in card", () => {
     test(`copy never touches the artwork at ${w}x${h}`, async ({ page }) => {
       await page.setViewportSize({ width: w, height: h });
       await page.goto(await buildFixture());
+      await awaitProductFont(page);
       await page.waitForFunction(() => {
         const img = document.querySelector("[data-one-checkin-hotel]") as HTMLImageElement | null;
         return Boolean(img?.complete && img.naturalWidth > 0);
@@ -214,6 +225,7 @@ test.describe("One Location onboarding — check-in card", () => {
       for (const height of [560, 740, 932, 1180]) {
         await page.setViewportSize({ width, height });
         await page.goto(url);
+        await awaitProductFont(page);
         await page.waitForFunction(() => {
           const img = document.querySelector(
             "[data-one-checkin-hotel]",

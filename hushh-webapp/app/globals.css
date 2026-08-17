@@ -640,6 +640,25 @@ textarea {
   --app-bottom-content-clearance: calc(
     var(--bottom-chrome-stack-height, var(--app-bottom-inset)) + 24px
   );
+  /*
+   * The gap a PAGE leaves under its last row — a reading gap, not a reserve for
+   * the fixed bars.
+   *
+   * The scroll root in `app/providers.tsx` already reserves the bottom chrome,
+   * and its comment says why: it owns that clearance "so feature routes do not
+   * need to guess at device safe areas or bar geometry". Every page carrying
+   * `.app-page-shell` guessed at it anyway and reserved a second one, which is
+   * the wide empty band under the last card on every screen.
+   *
+   * The second reserve was not even the right number. Substituting a custom
+   * property uses the values present where it is DECLARED, and
+   * `--bottom-chrome-stack-height` is declared on the route shell, not on
+   * `:root` — so `--app-bottom-content-clearance` resolves here against the
+   * `--app-bottom-inset` fallback and freezes that, ignoring the height the
+   * bottom shell actually measured. Held at 24px by
+   * e2e/app-shell-bottom-clearance.layout.spec.ts.
+   */
+  --app-page-content-bottom-gap: 24px;
   --app-top-safe-offset: 0px;
   --app-safe-area-top-probe: 0px;
   --app-safe-area-top: var(
@@ -1600,14 +1619,12 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   display: flex;
   flex-direction: column;
   min-height: auto;
-  /* Was a hardcoded `env(safe-area-inset-bottom) + 2rem` on main (uat had its
-   * own stale `7.5rem`), sized only for the bottom nav bar. That left the
-   * last "Your settings" rows (Account access → Sign out) tucked under the
-   * separate fixed "Talk to One" Agent Bar that floats above the nav. Use the
-   * shared, runtime-measured clearance token (see --bottom-chrome-stack-height
-   * in app/providers.tsx) so this page reserves space for both fixed bars,
-   * the same as every other route. */
-  padding-bottom: var(--app-bottom-content-clearance);
+  /* No bottom reserve of its own. This block sits INSIDE `.app-page-shell`,
+   * which sits inside the scroll root that already reserves the fixed bars, so
+   * a clearance here was the third copy of the same band — the reason Profile
+   * had the deepest empty tail in the app. It keeps the shell's reading gap
+   * like every other page. */
+  padding-bottom: 0;
 }
 
 /* Measure is owned by AppPageShell (width="reading" → 720px) so the Profile
@@ -2085,7 +2102,9 @@ html.kb-open .ambient-chrome-mask--bottom {
   width: 100%;
   padding-left: var(--page-inline-gutter-standard);
   padding-right: var(--page-inline-gutter-standard);
-  padding-bottom: var(--app-bottom-content-clearance);
+  /* A reading gap only. The scroll root reserves the fixed bottom bars — see
+     --app-page-content-bottom-gap. */
+  padding-bottom: var(--app-page-content-bottom-gap);
 }
 
 /* Sparse screens (empty states, short lists) let their height fit content

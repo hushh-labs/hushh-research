@@ -103,6 +103,24 @@ if has_match '^hushh-webapp/(components/one-location/|__tests__/components/one-l
   ran=1
 fi
 
+# The browser-measured layout contracts.
+#
+# Until this pack, `test:layout-contracts` was referenced in exactly one place in
+# the repository -- the script that defines it. 227 assertions across 11 spec
+# files, every one of them written after a founder or tester reported a pixel
+# defect, and none of them had ever run anywhere but on the author's laptop.
+# JSDOM cannot prove a pixel, so these are the only tests in the web suite that
+# can fail on overlap, clipping, tap-target height or a stretched control.
+#
+# Runs when a spec, a component a spec measures, the shell geometry, or
+# globals.css changes -- which is what those specs are pinned to. The browsers
+# are installed in the workflow step, not here, so a local run of this script
+# uses whatever is already on the machine.
+if has_match '^hushh-webapp/(e2e/.*\.layout\.spec\.ts|playwright\.config\.ts|app/globals\.css|components/app-ui/|components/one-location/|components/feed/|components/connect/)'; then
+  run_check "layout contracts" npm run test:layout-contracts
+  ran=1
+fi
+
 if [ "$ran" -eq 0 ]; then
   echo "No focused web contract pack matched the changed files."
 fi
