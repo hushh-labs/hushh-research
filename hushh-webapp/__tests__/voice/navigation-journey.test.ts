@@ -115,6 +115,11 @@ describe("navigation journeys", () => {
       "location.set_auto_share",
       "location.stop_share",
       "location.stop_sos",
+      // The highest-consequence action on this surface. Escorted the same
+      // way stopping is: the person can say "send an SOS" from wherever
+      // they are, and the explicit tap-confirmation card -- not this
+      // journey -- is what actually gates it from firing unattended.
+      "location.trigger_sos",
       "setup.connect_gmail",
       "setup.finish_calendar",
       "setup.finish_connected_systems",

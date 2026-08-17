@@ -9549,6 +9549,124 @@
       }
     },
     {
+      "action_id": "location.trigger_sos",
+      "surface_id": "one_location",
+      "label": "Send an SOS alert",
+      "aliases": [
+        "send an sos",
+        "trigger sos",
+        "send an emergency alert",
+        "i need help",
+        "call for help"
+      ],
+      "search_keywords": [
+        "sos",
+        "emergency",
+        "alert",
+        "help",
+        "send"
+      ],
+      "meaning": "Sends an emergency alert to your ready emergency contacts right now, sharing your live location with them and emailing anyone a push notification could not reach. It does not call emergency services.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.trigger_sos"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active sos incident"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.trigger_sos",
+        "required_inputs": [
+          {
+            "name": "note",
+            "prompt": "Anything you want your contacts to know? You can also just say send it.",
+            "required": false,
+            "slot": "note",
+            "resolver": "spoken_free_text"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "note": "spoken_free_text"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Send an SOS alert",
+            "failure_behavior": "stop",
+            "action_id": "location.trigger_sos",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.one_agents",
       "surface_id": "one_agents",
       "label": "Open Agents",
