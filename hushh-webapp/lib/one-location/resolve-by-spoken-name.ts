@@ -17,11 +17,18 @@ export function resolveBySpokenName<T>(
   candidates: readonly T[],
   spokenName: string,
   displayName: (item: T) => string | null | undefined,
+  /**
+   * What the spoken name is actually matched against, when it differs from
+   * the clean display name -- e.g. connections search across name + masked
+   * phone, but only the name belongs in a spoken disambiguation prompt.
+   * Defaults to `displayName` so most callers only ever pass one function.
+   */
+  searchText: (item: T) => string | null | undefined = displayName,
 ): SpokenNameMatch<T> {
   const spoken = spokenName.trim().toLowerCase();
   if (!spoken) return { kind: "none" };
   const matches = candidates.filter((item) =>
-    (displayName(item) || "").toLowerCase().includes(spoken),
+    (searchText(item) || "").toLowerCase().includes(spoken),
   );
   if (matches.length === 0) return { kind: "none" };
   if (matches.length === 1) return { kind: "one", match: matches[0]! };

@@ -43,6 +43,23 @@ describe("resolveBySpokenName", () => {
     const result = resolveBySpokenName([nameless], "anything", () => null);
     expect(result).toEqual({ kind: "none" });
   });
+
+  it("matches against a separate search text but still returns the real item", () => {
+    type Contact = { id: string; name: string; phone: string };
+    const sarah: Contact = { id: "1", name: "Sarah Chen", phone: "***1234" };
+    const result = resolveBySpokenName(
+      [sarah],
+      "1234",
+      (c) => c.name,
+      (c) => `${c.name} ${c.phone}`,
+    );
+    expect(result).toEqual({ kind: "one", match: sarah });
+  });
+
+  it("defaults search text to display name when none is given", () => {
+    const result = resolveBySpokenName([SARAH_CHEN], "chen", (p) => p.name);
+    expect(result).toEqual({ kind: "one", match: SARAH_CHEN });
+  });
 });
 
 describe("ambiguousMatchNames", () => {

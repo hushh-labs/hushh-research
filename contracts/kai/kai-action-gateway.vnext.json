@@ -5074,6 +5074,235 @@
       }
     },
     {
+      "action_id": "location.select_ask_recipient",
+      "surface_id": "one_location",
+      "label": "Pick someone to ask for their location",
+      "aliases": [
+        "ask them",
+        "pick someone to ask",
+        "select someone to ask",
+        "add them to the request",
+        "choose who to ask"
+      ],
+      "search_keywords": [
+        "ask",
+        "pick",
+        "select",
+        "choose",
+        "request"
+      ],
+      "meaning": "Finds the person you named among your connections and selects them in the request composer, so you can see who is picked before anything is sent. It only selects: sending the request is still a separate, confirmed step.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.select_ask_recipient"
+      },
+      "control_ids": [
+        "one-location-action-ask"
+      ],
+      "state_exposure": [
+        "selected request owner count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=ask"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.select_ask_recipient",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Who do you want to ask?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Pick someone to ask for their location",
+            "failure_behavior": "stop",
+            "action_id": "location.select_ask_recipient",
+            "settlement_target": {
+              "route": "/one/location?action=ask",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.send_request",
+      "surface_id": "one_location",
+      "label": "Send the location request",
+      "aliases": [
+        "send it",
+        "send the request",
+        "ask them now",
+        "send my request",
+        "confirm the request"
+      ],
+      "search_keywords": [
+        "send",
+        "request",
+        "confirm",
+        "ask"
+      ],
+      "meaning": "Sends a request to see their location to the people already picked in the request composer. It never chooses who: if nobody is selected it stops and asks you to pick someone first.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.send_request"
+      },
+      "control_ids": [
+        "one-location-action-ask"
+      ],
+      "state_exposure": [
+        "selected request owner count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.send_request",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Send the location request",
+            "failure_behavior": "stop",
+            "action_id": "location.send_request",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "location.open_invite",
       "surface_id": "one_location",
       "label": "Invite someone to Location",

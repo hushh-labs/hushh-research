@@ -9179,6 +9179,97 @@ export function OneLocationAgentPageContent({
     };
   });
 
+  useLocalOnboardingActionHandler("location.select_ask_recipient", async (slots) => {
+    // Mirrors location.select_share_recipient's own matching/ambiguity
+    // rules exactly -- same connections list, same "never guess" discipline
+    // -- because asking someone for their location and sharing yours with
+    // them draw from the identical pool of people.
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say who you want to ask." };
+    }
+    let resolved = resolveBySpokenName(
+      contactSignalRecipients,
+      spoken,
+      recipientLabel,
+      recommendationSearchText,
+    );
+    if (resolved.kind === "none" && !vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see who you are connected to while the vault is locked, so I cannot tell whether they are there.",
+      };
+    }
+    if (resolved.kind === "none" && vaultOwnerToken) {
+      try {
+        const freshRecipients = await OneLocationService.listRecipients(vaultOwnerToken);
+        resolved = resolveBySpokenName(
+          rankRecipientsForRecommendation(
+            enrichRecipientsWithContactSignal(freshRecipients, contactMatchedUserIds),
+            contactMatchedUserIds,
+          ),
+          spoken,
+          recipientLabel,
+          recommendationSearchText,
+        );
+      } catch {
+        return {
+          status: "blocked" as const,
+          summary: "Location is still loading your connections. Please try that name again in a moment.",
+        };
+      }
+    }
+    if (resolved.kind === "none") {
+      return { status: "blocked" as const, summary: "Nobody in your connections matches that name." };
+    }
+    if (resolved.kind === "many") {
+      const names = ambiguousMatchNames(resolved.matches, recipientLabel);
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} people match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} people match that name. Ask which one they meant.`,
+      };
+    }
+    const match = resolved.match;
+    addRequestOwner(match.userId);
+    return {
+      status: "succeeded" as const,
+      summary: `Picked ${recipientLabel(match).trim()} to ask. Say "send it" to send the request.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.send_request", async () => {
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before sending a request." };
+    }
+    if (!selectedRequestOwners.length) {
+      return {
+        status: "blocked" as const,
+        summary: "Say who you want to ask first, then say send it.",
+      };
+    }
+    const names = selectedRequestOwners
+      .map((owner) => recipientLabel(owner).trim())
+      .filter(Boolean)
+      .join(", ");
+    const sent = await handleRequestAccess();
+    if (!sent) {
+      return {
+        status: "blocked" as const,
+        summary: "Couldn't send the request. Try again.",
+      };
+    }
+    return {
+      status: "succeeded" as const,
+      summary:
+        selectedRequestOwners.length === 1
+          ? `Asked ${names || "them"} for their location.`
+          : `Asked ${selectedRequestOwners.length} people for their location.`,
+    };
+  });
+
   useLocalOnboardingActionHandler("location.stop_sos", async () => {
     if (!vaultOwnerToken) {
       return {

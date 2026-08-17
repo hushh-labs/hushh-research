@@ -4016,7 +4016,9 @@
         "location.remove_emergency_contact",
         "location.remove_from_circle",
         "location.resume_updates",
+        "location.select_ask_recipient",
         "location.select_share_recipient",
+        "location.send_request",
         "location.set_auto_share",
         "location.share_selected",
         "location.stop_share",
@@ -8632,5 +8634,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "062ddae7ed1ca7949f43e904058ceb0241fabbac87b511e2a18602ead70d4631"
+  "content_sha256": "128a0ca5dbb9ec21027b2cb4ed672026759a6050283cdda9229ce3d45028413d"
 }
