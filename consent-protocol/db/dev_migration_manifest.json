@@ -4,14 +4,15 @@
   "target_gcp_project_id": "hushh-pda-dev",
   "migrations_subdir": "parked",
   "contract_note": "These files MUST stay under db/migrations/parked/ and MUST NOT be added to release_migration_manifest.json. Both scripts/ops/verify_release_migration_contract.py and scripts/ops/db_migration_release_guard.py enumerate db/migrations/ with Path.is_file(), so the parked subdirectory is invisible to the repo-head and contract-version checks. Moving or manifesting these files would push the repo head from 131 to 904 and break the UAT and production schema contracts.",
-  "ordering_note": "Numeric order is load-bearing: 902 creates an index on personal_agent_deletion_tombstones, which 900 creates, and 905 and 906 alter personal_agent_registry, which 900 creates.",
+  "ordering_note": "Numeric order is load-bearing: 902 creates an index on personal_agent_deletion_tombstones, which 900 creates, and 905, 906 and 907 alter personal_agent_registry, which 900 creates.",
   "tables": [
     "personal_agent_registry",
     "personal_agent_deletion_tombstones",
     "agent_prompt_versions",
     "webauthn_credentials",
     "webauthn_challenges",
-    "consent_audit_receipts"
+    "consent_audit_receipts",
+    "pod_lifecycle_events"
   ],
   "ordered_migrations": [
     "900_personal_agent_registry.sql",
@@ -20,6 +21,7 @@
     "903_webauthn_credentials.sql",
     "904_consent_audit_receipts.sql",
     "905_personal_agent_liveness.sql",
-    "906_personal_agent_user_cloud.sql"
+    "906_personal_agent_user_cloud.sql",
+    "907_pod_lifecycle_events.sql"
   ]
 }

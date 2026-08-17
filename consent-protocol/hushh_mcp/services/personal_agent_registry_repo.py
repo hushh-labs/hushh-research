@@ -123,6 +123,31 @@ class PersonalAgentRegistryRepo:
 
         self._db().table(_REGISTRY).upsert(data, on_conflict="user_id").execute()
 
+        # Narrative, AFTER authority. This is the one funnel every status writer
+        # already passes through (the two _record closures and both direct upserts),
+        # which is why the appender lives here and not at any call site -- a call
+        # site emitter misses the row-creating INSERT and the key-rotation write.
+        #
+        # After, not atomically-with: db_client exposes no caller-facing transaction,
+        # and the ordering is the safety property anyway. A lost narrative row costs
+        # a missing frame that the stream's snapshot repairs from this row within one
+        # segment; a narrative row describing a write that failed would be a story
+        # about something that never happened. Fail-safe by contract: `append` cannot
+        # raise into a provisioning path.
+        from hushh_mcp.services.pod_lifecycle_log import (  # noqa: PLC0415
+            STAGE_BY_REGISTRY_STATUS,
+            append,
+        )
+
+        stage = STAGE_BY_REGISTRY_STATUS.get(status)
+        if stage:
+            await append(
+                user_id,
+                stage=stage,
+                registry_status=status,
+                hushh_id=hushh_id,
+            )
+
     async def get(self, user_id: str) -> Optional[dict]:
         response = self._db().table(_REGISTRY).select("*").eq("user_id", user_id).limit(1).execute()
         rows = response.data or []
@@ -322,7 +347,13 @@ class PersonalAgentRegistryRepo:
         )
         return list(response.data or [])
 
-    async def fetch_stalled_agents(self, *, stalled_before: str, limit: int = 100) -> list[dict]:
+    async def fetch_stalled_agents(
+        self,
+        *,
+        stalled_before: str,
+        limit: int = 100,
+        statuses: tuple[str, ...] = _STALLED_POD_STATUSES,
+    ) -> list[dict]:
         """Rows whose provisioning never finished, for the reconcile sweep to retry.
 
         WHY *INACTIVITY* IS THE SIGNAL, NOT ROW AGE
@@ -357,7 +388,7 @@ class PersonalAgentRegistryRepo:
             self._db()
             .table(_REGISTRY)
             .select("user_id", "hushh_id", "status")
-            .in_("status", list(_STALLED_POD_STATUSES))
+            .in_("status", list(statuses))
             # Inactivity, not age. See the docstring: `upsert` stamps `updated_at` on
             # every lifecycle transition and `record_heartbeat` deliberately does not,
             # so this is "nothing has happened since" rather than "the row is old".

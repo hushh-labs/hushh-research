@@ -37,6 +37,7 @@ HusshID/spaceID, the HMAC phone hash, the pod's PUBLIC key, and version pins.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any, Optional, Protocol, runtime_checkable
 
 # Tiers a pod can run at: a logical stamp against a shared runtime (mass tier, no
@@ -182,6 +183,32 @@ class PodSpec:
     # `None` means "use the deployment default", which is what every existing caller
     # gets and why this is additive.
     resource_tier: Optional[str] = None
+
+    # -- narrative callbacks: how a stage says it happened ------------------------
+    #
+    # OPAQUE callables, injected by the provisioning service, defaulting to None.
+    # This is the seam that keeps the compute backends DB-free: `gcp_backend`
+    # imports no database and PodSpec carries no user_id (deliberately -- a pod
+    # spec that named its person would leak identity into every render), so the
+    # backends cannot write narrative themselves. They fire a callback that knows
+    # nothing about where the story goes.
+    #
+    # Both fire ON WORKER THREADS (`_run()` and the bootstrap loop run under
+    # asyncio.to_thread), so the supplied closures must be synchronous and must
+    # never raise -- the emitters in pod_lifecycle_log honor both. Excluded from
+    # comparison and repr: two specs describing the same pod are the same spec
+    # regardless of who is listening, and a repr must never print a closure.
+    on_stage: Optional[Any] = dataclass_field(default=None, compare=False, repr=False)
+    on_substrate_step: Optional[Any] = dataclass_field(default=None, compare=False, repr=False)
+
+    def emit_stage(self, stage: str) -> None:
+        """Fire on_stage, swallowing everything. Narrative must never break a build."""
+        if self.on_stage is None:
+            return
+        try:
+            self.on_stage(stage)
+        except Exception:  # noqa: BLE001 - a listener's bug is not the pod's problem
+            pass
 
 
 @dataclass(frozen=True)

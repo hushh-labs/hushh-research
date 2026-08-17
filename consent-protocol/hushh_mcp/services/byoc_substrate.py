@@ -260,7 +260,15 @@ class HushhFederatedSubstrate:
                 token=token,
                 bootstrap_sa=self._bootstrap_sa,
             )
-            outcome = await asyncio.to_thread(bootstrap.apply, plan, dry_run=self._dry_run)
+            # The spec's substrate observer rides through to_thread as a kwarg. The
+            # applier's loop is synchronous on that worker thread, which is exactly
+            # why the observer contract is sync -- see PodSpec.on_substrate_step.
+            outcome = await asyncio.to_thread(
+                bootstrap.apply,
+                plan,
+                dry_run=self._dry_run,
+                on_step=getattr(spec, "on_substrate_step", None),
+            )
         except BootstrapError as exc:
             return SubstrateReceipt(
                 False, tenant_ref, resource_ids=ids, plan_digest=digest, detail=str(exc)

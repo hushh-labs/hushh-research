@@ -546,13 +546,31 @@ class UserGcpBootstrap:
 
     # -- execution -----------------------------------------------------------------
 
-    def apply(self, plan: dict[str, Any], *, dry_run: bool = True) -> dict[str, Any]:
+    def apply(
+        self, plan: dict[str, Any], *, dry_run: bool = True, on_step: Any = None
+    ) -> dict[str, Any]:
         """Create the plan's resources. ``dry_run`` is the default on purpose.
 
         Returns a per-step result rather than raising on the first problem, because a
         half-built project is a real state a caller has to reason about and an
         exception loses which half.
+
+        ``on_step`` is an optional ``(step_id, ok) -> None`` observer, fired as each
+        step RESOLVES. This loop is synchronous and runs on a worker thread (invoked
+        via ``asyncio.to_thread`` from byoc_substrate), so the observer must be
+        synchronous too and is guarded here: a listener's bug must never turn a
+        16-step bootstrap into a partial apply. It fires only on live runs -- a dry
+        run resolves nothing, so it has no steps to narrate.
         """
+
+        def _observe(step: str, ok: bool) -> None:
+            if on_step is None:
+                return
+            try:
+                on_step(step, ok)
+            except Exception:  # noqa: BLE001 - narrative must not break the applier
+                logger.warning("byoc_bootstrap.on_step_failed step=%s", step)
+
         calls = self.plan_calls(plan)
         if dry_run:
             return {"dryRun": True, "project": self._project, "steps": calls}
@@ -581,12 +599,14 @@ class UserGcpBootstrap:
                         "detail": f"not attempted: {required} did not succeed",
                     }
                 )
+                _observe(call["step"], False)
                 unmet.add(call["step"])
                 continue
 
             if call.get("kind") == "merge_binding":
                 merged = self._merge_binding(call, headers)
                 results.append(merged)
+                _observe(call["step"], bool(merged["ok"]))
                 if not merged["ok"]:
                     unmet.add(call["step"])
                 continue
@@ -594,6 +614,7 @@ class UserGcpBootstrap:
             if call.get("kind") == "generate_secret_version":
                 seeded = self._seed_secret_version(call, headers)
                 results.append(seeded)
+                _observe(call["step"], bool(seeded["ok"]))
                 if not seeded["ok"]:
                     unmet.add(call["step"])
                 continue
@@ -629,6 +650,7 @@ class UserGcpBootstrap:
                         }
                     )
                     logger.warning("byoc_bootstrap.bucket_name_collision step=%s", call["step"])
+                    _observe(call["step"], False)
                     unmet.add(call["step"])
                     continue
 
@@ -651,6 +673,7 @@ class UserGcpBootstrap:
                 }
             )
             logger.info("byoc_bootstrap.step step=%s status=%s ok=%s", call["step"], code, ok)
+            _observe(call["step"], ok)
             if not ok:
                 unmet.add(call["step"])
 

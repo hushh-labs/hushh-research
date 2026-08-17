@@ -41,6 +41,64 @@ function isUpstreamTimeoutError(error: unknown): boolean {
   );
 }
 
+/**
+ * Per-path upstream timeout. `null` means "no proxy-imposed deadline": the
+ * upstream fetch carries only the caller's own abort signal.
+ *
+ * The lifecycle stream MUST be null. Its segments are ~40s of held-open SSE,
+ * and the previous blanket `AbortSignal.timeout(45_000)` was a live landmine
+ * for any stream on this proxy: the passthrough branch below hands
+ * `response.body` to the client with headers already flushed, so when the
+ * timeout fired mid-body the catch could not run -- the client saw HTTP 200,
+ * `text/event-stream`, some frames, then a reset, indistinguishable from a
+ * clean close. Segmentation makes that survivable; this makes it not happen.
+ *
+ * Resolution is per-path, NOT via HUSHH_ONE_API_TIMEOUT_MS: that override is
+ * read once at module scope and would unbound every JSON route on this proxy
+ * at once, which is precisely the blanket behavior being retired.
+ */
+function resolveOneUpstreamTimeoutMs(path: string): number | null {
+  if (path === "pod/lifecycle/stream") {
+    return null;
+  }
+  return ONE_API_TIMEOUT_MS;
+}
+
+/** The Kai proxy's signal resolution, ported verbatim in behavior: a null
+ * timeout yields the bare request signal, so a client disconnect still cancels
+ * the upstream fetch and nothing else does. */
+function resolveUpstreamSignal(
+  requestSignal: AbortSignal,
+  timeoutMs: number | null
+): AbortSignal {
+  if (!timeoutMs) {
+    return requestSignal;
+  }
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const anySignal = (
+    AbortSignal as typeof AbortSignal & {
+      any?: (signals: AbortSignal[]) => AbortSignal;
+    }
+  ).any;
+  if (typeof anySignal === "function") {
+    return anySignal([requestSignal, timeoutSignal]);
+  }
+  const controller = new AbortController();
+  const abortFrom = (signal: AbortSignal) => {
+    if (controller.signal.aborted) return;
+    controller.abort(signal.reason);
+  };
+  if (requestSignal.aborted) {
+    abortFrom(requestSignal);
+  } else if (timeoutSignal.aborted) {
+    abortFrom(timeoutSignal);
+  } else {
+    requestSignal.addEventListener("abort", () => abortFrom(requestSignal), { once: true });
+    timeoutSignal.addEventListener("abort", () => abortFrom(timeoutSignal), { once: true });
+  }
+  return controller.signal;
+}
+
 async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   const requestId = resolveRequestId(request);
   const path = params.path.join("/");
@@ -69,7 +127,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       method: request.method,
       headers,
       body,
-      signal: AbortSignal.timeout(ONE_API_TIMEOUT_MS),
+      signal: resolveUpstreamSignal(request.signal, resolveOneUpstreamTimeoutMs(path)),
     });
 
     // A streamed upstream must be handed through untouched. The JSON path below

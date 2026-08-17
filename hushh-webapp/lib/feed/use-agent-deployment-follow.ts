@@ -189,6 +189,43 @@ export function useAgentDeploymentFollow(options?: {
       }
     };
 
+    // The narrative stream, behind its flag, OFF by default. When on, the
+    // cursored follower replaces this hook's own 6-second cadence -- but the
+    // poll path never leaves the build: the follower itself starts on polling
+    // for native and degrades to polling after repeated stream failures, hitting
+    // the same JSON endpoint with the same frames. Flipping the flag back off
+    // restores this exact loop untouched. The follower only ever REFINES what
+    // the poll would have shown; terminal verdicts still come from frames, and
+    // frames still come from the registry row.
+    if (process.env.NEXT_PUBLIC_POD_LIFECYCLE_STREAM === "1") {
+      const abort = new AbortController();
+      void (async () => {
+        const { followPodLifecycle } = await import("@/lib/streaming/pod-lifecycle-client");
+        await followPodLifecycle({
+          cursor: 0,
+          signal: abort.signal,
+          onFrame: (frame) => {
+            if (cancelled || !frame.state) return;
+            const raw = String(frame.state);
+            if (!VALID.includes(raw)) return;
+            if (frame.hushhId) setHushhId(frame.hushhId);
+            if (frame.health) setHealth(frame.health);
+            if (raw !== previousRef.current) {
+              const deployment = raw as AgentDeploymentState;
+              setState(deployment);
+              previousRef.current = raw;
+              reportBackgroundTask(userId, deployment);
+              dispatchFeedStateChanged();
+            }
+          },
+        });
+      })();
+      return () => {
+        cancelled = true;
+        abort.abort();
+      };
+    }
+
     void tick();
 
     return () => {

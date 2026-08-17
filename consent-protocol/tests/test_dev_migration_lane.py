@@ -39,6 +39,7 @@ EXPECTED_PARKED_MIGRATIONS = (
     "904_consent_audit_receipts.sql",
     "905_personal_agent_liveness.sql",
     "906_personal_agent_user_cloud.sql",
+    "907_pod_lifecycle_events.sql",
 )
 
 

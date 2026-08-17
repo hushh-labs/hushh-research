@@ -26,7 +26,6 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
 )
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 from hushh_mcp.services.pod_connector_keypair_service import WRAPPING_ALG
-from hushh_mcp.services.pod_key_collector import collect_pod_key_if_pending
 
 logger = logging.getLogger(__name__)
 
@@ -236,31 +235,19 @@ async def resolve_personal_agent_status(
 
     status = str((row or {}).get("status") or "").strip()
 
-    # A row parked in 'connecting' is waiting on its pod to come up and publish its
-    # public key. This read is the natural place to try collecting it: onboarding
-    # polls this endpoint while the person waits, so the poll that ASKS whether the
-    # agent is ready is also the poll that can MAKE it ready -- no extra timer, and
-    # no window where the pod is up but nothing has noticed.
+    # This GET is now a PURE READER, and that is a security property, not tidiness.
+    # It used to call `collect_pod_key_if_pending` here, which on a `connecting`
+    # row performed an ID-token fetch, a 5s pod GET, two registry writes, a
+    # 24-hour standing `pkm.read` HCT mint with a visible consent_audit event,
+    # and a feed insert -- per poll, per open tab, every 6 seconds. A status read
+    # must not mint consent authority, and a lifecycle stream polling this shape
+    # would have multiplied the writes by every open segment.
     #
-    # Best-effort and non-blocking on failure: returns None unless the state
-    # actually advanced, and never raises. A slow pod costs this request the fetch
-    # timeout and nothing else.
-    try:
-        collected = await collect_pod_key_if_pending(row)
-        if collected:
-            status = collected
-    except Exception as exc:  # the status read must never fail because a pod is slow
-        # This is THE failure of the 0->1 journey: the host exists and the handshake
-        # that would make it usable did not happen. It used to log only the exception
-        # CLASS, which named neither the pod nor the reason -- so the one line an
-        # operator most needs read `err=ClientResponseError` and pointed nowhere.
-        logger.warning(
-            "personal_agent.key_collection_failed hushh_id=%s service=%s err=%s detail=%s",
-            (row or {}).get("hushh_id") or "<none>",
-            (row or {}).get("external_agent_id") or "<none>",
-            type(exc).__name__,
-            _diagnostic_detail(exc),
-        )
+    # Where the handshake lives instead: the pod's own first heartbeat
+    # (`pod_heartbeat.py`, the primary writer, already inline for the CPU-throttle
+    # reason documented there) and the reconcile worker's key-collection fallback
+    # for rows a heartbeat never reached. A row stuck in `connecting` is now the
+    # reconcile pass's problem on a 300s cadence, not the browser's on a 6s one.
 
     # Nothing else in the system watches a row parked in `connecting`. The retry sweep
     # deliberately excludes it (re-provisioning would replace a running service --

@@ -706,6 +706,11 @@ class UserGcpBackend:
             await asyncio.to_thread(
                 client.replace_service, name, client.merge_for_replace(existing, config)
             )
+        # Same narrative stages as the managed tier, same names -- the vocabulary is
+        # shared with trace_pod_journey so the operator diagnostic and the person's
+        # progress bar tell one story. This path is async (no _run closure), so the
+        # emits sit beside the awaits they describe. emit_stage swallows everything.
+        spec.emit_stage("host_created")
 
         # `wait_ready` returns (ready, service_json). Binding it to one name left `ready`
         # holding the TUPLE -- which is truthy whatever it contains, so a pod that failed
@@ -713,6 +718,8 @@ class UserGcpBackend:
         # raised. The managed tier unpacks it correctly (`gcp_backend.py:566`); this path
         # did not, and only a pod that genuinely failed to boot could show the difference.
         ready, svc = await asyncio.to_thread(client.wait_ready, name)
+        if ready:
+            spec.emit_stage("host_serving")
         # The hushh gateway is invited onto this ONE service. Without it the pod exists
         # and is reachable by nobody, which reads as a provisioning success and behaves
         # as a dead agent -- the same failure the managed tier hit and logged for.
@@ -720,6 +727,7 @@ class UserGcpBackend:
             await asyncio.to_thread(
                 client.set_invoker_binding, name, f"serviceAccount:{self._hushh_invoker_sa}"
             )
+            spec.emit_stage("invoker_bound")
         else:
             logger.warning(
                 "user_gcp_backend.no_invoker_member service=%s -- HUSSH_CONSENT_PLANE_SA is "

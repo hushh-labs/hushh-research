@@ -393,6 +393,18 @@ def personal_agent_enabled() -> bool:
     return _bool_from_value(_clean_env("PERSONAL_AGENT_ENABLED"), default=False)
 
 
+def pod_lifecycle_log_enabled() -> bool:
+    """Append provisioning narrative to ``pod_lifecycle_events`` (migration 907).
+
+    Defaults OFF because the table is a parked dev-only migration: with the flag
+    up but the table absent every append would log a swallowed failure on every
+    lifecycle transition, which is noise describing configuration rather than
+    fault. The writer is fail-safe either way -- this flag only decides whether
+    it tries. Nothing READS the log behind this flag; the stream endpoints check
+    it independently so a half-enabled deployment degrades to snapshot-only."""
+    return _bool_from_value(_clean_env("POD_LIFECYCLE_LOG_ENABLED"), default=False)
+
+
 def personal_agent_autoprovision_enabled() -> bool:
     """Fire a user's pod automatically once their phone is verified.
 

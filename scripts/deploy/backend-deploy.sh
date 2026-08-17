@@ -346,6 +346,7 @@ consent_plane_sa=""
 user_gcp_live=""
 user_gcp_substrate_apply=""
 pod_ingress=""
+pod_lifecycle_log=""
 dev_phone_test_numbers=""
 dev_pod_state_bucket=""
 dev_pod_key_master_secret=""
@@ -449,6 +450,11 @@ if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   # `append_optional_env` drops empties, so uat and production keep "internal" by
   # construction rather than by anyone remembering.
   pod_ingress="all"
+  # The provisioning narrative log (migration 907, parked dev-only). On in dev
+  # because the table exists only where the dev migration lane runs; UAT and
+  # production carry neither the table nor the flag, and the writer is fail-safe
+  # regardless -- this only decides whether it tries.
+  pod_lifecycle_log="true"
 fi
 append_optional_env "PERSONAL_AGENT_ENABLED" "${personal_agent_enabled}"
 append_optional_env "PERSONAL_AGENT_BACKEND" "${personal_agent_backend}"
@@ -466,6 +472,7 @@ append_optional_env "HUSSH_CONSENT_PLANE_SA" "${consent_plane_sa}"
 append_optional_env "HUSSH_USER_GCP_LIVE" "${user_gcp_live}"
 append_optional_env "HUSSH_USER_GCP_SUBSTRATE_APPLY" "${user_gcp_substrate_apply}"
 append_optional_env "HUSSH_POD_INGRESS" "${pod_ingress}"
+append_optional_env "POD_LIFECYCLE_LOG_ENABLED" "${pod_lifecycle_log}"
 # The other half of durable state. A SECRET, not an env literal: it derives every
 # managed pod's sealing keys, so it is the one value that must never appear in a
 # deploy log or a service description. append_optional_secret probes Secret Manager

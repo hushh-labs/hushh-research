@@ -563,6 +563,14 @@ class GcpBackend:
 
         def _run() -> tuple[bool, Optional[str], bool]:
             client.create_service(config)
+            # Narrative per stage, on this worker thread, through the spec's opaque
+            # callback -- this closure was the identical opacity the BYOC substrate
+            # had: three long operations under one `provisioning`. Order matters and
+            # matches the code, not intuition: invoker_bound comes BEFORE
+            # host_serving because the binding really does precede wait_ready here,
+            # and a stage order that disagrees with the code would freeze the
+            # monotonic progress bar through the longest wait in provisioning.
+            spec.emit_stage("host_created")
             # Bind run.invoker BEFORE waiting for Ready. The hub's key pull happens
             # as soon as the pod answers, and until this binding exists the hub is
             # not allowed to call the pod at all -- which is how a created pod used
@@ -571,7 +579,10 @@ class GcpBackend:
             if self._invoker_member:
                 client.set_invoker_binding(name, self._invoker_member)
                 invoker_bound = True
+                spec.emit_stage("invoker_bound")
             ready, svc = client.wait_ready(name)
+            if ready:
+                spec.emit_stage("host_serving")
             return ready, GcpRunClient.service_url(svc), invoker_bound
 
         ready, url, invoker_bound = await asyncio.to_thread(_run)

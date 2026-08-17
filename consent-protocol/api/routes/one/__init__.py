@@ -23,6 +23,7 @@ from .personal_agent import router as personal_agent_router
 from .places import router as places_router
 from .pod_consent import router as pod_consent_router
 from .pod_heartbeat import router as pod_heartbeat_router
+from .pod_lifecycle import router as pod_lifecycle_router
 from .pod_relay import router as pod_relay_router
 from .runtime import router as runtime_router
 from .webauthn import router as webauthn_router
@@ -52,6 +53,9 @@ router.include_router(places_router)
 # allowlist in pod_server.py keeps it off the pod surface.
 router.include_router(pod_consent_router)
 router.include_router(pod_heartbeat_router)
+# Hub-only, like the relay: a pod has no registry database and no business
+# narrating anyone's provisioning. Pure readers of the narrative log.
+router.include_router(pod_lifecycle_router)
 router.include_router(pod_relay_router)
 router.include_router(runtime_router)
 router.include_router(webauthn_router)

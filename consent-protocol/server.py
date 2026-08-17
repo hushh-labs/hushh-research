@@ -561,6 +561,25 @@ async def startup_consent_listener():
 
 
 @app.on_event("startup")
+async def startup_pod_lifecycle_listener():
+    """LISTEN pod_lifecycle_new so open lifecycle streams get doorbells.
+
+    Hub-only for the same reason as the consent listener: a pod has no registry
+    database. If the pool (or the parked 907 table) is absent the task exits
+    quietly and streams degrade to heartbeat-paced reads -- slower narrative,
+    never lost narrative, because readers are cursored.
+    """
+    if pod_mode():
+        logger.info("startup.pod_lifecycle_listener_skipped reason=pod_mode")
+        return
+    import asyncio
+
+    from api.pod_lifecycle_listener import run_pod_lifecycle_listener
+
+    _track_startup_background_task(asyncio.create_task(run_pod_lifecycle_listener()))
+
+
+@app.on_event("startup")
 async def startup_ticker_cache():
     """Preload SEC tickers into an in-memory cache after server startup.
 
@@ -944,7 +963,16 @@ async def startup_personal_agent_reconcile_worker() -> None:
         async def fetch_stalled() -> list:
             cutoff = datetime.now(timezone.utc).timestamp() - _stalled_after_seconds
             before = datetime.fromtimestamp(cutoff, tz=timezone.utc).isoformat()
-            rows = await registry.fetch_stalled_agents(stalled_before=before)
+            # `connecting` joins the sweep FOR KEY COLLECTION ONLY -- `retry`
+            # below branches on the row's live status and never re-provisions a
+            # `connecting` row, which has a LIVE host mid-handshake. This closes
+            # the gap the status GET left when it became a pure reader: a row
+            # whose pod never heartbeated used to be advanced by the browser's
+            # poll, and is now watched here on the 300s cadence instead.
+            rows = await registry.fetch_stalled_agents(
+                stalled_before=before,
+                statuses=("provisioning", "provisioning_failed", "connecting"),
+            )
             return [
                 StalledAgent(
                     user_id=str(row.get("user_id") or ""),
@@ -956,6 +984,38 @@ async def startup_personal_agent_reconcile_worker() -> None:
             ]
 
         async def retry(user_id: str) -> None:
+            # A `connecting` row has a LIVE host waiting on its key push.
+            # Re-provisioning it would replace a running service, which is exactly
+            # why _STALLED_POD_STATUSES excludes it -- so that case is handled
+            # here, as key collection, and returns before the provision path.
+            #
+            # The probe is best-effort: if the registry read itself fails, fall
+            # through to the provision path, whose own phone gate and idempotent
+            # upsert are the long-standing safety net. A dead DB must not turn
+            # every retry into a no-op -- and provision() re-reads the row anyway.
+            try:
+                row = await registry.get(user_id)
+            except Exception:  # noqa: BLE001 - the provision path re-reads
+                row = None
+            if str((row or {}).get("status") or "") == "connecting":
+                from hushh_mcp.services.pod_key_collector import (
+                    collect_pod_key_if_pending,
+                )
+
+                try:
+                    advanced = await collect_pod_key_if_pending(row)
+                    logger.info(
+                        "personal_agent_reconcile.key_collection user_id_prefix=%s advanced=%s",
+                        user_id[:8],
+                        advanced or "no",
+                    )
+                except Exception as exc:  # noqa: BLE001 - next pass retries
+                    logger.warning(
+                        "personal_agent_reconcile.key_collection_failed err=%s",
+                        type(exc).__name__,
+                    )
+                return
+
             from hushh_mcp.services.actor_identity_service import ActorIdentityService
 
             identity = ActorIdentityService()

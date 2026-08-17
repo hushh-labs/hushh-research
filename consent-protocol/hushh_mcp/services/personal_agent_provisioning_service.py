@@ -77,6 +77,13 @@ from hushh_mcp.services.pod_connector_keypair_service import (
     WRAPPING_ALG,
     parse_pod_public_key,
 )
+from hushh_mcp.services.pod_lifecycle_log import (
+    append as pod_lifecycle_append,
+)
+from hushh_mcp.services.pod_lifecycle_log import (
+    append_sync,
+    substrate_progress,
+)
 from hushh_mcp.services.user_cloud_service import resolve_user_cloud
 
 logger = logging.getLogger(__name__)
@@ -418,6 +425,19 @@ class PersonalAgentProvisioningService:
                 await record_provisioning_feed_event_safe(
                     user_id=user_id, event_type=FEED_EVENT_CAPPED
                 )
+                # The one caller that used to DISCARD this outcome is why `capped`
+                # was unobservable: the return value below is dropped by the
+                # fire-and-forget scheduler. The narrative row is what survives.
+                # A reason code, never a state -- "at capacity, place held" is a
+                # sentence about a `pending` row, not a new lifecycle value.
+                await pod_lifecycle_append(
+                    user_id,
+                    stage="capped",
+                    registry_status="pending",
+                    event="terminal",
+                    hushh_id=hushh_id,
+                    reason="at_capacity",
+                )
                 logger.warning(
                     "personal_agent.provisioning_capped max_pods=%s", personal_agent_max_pods()
                 )
@@ -523,9 +543,36 @@ class PersonalAgentProvisioningService:
                     "before their agent can be built there"
                 )
 
+            # Narrative emitters, closed over the ids the backends deliberately do not
+            # hold. Both run on worker threads (the backend's _run closure and the
+            # bootstrap loop), so both call append_sync directly -- synchronous
+            # SQLAlchemy is the natural caller there, and append_sync swallows
+            # everything, so a narrative failure cannot break a build.
+            def _on_stage(stage: str, _uid: str = user_id, _hid: str = hushh_id) -> None:
+                append_sync(_uid, stage=stage, registry_status="provisioning", hushh_id=_hid)
+
+            _substrate_step_counter = {"n": 0}
+
+            def _on_substrate_step(
+                step: str, ok: bool, _uid: str = user_id, _hid: str = hushh_id
+            ) -> None:
+                _substrate_step_counter["n"] += 1
+                append_sync(
+                    _uid,
+                    stage="substrate",
+                    registry_status="provisioning",
+                    event="substrate_step",
+                    hushh_id=_hid,
+                    substrate_step=step,
+                    step_ok=ok,
+                    progress_pct=substrate_progress(_substrate_step_counter["n"]),
+                )
+
             spec = PodSpec(
                 hushh_id=hushh_id,
                 phone_e164_hash=phone_hash,
+                on_stage=_on_stage,
+                on_substrate_step=_on_substrate_step,
                 # Empty when deferred. No backend reads this field -- the pod holds its
                 # own key -- so an absent one changes nothing about what gets rendered.
                 pod_pubkey=pod_key.public_key_b64 if pod_key else "",

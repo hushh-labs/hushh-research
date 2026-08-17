@@ -3608,6 +3608,59 @@ export class ApiService {
    * unless the liveness sweep reached a real verdict, rather than defaulting to
    * "healthy". Render them when present and say nothing when absent.
    */
+  /**
+   * The lifecycle narrative since `cursor`, as one JSON read. This is the
+   * NATIVE transport for provisioning progress (Capacitor cannot stream) and
+   * the degradation target for the web stream. Pure read: unlike the old
+   * status GET, it can be polled by every open tab without minting anything.
+   */
+  static async getPodLifecycle(options: {
+    cursor: number;
+    signal?: AbortSignal;
+  }): Promise<{
+    snapshot?: Record<string, unknown>;
+    events?: Array<Record<string, unknown>>;
+    nextCursor?: number;
+    terminal?: boolean;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/pod/lifecycle?cursor=${Math.max(0, options.cursor)}`,
+      {
+        method: "GET",
+        headers: {
+          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+        },
+        signal: options.signal,
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`pod lifecycle read failed: HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
+   * One ~40s SSE segment of the lifecycle narrative. The caller owns consuming
+   * it (`followPodLifecycle`); this only opens it with auth attached. Web only.
+   */
+  static async openPodLifecycleStream(options: {
+    cursor: number;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    return ApiService.apiFetchStream(
+      `/api/one/pod/lifecycle/stream?cursor=${Math.max(0, options.cursor)}`,
+      {
+        method: "GET",
+        headers: {
+          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+        },
+        signal: options.signal,
+      },
+    );
+  }
+
   static async getPersonalAgentStatus(options?: {
     signal?: AbortSignal;
   }): Promise<{
