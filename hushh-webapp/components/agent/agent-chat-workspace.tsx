@@ -123,6 +123,12 @@ import {
   type SpecialistDirectiveEvent,
   type AgentSource,
 } from "@/lib/services/agent-chat-client";
+import { ActionDialog } from "@/components/agent/action-dialog";
+import {
+  isReadOnlyLocationQuery,
+  formatLocationQueryResponse,
+  type InlineSuggestionChip,
+} from "@/lib/agent/tools/location-tools";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
 import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
@@ -181,6 +187,7 @@ type AgentMessage = {
   streamEvents?: AgentVisibleStreamEvent[];
   thought?: string;
   sources?: AgentSource[];
+  suggestionChips?: InlineSuggestionChip[];
 };
 
 type AgentDebugEvent = {
@@ -830,6 +837,7 @@ function AgentBubble({
   onPendingConsentApprove,
   onPendingConsentDeny,
   onPendingConsentDetails,
+  onSuggestionChipClick,
 }: {
   message: AgentMessage;
   onRetry?: () => void;
@@ -841,6 +849,7 @@ function AgentBubble({
   onPendingConsentApprove?: (item: SpecialistPendingConsentRequestItem) => Promise<void> | void;
   onPendingConsentDeny?: (item: SpecialistPendingConsentRequestItem) => Promise<void> | void;
   onPendingConsentDetails?: (item: SpecialistPendingConsentRequestItem) => void;
+  onSuggestionChipClick?: (chip: InlineSuggestionChip) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [liked, setLiked] = useState(false);
@@ -944,7 +953,23 @@ function AgentBubble({
               response={assistantText ? <AgentMarkdown text={assistantText} /> : null}
             />
           ) : assistantText ? (
-            <AgentMarkdown text={assistantText} />
+            <>
+              <AgentMarkdown text={assistantText} />
+              {message.suggestionChips && message.suggestionChips.length > 0 && (
+                <div className="mt-2.5 flex flex-wrap gap-2 pt-1.5 border-t border-border/40" data-testid="suggestion-chips">
+                  {message.suggestionChips.map((chip) => (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      onClick={() => onSuggestionChipClick?.(chip)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-background px-3 py-1 text-xs font-medium text-foreground shadow-sm transition hover:bg-muted hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           ) : canRenderConsentActions || canRenderPendingConsentRequest ? (
             null
           ) : (
@@ -2029,6 +2054,27 @@ export function AgentChatWorkspace({
     ]
   );
 
+  const handleSuggestionChipClick = useCallback(
+    (chip: InlineSuggestionChip) => {
+      if (chip.kind === "navigation" && chip.actionUrl) {
+        router.push(chip.actionUrl);
+      } else if (chip.kind === "action" && chip.actionId) {
+        void executeAgentGatewayAction({
+          actionId: chip.actionId,
+          userId: user?.uid ?? "",
+          router,
+          appRuntimeState: appRuntimeStateRef.current,
+          surfaceMetadata: getVoiceSurfaceMetadata(),
+          hasPortfolioData,
+          busyOperations,
+          setAnalysisParams,
+          switchPersona,
+        });
+      }
+    },
+    [router, user?.uid, hasPortfolioData, busyOperations, setAnalysisParams, switchPersona],
+  );
+
   const handleSidebarCreateNewChat = useCallback(() => {
     setIsHistoryDrawerOpen(false);
     handleCreateNewChat();
@@ -3050,13 +3096,32 @@ export function AgentChatWorkspace({
           onSpecialistDirective: (event) => {
             if (streamAbortController.signal.aborted) return;
             specialistDirectiveReceived = true;
-            // Store the directive as a pending card in the current message
-            // stream. Security-sensitive: never auto-run an "action"; require
-            // an explicit click on the rendered card.
             appendDebugEvent(debugTurnId, "specialist_directive", event);
             flushAssistantDelta();
             setIsChatLoading(false);
             setIsStreaming(false);
+
+            const payload = (event.directive?.payload ?? {}) as Record<string, unknown>;
+            const directiveType = String(payload.type ?? payload.kind ?? "");
+
+            if (isReadOnlyLocationQuery(directiveType)) {
+              const token = getVaultOwnerToken() || "";
+              void runLocationDirective(event.directive, token, user?.uid ?? null).then((result) => {
+                const formatted = formatLocationQueryResponse(directiveType, payload);
+                const chatText = result.detail || formatted.chatAnswer;
+                updateMessage(assistantMessageId, (message) => ({
+                  ...message,
+                  text: chatText,
+                  status: "done",
+                  specialistDirective: null,
+                  streamEvents: [],
+                  suggestionChips: formatted.suggestionChips,
+                }));
+                enqueueDelegateResult(result);
+              });
+              return;
+            }
+
             if (getConsentActionsPayload(event)) {
               updateMessage(assistantMessageId, (message) => ({
                 ...message,
@@ -4195,6 +4260,7 @@ export function AgentChatWorkspace({
                         `${ROUTES.CONSENTS}?tab=pending&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
                       );
                     }}
+                    onSuggestionChipClick={handleSuggestionChipClick}
                   />
                 ),
               )}
@@ -4575,21 +4641,9 @@ export function AgentChatWorkspace({
                     }}
                   />
                 ) : (
-                  // ── Action / crypto mode (existing path, unchanged) ───────
-                  <SpecialistDirectiveCard
-                    summary={String(
-                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                        .summary ?? pendingSpecialistDirective.message,
-                    )}
-                    confirmLabel={
-                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                        .type === "sos_panic"
-                        ? "Send SMS"
-                        : (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                              .type === "request_device_location_permission"
-                          ? "Allow location"
-                          : "Share"
-                    }
+                  // ── Action / write / navigation mode ───────
+                  <ActionDialog
+                    directiveEvent={pendingSpecialistDirective}
                     busy={specialistBusy}
                     onConfirm={async () => {
                       const directive = pendingSpecialistDirective;
