@@ -417,8 +417,11 @@ export function SosPanel({
       />
 
       {/* The design's top-right actions. The screen's own title moved into the
-          header above, so only the two controls remain here. */}
-      <div className="mt-4 flex flex-wrap items-center justify-end gap-x-6 gap-y-2 sm:gap-x-8">
+          header above, so only the two controls remain here. Width-matched
+          to the message column below (max-w-[520px], centered) so "Cancel"
+          doesn't right-align to the section edge while the input right-aligns
+          to a narrower centered column beneath it (#5431). */}
+      <div className="mx-auto mt-4 flex w-full max-w-[520px] flex-wrap items-center justify-end gap-x-6 gap-y-2 sm:gap-x-8">
         {active ? (
           <span className="mr-auto flex items-center gap-2 sm:mr-0">
             <span
