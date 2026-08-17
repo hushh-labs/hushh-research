@@ -55,6 +55,7 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import {
   appInteractionCoordinator,
   useActiveActionRun,
+  useAppLifecycle,
   type DirectiveSettlement,
   type VoiceSessionLease,
 } from "@/lib/interaction/interaction-intent-coordinator";
@@ -1514,20 +1515,26 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     };
   }, [conversationActive, runtime?.oneVoiceContextSnapshot, runtime?.tier]);
 
+  // Not a raw `visibilitychange` listener: that event alone is known to be
+  // unreliable inside the native iOS/Android WebView shell, which is exactly
+  // where a leaked-open mic matters most. `appInteractionCoordinator`
+  // already merges DOM visibility with Capacitor's native `appStateChange`
+  // into one verdict -- this is the one place in the app that must react to
+  // real backgrounding, so it reads that verdict instead of duplicating half
+  // of it.
+  const appLifecycle = useAppLifecycle();
   useEffect(() => {
-    if (typeof document === "undefined") return;
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") return;
-      prewarmedRelayRef.current = null;
-      if (liveClientRef.current || conversationActive) {
-        stopConversation();
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [conversationActive, stopConversation]);
+    if (appLifecycle.state !== "background") return;
+    prewarmedRelayRef.current = null;
+    if (liveClientRef.current || conversationActive) {
+      stopConversation();
+    }
+  }, [
+    appLifecycle.state,
+    appLifecycle.revision,
+    conversationActive,
+    stopConversation,
+  ]);
 
   // Tear down the live session if the bar unmounts (route change, sign-out).
   // Also clear the shared voice store so a stale status (e.g. "error",
