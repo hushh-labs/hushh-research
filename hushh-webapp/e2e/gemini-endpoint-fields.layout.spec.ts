@@ -174,14 +174,34 @@ test.describe("Choose your AI — API endpoint fields", () => {
     const withoutAppearance = await probe(page, "regression-select");
     const fixed = await probe(page, "endpoint-select");
 
+    // The product contract, on every engine: the shipped control matches the
+    // input it sits beside.
     expect(fixed.radius).toBe(input.radius);
 
-    if (browserName === "webkit") {
+    /*
+     * The mutation half is a statement about ONE renderer.
+     *
+     * "A native <select> ignores the author's border-radius" is macOS and iOS
+     * Safari behaviour, drawn by the platform's own menulist. Playwright's
+     * WebKit on Linux is WebKitGTK, which draws the control itself and honours
+     * the radius — so the un-fixed select there measures the same 14px as the
+     * input, and the mutation cannot be demonstrated at all.
+     *
+     * Asserting it anyway would not be a stricter test; it would be a test of
+     * which machine the runner is. The positive assertion above still runs
+     * everywhere, and this half runs where the behaviour it describes exists.
+     */
+    if (browserName === "webkit" && process.platform === "darwin") {
       expect(withoutAppearance.appearance).not.toBe("none");
       expect(withoutAppearance.radius).not.toBe(input.radius);
       expect(parseFloat(withoutAppearance.radius)).toBeLessThan(
         parseFloat(input.radius),
       );
+    } else if (browserName === "webkit") {
+      test.info().annotations.push({
+        type: "skipped-assertion",
+        description: `native-menulist mutation not asserted on ${process.platform} WebKit (radius ${withoutAppearance.radius}, appearance ${withoutAppearance.appearance}); macOS Safari is the renderer this describes`,
+      });
     }
   });
 });
