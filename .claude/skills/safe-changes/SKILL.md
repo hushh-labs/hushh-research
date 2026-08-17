@@ -645,6 +645,43 @@ grep -n "introComplete" components/app-ui/HushhIntroGate.tsx   | grep -q "introC
 The suite asserts children are in the document while the overlay is up, and that
 the whole script clears 1,000 ms — both mutation-checked.
 
+### R17 — A retry loop must test the success condition, not "did it print something"
+
+**Incident (2026-08-17, shipping #5393–#5396 through a GitHub outage).** A
+retry loop around `gh workflow run deploy-uat.yml` treated any output as
+failure and retried. `gh workflow run` prints the run URL **on success**, so
+the loop never stopped: it fired **19 UAT deploys** of the same SHA. The
+concurrency group cancelled 8, 7 failed at the workflow's own "Resolve
+deployment SHA" guard, and 2 succeeded. Nothing was damaged — the guard is
+exactly what caught it, and UAT ended healthy on the right commit — but it
+burned ~17 pointless runner-hours and buried the one deploy that mattered in
+noise.
+
+Same shape as the SHA I hand-assembled minutes earlier: `--match-head-commit`
+was given a full SHA reconstructed from a short hash, and GitHub answered
+`409 Head branch was modified`. Never rebuild an identifier you can read.
+
+**Rule.** A loop that retries a command must branch on the command's **exit
+code** or on a positive assertion about the resulting state — never on whether
+stdout was empty. For anything that spends money or mutates a shared
+environment, assert the state first and bail: "is a run already in flight for
+this SHA?" before dispatching another. And read identifiers (`git rev-parse`,
+the API's own field), never assemble them.
+
+**Check.** Before shipping any dispatch loop, dry-run its predicate:
+
+```bash
+# gh workflow run prints a URL on SUCCESS -- prove the predicate is not inverted
+out=$(gh workflow run deploy-uat.yml --ref main 2>&1); code=$?
+echo "exit=$code output=${out:0:60}"
+# exit 0 with non-empty output is SUCCESS. A loop keying on -z "$out" storms.
+
+# and never dispatch blind: check for an in-flight run on this SHA first
+gh api "repos/hushh-labs/hushh-research/actions/runs?per_page=10" \
+  --jq '[.workflow_runs[] | select(.name=="Deploy to UAT" and .status!="completed")] | length'
+```
+A non-zero count means one is already running: wait, do not dispatch.
+
 ## Adding a rule
 
 Every mistake found becomes a rule. Fix the **cause**, not the symptom, then add
