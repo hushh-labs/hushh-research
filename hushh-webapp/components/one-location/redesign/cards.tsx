@@ -49,6 +49,7 @@ function initialsFrom(name: string): string {
 
 export function TrustedPersonCard({
   name,
+  nameSuffix,
   subtitle,
   tone = "ready",
   statusLabel,
@@ -66,6 +67,8 @@ export function TrustedPersonCard({
   expandedContent,
 }: {
   name: string;
+  /** "till 12:29 PM" -- the live share's absolute end time, next to the name. */
+  nameSuffix?: string;
   subtitle?: string;
   tone?: "ready" | "pending" | "neutral";
   statusLabel?: string;
@@ -108,9 +111,14 @@ export function TrustedPersonCard({
       <div className="flex items-center gap-3">
         <Avatar initials={initialsFrom(name)} />
         <div className="min-w-0 flex-1">
-          <p className="break-words text-[15px] font-semibold leading-5 text-foreground [overflow-wrap:anywhere] sm:text-[17px] sm:leading-[22px]">
-            {name}
-          </p>
+          <div className="flex flex-wrap items-baseline gap-x-1.5">
+            <p className="break-words text-[15px] font-semibold leading-5 text-foreground [overflow-wrap:anywhere] sm:text-[17px] sm:leading-[22px]">
+              {name}
+            </p>
+            {nameSuffix ? (
+              <span className={cn(MUTED_TEXT, "shrink-0")}>· {nameSuffix}</span>
+            ) : null}
+          </div>
           {subtitle ? (
             <p
               className={cn(

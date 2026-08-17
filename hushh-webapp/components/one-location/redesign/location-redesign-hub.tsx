@@ -48,7 +48,9 @@ import { requestRecipientStatus } from "@/lib/one-location/request-recipient-sta
 import {
   locationApproveActionLabel,
   locationAskPromptLine,
+  locationTimestampMs,
 } from "@/lib/one-location/duration-copy";
+import { formatShareEndsAt } from "@/lib/one-location/share-countdown";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -3302,10 +3304,24 @@ function AskFlow({
               // to take the ask back.
               const pendingRequestId = status.pendingRequestId;
               const recipientLabel = vm.recipientLabel(r);
+              // The wall-clock moment a live share ends, next to the name --
+              // "29 more min" says how long is left but not when that runs
+              // out, so leaving the screen for a while loses the one number
+              // that would have told them.
+              const activeGrantExpiresAtMs = activeGrant
+                ? locationTimestampMs(activeGrant.expiresAt)
+                : null;
+              const nameSuffix =
+                activeGrant &&
+                activeGrantExpiresAtMs !== null &&
+                activeGrantExpiresAtMs > statusNowMs
+                  ? `till ${formatShareEndsAt(activeGrantExpiresAtMs)}`
+                  : undefined;
               return (
                 <TrustedPersonCard
                   key={r.userId}
                   name={recipientLabel}
+                  nameSuffix={nameSuffix}
                   subtitle={status.subtitle}
                   tone={status.tone}
                   statusLabel={status.statusLabel}
