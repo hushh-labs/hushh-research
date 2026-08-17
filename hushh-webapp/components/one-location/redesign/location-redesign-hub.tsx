@@ -319,7 +319,6 @@ export type LocationHubViewModel = {
   /* actions — wired 1:1 to existing handlers */
   onShowMyLocation: () => void;
   onHideMyLocation: () => void;
-  onResumeMyLocation: () => void;
   onAutoApproveRequestsChange: (enabled: boolean) => void;
   onRequestPermission: () => void;
   onOpenLocationSettings: () => void;

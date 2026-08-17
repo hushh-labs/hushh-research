@@ -8859,10 +8859,6 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
-  const handleResumeMyLocation = useCallback(() => {
-    void handleShowMyLiveLocation();
-  }, [handleShowMyLiveLocation]);
-
   // The Location surface's first two actions that DO something rather than
   // open something. Both delegate to the same callbacks the on-screen controls
   // use, so voice can never take a path a tap could not, and both report the
@@ -11410,7 +11406,6 @@ export function OneLocationAgentPageContent({
     toggleRequestOwner: (id) => toggleRequestOwner(id, "section_list"),
     onShowMyLocation: () => void handleShowMyLiveLocation(),
     onHideMyLocation: () => void handleHideMyLiveLocation(),
-    onResumeMyLocation: handleResumeMyLocation,
     onAutoApproveRequestsChange: handleAutoApproveChange,
     onRequestPermission: () => void handleRequestLocationPermission(),
     onOpenLocationSettings: () => void handleOpenLocationSettings(),
