@@ -837,9 +837,30 @@ function SaveMySoulFeatureCard() {
   );
 }
 
+/*
+ * STEP TWO IS THE PRIMER. IT MUST NOT SPRING THE OS DIALOG.
+ *
+ * This screen used to fire BOTH native permission dialogs — Core Location
+ * and push notifications, in parallel — on the same tick as the "Get
+ * started" tap that navigated here. The iOS alert landed over a screen the
+ * person had not read, and iOS grants exactly one Core Location prompt per
+ * install, so a reflexive "Don't Allow" was permanent and only recoverable
+ * from Settings (#5395).
+ *
+ * The three cards below are the explanation. Nothing is asked until the
+ * person taps a button that says what it does, which is the same pattern
+ * ContactsScreen already uses for the address book. The CTA is one button
+ * with three jobs, so the primer costs no extra screen:
+ *
+ *   not asked yet  -> "Allow location"  asks, once, on an explicit tap
+ *   blocked        -> "Open settings"   the only place a refusal is fixable,
+ *                     plus "Not now"    because a refusal is not a dead end
+ *   granted        -> "Find my people"  the original forward action
+ */
 function FeaturesScreen({
   locationGranted,
-  notificationsGranted,
+  locationBlocked,
+  locationAsked,
   locationBusy,
   locationPreparationBusy,
   locationPreparationRetry,
@@ -848,10 +869,15 @@ function FeaturesScreen({
   onBack,
   onSkip,
   leaving,
+  onAllowLocation,
+  onOpenLocationSettings,
   onContinue,
 }: {
   locationGranted: boolean;
-  notificationsGranted: boolean;
+  /** Refused, or the phone's Location Services are off. */
+  locationBlocked: boolean;
+  /** The Allow button has already been tapped once on this screen. */
+  locationAsked: boolean;
   locationBusy: boolean;
   locationPreparationBusy: boolean;
   locationPreparationRetry: boolean;
@@ -860,24 +886,32 @@ function FeaturesScreen({
   onBack: () => void;
   onSkip: () => void;
   leaving: boolean;
+  onAllowLocation: () => void;
+  onOpenLocationSettings: () => void;
   onContinue: () => void;
 }) {
-  const waitingForLocation = requireLocationToContinue && !locationGranted;
   const permissionBusy =
     locationBusy || locationPreparationBusy || notificationBusy;
+  // Asking is the job while Location is neither granted nor refused and has
+  // not already been asked once. After that there is nothing left to ask —
+  // iOS shows the Core Location alert exactly once per install — so the
+  // screen switches to moving on, or to recovery if it was refused.
+  const askingIsPending = !locationGranted && !locationBlocked && !locationAsked;
+  // A blocked person can still use everything except live sharing, so the
+  // flow stays open to them unless the caller says Location is mandatory.
+  const canContinueWithoutLocation = locationBlocked && !requireLocationToContinue;
+
   const status = locationPreparationBusy
-    ? "Preparing your saved place..."
+    ? "Getting your place ready"
     : locationBusy
-      ? "Requesting Location permission..."
+      ? "Asking your phone"
       : notificationBusy
-        ? "Turning on notifications..."
+        ? "Turning on alerts"
         : locationPreparationRetry
-          ? "We couldn't prepare your saved place. Try again."
-          : waitingForLocation
-            ? "Allow Location to continue. You stay in control of every share."
-            : locationGranted && notificationsGranted
-              ? "Location and notifications are ready."
-              : "You can adjust permissions later in Location Settings.";
+          ? "That didn't work."
+          : locationGranted
+            ? "Location is on."
+            : "";
 
   return (
     <div
@@ -907,13 +941,21 @@ function FeaturesScreen({
             className="ui-text-agent-title text-[#111823] dark:!text-[#f6f8fc]"
             data-one-feature-heading
           >
-            Need to keep people updated?
+            Keep people updated
           </h1>
+          {/* This replaced a subtitle that listed the same three things the
+              three cards below already show. A permission primer is allowed
+              more than four words, and this is the only place the person
+              learns who sees them and that they can stop — the two facts
+              that decide whether they tap Allow. */}
           <p
             className="mt-3 text-[15px] font-normal leading-[20px] text-[#737a84] dark:text-[#aeb8c7]"
             data-one-feature-subtitle
+            data-testid="one-location-onboarding-location-reason"
           >
-            Share location, check in, or send help in seconds.
+            {locationBlocked
+              ? "Location is off. Turn it on in Settings."
+              : "Only people you pick can see you. Stop anytime."}
           </p>
         </header>
         <div className="mx-auto mt-6 grid w-full max-w-[700px] shrink-0 gap-4" data-one-feature-grid>
@@ -929,7 +971,7 @@ function FeaturesScreen({
         <p
           className={cn(
             "shrink-0 pt-3 text-center text-[11px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]",
-            !waitingForLocation && !permissionBusy && "sr-only",
+            !permissionBusy && !locationPreparationRetry && "sr-only",
           )}
           aria-live="polite"
         >
@@ -938,16 +980,42 @@ function FeaturesScreen({
       </div>
       <div className="mx-auto w-full max-w-[560px] shrink-0 pt-5" data-one-feature-cta>
         <PrimaryButton
-          onClick={onContinue}
+          onClick={
+            askingIsPending
+              ? onAllowLocation
+              : locationBlocked
+                ? onOpenLocationSettings
+                : onContinue
+          }
           busy={permissionBusy}
           disabled={permissionBusy}
           className="h-[58px] min-h-[58px]"
         >
-          {/* Names the next screen, which is finding people you already know.
-              A deliberately distinct string also keeps the reviewer flow's
-              exact button match from colliding with a generic "Continue". */}
-          {locationPreparationRetry ? "Try again" : "Find my people"}
+          {/* Four jobs, one button. "Find my people" names the next screen —
+              a deliberately distinct string, so the reviewer flow's exact
+              button match cannot collide with a generic "Continue". */}
+          {locationPreparationRetry
+            ? "Try again"
+            : askingIsPending
+              ? "Allow location"
+              : locationBlocked
+                ? "Open settings"
+                : "Find my people"}
         </PrimaryButton>
+        {/* A refusal is not a dead end. Everything except live sharing still
+            works, so the only screen that must hold someone is one whose
+            caller made Location mandatory. */}
+        {canContinueWithoutLocation ? (
+          <button
+            type="button"
+            onClick={onContinue}
+            disabled={permissionBusy}
+            data-testid="one-location-onboarding-skip-location"
+            className="press-scale mt-2 min-h-11 w-full rounded-full text-[16px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-bright)]"
+          >
+            Not now
+          </button>
+        ) : null}
       </div>
       <style>{`
         @keyframes oneSmsRadar {
@@ -2106,6 +2174,11 @@ export function OneLocationOnboardingFlow({
   const [completionBusy, setCompletionBusy] = useState(false);
   const [settlementRetryCount, setSettlementRetryCount] = useState(0);
   const permissionPromptAttemptedRef = useRef(false);
+  // Set on the tap, not on the answer. `locationPermission` is a prop the
+  // parent refreshes asynchronously, and on the web it can sit at "prompt"
+  // for a while after the browser dialog closes — so without this the CTA
+  // would keep offering to ask for something already asked.
+  const [locationAsked, setLocationAsked] = useState(false);
   // Funnel bookkeeping. Refs, not state: none of this should cause a render.
   const codeSharedRef = useRef(false);
   const codeCopiedRef = useRef(false);
@@ -2121,17 +2194,45 @@ export function OneLocationOnboardingFlow({
   const locationGranted =
     locationPermission?.state === "granted" &&
     locationPermission.locationServicesEnabled !== false;
+  // "Blocked" is the state where asking again cannot help: refused, held by
+  // device policy, or the phone's Location Services switch is off. `prompt`
+  // and a null (not yet read) permission are NOT blocked — those are exactly
+  // the states where the primer's Allow button still has something to do.
+  const locationBlocked =
+    locationPermission?.state === "denied" ||
+    locationPermission?.state === "restricted" ||
+    locationPermission?.locationServicesEnabled === false;
   const notificationsGranted = notificationDeliveryMode === "push_active";
 
-  const requestMissingPermissions = useCallback(() => {
+  /*
+   * Only ever called from an explicit tap on step two's "Allow location"
+   * (#5395). It used to run on the same tick as the navigation into that
+   * screen, and on mount for the `startAt: "permissions"` entry.
+   *
+   * The two asks are also SEQUENCED now, not raced. `Promise.allSettled`
+   * over both handlers put two native alerts on screen at once, and the
+   * second one covered the first — so the person answered a notifications
+   * prompt believing it was the location prompt they had just asked for.
+   * Notifications wait until Location has settled, whichever way it went.
+   */
+  const requestMissingPermissions = useCallback(async () => {
     if (permissionPromptAttemptedRef.current) return;
     permissionPromptAttemptedRef.current = true;
-    const requests: Promise<void>[] = [];
-    if (!locationGranted) requests.push(Promise.resolve(onRequestLocation()));
-    if (!notificationsGranted) {
-      requests.push(Promise.resolve(onRequestNotifications()));
+    if (!locationGranted) {
+      try {
+        await onRequestLocation();
+      } catch {
+        // The parent owns the toast; the screen reads the resulting
+        // permission state rather than narrating its own failure.
+      }
     }
-    void Promise.allSettled(requests);
+    if (!notificationsGranted) {
+      try {
+        await onRequestNotifications();
+      } catch {
+        // Same: never block the flow on the secondary ask.
+      }
+    }
   }, [
     locationGranted,
     notificationsGranted,
@@ -2175,9 +2276,10 @@ export function OneLocationOnboardingFlow({
     permissionPromptAttemptedRef.current = false;
   }, [startAt]);
 
-  useEffect(() => {
-    if (startAt === "permissions") requestMissingPermissions();
-  }, [requestMissingPermissions, startAt]);
+  // The `startAt: "permissions"` entry lands on the same step-two screen and
+  // gets the same primer. It used to fire both native dialogs from this
+  // effect with no interaction at all — the worst version of #5395, since
+  // the person had not even tapped "Get started" first.
 
   useEffect(() => {
     if (screen !== "features" || !locationGranted) return;
@@ -2465,9 +2567,28 @@ export function OneLocationOnboardingFlow({
     }
   };
 
+  // Navigation only. The permission ask now belongs to step two's own CTA.
   const openFeatures = () => {
     setScreen("features");
-    requestMissingPermissions();
+  };
+
+  const allowLocationFromFeatures = () => {
+    setLocationAsked(true);
+    void requestMissingPermissions();
+  };
+
+  /*
+   * A refused device is only fixable in the OS. The parent's own handler is
+   * what knows how to get there — on native it opens app settings, on the web
+   * it toasts the site-settings instructions — so this re-enters through the
+   * same door rather than duplicating that knowledge here. Deliberately NOT
+   * behind `permissionPromptAttemptedRef`: this is a repeatable recovery
+   * action, not the one-shot first ask.
+   */
+  const openLocationSettingsFromFeatures = () => {
+    void Promise.resolve(onRequestLocation()).catch(() => {
+      // The parent owns the message; the screen reads the resulting state.
+    });
   };
 
   const backFromFeatures = () => {
@@ -2484,6 +2605,9 @@ export function OneLocationOnboardingFlow({
 
   const continueFromFeatures = () => {
     if (requireLocationToComplete && !locationGranted) {
+      // Mandatory-Location callers keep re-asking. On a refused device the
+      // OS will not re-show the alert, and the parent's handler is what
+      // routes the person to Settings.
       void onRequestLocation();
       return;
     }
@@ -2546,7 +2670,8 @@ export function OneLocationOnboardingFlow({
         {screen === "features" ? (
           <FeaturesScreen
             locationGranted={locationGranted}
-            notificationsGranted={notificationsGranted}
+            locationBlocked={locationBlocked}
+            locationAsked={locationAsked}
             locationBusy={locationBusy}
             locationPreparationBusy={locationPreparationBusy}
             locationPreparationRetry={locationPreparationRetry}
@@ -2555,6 +2680,8 @@ export function OneLocationOnboardingFlow({
             onBack={backFromFeatures}
             onSkip={() => void runSkip()}
             leaving={leaving}
+            onAllowLocation={allowLocationFromFeatures}
+            onOpenLocationSettings={openLocationSettingsFromFeatures}
             onContinue={continueFromFeatures}
           />
         ) : null}

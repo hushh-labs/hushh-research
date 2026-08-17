@@ -119,10 +119,12 @@ describe("OneDashboardPage", () => {
       expect(icon.querySelector("svg")).toBeTruthy();
     }
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
-    expect(financeIcon).toHaveStyle({
-      "--agent-icon-profile-bg": "rgba(88, 86, 214, 0.16)",
-      "--agent-icon-profile-fg": "#5856D6",
-    });
+    // #5393. This used to assert rgba(88,86,214,0.16) — a 16%-alpha tint that
+    // measured 1.25:1 against the white card behind it, i.e. a chip you could
+    // not see. Each agent now wears its saturated identity fill from
+    // AGENT_THEME_BY_TONE, which carries a white glyph at 4.13:1.
+    expect(financeIcon).toHaveStyle({ backgroundColor: "#AF52DE" });
+    expect(financeIcon.className).not.toContain("--agent-icon-profile-bg");
     // Palette slots are assigned by roster position, so this list must track
     // ONE_CAPABILITIES order. Location moved from sixth to second, which shifts
     // the five agents it passed by one slot each — a deliberate consequence of
@@ -160,26 +162,33 @@ describe("OneDashboardPage", () => {
         id,
         screen
           .getAllByTestId(`one-agent-icon-${id}`)[0]
-          .style.getPropertyValue("--agent-icon-profile-bg"),
+          .style.getPropertyValue("background-color"),
       ]),
     );
-    expect(iconBackgrounds.ria).toBe(iconBackgrounds.finance);
-    expect(iconBackgrounds.gmail).toBe(iconBackgrounds.location);
-    expect(iconBackgrounds.calendar).toBe(iconBackgrounds.location);
-    expect(iconBackgrounds.email).toBe(iconBackgrounds.location);
-    expect(iconBackgrounds["connected-systems"]).toBe(
-      iconBackgrounds.location,
-    );
-    expect(iconBackgrounds.pkm).toBe(iconBackgrounds.consent);
-    expect(new Set(Object.values(iconBackgrounds)).size).toBe(3);
-    expect(financeIcon.className).toContain(
-      "dark:bg-[var(--agent-icon-profile-bg-dark)]",
-    );
+    // #5393. Nine agents used to collapse into THREE tint families, so the
+    // roster read as one dull colour repeated. Only gmail and email may match
+    // now — they are genuinely the same tone in the registry — and every
+    // ADJACENT pair must differ, which is the property the palette exists for.
+    expect(iconBackgrounds.gmail).toBe(iconBackgrounds.email);
+    expect(new Set(Object.values(iconBackgrounds)).size).toBe(8);
+    for (let slot = 1; slot < rosterPaletteOrder.length; slot += 1) {
+      const previous = rosterPaletteOrder[slot - 1];
+      const current = rosterPaletteOrder[slot];
+      expect(
+        `${current} vs ${previous}: ${iconBackgrounds[current]}`,
+      ).not.toBe(`${current} vs ${previous}: ${iconBackgrounds[previous]}`);
+    }
+    // Setup state must not drain the artwork. Every capability resolves to
+    // `unknown` -> `muted` while the vault is locked, which is the normal
+    // state on landing here, and that used to render 8 of 9 glyphs at 2.07:1.
+    for (const id of expectedProfileFormatIcons) {
+      const glyph = screen
+        .getAllByTestId(`one-agent-icon-${id}`)[0]
+        .querySelector("svg")?.className.baseVal;
+      expect(glyph).not.toContain("text-muted-foreground");
+    }
     expect(financeIcon.querySelector("svg")?.className.baseVal).toContain(
-      "text-current",
-    );
-    expect(financeIcon.querySelector("svg")?.className.baseVal).not.toContain(
-      "dark:!text-[#1d1d1f]",
+      "!text-[color:var(--agent-icon-glyph,#ffffff)]",
     );
     expect(financeIcon.querySelector(".backdrop-blur-\\[8px\\]")).toBeNull();
     const riaLink = screen.getByRole("link", { name: "Open RIA" });

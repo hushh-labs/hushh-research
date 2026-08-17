@@ -995,25 +995,13 @@ describe("SaveLocationModal", () => {
       }
     });
 
-    it("gives each carousel dot a real 44x44 instead of a grown one", () => {
-      // Two dots sit side by side, so faking the horizontal region with a
+    it("gives each carousel dot a real 44x44 without overlapping its neighbour", () => {
+      // Two dots sit side by side, so faking the HORIZONTAL region with a
       // `::after` box would overlap them and send an edge tap to the wrong
-      // slide. Width therefore stays laid out on both variants.
+      // slide. Width therefore stays laid out. Height is the half that may be
+      // painted: the rail is 18px so the pinned header stays a header, and
+      // the remaining vertical target comes back through the ::after box.
       render(<SaveLocationModal {...detailProps} />);
-
-      for (const dot of screen.getAllByRole("tab")) {
-        expect(dot.className).toContain("h-11");
-        expect(dot.className).toContain("w-11");
-        expect(dot.className).not.toContain("after:");
-      }
-    });
-
-    it("shrinks the dots into the sheet grabber on the details slide", () => {
-      // In the pinned header they take the grabber's place rather than adding
-      // a third stacked row to the footer, so the height comes back through
-      // the painted box while the 44px of horizontal separation stays real.
-      render(<SaveLocationModal {...detailProps} />);
-      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
 
       for (const dot of screen.getAllByRole("tab")) {
         expect(dot.className).toContain("w-11");
@@ -1021,6 +1009,64 @@ describe("SaveLocationModal", () => {
         expect(dot.className).toContain("after:h-11");
         expect(dot.className).toContain("after:w-11");
       }
+    });
+
+    it("renders one indicator, the same size, on every slide", () => {
+      // #5396. The rail used to be 44px tall at the BOTTOM of the map slide
+      // and 18px tall at the TOP of the details slide, so it appeared to move
+      // and resize as the person advanced through two steps.
+      render(<SaveLocationModal {...detailProps} />);
+      const geometryOf = () =>
+        screen.getAllByRole("tab").map((dot) => {
+          const cls = dot.className;
+          return [
+            /h-\[18px\]/u.test(cls),
+            /\bw-11\b/u.test(cls),
+            /after:h-11/u.test(cls),
+          ].join("|");
+        });
+
+      const onMapSlide = geometryOf();
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+      const onDetailsSlide = geometryOf();
+
+      expect(onMapSlide).toEqual(["true|true|true", "true|true|true"]);
+      expect(onDetailsSlide).toEqual(onMapSlide);
+    });
+
+    it("tells a finished step apart from one not reached yet", () => {
+      // There were only two visual states, so on the second slide the step
+      // already completed looked exactly like a step never reached. Colour
+      // now says "reached", width says "you are here".
+      render(<SaveLocationModal {...detailProps} />);
+
+      expect(
+        screen.getAllByRole("tab").map((d) => d.getAttribute("data-step-state")),
+      ).toEqual(["active", "upcoming"]);
+
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+
+      expect(
+        screen.getAllByRole("tab").map((d) => d.getAttribute("data-step-state")),
+      ).toEqual(["completed", "active"]);
+    });
+
+    it("keeps an upcoming step visible instead of a 1.27:1 ghost", () => {
+      // The inactive pill was --app-neutral-fill-strong, which composites to
+      // #E4E4E6 on the white sheet (1.27:1) and #47474C on the dark one
+      // (1.51:1) — under the 3:1 WCAG 2.2 SC 1.4.11 asks of a state control.
+      // #8E8E93 clears it on BOTH surfaces (3.26:1 / 4.27:1).
+      //
+      // jsdom cannot prove a rendered pixel; the paired real-browser
+      // measurement is in e2e/save-location-sheet.layout.spec.ts.
+      render(<SaveLocationModal {...detailProps} />);
+
+      const upcoming = screen
+        .getAllByRole("tab")
+        .find((d) => d.getAttribute("data-step-state") === "upcoming");
+      const pill = upcoming?.querySelector("span");
+      expect(pill?.className).toContain("bg-[#8E8E93]");
+      expect(pill?.className).not.toContain("--app-neutral-fill-strong");
     });
   });
 

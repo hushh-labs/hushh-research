@@ -69,9 +69,16 @@ function renderFlow(
   };
 }
 
-/** welcome -> features -> contacts. */
+/**
+ * welcome -> features -> contacts.
+ *
+ * Step two is a permission primer (#5395): its CTA asks for Location on the
+ * first tap and moves on with the second. Nothing fires the OS dialog on the
+ * way in any more, so this walk has to make the ask explicitly.
+ */
 function openContactsScreen() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+  fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
   fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
 }
 
@@ -139,6 +146,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     const advance = [
       ["one-location-onboarding-welcome", "Get started"],
+      ["one-location-onboarding-features", "Allow location"],
       ["one-location-onboarding-features", "Find my people"],
       ["one-location-onboarding-contacts", "Not now"],
       ["one-location-onboarding-invite", null],
@@ -172,6 +180,7 @@ describe("OneLocationOnboardingFlow", () => {
     record("one-location-onboarding-welcome");
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
     record("one-location-onboarding-features");
+    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
     fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
     record("one-location-onboarding-contacts");
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
@@ -319,7 +328,7 @@ describe("OneLocationOnboardingFlow", () => {
     ).toEqual(["Need help but can\u2019t", "call or speak?"]);
 
     expect(
-      screen.getByRole("heading", { name: "Need to keep people updated?" }),
+      screen.getByRole("heading", { name: "Keep people updated" }),
     ).toBeTruthy();
     expect(
       screen.getByText("Share location, check in, or send help in seconds."),
@@ -416,18 +425,114 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.queryByText("Connected Person")).toBeNull();
   });
 
-  it("requests only missing permissions as screen two opens", () => {
+  it("never fires the OS prompt on the way into screen two", async () => {
+    // #5395. Arriving at screen two used to fire BOTH native dialogs on the
+    // same tick as the navigation, over a screen nobody had read. iOS grants
+    // exactly one Core Location prompt per install, so a reflexive refusal
+    // was permanent. Nothing may be asked until an explicit tap.
     const props = renderFlow();
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    expect(props.onRequestLocation).not.toHaveBeenCalled();
+    expect(props.onRequestNotifications).not.toHaveBeenCalled();
     expect(props.onLocationReady).not.toHaveBeenCalled();
-    expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
+
+    // The explainer is on screen BEFORE the ask, naming who sees you and
+    // that you stay in control -- the two facts the dialog does not carry.
+    expect(
+      screen.getByTestId("one-location-onboarding-location-reason").textContent,
+    ).toBe("Only people you pick can see you. Stop anytime.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
+    expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
+    // Sequenced, not raced: notifications wait for Location to settle so the
+    // two native alerts cannot stack and cover each other.
+    await waitFor(() =>
+      expect(props.onRequestNotifications).toHaveBeenCalledTimes(1),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks for Location before notifications, never both at once", async () => {
+    // Two native alerts opened in parallel put the second one over the first,
+    // so people answered a notifications prompt believing it was the location
+    // prompt they had just asked for.
+    let releaseLocation: (() => void) | null = null;
+    const onRequestLocation = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseLocation = () => resolve();
+        }),
+    );
+    const props = renderFlow({ onRequestLocation });
+
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
+
+    expect(onRequestLocation).toHaveBeenCalledTimes(1);
+    expect(props.onRequestNotifications).not.toHaveBeenCalled();
+
+    await act(async () => {
+      releaseLocation?.();
+    });
+    await waitFor(() =>
+      expect(props.onRequestNotifications).toHaveBeenCalledTimes(1),
+    );
+  });
+
+  it("offers a way past a refused Location instead of trapping the screen", () => {
+    // A refusal is recoverable state, not a dead end: everything except live
+    // sharing still works, so the flow stays open unless Location is required.
+    const props = renderFlow({
+      locationPermission: {
+        state: "denied",
+        precise: false,
+        background: "restricted",
+        locationServicesEnabled: true,
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+
+    // No Allow button: the OS will not show the alert again, so offering to
+    // ask would be a button that does nothing.
+    expect(screen.queryByRole("button", { name: "Allow location" })).toBeNull();
+    expect(
+      screen.getByTestId("one-location-onboarding-location-reason").textContent,
+    ).toBe("Location is off. Turn it on in Settings.");
+
+    fireEvent.click(
+      screen.getByTestId("one-location-onboarding-skip-location"),
+    );
+    expect(screen.getByTestId("one-location-onboarding-contacts")).toBeTruthy();
+    expect(props.onRequestLocation).not.toHaveBeenCalled();
+  });
+
+  it("holds a refused device on screen two when Location is required", () => {
+    const props = renderFlow({
+      requireLocationToComplete: true,
+      locationPermission: {
+        state: "denied",
+        precise: false,
+        background: "restricted",
+        locationServicesEnabled: true,
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    // No escape hatch when the caller made Location mandatory — the only
+    // control is the one that can actually fix the refusal.
+    expect(
+      screen.queryByTestId("one-location-onboarding-skip-location"),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
   });
 
   it("runs Location-ready onboarding work without re-requesting permission", async () => {
@@ -468,7 +573,9 @@ describe("OneLocationOnboardingFlow", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
+    // Refused on arrival, so there is no Allow button to press -- the person
+    // leaves for Settings and comes back with the permission changed.
+    expect(props.onRequestLocation).not.toHaveBeenCalled();
     expect(props.onLocationReady).not.toHaveBeenCalled();
 
     props.rerenderFlow({
@@ -481,7 +588,7 @@ describe("OneLocationOnboardingFlow", () => {
     });
 
     await waitFor(() => expect(props.onLocationReady).toHaveBeenCalledTimes(1));
-    expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
+    expect(props.onRequestLocation).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(
         screen.getByRole("button", { name: "Find my people" }),
@@ -531,6 +638,7 @@ describe("OneLocationOnboardingFlow", () => {
     const props = renderFlow({ requireLocationToComplete: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
     expect(screen.getByRole("button", { name: "Find my people" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
 
@@ -540,9 +648,16 @@ describe("OneLocationOnboardingFlow", () => {
   });
 
   it("supports the previous permissions-only entry through the consolidated screen", async () => {
+    // This entry was the worst version of #5395: it fired both dialogs from a
+    // mount effect, before the person had tapped anything at all. It lands on
+    // the same screen two and now gets the same primer.
     const props = renderFlow({ startAt: "permissions" });
 
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    expect(props.onRequestLocation).not.toHaveBeenCalled();
+    expect(props.onRequestNotifications).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
     await waitFor(() => {
       expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
       expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
@@ -613,6 +728,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
     fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
 
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
@@ -1151,6 +1267,7 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ contactsStepAvailable: false, onSyncOnboardingContacts });
 
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+      fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
       fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
 
       expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
@@ -1164,6 +1281,7 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ contactsStepAvailable: false });
 
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+      fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
       fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
       fireEvent.click(screen.getByRole("button", { name: "Go back" }));
 
@@ -1177,6 +1295,7 @@ describe("OneLocationOnboardingFlow", () => {
       const props = renderFlow({ contactsStepAvailable: false });
 
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+      fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
       fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
       fireEvent.click(finishButton());
 

@@ -48,6 +48,49 @@ export const SHEET_FOOTER_CLASSNAME =
   "relative z-10 flex shrink-0 flex-col gap-2 border-t border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)] px-5 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)]";
 
 /**
+ * THE STEP INDICATOR SLOT (#5396).
+ *
+ * One slot, one height, rendered in the pinned-header position by every pane
+ * of the sheet. The rail used to be emitted three different ways — absent on
+ * the summary pane, 44px tall at the BOTTOM of the map pane, 18px tall at the
+ * TOP of the details pane — so it appeared to move and resize as a person
+ * advanced through two steps.
+ *
+ * 18px is load-bearing: the rail doubles as the iOS grabber, and a taller one
+ * reintroduces the third stacked header row that the layout spec measures at
+ * six widths.
+ */
+export const SHEET_INDICATOR_SLOT_CLASSNAME =
+  "flex h-[18px] shrink-0 items-center justify-center";
+
+/**
+ * Reached — the step you are on, or one already finished. `--app-accent`
+ * measures 4.02:1 on the light sheet (#ffffff) and 3.47:1 on the dark one
+ * (#2c2c2e).
+ */
+export const STEP_DOT_REACHED_CLASSNAME = "bg-[color:var(--app-accent)]";
+
+/**
+ * Not reached yet.
+ *
+ * This was `--app-neutral-fill-strong`, a translucent fill meant for large
+ * shapes, which composites to #E4E4E6 on the light sheet (1.27:1) and
+ * #47474C on the dark one (1.51:1) — well under the 3:1 WCAG 2.2 SC 1.4.11
+ * asks of a control that carries state. #8E8E93 is the iOS secondary grey and
+ * the single value that clears the floor on BOTH surfaces (3.26:1 / 4.27:1),
+ * so upcoming steps read the same in either theme rather than needing a pair
+ * that can drift apart.
+ *
+ * Exported so `e2e/save-location-sheet.layout.spec.ts` measures the same
+ * string the component paints — jsdom performs no layout and cannot prove a
+ * colour, per the repo's own rule about that.
+ */
+export const STEP_DOT_UPCOMING_CLASSNAME = "bg-[#8E8E93]";
+
+/** The floor a state-carrying control has to clear against its surface. */
+export const STEP_DOT_MIN_CONTRAST = 3;
+
+/**
  * The Address label and its "Required" badge, as one row.
  *
  * Exported for the same reason as the three above: the badge is the only place

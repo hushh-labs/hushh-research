@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronRight, Grid2X2, List, Search } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
@@ -50,55 +50,37 @@ type OneAgentMode = {
 type AgentMetric = OneAgentMode["primaryMetric"];
 type AgentRosterView = "grid" | "list";
 type AgentMetricTone = "default" | "positive" | "accent" | "warning" | "muted";
-type DashboardAgentIconFamily = "indigo" | "blue" | "neutral";
-type DashboardAgentIconStyle = CSSProperties & {
-  "--agent-icon-profile-bg": string;
-  "--agent-icon-profile-fg": string;
-  "--agent-icon-profile-bg-dark": string;
-  "--agent-icon-profile-fg-dark": string;
-};
 
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
-const DASHBOARD_AGENT_ICON_FAMILY_BY_ID: Record<string, DashboardAgentIconFamily> = {
-  finance: "indigo",
-  ria: "indigo",
-  gmail: "blue",
-  calendar: "blue",
-  email: "blue",
-  location: "blue",
-  "connected-systems": "blue",
-  pkm: "neutral",
-  consent: "neutral",
-};
 
-const DASHBOARD_AGENT_ICON_STYLE_BY_FAMILY: Record<
-  DashboardAgentIconFamily,
-  DashboardAgentIconStyle
-> = {
-  indigo: {
-    "--agent-icon-profile-bg": "rgba(88, 86, 214, 0.16)",
-    "--agent-icon-profile-fg": "#5856D6",
-    "--agent-icon-profile-bg-dark": "rgba(94, 92, 230, 0.24)",
-    "--agent-icon-profile-fg-dark": "#A7A3FF",
-  },
-  blue: {
-    "--agent-icon-profile-bg": "rgba(0, 122, 255, 0.14)",
-    "--agent-icon-profile-fg": "var(--app-accent-deep)",
-    "--agent-icon-profile-bg-dark": "rgba(10, 132, 255, 0.24)",
-    "--agent-icon-profile-fg-dark": "var(--app-accent-bright)",
-  },
-  neutral: {
-    "--agent-icon-profile-bg": "#E5E5EA",
-    "--agent-icon-profile-fg": "#3A3A3C",
-    "--agent-icon-profile-bg-dark": "rgba(142, 142, 147, 0.28)",
-    "--agent-icon-profile-fg-dark": "#E5E5EA",
-  },
-};
+/*
+ * AGENT ARTWORK IS IDENTITY, NOT STATE.
+ *
+ * This roster used to paint its icons two ways, and both drained them.
+ *
+ * It collapsed nine agent colours into three tint families (indigo / blue /
+ * neutral) built from 14–16% alphas, so a chip measured 1.20–1.26:1 against
+ * the white card it sits on — a chip you cannot see is not a chip. It also
+ * passed `isActive={statusTone !== "muted"}`, and every vault-gated
+ * capability resolves to `unknown` -> `muted` while the lock is on, which is
+ * the normal state on landing here. Eight of the nine icons therefore
+ * rendered grey-on-grey at 2.07:1, under the 3:1 floor WCAG 2.2 SC 1.4.11
+ * sets for a graphical object.
+ *
+ * Both are now gone. Each agent wears its own saturated identity chip from
+ * `AGENT_THEME_BY_TONE`, in both themes, whatever its setup state — which is
+ * what `capability-status-display.ts` already asks for: "the premium card
+ * model forbids tinting outer chrome to signal state — emphasis comes from
+ * copy + elevation". Setup state is carried by the row's metric copy, where
+ * a reader can actually read it.
+ */
 
-function dashboardAgentIconStyle(mode: OneAgentMode): DashboardAgentIconStyle {
-  const family = DASHBOARD_AGENT_ICON_FAMILY_BY_ID[mode.id] ?? "blue";
-  return DASHBOARD_AGENT_ICON_STYLE_BY_FAMILY[family];
-}
+/** Icon feedback for a whole tile/row press. Lift on hover, settle on press. */
+const AGENT_ICON_INTERACTION_CLASSNAME =
+  "transition-[transform,box-shadow] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] " +
+  "group-hover:-translate-y-px group-hover:shadow-[0_6px_16px_rgba(0,0,0,0.18)] " +
+  "group-active:translate-y-0 group-active:scale-[0.94] group-active:shadow-none " +
+  "motion-reduce:transition-none motion-reduce:group-hover:translate-y-0 motion-reduce:group-active:scale-100";
 
 /**
  * The roster only ever mounts client-side (its `/one` route renders a loader
@@ -535,12 +517,8 @@ function AgentGridItem({
         icon={mode.icon}
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
-        isActive={mode.statusTone !== "muted"}
         size="roster-dashboard"
-        treatment="profile"
-        glyphContrast="default"
-        className="relative z-10"
-        profileStyle={dashboardAgentIconStyle(mode)}
+        className={cn("relative z-10", AGENT_ICON_INTERACTION_CLASSNAME)}
       />
       <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-[2px] text-center">
         <span
@@ -564,7 +542,10 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       title={mode.description}
       data-testid={`one-agent-list-row-${mode.id}`}
       className={cn(
-        "group/agent-row relative grid min-h-[58px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(84px,auto)_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
+        // Both group names on purpose: `agent-row` is the named group the row
+        // hairline and metrics already key off, and the bare `group` is what
+        // the shared icon interaction class reads.
+        "group group/agent-row relative grid min-h-[58px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(84px,auto)_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
         "transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
@@ -576,11 +557,8 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           icon={mode.icon}
           tone={mode.tone}
           paletteIndex={mode.paletteIndex}
-          isActive={mode.statusTone !== "muted"}
           size="roster"
-          treatment="profile"
-          glyphContrast="default"
-          profileStyle={dashboardAgentIconStyle(mode)}
+          className={AGENT_ICON_INTERACTION_CLASSNAME}
         />
       </span>
       <span className="relative z-10 flex min-w-0 flex-col justify-center">
@@ -611,7 +589,9 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       </span>
       <ChevronRight
         aria-hidden
-        className="relative z-10 h-4 w-4 text-[#C7C7CC] [stroke-width:1.7]"
+        // #C7C7CC measured 1.68:1 on the white card — a chevron nobody could
+        // see. #8E8E93 is the same iOS grey family at 3.10:1.
+        className="relative z-10 h-4 w-4 text-[#8E8E93] [stroke-width:1.7]"
       />
       <span
         aria-hidden
