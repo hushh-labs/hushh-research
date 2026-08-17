@@ -2849,6 +2849,7 @@
         "location.share_selected",
         "location.stop_share",
         "location.stop_sos",
+        "location.trigger_sos",
         "route.one_location"
       ],
       "action_coverage": "inherited",
