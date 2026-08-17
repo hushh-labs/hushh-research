@@ -206,6 +206,34 @@ def send_connection_request_push(addressee_user_id: str, requester_user_id: str)
     )
 
 
+def _connection_accepted_body(approver_name: str | None) -> str:
+    """Connection-accepted banner copy. Names the approver when we have one,
+    else falls back to "Someone" -- never emits ``None``/``undefined``."""
+    name = (approver_name or "").strip()
+    return f"{name or 'Someone'} accepted your connection request on hushh."
+
+
+def send_connection_accepted_push(requester_user_id: str, approver_user_id: str) -> int:
+    """Tell the original requester that their connection request was accepted.
+
+    Addressed to the requester only -- the approver just took the action
+    themselves and does not need a push confirming their own tap. The banner
+    names the approver when the identity cache has a display name, and
+    degrades to a generic line otherwise (best-effort; the lookup never
+    blocks or raises)."""
+    approver_name = _lookup_display_name(approver_user_id)
+    return send_user_data_push(
+        requester_user_id,
+        notification_type="connection_accepted",
+        title="Connection accepted",
+        body=_connection_accepted_body(approver_name),
+        deep_link="/one/consent?tab=connections",
+        notification_tag=f"connection-accepted:{requester_user_id}",
+        notification_category="ONE_CONNECTIONS",
+        data={"approver_user_id": approver_user_id},
+    )
+
+
 def send_circle_code_joined_push(
     *,
     inviter_user_id: str,

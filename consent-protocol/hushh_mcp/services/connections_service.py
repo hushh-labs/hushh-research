@@ -148,6 +148,13 @@ def _default_notifier(*, addressee_user_id: str, requester_user_id: str) -> None
     send_connection_request_push(addressee_user_id, requester_user_id)
 
 
+def _default_accept_notifier(*, requester_user_id: str, approver_user_id: str) -> None:
+    """Best-effort real push (deferred import keeps Firebase off the import path)."""
+    from hushh_mcp.services.push_notifications import send_connection_accepted_push
+
+    send_connection_accepted_push(requester_user_id, approver_user_id)
+
+
 def _default_scope_entries_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     """Read discoverable scope metadata only; never materialized information."""
     from hushh_mcp.consent.scope_generator import DynamicScopeGenerator
@@ -164,12 +171,16 @@ class ConnectionsService:
         directory_visible: Callable[[str, str], bool] | None = None,
         scope_entries_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
         notifier: Callable[..., Any] | None = None,
+        accept_notifier: Callable[..., Any] | None = None,
     ) -> None:
         self._directory_lookup = directory_lookup or _default_directory_lookup
         self._directory_search = directory_search or _default_directory_search
         self._directory_visible = directory_visible or _default_directory_visible
         self._scope_entries_lookup = scope_entries_lookup or _default_scope_entries_lookup
         self._notifier = notifier if notifier is not None else _default_notifier
+        self._accept_notifier = (
+            accept_notifier if accept_notifier is not None else _default_accept_notifier
+        )
 
     # ---- DB seam ----
     def _execute_one(self, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -1036,6 +1047,29 @@ class ConnectionsService:
         except Exception as exc:  # noqa: BLE001
             logger.warning("connections.notify_failed error=%s", exc)
 
+    def _notify_accepted(self, requester_user_id: str, approver_user_id: str) -> None:
+        """Fire the (best-effort) requester nudge. Never raises.
+
+        Guarded even though `connection_requests` and `connections` both carry
+        a `requester != addressee` / `user_a != user_b` CHECK constraint that
+        already makes requester == approver impossible -- matching the
+        actor-exclusion pattern used by every other symmetric-event notifier
+        in this codebase (see one_location_circle_service.send_circle_code_joined_push
+        call site) rather than relying solely on the DB invariant.
+        """
+        notifier = getattr(self, "_accept_notifier", None)
+        if notifier is None:
+            return
+        if not requester_user_id or requester_user_id == approver_user_id:
+            return
+        try:
+            notifier(
+                requester_user_id=requester_user_id,
+                approver_user_id=approver_user_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("connections.accept_notify_failed error=%s", exc)
+
     def _load_request(self, request_id: str, *, for_update: bool = False) -> dict[str, Any]:
         lock_clause = " FOR UPDATE" if for_update else ""
         row = self._execute_one(
@@ -1621,6 +1655,13 @@ class ConnectionsService:
                 )
             except Exception:  # noqa: BLE001 - feed projection cannot roll back consent
                 logger.exception("connections.accepted_feed_projection_failed")
+
+        # Push is a best-effort, post-commit nudge, same as the feed
+        # projection above. Requester-only: `user_id` here is the approver
+        # who just tapped Accept and does not need a push confirming their
+        # own action (see #5423 -- this notification did not exist at all
+        # before, on either side).
+        self._notify_accepted(requester, user_id)
 
         # Accepting a connection grants nothing on its own. Location sharing is
         # opt-in and one-directional: it starts only when a person explicitly
