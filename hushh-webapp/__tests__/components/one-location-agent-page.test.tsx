@@ -1244,6 +1244,38 @@ describe("OneLocationAgentPage", () => {
     expect(await toneOf("Needs my review")).toBe("orange");
   });
 
+  it("groups the two things you do apart from the things that are happening", async () => {
+    // Reported: "share location / request location ek sath hona chahiye kyuki
+    // yeh user ke action items hain" — sharing your location and asking for
+    // someone else's are the same kind of decision pointed in opposite
+    // directions, and they sat two groups apart: one alone at the top, the
+    // other buried under three status rows.
+    //
+    // Everything else on this tab is either what is already happening (active
+    // shares, shared with me, needs my review) or where to look at it (Your
+    // Map) or how to change it (Settings). Two groups, not three.
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    const actions = await screen.findByTestId("one-location-now-share");
+    expect(within(actions).getByText("Share location")).toBeTruthy();
+    expect(within(actions).getByText("Request location")).toBeTruthy();
+
+    const rest = screen.getByTestId("one-location-now-status");
+    expect(within(rest).getByText("Your Map")).toBeTruthy();
+    expect(within(rest).getByText("Active shares")).toBeTruthy();
+    expect(within(rest).getByText("Settings")).toBeTruthy();
+
+    // The two must not drift back apart.
+    expect(within(rest).queryByText("Share location")).toBeNull();
+    expect(within(rest).queryByText("Request location")).toBeNull();
+    // And the standalone map group is gone, so the tab is two groups.
+    expect(screen.queryByTestId("one-location-now-primary")).toBeNull();
+  });
+
   it("keeps the heading and location toggle inline as the only header action", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
