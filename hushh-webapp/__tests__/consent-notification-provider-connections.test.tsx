@@ -242,6 +242,51 @@ describe("connection-request toast copy", () => {
   });
 });
 
+describe("connection-request toast with the exact production payload", () => {
+  // Captured from the real send_connection_request_push -> send_user_data_push ->
+  // build_push_message chain (verified per platform in
+  // consent-protocol/tests/test_fcm_messages.py). Every key the server actually
+  // sends is present, so this catches a payload the client mishandles because of
+  // a field the minimal fixtures omit.
+  const PRODUCTION_DATA = {
+    type: "connection_request",
+    user_id: "recipient-user",
+    request_url:
+      "/one/consent?tab=pending&requestId=8f14e45f-ceea-467a-9c1d-5b8f0f9a1234",
+    deep_link:
+      "/one/consent?tab=pending&requestId=8f14e45f-ceea-467a-9c1d-5b8f0f9a1234",
+    notification_tag: "connection-request:recipient-user",
+    notification_category: "ONE_CONNECTIONS",
+    requester_user_id: "requester-uid",
+    requester_label: "Rohan Mehta",
+    request_id: "8f14e45f-ceea-467a-9c1d-5b8f0f9a1234",
+  };
+
+  it("renders the requester's name and routes to their request", async () => {
+    await renderProvider();
+
+    dispatchConnectionRequest(PRODUCTION_DATA);
+
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    renderedToast();
+    expect(
+      screen.getByText("Rohan Mehta wants to connect with you on Hussh."),
+    ).toBeInTheDocument();
+
+    screen.getByRole("button", { name: "View Request" }).click();
+    const href = String(mocks.routerPush.mock.calls[0]?.[0] || "");
+    expect(href).toContain("requestId=8f14e45f-ceea-467a-9c1d-5b8f0f9a1234");
+  });
+
+  it("drops a payload addressed to a different signed-in user", async () => {
+    await renderProvider();
+
+    dispatchConnectionRequest({ ...PRODUCTION_DATA, user_id: "someone-else" });
+
+    expect(mocks.toast).not.toHaveBeenCalled();
+  });
+});
+
 describe("connection-request toast routing", () => {
   it("opens the review sheet for the specific request", async () => {
     await renderProvider();
