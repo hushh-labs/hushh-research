@@ -1406,6 +1406,11 @@ function NowHub({
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
           rather than only the screen it lives on. */}
+      {/* The two things a person DOES on this screen, together. Sharing your
+          location and asking for someone else's are the same kind of decision
+          pointed in opposite directions, and they were two groups apart — one
+          alone at the top, the other buried under three status rows. Everything
+          below is what is already happening, or where to look at it. */}
       <SettingsGroup
         separatorInset
         testId="one-location-now-share"
@@ -1422,10 +1427,32 @@ function NowHub({
           voiceControlId="one-location-action-share"
           voiceActionId="location.open_share"
         />
+        {/* Asking someone to share was reachable only from the People tab, so
+            the Now tab listed every way to give a location out and none to ask
+            for one. Same flow and same voice control id as that entry -- this
+            is an additional way in, not a second implementation. */}
+        {/* Not `Send`: that is the same paper-plane silhouette as `Navigation`
+            on "Share location" two rows up, so at row size the two entries read
+            as the same icon -- and they are opposites. A speech bubble asking a
+            question is distinct at a glance and matches what the flow does:
+            "Requests should explain why. The other person chooses whether to
+            share." Radar and Crosshair were rejected for implying tracking on a
+            surface built around consent. */}
+        <SettingsRow
+          icon={MessageCircleQuestionMark}
+          iconTone="blue"
+          title="Request location"
+          density="compact"
+          chevron
+          onClick={onRequestLocation}
+          testId="one-location-request-row"
+          voiceControlId="one-location-action-ask"
+          voiceActionId="location.open_ask"
+        />
       </SettingsGroup>
       <SettingsGroup
         separatorInset
-        testId="one-location-now-primary"
+        testId="one-location-now-status"
         shellClassName={groupedShellClassName}
       >
         <SettingsRow
@@ -1439,13 +1466,6 @@ function NowHub({
           voiceControlId="one-location-open-map"
           voiceActionId="location.open_map"
         />
-      </SettingsGroup>
-
-      <SettingsGroup
-        separatorInset
-        testId="one-location-now-status"
-        shellClassName={groupedShellClassName}
-      >
         <SettingsRow
           icon={UsersRound}
           iconTone={activeSharesIconTone}
@@ -1478,28 +1498,6 @@ function NowHub({
           onClick={onOpenNeedsReview}
           voiceControlId="one-location-action-needs-review"
           voiceActionId="location.open_needs_review"
-        />
-        {/* Asking someone to share was reachable only from the People tab, so
-            the Now tab listed every way to give a location out and none to ask
-            for one. Same flow and same voice control id as that entry -- this
-            is an additional way in, not a second implementation. */}
-        {/* Not `Send`: that is the same paper-plane silhouette as `Navigation`
-            on "Share location" two rows up, so at row size the two entries read
-            as the same icon -- and they are opposites. A speech bubble asking a
-            question is distinct at a glance and matches what the flow does:
-            "Requests should explain why. The other person chooses whether to
-            share." Radar and Crosshair were rejected for implying tracking on a
-            surface built around consent. */}
-        <SettingsRow
-          icon={MessageCircleQuestionMark}
-          iconTone="blue"
-          title="Request location"
-          density="compact"
-          chevron
-          onClick={onRequestLocation}
-          testId="one-location-request-row"
-          voiceControlId="one-location-action-ask"
-          voiceActionId="location.open_ask"
         />
         <SettingsRow
           icon={Lock}
