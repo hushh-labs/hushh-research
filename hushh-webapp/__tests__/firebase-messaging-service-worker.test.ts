@@ -95,6 +95,24 @@ describe("Firebase messaging service-worker foreground ownership", () => {
     ]);
   });
 
+  it("lets the visible app own a connection request instead of double-notifying", async () => {
+    // connection_request renders an in-app Sonner toast, so the OS banner must be
+    // suppressed once a visible tab acknowledges. It was missing from
+    // isHandledByVisibleApp, so the addressee got the banner AND the toast for
+    // one event — with two different sentences before the copy fix (#5422).
+    const harness = createHarness({ acknowledgeVisibleDelivery: true });
+    await harness.push("connection_request");
+    expect(harness.shown).toEqual([]);
+  });
+
+  it("still shows a connection-request banner when no visible app acknowledges", async () => {
+    const harness = createHarness({ acknowledgeVisibleDelivery: false });
+    await harness.push("connection_request");
+    expect(harness.shown.map((item) => item.title)).toEqual([
+      "connection_request",
+    ]);
+  });
+
   it("keeps system delivery for notification families not rendered by the provider", async () => {
     const harness = createHarness({ acknowledgeVisibleDelivery: true });
     await harness.push("kai_analysis_complete");
