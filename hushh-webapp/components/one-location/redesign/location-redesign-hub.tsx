@@ -1931,25 +1931,6 @@ function LocationSettingsFlow({
           }
           density="compact"
         />
-        <SettingsRow
-          title="Pause my location"
-          description="Stops new updates and checks you out of Nearby."
-          trailing={
-            <LocationToggle
-              checked={vm.locationPaused}
-              onChange={(next) => {
-                if (next) {
-                  vm.onHideMyLocation();
-                  return;
-                }
-                vm.onResumeMyLocation();
-              }}
-              label="Pause my location"
-              voiceControlId="one-location-updates-toggle"
-            />
-          }
-          density="compact"
-        />
       </SettingsGroup>
 
       <div className="flex items-start gap-2.5 px-1">

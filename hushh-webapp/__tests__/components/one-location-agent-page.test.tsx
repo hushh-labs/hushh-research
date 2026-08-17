@@ -1430,7 +1430,11 @@ describe("OneLocationAgentPage", () => {
     expect(mockRevokeGrant).not.toHaveBeenCalled();
   });
 
-  it("keeps the header, Pause setting, and active Nearby presence synchronized", async () => {
+  it("keeps the header toggle synced with Nearby, with Settings unaffected by the removed Pause row", async () => {
+    // The Settings "Pause my location" row was removed as a duplicate of this
+    // same header switch (#5427) -- both read and wrote the identical
+    // `locationControl.paused` state, so this test now drives pause/resume
+    // from the one control that is left.
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -1458,34 +1462,33 @@ describe("OneLocationAgentPage", () => {
       ).toHaveAttribute("aria-checked", "true"),
     );
 
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location off" }));
+    await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Turn location on" }),
+      ).toHaveAttribute("aria-checked", "false"),
+    );
+
+    mockCaptureCurrentPosition.mockClear();
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Turn location off" }),
+      ).toHaveAttribute("aria-checked", "true"),
+    );
+
+    // Settings still opens cleanly and its unrelated toggles still work now
+    // that "Location sharing" has one fewer row.
     fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
-    const pauseSwitch = await screen.findByRole("switch", {
-      name: "Pause my location",
-    });
-    const autoApproveSwitch = screen.getByRole("switch", {
+    const autoApproveSwitch = await screen.findByRole("switch", {
       name: "Auto-approve requests",
     });
-    expect(pauseSwitch).toHaveAttribute("aria-checked", "false");
     // Off until asked for: approving a location request is consent, and a
     // default may not give it.
     expect(autoApproveSwitch).toHaveAttribute("aria-checked", "false");
-
     fireEvent.click(autoApproveSwitch);
-    expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
-
-    fireEvent.click(pauseSwitch);
-    await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(pauseSwitch).toHaveAttribute("aria-checked", "true"),
-    );
-    expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
-
-    mockCaptureCurrentPosition.mockClear();
-    fireEvent.click(pauseSwitch);
-    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(pauseSwitch).toHaveAttribute("aria-checked", "false"),
-    );
     expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
   });
 
@@ -1517,22 +1520,20 @@ describe("OneLocationAgentPage", () => {
       ).toHaveAttribute("aria-checked", "true"),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
-    const pauseSwitch = await screen.findByRole("switch", {
-      name: "Pause my location",
-    });
-    fireEvent.click(pauseSwitch);
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location off" }));
 
     await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalled());
     // The optimistic toggle reverts a render after the rejection resolves, so
     // this has to be waited for rather than read on the same tick. It passed
     // before only because onboarding left fake timers draining behind it.
     await waitFor(() =>
-      expect(pauseSwitch).toHaveAttribute("aria-checked", "false"),
+      expect(
+        screen.getByRole("switch", { name: "Turn location off" }),
+      ).toHaveAttribute("aria-checked", "true"),
     );
   });
 
-  it("keeps Pause enabled when resuming cannot capture a fresh point", async () => {
+  it("keeps location paused when resuming cannot capture a fresh point", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     await waitFor(() =>
@@ -1550,14 +1551,12 @@ describe("OneLocationAgentPage", () => {
     mockCaptureCurrentPosition.mockRejectedValue(
       new Error("fresh location unavailable"),
     );
-    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
-    const pauseSwitch = await screen.findByRole("switch", {
-      name: "Pause my location",
-    });
-    fireEvent.click(pauseSwitch);
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
 
     await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
-    expect(pauseSwitch).toHaveAttribute("aria-checked", "true");
+    expect(
+      screen.getByRole("switch", { name: "Turn location on" }),
+    ).toHaveAttribute("aria-checked", "false");
   });
 
   it("shows a limited status when the captured point is too approximate for Nearby", async () => {
