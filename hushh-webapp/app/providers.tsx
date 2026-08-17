@@ -60,7 +60,10 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { LocationBus } from "@/lib/one-location/location-bus";
 import { PersonaProvider } from "@/lib/persona/persona-context";
-import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
+import {
+  resolveSignedInShellContentOffset,
+  resolveTopShellGeometryStyle,
+} from "@/components/app-ui/signed-in-shell-content-offset";
 import { NativeTestRouter } from "@/components/app-ui/native-test-router";
 import { RiaSurfaceScopeSync } from "@/components/ria/ria-surface-scope-sync";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
@@ -203,39 +206,14 @@ function AppShellFrame({ children }: ProvidersProps) {
         "--page-top-local-offset": topShellMetrics.hasTabs
           ? routeLayout.pageTopLocalOffset || "0px"
           : routeLayout.pageTopLocalOffset || "0px",
-        "--top-tabs-gap": "var(--kai-route-tabs-content-gap)",
-        "--top-tabs-total": topShellMetrics.hasTabs
-          ? "calc(var(--top-tabs-h) + var(--top-tabs-gap))"
-          : "0px",
-        "--top-subnav-total": "0px",
-        "--top-systembar-row-gap": "4px",
-        // These derived values must be declared at the route-shell scope.
-        // CSS custom-property substitution happens before inheritance, so a
-        // root-only definition would keep resolving the root's `0px` tabs.
-        "--top-shell-reserved-height":
-          "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) + var(--top-tabs-total))",
-        "--top-shell-visual-height":
-          "calc(var(--top-shell-reserved-height) + var(--top-fade-active))",
-        "--top-shell-live-height":
-          "calc(var(--top-shell-visual-height) - var(--top-chrome-collapse-px, 0px))",
-        // The route-body tab gap is deliberate reading space, not a chrome
-        // extension. Keep it out of the mask so dark mode cannot form a band
-        // beneath the tab underline.
-        "--top-shell-mask-tabs-gap": "0px",
-        "--top-shell-mask-solid-height":
-          "calc(var(--top-shell-reserved-height) - var(--top-shell-mask-tabs-gap) - var(--top-chrome-collapse-px, 0px))",
-        "--top-shell-mask-visible-height":
-          "calc(var(--top-shell-mask-solid-height) + var(--top-fade-active))",
-        "--top-shell-h": "var(--top-shell-reserved-height)",
-        "--top-glass-h": "var(--top-shell-visual-height)",
-        // The mask owns the entire resolved shell plus a short,
-        // context-sensitive tail. Tabs stay fully solid through their
-        // underline, but the dissolve must finish before the first bounded
-        // route surface so its text remains readable.
-        "--top-fade-active": topShellMetrics.hasTabs ? "20px" : "22px",
+        // Derived top-shell geometry, declared at route-shell scope. It lives
+        // in one exported function because CSS substitutes a custom property
+        // with the values present where it is DECLARED -- so a root-only
+        // definition bakes in the root's `0px` tabs and 8px fade and keeps
+        // them. Anything reproducing the shell (the layout contract) reads the
+        // same function rather than copying a subset.
+        ...resolveTopShellGeometryStyle({ hasTabs: topShellMetrics.hasTabs }),
         "--top-ambient-tab-tail-midpoint": "8px",
-        "--top-content-pad":
-          "calc(var(--top-shell-visual-height) + var(--top-subnav-total, 0px) + var(--top-content-safe-gap))",
         "--kai-route-content-gap": topShellMetrics.hasTabs ? "28px" : "20px",
         "--kai-route-content-gap-sm": topShellMetrics.hasTabs ? "32px" : "24px",
         "--app-top-shell-visible": topShellMetrics.shellVisible ? "1" : "0",

@@ -816,6 +816,36 @@ The first fails closed for any `flow` route that does not name the file owning
 its clearance. The second measures the pixels at eight widths in Chromium and in
 WebKit — WebKit being the engine the iOS app actually runs.
 
+### R22 — A fixture that inherits `:root` is measuring a different app than the one that ships
+
+**Incident (2026-08-17, extending the R21 contract to the sticky section rail.)**
+The new browser test passed with the bug deliberately reintroduced. The fixture
+built the shell from `resolveSignedInShellContentOffset` and let everything else
+inherit from `app/globals.css`, which looked faithful and was not: CSS
+substitutes a custom property using the values present where it is **declared**,
+so `:root`'s `--top-shell-mask-visible-height` bakes in `:root`'s own
+`--top-fade-active` (8px) and keeps that computed value as it inherits. The real
+route shell re-declares the whole derived block, resolving the same token
+against 22px. The fixture's header was therefore **14px shorter** than the
+shipped one — and a rail pinned 6px too high cleared it comfortably.
+
+A passing new test is not evidence. Only the mutation is.
+
+**Rule.** When a test reproduces a runtime surface outside the app, it must
+build it from the **same exported function** the app uses, never from a
+hand-picked subset of tokens. If a value is re-declared at a scope below
+`:root`, inheriting it instead of re-declaring it silently changes the number.
+And every new contract test gets mutation-checked against the bug it claims to
+catch, before it is committed — reintroduce the defect, watch it go red, restore.
+
+**Check.**
+```bash
+cd ~/Desktop/husshresearch/hushh-webapp
+# The fixture and the shell must read one source; this returns two call sites.
+grep -rn "resolveTopShellGeometryStyle" app components e2e
+```
+One call site means something is hand-copying the geometry again.
+
 ## Adding a rule
 
 Every mistake found becomes a rule. Fix the **cause**, not the symptom, then add
