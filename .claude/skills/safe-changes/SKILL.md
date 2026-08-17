@@ -779,6 +779,43 @@ for (const n of ["झुम्मा","नीलेश","सुमन"])
 ---
 
 
+### R21 — The top shell paints lower than it reserves. Clear the fade, not the reserve
+
+**Incident (2026-08-17, "header overlay ho rha hai" reported across screens.)**
+The fixed top shell is solid down to `--top-shell-reserved-height` and then
+dissolves over `--top-fade-active`. `--top-shell-mask-visible-height` is the sum,
+and that is the header's real bottom edge. Standard routes are cleared
+structurally — `app/providers.tsx` renders `[data-app-shell-top-spacer]` inside
+the scroll root, so a page cannot start under the header even if it forgets to
+ask. A `flow` route gets **no spacer at all**, and
+`resolveSignedInShellContentOffset` forced its `--page-top-start` to `0px`. So
+`--app-fullscreen-flow-content-offset` came out exactly equal to the reserved
+height and every fullscreen flow began its first line 22px *inside* the
+dissolve. Measured on UAT: `/ria/claim` content top 76px against a header
+painting to 82px, identically at 390px and 1024px.
+
+It then survived the obvious fix. Two RIA screens hard-set that same variable
+back to `var(--top-shell-reserved-height)` in a local `style` prop, so they kept
+the old geometry after the shared token was corrected — which is exactly what
+"it's fixed on some pages but not others" looks like from the outside.
+
+**Rule.** Clearance is measured against the mask's **visible** height, never its
+reserved height. A `flow` route has no shell spacer, so its page must consume
+`--app-fullscreen-flow-content-offset` (through `FullscreenFlowShell`) or
+`--top-content-pad`, and no page may redefine either token down to the bare
+reserved height. Prove it in a browser: JSDOM performs no layout, so a green unit
+suite says nothing about whether a header covers text.
+
+**Check.**
+```bash
+cd ~/Desktop/husshresearch/hushh-webapp
+npx vitest run __tests__/navigation/fullscreen-flow-top-clearance.contract.test.ts
+npm run test:layout-contracts
+```
+The first fails closed for any `flow` route that does not name the file owning
+its clearance. The second measures the pixels at eight widths in Chromium and in
+WebKit — WebKit being the engine the iOS app actually runs.
+
 ## Adding a rule
 
 Every mistake found becomes a rule. Fix the **cause**, not the symptom, then add

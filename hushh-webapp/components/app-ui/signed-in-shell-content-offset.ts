@@ -23,6 +23,18 @@ function normalizeLocalOffset(value?: string | null): string {
 
 const STANDARD_PAGE_TOP_START = "32px";
 
+/**
+ * The top shell paints further down the screen than it reserves: the mask runs
+ * to `--top-shell-reserved-height` and then dissolves over `--top-fade-active`.
+ * A fullscreen flow used to start its body at the RESERVED height, so its first
+ * line always landed inside that dissolve and read as the header sitting on top
+ * of the page. Clearing the fade too puts the body exactly at the mask's last
+ * visible pixel -- the smallest offset that leaves nothing underneath the
+ * header, and 10px tighter than the standard body gap so hero flows stay
+ * vertically composed.
+ */
+const FULLSCREEN_FLOW_PAGE_TOP_START = "var(--top-fade-active)";
+
 export function resolveSignedInShellContentOffset(params: {
   shellVisible: boolean;
   routeLayoutMode: AppRouteLayoutMode;
@@ -41,7 +53,12 @@ export function resolveSignedInShellContentOffset(params: {
     localOffset,
     style: {
       "--page-top-local-offset": localOffset,
-      "--page-top-start": mode === "standard" ? STANDARD_PAGE_TOP_START : "0px",
+      "--page-top-start":
+        mode === "standard"
+          ? STANDARD_PAGE_TOP_START
+          : mode === "fullscreen-flow"
+            ? FULLSCREEN_FLOW_PAGE_TOP_START
+            : "0px",
       "--app-top-mask-tail-clearance":
         "calc(var(--page-top-start) + var(--page-top-local-offset, 0px))",
       "--app-top-content-offset":
