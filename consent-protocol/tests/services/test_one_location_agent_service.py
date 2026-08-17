@@ -3355,9 +3355,7 @@ def test_set_grant_duration_moves_the_ceiling_with_it() -> None:
 
     # The recipient can now self-serve anywhere up to the NEW (4-hour)
     # ceiling, not the original 1-hour one.
-    grown = service.shorten_grant(
-        caller_user_id="user_b", grant_id=grant["id"], duration_hours=3
-    )
+    grown = service.shorten_grant(caller_user_id="user_b", grant_id=grant["id"], duration_hours=3)
     assert grown["status"] == "active"
     assert service.grants[grant["id"]]["ceiling_expires_at"] == ceiling_after_lengthen
 
