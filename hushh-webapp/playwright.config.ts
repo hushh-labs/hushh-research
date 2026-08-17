@@ -53,7 +53,7 @@ export default defineConfig({
       // radius defect it covers is INVISIBLE in Chromium. A Chromium-only run
       // passes the broken control.
       testMatch:
-        /(circle-join-responsive-contract|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|app-shell-top-clearance\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",

@@ -62,6 +62,19 @@ function SectionTocRows({
   );
 }
 
+/**
+ * Where the desktop rail pins itself.
+ *
+ * Measured against `--top-shell-mask-visible-height`, not
+ * `--top-shell-reserved-height`: the shell is solid to the reserved height and
+ * then dissolves over `--top-fade-active`, so pinning to the reserved height
+ * plus 1rem parked the rail's first row inside that dissolve, under the header.
+ * Exported so `e2e/app-shell-top-clearance.layout.spec.ts` measures the string
+ * that actually ships. See safe-changes R21.
+ */
+export const SECTION_TOC_RAIL_CLASSNAME =
+  "hidden lg:sticky lg:top-[calc(var(--top-shell-mask-visible-height)+1rem)] lg:block lg:self-start";
+
 /** Desktop-only sticky rail, hidden below the lg breakpoint. */
 export function SectionTocRail({
   entries,
@@ -75,7 +88,7 @@ export function SectionTocRail({
   description?: string;
 }) {
   return (
-    <aside className="hidden lg:sticky lg:top-[calc(var(--top-shell-reserved-height)+1rem)] lg:block lg:self-start">
+    <aside className={SECTION_TOC_RAIL_CLASSNAME}>
       <nav
         aria-label={title}
         className="overflow-hidden border-y border-border/60 bg-background/45"
@@ -84,7 +97,7 @@ export function SectionTocRail({
           <p className="text-sm font-semibold text-foreground">{title}</p>
           <RowDescription>{description}</RowDescription>
         </header>
-        <ScrollArea className="max-h-[calc(100dvh-var(--top-shell-reserved-height)-9rem)] border-t border-border/60">
+        <ScrollArea className="max-h-[calc(100dvh-var(--top-shell-mask-visible-height)-9rem)] border-t border-border/60">
           <div className="divide-y divide-border/60">
             <SectionTocRows
               entries={entries}
