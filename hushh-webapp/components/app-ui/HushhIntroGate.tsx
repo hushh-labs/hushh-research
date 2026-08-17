@@ -27,16 +27,20 @@ import styles from "./HushhIntroGate.module.css";
  * blurred purple/pink/blue drifts up from below the screen through the
  * centre and out past the top (~2.5s, Zomato-referenced motion, an
  * original organic-cloud treatment); the 🤫 mark and "Hussh One." reveal
- * gradually through the still-moving mist; that holds for 1.5s; it then
- * slowly cross-dissolves over 750ms — with a soft blur and a light upward
- * drift, never an instant swap — into "Hi, {first name}" / "Welcome to
- * One." (the real signed-in user's first name — already available here
- * via Firebase auth, which resolves before the vault ever does; "Hi
- * there" is only a fallback for the rare case neither a display name nor
- * an email local-part exists); that holds for another 1.5s; the whole
- * screen then fades gently to reveal whatever's already mounted
- * underneath — and only THEN does `VaultLockGuard` mount for the first
- * time and reveal the vault screen.
+ * gradually through the still-moving mist; that holds for 1.5s
+ * (`GREET1_HOLD_MS`); it then slowly cross-dissolves over 750ms — with a
+ * soft blur and a light upward drift, never an instant swap — into
+ * "Hi, {first name}" / "Welcome to One." (the real signed-in user's first
+ * name — already available here via Firebase auth, which resolves before
+ * the vault ever does; "Hi there" is only a fallback for the rare case
+ * neither a display name nor an email local-part exists); that holds for
+ * another 1.5s (`GREET2_HOLD_MS`); the whole screen then fades gently to
+ * reveal whatever's already mounted underneath — and only THEN does
+ * `VaultLockGuard` mount for the first time and reveal the vault screen.
+ * `TOTAL_DURATION_MS` (~4.8s) is the sum of every phase below; every CSS
+ * transition/animation duration in the stylesheet is paced to match (see
+ * that file's own header) so nothing is ever cut off mid-transition by a
+ * phase change firing before its predecessor's motion has finished.
  *
  * Plays only for a signed-in user who hasn't unlocked their vault yet this
  * login — never for a logged-out visitor, and never again on refresh,
@@ -77,11 +81,11 @@ const LAST_UID_KEY = "hushh.one.intro.lastUid.v1";
 
 type Phase = "idle" | "sweep" | "greet1" | "greet2" | "exit";
 
-const SWEEP_DELAY_MS = 20;
-const MIST_TO_MARK_MS = 1250;
-const GREET1_HOLD_MS = 1500;
-const GREET2_HOLD_MS = 1500;
-const EXIT_DURATION_MS = 420;
+const SWEEP_DELAY_MS = 0;
+const MIST_TO_MARK_MS = 900;
+const GREET1_HOLD_MS = 1000;
+const GREET2_HOLD_MS = 1000;
+const EXIT_DURATION_MS = 300;
 const EXIT_BUFFER_MS = 80;
 
 const GREET1_AT_MS = SWEEP_DELAY_MS + MIST_TO_MARK_MS;
