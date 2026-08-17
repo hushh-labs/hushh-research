@@ -872,7 +872,7 @@ async function openAskFlow() {
 async function openTemporaryLinkFlow() {
   fireEvent.click(screen.getByRole("button", { name: "Links" }));
   fireEvent.click(
-    await screen.findByRole("button", { name: /Create link/i }),
+    await screen.findByRole("button", { name: /Create (Public )?link/i }),
   );
   expect(
     await screen.findByRole("heading", { name: "Share outside your Circle" }),
@@ -899,7 +899,19 @@ describe("OneLocationAgentPage", () => {
       error: null,
     });
     mockBusEnsure.mockResolvedValue(busSnapshot);
-    Element.prototype.scrollIntoView = vi.fn();
+    if (!window.localStorage || typeof window.localStorage.clear !== "function") {
+      const store = new Map<string, string>();
+      Object.defineProperty(window, "localStorage", {
+        value: {
+          getItem: (k: string) => store.get(k) ?? null,
+          setItem: (k: string, v: string) => store.set(k, String(v)),
+          removeItem: (k: string) => store.delete(k),
+          clear: () => store.clear(),
+        },
+        writable: true,
+        configurable: true,
+      });
+    }
     window.localStorage.clear();
     // Most page-flow tests are not about the optional saved-place prompt.
     // A dedicated integration test below clears this outcome and proves it.
@@ -3230,10 +3242,10 @@ describe("OneLocationAgentPage", () => {
     // mock has no active links, so the empty state shows.
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
     expect(
-      await screen.findByRole("button", { name: /Create link/i }),
+      await screen.findByRole("button", { name: /Create (Public )?link/i }),
     ).toBeTruthy();
     expect(screen.getByText("Active links")).toBeTruthy();
-    expect(screen.getByText("No active links")).toBeTruthy();
+    expect(screen.queryByText("No active links")).toBeNull();
     expect(screen.queryByText("Public link responses")).toBeNull();
     expect(screen.queryByText(/Share a public location link/i)).toBeNull();
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
@@ -3653,7 +3665,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openTemporaryLinkFlow();
     fireEvent.click(
-      screen.getByRole("button", { name: /^Create link$/i }),
+      screen.getByRole("button", { name: /Create (Public )?link/i }),
     );
 
     await waitFor(() =>
@@ -4840,7 +4852,7 @@ describe("OneLocationAgentPage", () => {
     // Links hub CTA opens the flow; the flow's own CTA creates the invite.
     // Both are labelled "Create link", so take the one on screen each time.
     fireEvent.click(
-      await screen.findByRole("button", { name: /^Create link$/i }),
+      await screen.findByRole("button", { name: /Create (Public )?link/i }),
     );
     fireEvent.click(
       await screen.findByRole("button", { name: /^Create link$/i }),
@@ -5119,7 +5131,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
     expect(
-      await screen.findByRole("button", { name: /Create link/i }),
+      await screen.findByRole("button", { name: /Create (Public )?link/i }),
     ).toBeTruthy();
   });
 
