@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { productFontStyle } from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 
 /**
  * The onboarding Check-in card, measured across viewport HEIGHTS.
@@ -167,7 +167,7 @@ test.describe("One Location onboarding — check-in card", () => {
     test(`copy never touches the artwork at ${w}x${h}`, async ({ page }) => {
       await page.setViewportSize({ width: w, height: h });
       await page.goto(await buildFixture());
-      await page.evaluate(() => document.fonts.ready);
+      await awaitProductFont(page);
       await page.waitForFunction(() => {
         const img = document.querySelector("[data-one-checkin-hotel]") as HTMLImageElement | null;
         return Boolean(img?.complete && img.naturalWidth > 0);
@@ -225,7 +225,7 @@ test.describe("One Location onboarding — check-in card", () => {
       for (const height of [560, 740, 932, 1180]) {
         await page.setViewportSize({ width, height });
         await page.goto(url);
-        await page.evaluate(() => document.fonts.ready);
+        await awaitProductFont(page);
         await page.waitForFunction(() => {
           const img = document.querySelector(
             "[data-one-checkin-hotel]",

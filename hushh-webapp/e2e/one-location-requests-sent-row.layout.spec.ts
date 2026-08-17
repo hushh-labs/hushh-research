@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { productFontStyle } from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 
 /**
  * The "Requests sent" row, measured in a real browser at phone widths.
@@ -110,7 +110,7 @@ test.describe("Requests sent row", () => {
     test(`keeps the name on one line at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture());
-      await page.evaluate(() => document.fonts.ready);
+      await awaitProductFont(page);
 
       const measured = await page.evaluate(() => {
         const root = document.documentElement;

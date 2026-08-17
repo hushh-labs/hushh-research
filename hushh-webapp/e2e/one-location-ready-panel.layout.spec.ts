@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { productFontStyle } from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
@@ -91,7 +91,7 @@ test.describe("One Location ready panel layout", () => {
     }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture());
-      await page.evaluate(() => document.fonts.ready);
+      await awaitProductFont(page);
 
       const panel = page.getByTestId("one-location-onboarding-ready-panel");
       await expect(panel).toBeVisible();

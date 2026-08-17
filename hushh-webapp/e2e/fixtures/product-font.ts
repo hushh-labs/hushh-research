@@ -27,6 +27,25 @@ import path from "node:path";
 let cachedCss: string | null = null;
 
 /**
+ * Remove the app's own `@font-face` rules from a compiled `globals.css`.
+ *
+ * They point at `/fonts/Inter/InterVariable.woff2`, an absolute path that a
+ * fixture loaded over `file://` resolves against the filesystem root. It never
+ * resolves, and it fails silently.
+ *
+ * That matters beyond one dead request: those broken faces register under the
+ * SAME family as the working one this module inlines, and a family with an
+ * unloadable face in it does not satisfy `document.fonts.check`. The fixture
+ * then quietly renders in the machine's fallback while three "InterVariable"
+ * faces sit in `document.fonts` looking like success.
+ *
+ * Call this on any stylesheet built from `app/globals.css`.
+ */
+export function stripAppFontFaces(css: string): string {
+  return css.replace(/@font-face\s*\{[^}]*url\([^)]*\/fonts\/[^)]*\)[^}]*\}/g, "");
+}
+
+/**
  * A `<style>` body: the real `@font-face` plus the family applied to `body`.
  * Drop it into any fixture that measures text width, wrapping or overlap.
  */
@@ -59,10 +78,43 @@ body {
 }
 
 /**
- * Wait for the face to be usable before measuring.
+ * Wait for the face, then PROVE it is the one being used.
  *
- * `font-display: block` keeps the fallback from being painted, but layout still
- * settles a frame later. Call this after `page.goto` and before any
- * `getBoundingClientRect`.
+ * `document.fonts.ready` resolves whether or not the face loaded, so awaiting
+ * it alone is not evidence — a fixture whose `@font-face` failed sails past it
+ * and measures the machine's fallback, which is the exact failure this module
+ * exists to remove. `fonts.check` is the assertion that closes it.
+ *
+ * The cost of not having this: the live-share countdown contract went red on a
+ * CI runner with a 3.7px drift, which is the proportional-vs-tabular figure
+ * difference exactly. Whether the font was missing or the digits were was
+ * unanswerable from the failure message.
+ *
+ * Call after `page.goto` and before any `getBoundingClientRect`.
  */
-export const AWAIT_PRODUCT_FONT = `document.fonts.ready.then(() => true)`;
+export async function awaitProductFont(page: {
+  evaluate: <T>(fn: () => T | Promise<T>) => Promise<T>;
+}): Promise<void> {
+  const state = await page.evaluate(async () => {
+    await document.fonts.ready;
+    const probe = document.createElement("span");
+    probe.style.cssText =
+      "position:absolute;visibility:hidden;font:400 16px InterVariable";
+    probe.textContent = "0123456789";
+    document.body.appendChild(probe);
+    const usedFamily = getComputedStyle(document.body).fontFamily;
+    probe.remove();
+    return {
+      loaded: document.fonts.check('16px "InterVariable"'),
+      faces: [...document.fonts].map((f) => f.family),
+      usedFamily,
+    };
+  });
+
+  if (!state.loaded) {
+    throw new Error(
+      `The product font never loaded, so this fixture would measure the machine's fallback instead. ` +
+        `Registered faces: ${JSON.stringify(state.faces)}. body font-family: ${state.usedFamily}`,
+    );
+  }
+}

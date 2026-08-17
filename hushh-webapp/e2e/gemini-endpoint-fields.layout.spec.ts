@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { productFontStyle } from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import { INPUT_CLASSNAME } from "../components/ui/input";
@@ -136,7 +136,7 @@ test.describe("Choose your AI — API endpoint fields", () => {
     test(`the picker and the key field agree at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture());
-      await page.evaluate(() => document.fonts.ready);
+      await awaitProductFont(page);
 
       const select = await probe(page, "endpoint-select");
       const input = await probe(page, "key-input");
@@ -168,7 +168,7 @@ test.describe("Choose your AI — API endpoint fields", () => {
     // there — recording exactly why a Chromium-only run cannot gate this.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(await buildFixture());
-    await page.evaluate(() => document.fonts.ready);
+    await awaitProductFont(page);
 
     const input = await probe(page, "key-input");
     const withoutAppearance = await probe(page, "regression-select");

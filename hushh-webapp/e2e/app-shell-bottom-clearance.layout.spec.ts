@@ -3,7 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { productFontStyle } from "./fixtures/product-font";
+import {
+  awaitProductFont,
+  productFontStyle,
+  stripAppFontFaces,
+} from "./fixtures/product-font";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
@@ -97,7 +101,9 @@ async function buildStylesheet(candidates: string[]): Promise<string> {
     },
   });
 
-  return compiler.build(candidates);
+  // The app's own @font-face rules cannot load over file:// and, sharing a
+  // family name with the working one, stop it satisfying fonts.check.
+  return stripAppFontFaces(compiler.build(candidates));
 }
 
 function inlineStyle(style: Record<string, unknown>): string {
@@ -179,7 +185,7 @@ test.describe("app shell bottom clearance", () => {
     }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await writeFixture());
-      await page.evaluate(() => document.fonts.ready);
+      await awaitProductFont(page);
 
       const measured = await page.evaluate(() => {
         const scrollRoot = document.querySelector<HTMLElement>(

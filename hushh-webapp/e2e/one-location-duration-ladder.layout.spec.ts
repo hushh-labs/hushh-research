@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
-import { productFontStyle } from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 import {
   DURATION_WHEEL_FRAME_CLASS,
   DURATION_WHEEL_ITEM_HEIGHT_PX,
@@ -187,7 +187,7 @@ test.describe("Check-in duration pills reuse the ladder cell", () => {
     test(`are 44px, not 50px, at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture(false));
-      await page.evaluate(() => document.fonts.ready);
+      await awaitProductFont(page);
 
       const cells = await page.evaluate(() => {
         return [...document.querySelectorAll("[data-grid] > button")].map((el) => {
@@ -231,7 +231,7 @@ test.describe("One Location duration ladder layout", () => {
 
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture());
-      await page.evaluate(() => document.fonts.ready);
+      await awaitProductFont(page);
 
       const measured = await page.evaluate(() => {
         const cells = Array.from(
@@ -335,7 +335,7 @@ test.describe("One Location duration ladder layout", () => {
       // Custom is tapped").
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture(true));
-      await page.evaluate(() => document.fonts.ready);
+      await awaitProductFont(page);
 
       const measured = await page.evaluate(() => {
         const control = document.querySelector("[data-control]")!.getBoundingClientRect();
@@ -375,7 +375,7 @@ test.describe("One Location duration ladder on a desktop", () => {
     }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(await buildFixture());
-      await page.evaluate(() => document.fonts.ready);
+      await awaitProductFont(page);
 
       const measured = await page.evaluate(() => {
         const cells = Array.from(
@@ -430,7 +430,7 @@ test.describe("One Location duration ladder on a desktop", () => {
       // than as part of the control that opened it.
       await page.setViewportSize({ width, height: 900 });
       await page.goto(await buildFixture(true));
-      await page.evaluate(() => document.fonts.ready);
+      await awaitProductFont(page);
 
       const measured = await page.evaluate(() => {
         const ladder = document
