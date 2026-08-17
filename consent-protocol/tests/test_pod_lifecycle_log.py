@@ -122,6 +122,22 @@ def test_the_lifecycle_endpoints_are_pure_readers():
         assert forbidden not in referenced, f"pure-reader contract violated: {forbidden}"
 
 
+def test_the_endpoints_mount_where_the_proxy_looks():
+    """The route must exist at /api/one/..., not merely exist.
+
+    The first deploy of this surface answered 404 live while every local check
+    passed: the router imported cleanly, its tests ran, and it was registered at
+    the APP ROOT, because the one-package routers each carry their own full
+    /api/one prefix and this one carried a bare /pod/lifecycle. An import check
+    proves a router loads; only the mounted path proves a client can reach it.
+    """
+    from api.routes.one import router as one_router
+
+    paths = {getattr(r, "path", "") for r in one_router.routes}
+    assert "/api/one/pod/lifecycle" in paths, sorted(p for p in paths if "lifecycle" in p)
+    assert "/api/one/pod/lifecycle/stream" in paths
+
+
 @pytest.mark.parametrize("status", list(STAGE_BY_REGISTRY_STATUS))
 def test_funnel_stages_have_progress_or_are_terminal(status: str):
     stage = STAGE_BY_REGISTRY_STATUS[status]

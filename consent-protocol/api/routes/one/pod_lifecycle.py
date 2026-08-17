@@ -39,7 +39,12 @@ from api.routes.kai._streaming import CanonicalSSEStream
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/pod/lifecycle", tags=["pod-lifecycle"])
+# The FULL prefix, like every sibling in this package -- the one-router carries
+# no prefix of its own, so a bare "/pod/lifecycle" registers at the app root,
+# invisible behind the frontend's /api/one proxy. Found live: the deployed
+# revision answered 404 while the router imported cleanly, which is why the
+# guard test pins the mounted paths and not merely the import.
+router = APIRouter(prefix="/api/one/pod/lifecycle", tags=["pod-lifecycle"])
 
 #: One segment's lifetime. 40s clears the 45s proxy cap, the 60s browser
 #: wrapper, and the 120s frontend Cloud Run ceiling, with margin on the first.
