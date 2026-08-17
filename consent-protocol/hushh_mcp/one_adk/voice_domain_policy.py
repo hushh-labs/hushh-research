@@ -109,3 +109,17 @@ def is_voice_domain_disabled(domain: str | None, disabled_domains: object) -> bo
     if not domain or not isinstance(disabled_domains, (list, tuple, set, frozenset)):
         return False
     return domain in disabled_domains
+
+
+def is_voice_entirely_disabled(voice_settings: object) -> bool:
+    """Whether the person has turned the whole voice agent off (the master
+    Voice control switch), independent of any per-domain toggle.
+
+    Fails open (False) for anything not a dict -- absent context (non-live
+    callers, tests, an older cached snapshot) must never block an
+    already-authorized action, matching sanitize_voice_settings' own
+    fail-open default and every other read of this dict.
+    """
+    if not isinstance(voice_settings, dict):
+        return False
+    return voice_settings.get("voice_enabled") is False

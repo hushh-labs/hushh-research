@@ -20,7 +20,7 @@ import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography"
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
-import { CACHE_KEYS } from "@/lib/services/cache-service";
+import { CACHE_KEYS, CACHE_TTL, CacheService } from "@/lib/services/cache-service";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { FeedRow } from "@/components/feed/feed-row";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
@@ -148,27 +148,65 @@ export function FeedPage() {
     setNextCursor(data.next_cursor);
   }, [data]);
 
-  // Looking at the feed clears the unread badge (Instagram/Twitter convention).
-  // The rows themselves keep their unread styling for this visit and only read
-  // as "seen" on the next open — `visitUnreadIdsRef` holds that, so a live
-  // refresh cannot restyle a row the user is mid-scroll through.
-  //
-  // This re-runs as new activity lands rather than firing once, so anything that
-  // arrives while the page is open is marked read too and the badge does not
-  // count up over a list being read.
+  const latestIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (!user || !data) return;
-    const latestId = data.items[0]?.id;
-    if (!latestId || markedReadUpToRef.current === latestId) return;
-    markedReadUpToRef.current = latestId;
-    void (async () => {
-      const idToken = await user.getIdToken();
-      await FeedService.markRead({ idToken, upToId: latestId });
-      // `read`: only unread flags moved, so the badge recounts but no list
-      // re-fetches what it just finished rendering.
+    if (data?.items[0]?.id) {
+      latestIdRef.current = data.items[0].id;
+    }
+  }, [data]);
+
+  // Bulk mark unread notifications read when navigating away from the feed page
+  // (unmount or tab visibility hidden), invalidating the feed list cache so the
+  // next visit displays them as seen, and dispatching feed state change to
+  // immediately refresh the tab badge count.
+  useEffect(() => {
+    const markSeen = () => {
+      const latestId = latestIdRef.current;
+      if (!user?.uid || !latestId || markedReadUpToRef.current === latestId) return;
+      markedReadUpToRef.current = latestId;
+
+      // Optimistic instant update (0ms): set cached unread count to 0 & update UI state immediately
+      CacheService.getInstance().set(
+        CACHE_KEYS.FEED_UNREAD_COUNT(user.uid),
+        0,
+        CACHE_TTL.SHORT,
+      );
+      CacheService.getInstance().invalidate(CACHE_KEYS.FEED_LIST(user.uid));
       dispatchFeedStateChanged("read");
-    })();
-  }, [user, data]);
+
+      // Fire backend markRead call asynchronously in background
+      void (async () => {
+        try {
+          const idToken = await user.getIdToken();
+          await FeedService.markRead({
+            idToken,
+            upToId: latestId,
+            userId: user.uid,
+          });
+        } catch (error) {
+          markedReadUpToRef.current = null;
+          console.warn(
+            "[FeedPage] Failed to mark notifications read on navigate away:",
+            error,
+          );
+        }
+      })();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        markSeen();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      markSeen();
+    };
+  }, [user]);
 
   // Record every row that has been unread this visit, before the mark-read above
   // takes effect on the server. Covers paged-in rows too, which arrive unread on

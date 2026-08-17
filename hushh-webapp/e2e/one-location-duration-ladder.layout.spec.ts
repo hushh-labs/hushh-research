@@ -47,12 +47,18 @@ const WIDTHS = [320, 375, 390, 430] as const;
 const COLLAPSED_MAX_HEIGHT_PX = 182;
 
 /**
- * Custom open: the collapsed ladder + gap 8 + pt-1 4 + a 3-row wheel 120 +
- * gap 8 + a 44px Done row = 362. This state is the one that can push
- * "Start sharing" back down the page, so it gets its own ceiling. Shipping
- * the Custom wheel at the default 5 rows would be 442 and fail here.
+ * Custom open: the collapsed ladder + gap 8 + pt-1 4 + a 3-row wheel 120 = 310.
+ * This state is the one that can push "Start sharing" back down the page, so it
+ * gets its own ceiling. Shipping the Custom wheel at the default 5 rows would be
+ * 390 and fail here.
+ *
+ * Was 366, for a 44px "Done" row plus its 8px gap. That button confirmed
+ * nothing — the wheel emits on every settle, so the value was already chosen —
+ * and it was 52px on the tallest state of the tallest control on a screen the
+ * founder called too busy. The ceiling comes down with it, or the next 52px of
+ * creep lands silently in the space it left.
  */
-const EXPANDED_MAX_HEIGHT_PX = 366;
+const EXPANDED_MAX_HEIGHT_PX = 314;
 
 /** Derived from the component, never hand-copied: 3 rows x 40px = 120. */
 const CUSTOM_WHEEL_HEIGHT_PX =
@@ -124,7 +130,6 @@ async function buildFixture(customOpen = false): Promise<string> {
           customOpen
             ? `<div class="space-y-2 pt-1">
                  <div data-wheel style="height:${CUSTOM_WHEEL_HEIGHT_PX}px"></div>
-                 ${cell("Done", false, "w-full")}
                </div>`
             : ""
         }
@@ -135,6 +140,49 @@ async function buildFixture(customOpen = false): Promise<string> {
   );
   return `file://${path.join(dir, "fixture.html")}`;
 }
+
+/**
+ * The nearby Check-in sheet reuses these exact cell classes for its "Stay
+ * visible for" pills. It used to render morphy <Button>s at size="default",
+ * which are 50px tall with a 17px label — 6px and 2px more than this app's own
+ * duration control, on a sheet the founder asked to make smaller. Measuring
+ * them here, against the same constants, is what stops the two drifting again.
+ */
+test.describe("Check-in duration pills reuse the ladder cell", () => {
+  for (const width of WIDTHS) {
+    test(`are 44px, not 50px, at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(await buildFixture(false));
+
+      const cells = await page.evaluate(() => {
+        return [...document.querySelectorAll("[data-grid] > button")].map((el) => {
+          const cs = getComputedStyle(el as HTMLElement);
+          const box = el.getBoundingClientRect();
+          return {
+            height: Math.round(box.height * 100) / 100,
+            minHeight: cs.minHeight,
+            fontSize: cs.fontSize,
+            scrollWidth: (el as HTMLElement).scrollWidth,
+            clientWidth: (el as HTMLElement).clientWidth,
+          };
+        });
+      });
+
+      expect(cells.length).toBeGreaterThan(0);
+      for (const cell of cells) {
+        // The compact height this control settled on, and the one the check-in
+        // sheet now shares. 50px is the morphy default it must not drift back to.
+        expect(cell.height).toBeLessThanOrEqual(45);
+        expect(cell.height).toBeGreaterThanOrEqual(43.5);
+        expect(cell.fontSize).toBe("15px");
+        // Still a real touch target.
+        expect(parseFloat(cell.minHeight)).toBeGreaterThanOrEqual(44);
+        // And the label still fits at the narrowest phone.
+        expect(cell.scrollWidth).toBeLessThanOrEqual(cell.clientWidth + 1);
+      }
+    });
+  }
+});
 
 test.describe("One Location duration ladder layout", () => {
   for (const width of WIDTHS) {

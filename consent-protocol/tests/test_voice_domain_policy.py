@@ -2,6 +2,7 @@ from hushh_mcp.one_adk.voice_domain_policy import (
     VOICE_DOMAIN_ACTION_PREFIXES,
     VOICE_DOMAIN_SPECIALIST_IDS,
     is_voice_domain_disabled,
+    is_voice_entirely_disabled,
     resolve_voice_domain,
     resolve_voice_domain_for_specialist,
     voice_domain_label,
@@ -64,6 +65,30 @@ class TestIsVoiceDomainDisabled:
     def test_true_with_a_set_or_tuple_too(self):
         assert is_voice_domain_disabled("location", {"location"}) is True
         assert is_voice_domain_disabled("location", ("location",)) is True
+
+
+class TestIsVoiceEntirelyDisabled:
+    def test_true_only_when_voice_enabled_is_explicitly_false(self):
+        assert is_voice_entirely_disabled({"voice_enabled": False}) is True
+
+    def test_false_when_voice_enabled_is_true(self):
+        assert is_voice_entirely_disabled({"voice_enabled": True}) is False
+
+    def test_fails_open_when_the_key_is_absent(self):
+        # sanitize_voice_settings always stamps this key, but a non-live
+        # caller or an older cached snapshot may not -- absence must never
+        # read as "disabled".
+        assert is_voice_entirely_disabled({}) is False
+
+    def test_fails_open_when_voice_settings_is_malformed(self):
+        assert is_voice_entirely_disabled(None) is False
+        assert is_voice_entirely_disabled("voice_enabled") is False
+        assert is_voice_entirely_disabled(False) is False
+
+    def test_ignores_disabled_domains_entirely(self):
+        # The master toggle is orthogonal to the per-domain list -- an empty
+        # or absent disabled_domains must not affect this check either way.
+        assert is_voice_entirely_disabled({"voice_enabled": False, "disabled_domains": []}) is True
 
 
 class TestVoiceDomainLabel:

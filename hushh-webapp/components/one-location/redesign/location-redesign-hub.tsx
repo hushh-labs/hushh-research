@@ -458,6 +458,12 @@ export type LocationHubViewModel = {
      provenance rides in the request's optional sourceCircleId. */
   onCheckIn: (request: PrivateCheckInRequest) => Promise<PrivateCheckInResult>;
   onDiscardPrivateCheckInOperation: (operationId: string | null) => void;
+  /**
+   * Bumped by the voice `location.send_check_in` action while this flow is
+   * mounted. `CheckInFlow` watches it and submits its own local draft --
+   * page.tsx has no reach into that component's selection state otherwise.
+   */
+  voiceCheckInSendRequestId?: number;
 
   /* label helpers (reuse existing formatting) */
   recipientLabel: (r: OneLocationRecipient) => string;
@@ -1406,6 +1412,11 @@ function NowHub({
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
           rather than only the screen it lives on. */}
+      {/* The two things a person DOES on this screen, together. Sharing your
+          location and asking for someone else's are the same kind of decision
+          pointed in opposite directions, and they were two groups apart — one
+          alone at the top, the other buried under three status rows. Everything
+          below is what is already happening, or where to look at it. */}
       <SettingsGroup
         separatorInset
         testId="one-location-now-share"
@@ -1422,10 +1433,32 @@ function NowHub({
           voiceControlId="one-location-action-share"
           voiceActionId="location.open_share"
         />
+        {/* Asking someone to share was reachable only from the People tab, so
+            the Now tab listed every way to give a location out and none to ask
+            for one. Same flow and same voice control id as that entry -- this
+            is an additional way in, not a second implementation. */}
+        {/* Not `Send`: that is the same paper-plane silhouette as `Navigation`
+            on "Share location" two rows up, so at row size the two entries read
+            as the same icon -- and they are opposites. A speech bubble asking a
+            question is distinct at a glance and matches what the flow does:
+            "Requests should explain why. The other person chooses whether to
+            share." Radar and Crosshair were rejected for implying tracking on a
+            surface built around consent. */}
+        <SettingsRow
+          icon={MessageCircleQuestionMark}
+          iconTone="blue"
+          title="Request location"
+          density="compact"
+          chevron
+          onClick={onRequestLocation}
+          testId="one-location-request-row"
+          voiceControlId="one-location-action-ask"
+          voiceActionId="location.open_ask"
+        />
       </SettingsGroup>
       <SettingsGroup
         separatorInset
-        testId="one-location-now-primary"
+        testId="one-location-now-status"
         shellClassName={groupedShellClassName}
       >
         <SettingsRow
@@ -1439,13 +1472,6 @@ function NowHub({
           voiceControlId="one-location-open-map"
           voiceActionId="location.open_map"
         />
-      </SettingsGroup>
-
-      <SettingsGroup
-        separatorInset
-        testId="one-location-now-status"
-        shellClassName={groupedShellClassName}
-      >
         <SettingsRow
           icon={UsersRound}
           iconTone={activeSharesIconTone}
@@ -1478,28 +1504,6 @@ function NowHub({
           onClick={onOpenNeedsReview}
           voiceControlId="one-location-action-needs-review"
           voiceActionId="location.open_needs_review"
-        />
-        {/* Asking someone to share was reachable only from the People tab, so
-            the Now tab listed every way to give a location out and none to ask
-            for one. Same flow and same voice control id as that entry -- this
-            is an additional way in, not a second implementation. */}
-        {/* Not `Send`: that is the same paper-plane silhouette as `Navigation`
-            on "Share location" two rows up, so at row size the two entries read
-            as the same icon -- and they are opposites. A speech bubble asking a
-            question is distinct at a glance and matches what the flow does:
-            "Requests should explain why. The other person chooses whether to
-            share." Radar and Crosshair were rejected for implying tracking on a
-            surface built around consent. */}
-        <SettingsRow
-          icon={MessageCircleQuestionMark}
-          iconTone="blue"
-          title="Request location"
-          density="compact"
-          chevron
-          onClick={onRequestLocation}
-          testId="one-location-request-row"
-          voiceControlId="one-location-action-ask"
-          voiceActionId="location.open_ask"
         />
         <SettingsRow
           icon={Lock}
@@ -2727,7 +2731,17 @@ function ShareFlow({
       : null;
     const peopleNoun = selectedReady.length === 1 ? "person" : "people";
     return (
-      <div className="space-y-5">
+      // A single-column consent form does not get wider just because the window
+      // does. Measured at 1440 this step rendered an 824px card holding a 420px
+      // control and a 792px note field — three widths in one card, and 372px of
+      // empty card to the right of the duration ladder.
+      //
+      // 560px is this feature's own column measure (the Location onboarding
+      // flow uses it at two places), so this adds no new number. Scoped to the
+      // Share confirm step rather than the shared flow root on purpose: that
+      // root also carries SmsContactsFlow, whose 680/720 desktop widths are
+      // deliberate and documented, plus two map previews.
+      <div className="mx-auto w-full max-w-[560px] space-y-5">
         {/* No description: the summary card directly below states who can see
             you, for how long and when it ends. Repeating that in prose above it
             is the design explaining itself. */}
@@ -2803,6 +2817,9 @@ function ShareFlow({
             <DurationSelector
               value={vm.shareDurationHours}
               onChange={vm.setShareDurationHours}
+              // The column above is already measured, so the control fills the
+              // card instead of stopping 108px short of the note field beside it.
+              maxWidthClassName={null}
               label="How long"
               hint={shareEndsAtLabel(vm.shareDurationHours, nowMs)}
               presentation="ladder"
@@ -3706,12 +3723,18 @@ function TemporaryLinkFlow({
           so it offers no precision card either. The "expires automatically"
           note that sat here was the third statement of the same fact — the
           warning above and the duration control already carry it. */}
+      {/* The label changes while it works. This press waits on a device fix
+          before it can post anything, so on a cold start it can sit for
+          several seconds — and it used to sit as a bare spinner with the label
+          hidden, which is why it read as "taking longer than expected" rather
+          than as "still finding you". Naming the wait is the fix available
+          here; the wait itself is a GPS acquisition. */}
       <Button
         onClick={vm.onCreatePublicInvite}
         isLoading={vm.busy === "publicInvite"}
-        className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+        className="h-12 min-h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
       >
-        Create link
+        {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
       </Button>
     </div>
   );

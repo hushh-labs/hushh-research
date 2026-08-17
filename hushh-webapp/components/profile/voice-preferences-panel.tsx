@@ -39,11 +39,8 @@ function VoiceHeader() {
   );
 }
 
-function VoiceChangelog() {
-  const [expanded, setExpanded] = useState(false);
-  const entries = expanded
-    ? VOICE_ENGINE_CHANGELOG
-    : VOICE_ENGINE_CHANGELOG.slice(0, CHANGELOG_PREVIEW_COUNT);
+function VoiceChangelog({ onOpenChangelog }: { onOpenChangelog: () => void }) {
+  const entries = VOICE_ENGINE_CHANGELOG.slice(0, CHANGELOG_PREVIEW_COUNT);
   const hasMore = VOICE_ENGINE_CHANGELOG.length > CHANGELOG_PREVIEW_COUNT;
 
   return (
@@ -59,10 +56,10 @@ function VoiceChangelog() {
           stackTrailingOnMobile
         />
       ))}
-      {hasMore && !expanded ? (
+      {hasMore ? (
         <SettingsRow
           title="See all updates"
-          onClick={() => setExpanded(true)}
+          onClick={onOpenChangelog}
           chevron
         />
       ) : null}
@@ -72,8 +69,10 @@ function VoiceChangelog() {
 
 export function VoicePreferencesPanel({
   userId,
+  onOpenChangelog,
 }: {
   userId: string | null;
+  onOpenChangelog: () => void;
 }) {
   const [state, setState] = useState<OneVoicePreferencesState>(() =>
     readVoicePreferences(userId),
@@ -92,7 +91,7 @@ export function VoicePreferencesPanel({
   return (
     <div className="space-y-4">
       <VoiceHeader />
-      <VoiceChangelog />
+      <VoiceChangelog onOpenChangelog={onOpenChangelog} />
       <SettingsGroup>
         <SettingsRow
           title="Voice control"

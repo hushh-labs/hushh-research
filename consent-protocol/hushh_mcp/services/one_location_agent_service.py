@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import logging
 import os
 import secrets
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator
@@ -856,6 +857,57 @@ class OneLocationAgentService:
         result = get_db().execute_raw(sql, params or {})
         return result.data or []
 
+    def _run_read_queries_parallel(
+        self,
+        tasks: list[tuple[str, str, dict[str, Any]]],
+        *,
+        max_workers: int = 8,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Run several independent, read-only SQL queries concurrently.
+
+        The DB is Cloud SQL in us-central1, so every round trip here is a
+        cross-continent hop -- roughly ~900ms dominated by RTT, not query
+        cost. A read path that fires N independent, unrelated queries (no
+        query here depends on another's result) pays N times that latency
+        for no reason. This collapses it to about one round trip's worth of
+        wall time instead.
+
+        Never used for the bound single-connection writer path
+        (`_key_writer_connection`): every task here calls `_execute_many`,
+        which checks out its own pooled connection per call via
+        `get_db().execute_raw`, so concurrent calls are safe -- there is no
+        shared connection/cursor state across tasks.
+
+        A failing task degrades to `[]` and is logged rather than raised --
+        the same resilience a sequential per-section try/except gave before
+        this existed. One bad section must never fail the rest of the page.
+        Each worker runs inside a copy of the
+        caller's context so `db.query_telemetry`'s ContextVar-based
+        counters still attribute every round trip to the request that
+        issued it, instead of silently under-counting once queries move
+        off the request's own thread.
+        """
+        if not tasks:
+            return {}
+        results: dict[str, list[dict[str, Any]]] = {}
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(tasks))) as pool:
+            future_to_key = {
+                pool.submit(contextvars.copy_context().run, self._execute_many, sql, params): key
+                for key, sql, params in tasks
+            }
+            for future in as_completed(future_to_key):
+                key = future_to_key[future]
+                try:
+                    results[key] = future.result()
+                except Exception as exc:  # noqa: BLE001 - degrade, never fail the page
+                    logger.warning(
+                        "one_location.parallel_query_failed section=%s error=%s",
+                        key,
+                        exc,
+                    )
+                    results[key] = []
+        return results
+
     def _execute_atomic_private_share(
         self,
         *,
@@ -1303,23 +1355,6 @@ class OneLocationAgentService:
             "canReceiveLocation": bool(row.get("key_id")),
         }
 
-    def _optional_signal_rows(
-        self,
-        *,
-        signal_name: str,
-        sql: str,
-        params: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        try:
-            return self._execute_many(sql, params or {})
-        except Exception as exc:
-            logger.debug(
-                "one.location.kai_circle_signal_unavailable signal=%s error=%s",
-                signal_name,
-                exc,
-            )
-            return []
-
     @staticmethod
     def _recommendation_signal() -> dict[str, Any]:
         return {
@@ -1448,19 +1483,10 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        grant_rows: list[dict[str, Any]],
+        request_rows: list[dict[str, Any]],
+        referral_rows: list[dict[str, Any]],
     ) -> None:
-        grant_rows = self._optional_signal_rows(
-            signal_name="one_location_grants",
-            sql="""
-            SELECT owner_user_id, recipient_user_id, status, created_at, updated_at,
-                   expires_at, revoked_at
-            FROM one_location_share_grants
-            WHERE owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id
-            ORDER BY created_at DESC
-            LIMIT 100
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in grant_rows:
             other_user_id = (
                 str(row.get("recipient_user_id") or "")
@@ -1504,18 +1530,6 @@ class OneLocationAgentService:
                 row.get("revoked_at"),
             )
 
-        request_rows = self._optional_signal_rows(
-            signal_name="one_location_requests",
-            sql="""
-            SELECT owner_user_id, requester_user_id, referred_by_user_id, status,
-                   requested_at, resolved_at
-            FROM one_location_access_requests
-            WHERE owner_user_id = :owner_user_id OR requester_user_id = :owner_user_id
-            ORDER BY requested_at DESC
-            LIMIT 100
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in request_rows:
             current_user_is_owner = row.get("owner_user_id") == owner_user_id
             other_user_id = (
@@ -1555,20 +1569,6 @@ class OneLocationAgentService:
                 signal["trusted"] = True
             self._remember_signal_time(signal, row.get("resolved_at"), row.get("requested_at"))
 
-        referral_rows = self._optional_signal_rows(
-            signal_name="one_location_referrals",
-            sql="""
-            SELECT owner_user_id, referring_user_id, referred_user_id, status,
-                   created_at, resolved_at
-            FROM one_location_referrals
-            WHERE owner_user_id = :owner_user_id
-               OR referring_user_id = :owner_user_id
-               OR referred_user_id = :owner_user_id
-            ORDER BY created_at DESC
-            LIMIT 100
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in referral_rows:
             for candidate_field in ("owner_user_id", "referring_user_id", "referred_user_id"):
                 candidate_id = str(row.get(candidate_field) or "")
@@ -1591,18 +1591,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        rows: list[dict[str, Any]],
     ) -> None:
-        rows = self._optional_signal_rows(
-            signal_name="consent_audit",
-            sql="""
-            SELECT user_id, agent_id, action, issued_at
-            FROM consent_audit
-            WHERE user_id = :owner_user_id OR agent_id = :owner_user_id
-            ORDER BY issued_at DESC
-            LIMIT 100
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in rows:
             if row.get("user_id") == owner_user_id:
                 other_user_id = str(row.get("agent_id") or "")
@@ -1634,19 +1624,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        rows: list[dict[str, Any]],
     ) -> None:
-        rows = self._optional_signal_rows(
-            signal_name="trusted_connections",
-            sql="""
-            SELECT owner_user_id, trusted_user_id, status, created_at, updated_at
-            FROM trusted_connections
-            WHERE status = 'active'
-              AND owner_user_id = :owner_user_id
-            ORDER BY created_at DESC
-            LIMIT 200
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in rows:
             other_user_id = str(row.get("trusted_user_id") or "")
             if other_user_id not in recipient_ids:
@@ -1669,29 +1648,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        rows: list[dict[str, Any]],
     ) -> None:
-        rows = self._optional_signal_rows(
-            signal_name="mutual_kai_relationships",
-            sql="""
-            SELECT rel.investor_user_id, rel.created_at, rel.updated_at,
-                   rp.user_id AS ria_user_id
-            FROM advisor_investor_relationships rel
-            JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
-            JOIN relationship_share_grants share
-              ON share.relationship_id = rel.id
-             AND share.grant_key = 'ria_active_picks_feed_v1'
-             AND share.status = 'active'
-             AND share.connection_scope_proposal_id IS NOT NULL
-            JOIN connection_scope_proposals proposal
-              ON proposal.id = share.connection_scope_proposal_id
-             AND proposal.status = 'active'
-             AND proposal.capability_key = 'ria_active_picks_feed_v1'
-            WHERE rel.status = 'approved'
-            ORDER BY COALESCE(rel.updated_at, rel.created_at) DESC
-            LIMIT 500
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         adjacency: dict[str, set[str]] = {}
         latest_by_pair: dict[tuple[str, str], Any] = {}
         for row in rows:
@@ -1736,40 +1694,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        rows: list[dict[str, Any]],
     ) -> None:
-        rows = self._optional_signal_rows(
-            signal_name="advisor_investor_relationships",
-            sql="""
-            SELECT
-              rel.investor_user_id,
-              rel.status,
-              rel.granted_scope,
-              rel.consent_granted_at,
-              rel.created_at,
-              rel.updated_at,
-              rp.user_id AS ria_user_id,
-              rp.display_name AS ria_display_name,
-              rp.verification_status AS ria_verification_status,
-              share.status AS relationship_share_status,
-              share.granted_at AS relationship_share_granted_at
-            FROM advisor_investor_relationships rel
-            JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
-            JOIN relationship_share_grants share
-              ON share.relationship_id = rel.id
-             AND share.grant_key = 'ria_active_picks_feed_v1'
-             AND share.status = 'active'
-             AND share.connection_scope_proposal_id IS NOT NULL
-            JOIN connection_scope_proposals proposal
-              ON proposal.id = share.connection_scope_proposal_id
-             AND proposal.status = 'active'
-             AND proposal.capability_key = 'ria_active_picks_feed_v1'
-            WHERE rel.investor_user_id = :owner_user_id
-               OR rp.user_id = :owner_user_id
-            ORDER BY COALESCE(rel.consent_granted_at, rel.updated_at, rel.created_at) DESC
-            LIMIT 100
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in rows:
             if row.get("investor_user_id") == owner_user_id:
                 other_user_id = str(row.get("ria_user_id") or "")
@@ -1811,32 +1737,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        rows: list[dict[str, Any]],
     ) -> None:
-        rows = self._optional_signal_rows(
-            signal_name="ria_firm_memberships",
-            sql="""
-            SELECT
-              peer_rp.user_id AS peer_user_id,
-              firm.legal_name AS firm_name,
-              peer_membership.role_title AS peer_role_title,
-              owner_membership.updated_at AS owner_membership_updated_at,
-              peer_membership.updated_at AS peer_membership_updated_at
-            FROM ria_profiles owner_rp
-            JOIN ria_firm_memberships owner_membership
-              ON owner_membership.ria_profile_id = owner_rp.id
-             AND owner_membership.membership_status = 'active'
-            JOIN ria_firm_memberships peer_membership
-              ON peer_membership.firm_id = owner_membership.firm_id
-             AND peer_membership.membership_status = 'active'
-            JOIN ria_profiles peer_rp ON peer_rp.id = peer_membership.ria_profile_id
-            JOIN ria_firms firm ON firm.id = owner_membership.firm_id
-            WHERE owner_rp.user_id = :owner_user_id
-              AND peer_rp.user_id <> :owner_user_id
-            ORDER BY COALESCE(peer_membership.updated_at, owner_membership.updated_at) DESC
-            LIMIT 100
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in rows:
             peer_user_id = str(row.get("peer_user_id") or "")
             if peer_user_id not in recipient_ids:
@@ -1869,19 +1771,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        rows: list[dict[str, Any]],
     ) -> None:
-        rows = self._optional_signal_rows(
-            signal_name="marketplace_public_profiles",
-            sql="""
-            SELECT user_id, profile_type, headline, strategy_summary,
-                   verification_badge, metadata, updated_at, created_at
-            FROM marketplace_public_profiles
-            WHERE is_discoverable = TRUE
-            ORDER BY updated_at DESC
-            LIMIT 200
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         owner_terms: set[str] = set()
         for row in rows:
             if str(row.get("user_id") or "") == owner_user_id:
@@ -1938,18 +1829,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        rows: list[dict[str, Any]],
     ) -> None:
-        rows = self._optional_signal_rows(
-            signal_name="runtime_persona_state",
-            sql="""
-            SELECT user_id, last_active_persona, updated_at
-            FROM runtime_persona_state
-            WHERE user_id <> :owner_user_id
-            ORDER BY updated_at DESC
-            LIMIT 200
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in rows:
             user_id = str(row.get("user_id") or "")
             if user_id not in recipient_ids:
@@ -2013,45 +1894,233 @@ class OneLocationAgentService:
                     weight=4,
                 )
 
+        # All 10 of these are independent, unrelated reads keyed only by
+        # `owner_user_id` -- nothing here depends on another section's
+        # result, so fetching them one cross-continent round trip at a time
+        # was pure serialized RTT. This was the single largest contributor
+        # to `list_state`'s (and, through it, the consent summary's) query
+        # latency: roughly half of the ~23 queries a Location load measured
+        # at came from this one enrichment step alone. Each function below
+        # keeps its own unchanged row-processing logic; only WHERE the rows
+        # come from changed.
+        _signal_rows = self._run_read_queries_parallel(
+            [
+                (
+                    "one_location_grants",
+                    """
+                    SELECT owner_user_id, recipient_user_id, status, created_at, updated_at,
+                           expires_at, revoked_at
+                    FROM one_location_share_grants
+                    WHERE owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id
+                    ORDER BY created_at DESC
+                    LIMIT 100
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "one_location_requests",
+                    """
+                    SELECT owner_user_id, requester_user_id, referred_by_user_id, status,
+                           requested_at, resolved_at
+                    FROM one_location_access_requests
+                    WHERE owner_user_id = :owner_user_id OR requester_user_id = :owner_user_id
+                    ORDER BY requested_at DESC
+                    LIMIT 100
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "one_location_referrals",
+                    """
+                    SELECT owner_user_id, referring_user_id, referred_user_id, status,
+                           created_at, resolved_at
+                    FROM one_location_referrals
+                    WHERE owner_user_id = :owner_user_id
+                       OR referring_user_id = :owner_user_id
+                       OR referred_user_id = :owner_user_id
+                    ORDER BY created_at DESC
+                    LIMIT 100
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "consent_audit",
+                    """
+                    SELECT user_id, agent_id, action, issued_at
+                    FROM consent_audit
+                    WHERE user_id = :owner_user_id OR agent_id = :owner_user_id
+                    ORDER BY issued_at DESC
+                    LIMIT 100
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "trusted_connections",
+                    """
+                    SELECT owner_user_id, trusted_user_id, status, created_at, updated_at
+                    FROM trusted_connections
+                    WHERE status = 'active'
+                      AND owner_user_id = :owner_user_id
+                    ORDER BY created_at DESC
+                    LIMIT 200
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "mutual_kai_relationships",
+                    """
+                    SELECT rel.investor_user_id, rel.created_at, rel.updated_at,
+                           rp.user_id AS ria_user_id
+                    FROM advisor_investor_relationships rel
+                    JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
+                    JOIN relationship_share_grants share
+                      ON share.relationship_id = rel.id
+                     AND share.grant_key = 'ria_active_picks_feed_v1'
+                     AND share.status = 'active'
+                     AND share.connection_scope_proposal_id IS NOT NULL
+                    JOIN connection_scope_proposals proposal
+                      ON proposal.id = share.connection_scope_proposal_id
+                     AND proposal.status = 'active'
+                     AND proposal.capability_key = 'ria_active_picks_feed_v1'
+                    WHERE rel.status = 'approved'
+                    ORDER BY COALESCE(rel.updated_at, rel.created_at) DESC
+                    LIMIT 500
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "advisor_investor_relationships",
+                    """
+                    SELECT
+                      rel.investor_user_id,
+                      rel.status,
+                      rel.granted_scope,
+                      rel.consent_granted_at,
+                      rel.created_at,
+                      rel.updated_at,
+                      rp.user_id AS ria_user_id,
+                      rp.display_name AS ria_display_name,
+                      rp.verification_status AS ria_verification_status,
+                      share.status AS relationship_share_status,
+                      share.granted_at AS relationship_share_granted_at
+                    FROM advisor_investor_relationships rel
+                    JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
+                    JOIN relationship_share_grants share
+                      ON share.relationship_id = rel.id
+                     AND share.grant_key = 'ria_active_picks_feed_v1'
+                     AND share.status = 'active'
+                     AND share.connection_scope_proposal_id IS NOT NULL
+                    JOIN connection_scope_proposals proposal
+                      ON proposal.id = share.connection_scope_proposal_id
+                     AND proposal.status = 'active'
+                     AND proposal.capability_key = 'ria_active_picks_feed_v1'
+                    WHERE rel.investor_user_id = :owner_user_id
+                       OR rp.user_id = :owner_user_id
+                    ORDER BY COALESCE(rel.consent_granted_at, rel.updated_at, rel.created_at) DESC
+                    LIMIT 100
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "ria_firm_memberships",
+                    """
+                    SELECT
+                      peer_rp.user_id AS peer_user_id,
+                      firm.legal_name AS firm_name,
+                      peer_membership.role_title AS peer_role_title,
+                      owner_membership.updated_at AS owner_membership_updated_at,
+                      peer_membership.updated_at AS peer_membership_updated_at
+                    FROM ria_profiles owner_rp
+                    JOIN ria_firm_memberships owner_membership
+                      ON owner_membership.ria_profile_id = owner_rp.id
+                     AND owner_membership.membership_status = 'active'
+                    JOIN ria_firm_memberships peer_membership
+                      ON peer_membership.firm_id = owner_membership.firm_id
+                     AND peer_membership.membership_status = 'active'
+                    JOIN ria_profiles peer_rp ON peer_rp.id = peer_membership.ria_profile_id
+                    JOIN ria_firms firm ON firm.id = owner_membership.firm_id
+                    WHERE owner_rp.user_id = :owner_user_id
+                      AND peer_rp.user_id <> :owner_user_id
+                    ORDER BY COALESCE(peer_membership.updated_at, owner_membership.updated_at) DESC
+                    LIMIT 100
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "marketplace_public_profiles",
+                    """
+                    SELECT user_id, profile_type, headline, strategy_summary,
+                           verification_badge, metadata, updated_at, created_at
+                    FROM marketplace_public_profiles
+                    WHERE is_discoverable = TRUE
+                    ORDER BY updated_at DESC
+                    LIMIT 200
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "runtime_persona_state",
+                    """
+                    SELECT user_id, last_active_persona, updated_at
+                    FROM runtime_persona_state
+                    WHERE user_id <> :owner_user_id
+                    ORDER BY updated_at DESC
+                    LIMIT 200
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+            ]
+        )
+
         self._add_one_location_history_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            grant_rows=_signal_rows["one_location_grants"],
+            request_rows=_signal_rows["one_location_requests"],
+            referral_rows=_signal_rows["one_location_referrals"],
         )
         self._add_prior_consent_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            rows=_signal_rows["consent_audit"],
         )
         self._add_one_network_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            rows=_signal_rows["trusted_connections"],
         )
         self._add_mutual_kai_relationship_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            rows=_signal_rows["mutual_kai_relationships"],
         )
         self._add_professional_network_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            rows=_signal_rows["advisor_investor_relationships"],
         )
         self._add_organization_membership_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            rows=_signal_rows["ria_firm_memberships"],
         )
         self._add_marketplace_profile_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            rows=_signal_rows["marketplace_public_profiles"],
         )
         self._add_persona_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            rows=_signal_rows["runtime_persona_state"],
         )
 
         enriched: list[dict[str, Any]] = []
@@ -6075,22 +6144,12 @@ class OneLocationAgentService:
         # Resilience: one failing auxiliary section (e.g. schema drift on a
         # rarely-used table) must NOT 500 the whole endpoint. A 500 here cascades
         # into the consent-center contributor (which then returns empty buckets)
-        # AND breaks the One Location page on every load. Each section is wrapped
-        # so a partial failure degrades to an empty list, logged for triage,
-        # while the rest of the state still loads. The backend still enforces
-        # real access on every read/write path.
-        def _safe_many(label: str, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
-            try:
-                return self._execute_many(sql, params)
-            except Exception as exc:  # noqa: BLE001 - degrade, never 500 the page
-                logger.warning(
-                    "one_location.list_state.section_failed section=%s user=%s error=%s",
-                    label,
-                    user_id,
-                    exc,
-                )
-                return []
-
+        # AND breaks the One Location page on every load. Each section below is
+        # fetched by `_run_read_queries_parallel`, which gives every task the
+        # same per-section degrade-to-`[]`-and-log resilience a sequential
+        # `_safe_many` call gave it before, while running the 10 independent
+        # reads concurrently instead of one cross-continent round trip at a
+        # time -- this loop used to be most of why this endpoint was slow.
         read_only_state = str(
             os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or ""
         ).strip().lower() in {"1", "true", "yes", "on"}
@@ -6142,171 +6201,185 @@ class OneLocationAgentService:
                 exc,
             )
             circle_member_invites = []
-        owner_grants = _safe_many(
-            "owner_grants",
-            """
-            SELECT
-              g.*,
-              r.display_name AS recipient_display_name,
-              r.phone_number AS recipient_phone_number
-            FROM one_location_share_grants g
-            LEFT JOIN actor_identity_cache r ON r.user_id = g.recipient_user_id
-            WHERE g.owner_user_id = :user_id
-            ORDER BY g.created_at DESC
-            LIMIT 50
-            """,
-            {"user_id": user_id},
-        )
-        received_grants = _safe_many(
-            "received_grants",
-            """
-            SELECT
-              g.*,
-              o.display_name AS owner_display_name,
-              o.phone_number AS owner_phone_number
-            FROM one_location_share_grants g
-            LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
-            WHERE g.recipient_user_id = :user_id
-            ORDER BY g.created_at DESC
-            LIMIT 50
-            """,
-            {"user_id": user_id},
-        )
-        requests = _safe_many(
-            "requests",
-            """
-            SELECT
-              req.*,
-              requester.display_name AS requester_display_name,
-              requester.phone_number AS requester_phone_number,
-              extended.expires_at AS extends_grant_expires_at
-            FROM one_location_access_requests req
-            LEFT JOIN actor_identity_cache requester ON requester.user_id = req.requester_user_id
-            -- The live share an extra-time ask is about. Joined here so both
-            -- sides can render "3 more hours on top of the 45 minutes left"
-            -- from the state they already load, with no per-row round trip.
-            LEFT JOIN one_location_share_grants extended ON extended.id = req.extends_grant_id
-            WHERE req.owner_user_id = :user_id OR req.requester_user_id = :user_id
-            ORDER BY req.requested_at DESC
-            LIMIT 50
-            """,
-            {"user_id": user_id},
-        )
-        referrals = _safe_many(
-            "referrals",
-            """
-            SELECT *
-            FROM one_location_referrals
-            WHERE owner_user_id = :user_id
-               OR referring_user_id = :user_id
-               OR referred_user_id = :user_id
-            ORDER BY created_at DESC
-            LIMIT 50
-            """,
-            {"user_id": user_id},
-        )
-        public_invites = _safe_many(
-            "public_invites",
-            """
-            SELECT *
-            FROM one_location_public_invites
-            WHERE owner_user_id = :user_id
-            ORDER BY created_at DESC
-            LIMIT 20
-            """,
-            {"user_id": user_id},
-        )
-        circle_invites = _safe_many(
-            "circle_invites",
-            """
-            SELECT *
-            FROM one_location_circle_invites
-            WHERE owner_user_id = :user_id
-               OR claimed_by_user_id = :user_id
-            ORDER BY created_at DESC
-            LIMIT 20
-            """,
-            {"user_id": user_id},
-        )
-        network_connections = _safe_many(
-            "network_connections",
-            """
-            SELECT id, owner_user_id, trusted_user_id, status, created_at, updated_at, revoked_at
-            FROM trusted_connections
-            WHERE status = 'active'
-              AND owner_user_id = :user_id
-            ORDER BY created_at DESC
-            LIMIT 50
-            """,
-            {"user_id": user_id},
-        )
-        sms_contacts = _safe_many(
-            "sms_contacts",
-            """
-            SELECT sms.contact_user_id
-            FROM one_location_sms_contacts sms
-            WHERE sms.owner_user_id = :user_id
-              AND EXISTS (
-                SELECT 1 WHERE EXISTS (
-                  SELECT 1
-                  FROM connections c
-                  WHERE c.status = 'active'
-                    AND (
-                      (c.user_a_id = :user_id AND c.user_b_id = sms.contact_user_id)
-                      OR
-                      (c.user_b_id = :user_id AND c.user_a_id = sms.contact_user_id)
-                    )
-                )
-                OR EXISTS (
-                  SELECT 1
-                  FROM one_location_circle_memberships mine
-                  JOIN one_location_circle_memberships theirs
-                    ON theirs.circle_id = mine.circle_id
-                   AND theirs.user_id = sms.contact_user_id
-                   AND theirs.status = 'active'
-                  JOIN one_location_circles circle
-                    ON circle.id = mine.circle_id
-                   AND circle.status = 'active'
-                  WHERE mine.user_id = :user_id
-                    AND mine.status = 'active'
-                )
-              )
-            ORDER BY sms.created_at, sms.contact_user_id
-            """,
-            {"user_id": user_id},
-        )
-        public_submissions = _safe_many(
-            "public_submissions",
-            """
-            SELECT
-              submission.*,
-              req.status AS request_status
-            FROM one_location_public_invite_submissions submission
-            LEFT JOIN one_location_access_requests req ON req.id = submission.request_id
-            WHERE submission.owner_user_id = :user_id
-               OR submission.matched_user_id = :user_id
-            ORDER BY submission.submitted_at DESC
-            LIMIT 50
-            """,
-            {"user_id": user_id},
-        )
         # The caller's OWN active recipient key, including the opaque
         # vault-key-encrypted private blob. Scoped to this user_id and returned only
         # here (never in the `recipients` list shown to other users), so a device the
         # user signs into can recover the shared keypair after vault unlock.
-        my_recipient_key_rows = _safe_many(
-            "my_recipient_key",
-            """
-            SELECT key_id, public_key_jwk, algorithm, encrypted_private_key_jwk,
-                   created_at AS key_created_at
-            FROM one_location_recipient_keys
-            WHERE user_id = :user_id
-              AND status = 'active'
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            {"user_id": user_id},
+        _sections = self._run_read_queries_parallel(
+            [
+                (
+                    "owner_grants",
+                    """
+                    SELECT
+                      g.*,
+                      r.display_name AS recipient_display_name,
+                      r.phone_number AS recipient_phone_number
+                    FROM one_location_share_grants g
+                    LEFT JOIN actor_identity_cache r ON r.user_id = g.recipient_user_id
+                    WHERE g.owner_user_id = :user_id
+                    ORDER BY g.created_at DESC
+                    LIMIT 50
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "received_grants",
+                    """
+                    SELECT
+                      g.*,
+                      o.display_name AS owner_display_name,
+                      o.phone_number AS owner_phone_number
+                    FROM one_location_share_grants g
+                    LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
+                    WHERE g.recipient_user_id = :user_id
+                    ORDER BY g.created_at DESC
+                    LIMIT 50
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "requests",
+                    """
+                    SELECT
+                      req.*,
+                      requester.display_name AS requester_display_name,
+                      requester.phone_number AS requester_phone_number,
+                      extended.expires_at AS extends_grant_expires_at
+                    FROM one_location_access_requests req
+                    LEFT JOIN actor_identity_cache requester ON requester.user_id = req.requester_user_id
+                    -- The live share an extra-time ask is about. Joined here so both
+                    -- sides can render "3 more hours on top of the 45 minutes left"
+                    -- from the state they already load, with no per-row round trip.
+                    LEFT JOIN one_location_share_grants extended ON extended.id = req.extends_grant_id
+                    WHERE req.owner_user_id = :user_id OR req.requester_user_id = :user_id
+                    ORDER BY req.requested_at DESC
+                    LIMIT 50
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "referrals",
+                    """
+                    SELECT *
+                    FROM one_location_referrals
+                    WHERE owner_user_id = :user_id
+                       OR referring_user_id = :user_id
+                       OR referred_user_id = :user_id
+                    ORDER BY created_at DESC
+                    LIMIT 50
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "public_invites",
+                    """
+                    SELECT *
+                    FROM one_location_public_invites
+                    WHERE owner_user_id = :user_id
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "circle_invites",
+                    """
+                    SELECT *
+                    FROM one_location_circle_invites
+                    WHERE owner_user_id = :user_id
+                       OR claimed_by_user_id = :user_id
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "network_connections",
+                    """
+                    SELECT id, owner_user_id, trusted_user_id, status, created_at, updated_at, revoked_at
+                    FROM trusted_connections
+                    WHERE status = 'active'
+                      AND owner_user_id = :user_id
+                    ORDER BY created_at DESC
+                    LIMIT 50
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "sms_contacts",
+                    """
+                    SELECT sms.contact_user_id
+                    FROM one_location_sms_contacts sms
+                    WHERE sms.owner_user_id = :user_id
+                      AND EXISTS (
+                        SELECT 1 WHERE EXISTS (
+                          SELECT 1
+                          FROM connections c
+                          WHERE c.status = 'active'
+                            AND (
+                              (c.user_a_id = :user_id AND c.user_b_id = sms.contact_user_id)
+                              OR
+                              (c.user_b_id = :user_id AND c.user_a_id = sms.contact_user_id)
+                            )
+                        )
+                        OR EXISTS (
+                          SELECT 1
+                          FROM one_location_circle_memberships mine
+                          JOIN one_location_circle_memberships theirs
+                            ON theirs.circle_id = mine.circle_id
+                           AND theirs.user_id = sms.contact_user_id
+                           AND theirs.status = 'active'
+                          JOIN one_location_circles circle
+                            ON circle.id = mine.circle_id
+                           AND circle.status = 'active'
+                          WHERE mine.user_id = :user_id
+                            AND mine.status = 'active'
+                        )
+                      )
+                    ORDER BY sms.created_at, sms.contact_user_id
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "public_submissions",
+                    """
+                    SELECT
+                      submission.*,
+                      req.status AS request_status
+                    FROM one_location_public_invite_submissions submission
+                    LEFT JOIN one_location_access_requests req ON req.id = submission.request_id
+                    WHERE submission.owner_user_id = :user_id
+                       OR submission.matched_user_id = :user_id
+                    ORDER BY submission.submitted_at DESC
+                    LIMIT 50
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "my_recipient_key",
+                    """
+                    SELECT key_id, public_key_jwk, algorithm, encrypted_private_key_jwk,
+                           created_at AS key_created_at
+                    FROM one_location_recipient_keys
+                    WHERE user_id = :user_id
+                      AND status = 'active'
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    {"user_id": user_id},
+                ),
+            ]
         )
+        owner_grants = _sections["owner_grants"]
+        received_grants = _sections["received_grants"]
+        requests = _sections["requests"]
+        referrals = _sections["referrals"]
+        public_invites = _sections["public_invites"]
+        circle_invites = _sections["circle_invites"]
+        network_connections = _sections["network_connections"]
+        sms_contacts = _sections["sms_contacts"]
+        public_submissions = _sections["public_submissions"]
+        my_recipient_key_rows = _sections["my_recipient_key"]
         my_recipient_key = None
         if my_recipient_key_rows:
             _mrk = my_recipient_key_rows[0]

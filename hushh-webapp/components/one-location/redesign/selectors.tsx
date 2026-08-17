@@ -46,6 +46,7 @@ export function DurationSelector({
   presentation = "buttons",
   untilStopValue,
   allowUntilStop = true,
+  maxWidthClassName = "max-w-[420px]",
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -67,13 +68,36 @@ export function DurationSelector({
    * `Number()`, because the sentinel is a non-numeric string.
    */
   allowUntilStop?: boolean;
+  /**
+   * Width cap for the whole group.
+   *
+   * Defaults to 420px because two of the seven call sites — the live-share
+   * "New time" editor and the People tab's "New duration" — render straight
+   * into the 880px shell with no column of their own, and without this they
+   * stretch to 792px and their duration cells reach 258px. A caller whose
+   * column is ALREADY measured passes `null` so the control fills it instead
+   * of sitting short inside its own card.
+   */
+  maxWidthClassName?: string | null;
 }) {
   const labelId = useId();
 
   return (
-    <div className="space-y-2.5">
+    // `max-w-[420px]` on the GROUP, not on the ladder inside it. The label and
+    // the "Ends 1:25 AM" read-back live at this level; clamping only the
+    // buttons left the hint floating ~370px to the right of the control it
+    // reads back, on an 880px shell. Inert on every phone — the card is
+    // narrower than 420 there — which is deliberate: this half of the report
+    // was a desktop screenshot of 258px-wide duration cells.
+    <div className={cn(maxWidthClassName, "space-y-2.5")}>
       {label || hint ? (
-        <div className="flex items-baseline justify-between gap-3">
+        // The read-back sits NEXT TO the label, not pushed to the far edge.
+        // `justify-between` orphaned "Ends 4:03 AM" hundreds of px from the
+        // "How long" it reads back — 277px at 1440 even with the group clamped,
+        // and any wider column made it worse. They are one statement, so they
+        // are now one group, and the width of the control stops deciding how
+        // far apart they read.
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           {label ? (
             <p
               id={labelId}
@@ -85,7 +109,7 @@ export function DurationSelector({
             <span aria-hidden />
           )}
           {hint ? (
-            <p className={cn(MUTED_TEXT, "shrink-0 text-right")} aria-live="polite">
+            <p className={cn(MUTED_TEXT, "shrink-0")} aria-live="polite">
               {hint}
             </p>
           ) : null}

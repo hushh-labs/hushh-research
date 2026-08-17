@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { resolveTopShellGeometryStyle } from "@/components/app-ui/signed-in-shell-content-offset";
+
 const WEBAPP_ROOT = path.resolve(__dirname, "../..");
 
 function read(relativePath: string) {
@@ -30,19 +32,36 @@ describe("tabbed ambient chrome contract", () => {
       "--ambient-chrome-wash: var(--ambient-chrome-fade-solid)",
     );
     expect(styles).toContain("var(--top-fade-active)");
-    expect(providers).toContain(
-      '"--top-fade-active": topShellMetrics.hasTabs ? "20px" : "22px"',
-    );
     expect(providers).toContain('"--top-ambient-tab-tail-midpoint": "8px"');
     expect(styles).not.toContain(
       "calc(var(--top-shell-reserved-height) + 50px)",
     );
-    expect(providers).toContain('"--top-shell-reserved-height":');
-    expect(providers).toContain('"--top-shell-visual-height":');
-    expect(providers).toContain('"--top-shell-live-height":');
-    expect(providers).toContain('"--top-shell-mask-tabs-gap":');
-    expect(providers).toContain('"--top-shell-mask-visible-height":');
-    expect(providers).toContain('"--top-tabs-total",');
+
+    // The derived geometry moved out of this file into one exported function
+    // so the layout contract can build the same shell (safe-changes R22).
+    // Assert the resolved values rather than the source text: a grep for a
+    // literal line breaks on any refactor while proving nothing about output.
+    expect(providers).toContain("resolveTopShellGeometryStyle({");
+
+    const plain = resolveTopShellGeometryStyle({ hasTabs: false });
+    const tabbed = resolveTopShellGeometryStyle({ hasTabs: true });
+
+    expect(plain["--top-fade-active"]).toBe("22px");
+    expect(tabbed["--top-fade-active"]).toBe("20px");
+    expect(plain["--top-tabs-total"]).toBe("0px");
+    expect(tabbed["--top-tabs-total"]).toBe(
+      "calc(var(--top-tabs-h) + var(--top-tabs-gap))",
+    );
+    for (const token of [
+      "--top-shell-reserved-height",
+      "--top-shell-visual-height",
+      "--top-shell-live-height",
+      "--top-shell-mask-tabs-gap",
+      "--top-shell-mask-visible-height",
+    ]) {
+      expect(plain[token], `${token} must be declared at route-shell scope`)
+        .toBeTruthy();
+    }
   });
 
   it("keeps the Consent bounded manager clear of the tab-mask tail", () => {

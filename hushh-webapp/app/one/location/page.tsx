@@ -61,7 +61,11 @@ import { SaveLocationModal } from "@/components/one-location/onboarding/save-loc
 import type { PickedLocation } from "@/components/one-location/onboarding/location-picker-map";
 import {
   addSavedLocation,
+  defaultLabelForCategory,
   DuplicateSavedLocationError,
+  loadSavedLocations,
+  removeSavedLocation,
+  type SavedLocation,
   type SavedLocationCategory,
 } from "@/lib/one-location/saved-locations";
 import {
@@ -140,6 +144,10 @@ import {
   recipientSelectionFromIds,
   resolveEffectiveShareRecipients,
 } from "@/lib/one-location/share-recipient-selection";
+import {
+  ambiguousMatchNames,
+  resolveBySpokenName,
+} from "@/lib/one-location/resolve-by-spoken-name";
 
 
 import {
@@ -389,6 +397,18 @@ const PRIVATE_SHARE_DURATION_LABELS: Record<string, string> = {
   "8": "8 hours",
   until_stopped: "Until I stop",
 };
+
+// A spoken-safe version of PRIVATE_SHARE_DURATION_LABELS -- covers every
+// value SHARE_VOICE_DURATION_VALUES actually accepts ("0.5" and "24" are not
+// in that map, since it backs a different, UI-only label) and reads as a
+// sentence fragment ("30 minutes") rather than a compact chip ("30 min").
+function shareVoiceDurationSpokenLabel(value: string): string {
+  if (value === SHARE_DURATION_UNTIL_STOP_VALUE) return "until you stop it";
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return value;
+  if (hours < 1) return `${Math.round(hours * 60)} minutes`;
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
 
 /**
  * How many recipients a single share fans out to concurrently.
@@ -9022,6 +9042,276 @@ export function OneLocationAgentPageContent({
     return { ...result, routeAfter: landOn, screenAfter: "one_location" };
   });
 
+  useLocalOnboardingActionHandler("location.stop_share", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say whose access you want to stop." };
+    }
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before stopping a share." };
+    }
+    const resolved = resolveBySpokenName(
+      activeOwnerGrants,
+      spoken,
+      (grant) => grant.recipientDisplayName,
+    );
+    if (resolved.kind === "none") {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody currently has your location shared with that name.",
+      };
+    }
+    if (resolved.kind === "many") {
+      // Never guess between people, same as picking a share recipient.
+      const names = ambiguousMatchNames(resolved.matches, (grant) => grant.recipientDisplayName);
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} active shares match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} active shares match that name. Ask which one they meant.`,
+      };
+    }
+    const grant = resolved.match;
+    // handleRevoke is best-effort (its own toast carries a real failure); the
+    // same trust handleStopSos already gets for the identical shape.
+    await handleRevoke(grant.id);
+    return {
+      status: "succeeded" as const,
+      summary: `Stopped sharing your location with ${(grant.recipientDisplayName || "them").trim()}.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.approve_request", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say whose request you want to approve." };
+    }
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before approving a request." };
+    }
+    const resolved = resolveBySpokenName(
+      pendingOwnerRequests,
+      spoken,
+      (request) => request.requesterDisplayName,
+    );
+    if (resolved.kind === "none") {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody is waiting on your decision with that name.",
+      };
+    }
+    if (resolved.kind === "many") {
+      const names = ambiguousMatchNames(
+        resolved.matches,
+        (request) => request.requesterDisplayName,
+      );
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} requests match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} requests match that name. Ask which one they meant.`,
+      };
+    }
+    const request = resolved.match;
+    await handleApprove(request);
+    return {
+      status: "succeeded" as const,
+      summary: `Approved ${(request.requesterDisplayName || "their").trim()}'s request.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.decline_request", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say whose request you want to decline." };
+    }
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before declining a request." };
+    }
+    const resolved = resolveBySpokenName(
+      pendingOwnerRequests,
+      spoken,
+      (request) => request.requesterDisplayName,
+    );
+    if (resolved.kind === "none") {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody is waiting on your decision with that name.",
+      };
+    }
+    if (resolved.kind === "many") {
+      const names = ambiguousMatchNames(
+        resolved.matches,
+        (request) => request.requesterDisplayName,
+      );
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} requests match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} requests match that name. Ask which one they meant.`,
+      };
+    }
+    const request = resolved.match;
+    await handleDeny(request.id);
+    return {
+      status: "succeeded" as const,
+      summary: `Declined ${(request.requesterDisplayName || "their").trim()}'s request.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.change_share_duration", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say whose access time you want to change." };
+    }
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before changing a share's time." };
+    }
+    const requested = String(slots?.duration_hours ?? "").trim();
+    if (!SHARE_VOICE_DURATION_VALUES.has(requested)) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Say how long: 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, 24 hours, or until you stop it.",
+      };
+    }
+    const resolved = resolveBySpokenName(
+      activeOwnerGrants,
+      spoken,
+      (grant) => grant.recipientDisplayName,
+    );
+    if (resolved.kind === "none") {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody currently has your location shared with that name.",
+      };
+    }
+    if (resolved.kind === "many") {
+      const names = ambiguousMatchNames(resolved.matches, (grant) => grant.recipientDisplayName);
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} active shares match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} active shares match that name. Ask which one they meant.`,
+      };
+    }
+    const grant = resolved.match;
+    const untilStopped = requested === SHARE_DURATION_UNTIL_STOP_VALUE;
+    try {
+      await OneLocationService.setGrantDuration({
+        vaultOwnerToken,
+        grantId: grant.id,
+        durationHours: untilStopped ? null : Number(requested),
+        durationMode: untilStopped ? "until_stopped" : "timed",
+      });
+      void refresh({ background: true }).catch(() => null);
+    } catch (error) {
+      return {
+        status: "blocked" as const,
+        summary:
+          error instanceof Error ? error.message : "Couldn't change the time. Try again.",
+      };
+    }
+    const name = (grant.recipientDisplayName || "them").trim();
+    return {
+      status: "succeeded" as const,
+      summary: untilStopped
+        ? `Changed ${name}'s access to last until you stop it.`
+        : `Changed ${name}'s access to ${shareVoiceDurationSpokenLabel(requested)}.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.select_ask_recipient", async (slots) => {
+    // Mirrors location.select_share_recipient's own matching/ambiguity
+    // rules exactly -- same connections list, same "never guess" discipline
+    // -- because asking someone for their location and sharing yours with
+    // them draw from the identical pool of people.
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say who you want to ask." };
+    }
+    let resolved = resolveBySpokenName(
+      contactSignalRecipients,
+      spoken,
+      recipientLabel,
+      recommendationSearchText,
+    );
+    if (resolved.kind === "none" && !vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see who you are connected to while the vault is locked, so I cannot tell whether they are there.",
+      };
+    }
+    if (resolved.kind === "none" && vaultOwnerToken) {
+      try {
+        const freshRecipients = await OneLocationService.listRecipients(vaultOwnerToken);
+        resolved = resolveBySpokenName(
+          rankRecipientsForRecommendation(
+            enrichRecipientsWithContactSignal(freshRecipients, contactMatchedUserIds),
+            contactMatchedUserIds,
+          ),
+          spoken,
+          recipientLabel,
+          recommendationSearchText,
+        );
+      } catch {
+        return {
+          status: "blocked" as const,
+          summary: "Location is still loading your connections. Please try that name again in a moment.",
+        };
+      }
+    }
+    if (resolved.kind === "none") {
+      return { status: "blocked" as const, summary: "Nobody in your connections matches that name." };
+    }
+    if (resolved.kind === "many") {
+      const names = ambiguousMatchNames(resolved.matches, recipientLabel);
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} people match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} people match that name. Ask which one they meant.`,
+      };
+    }
+    const match = resolved.match;
+    addRequestOwner(match.userId);
+    return {
+      status: "succeeded" as const,
+      summary: `Picked ${recipientLabel(match).trim()} to ask. Say "send it" to send the request.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.send_request", async () => {
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before sending a request." };
+    }
+    if (!selectedRequestOwners.length) {
+      return {
+        status: "blocked" as const,
+        summary: "Say who you want to ask first, then say send it.",
+      };
+    }
+    const names = selectedRequestOwners
+      .map((owner) => recipientLabel(owner).trim())
+      .filter(Boolean)
+      .join(", ");
+    const sent = await handleRequestAccess();
+    if (!sent) {
+      return {
+        status: "blocked" as const,
+        summary: "Couldn't send the request. Try again.",
+      };
+    }
+    return {
+      status: "succeeded" as const,
+      summary:
+        selectedRequestOwners.length === 1
+          ? `Asked ${names || "them"} for their location.`
+          : `Asked ${selectedRequestOwners.length} people for their location.`,
+    };
+  });
+
   useLocalOnboardingActionHandler("location.stop_sos", async () => {
     if (!vaultOwnerToken) {
       return {
@@ -9265,6 +9555,50 @@ export function OneLocationAgentPageContent({
       return { circle: match };
     },
     [namedCircles],
+  );
+
+  /** Shared by the accept/decline circle-invitation voice handlers. */
+  const resolveVoiceCircleInvite = useCallback(
+    (
+      spoken: string,
+    ): { invite: OneLocationCircleMemberInvite } | { blocked: string } => {
+      if (!incomingCircleMemberInvites.length) {
+        return { blocked: "You do not have any pending circle invitations." };
+      }
+      if (!spoken) {
+        const [onlyInvite] = incomingCircleMemberInvites;
+        if (onlyInvite && incomingCircleMemberInvites.length === 1) {
+          return { invite: onlyInvite };
+        }
+        return {
+          blocked: `Say which circle: ${incomingCircleMemberInvites
+            .map((invite) => invite.circleName)
+            .join(", ")}.`,
+        };
+      }
+      const resolved = resolveBySpokenName(
+        incomingCircleMemberInvites,
+        spoken,
+        (invite) => invite.circleName,
+      );
+      if (resolved.kind === "none") {
+        return {
+          blocked: `No pending invitation matches that circle name. Your invitations are: ${incomingCircleMemberInvites
+            .map((invite) => invite.circleName)
+            .join(", ")}.`,
+        };
+      }
+      if (resolved.kind === "many") {
+        return {
+          blocked: `More than one invitation matches that: ${ambiguousMatchNames(
+            resolved.matches,
+            (invite) => invite.circleName,
+          )}. Say which one.`,
+        };
+      }
+      return { invite: resolved.match };
+    },
+    [incomingCircleMemberInvites],
   );
 
   useLocalOnboardingActionHandler("location.create_circle", async (slots) => {
@@ -9540,6 +9874,439 @@ export function OneLocationAgentPageContent({
       };
     },
   );
+
+  useLocalOnboardingActionHandler("location.rename_circle", async (slots) => {
+    const spokenName = String(slots?.name ?? "").trim();
+    if (!spokenName) {
+      return {
+        status: "blocked" as const,
+        summary: "Say what you want to rename the circle to.",
+      };
+    }
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see your circles while the vault is locked.",
+      };
+    }
+    const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+    if ("blocked" in resolved) {
+      return { status: "blocked" as const, summary: resolved.blocked };
+    }
+    const circle = resolved.circle;
+    if (circle.viewerCapabilities?.canManageCircle === false) {
+      return {
+        status: "blocked" as const,
+        summary: `You cannot rename ${circle.name}. Only its owner can.`,
+      };
+    }
+    // Exact name only, same discipline as creating one -- a near match must
+    // still rename to what was actually said rather than silently no-op'ing.
+    if (normalizeSpokenName(circle.name) === normalizeSpokenName(spokenName)) {
+      return {
+        status: "succeeded" as const,
+        summary: `${circle.name} is already called that.`,
+      };
+    }
+    const duplicate = namedCircles.find(
+      (other) =>
+        other.id !== circle.id &&
+        normalizeSpokenName(other.name) === normalizeSpokenName(spokenName),
+    );
+    if (duplicate) {
+      return {
+        status: "blocked" as const,
+        summary: `You already have a circle called ${duplicate.name}. Pick a different name.`,
+      };
+    }
+    try {
+      const renamed = await handleRenameNamedCircle(circle.id, spokenName);
+      return {
+        status: "succeeded" as const,
+        summary: `Renamed ${circle.name} to ${renamed.name}.`,
+      };
+    } catch (error) {
+      return {
+        status: "failed" as const,
+        summary: oneLocationErrorMessage(error, "Could not rename the circle."),
+      };
+    }
+  });
+
+  useLocalOnboardingActionHandler("location.leave_circle", async (slots) => {
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see your circles while the vault is locked.",
+      };
+    }
+    const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+    if ("blocked" in resolved) {
+      return { status: "blocked" as const, summary: resolved.blocked };
+    }
+    const circle = resolved.circle;
+    if (circle.role === "owner") {
+      return {
+        status: "blocked" as const,
+        summary: `You own ${circle.name}, so you cannot leave it. Delete it instead, or hand off ownership first.`,
+      };
+    }
+    if (slots?.confirmed !== true) {
+      // Leaving takes away what this circle was sharing with the person, and
+      // is not always reversible if the owner does not re-invite them.
+      return {
+        status: "blocked" as const,
+        summary: `Leaving ${circle.name} needs a confirmation.`,
+        data: {
+          [VOICE_CONFIRM_DATA_KEY]: {
+            actionId: "location.leave_circle",
+            slots: { circle: String(slots?.circle ?? ""), confirmed: true },
+            prompt: `Leave ${circle.name}?`,
+            subject: { name: circle.name, detail: null },
+            consequence:
+              getKaiActionById("location.leave_circle")?.meaning ?? null,
+            confirmLabel: "Leave",
+          },
+        },
+      };
+    }
+    try {
+      await handleLeaveNamedCircle(circle.id);
+    } catch (error) {
+      return {
+        status: "failed" as const,
+        summary: oneLocationErrorMessage(error, "Could not leave the circle."),
+      };
+    }
+    return {
+      status: "succeeded" as const,
+      summary: `You left ${circle.name}.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.delete_circle", async (slots) => {
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see your circles while the vault is locked.",
+      };
+    }
+    const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+    if ("blocked" in resolved) {
+      return { status: "blocked" as const, summary: resolved.blocked };
+    }
+    const circle = resolved.circle;
+    if (circle.role !== "owner") {
+      return {
+        status: "blocked" as const,
+        summary: `You cannot delete ${circle.name}. Only its owner can -- leave it instead.`,
+      };
+    }
+    if (slots?.confirmed !== true) {
+      return {
+        status: "blocked" as const,
+        summary: `Deleting ${circle.name} needs a confirmation.`,
+        data: {
+          [VOICE_CONFIRM_DATA_KEY]: {
+            actionId: "location.delete_circle",
+            slots: { circle: String(slots?.circle ?? ""), confirmed: true },
+            prompt: `Delete ${circle.name}? Everyone in it loses access through it.`,
+            subject: {
+              name: circle.name,
+              detail: `${circle.memberCount} member${circle.memberCount === 1 ? "" : "s"}`,
+            },
+            consequence:
+              getKaiActionById("location.delete_circle")?.meaning ?? null,
+            confirmLabel: "Delete",
+          },
+        },
+      };
+    }
+    try {
+      await handleDeleteNamedCircle(circle.id);
+    } catch (error) {
+      return {
+        status: "failed" as const,
+        summary: oneLocationErrorMessage(error, "Could not delete the circle."),
+      };
+    }
+    return {
+      status: "succeeded" as const,
+      summary: `Deleted ${circle.name}.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler(
+    "location.accept_circle_invite",
+    async (slots) => {
+      if (!vaultOwnerToken) {
+        return {
+          status: "blocked" as const,
+          summary:
+            "Unlock One first -- I cannot see your circle invitations while the vault is locked.",
+        };
+      }
+      const resolved = resolveVoiceCircleInvite(
+        String(slots?.circle ?? "").trim(),
+      );
+      if ("blocked" in resolved) {
+        return { status: "blocked" as const, summary: resolved.blocked };
+      }
+      try {
+        await handleAcceptNamedCircleMemberInvite(resolved.invite.id);
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(error, "Could not join the circle."),
+        };
+      }
+      return {
+        status: "succeeded" as const,
+        summary: `Joined ${resolved.invite.circleName}.`,
+      };
+    },
+  );
+
+  useLocalOnboardingActionHandler(
+    "location.decline_circle_invite",
+    async (slots) => {
+      if (!vaultOwnerToken) {
+        return {
+          status: "blocked" as const,
+          summary:
+            "Unlock One first -- I cannot see your circle invitations while the vault is locked.",
+        };
+      }
+      const resolved = resolveVoiceCircleInvite(
+        String(slots?.circle ?? "").trim(),
+      );
+      if ("blocked" in resolved) {
+        return { status: "blocked" as const, summary: resolved.blocked };
+      }
+      try {
+        await handleDeclineNamedCircleMemberInvite(resolved.invite.id);
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(
+            error,
+            "Could not decline the invitation.",
+          ),
+        };
+      }
+      return {
+        status: "succeeded" as const,
+        summary: `Declined the invitation to ${resolved.invite.circleName}.`,
+      };
+    },
+  );
+
+  useLocalOnboardingActionHandler(
+    "location.save_current_location",
+    async (slots) => {
+      const spokenLabel = String(slots?.label ?? "").trim();
+      if (!spokenLabel) {
+        return {
+          status: "blocked" as const,
+          summary:
+            "Say what to call this place -- home, work, or a name like the gym.",
+        };
+      }
+      if (!vaultKey || !vaultOwnerToken || !auth.userId) {
+        return {
+          status: "blocked" as const,
+          summary: "Unlock One first -- I cannot save a place while the vault is locked.",
+        };
+      }
+      const normalized = normalizeSpokenName(spokenLabel);
+      const category: SavedLocationCategory =
+        normalized === "home" ? "home" : normalized === "work" ? "work" : "other";
+      const readiness = await ensureForegroundLocationReady({
+        capturePoint: true,
+        announce: false,
+      });
+      if (!readiness.ready || !readiness.point) {
+        return {
+          status: "failed" as const,
+          summary:
+            "Could not get your current location. Check that location access is on and try again.",
+        };
+      }
+      try {
+        await addSavedLocation({
+          context: { userId: auth.userId, vaultKey, vaultOwnerToken },
+          input: {
+            category,
+            label: spokenLabel,
+            latitude: readiness.point.latitude,
+            longitude: readiness.point.longitude,
+          },
+        });
+      } catch (error) {
+        if (error instanceof DuplicateSavedLocationError) {
+          return {
+            status: "succeeded" as const,
+            summary: `You already have a saved place near here called ${error.existingLabel}.`,
+          };
+        }
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(error, "Could not save this location."),
+        };
+      }
+      return {
+        status: "succeeded" as const,
+        summary:
+          category === "other"
+            ? `Saved this location as ${spokenLabel}.`
+            : `Saved this location as ${defaultLabelForCategory(category)}.`,
+      };
+    },
+  );
+
+  useLocalOnboardingActionHandler(
+    "location.delete_saved_location",
+    async (slots) => {
+      const spokenLabel = String(slots?.label ?? "").trim();
+      if (!vaultKey || !vaultOwnerToken || !auth.userId) {
+        return {
+          status: "blocked" as const,
+          summary:
+            "Unlock One first -- I cannot see your saved places while the vault is locked.",
+        };
+      }
+      let saved: SavedLocation[];
+      try {
+        saved = await loadSavedLocations({
+          userId: auth.userId,
+          vaultKey,
+          vaultOwnerToken,
+        });
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(error, "Could not load your saved places."),
+        };
+      }
+      if (!saved.length) {
+        return {
+          status: "blocked" as const,
+          summary: "You do not have any saved places yet.",
+        };
+      }
+      let target: SavedLocation | undefined;
+      if (!spokenLabel && saved.length === 1) {
+        target = saved[0];
+      } else {
+        const resolved = resolveBySpokenName(saved, spokenLabel, (loc) => loc.label);
+        if (resolved.kind === "none") {
+          return {
+            status: "blocked" as const,
+            summary: spokenLabel
+              ? `No saved place matches that name. Your saved places are: ${saved
+                  .map((loc) => loc.label)
+                  .join(", ")}.`
+              : `Say which saved place: ${saved.map((loc) => loc.label).join(", ")}.`,
+          };
+        }
+        if (resolved.kind === "many") {
+          return {
+            status: "blocked" as const,
+            summary: `More than one saved place matches that: ${ambiguousMatchNames(
+              resolved.matches,
+              (loc) => loc.label,
+            )}. Say which one.`,
+          };
+        }
+        target = resolved.match;
+      }
+      if (!target) {
+        return {
+          status: "blocked" as const,
+          summary: "You do not have any saved places yet.",
+        };
+      }
+      const resolvedTarget = target;
+      if (slots?.confirmed !== true) {
+        return {
+          status: "blocked" as const,
+          summary: `Deleting ${resolvedTarget.label} needs a confirmation.`,
+          data: {
+            [VOICE_CONFIRM_DATA_KEY]: {
+              actionId: "location.delete_saved_location",
+              slots: { label: spokenLabel, confirmed: true },
+              prompt: `Delete the saved place called ${resolvedTarget.label}?`,
+              subject: {
+                name: resolvedTarget.label,
+                detail: resolvedTarget.address ?? null,
+              },
+              consequence:
+                getKaiActionById("location.delete_saved_location")?.meaning ?? null,
+              confirmLabel: "Delete",
+            },
+          },
+        };
+      }
+      try {
+        await removeSavedLocation({
+          context: { userId: auth.userId, vaultKey, vaultOwnerToken },
+          id: resolvedTarget.id,
+        });
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(error, "Could not delete that saved place."),
+        };
+      }
+      return {
+        status: "succeeded" as const,
+        summary: `Deleted ${resolvedTarget.label}.`,
+      };
+    },
+  );
+
+  // A tap-only child (`CheckInFlow`) owns the check-in draft's selection state
+  // and cannot be called into directly. Bumping this and threading it through
+  // `LocationHubViewModel` lets that component notice and submit its OWN
+  // already-seeded draft, instead of page.tsx trying to reconstruct it.
+  const [voiceCheckInSendRequestId, setVoiceCheckInSendRequestId] =
+    useState(0);
+  const triggerVoiceCheckInSend = useCallback(() => {
+    setVoiceCheckInSendRequestId((current) => current + 1);
+  }, []);
+
+  useLocalOnboardingActionHandler("location.send_check_in", async () => {
+    const currentAction = searchParams.get("action");
+    if (currentAction !== "check-in" && currentAction !== "event-check-in") {
+      return {
+        status: "blocked" as const,
+        summary: "Open Check-In first, then say send it.",
+      };
+    }
+    const readyRecipients = sosActionRecipients.filter((recipient) =>
+      isShareReadyRecipient(recipient),
+    );
+    if (!readyRecipients.length) {
+      return {
+        status: "blocked" as const,
+        summary: "You do not have anyone ready to check in with yet.",
+      };
+    }
+    if (!myLocationPoint) {
+      return {
+        status: "blocked" as const,
+        summary: "I need a location fix first -- give it a moment and try again.",
+      };
+    }
+    triggerVoiceCheckInSend();
+    return {
+      status: "succeeded" as const,
+      summary: "Sending your check-in.",
+    };
+  });
 
   const handleAutoApproveChange = useCallback(
     (enabled: boolean) => {
@@ -9849,6 +10616,26 @@ export function OneLocationAgentPageContent({
           // existing Finish setup transaction commits it after vault unlock.
           PreVaultSensitiveDraftService.stageSavedLocation(auth.userId, input);
         }
+        // Confirming a place turns the live preview on.
+        //
+        // Onboarding captures a position directly rather than through
+        // `ensureForegroundLocationReady`, so it never reached
+        // `activateMyLocation` and never set `selfPreviewEnabled`. A brand-new
+        // owner also has no grants and no nearby presence, so all three
+        // disjuncts behind `locationEnabled` were false and the hub they are
+        // redirected to greeted them with "Location off" — seconds after they
+        // granted permission, let the device take a fix, dragged a pin and
+        // tagged it Home. Saving a place really is a different authority from
+        // sharing one, but "my location is off" is not a true reading of the
+        // state the person just created.
+        //
+        // The same two-field write the header switch itself performs, so both
+        // entry points leave the control in one state.
+        updateOneLocationControlState(auth.userId, (current) => ({
+          ...current,
+          paused: false,
+          selfPreviewEnabled: true,
+        }));
         if (
           savedLocationSessionEpochRef.current !== sessionEpoch ||
           savedLocationSessionUserId !== savingUserId
@@ -10680,6 +11467,7 @@ export function OneLocationAgentPageContent({
     onRemoveSmsContact: handleRemoveSmsContact,
     onCheckIn: handleCheckIn,
     onDiscardPrivateCheckInOperation: discardPrivateCheckInOperation,
+    voiceCheckInSendRequestId,
   };
 
   // The mobile-first redesign hub is the ONLY customer-facing UI. It renders in

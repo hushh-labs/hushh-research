@@ -54,11 +54,23 @@ def _one_location_consent_center_enabled() -> bool:
 
 
 def _consent_summary_v2_enabled() -> bool:
-    return str(os.getenv("CONSENT_CENTER_SUMMARY_V2_ENABLED") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
+    # Defaults ON: the v2 path fetches each surface's underlying data (Location
+    # state, marketplace requests, ...) ONCE and derives all three counts
+    # (pending/active/previous) from it, instead of the legacy path's
+    # `asyncio.gather` over three `_get_surface_count` calls that each
+    # independently re-run the exact same underlying fetches. For the
+    # investor actor -- the default, and the common case -- that meant
+    # `list_state()` alone (already ~18-21 SQL round trips) ran three times
+    # per summary load instead of once, which was most of why this endpoint
+    # was measured at ~77 queries and 37-47s+. The explicit opt-out below is
+    # the rollback lever if something about the derived counts turns out to
+    # disagree with the legacy scalar counts in a way this flip did not
+    # anticipate.
+    return str(os.getenv("CONSENT_CENTER_SUMMARY_V2_ENABLED") or "").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
     }
 
 

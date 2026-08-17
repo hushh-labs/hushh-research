@@ -5074,6 +5074,235 @@
       }
     },
     {
+      "action_id": "location.select_ask_recipient",
+      "surface_id": "one_location",
+      "label": "Pick someone to ask for their location",
+      "aliases": [
+        "ask them",
+        "pick someone to ask",
+        "select someone to ask",
+        "add them to the request",
+        "choose who to ask"
+      ],
+      "search_keywords": [
+        "ask",
+        "pick",
+        "select",
+        "choose",
+        "request"
+      ],
+      "meaning": "Finds the person you named among your connections and selects them in the request composer, so you can see who is picked before anything is sent. It only selects: sending the request is still a separate, confirmed step.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.select_ask_recipient"
+      },
+      "control_ids": [
+        "one-location-action-ask"
+      ],
+      "state_exposure": [
+        "selected request owner count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=ask"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.select_ask_recipient",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Who do you want to ask?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Pick someone to ask for their location",
+            "failure_behavior": "stop",
+            "action_id": "location.select_ask_recipient",
+            "settlement_target": {
+              "route": "/one/location?action=ask",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.send_request",
+      "surface_id": "one_location",
+      "label": "Send the location request",
+      "aliases": [
+        "send it",
+        "send the request",
+        "ask them now",
+        "send my request",
+        "confirm the request"
+      ],
+      "search_keywords": [
+        "send",
+        "request",
+        "confirm",
+        "ask"
+      ],
+      "meaning": "Sends a request to see their location to the people already picked in the request composer. It never chooses who: if nobody is selected it stops and asks you to pick someone first.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.send_request"
+      },
+      "control_ids": [
+        "one-location-action-ask"
+      ],
+      "state_exposure": [
+        "selected request owner count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.send_request",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Send the location request",
+            "failure_behavior": "stop",
+            "action_id": "location.send_request",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "location.open_invite",
       "surface_id": "one_location",
       "label": "Invite someone to Location",
@@ -6958,6 +7187,490 @@
       }
     },
     {
+      "action_id": "location.stop_share",
+      "surface_id": "one_location",
+      "label": "Stop sharing with someone",
+      "aliases": [
+        "stop sharing with",
+        "stop sharing my location with",
+        "revoke access for",
+        "take away their access",
+        "stop letting them see me"
+      ],
+      "search_keywords": [
+        "stop",
+        "revoke",
+        "remove",
+        "share",
+        "access"
+      ],
+      "meaning": "Stops an active share with the named person immediately, so your location no longer updates for them. It only ends the one share you named; every other active share is untouched.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.stop_share"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active share count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.stop_share",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Whose access do you want to stop?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Stop sharing with someone",
+            "failure_behavior": "stop",
+            "action_id": "location.stop_share",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.approve_request",
+      "surface_id": "one_location",
+      "label": "Approve a location request",
+      "aliases": [
+        "approve",
+        "approve their request",
+        "let them see my location",
+        "accept the request from",
+        "say yes to"
+      ],
+      "search_keywords": [
+        "approve",
+        "accept",
+        "request",
+        "grant"
+      ],
+      "meaning": "Approves the named person's pending request to see your location, starting a share for it. It only acts on a request already waiting; it never invites someone new.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.approve_request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending request count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.approve_request",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Whose request do you want to approve?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Approve a location request",
+            "failure_behavior": "stop",
+            "action_id": "location.approve_request",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.decline_request",
+      "surface_id": "one_location",
+      "label": "Decline a location request",
+      "aliases": [
+        "decline",
+        "decline their request",
+        "say no to",
+        "deny the request from",
+        "turn down"
+      ],
+      "search_keywords": [
+        "decline",
+        "deny",
+        "reject",
+        "request"
+      ],
+      "meaning": "Declines the named person's pending request to see your location. It only acts on a request already waiting and does not stop any share already in place with them.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.decline_request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending request count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.decline_request",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Whose request do you want to decline?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Decline a location request",
+            "failure_behavior": "stop",
+            "action_id": "location.decline_request",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.change_share_duration",
+      "surface_id": "one_location",
+      "label": "Change how long a share lasts",
+      "aliases": [
+        "change their time",
+        "give them more time",
+        "extend their access",
+        "change the duration for",
+        "shorten their access"
+      ],
+      "search_keywords": [
+        "change",
+        "extend",
+        "duration",
+        "time",
+        "share"
+      ],
+      "meaning": "Changes how much longer the named person can see your live location, without stopping and restarting the share. It only acts on a share already active with them.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.change_share_duration"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active share count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.change_share_duration",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Whose access time do you want to change?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          },
+          {
+            "name": "duration_hours",
+            "prompt": "How long should it last now? You can say 30 minutes, 1 hour, 4 hours or 24 hours.",
+            "required": true,
+            "slot": "duration_hours",
+            "resolver": "location_share_duration",
+            "options": [
+              "0.5",
+              "1",
+              "4",
+              "24"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name",
+          "duration_hours": "location_share_duration"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Change how long a share lasts",
+            "failure_behavior": "stop",
+            "action_id": "location.change_share_duration",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "location.stop_sos",
       "surface_id": "one_location",
       "label": "Stop the active SOS",
@@ -7880,6 +8593,939 @@
               "route": "/one/location",
               "screen": "one_location"
             }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.rename_circle",
+      "surface_id": "one_location",
+      "label": "Rename a circle",
+      "aliases": [
+        "rename my circle",
+        "rename the circle to",
+        "change the circle name to",
+        "call the circle",
+        "rename circle"
+      ],
+      "search_keywords": [
+        "rename",
+        "circle",
+        "name",
+        "change"
+      ],
+      "meaning": "Changes a circle's name. It only renames the circle; its members, invitations, and shares through it are untouched.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.rename_circle"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "circle names"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.rename_circle",
+        "required_inputs": [
+          {
+            "name": "circle",
+            "prompt": "Which circle do you want to rename?",
+            "required": false,
+            "slot": "circle",
+            "resolver": "spoken_circle_name"
+          },
+          {
+            "name": "name",
+            "prompt": "What should it be called instead?",
+            "required": true,
+            "slot": "name",
+            "resolver": "spoken_circle_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "circle": "spoken_circle_name",
+          "name": "spoken_circle_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Rename a circle",
+            "failure_behavior": "stop",
+            "action_id": "location.rename_circle",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.leave_circle",
+      "surface_id": "one_location",
+      "label": "Leave a circle",
+      "aliases": [
+        "leave my circle",
+        "leave the circle",
+        "leave this circle",
+        "remove me from the circle",
+        "get out of the circle"
+      ],
+      "search_keywords": [
+        "leave",
+        "circle",
+        "exit",
+        "quit"
+      ],
+      "meaning": "Removes you from a circle you belong to, so you stop sharing your location with it and stop seeing its members' shares. The circle itself and its other members are untouched. Its owner cannot leave -- they must delete it or hand off ownership first.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.leave_circle"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "circle names",
+        "circle member count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.leave_circle",
+        "required_inputs": [
+          {
+            "name": "circle",
+            "prompt": "Which circle do you want to leave?",
+            "required": false,
+            "slot": "circle",
+            "resolver": "spoken_circle_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "circle": "spoken_circle_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Leave a circle",
+            "failure_behavior": "stop",
+            "action_id": "location.leave_circle",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.delete_circle",
+      "surface_id": "one_location",
+      "label": "Delete a circle",
+      "aliases": [
+        "delete my circle",
+        "delete the circle",
+        "remove the circle",
+        "get rid of the circle",
+        "delete circle"
+      ],
+      "search_keywords": [
+        "delete",
+        "circle",
+        "remove",
+        "disband"
+      ],
+      "meaning": "Permanently deletes a circle you own. Every member loses the access and sharing that circle provided; this cannot be undone. Only the circle's owner can delete it.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.delete_circle"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "circle names",
+        "circle member count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.delete_circle",
+        "required_inputs": [
+          {
+            "name": "circle",
+            "prompt": "Which circle do you want to delete?",
+            "required": false,
+            "slot": "circle",
+            "resolver": "spoken_circle_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "circle": "spoken_circle_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Delete a circle",
+            "failure_behavior": "stop",
+            "action_id": "location.delete_circle",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.accept_circle_invite",
+      "surface_id": "one_location",
+      "label": "Accept a circle invitation",
+      "aliases": [
+        "accept the circle invitation",
+        "join the circle",
+        "accept the invite to",
+        "join that circle",
+        "accept circle invite"
+      ],
+      "search_keywords": [
+        "accept",
+        "circle",
+        "invitation",
+        "join"
+      ],
+      "meaning": "Joins a circle you were invited to. Once accepted you start sharing your location with, and seeing shares from, that circle's members.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.accept_circle_invite"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "circle names",
+        "circle member count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.accept_circle_invite",
+        "required_inputs": [
+          {
+            "name": "circle",
+            "prompt": "Which circle invitation do you want to accept?",
+            "required": false,
+            "slot": "circle",
+            "resolver": "spoken_circle_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "circle": "spoken_circle_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Accept a circle invitation",
+            "failure_behavior": "stop",
+            "action_id": "location.accept_circle_invite",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.decline_circle_invite",
+      "surface_id": "one_location",
+      "label": "Decline a circle invitation",
+      "aliases": [
+        "decline the circle invitation",
+        "decline the invite to",
+        "reject the circle invite",
+        "turn down the circle invite",
+        "decline circle invite"
+      ],
+      "search_keywords": [
+        "decline",
+        "circle",
+        "invitation",
+        "reject"
+      ],
+      "meaning": "Declines a pending invitation to join a circle. Nothing is shared and the invitation is closed; you can be invited again later.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.decline_circle_invite"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "circle names"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.decline_circle_invite",
+        "required_inputs": [
+          {
+            "name": "circle",
+            "prompt": "Which circle invitation do you want to decline?",
+            "required": false,
+            "slot": "circle",
+            "resolver": "spoken_circle_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "circle": "spoken_circle_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Decline a circle invitation",
+            "failure_behavior": "stop",
+            "action_id": "location.decline_circle_invite",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.save_current_location",
+      "surface_id": "one_location",
+      "label": "Save your current location as a place",
+      "aliases": [
+        "save my current location as",
+        "save this place as",
+        "save this as home",
+        "save this as work",
+        "remember this place as"
+      ],
+      "search_keywords": [
+        "save",
+        "location",
+        "place",
+        "home",
+        "work"
+      ],
+      "meaning": "Saves where you are right now as a named place -- home, work, or a custom name. Home and work replace any earlier place saved under that same category; a custom name is added alongside your existing places.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.save_current_location"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "saved place names"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.save_current_location",
+        "required_inputs": [
+          {
+            "name": "label",
+            "prompt": "What should I call this place?",
+            "required": true,
+            "slot": "label",
+            "resolver": "spoken_place_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "label": "spoken_place_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Save your current location as a place",
+            "failure_behavior": "stop",
+            "action_id": "location.save_current_location",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.delete_saved_location",
+      "surface_id": "one_location",
+      "label": "Delete a saved place",
+      "aliases": [
+        "delete the saved place called",
+        "remove my saved place",
+        "delete this saved location",
+        "forget the place called",
+        "delete saved place"
+      ],
+      "search_keywords": [
+        "delete",
+        "saved",
+        "place",
+        "remove"
+      ],
+      "meaning": "Permanently removes a saved place from your list. It does not affect any active or past shares of your location; it only forgets the saved point itself.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.delete_saved_location"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "saved place names"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.delete_saved_location",
+        "required_inputs": [
+          {
+            "name": "label",
+            "prompt": "Which saved place do you want to delete?",
+            "required": false,
+            "slot": "label",
+            "resolver": "spoken_place_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "label": "spoken_place_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Delete a saved place",
+            "failure_behavior": "stop",
+            "action_id": "location.delete_saved_location",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.send_check_in",
+      "surface_id": "one_location",
+      "label": "Send the check-in you have open",
+      "aliases": [
+        "send the check in",
+        "send this check in",
+        "check in now",
+        "send my check in",
+        "confirm the check in"
+      ],
+      "search_keywords": [
+        "check-in",
+        "send",
+        "confirm"
+      ],
+      "meaning": "Sends the check-in currently on screen to the people already selected there, using its already-set duration and message. It only works while the Check-In screen is open; it does not open Check-In or change who or how long it targets.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.send_check_in"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active share count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.send_check_in",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.send_check_in",
+            "label": "Send the check-in you have open",
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {

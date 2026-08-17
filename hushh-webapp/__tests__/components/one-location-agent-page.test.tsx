@@ -1244,6 +1244,38 @@ describe("OneLocationAgentPage", () => {
     expect(await toneOf("Needs my review")).toBe("orange");
   });
 
+  it("groups the two things you do apart from the things that are happening", async () => {
+    // Reported: "share location / request location ek sath hona chahiye kyuki
+    // yeh user ke action items hain" — sharing your location and asking for
+    // someone else's are the same kind of decision pointed in opposite
+    // directions, and they sat two groups apart: one alone at the top, the
+    // other buried under three status rows.
+    //
+    // Everything else on this tab is either what is already happening (active
+    // shares, shared with me, needs my review) or where to look at it (Your
+    // Map) or how to change it (Settings). Two groups, not three.
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    const actions = await screen.findByTestId("one-location-now-share");
+    expect(within(actions).getByText("Share location")).toBeTruthy();
+    expect(within(actions).getByText("Request location")).toBeTruthy();
+
+    const rest = screen.getByTestId("one-location-now-status");
+    expect(within(rest).getByText("Your Map")).toBeTruthy();
+    expect(within(rest).getByText("Active shares")).toBeTruthy();
+    expect(within(rest).getByText("Settings")).toBeTruthy();
+
+    // The two must not drift back apart.
+    expect(within(rest).queryByText("Share location")).toBeNull();
+    expect(within(rest).queryByText("Request location")).toBeNull();
+    // And the standalone map group is gone, so the tab is two groups.
+    expect(screen.queryByTestId("one-location-now-primary")).toBeNull();
+  });
+
   it("keeps the heading and location toggle inline as the only header action", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
@@ -2889,6 +2921,55 @@ describe("OneLocationAgentPage", () => {
     expect(
       window.localStorage.getItem("one_location_onboarding_v2:user_a"),
     ).toBe("1");
+  });
+
+  it("turns location on once a place is confirmed in onboarding", async () => {
+    // Reported from UAT: "onboarding mein mera location save ho rha, i could
+    // able to confirm the location as home office others — then after
+    // redirecting to this main page why location off..."
+    //
+    // Onboarding captured a position directly instead of going through
+    // `ensureForegroundLocationReady`, so it never reached `activateMyLocation`
+    // and never set `selfPreviewEnabled`. A brand-new owner also has no grants
+    // and no nearby presence, so all three disjuncts behind `locationEnabled`
+    // were false and the hub greeted them with "Location off" — seconds after
+    // they granted permission, took a fix, dragged a pin and tagged it Home.
+    //
+    // Every other hub test reaches the hub through `skipLocationEntryFlow`,
+    // which presses "Skip for now" on this modal, so the save path never once
+    // reached an assertion about the header. That is why this shipped.
+    window.localStorage.removeItem(
+      "one_location_saved_location_prompt_v2:user_a",
+    );
+    mockLoadSavedLocations.mockResolvedValue([]);
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+
+    render(<OneLocationAgentPage />);
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openLocationPermissionsStep();
+
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+    await waitFor(() => expect(mockAddSavedLocation).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    await expectLocationInviteStep();
+    fireEvent.click(await locationFinishButton());
+    expect(
+      await screen.findByRole("heading", { name: "Location Agent" }),
+    ).toBeTruthy();
+
+    // The header agrees with what the person just did.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("one-location-header-status").textContent,
+      ).toBe("Location on"),
+    );
+    expect(
+      screen.getByRole("switch", { name: "Turn location off" }),
+    ).toHaveAttribute("aria-checked", "true");
   });
 
   it("reoffers the two-step saved-place flow when Location is already granted", async () => {
