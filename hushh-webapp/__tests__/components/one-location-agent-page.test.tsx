@@ -627,9 +627,64 @@ async function openLocationFeatureStep() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
   expect(
     await screen.findByRole("heading", {
-      name: "Need to keep people updated?",
+      name: "Keep people updated",
     }),
   ).toBeTruthy();
+}
+
+/**
+ * Leave step two.
+ *
+ * Its CTA does two jobs since #5395: the first press asks for Location (the
+ * OS dialog is no longer sprung on arrival), the second moves forward. On a
+ * device that already has the permission the first press is the only one, so
+ * press until the screen actually changes rather than counting.
+ */
+async function advanceFromLocationFeatureStep() {
+  await waitFor(() => {
+    const savePrompt = screen.queryByTestId("save-location-modal");
+    const continueButton = screen.queryByRole("button", {
+      name: /Find my people|Allow location|Open settings/,
+    });
+    expect(savePrompt || continueButton).toBeTruthy();
+  });
+  // Dismissed inside the loop, not once before it. Since #5395 the Location
+  // grant happens on the FIRST press of this screen's CTA rather than on
+  // arrival, so the saved-place sheet now opens BETWEEN the two presses. It is
+  // a Radix Dialog: while it is open it marks the rest of the tree
+  // aria-hidden, and every later getByRole silently finds nothing — the
+  // onboarding reaches the invite screen and the assertion still fails.
+  const dismissSavePromptIfOpen = () => {
+    const savePrompt = screen.queryByTestId("save-location-modal");
+    if (!savePrompt) return;
+    fireEvent.click(
+      within(savePrompt).getByRole("button", { name: "Skip for now" }),
+    );
+  };
+
+  dismissSavePromptIfOpen();
+  for (let press = 0; press < 3; press += 1) {
+    dismissSavePromptIfOpen();
+    if (!screen.queryByTestId("one-location-onboarding-features")) break;
+    // A refused device gets recovery, not an ask: its primary button opens
+    // Settings and never advances, so the way forward is the escape beside it.
+    const skip = screen.queryByTestId("one-location-onboarding-skip-location");
+    if (skip) {
+      fireEvent.click(skip);
+      continue;
+    }
+    const cta = screen.queryByRole("button", {
+      name: /Find my people|Allow location/,
+    });
+    if (!cta) break;
+    await waitFor(() => expect(cta).toBeEnabled());
+    fireEvent.click(cta);
+  }
+  // The sheet can also open on the way out, once the grant settles.
+  await waitFor(() => {
+    dismissSavePromptIfOpen();
+    expect(screen.queryByTestId("save-location-modal")).toBeNull();
+  });
 }
 
 /** Assert the invite screen is showing. It is the last screen now. */
@@ -647,24 +702,7 @@ function locationFinishButton() {
 /** welcome -> features (clearing the save-place modal) -> invite. */
 async function reachLocationOnboardingFinalStep() {
   await openLocationFeatureStep();
-  await waitFor(() => {
-    const savePrompt = screen.queryByTestId("save-location-modal");
-    const continueButton = screen.queryByRole("button", {
-      name: /Find my people|Allow location/,
-    });
-    expect(savePrompt || continueButton).toBeTruthy();
-  });
-  const savePrompt = screen.queryByTestId("save-location-modal");
-  if (savePrompt) {
-    fireEvent.click(
-      within(savePrompt).getByRole("button", { name: "Skip for now" }),
-    );
-  }
-  const continueButton = await screen.findByRole("button", {
-    name: /Find my people|Allow location/,
-  });
-  await waitFor(() => expect(continueButton).toBeEnabled());
-  fireEvent.click(continueButton);
+  await advanceFromLocationFeatureStep();
   // No contacts step here: jsdom has no Contact Picker, so the capability check
   // reports "unavailable" and the flow skips it -- exactly what a desktop
   // browser does. The engaged path is covered in the flow component's tests.
@@ -680,24 +718,7 @@ async function reachLocationOnboardingFinalStep() {
  */
 async function leaveLocationFeatureStep() {
   await openLocationFeatureStep();
-  await waitFor(() => {
-    const savePrompt = screen.queryByTestId("save-location-modal");
-    const continueButton = screen.queryByRole("button", {
-      name: /Find my people|Allow location/,
-    });
-    expect(savePrompt || continueButton).toBeTruthy();
-  });
-  const savePrompt = screen.queryByTestId("save-location-modal");
-  if (savePrompt) {
-    fireEvent.click(
-      within(savePrompt).getByRole("button", { name: "Skip for now" }),
-    );
-  }
-  const continueButton = await screen.findByRole("button", {
-    name: /Find my people|Allow location/,
-  });
-  await waitFor(() => expect(continueButton).toBeEnabled());
-  fireEvent.click(continueButton);
+  await advanceFromLocationFeatureStep();
 }
 
 /** Reach the last screen and press the CTA that settles onboarding. */
@@ -790,8 +811,18 @@ async function expectEmergencyAction(
   return copyButton;
 }
 
+/**
+ * Step two, with the Location ask actually made.
+ *
+ * Since #5395 arriving on the screen no longer springs the OS dialog — that
+ * is the whole fix — so a test about the permission request has to press the
+ * button that asks for it. On a device that already has the grant there is no
+ * Allow button to press and the screen is simply open.
+ */
 async function openLocationPermissionsStep() {
   await openLocationFeatureStep();
+  const allow = screen.queryByRole("button", { name: "Allow location" });
+  if (allow) fireEvent.click(allow);
 }
 
 async function switchLocationTab(
@@ -2400,8 +2431,21 @@ describe("OneLocationAgentPage", () => {
 
     await openLocationPermissionsStep();
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    // Already denied on arrival, so there is nothing to ask and no Allow
+    // button: the screen explains the state instead of firing a redirect at
+    // someone who has not asked for one (#5395).
+    expect(screen.queryByRole("button", { name: "Allow location" })).toBeNull();
+    expect(mockOpenAppSettings).not.toHaveBeenCalled();
+    expect(
+      screen.getByTestId("one-location-onboarding-location-reason").textContent,
+    ).toBe("Location is off. Turn it on in Settings.");
+
+    // The recovery is a real button, not a sentence with nowhere to go.
+    const openSettings = screen.getByRole("button", { name: "Open settings" });
+    expect(openSettings).toBeEnabled();
+    fireEvent.click(openSettings);
     await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
-    expect(screen.getByRole("button", { name: "Find my people" })).toBeEnabled();
+    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     expect(onSetupComplete).not.toHaveBeenCalled();
   });
 
@@ -2440,6 +2484,9 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     await openLocationPermissionsStep();
+    // Denied on arrival, so the primer offers recovery rather than an ask,
+    // and the redirect happens because the person chose it (#5395).
+    fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
     await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
     // Asked first, and only then routed to Settings once the device said no.
     expect(mockCaptureCurrentPosition).toHaveBeenCalled();
@@ -3075,7 +3122,7 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
-          name: "Need to keep people updated?",
+          name: "Keep people updated",
         }),
       ).toBeNull();
       expect(
@@ -5023,10 +5070,16 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openLocationPermissionsStep();
-    await waitFor(() => expect(mockOpenLocationSettings).toHaveBeenCalled());
+    // The phone's Location Services switch is off, which no app prompt can
+    // fix. Step two says so plainly and offers the one control that helps —
+    // and it fires because the person pressed it, not on arrival (#5395).
+    expect(mockOpenLocationSettings).not.toHaveBeenCalled();
     expect(
-      screen.getByText(/adjust permissions later in Location Settings/i),
-    ).toBeTruthy();
+      screen.getByTestId("one-location-onboarding-location-reason").textContent,
+    ).toBe("Location is off. Turn it on in Settings.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+    await waitFor(() => expect(mockOpenLocationSettings).toHaveBeenCalled());
     expect(mockCreateGrant).not.toHaveBeenCalled();
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
   });

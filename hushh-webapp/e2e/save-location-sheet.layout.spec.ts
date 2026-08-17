@@ -14,7 +14,11 @@ import {
   SHEET_DETAILS_SHELL_CLASSNAME,
   SHEET_FOOTER_CLASSNAME,
   SHEET_HEADER_CLASSNAME,
+  SHEET_INDICATOR_SLOT_CLASSNAME,
   SHEET_LAYOUT_WIDTHS,
+  STEP_DOT_MIN_CONTRAST,
+  STEP_DOT_REACHED_CLASSNAME,
+  STEP_DOT_UPCOMING_CLASSNAME,
 } from "../components/one-location/onboarding/save-location-sheet-layout";
 
 /**
@@ -79,6 +83,13 @@ async function buildFixture(): Promise<string> {
   const primary =
     "flex h-[52px] w-full items-center justify-center rounded-full";
   const secondary = "h-11 w-full rounded-full";
+  // #5396 — the step rail, built from the component's own exported strings.
+  const dotSlot = SHEET_INDICATOR_SLOT_CLASSNAME;
+  const dotTab =
+    "relative flex h-[18px] w-11 items-center justify-center after:h-11 after:w-11";
+  const dotPill = "block h-[5px] rounded-full";
+  const dotActive = "w-[24px]";
+  const dotSmall = "w-[7px]";
 
   /**
    * Split from its margin on purpose. This fixture writes raw class strings
@@ -105,6 +116,13 @@ async function buildFixture(): Promise<string> {
     label,
     primary,
     secondary,
+    dotSlot,
+    dotTab,
+    dotPill,
+    dotActive,
+    dotSmall,
+    STEP_DOT_REACHED_CLASSNAME,
+    STEP_DOT_UPCOMING_CLASSNAME,
     "mt-1 space-y-3.5 mb-1.5 mb-0 block",
   ].join(" ");
   const css = compiler.build(classes.split(/\s+/).filter(Boolean));
@@ -144,10 +162,17 @@ async function buildFixture(): Promise<string> {
     `<!doctype html><html><head><meta charset="utf-8">
 <style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css">
-<style>:root{--app-separator:#e5e5ea;--app-card-surface-default-solid:#fff}</style>
+<style>:root{--app-separator:#e5e5ea;--app-card-surface-default-solid:#fff;--app-neutral-fill-strong:rgba(120,120,128,0.2);--app-accent:#007aff}</style>
 </head><body style="margin:0;background:#111">
 <div class="${shell} ${SHEET_DETAILS_SHELL_CLASSNAME}" data-testid="save-location-modal">
   <header class="${SHEET_HEADER_CLASSNAME}" data-testid="sheet-header">
+    <div class="${dotSlot}" data-testid="sheet-indicator">
+      <div class="flex items-center justify-center gap-1">
+        <button class="${dotTab}" data-testid="step-dot-completed" data-step-state="completed"><span class="${dotPill} ${dotSmall} ${STEP_DOT_REACHED_CLASSNAME}" data-testid="step-pill-completed"></span></button>
+        <button class="${dotTab}" data-testid="step-dot-active" data-step-state="active"><span class="${dotPill} ${dotActive} ${STEP_DOT_REACHED_CLASSNAME}" data-testid="step-pill-active"></span></button>
+        <button class="${dotTab}" data-testid="step-dot-upcoming" data-step-state="upcoming"><span class="${dotPill} ${dotSmall} ${STEP_DOT_UPCOMING_CLASSNAME}" data-testid="step-pill-upcoming"></span></button>
+      </div>
+    </div>
     <div class="${row} mt-1">
       <button class="${button}" data-testid="sheet-back">&#8592;</button>
       <h2 class="${title}" data-testid="sheet-title">Address details</h2>
@@ -335,5 +360,130 @@ test.describe("Save-location address sheet layout", () => {
     });
     // Anything under 255 and the field behind it shows through the button.
     expect(alpha).toBe(255);
+  });
+
+  /*
+   * #5396. The sibling JSDOM tests prove the component emits these class
+   * strings and the right per-step state. They cannot prove a colour: JSDOM
+   * performs no layout and resolves no cascade, and the failing value was a
+   * ratio, not a class name.
+   *
+   * Both readings go through a canvas rather than a regex on the computed
+   * string. Tailwind alpha utilities resolve to `color-mix(in oklab, ...)`,
+   * so a test pattern-matching `rgba(...)` passes the very translucent value
+   * it was written to reject -- the exact trap the footer test above records.
+   */
+  const SHEET_SURFACES = [
+    { theme: "light", surface: "#ffffff" },
+    { theme: "dark", surface: "#2c2c2e" },
+  ] as const;
+
+  for (const { theme, surface } of SHEET_SURFACES) {
+    test(`keeps every step dot readable on the ${theme} sheet`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(await buildFixture());
+      await awaitProductFont(page);
+      await page.evaluate((value) => {
+        document.documentElement.style.setProperty(
+          "--app-card-surface-default-solid",
+          value,
+        );
+        document.documentElement.style.setProperty("--app-accent", "#007aff");
+      }, surface);
+
+      const measure = async (testId: string) =>
+        page.getByTestId(testId).evaluate((el) => {
+          const canvas = document.createElement("canvas");
+          canvas.width = canvas.height = 1;
+          const ctx = canvas.getContext("2d")!;
+          ctx.clearRect(0, 0, 1, 1);
+          // Seeded transparent: a colour the canvas cannot parse leaves alpha
+          // at 0 and fails loudly instead of reading as an opaque black.
+          ctx.fillStyle = "rgba(0, 0, 0, 0)";
+          ctx.fillStyle = getComputedStyle(el).backgroundColor;
+          ctx.fillRect(0, 0, 1, 1);
+          const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+          return { r, g, b, a };
+        });
+
+      const luminance = ({ r, g, b }: { r: number; g: number; b: number }) => {
+        const [lr, lg, lb] = [r, g, b].map((raw) => {
+          const c = raw / 255;
+          return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
+      };
+      const ratioAgainstSheet = (pixel: {
+        r: number;
+        g: number;
+        b: number;
+      }) => {
+        const sheet = {
+          r: Number.parseInt(surface.slice(1, 3), 16),
+          g: Number.parseInt(surface.slice(3, 5), 16),
+          b: Number.parseInt(surface.slice(5, 7), 16),
+        };
+        const [high, low] = [luminance(pixel), luminance(sheet)].sort(
+          (x, y) => y - x,
+        );
+        return (high + 0.05) / (low + 0.05);
+      };
+
+      for (const state of ["completed", "active", "upcoming"] as const) {
+        const pixel = await measure(`step-pill-${state}`);
+        // Fully opaque: the old fill was a 20%/36% alpha that composited
+        // almost into the sheet, which is what made it invisible.
+        expect(pixel.a, `${theme}/${state} dot must be opaque`).toBe(255);
+        const ratio = ratioAgainstSheet(pixel);
+        expect(
+          `${theme}/${state} ${ratio.toFixed(2)}:1`,
+          `${theme}/${state} must clear ${STEP_DOT_MIN_CONTRAST}:1 on ${surface}`,
+        ).toBe(
+          `${theme}/${state} ${Math.max(ratio, STEP_DOT_MIN_CONTRAST).toFixed(2)}:1`,
+        );
+      }
+
+      // Reached and not-reached must also differ from EACH OTHER, or the
+      // rail communicates nothing however visible each dot is on its own.
+      const completed = await measure("step-pill-completed");
+      const upcoming = await measure("step-pill-upcoming");
+      expect(
+        `${completed.r},${completed.g},${completed.b}`,
+      ).not.toBe(`${upcoming.r},${upcoming.g},${upcoming.b}`);
+    });
+  }
+
+  test("renders the step rail at one height in the pinned header", async ({
+    page,
+  }) => {
+    // The rail used to be 44px tall at the bottom of one pane and 18px tall
+    // at the top of another, so it moved and resized between two steps.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(await buildFixture());
+    await awaitProductFont(page);
+
+    const header = await boxOf(page, "sheet-header");
+    const indicator = await boxOf(page, "sheet-indicator");
+    expect(indicator.height).toBe(18);
+    expect(indicator.y).toBeGreaterThanOrEqual(header.y);
+    expect(indicator.y + indicator.height).toBeLessThanOrEqual(
+      header.y + header.height,
+    );
+
+    // Every tab keeps a real, laid-out 44px of horizontal separation, so an
+    // edge tap cannot land on the neighbouring step.
+    const boxes = await Promise.all(
+      (["completed", "active", "upcoming"] as const).map((state) =>
+        boxOf(page, `step-dot-${state}`),
+      ),
+    );
+    for (const box of boxes) expect(box.width).toBe(44);
+    for (let i = 1; i < boxes.length; i += 1) {
+      expect(boxes[i].x).toBeGreaterThanOrEqual(
+        boxes[i - 1].x + boxes[i - 1].width,
+      );
+    }
   });
 });

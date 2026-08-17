@@ -1,14 +1,23 @@
 /* components/app-ui/HushhIntroGate.module.css
- * The `/one` section's real first screen, and its only splash: a slow
- * mist of blurred purple/pink/blue blobs travels from below the screen,
- * through the centre, and out past the top over ~2.5s (Zomato-referenced
- * motion, an original organic-cloud treatment). The 🤫 mark and
- * "Hussh One." reveal gradually through the still-moving, still-visible
- * mist, hold for 1.5s, then slowly cross-dissolve — with a soft blur and
+ * The `/one` section's real first screen, and its only splash: a mist of
+ * blurred purple/pink/blue blobs travels from below the screen, through
+ * the centre, and out past the top (Zomato-referenced motion, an original
+ * organic-cloud treatment). The 🤫 mark and "Hussh One." reveal through
+ * the still-moving mist, hold, then cross-dissolve — with a soft blur and
  * a light upward drift, never an instant swap — into "Hi, {name}" /
- * "Welcome to One.", hold for another 1.5s, and the whole screen fades —
- * gently, never a hard cut or a white flash — to reveal the vault screen,
- * which only mounts once this finishes (see HushhIntroGate.tsx).
+ * "Welcome to One.", hold again, and the whole screen fades — gently,
+ * never a hard cut or a white flash — to reveal the app.
+ *
+ * TIMING IS A CONTRACT WITH HushhIntroGate.tsx. The whole script is
+ * 1,000 ms: sweep at 20, mark at 80, greeting at 500, exit at 840, gone
+ * at 1,000. Every duration below is sized to finish inside its own phase,
+ * and each one has a named constant in the TSX. Change one, change both —
+ * a longer transition here does not slow the unmount, it just never
+ * finishes playing. It was 4,770 ms, which is the whole of #5394.
+ *
+ * The app is MOUNTED AND LIVE underneath this the entire time; it is an
+ * overlay, not a gate. That is what lets boot and animation overlap
+ * rather than queue, and it is why `.root` takes pointer events.
  *
  * Every duration below is paced to match HushhIntroGate.tsx's phase
  * timers (`TOTAL_DURATION_MS`, ~4.8s total) so no phase change ever cuts
@@ -16,10 +25,7 @@
  *
  * Follows the app's own light/dark theme: white background + dark ink in
  * light mode, the app's near-black elevated surface + light ink in dark
- * mode — never pure black, never a jarring flash either way. Nothing else
- * is mounted in the tree while this is up (the component that owns this
- * CSS gates `VaultLockGuard` and everything below it out entirely until
- * its own animation completes).
+ * mode — never pure black, never a jarring flash either way.
  *
  * The mist's `translate3d(vw, vh, 0)` keyframes are authored in viewport
  * units, not `%` (which is relative to each blob's *own* huge size and
@@ -70,9 +76,15 @@
      below to the app's near-black elevated surface — never pure black,
      never a jarring flash either way. */
   background: var(--foundation-surface, #ffffff);
-  pointer-events: none;
+  /* The app is now MOUNTED AND LIVE underneath this overlay from the first
+     frame (see HushhIntroGate.tsx) — it is no longer withheld from the
+     tree. So the overlay has to swallow taps while it is opaque, or a
+     stray tap during launch reaches a control the person cannot see. It
+     hands them back the moment the exit fade starts, which is also the
+     moment the app below becomes legible. */
+  pointer-events: auto;
   opacity: 1;
-  transition: opacity 300ms var(--motion-ease-accelerate);
+  transition: opacity 140ms var(--motion-ease-accelerate);
 
   --sweep-pink: #ec6a90;
   --sweep-purple: #9a6fd9;
@@ -87,6 +99,7 @@
 
 .root[data-phase="exit"] {
   opacity: 0;
+  pointer-events: none;
 }
 
 :global(.dark) .root {
@@ -152,20 +165,20 @@
 /* Applied once, the moment the phase leaves "idle", and never reassigned
    afterwards (every later phase value still matches `:not([data-phase=
    "idle"])`), so each blob plays its whole rise/drift/recede arc on its
-   own ~2.5s clock instead of being cut short or restarted by the phase
+   own ~1.2s clock instead of being cut short or restarted by the phase
    changes driving the mark and text. Delays are small (0/40/80ms) — just
    enough to keep the three blobs from moving in perfect lockstep, not
    enough to read as a pause before anything happens. */
 .root:not([data-phase="idle"]) .blobPurple {
-  animation: blob-purple-drift 2500ms var(--motion-ease-standard) forwards;
+  animation: blob-purple-drift 1200ms var(--motion-ease-standard) forwards;
 }
 
 .root:not([data-phase="idle"]) .blobPink {
-  animation: blob-pink-drift 2600ms var(--motion-ease-standard) 40ms forwards;
+  animation: blob-pink-drift 1250ms var(--motion-ease-standard) 40ms forwards;
 }
 
 .root:not([data-phase="idle"]) .blobBlue {
-  animation: blob-blue-drift 2400ms var(--motion-ease-standard) 80ms forwards;
+  animation: blob-blue-drift 1150ms var(--motion-ease-standard) 80ms forwards;
 }
 
 /* Purple: the primary, most central blob. Position (via `translate3d`,
@@ -281,8 +294,8 @@
      layer-promotion mid-transition, right when it would otherwise show. */
   will-change: opacity, transform;
   transition:
-    opacity 680ms var(--motion-ease-decelerate),
-    transform 680ms var(--motion-ease-decelerate);
+    opacity 300ms var(--motion-ease-decelerate),
+    transform 300ms var(--motion-ease-decelerate);
 }
 
 .root[data-phase="greet1"] .halo,
@@ -309,8 +322,8 @@
   transform: translateY(30px);
   will-change: opacity, transform;
   transition:
-    opacity 640ms var(--motion-ease-decelerate),
-    transform 640ms var(--motion-ease-decelerate);
+    opacity 300ms var(--motion-ease-decelerate),
+    transform 300ms var(--motion-ease-decelerate);
 }
 
 .root[data-phase="greet1"] .icon,
@@ -367,16 +380,16 @@
   will-change: opacity, transform, filter;
   /* Arriving: decelerate — settles in rather than coasting to a stop. */
   transition:
-    opacity 620ms var(--motion-ease-decelerate),
-    transform 620ms var(--motion-ease-decelerate),
-    filter 620ms var(--motion-ease-decelerate);
+    opacity 280ms var(--motion-ease-decelerate),
+    transform 280ms var(--motion-ease-decelerate),
+    filter 280ms var(--motion-ease-decelerate);
 }
 
 .root[data-phase="greet1"] .label1 {
   opacity: 1;
   transform: translateY(0);
   filter: blur(0);
-  transition-delay: 200ms;
+  transition-delay: 50ms;
 }
 
 /* Shown-then-retired: drifts further up and softens into a blur as it
@@ -388,7 +401,7 @@
   opacity: 0;
   transform: translateY(-16px);
   filter: blur(10px);
-  transition-duration: 500ms;
+  transition-duration: 300ms;
   transition-delay: 0ms;
   transition-timing-function: var(--motion-ease-accelerate);
 }
@@ -426,9 +439,9 @@
   /* Arriving out of the blur: decelerate, same family as label1's own
      entrance, so the cross-dissolve reads as one motion, not two. */
   transition:
-    opacity 500ms var(--motion-ease-decelerate),
-    transform 500ms var(--motion-ease-decelerate),
-    filter 500ms var(--motion-ease-decelerate);
+    opacity 300ms var(--motion-ease-decelerate),
+    transform 300ms var(--motion-ease-decelerate),
+    filter 300ms var(--motion-ease-decelerate);
 }
 
 .root[data-phase="greet2"] .greetingLine,
@@ -442,12 +455,12 @@
    the hold before this phase) carry the pacing. */
 .root[data-phase="greet2"] .greetingLineFirst,
 .root[data-phase="exit"] .greetingLineFirst {
-  transition-delay: 60ms;
+  transition-delay: 25ms;
 }
 
 .root[data-phase="greet2"] .greetingLineSecond,
 .root[data-phase="exit"] .greetingLineSecond {
-  transition-delay: 170ms;
+  transition-delay: 70ms;
 }
 
 .greetingAccent {

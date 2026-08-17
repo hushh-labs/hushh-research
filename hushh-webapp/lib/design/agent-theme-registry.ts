@@ -5,6 +5,30 @@ import type { OneCapabilityTone } from "@/lib/onboarding/one-capabilities";
 export type AgentProfileIconStyle = CSSProperties &
   Record<`--agent-icon-profile-${string}`, string>;
 
+/*
+ * SATURATED CHIP CONTRAST
+ *
+ * `iconBackground` is the solid fill behind a WHITE glyph, so its own
+ * luminance is the glyph's contrast. Four of the Apple system colours are
+ * too light to carry white at the 3:1 floor WCAG 2.2 SC 1.4.11 sets for a
+ * graphical object, and shipping them that way is what made the agent
+ * dashboard read as dull:
+ *
+ *   orange  #FF9500 -> 2.20:1     cyan  #5AC8FA -> 1.90:1
+ *   teal    #30B0C7 -> 2.57:1     blue  #32ADE6 -> 2.54:1
+ *
+ * Each is deepened along its own hue until white clears 3:1 AND the chip
+ * still separates from the dark card (#1C1C1E) by 3:1 — one palette that
+ * holds in both themes rather than two that drift apart:
+ *
+ *   #C96A00 -> 3.79 light / 4.49 dark      #0E86B5 -> 4.12 / 4.13
+ *   #0E8296 -> 4.51 / 3.77                 #0D7EB4 -> 4.51 / 3.78
+ *
+ * Purple (#AF52DE, 4.13), indigo (#5856D6, 5.65) and pink (#FF2D55, 3.65)
+ * already cleared it and are untouched. `accent`, `softTint` and
+ * `profileIconStyle` are untouched too — this is only the solid chip.
+ */
+
 export interface AgentTheme {
   accent: string;
   softTint: string;
@@ -57,12 +81,12 @@ export const AGENT_THEME_BY_TONE: Record<OneCapabilityTone, AgentTheme> = {
     accent: "#FF9500",
     softTint: "#FFE6BF",
     onAccent: "#ffffff",
-    iconBackground: "#FF9500",
+    iconBackground: "#C96A00",
     iconForeground: "#ffffff",
-    iconBackgroundDark: "#FF9500",
+    iconBackgroundDark: "#C96A00",
     iconForegroundDark: "#ffffff",
-    iconClassName: "bg-[#FF9500] text-white",
-    iconStyle: { backgroundColor: "#FF9500" },
+    iconClassName: "bg-[#C96A00] text-white",
+    iconStyle: { backgroundColor: "#C96A00" },
     profileIconStyle: {
       "--agent-icon-profile-bg": "#FFE6BF",
       "--agent-icon-profile-fg": "#9A5A00",
@@ -74,12 +98,12 @@ export const AGENT_THEME_BY_TONE: Record<OneCapabilityTone, AgentTheme> = {
     accent: "#5AC8FA",
     softTint: "#D8F4FF",
     onAccent: "#ffffff",
-    iconBackground: "#5AC8FA",
+    iconBackground: "#0E86B5",
     iconForeground: "#ffffff",
-    iconBackgroundDark: "#5AC8FA",
+    iconBackgroundDark: "#0E86B5",
     iconForegroundDark: "#ffffff",
-    iconClassName: "bg-[#5AC8FA] text-white",
-    iconStyle: { backgroundColor: "#5AC8FA" },
+    iconClassName: "bg-[#0E86B5] text-white",
+    iconStyle: { backgroundColor: "#0E86B5" },
     profileIconStyle: {
       "--agent-icon-profile-bg": "#D8F4FF",
       "--agent-icon-profile-fg": "#126C8C",
@@ -91,12 +115,12 @@ export const AGENT_THEME_BY_TONE: Record<OneCapabilityTone, AgentTheme> = {
     accent: "#FF9500",
     softTint: "#FFE6BF",
     onAccent: "#ffffff",
-    iconBackground: "#FF9500",
+    iconBackground: "#C96A00",
     iconForeground: "#ffffff",
-    iconBackgroundDark: "#FF9500",
+    iconBackgroundDark: "#C96A00",
     iconForegroundDark: "#ffffff",
-    iconClassName: "bg-[#FF9500] text-white",
-    iconStyle: { backgroundColor: "#FF9500" },
+    iconClassName: "bg-[#C96A00] text-white",
+    iconStyle: { backgroundColor: "#C96A00" },
     profileIconStyle: {
       "--agent-icon-profile-bg": "#FFE6BF",
       "--agent-icon-profile-fg": "#9A5A00",
@@ -113,7 +137,14 @@ export const AGENT_THEME_BY_TONE: Record<OneCapabilityTone, AgentTheme> = {
     iconBackgroundDark: "var(--app-accent)",
     iconForegroundDark: "#ffffff",
     iconClassName: "bg-[color:var(--app-accent)] text-white",
-    iconStyle: { backgroundColor: "var(--app-accent)" },
+    // The only tone whose fill follows the accent preference, so it is also
+    // the only one whose glyph cannot be a fixed white: under Molten Gold
+    // white measures 2.23:1 on the accent while that palette's own on-accent
+    // token measures 7.56:1. `--agent-icon-glyph` is read by AgentSectionIcon.
+    iconStyle: {
+      backgroundColor: "var(--app-accent)",
+      "--agent-icon-glyph": "var(--app-accent-fg)",
+    } as CSSProperties,
     profileIconStyle: {
       "--agent-icon-profile-bg": "color-mix(in oklab, var(--app-accent) 16%, white)",
       "--agent-icon-profile-fg": "color-mix(in oklab, var(--app-accent) 72%, black)",
@@ -125,12 +156,12 @@ export const AGENT_THEME_BY_TONE: Record<OneCapabilityTone, AgentTheme> = {
     accent: "#30B0C7",
     softTint: "#D8F6FA",
     onAccent: "#ffffff",
-    iconBackground: "#30B0C7",
+    iconBackground: "#0E8296",
     iconForeground: "#ffffff",
-    iconBackgroundDark: "#30B0C7",
+    iconBackgroundDark: "#0E8296",
     iconForegroundDark: "#ffffff",
-    iconClassName: "bg-[#30B0C7] text-white",
-    iconStyle: { backgroundColor: "#30B0C7" },
+    iconClassName: "bg-[#0E8296] text-white",
+    iconStyle: { backgroundColor: "#0E8296" },
     profileIconStyle: {
       "--agent-icon-profile-bg": "#D8F6FA",
       "--agent-icon-profile-fg": "#087282",
@@ -159,12 +190,12 @@ export const AGENT_THEME_BY_TONE: Record<OneCapabilityTone, AgentTheme> = {
     accent: "#32ADE6",
     softTint: "#D8F1FF",
     onAccent: "#ffffff",
-    iconBackground: "#32ADE6",
+    iconBackground: "#0D7EB4",
     iconForeground: "#ffffff",
-    iconBackgroundDark: "#32ADE6",
+    iconBackgroundDark: "#0D7EB4",
     iconForegroundDark: "#ffffff",
-    iconClassName: "bg-[#32ADE6] text-white",
-    iconStyle: { backgroundColor: "#32ADE6" },
+    iconClassName: "bg-[#0D7EB4] text-white",
+    iconStyle: { backgroundColor: "#0D7EB4" },
     profileIconStyle: {
       "--agent-icon-profile-bg": "#D8F1FF",
       "--agent-icon-profile-fg": "#15607F",
