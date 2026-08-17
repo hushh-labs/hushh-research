@@ -235,14 +235,6 @@ export type LocationHubViewModel = {
    * waiting stay the person's own decision.
    */
   autoApproveRequestsEnabled: boolean;
-  /**
-   * Whether this person appears as a pin on the maps of people they already
-   * share with. Opt-in, and separate from sharing itself: sharing sends a
-   * position to one person, this decides whether it becomes a pin they can
-   * watch move. Null while the preference is still loading.
-   */
-  mapPresenceEnabled: boolean | null;
-  onMapPresenceChange: (next: boolean) => void;
   locationPaused: boolean;
   locationAccuracyLimited: boolean;
   /**
@@ -1908,19 +1900,6 @@ function LocationSettingsFlow({
               checked={vm.autoApproveRequestsEnabled}
               onChange={vm.onAutoApproveRequestsChange}
               label="Auto-approve requests"
-            />
-          }
-          density="compact"
-        />
-        <SettingsRow
-          title="Show me on their map"
-          description="People you share with can watch you move."
-          trailing={
-            <LocationToggle
-              checked={vm.mapPresenceEnabled === true}
-              onChange={vm.onMapPresenceChange}
-              disabled={vm.mapPresenceEnabled === null}
-              label="Show me on their map"
             />
           }
           density="compact"
