@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
-import { resolveSignedInShellContentOffset } from "../components/app-ui/signed-in-shell-content-offset";
+import {
+  resolveSignedInShellContentOffset,
+  resolveTopShellGeometryStyle,
+} from "../components/app-ui/signed-in-shell-content-offset";
+import { SECTION_TOC_RAIL_CLASSNAME } from "../components/app-ui/section-toc";
 
 /**
  * Nothing a route paints may sit under the fixed top shell.
@@ -107,7 +111,17 @@ function shellMarkup(mode: Mode): string {
            <p data-route-body>First line of the page</p>
          </main>`;
 
-  return `<div data-app-shell-root="true" style="${inlineStyle(offset.style)}">
+  // The derived geometry has to be re-declared here exactly as the route shell
+  // declares it. Inheriting the `:root` definitions instead resolves the mask
+  // against root's 8px fade rather than the shell's 22px, shortening the header
+  // by 14px -- enough for a real clearance bug to pass. Flow routes never carry
+  // contextual tabs.
+  const shellStyle = inlineStyle({
+    ...offset.style,
+    ...resolveTopShellGeometryStyle({ hasTabs: false }),
+  });
+
+  return `<div data-app-shell-root="true" style="${shellStyle}">
       <div data-app-top-bar style="position: fixed; inset-inline: 0; top: 0; z-index: 50;">
         <div
           data-top-mask
@@ -115,11 +129,19 @@ function shellMarkup(mode: Mode): string {
           style="height: var(--top-shell-mask-visible-height);"
         ></div>
       </div>
-      <div data-app-scroll-root="true">${body}</div>
+      <div data-app-scroll-root="true">
+        ${body}
+        <h2 data-section-header id="anchored-section">A jumped-to heading</h2>
+        <aside class="${SECTION_TOC_RAIL_CLASSNAME}" data-toc-rail>Sections</aside>
+      </div>
     </div>`;
 }
 
-const CANDIDATES = ["app-page-shell", "fullscreen-flow-shell"];
+const CANDIDATES = [
+  "app-page-shell",
+  "fullscreen-flow-shell",
+  ...SECTION_TOC_RAIL_CLASSNAME.split(/\s+/),
+];
 
 /**
  * One shell per document, deliberately. Rendering both in one page put the
@@ -205,5 +227,70 @@ test.describe("app shell top clearance", () => {
     expect(measured.visible).toBe(measured.reserved + measured.fade);
     expect(measured.padTop).toBeGreaterThan(measured.reserved);
     expect(measured.padTop).toBeGreaterThanOrEqual(measured.visible);
+  });
+
+  test("a jumped-to heading lands below the header, not inside its fade", async ({
+    page,
+  }) => {
+    // scroll-margin-top decides where the browser parks a hash target. Reserving
+    // only the solid part of the mask put every anchored heading 22px under the
+    // header on every route that has anchors.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(await writeFixture("standard"));
+
+    const measured = await page.evaluate(() => {
+      const px = (name: string) => {
+        const probe = document.createElement("div");
+        probe.style.cssText = `position:absolute;visibility:hidden;height:var(${name});`;
+        document.querySelector("[data-app-shell-root]")!.appendChild(probe);
+        const height = +probe.getBoundingClientRect().height.toFixed(2);
+        probe.remove();
+        return height;
+      };
+      const heading = document.querySelector("[data-section-header]")!;
+      return {
+        visible: px("--top-shell-mask-visible-height"),
+        reserved: px("--top-shell-reserved-height"),
+        scrollMargin: parseFloat(
+          getComputedStyle(heading).scrollMarginTop,
+        ),
+      };
+    });
+
+    expect(measured.scrollMargin).toBeGreaterThan(measured.reserved);
+    expect(measured.scrollMargin).toBeGreaterThanOrEqual(measured.visible);
+  });
+
+  test("the desktop section rail pins below the header", async ({ page }) => {
+    // lg: only -- the rail is display:none below 1024.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(await writeFixture("standard"));
+
+    const measured = await page.evaluate(() => {
+      const px = (name: string) => {
+        const probe = document.createElement("div");
+        probe.style.cssText = `position:absolute;visibility:hidden;height:var(${name});`;
+        document.querySelector("[data-app-shell-root]")!.appendChild(probe);
+        const height = +probe.getBoundingClientRect().height.toFixed(2);
+        probe.remove();
+        return height;
+      };
+      const rail = document.querySelector("[data-toc-rail]")!;
+      const style = getComputedStyle(rail);
+      return {
+        visible: px("--top-shell-mask-visible-height"),
+        reserved: px("--top-shell-reserved-height"),
+        display: style.display,
+        position: style.position,
+        top: parseFloat(style.top),
+      };
+    });
+
+    // If the rail stopped being a sticky lg: element this test would pass
+    // vacuously, so assert the posture it is measuring.
+    expect(measured.display).not.toBe("none");
+    expect(measured.position).toBe("sticky");
+    expect(measured.top).toBeGreaterThan(measured.reserved);
+    expect(measured.top).toBeGreaterThanOrEqual(measured.visible);
   });
 });

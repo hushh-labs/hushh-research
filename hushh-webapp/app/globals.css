@@ -2219,11 +2219,15 @@ html.kb-open .ambient-chrome-mask--bottom {
   ) !important;
 }
 
-/* Anchor clearance: hash-targeted elements must clear the fixed top shell */
+/* Anchor clearance: hash-targeted elements must clear the fixed top shell.
+   Against the VISIBLE height, not the reserved one -- the mask is solid to
+   --top-shell-reserved-height and then dissolves over --top-fade-active, so
+   reserving only the solid part landed every jumped-to heading inside the
+   dissolve. See safe-changes R21. */
 [id]:target,
 [data-page-primary][id],
 [data-section-header][id] {
-  scroll-margin-top: var(--top-shell-reserved-height, 60px);
+  scroll-margin-top: var(--top-shell-mask-visible-height, 82px);
 }
 
 .fullscreen-flow-shell {
