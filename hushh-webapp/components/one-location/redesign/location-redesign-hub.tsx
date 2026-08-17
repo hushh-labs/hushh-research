@@ -659,9 +659,8 @@ export function resolveLocationDeepLinkFocus(input: {
 
 /**
  * The id the header switch points `aria-describedby` at. A constant, not
- * `useId`: the status text now renders under the title while the switch stays
- * in the actions column, and `aria-describedby` resolves by id anywhere in the
- * document. There is exactly one Location header on screen.
+ * `useId`: `aria-describedby` resolves by id anywhere in the document, and
+ * there is exactly one Location header on screen.
  */
 const LOCATION_HEADER_STATUS_ID = "one-location-header-status";
 
@@ -681,27 +680,24 @@ function locationHeaderStatusText(vm: LocationHubViewModel): string {
 }
 
 /**
- * The status line for the Location header, rendered UNDER THE SWITCH.
+ * The status line for the Location header, rendered directly under the
+ * switch it describes, in the same right-aligned column.
  *
- * Three positions have been tried. Beside the switch, the full string made the
- * actions column wide enough to wrap the 28px "Location Agent" title at every
- * iPhone width. Shortened to one word to fix that, iOS — the platform this
- * control was designed for — got a bare green switch over the word "On", which
- * never said what it switched. Under the TITLE it could say the whole thing,
- * but it read as a subtitle for the screen rather than as the state of the
- * control on the opposite side of the row.
- *
- * So: its own full-width row under the header, right-aligned, which puts it
- * directly beneath the switch it describes while still costing the title no
- * width at all. `block` is load-bearing — `text-right` on an inline span aligns
- * nothing.
+ * Two other positions have been tried and rejected. Beside the switch, the
+ * full string made the actions column wide enough to wrap the 28px "Location
+ * Agent" title at every iPhone width. Under the TITLE (a full-width row below
+ * the whole header) it no longer wrapped anything, but its right edge only
+ * matched the switch's by coincidence — two independent right-alignments,
+ * not a paired control, which read as visually unbalanced (#5404). Grouping
+ * it with the switch in one flex column makes the pairing structural: same
+ * box, same right edge, one small fixed gap.
  */
 function LocationHeaderStatus({ vm }: { vm: LocationHubViewModel }) {
   return (
     <span
       id={LOCATION_HEADER_STATUS_ID}
       data-testid="one-location-header-status"
-      className="ui-text-helper-text block w-full text-right text-[color:var(--app-secondary-label)]"
+      className="ui-text-helper-text text-[color:var(--app-secondary-label)]"
     >
       {locationHeaderStatusText(vm)}
     </span>
@@ -725,10 +721,10 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
     <div
       role="group"
       aria-label="Location"
-      // Just the switch now. The status words moved under the title, which is
-      // what lets them be the full "Location on / off / paused / blocked" at
-      // every width instead of the single word "On" that iOS used to get.
-      className="ml-auto flex shrink-0 items-center justify-end"
+      // Switch on top, its status directly beneath — one right-aligned
+      // column so the two read as a single paired control instead of a
+      // switch up here and a caption somewhere else on the screen.
+      className="ml-auto flex shrink-0 flex-col items-end gap-1"
       data-testid="one-location-header-actions"
     >
       <Switch
@@ -753,6 +749,7 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
         // system green, so this toggle reads the same as every other one.
         className={cn(acquiring && "animate-pulse")}
       />
+      <LocationHeaderStatus vm={vm} />
     </div>
   );
 }
@@ -1240,10 +1237,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         icon={MapPin}
         accent="location"
         titleRole="agent"
-        description={<LocationHeaderStatus vm={vm} />}
-        // Its own row under the header, not a subtitle indented beside the
-        // title — see LocationHeaderStatus.
-        descriptionFullWidth
+        // No `description` — the switch and its status render together as
+        // one group inside `actions`. See LocationHeaderActions.
         actionsInlineMobile
         actions={<LocationHeaderActions vm={vm} />}
       />
