@@ -160,6 +160,7 @@ import {
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
 import {
   isOneLocationGrantUnwatched,
+  isSmsTriggeredGrant,
   markOneLocationGrantOpened,
   markOneLocationGrantUnwatched,
   ONE_LOCATION_GRANT_ID_PARAM,
@@ -2985,9 +2986,15 @@ export function OneLocationAgentPageContent({
   // here (the backend keeps them for ~12h for history only).
   const activeReceivedGrants = useMemo(
     () =>
-      (state?.receivedGrants ?? []).filter(
-        (grant) => grant.status === "active",
-      ),
+      (state?.receivedGrants ?? [])
+        .filter((grant) => grant.status === "active")
+        // Stable sort: only ever moves an SMS-triggered (Save My Soul) share
+        // earlier. Array.prototype.sort is stable, so the backend's existing
+        // most-recent-first order is untouched within each group.
+        .sort(
+          (a, b) =>
+            Number(isSmsTriggeredGrant(b)) - Number(isSmsTriggeredGrant(a)),
+        ),
     [state?.receivedGrants],
   );
   const visibleReceivedGrants = useMemo(() => {

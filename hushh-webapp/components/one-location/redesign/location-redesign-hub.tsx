@@ -52,6 +52,10 @@ import {
   locationTimestampMs,
 } from "@/lib/one-location/duration-copy";
 import { formatShareEndsAt } from "@/lib/one-location/share-countdown";
+import {
+  isSmsTriggeredGrant,
+  ONE_LOCATION_GRANT_ID_PARAM,
+} from "@/lib/one-location/notifications";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -1198,6 +1202,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <LocationDetailFlow
             kind={flow}
             vm={vm}
+            focusGrantId={searchParams.get(ONE_LOCATION_GRANT_ID_PARAM)}
             collapsedGrantIds={collapsedGrantIds}
             onCollapseGrant={(grantId) =>
               setCollapsedGrantIds((current) => new Set(current).add(grantId))
@@ -1566,12 +1571,16 @@ function NowHub({
 function LocationDetailFlow({
   kind,
   vm,
+  focusGrantId,
   collapsedGrantIds,
   onCollapseGrant,
   onExpandGrant,
 }: {
   kind: "active-shares" | "shared-with-me" | "needs-review";
   vm: LocationHubViewModel;
+  /** Grant id from a notification deep link (?grantId=...) to scroll to and
+   * briefly highlight once its card is on screen. */
+  focusGrantId?: string | null;
   collapsedGrantIds: Set<string>;
   onCollapseGrant: (grantId: string) => void;
   onExpandGrant: (grant: OneLocationGrant) => void;
@@ -1645,6 +1654,37 @@ function LocationDetailFlow({
     //    `settle` is keyed by coordinates, so a late resolution either lands
     //    on the row it belongs to or is ignored.
   }, [kind, reverseGeocodePoint, vm.receivedGrants, vm.decryptedPoints]);
+
+  // Deep link from an SOS notification (?grantId=...) scrolls to and briefly
+  // rings the matching card once it is on screen. Deliberately NOT keyed on
+  // `vm.receivedGrants`: that array gets a new reference on every live poll
+  // (LIVE_VIEW_REFRESH_INTERVAL_MS, ~5s), and re-running this per poll tick
+  // would re-scroll and re-flash the ring for as long as `grantId` stays in
+  // the URL. Instead this fires once per (kind, focusGrantId) and retries
+  // briefly on its own if the card isn't in the DOM yet (state still loading).
+  const dangerRole = roleClasses("danger");
+  useEffect(() => {
+    if (kind !== "shared-with-me" || !focusGrantId) return;
+    let cancelled = false;
+    let attempts = 0;
+    const tryHighlight = () => {
+      if (cancelled) return;
+      const node = document.querySelector(`[data-grant-id="${focusGrantId}"]`);
+      if (!node) {
+        if (attempts++ < 20) setTimeout(tryHighlight, 250);
+        return;
+      }
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+      node.classList.add("ring-2", dangerRole.border, "ring-offset-2");
+      setTimeout(() => {
+        node.classList.remove("ring-2", dangerRole.border, "ring-offset-2");
+      }, 2400);
+    };
+    tryHighlight();
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, focusGrantId, dangerRole.border]);
   const copy = {
     "active-shares": {
       title: "Active shares",
@@ -1717,8 +1757,9 @@ function LocationDetailFlow({
               const expanded =
                 Boolean(point) && !collapsedGrantIds.has(grant.id);
               return (
+                <div key={grant.id} data-grant-id={grant.id}>
                 <SharedWithMeCard
-                  key={grant.id}
+                  isSmsTriggered={isSmsTriggeredGrant(grant)}
                   name={vm.grantOwnerLabel(grant)}
                   statusLine={
                     grant.durationMode === "until_stopped"
@@ -1790,6 +1831,7 @@ function LocationDetailFlow({
                       )
                     : null}
                 </SharedWithMeCard>
+                </div>
               );
             })}
           </div>
