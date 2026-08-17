@@ -31,9 +31,21 @@ export function OnboardingLiveMap({
   const { status } = useGoogleMaps({ enabled: Boolean(point) });
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [rendered, setRendered] = useState(false);
+  /**
+   * Depend on the numbers, not the object.
+   *
+   * `point` is computed by the caller, so a render that changes nothing about
+   * where the person is still hands this component a fresh object. With that
+   * object in the effect below's dependencies, every such render tore the map
+   * down and built a new one -- and the cleanup's `setRendered(false)` flashes
+   * the stylised fallback on the way through. That was invisible while this
+   * screen was never given a point at all; it is not invisible now.
+   */
+  const lat = point?.lat ?? null;
+  const lng = point?.lng ?? null;
 
   useEffect(() => {
-    if (status !== "ready" || !point) return;
+    if (status !== "ready" || lat === null || lng === null) return;
     const host = hostRef.current;
     if (!host) return;
 
@@ -45,7 +57,7 @@ export function OnboardingLiveMap({
     // light on a dark phone should not show a dark map here and a light one
     // there.
     const map = new google.maps.Map(host, {
-      center: point,
+      center: { lat, lng },
       zoom: 17,
       disableDefaultUI: true,
       clickableIcons: false,
@@ -63,7 +75,11 @@ export function OnboardingLiveMap({
       google.maps.event.clearInstanceListeners(map);
       setRendered(false);
     };
-  }, [colorScheme, point, status]);
+    // `colorScheme` belongs here: Google accepts it only at construction, so a
+    // theme change genuinely is a rebuild. A coordinate change is a rebuild
+    // too, but a real one -- and it can now only happen when the coordinate
+    // itself differs, not merely when its wrapper object does.
+  }, [colorScheme, lat, lng, status]);
 
   const live = rendered && status === "ready";
 
@@ -72,6 +88,12 @@ export function OnboardingLiveMap({
       className={cn("relative overflow-hidden", className)}
       data-testid="onboarding-live-map"
       data-map-state={live ? "live" : "stylised"}
+      // Two very different reasons produce the same stylised picture: nobody
+      // gave this screen a coordinate, or the Maps script never became usable.
+      // For two months they were indistinguishable from the outside, which is
+      // most of why the first one went unnoticed -- the screen looked composed
+      // and said nothing. Saying which is which costs one attribute.
+      data-map-point={point ? "ready" : "none"}
       aria-hidden="true"
     >
       <div ref={hostRef} className="absolute inset-0" />

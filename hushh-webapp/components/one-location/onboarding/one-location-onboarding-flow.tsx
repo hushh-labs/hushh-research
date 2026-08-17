@@ -1955,7 +1955,11 @@ function ReadyScreen({
         ) : null}
         </div>
 
-        <footer className="relative z-10 shrink-0 bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 dark:bg-[#14171d] md:px-7 md:pb-7">
+        {/* The SAME surface as the panel it sits inside, by token rather than
+            by a second hand-picked hex. When the panel moved to the semantic
+            token and this did not, dark mode showed the panel at #1c1c1e and
+            its own footer at #14171d -- one card with a seam across it. */}
+        <footer className="relative z-10 shrink-0 bg-[color:var(--app-primary-surface)] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 md:px-7 md:pb-7">
           {settlementRetryCount > 0 ? (
             <p
               className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]"
