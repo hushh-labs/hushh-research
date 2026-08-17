@@ -285,7 +285,34 @@ test.describe("One Location live share card layout", () => {
       widths.push(await clock.evaluate((node) => node.getBoundingClientRect().width));
     }
 
+    // Everything the failure needs to name its own cause. Without this the
+    // message is "4 is not <= 0.5", which is true of a missing font, a missing
+    // utility and a font with no tabular figures alike — three different fixes.
+    const why = await clock.evaluate((node) => {
+      const cs = getComputedStyle(node);
+      return {
+        fontFamily: cs.fontFamily,
+        fontVariantNumeric: cs.fontVariantNumeric,
+        fontFeatureSettings: cs.fontFeatureSettings,
+        interLoaded: document.fonts.check(`${cs.fontSize} "InterVariable"`),
+      };
+    });
+
+    // Stated separately from the width assertion so a broken fixture reads as a
+    // broken fixture rather than as a jittering countdown.
+    expect(
+      why.fontVariantNumeric,
+      `the clock never received tabular figures — computed: ${JSON.stringify(why)}`,
+    ).toContain("tabular-nums");
+    expect(
+      why.interLoaded,
+      `the clock is not rendering in the product font — computed: ${JSON.stringify(why)}`,
+    ).toBe(true);
+
     const spread = Math.max(...widths) - Math.min(...widths);
-    expect(spread).toBeLessThanOrEqual(0.5);
+    expect(
+      spread,
+      `digit widths ${widths.join(" / ")} — computed: ${JSON.stringify(why)}`,
+    ).toBeLessThanOrEqual(0.5);
   });
 });
