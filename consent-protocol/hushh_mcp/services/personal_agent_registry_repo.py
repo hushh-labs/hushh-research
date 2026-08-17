@@ -325,17 +325,28 @@ class PersonalAgentRegistryRepo:
     async def fetch_stalled_agents(self, *, stalled_before: str, limit: int = 100) -> list[dict]:
         """Rows whose provisioning never finished, for the reconcile sweep to retry.
 
-        WHY ROW AGE IS THE RIGHT SIGNAL *HERE*
-        --------------------------------------
-        ``updated_at`` has no ``ON UPDATE`` trigger and this repo never writes it, so
-        it equals ``created_at`` -- the row's birth. The reconcile worker's docstring
-        warns that reaping on that measures AGE rather than inactivity, and reaping a
-        healthy pod because its row is old would be a serious bug.
+        WHY *INACTIVITY* IS THE SIGNAL, NOT ROW AGE
+        -------------------------------------------
+        This docstring used to argue for ``created_at`` on the premise that
+        ``updated_at`` "has no ``ON UPDATE`` trigger and this repo never writes it, so
+        it equals ``created_at``". That premise is false and was false when it was
+        written: :meth:`upsert` stamps ``updated_at`` on every call (see the comment
+        there, which exists precisely so the onboarding surface can answer "how long
+        has this been going"). The claim and its refutation sat 200 lines apart in one
+        file, which is why nobody noticed.
 
-        The retry sweep is the opposite case, and the distinction is the whole point:
-        a row *born* ten minutes ago and *still* in ``provisioning`` has, by
-        definition, not progressed in ten minutes. Age IS the staleness measure when
-        the state being measured is one the row should have left.
+        With the true premise, ``created_at`` is measurably worse. It measures the
+        row's AGE, so a pod that transitioned thirty seconds ago is retried anyway
+        once the row itself is old enough -- a spurious retry against a provision
+        that is making progress, which is the one thing a retry sweep must not do.
+        ``updated_at`` measures what the sweep actually means: nothing has happened
+        since.
+
+        The obvious worry does not apply. :meth:`record_heartbeat` deliberately does
+        NOT touch ``updated_at`` (its docstring says why), so a pod that is stuck mid
+        provision cannot hold itself out of this query by beating. Only a real
+        lifecycle transition refreshes the clock, and a real transition is exactly
+        the thing that should.
 
         ``connecting`` is deliberately NOT included. That row has a live host and is
         mid-handshake waiting for the pod's key; re-running provision against it
@@ -347,7 +358,10 @@ class PersonalAgentRegistryRepo:
             .table(_REGISTRY)
             .select("user_id", "hushh_id", "status")
             .in_("status", list(_STALLED_POD_STATUSES))
-            .lt("created_at", stalled_before)
+            # Inactivity, not age. See the docstring: `upsert` stamps `updated_at` on
+            # every lifecycle transition and `record_heartbeat` deliberately does not,
+            # so this is "nothing has happened since" rather than "the row is old".
+            .lt("updated_at", stalled_before)
             .limit(limit)
             .execute()
         )

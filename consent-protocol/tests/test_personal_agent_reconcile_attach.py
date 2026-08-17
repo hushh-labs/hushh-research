@@ -108,11 +108,28 @@ async def test_connecting_is_never_retried(repo):
 
 async def test_a_cutoff_is_always_applied(repo):
     """Without it the sweep would retry a provision that started four seconds ago,
-    racing the in-flight task it is meant to replace."""
+    racing the in-flight task it is meant to replace.
+
+    THE CUTOFF IS ON INACTIVITY, NOT ON ROW AGE
+
+    `updated_at` is stamped by `upsert` on every lifecycle transition and pointedly
+    NOT by `record_heartbeat`, so it means "nothing has happened since". `created_at`
+    means "the row is old", and the two diverge exactly where it matters: a row born
+    ten minutes ago that transitioned thirty seconds ago is making progress, and an
+    age-based cutoff retries it anyway.
+
+    This assertion used to pin `created_at`, which is the very failure the docstring
+    two tests above describes: a test written against the call site rather than the
+    contract, so that correcting the query turns it red instead of confirming it. The
+    contract is that exactly one cutoff is applied and that it measures inactivity, so
+    that is what is asserted now, with the reason written down beside it.
+    """
     r, sink = repo
     await r.fetch_stalled_agents(stalled_before="2026-08-06T00:00:00+00:00")
 
-    assert sink["lt"]["created_at"] == "2026-08-06T00:00:00+00:00"
+    assert sink["lt"] == {"updated_at": "2026-08-06T00:00:00+00:00"}, (
+        "the sweep must bound itself by inactivity, by exactly one cutoff"
+    )
 
 
 def test_the_stalled_set_and_the_active_set_stay_distinct():

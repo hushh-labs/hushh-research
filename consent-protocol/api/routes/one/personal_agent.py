@@ -304,6 +304,30 @@ async def resolve_personal_agent_status(
             last_seen = (row or {}).get("last_heartbeat_at")
             if last_seen:
                 result["lastSeenAt"] = str(last_seen)
+
+    # The readiness verdict was already durable and simply never read. `wait_ready`
+    # writes its answer into `backend_metadata.ready` (gcp_backend renders it,
+    # provisioning persists it), so "the host was created but never became ready" has
+    # been knowable on the row all along while every client had to infer it from a
+    # state that does not distinguish the two. Surfaced as a FIELD rather than
+    # promoted to a lifecycle state: a new state costs a branch in every consumer of
+    # the state union to say something one boolean says for free.
+    #
+    # Tri-state on purpose. Absent means the backend never recorded a verdict, which
+    # is different from recording False. Coercing the two together would turn "we do
+    # not know yet" into "it failed", which is the same over-claim `health` goes out
+    # of its way above not to make.
+    metadata = (row or {}).get("backend_metadata")
+    if isinstance(metadata, dict) and metadata.get("ready") is not None:
+        result["hostReady"] = bool(metadata.get("ready"))
+
+    # A `reason` field belongs here too -- `reserved` covers both "your identity is
+    # held, nothing is building yet" and "we are at capacity, your place is queued",
+    # and those want different sentences on screen. It is NOT added yet: migration 900
+    # has no `status_reason` column, so the code would be a branch that can never
+    # fire, which is the defect class this pass exists to remove rather than add. It
+    # arrives with the column, in the phase that is allowed to touch schema.
+
     return result
 
 

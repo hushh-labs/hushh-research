@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/components/ui/button";
+import { isAgentAsleep, isAgentNotAnswering } from "@/lib/feed/agent-presence-policy";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { ApiService } from "@/lib/services/api-service";
 
@@ -73,9 +74,14 @@ export function PrivateAgentCard({
   }, [vaultOwnerToken, onRequestVaultUnlock]);
 
   const description = live
-    ? health && health !== "healthy"
+    ? // An allowlist, not `health !== "healthy"`. That test swept up `sleeping`,
+      // which `pod_liveness_service` documents as emphatically not a fault, so an
+      // economy pod resting between turns was described as failing health checks.
+      isAgentNotAnswering(health)
       ? "Running, but not answering health checks right now."
-      : "Live and yours — running on your own compute, isolated to you alone."
+      : isAgentAsleep(health)
+        ? "Live and yours. Resting right now, and it wakes the moment you use it."
+        : "Live and yours, running on your own compute, isolated to you alone."
     : inFlight
       ? "Being built in the background. Nothing for you to do."
       : state === "failed"
