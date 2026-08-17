@@ -3987,13 +3987,18 @@
       },
       "voice_action_contract_file": "app/one/location/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "location.accept_circle_invite",
         "location.add_connections",
         "location.add_emergency_contact",
         "location.add_to_circle",
         "location.approve_request",
         "location.change_share_duration",
         "location.create_circle",
+        "location.decline_circle_invite",
         "location.decline_request",
+        "location.delete_circle",
+        "location.delete_saved_location",
+        "location.leave_circle",
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
@@ -4015,9 +4020,12 @@
         "location.refresh",
         "location.remove_emergency_contact",
         "location.remove_from_circle",
+        "location.rename_circle",
         "location.resume_updates",
+        "location.save_current_location",
         "location.select_ask_recipient",
         "location.select_share_recipient",
+        "location.send_check_in",
         "location.send_request",
         "location.set_auto_share",
         "location.share_selected",
@@ -8640,5 +8648,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "1ea5cd717667beb5ae731e6f6f191091f3768d410680f0d1baf8cbfa2f17f9ba"
+  "content_sha256": "9e41a83ac8bf4dc2331ad09e206066f7d0eb197104346e3cc80915471c9aa391"
 }

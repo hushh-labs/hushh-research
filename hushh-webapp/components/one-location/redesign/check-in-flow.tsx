@@ -459,6 +459,26 @@ export function CheckInFlow({
     }
   };
 
+  // Voice's `location.send_check_in` cannot reach this component's local
+  // selection state directly, so it bumps `vm.voiceCheckInSendRequestId` and
+  // this effect submits the draft that is ALREADY on screen -- same seeded
+  // recipient/duration/message the tap button would send. The ref baseline
+  // is read from the current prop rather than a fixed literal so a request
+  // that fired before this screen was even open is not replayed on mount.
+  const voiceSendRequestIdRef = useRef(vm.voiceCheckInSendRequestId);
+  useEffect(() => {
+    const requestId = vm.voiceCheckInSendRequestId;
+    if (requestId === undefined || requestId === voiceSendRequestIdRef.current) {
+      return;
+    }
+    voiceSendRequestIdRef.current = requestId;
+    void submit();
+    // `submit` deliberately excluded: it closes over this render's state, and
+    // only a NEW request id -- not every re-render that recreates it -- should
+    // retrigger a send.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vm.voiceCheckInSendRequestId]);
+
   const editAndReconfirm = () => {
     discardPrivateCheckInOperation(operationIdRef.current);
     setConfirmedPoint(null);
