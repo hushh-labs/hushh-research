@@ -150,7 +150,22 @@ export function TopShellTabs({
         className={cn(
           "relative flex",
           isLocationTabs
-            ? "mx-5 h-9 w-[calc(100%-40px)] max-w-[720px] rounded-[10px] bg-[color:var(--app-neutral-fill)] p-0.5"
+            ? // Same edges as the cards under it, at every width.
+              //
+              // This carried `mx-5` on top of the frame's own
+              // `px-[var(--page-inline-gutter-standard)]`, so it paid the page
+              // gutter twice and sat 40px narrower than the grouped cards on
+              // EVERY phone — 36px from the edge against their 16px. And it
+              // capped at 720px, a number belonging to nothing else here, while
+              // the Location column is 880px: 104-112px short on desktop.
+              //
+              // The cap is now the page column's own content width, so the two
+              // cannot drift apart again. Both tokens already exist. Scoped to
+              // Location by the `isLocationTabs` branch above — the other four
+              // tab sets take the underline arm and do not move. Do NOT
+              // generalise this: the RIA workspace runs a 96rem shell, and an
+              // 880px cap would leave its strip ~600px short per side.
+              "h-9 w-full max-w-[calc(var(--app-shell-agent)-2*var(--page-inline-gutter-standard))] rounded-[10px] bg-[color:var(--app-neutral-fill)] p-0.5"
             : "h-full w-full",
         )}
         role="tablist"
