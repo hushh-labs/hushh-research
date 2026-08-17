@@ -14,6 +14,7 @@ from typing import Any, Literal
 from hushh_mcp.adk_bridge.dispatch import is_wired_specialist
 from hushh_mcp.one_adk.voice_domain_policy import (
     is_voice_domain_disabled,
+    is_voice_entirely_disabled,
     resolve_voice_domain_for_specialist,
 )
 from hushh_mcp.services.route_orchestration_index import is_one_delegate_admitted
@@ -108,6 +109,8 @@ def resolve_specialist_availability(
     # actual reason is that the person turned Email off themselves.
     voice_settings = context.get("voice_settings")
     voice_settings = voice_settings if isinstance(voice_settings, dict) else {}
+    if is_voice_entirely_disabled(voice_settings):
+        return result("domain_disabled", "voice_disabled_by_user")
     voice_domain = resolve_voice_domain_for_specialist(agent_id)
     if is_voice_domain_disabled(voice_domain, voice_settings.get("disabled_domains")):
         return result("domain_disabled", "voice_domain_disabled_by_user")

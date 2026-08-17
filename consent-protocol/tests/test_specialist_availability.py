@@ -24,6 +24,16 @@ class TestDomainDisabled:
         assert availability.state == "domain_disabled"
         assert availability.reason_code == "voice_domain_disabled_by_user"
 
+    def test_refuses_every_specialist_when_the_master_toggle_is_off(self):
+        # The master Voice control switch is distinct from every per-domain
+        # toggle: turning it off must refuse regardless of disabled_domains.
+        availability = _resolve(
+            "agent_location",
+            {"voice_settings": {"voice_enabled": False, "disabled_domains": []}},
+        )
+        assert availability.state == "domain_disabled"
+        assert availability.reason_code == "voice_disabled_by_user"
+
     def test_allows_a_specialist_whose_domain_is_not_restricted(self):
         availability = _resolve(
             "agent_location",
