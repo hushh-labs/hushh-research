@@ -4,7 +4,10 @@ import os from "node:os";
 import path from "node:path";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
-import { DURATION_WHEEL_ITEM_HEIGHT_PX } from "../components/one-location/redesign/duration-wheel-picker";
+import {
+  DURATION_WHEEL_FRAME_CLASS,
+  DURATION_WHEEL_ITEM_HEIGHT_PX,
+} from "../components/one-location/redesign/duration-wheel-picker";
 import {
   DURATION_CUSTOM_VISIBLE_ROWS,
   DURATION_CELL_CLASS,
@@ -38,6 +41,29 @@ import {
 
 /** iPhone SE (1st gen) through iPhone Pro Max. iOS is where the users are. */
 const WIDTHS = [320, 375, 390, 430] as const;
+
+/**
+ * Tablet and desktop, which the phone widths above cannot speak for: from `sm`
+ * the ladder stops being a grid.
+ */
+const WIDE_WIDTHS = [768, 1024, 1440] as const;
+
+/**
+ * The widest a single duration chip may be on a desktop.
+ *
+ * A 3-column grid inside the 880px Location shell stretched each cell to 258px,
+ * and inside the wider Share card to 440px — "8 hours" printed across a slab
+ * half a screen wide, in the founder's words "not looking good". A chip sized
+ * to "Until I stop" is ~120px.
+ */
+const WIDE_MAX_CELL_WIDTH_PX = 170;
+
+/**
+ * The collapsed control on a desktop: label/hint row 20 + gap 10 + one 44px
+ * row of chips = 74. Slack for sub-pixel line boxes. Two rows would be 126 and
+ * fail — which is the point.
+ */
+const WIDE_COLLAPSED_MAX_HEIGHT_PX = 80;
 
 /**
  * The collapsed control's budget, in CSS px:
@@ -93,8 +119,8 @@ async function buildFixture(customOpen = false): Promise<string> {
 
   const harnessClasses =
     "p-4 space-y-2 space-y-2.5 flex items-baseline justify-between gap-3 " +
-    "text-sm font-semibold shrink-0 text-right text-xs w-full";
-  const classes = `${DURATION_GRID_CLASS} ${DURATION_CELL_CLASS} ${DURATION_CELL_OFF_CLASS} ${DURATION_CELL_ON_CLASS} ${harnessClasses}`;
+    "text-sm font-semibold shrink-0 text-right text-xs w-full col-span-3";
+  const classes = `${DURATION_GRID_CLASS} ${DURATION_CELL_CLASS} ${DURATION_CELL_OFF_CLASS} ${DURATION_CELL_ON_CLASS} ${DURATION_WHEEL_FRAME_CLASS} ${harnessClasses}`;
   const css = compiler.build(classes.split(/\s+/).filter(Boolean));
 
   const cell = (label: string, on: boolean, extra = "") =>
@@ -116,7 +142,10 @@ async function buildFixture(customOpen = false): Promise<string> {
 <!-- The real nesting: the app shell's inline gutter, then the SectionCard's
      own p-4. Measuring a bare viewport would overstate the cell width by
      64px and hide exactly the clipping this file exists to catch. -->
-<div style="padding-left:16px;padding-right:16px" data-gutter>
+<!-- The Location route is AppPageShell width="agent" — an 880px measure. On a
+     desktop viewport the card is that wide, not the window, and measuring the
+     bare window would report cells 500px wider than the ones that ship. -->
+<div style="padding-left:16px;padding-right:16px;max-width:880px;margin:0 auto" data-gutter>
   <section class="p-4" data-card>
     <div class="space-y-2.5" data-control>
       <div class="flex items-baseline justify-between gap-3">
@@ -124,12 +153,15 @@ async function buildFixture(customOpen = false): Promise<string> {
         <p class="text-xs shrink-0 text-right" data-hint>${LONGEST_HINT}</p>
       </div>
       <div data-ladder class="space-y-2">
-        <div class="${DURATION_GRID_CLASS}" data-grid>${gridCells}</div>
-        ${cell("Until I stop", false, "w-full")}
+        <div class="${DURATION_GRID_CLASS}" data-grid>${gridCells}${cell(
+          "Until I stop",
+          false,
+          "col-span-3",
+        )}</div>
         ${
           customOpen
             ? `<div class="space-y-2 pt-1">
-                 <div data-wheel style="height:${CUSTOM_WHEEL_HEIGHT_PX}px"></div>
+                 <div class="${DURATION_WHEEL_FRAME_CLASS}" data-wheel style="height:${CUSTOM_WHEEL_HEIGHT_PX}px"></div>
                </div>`
             : ""
         }
@@ -318,6 +350,98 @@ test.describe("One Location duration ladder layout", () => {
       expect(CUSTOM_WHEEL_HEIGHT_PX).toBeLessThanOrEqual(120);
       expect(measured.controlHeight).toBeLessThanOrEqual(EXPANDED_MAX_HEIGHT_PX);
       expect(measured.pageOverflow).toBeLessThanOrEqual(1);
+    });
+  }
+});
+
+/**
+ * The desktop half of the same control.
+ *
+ * The founder's screenshots of "How long" came from a browser, not a phone:
+ * three columns of 258–440px slabs, a full-width bar under them, and a 260px
+ * wheel floating in the middle of the card when Custom was open. None of the
+ * phone widths above can catch that — a stretched grid cell is only wrong once
+ * there is width to stretch into.
+ */
+test.describe("One Location duration ladder on a desktop", () => {
+  for (const width of WIDE_WIDTHS) {
+    test(`is one row of chips, not a grid of slabs, at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(await buildFixture());
+
+      const measured = await page.evaluate(() => {
+        const cells = Array.from(
+          document.querySelectorAll<HTMLElement>("[data-cell]"),
+        ).map((node) => {
+          const box = node.getBoundingClientRect();
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          return {
+            text: node.textContent ?? "",
+            width: +box.width.toFixed(2),
+            height: +box.height.toFixed(2),
+            top: Math.round(box.top),
+            clipped: node.scrollWidth > node.clientWidth + 1,
+            lineBoxes: range.getClientRects().length,
+          };
+        });
+        const control = document
+          .querySelector("[data-control]")!
+          .getBoundingClientRect();
+        return { cells, controlHeight: +control.height.toFixed(2) };
+      });
+
+      // Every rung, including the open-ended one, on a single line.
+      const rows = new Set(measured.cells.map((cell) => cell.top));
+      expect(
+        rows.size,
+        `the ladder wrapped to ${rows.size} rows at ${width}px`,
+      ).toBe(1);
+
+      for (const cell of measured.cells) {
+        expect(
+          cell.width,
+          `"${cell.text}" is ${cell.width}px wide — a slab, not a chip`,
+        ).toBeLessThanOrEqual(WIDE_MAX_CELL_WIDTH_PX);
+        // Still the same 44pt target and the same unwrapped label.
+        expect(cell.height).toBeGreaterThanOrEqual(44);
+        expect(cell.clipped, `"${cell.text}" is clipped`).toBe(false);
+        expect(cell.lineBoxes).toBe(1);
+      }
+
+      expect(measured.controlHeight).toBeLessThanOrEqual(
+        WIDE_COLLAPSED_MAX_HEIGHT_PX,
+      );
+    });
+
+    test(`keeps the Custom wheel beside the ladder, not centred, at ${width}px`, async ({
+      page,
+    }) => {
+      // `mx-auto` put a 260px wheel in the middle of a 790px card, with ~265px
+      // of dead space on either side. It reads as a gap in the screen rather
+      // than as part of the control that opened it.
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(await buildFixture(true));
+
+      const measured = await page.evaluate(() => {
+        const ladder = document
+          .querySelector("[data-grid]")!
+          .getBoundingClientRect();
+        const wheel = document
+          .querySelector("[data-wheel]")!
+          .getBoundingClientRect();
+        return {
+          ladderLeft: +ladder.left.toFixed(2),
+          wheelLeft: +wheel.left.toFixed(2),
+        };
+      });
+
+      expect(
+        measured.wheelLeft,
+        `the wheel starts ${measured.wheelLeft - measured.ladderLeft}px right of the ladder it belongs to`,
+      ).toBeLessThanOrEqual(measured.ladderLeft + 1);
     });
   }
 });
