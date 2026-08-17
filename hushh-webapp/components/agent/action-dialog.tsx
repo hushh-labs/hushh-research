@@ -32,15 +32,6 @@ export function ActionDialog({
     return isReadOnlyLocationQuery(directiveType);
   }, [directiveType]);
 
-  if (isReadOnly) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(
-        `[ActionDialog] Prevented rendering confirmation modal for read-only query: ${directiveType}`,
-      );
-    }
-    return null;
-  }
-
   // Determine button labels based on action type
   const confirmLabel = useMemo(() => {
     if (directiveType === "sos_panic") return "Send SMS";
@@ -56,6 +47,15 @@ export function ActionDialog({
     }
     return "Authorize";
   }, [directiveType, payload.confirmLabel]);
+
+  if (isReadOnly) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(
+        `[ActionDialog] Prevented rendering confirmation modal for read-only query: ${directiveType}`,
+      );
+    }
+    return null;
+  }
 
   const summary = String(payload.summary ?? directiveEvent.message ?? "Authorize this action to proceed.");
 

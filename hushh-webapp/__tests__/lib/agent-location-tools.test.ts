@@ -7,6 +7,10 @@ import {
 import { runLocationDirective } from "@/lib/agent/specialist-directive-runtime";
 
 describe("Location Tools Intent Routing", () => {
+  it("formats relative expiry hints", () => {
+    expect(formatExpiryHint(null)).toBeNull();
+    expect(formatExpiryHint("invalid-date")).toBeNull();
+  });
   it("correctly identifies read-only query tools vs action tools", () => {
     // Read-only queries must return true
     expect(isReadOnlyLocationQuery("list_incoming_location_shares")).toBe(true);
