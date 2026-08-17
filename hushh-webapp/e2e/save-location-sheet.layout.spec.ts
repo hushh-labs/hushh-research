@@ -7,6 +7,9 @@ import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
+  ADDRESS_LABEL_ROW_CLASSNAME,
+  DOOR_DETAILS_TOGGLE_CLASSNAME,
+  REQUIRED_BADGE_CLASSNAME,
   SHEET_BODY_CLASSNAME,
   SHEET_DETAILS_SHELL_CLASSNAME,
   SHEET_FOOTER_CLASSNAME,
@@ -77,30 +80,62 @@ async function buildFixture(): Promise<string> {
     "flex h-[52px] w-full items-center justify-center rounded-full";
   const secondary = "h-11 w-full rounded-full";
 
+  /**
+   * Split from its margin on purpose. This fixture writes raw class strings
+   * with no `cn()` behind them, so `"... mb-1.5 ... mb-0"` would leave BOTH
+   * rules standing and the stylesheet order would decide -- which is not what
+   * the component does. It composes the Address label with `cn(...)`, and
+   * tailwind-merge drops the margin outright.
+   */
+  const label = "block text-[13px] font-semibold leading-[18px]";
+
   const classes = [
     shell,
     SHEET_DETAILS_SHELL_CLASSNAME,
     SHEET_HEADER_CLASSNAME,
     SHEET_BODY_CLASSNAME,
     SHEET_FOOTER_CLASSNAME,
+    ADDRESS_LABEL_ROW_CLASSNAME,
+    REQUIRED_BADGE_CLASSNAME,
+    DOOR_DETAILS_TOGGLE_CLASSNAME,
     row,
     button,
     title,
     field,
+    label,
     primary,
     secondary,
-    "mt-1 space-y-3.5 mb-1.5 block",
+    "mt-1 space-y-3.5 mb-1.5 mb-0 block",
   ].join(" ");
   const css = compiler.build(classes.split(/\s+/).filter(Boolean));
 
+  // The Address row: the one label on this sheet that shares its line with
+  // something else, so the one that a narrow phone can break.
+  const addressRow =
+    `<div class="${ADDRESS_LABEL_ROW_CLASSNAME}">` +
+    `<label class="${label}" data-testid="address-label">Address</label>` +
+    `<span class="${REQUIRED_BADGE_CLASSNAME}" data-testid="address-required-badge">Required</span>` +
+    `</div>` +
+    `<input class="${field}" data-testid="sheet-field" value="Kartavya Path, New Delhi, Delhi 110001, India">`;
+
+  // The progressive-disclosure row. A control, so it owes 44px.
+  const doorDetails =
+    `<button class="${DOOR_DETAILS_TOGGLE_CLASSNAME}" data-testid="door-details-toggle">` +
+    `<span class="text-[15px] font-semibold leading-5" data-testid="door-details-label">More door details</span>` +
+    `<span aria-hidden>v</span>` +
+    `</button>`;
+
   // Enough fields to overflow every width under test, so the body genuinely
   // has to scroll -- a footer only bleeds when there is something behind it.
-  const fields = Array.from(
-    { length: 8 },
-    (_, i) =>
-      `<div><label class="mb-1.5 block">Field ${i + 1}</label>` +
-      `<input class="${field}" data-testid="sheet-field" value="Value ${i + 1}"></div>`,
-  ).join("");
+  const fields =
+    addressRow +
+    Array.from(
+      { length: 8 },
+      (_, i) =>
+        `<div><label class="${label} mb-1.5">Field ${i + 1}</label>` +
+        `<input class="${field}" data-testid="sheet-field" value="Value ${i + 1}"></div>`,
+    ).join("") +
+    doorDetails;
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "save-location-sheet-"));
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
@@ -216,6 +251,63 @@ test.describe("Save-location address sheet layout", () => {
       expect(Math.round(last!.y + last!.height)).toBeLessThanOrEqual(
         Math.round(footerAfter.y) + 1,
       );
+    });
+
+    test(`keeps the Required badge whole beside the Address label at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(await buildFixture());
+      await awaitProductFont(page);
+
+      const body = await boxOf(page, "sheet-body");
+      const label = await boxOf(page, "address-label");
+      const badge = await boxOf(page, "address-required-badge");
+
+      // One line, in order, not stacked and not overlapping. Measured on the
+      // centres, because the row centre-aligns two boxes of different heights
+      // -- their top edges are not meant to agree.
+      expect(
+        Math.abs(label.y + label.height / 2 - (badge.y + badge.height / 2)),
+      ).toBeLessThanOrEqual(1);
+      expect(Math.round(label.x + label.width)).toBeLessThanOrEqual(
+        Math.round(badge.x),
+      );
+      // And still inside the sheet, rather than pushed off its right edge.
+      expect(Math.round(badge.x + badge.width)).toBeLessThanOrEqual(
+        Math.round(body.x + body.width),
+      );
+
+      // Neither word is clipped. The badge is the field's only visible
+      // statement that it is mandatory; a "Requir…" is not one.
+      const clipped = await page.evaluate(() =>
+        ["address-label", "address-required-badge"]
+          .map((id) => document.querySelector(`[data-testid="${id}"]`)!)
+          .filter((el) => el.scrollWidth > el.clientWidth + 1)
+          .map((el) => el.getAttribute("data-testid")),
+      );
+      expect(clipped).toEqual([]);
+    });
+
+    test(`gives the door-details row a real 44px at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(await buildFixture());
+      await awaitProductFont(page);
+
+      const body = await boxOf(page, "sheet-body");
+      const toggle = await boxOf(page, "door-details-toggle");
+
+      expect(toggle.height).toBeGreaterThanOrEqual(44);
+      expect(Math.round(toggle.x + toggle.width)).toBeLessThanOrEqual(
+        Math.round(body.x + body.width),
+      );
+
+      const labelClipped = await page
+        .getByTestId("door-details-label")
+        .evaluate((el) => el.scrollWidth > el.clientWidth + 1);
+      expect(labelClipped).toBe(false);
     });
   }
 

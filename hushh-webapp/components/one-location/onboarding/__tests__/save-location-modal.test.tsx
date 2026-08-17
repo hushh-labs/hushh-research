@@ -421,6 +421,12 @@ describe("SaveLocationModal", () => {
     fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: " Flat 4B, Tower 2 " },
     });
+
+    // Landmark and building colour are polish, so they start behind a tap.
+    expect(screen.getByLabelText(/Building colour/)).not.toBeVisible();
+    fireEvent.click(screen.getByTestId("save-location-door-details-toggle"));
+    expect(screen.getByLabelText(/Building colour/)).toBeVisible();
+
     fireEvent.change(screen.getByLabelText(/Building colour/), {
       target: { value: "Blue gate" },
     });
@@ -1127,43 +1133,47 @@ describe("SaveLocationModal", () => {
   describe("when the pin is good but no address comes back", () => {
     // On the native build before the vault exists there is no server
     // reverse-geocode and no browser geocoder either, so the lookup returns
-    // nothing however good the pin is. Blocking the save on a resolved STRING
-    // left that person pinned, correct, and permanently unable to finish.
+    // nothing however good the pin is. Requiring the address is safe anyway,
+    // because the way out is the Address box itself: it is editable and it is
+    // already on screen, so that person types the line and finishes.
     const strandedProps = {
       ...baseProps,
       address: null,
       collectAddressDetails: true,
     };
 
-    it("asks for one thing it can actually use", () => {
+    it("says what is missing beside the box, not only on the button", () => {
       render(<SaveLocationModal {...strandedProps} />);
       fireEvent.click(screen.getByRole("button", { name: "Home" }));
 
-      expect(
-        screen.getByText("Add a house, landmark or PIN."),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent("Enter the address.");
+      expect(screen.getByLabelText(/^Address$/)).toHaveAttribute(
+        "aria-invalid",
+        "true",
+      );
+      expect(screen.getByText("Add the address above.")).toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: "Save location" }),
       ).toBeDisabled();
     });
 
-    it("saves once the person supplies it themselves", () => {
+    it("does not take door details in place of the address", () => {
       render(<SaveLocationModal {...strandedProps} />);
       fireEvent.click(screen.getByRole("button", { name: "Home" }));
+      fireEvent.click(screen.getByTestId("save-location-door-details-toggle"));
       fireEvent.change(screen.getByLabelText(/Landmark/), {
         target: { value: "Opposite City Mall" },
       });
+      fireEvent.change(screen.getByLabelText(/PIN \/ postcode/), {
+        target: { value: "110001" },
+      });
 
-      const save = screen.getByRole("button", { name: "Save location" });
-      expect(save).toBeEnabled();
-      fireEvent.click(save);
-
-      expect(baseProps.onSave).toHaveBeenCalledWith(
-        "home",
-        "",
-        expect.objectContaining({ landmark: "Opposite City Mall" }),
-        null,
-      );
+      // The field is marked required, so it has to actually BE required --
+      // a badge over a gate that anything else can open is a lie.
+      expect(
+        screen.getByRole("button", { name: "Save location" }),
+      ).toBeDisabled();
+      expect(baseProps.onSave).not.toHaveBeenCalled();
     });
 
     it("unblocks the save once the person types an address line themselves", () => {
@@ -1275,5 +1285,274 @@ describe("SaveLocationModal", () => {
     // And it is not offered as a house number.
     expect(screen.getByLabelText(/House or flat/)).toHaveValue("");
     expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("211004");
+  });
+
+  describe("the Address box is required, and says so", () => {
+    const detailsProps = {
+      ...baseProps,
+      address: "Kartavya Path, New Delhi, Delhi 110001, India",
+      collectAddressDetails: true,
+    };
+
+    it("marks it required on screen and to a screen reader", () => {
+      render(<SaveLocationModal {...detailsProps} />);
+
+      const address = screen.getByLabelText(/^Address$/);
+      expect(address).toBeRequired();
+      expect(address).toHaveAttribute("aria-required", "true");
+      // The word, so the requirement does not rest on seeing a colour. Kept
+      // out of the label element, or it would join the field's own name.
+      expect(screen.getByText("Required")).toBeInTheDocument();
+      expect(address).toHaveAccessibleName("Address");
+      expect(screen.getByText("Used to find your door.")).toBeInTheDocument();
+    });
+
+    it("stays quiet while the box holds the detected address", () => {
+      render(<SaveLocationModal {...detailsProps} />);
+
+      expect(screen.queryByText("Enter the address.")).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/^Address$/)).toHaveAttribute(
+        "aria-invalid",
+        "false",
+      );
+      expect(
+        screen.getByRole("button", { name: "Save location" }),
+      ).toBeEnabled();
+    });
+
+    it("waits until the person leaves the box before calling their edit wrong", () => {
+      render(<SaveLocationModal {...detailsProps} />);
+      const address = screen.getByLabelText(/^Address$/);
+
+      // Clearing the line to retype it must not flash an error per keystroke.
+      fireEvent.change(address, { target: { value: "" } });
+      expect(screen.queryByText("Enter the address.")).not.toBeInTheDocument();
+
+      fireEvent.blur(address);
+      expect(screen.getByText("Enter the address.")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Save location" }),
+      ).toBeDisabled();
+
+      fireEvent.change(address, { target: { value: "12 MG Road, Bengaluru" } });
+      expect(screen.queryByText("Enter the address.")).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Save location" }),
+      ).toBeEnabled();
+    });
+
+    it("points the box at its help line, and then at its error too", () => {
+      render(<SaveLocationModal {...detailsProps} />);
+      const address = screen.getByLabelText(/^Address$/);
+      const help = screen.getByText("Used to find your door.");
+      expect(address.getAttribute("aria-describedby")).toBe(help.id);
+
+      fireEvent.change(address, { target: { value: "" } });
+      fireEvent.blur(address);
+
+      const error = screen.getByText("Enter the address.");
+      expect(address.getAttribute("aria-describedby")?.split(" ")).toEqual([
+        help.id,
+        error.id,
+      ]);
+    });
+  });
+
+  describe("the order the details are asked in", () => {
+    const detailsProps = {
+      ...baseProps,
+      address: "Kartavya Path, New Delhi, Delhi 110001, India",
+      collectAddressDetails: true,
+    };
+
+    const isBefore = (first: Element, second: Element) =>
+      Boolean(
+        first.compareDocumentPosition(second) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+
+    it("asks the two things a save needs before anything optional", () => {
+      render(<SaveLocationModal {...detailsProps} />);
+
+      const address = screen.getByLabelText(/^Address$/);
+      const kindOfPlace = screen.getByRole("group", {
+        name: "Saved location category",
+      });
+      const optionalGroup = screen.getByText("Optional — helps at the door.");
+      const houseOrFlat = screen.getByLabelText(/House or flat/);
+      const doorDetails = screen.getByTestId(
+        "save-location-door-details-toggle",
+      );
+      const buildingColour = screen.getByLabelText(/Building colour/);
+
+      expect(isBefore(address, kindOfPlace)).toBe(true);
+      expect(isBefore(kindOfPlace, optionalGroup)).toBe(true);
+      expect(isBefore(optionalGroup, houseOrFlat)).toBe(true);
+      expect(isBefore(houseOrFlat, doorDetails)).toBe(true);
+      expect(isBefore(doorDetails, buildingColour)).toBe(true);
+    });
+
+    it("keeps building colour behind a tap for a new place", () => {
+      render(<SaveLocationModal {...detailsProps} />);
+
+      expect(screen.getByLabelText(/Building colour/)).not.toBeVisible();
+      expect(screen.getByLabelText(/Landmark/)).not.toBeVisible();
+      expect(
+        screen.getByTestId("save-location-door-details-toggle"),
+      ).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("opens it when the place already carries those answers", () => {
+      render(
+        <SaveLocationModal
+          {...detailsProps}
+          initialDetails={{
+            houseOrFlat: "",
+            buildingColor: "Blue gate",
+            landmark: "",
+            postalCode: "",
+          }}
+        />,
+      );
+
+      expect(screen.getByLabelText(/Building colour/)).toBeVisible();
+      expect(
+        screen.getByTestId("save-location-door-details-toggle"),
+      ).toHaveAttribute("aria-expanded", "true");
+    });
+
+    it("does not lose what was typed when the step is collapsed again", () => {
+      render(<SaveLocationModal {...detailsProps} />);
+      const toggle = screen.getByTestId("save-location-door-details-toggle");
+
+      fireEvent.click(toggle);
+      fireEvent.change(screen.getByLabelText(/Building colour/), {
+        target: { value: "Blue gate" },
+      });
+      fireEvent.click(toggle);
+      fireEvent.click(toggle);
+
+      expect(screen.getByLabelText(/Building colour/)).toHaveValue("Blue gate");
+    });
+  });
+
+  describe("on a phone it is the app's own bottom sheet", () => {
+    const sheetProps = {
+      ...baseProps,
+      address: "Kartavya Path, New Delhi, Delhi 110001, India",
+      collectAddressDetails: true,
+    };
+
+    /** jsdom has no layout, so the width is whatever matchMedia says it is. */
+    const setPhoneWidth = (phone: boolean) => {
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: phone && query === "(max-width: 639.98px)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })) as unknown as typeof window.matchMedia;
+    };
+
+    /**
+     * jsdom's synthetic pointer events carry no coordinates, and a pull is
+     * nothing but coordinates.
+     */
+    const pointer = (
+      element: Element,
+      type: "pointerdown" | "pointermove" | "pointerup",
+      x: number,
+      y: number,
+    ) => {
+      const event = new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        clientY: y,
+      });
+      Object.defineProperty(event, "pointerType", { value: "touch" });
+      fireEvent(element, event);
+    };
+
+    afterEach(() => setPhoneWidth(false));
+
+    it("renders in the shared sheet primitive, not in a dialog", () => {
+      setPhoneWidth(true);
+      render(<SaveLocationModal {...sheetProps} />);
+
+      expect(screen.getByTestId("save-location-modal")).toHaveAttribute(
+        "data-slot",
+        "sheet-content",
+      );
+      expect(
+        document.querySelector('[data-slot="sheet-overlay"]'),
+      ).toBeInTheDocument();
+    });
+
+    it("keeps the centred dialog above that width", () => {
+      setPhoneWidth(false);
+      render(<SaveLocationModal {...sheetProps} />);
+
+      expect(screen.getByTestId("save-location-modal")).toHaveAttribute(
+        "data-slot",
+        "dialog-content",
+      );
+      expect(
+        document.querySelector('[data-slot="sheet-overlay"]'),
+      ).not.toBeInTheDocument();
+    });
+
+    it("closes on a pull down from the grabber row", async () => {
+      setPhoneWidth(true);
+      const onSkip = vi.fn();
+      render(<SaveLocationModal {...sheetProps} onSkip={onSkip} />);
+
+      const grabber = screen.getByTestId("save-location-sheet-grabber");
+      pointer(grabber, "pointerdown", 200, 100);
+      pointer(grabber, "pointermove", 200, 340);
+      pointer(grabber, "pointerup", 200, 340);
+
+      await waitFor(() => expect(onSkip).toHaveBeenCalled());
+    });
+
+    it("ignores a pull too short to be one", async () => {
+      setPhoneWidth(true);
+      const onSkip = vi.fn();
+      render(<SaveLocationModal {...sheetProps} onSkip={onSkip} />);
+
+      const grabber = screen.getByTestId("save-location-sheet-grabber");
+      pointer(grabber, "pointerdown", 200, 100);
+      pointer(grabber, "pointermove", 200, 140);
+      pointer(grabber, "pointerup", 200, 140);
+
+      await new Promise((resolve) => setTimeout(resolve, 320));
+      expect(onSkip).not.toHaveBeenCalled();
+    });
+
+    it("leaves a press on a dot to the dot", async () => {
+      setPhoneWidth(true);
+      const onSkip = vi.fn();
+      render(
+        <SaveLocationModal
+          {...sheetProps}
+          mapInitial={{ latitude: 28.6139, longitude: 77.209 }}
+          onPickExactLocation={vi.fn()}
+          startWithMapPicker
+          onSkip={onSkip}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+
+      const dot = screen.getByRole("tab", { name: "Pin your entrance" });
+      pointer(dot, "pointerdown", 200, 100);
+      pointer(dot, "pointermove", 200, 340);
+      pointer(dot, "pointerup", 200, 340);
+
+      await new Promise((resolve) => setTimeout(resolve, 320));
+      expect(onSkip).not.toHaveBeenCalled();
+    });
   });
 });
