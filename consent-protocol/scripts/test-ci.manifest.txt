@@ -27,6 +27,7 @@ tests/test_vault_keys_metadata.py
 tests/test_one_location_routes.py
 tests/services/test_one_location_agent_service.py
 tests/services/test_connections_service.py
+tests/services/test_push_notifications.py
 tests/routes/test_connections_route.py
 tests/test_adk_a2a_compliance_script.py
 tests/test_ria_claim_flow.py
