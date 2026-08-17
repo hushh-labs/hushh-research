@@ -458,6 +458,12 @@ export type LocationHubViewModel = {
      provenance rides in the request's optional sourceCircleId. */
   onCheckIn: (request: PrivateCheckInRequest) => Promise<PrivateCheckInResult>;
   onDiscardPrivateCheckInOperation: (operationId: string | null) => void;
+  /**
+   * Bumped by the voice `location.send_check_in` action while this flow is
+   * mounted. `CheckInFlow` watches it and submits its own local draft --
+   * page.tsx has no reach into that component's selection state otherwise.
+   */
+  voiceCheckInSendRequestId?: number;
 
   /* label helpers (reuse existing formatting) */
   recipientLabel: (r: OneLocationRecipient) => string;
