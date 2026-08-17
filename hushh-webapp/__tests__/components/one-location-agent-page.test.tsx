@@ -648,14 +648,24 @@ async function advanceFromLocationFeatureStep() {
     });
     expect(savePrompt || continueButton).toBeTruthy();
   });
-  const savePrompt = screen.queryByTestId("save-location-modal");
-  if (savePrompt) {
+  // Dismissed inside the loop, not once before it. Since #5395 the Location
+  // grant happens on the FIRST press of this screen's CTA rather than on
+  // arrival, so the saved-place sheet now opens BETWEEN the two presses. It is
+  // a Radix Dialog: while it is open it marks the rest of the tree
+  // aria-hidden, and every later getByRole silently finds nothing — the
+  // onboarding reaches the invite screen and the assertion still fails.
+  const dismissSavePromptIfOpen = () => {
+    const savePrompt = screen.queryByTestId("save-location-modal");
+    if (!savePrompt) return;
     fireEvent.click(
       within(savePrompt).getByRole("button", { name: "Skip for now" }),
     );
-  }
-  for (let press = 0; press < 2; press += 1) {
-    if (!screen.queryByTestId("one-location-onboarding-features")) return;
+  };
+
+  dismissSavePromptIfOpen();
+  for (let press = 0; press < 3; press += 1) {
+    dismissSavePromptIfOpen();
+    if (!screen.queryByTestId("one-location-onboarding-features")) break;
     // A refused device gets recovery, not an ask: its primary button opens
     // Settings and never advances, so the way forward is the escape beside it.
     const skip = screen.queryByTestId("one-location-onboarding-skip-location");
@@ -666,10 +676,15 @@ async function advanceFromLocationFeatureStep() {
     const cta = screen.queryByRole("button", {
       name: /Find my people|Allow location/,
     });
-    if (!cta) return;
+    if (!cta) break;
     await waitFor(() => expect(cta).toBeEnabled());
     fireEvent.click(cta);
   }
+  // The sheet can also open on the way out, once the grant settles.
+  await waitFor(() => {
+    dismissSavePromptIfOpen();
+    expect(screen.queryByTestId("save-location-modal")).toBeNull();
+  });
 }
 
 /** Assert the invite screen is showing. It is the last screen now. */
