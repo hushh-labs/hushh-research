@@ -47,5 +47,28 @@ export const SHEET_BODY_CLASSNAME =
 export const SHEET_FOOTER_CLASSNAME =
   "relative z-10 flex shrink-0 flex-col gap-2 border-t border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)] px-5 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)]";
 
+/**
+ * The Address label and its "Required" badge, as one row.
+ *
+ * Exported for the same reason as the three above: the badge is the only place
+ * on this sheet where a label shares its line with something else, so it is
+ * the only place where a narrow phone can push a word off the edge. A JSDOM
+ * test can prove the badge is rendered; only a browser can prove it still fits
+ * beside the word "Address" at 320px.
+ */
+export const ADDRESS_LABEL_ROW_CLASSNAME = "mb-1 flex items-center gap-1.5";
+
+/** The badge itself. `shrink-0` is what keeps it a pill rather than a sliver. */
+export const REQUIRED_BADGE_CLASSNAME =
+  "shrink-0 rounded-full bg-[color:var(--app-destructive)]/12 px-1.5 py-px text-[11px] font-semibold uppercase leading-[16px] tracking-[0.02em] text-[color:var(--app-destructive)]";
+
+/**
+ * The row that opens the optional door details. A control, so it owes the
+ * platform's 44px minimum -- and `min-h-11` rather than a fixed height,
+ * because its label wraps to two lines under a large text setting.
+ */
+export const DOOR_DETAILS_TOGGLE_CLASSNAME =
+  "press-scale flex min-h-11 w-full items-center justify-between gap-2 rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] px-3.5 py-2.5 text-left transition-colors hover:bg-foreground/[0.03] disabled:opacity-45";
+
 /** Widths the sheet has to hold its shape at, smallest phone upward. */
 export const SHEET_LAYOUT_WIDTHS = [320, 360, 375, 390, 430, 768] as const;
