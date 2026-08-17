@@ -4588,7 +4588,7 @@
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
-        "hushh_loader": false,
+        "hushh_loader": true,
         "sse_or_streaming": false,
         "native_beacon": false
       },
@@ -5724,5 +5724,5 @@
       ]
     }
   ],
-  "content_sha256": "04cabe4fc09bb6f5d5ef8151cd71f2fb4657ad9803418031208b4d2cd47bd188"
+  "content_sha256": "8f1950a9bd48f30546784996619bbf1b7087a3999d274b27aa663ee131b4810a"
 }

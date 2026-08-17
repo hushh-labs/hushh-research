@@ -140,6 +140,10 @@ import {
   recipientSelectionFromIds,
   resolveEffectiveShareRecipients,
 } from "@/lib/one-location/share-recipient-selection";
+import {
+  ambiguousMatchNames,
+  resolveBySpokenName,
+} from "@/lib/one-location/resolve-by-spoken-name";
 
 
 import {
@@ -388,6 +392,18 @@ const PRIVATE_SHARE_DURATION_LABELS: Record<string, string> = {
   "8": "8 hours",
   until_stopped: "Until I stop",
 };
+
+// A spoken-safe version of PRIVATE_SHARE_DURATION_LABELS -- covers every
+// value SHARE_VOICE_DURATION_VALUES actually accepts ("0.5" and "24" are not
+// in that map, since it backs a different, UI-only label) and reads as a
+// sentence fragment ("30 minutes") rather than a compact chip ("30 min").
+function shareVoiceDurationSpokenLabel(value: string): string {
+  if (value === SHARE_DURATION_UNTIL_STOP_VALUE) return "until you stop it";
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return value;
+  if (hours < 1) return `${Math.round(hours * 60)} minutes`;
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
 
 /**
  * How many recipients a single share fans out to concurrently.
@@ -8982,6 +8998,276 @@ export function OneLocationAgentPageContent({
     // that does not navigate it waits for nothing and times out into a false
     // "started", which is why it cannot simply be returned unconditionally.
     return { ...result, routeAfter: landOn, screenAfter: "one_location" };
+  });
+
+  useLocalOnboardingActionHandler("location.stop_share", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say whose access you want to stop." };
+    }
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before stopping a share." };
+    }
+    const resolved = resolveBySpokenName(
+      activeOwnerGrants,
+      spoken,
+      (grant) => grant.recipientDisplayName,
+    );
+    if (resolved.kind === "none") {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody currently has your location shared with that name.",
+      };
+    }
+    if (resolved.kind === "many") {
+      // Never guess between people, same as picking a share recipient.
+      const names = ambiguousMatchNames(resolved.matches, (grant) => grant.recipientDisplayName);
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} active shares match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} active shares match that name. Ask which one they meant.`,
+      };
+    }
+    const grant = resolved.match;
+    // handleRevoke is best-effort (its own toast carries a real failure); the
+    // same trust handleStopSos already gets for the identical shape.
+    await handleRevoke(grant.id);
+    return {
+      status: "succeeded" as const,
+      summary: `Stopped sharing your location with ${(grant.recipientDisplayName || "them").trim()}.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.approve_request", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say whose request you want to approve." };
+    }
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before approving a request." };
+    }
+    const resolved = resolveBySpokenName(
+      pendingOwnerRequests,
+      spoken,
+      (request) => request.requesterDisplayName,
+    );
+    if (resolved.kind === "none") {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody is waiting on your decision with that name.",
+      };
+    }
+    if (resolved.kind === "many") {
+      const names = ambiguousMatchNames(
+        resolved.matches,
+        (request) => request.requesterDisplayName,
+      );
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} requests match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} requests match that name. Ask which one they meant.`,
+      };
+    }
+    const request = resolved.match;
+    await handleApprove(request);
+    return {
+      status: "succeeded" as const,
+      summary: `Approved ${(request.requesterDisplayName || "their").trim()}'s request.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.decline_request", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say whose request you want to decline." };
+    }
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before declining a request." };
+    }
+    const resolved = resolveBySpokenName(
+      pendingOwnerRequests,
+      spoken,
+      (request) => request.requesterDisplayName,
+    );
+    if (resolved.kind === "none") {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody is waiting on your decision with that name.",
+      };
+    }
+    if (resolved.kind === "many") {
+      const names = ambiguousMatchNames(
+        resolved.matches,
+        (request) => request.requesterDisplayName,
+      );
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} requests match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} requests match that name. Ask which one they meant.`,
+      };
+    }
+    const request = resolved.match;
+    await handleDeny(request.id);
+    return {
+      status: "succeeded" as const,
+      summary: `Declined ${(request.requesterDisplayName || "their").trim()}'s request.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.change_share_duration", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say whose access time you want to change." };
+    }
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before changing a share's time." };
+    }
+    const requested = String(slots?.duration_hours ?? "").trim();
+    if (!SHARE_VOICE_DURATION_VALUES.has(requested)) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Say how long: 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, 24 hours, or until you stop it.",
+      };
+    }
+    const resolved = resolveBySpokenName(
+      activeOwnerGrants,
+      spoken,
+      (grant) => grant.recipientDisplayName,
+    );
+    if (resolved.kind === "none") {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody currently has your location shared with that name.",
+      };
+    }
+    if (resolved.kind === "many") {
+      const names = ambiguousMatchNames(resolved.matches, (grant) => grant.recipientDisplayName);
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} active shares match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} active shares match that name. Ask which one they meant.`,
+      };
+    }
+    const grant = resolved.match;
+    const untilStopped = requested === SHARE_DURATION_UNTIL_STOP_VALUE;
+    try {
+      await OneLocationService.setGrantDuration({
+        vaultOwnerToken,
+        grantId: grant.id,
+        durationHours: untilStopped ? null : Number(requested),
+        durationMode: untilStopped ? "until_stopped" : "timed",
+      });
+      void refresh({ background: true }).catch(() => null);
+    } catch (error) {
+      return {
+        status: "blocked" as const,
+        summary:
+          error instanceof Error ? error.message : "Couldn't change the time. Try again.",
+      };
+    }
+    const name = (grant.recipientDisplayName || "them").trim();
+    return {
+      status: "succeeded" as const,
+      summary: untilStopped
+        ? `Changed ${name}'s access to last until you stop it.`
+        : `Changed ${name}'s access to ${shareVoiceDurationSpokenLabel(requested)}.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.select_ask_recipient", async (slots) => {
+    // Mirrors location.select_share_recipient's own matching/ambiguity
+    // rules exactly -- same connections list, same "never guess" discipline
+    // -- because asking someone for their location and sharing yours with
+    // them draw from the identical pool of people.
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say who you want to ask." };
+    }
+    let resolved = resolveBySpokenName(
+      contactSignalRecipients,
+      spoken,
+      recipientLabel,
+      recommendationSearchText,
+    );
+    if (resolved.kind === "none" && !vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see who you are connected to while the vault is locked, so I cannot tell whether they are there.",
+      };
+    }
+    if (resolved.kind === "none" && vaultOwnerToken) {
+      try {
+        const freshRecipients = await OneLocationService.listRecipients(vaultOwnerToken);
+        resolved = resolveBySpokenName(
+          rankRecipientsForRecommendation(
+            enrichRecipientsWithContactSignal(freshRecipients, contactMatchedUserIds),
+            contactMatchedUserIds,
+          ),
+          spoken,
+          recipientLabel,
+          recommendationSearchText,
+        );
+      } catch {
+        return {
+          status: "blocked" as const,
+          summary: "Location is still loading your connections. Please try that name again in a moment.",
+        };
+      }
+    }
+    if (resolved.kind === "none") {
+      return { status: "blocked" as const, summary: "Nobody in your connections matches that name." };
+    }
+    if (resolved.kind === "many") {
+      const names = ambiguousMatchNames(resolved.matches, recipientLabel);
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} people match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} people match that name. Ask which one they meant.`,
+      };
+    }
+    const match = resolved.match;
+    addRequestOwner(match.userId);
+    return {
+      status: "succeeded" as const,
+      summary: `Picked ${recipientLabel(match).trim()} to ask. Say "send it" to send the request.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.send_request", async () => {
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before sending a request." };
+    }
+    if (!selectedRequestOwners.length) {
+      return {
+        status: "blocked" as const,
+        summary: "Say who you want to ask first, then say send it.",
+      };
+    }
+    const names = selectedRequestOwners
+      .map((owner) => recipientLabel(owner).trim())
+      .filter(Boolean)
+      .join(", ");
+    const sent = await handleRequestAccess();
+    if (!sent) {
+      return {
+        status: "blocked" as const,
+        summary: "Couldn't send the request. Try again.",
+      };
+    }
+    return {
+      status: "succeeded" as const,
+      summary:
+        selectedRequestOwners.length === 1
+          ? `Asked ${names || "them"} for their location.`
+          : `Asked ${selectedRequestOwners.length} people for their location.`,
+    };
   });
 
   useLocalOnboardingActionHandler("location.stop_sos", async () => {

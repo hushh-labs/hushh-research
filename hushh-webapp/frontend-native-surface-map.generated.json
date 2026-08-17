@@ -3990,7 +3990,10 @@
         "location.add_connections",
         "location.add_emergency_contact",
         "location.add_to_circle",
+        "location.approve_request",
+        "location.change_share_duration",
         "location.create_circle",
+        "location.decline_request",
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
@@ -4013,9 +4016,12 @@
         "location.remove_emergency_contact",
         "location.remove_from_circle",
         "location.resume_updates",
+        "location.select_ask_recipient",
         "location.select_share_recipient",
+        "location.send_request",
         "location.set_auto_share",
         "location.share_selected",
+        "location.stop_share",
         "location.stop_sos"
       ],
       "api_dependencies": [
@@ -8634,5 +8640,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "2c394376505b84ab73fdfdf80df5028f961228dbb9faee5a646237b3b1c8ee8a"
+  "content_sha256": "1ea5cd717667beb5ae731e6f6f191091f3768d410680f0d1baf8cbfa2f17f9ba"
 }
