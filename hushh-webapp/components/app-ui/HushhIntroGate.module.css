@@ -1,14 +1,20 @@
 /* components/app-ui/HushhIntroGate.module.css
- * The `/one` section's real first screen, and its only splash: a slow
+ * The `/one` section's real first screen, and its only splash: a quick
  * mist of blurred purple/pink/blue blobs travels from below the screen,
- * through the centre, and out past the top over ~2.5s (Zomato-referenced
+ * through the centre, and out past the top over ~440ms (Zomato-referenced
  * motion, an original organic-cloud treatment). The 🤫 mark and
- * "Hussh One." reveal gradually through the still-moving, still-visible
- * mist, hold for 1.5s, then slowly cross-dissolve — with a soft blur and
- * a light upward drift, never an instant swap — into "Hi, {name}" /
- * "Welcome to One.", hold for another 1.5s, and the whole screen fades —
- * gently, never a hard cut or a white flash — to reveal the vault screen,
- * which only mounts once this finishes (see HushhIntroGate.tsx).
+ * "Hussh One." reveal through the still-moving, still-visible mist, hold
+ * briefly, then cross-dissolve — with a soft blur and a light upward
+ * drift, never an instant swap, just fast — into "Hi, {name}" / "Welcome
+ * to One.", hold again, and the whole screen fades — gently, never a hard
+ * cut or a white flash — to reveal the vault screen, which only mounts
+ * once this finishes (see HushhIntroGate.tsx).
+ *
+ * Every duration below is scaled down (~0.18x) from an original, slower
+ * pacing to fit the whole sequence under HushhIntroGate.tsx's ~850ms
+ * total budget (hard limit: 1s) without any phase change ever cutting a
+ * transition off mid-motion — the relative feel of each beat (a settled
+ * arrival, a deliberate exit) is preserved, just compressed.
  *
  * Follows the app's own light/dark theme: white background + dark ink in
  * light mode, the app's near-black elevated surface + light ink in dark
@@ -68,7 +74,7 @@
   background: var(--foundation-surface, #ffffff);
   pointer-events: none;
   opacity: 1;
-  transition: opacity 420ms var(--motion-ease-accelerate);
+  transition: opacity 100ms var(--motion-ease-accelerate);
 
   --sweep-pink: #ec6a90;
   --sweep-purple: #9a6fd9;
@@ -148,20 +154,20 @@
 /* Applied once, the moment the phase leaves "idle", and never reassigned
    afterwards (every later phase value still matches `:not([data-phase=
    "idle"])`), so each blob plays its whole rise/drift/recede arc on its
-   own ~2.5s clock instead of being cut short or restarted by the phase
-   changes driving the mark and text. Delays are small (0/40/80ms) — just
+   own ~440ms clock instead of being cut short or restarted by the phase
+   changes driving the mark and text. Delays are small (0/10/15ms) — just
    enough to keep the three blobs from moving in perfect lockstep, not
    enough to read as a pause before anything happens. */
 .root:not([data-phase="idle"]) .blobPurple {
-  animation: blob-purple-drift 2500ms var(--motion-ease-standard) forwards;
+  animation: blob-purple-drift 440ms var(--motion-ease-standard) forwards;
 }
 
 .root:not([data-phase="idle"]) .blobPink {
-  animation: blob-pink-drift 2600ms var(--motion-ease-standard) 40ms forwards;
+  animation: blob-pink-drift 460ms var(--motion-ease-standard) 10ms forwards;
 }
 
 .root:not([data-phase="idle"]) .blobBlue {
-  animation: blob-blue-drift 2400ms var(--motion-ease-standard) 80ms forwards;
+  animation: blob-blue-drift 420ms var(--motion-ease-standard) 15ms forwards;
 }
 
 /* Purple: the primary, most central blob. Position (via `translate3d`,
@@ -277,8 +283,8 @@
      layer-promotion mid-transition, right when it would otherwise show. */
   will-change: opacity, transform;
   transition:
-    opacity 680ms var(--motion-ease-decelerate),
-    transform 680ms var(--motion-ease-decelerate);
+    opacity 120ms var(--motion-ease-decelerate),
+    transform 120ms var(--motion-ease-decelerate);
 }
 
 .root[data-phase="greet1"] .halo,
@@ -305,8 +311,8 @@
   transform: translateY(30px);
   will-change: opacity, transform;
   transition:
-    opacity 640ms var(--motion-ease-decelerate),
-    transform 640ms var(--motion-ease-decelerate);
+    opacity 110ms var(--motion-ease-decelerate),
+    transform 110ms var(--motion-ease-decelerate);
 }
 
 .root[data-phase="greet1"] .icon,
@@ -363,16 +369,16 @@
   will-change: opacity, transform, filter;
   /* Arriving: decelerate — settles in rather than coasting to a stop. */
   transition:
-    opacity 620ms var(--motion-ease-decelerate),
-    transform 620ms var(--motion-ease-decelerate),
-    filter 620ms var(--motion-ease-decelerate);
+    opacity 110ms var(--motion-ease-decelerate),
+    transform 110ms var(--motion-ease-decelerate),
+    filter 110ms var(--motion-ease-decelerate);
 }
 
 .root[data-phase="greet1"] .label1 {
   opacity: 1;
   transform: translateY(0);
   filter: blur(0);
-  transition-delay: 200ms;
+  transition-delay: 35ms;
 }
 
 /* Shown-then-retired: drifts further up and softens into a blur as it
@@ -384,7 +390,7 @@
   opacity: 0;
   transform: translateY(-16px);
   filter: blur(10px);
-  transition-duration: 750ms;
+  transition-duration: 130ms;
   transition-delay: 0ms;
   transition-timing-function: var(--motion-ease-accelerate);
 }
@@ -422,9 +428,9 @@
   /* Arriving out of the blur: decelerate, same family as label1's own
      entrance, so the cross-dissolve reads as one motion, not two. */
   transition:
-    opacity 750ms var(--motion-ease-decelerate),
-    transform 750ms var(--motion-ease-decelerate),
-    filter 750ms var(--motion-ease-decelerate);
+    opacity 130ms var(--motion-ease-decelerate),
+    transform 130ms var(--motion-ease-decelerate),
+    filter 130ms var(--motion-ease-decelerate);
 }
 
 .root[data-phase="greet2"] .greetingLine,
@@ -438,12 +444,12 @@
    the hold before this phase) carry the pacing. */
 .root[data-phase="greet2"] .greetingLineFirst,
 .root[data-phase="exit"] .greetingLineFirst {
-  transition-delay: 60ms;
+  transition-delay: 10ms;
 }
 
 .root[data-phase="greet2"] .greetingLineSecond,
 .root[data-phase="exit"] .greetingLineSecond {
-  transition-delay: 170ms;
+  transition-delay: 30ms;
 }
 
 .greetingAccent {

@@ -23,20 +23,25 @@ import styles from "./HushhIntroGate.module.css";
  * own render fall through to `{children}` (the home page), with no splash
  * of any kind.
  *
- * Sequence — a soft splash, not a cinematic logo reveal: a slow mist of
- * blurred purple/pink/blue drifts up from below the screen through the
- * centre and out past the top (~2.5s, Zomato-referenced motion, an
- * original organic-cloud treatment); the 🤫 mark and "Hussh One." reveal
- * gradually through the still-moving mist; that holds for 1.5s; it then
- * slowly cross-dissolves over 750ms — with a soft blur and a light upward
- * drift, never an instant swap — into "Hi, {first name}" / "Welcome to
- * One." (the real signed-in user's first name — already available here
- * via Firebase auth, which resolves before the vault ever does; "Hi
- * there" is only a fallback for the rare case neither a display name nor
- * an email local-part exists); that holds for another 1.5s; the whole
- * screen then fades gently to reveal whatever's already mounted
- * underneath — and only THEN does `VaultLockGuard` mount for the first
- * time and reveal the vault screen.
+ * Sequence — a soft splash, not a cinematic logo reveal, compressed to
+ * complete in under 1 second total (`TOTAL_DURATION_MS`, ~850ms): a quick
+ * mist of blurred purple/pink/blue drifts up from below the screen
+ * through the centre and out past the top (~440ms, Zomato-referenced
+ * motion, an original organic-cloud treatment, scaled down from its
+ * original ~2.5s); the 🤫 mark and "Hussh One." reveal through the
+ * still-moving mist; that holds briefly (`GREET1_HOLD_MS`); it then
+ * cross-dissolves — with a soft blur and a light upward drift, never an
+ * instant swap, just fast — into "Hi, {first name}" / "Welcome to One."
+ * (the real signed-in user's first name — already available here via
+ * Firebase auth, which resolves before the vault ever does; "Hi there" is
+ * only a fallback for the rare case neither a display name nor an email
+ * local-part exists); that holds again (`GREET2_HOLD_MS`); the whole
+ * screen then fades to reveal whatever's already mounted underneath — and
+ * only THEN does `VaultLockGuard` mount for the first time and reveal the
+ * vault screen. Every CSS transition/animation duration in the stylesheet
+ * is scaled down to match this budget (see that file's own header) so
+ * nothing is ever cut off mid-transition by a phase change firing before
+ * its predecessor's motion would have finished at the original pacing.
  *
  * Plays only for a signed-in user who hasn't unlocked their vault yet this
  * login — never for a logged-out visitor, and never again on refresh,
@@ -77,12 +82,18 @@ const LAST_UID_KEY = "hushh.one.intro.lastUid.v1";
 
 type Phase = "idle" | "sweep" | "greet1" | "greet2" | "exit";
 
-const SWEEP_DELAY_MS = 20;
-const MIST_TO_MARK_MS = 1250;
-const GREET1_HOLD_MS = 1500;
-const GREET2_HOLD_MS = 1500;
-const EXIT_DURATION_MS = 420;
-const EXIT_BUFFER_MS = 80;
+// Whole sequence is capped at ~850ms, comfortably under the hard 1s
+// budget: every value below (and every CSS transition/animation duration
+// in HushhIntroGate.module.css) is scaled down from the original, slower
+// pacing by the same ~0.18x factor, so the relative feel — mist rise,
+// brief hold, quick cross-dissolve, second hold, fade — is preserved just
+// compressed, rather than truncated mid-motion.
+const SWEEP_DELAY_MS = 10;
+const MIST_TO_MARK_MS = 260;
+const GREET1_HOLD_MS = 200;
+const GREET2_HOLD_MS = 260;
+const EXIT_DURATION_MS = 100;
+const EXIT_BUFFER_MS = 20;
 
 const GREET1_AT_MS = SWEEP_DELAY_MS + MIST_TO_MARK_MS;
 const GREET2_AT_MS = GREET1_AT_MS + GREET1_HOLD_MS;
