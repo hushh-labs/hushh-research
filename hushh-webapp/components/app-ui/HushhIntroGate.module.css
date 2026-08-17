@@ -10,6 +10,10 @@
  * gently, never a hard cut or a white flash — to reveal the vault screen,
  * which only mounts once this finishes (see HushhIntroGate.tsx).
  *
+ * Every duration below is paced to match HushhIntroGate.tsx's phase
+ * timers (`TOTAL_DURATION_MS`, ~4.8s total) so no phase change ever cuts
+ * a transition off mid-motion.
+ *
  * Follows the app's own light/dark theme: white background + dark ink in
  * light mode, the app's near-black elevated surface + light ink in dark
  * mode — never pure black, never a jarring flash either way. Nothing else
@@ -68,7 +72,7 @@
   background: var(--foundation-surface, #ffffff);
   pointer-events: none;
   opacity: 1;
-  transition: opacity 420ms var(--motion-ease-accelerate);
+  transition: opacity 300ms var(--motion-ease-accelerate);
 
   --sweep-pink: #ec6a90;
   --sweep-purple: #9a6fd9;
@@ -384,7 +388,7 @@
   opacity: 0;
   transform: translateY(-16px);
   filter: blur(10px);
-  transition-duration: 750ms;
+  transition-duration: 500ms;
   transition-delay: 0ms;
   transition-timing-function: var(--motion-ease-accelerate);
 }
@@ -422,9 +426,9 @@
   /* Arriving out of the blur: decelerate, same family as label1's own
      entrance, so the cross-dissolve reads as one motion, not two. */
   transition:
-    opacity 750ms var(--motion-ease-decelerate),
-    transform 750ms var(--motion-ease-decelerate),
-    filter 750ms var(--motion-ease-decelerate);
+    opacity 500ms var(--motion-ease-decelerate),
+    transform 500ms var(--motion-ease-decelerate),
+    filter 500ms var(--motion-ease-decelerate);
 }
 
 .root[data-phase="greet2"] .greetingLine,
