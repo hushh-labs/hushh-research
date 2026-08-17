@@ -5736,19 +5736,24 @@ export function OneLocationAgentPageContent({
    * Edit a received grant's remaining time -- from any list that shows one
    * (Ask's "already sharing" rows, Requests sent, Shared with me).
    *
-   * Shortening is self-limiting -- the owner already agreed to be seen at
-   * least this long -- so it applies immediately. Extending is a different
-   * question: it grows how long the recipient can see the owner, and that
-   * is the owner's consent to give again, via a fresh request_access the
-   * owner approves like any other.
+   * The owner already agreed to be seen up to the grant's ceiling -- the
+   * furthest expiry ever explicitly authorized -- so moving the live expiry
+   * anywhere at or under that ceiling applies immediately, whichever
+   * direction it moves ("shorten" or "grow"). Shrinking a 1-hour share to 15
+   * minutes and then back up to 30 is still inside what was already agreed,
+   * so it needs nobody's permission a second time. Only a candidate PAST the
+   * ceiling grows how long the recipient can see the owner, and that is the
+   * owner's consent to give again, via a fresh request_access the owner
+   * approves like any other.
    *
    * Which one this is gets decided here, from the same expiry the row is
-   * already rendering as "30 more min". It used to be decided by calling
-   * shorten_grant and waiting for the backend to refuse: every ask-for-more
-   * -time paid for a doomed round trip before the real one, which is the
-   * "Save is slow" report. The refusal is still handled -- a client clock
-   * can disagree with the server's near the boundary -- but it is now the
-   * rare correction rather than the normal path.
+   * already rendering as "30 more min", plus the ceiling that came with it.
+   * It used to be decided by calling shorten_grant and waiting for the
+   * backend to refuse: every ask-for-more-time paid for a doomed round trip
+   * before the real one, which is the "Save is slow" report. The refusal is
+   * still handled -- a client clock can disagree with the server's near the
+   * boundary -- but it is now the rare correction rather than the normal
+   * path.
    */
   const handleEditGrantDuration = useCallback(
     async (
@@ -5778,14 +5783,16 @@ export function OneLocationAgentPageContent({
           setEditingGrantId(null);
           return;
         }
-        if (intent === "shorten") {
+        if (intent === "shorten" || intent === "grow") {
           try {
             await OneLocationService.shortenGrant({
               vaultOwnerToken,
               grantId,
               durationHours,
             });
-            toast.success("Access shortened.");
+            toast.success(
+              intent === "grow" ? "Time updated." : "Access shortened.",
+            );
             setEditingGrantId(null);
             // Held until the list has actually reconciled, so this grant is
             // not savable again against the expiry it just replaced.
@@ -5800,7 +5807,8 @@ export function OneLocationAgentPageContent({
               );
               return;
             }
-            // The backend read the clock differently. Fall through and ask.
+            // The backend says this is past what was approved (a stale
+            // ceiling/expiry read, or a genuine excess). Fall through and ask.
           }
         }
         // Extending needs the owner's approval again -- send a new request

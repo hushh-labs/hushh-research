@@ -150,6 +150,15 @@ export type OneLocationGrant = {
   durationMode?: OneLocationShareDurationMode | string | null;
   durationHours: number | null;
   expiresAt?: string | null;
+  /**
+   * Furthest-out expiry the owner has explicitly authorized for this grant
+   * (set at creation, at approval, or on the owner's own duration edit).
+   * A duration edit at or under this needs nobody's approval, in either
+   * direction; only a candidate past it requires a fresh request. Null means
+   * no known ceiling (an until_stopped share, or a grant from before this
+   * field existed) -- edits then fall back to comparing against `expiresAt`.
+   */
+  ceilingExpiresAt?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   revokedAt?: string | null;

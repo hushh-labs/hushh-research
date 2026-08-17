@@ -24,7 +24,10 @@ export const GRANT_EDIT_DURATION_HOURS: readonly number[] = [0.5, 1, 4, 24];
 /** The picker value used when a grant tells us nothing usable about its length. */
 export const GRANT_EDIT_DURATION_FALLBACK = "1";
 
-type DurationGrantFields = Pick<OneLocationGrant, "expiresAt" | "durationHours">;
+type DurationGrantFields = Pick<
+  OneLocationGrant,
+  "expiresAt" | "durationHours" | "ceilingExpiresAt"
+>;
 
 /** Milliseconds, or null when the timestamp is missing or unparseable. */
 function timestamp(value: string | null | undefined): number | null {
@@ -38,6 +41,17 @@ export function grantExpiryMs(
   grant: DurationGrantFields | null | undefined,
 ): number | null {
   return timestamp(grant?.expiresAt);
+}
+
+/**
+ * The furthest-out expiry the owner has ever explicitly authorized for this
+ * grant, in ms -- or null when none is known (an until_stopped share, or a
+ * grant the backend sent before this field existed).
+ */
+export function grantCeilingMs(
+  grant: DurationGrantFields | null | undefined,
+): number | null {
+  return timestamp(grant?.ceilingExpiresAt);
 }
 
 /**
@@ -99,18 +113,23 @@ function unchangedToleranceMs(durationHours: number): number {
 /**
  * What Save does with this duration.
  *
- * "shorten" applies immediately -- the owner already agreed to be seen at
- * least this long, so giving time back needs nobody's permission.
- * "request" grows how long the recipient can watch the owner, which is the
- * owner's consent to give again. "unchanged" is the untouched picker: no
+ * "shorten" and "grow" both apply immediately, with no approval needed --
+ * the owner already agreed to be seen up to the grant's ceiling (the
+ * furthest expiry ever explicitly authorized), so moving the live expiry
+ * anywhere at or under that ceiling is never a new ask, whichever direction
+ * it moves. Shrinking a 1-hour share to 15 minutes and then back up to 30 is
+ * "grow", not "request": 30 minutes was already inside what was approved.
+ * "request" is the only case that actually asks the owner for something new
+ * -- a candidate past the ceiling. "unchanged" is the untouched picker: no
  * call, nothing to tell anyone, just close the editor.
  *
- * "shorten" is also the answer when the expiry is unknown, because then the
- * only authority on it is the backend, and its explicit shorten-only
- * rejection is what routes the call. Reading a stale or skewed clock here
- * must never cost the recipient the ability to end a share early.
+ * "shorten" is also the answer when neither the expiry nor a ceiling is
+ * known, because then the only authority on it is the backend, and its
+ * explicit shorten-only rejection is what routes the call. Reading a stale
+ * or skewed clock here must never cost the recipient the ability to end a
+ * share early.
  */
-export type GrantDurationEditIntent = "shorten" | "request" | "unchanged";
+export type GrantDurationEditIntent = "shorten" | "grow" | "request" | "unchanged";
 
 export function grantDurationEditIntent(input: {
   grant: DurationGrantFields | null | undefined;
@@ -127,5 +146,10 @@ export function grantDurationEditIntent(input: {
   if (Math.abs(candidate - expiry) <= unchangedToleranceMs(durationHours)) {
     return "unchanged";
   }
-  return candidate < expiry ? "shorten" : "request";
+  if (candidate < expiry) return "shorten";
+  // No known ceiling falls back to the live expiry as its own bound --
+  // matching the backend's fallback exactly, and reproducing the original
+  // shorten-only behavior for a grant this field was never sent for.
+  const ceiling = grantCeilingMs(grant) ?? expiry;
+  return candidate <= ceiling ? "grow" : "request";
 }

@@ -182,4 +182,33 @@ describe("shortening", () => {
       ).description,
     ).toBe("Gave back their remaining time early");
   });
+
+  // Shrinking to 15 min and regrowing to 30 (still under the owner's
+  // ceiling) emits this same event type -- it must not read as a shorten.
+  it("names a within-ceiling regrow instead of calling it a shorten", () => {
+    expect(
+      presentFeedItem(
+        item({
+          event_type: "location_share_shortened",
+          metadata: {
+            counterpart_label: "Ankit",
+            reason: "recipient_shorten",
+            direction: "extended",
+          },
+        }),
+      ).description,
+    ).toBe("Adjusted your viewing time, within what was already approved");
+    expect(
+      presentFeedItem(
+        item({
+          event_type: "location_share_shortened",
+          metadata: {
+            counterpart_label: "Ankit",
+            reason: "owner_shorten",
+            direction: "extended",
+          },
+        }),
+      ).description,
+    ).toBe("You adjusted their location access time");
+  });
 });

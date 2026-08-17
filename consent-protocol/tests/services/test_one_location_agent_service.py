@@ -1828,6 +1828,10 @@ class FourUserMemoryService(OneLocationAgentService):
                 "capability_scopes": params["capability_scopes"],
                 "duration_hours": params["duration_hours"],
                 "expires_at": params["expires_at"],
+                # Owner-authorized at creation, so ceiling and live expiry
+                # start out equal -- exactly what create_grant's real SQL
+                # writes.
+                "ceiling_expires_at": params.get("ceiling_expires_at", params["expires_at"]),
                 "duration_mode": params.get("duration_mode", "timed"),
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
@@ -2189,17 +2193,38 @@ class FourUserMemoryService(OneLocationAgentService):
             return None
         if "UPDATE one_location_share_grants" in sql and "expires_at = :new_expires_at" in sql:
             grant = self.grants.get(params["grant_id"])
+            if not grant:
+                return None
+            # `shorten` hard-codes 'timed' in its own SQL and sends no
+            # duration_mode param; `set_grant_duration` always sends one
+            # (it can also put a share on "until I stop"). Reused below to
+            # tell the two apart, same as the pre-existing duration_mode
+            # handling already did.
+            is_owner_set_duration = params.get("duration_mode") is not None
+            # Only shorten_grant's real UPDATE carries a ceiling-bound WHERE
+            # clause -- set_grant_duration is owner-only and unrestricted,
+            # since the owner's own explicit choice needs nobody's ceiling.
+            # No known bound (an until_stopped grant, or one predating the
+            # ceiling column) means no restriction, same as the real SQL's
+            # COALESCE falling through to a NULL expires_at.
+            bound = grant.get("ceiling_expires_at") or grant.get("expires_at")
+            within_ceiling = (
+                is_owner_set_duration or bound is None or params["new_expires_at"] <= bound
+            )
             if (
-                grant
-                and params["owner_user_id"] in {grant["owner_user_id"], grant["recipient_user_id"]}
+                params["owner_user_id"] in {grant["owner_user_id"], grant["recipient_user_id"]}
                 and grant["status"] == "active"
+                and within_ceiling
             ):
                 grant["expires_at"] = params["new_expires_at"]
                 grant["duration_hours"] = params.get("duration_hours")
-                # `shorten` hard-codes 'timed' in its own SQL and sends no
-                # param; `set_grant_duration` sends the mode because it can
-                # also put a share on "until I stop".
                 grant["duration_mode"] = params.get("duration_mode") or "timed"
+                if is_owner_set_duration:
+                    # The owner's own explicit choice is a fresh
+                    # authorization and always becomes the new ceiling, in
+                    # either direction. shorten_grant never reaches here with
+                    # duration_mode set, so it never moves the ceiling.
+                    grant["ceiling_expires_at"] = params["new_expires_at"]
                 grant["updated_at"] = datetime.now(timezone.utc)
                 return grant
             return None
@@ -3259,6 +3284,82 @@ def test_shorten_grant_rejects_any_attempt_to_extend() -> None:
         service.shorten_grant(caller_user_id="user_b", grant_id=grant["id"], duration_hours=24)
     assert extend_attempt.value.code == "LOCATION_GRANT_SHORTEN_ONLY"
     assert service.grants[grant["id"]]["expires_at"] == original_expires_at
+
+
+def test_shorten_grant_regrows_within_the_original_ceiling_without_asking() -> None:
+    """The reported bug: approved for 1 hour, shrunk to 15 min, asked back up
+    to 30 -- still inside the hour the owner already agreed to, so it must
+    apply immediately rather than opening a fresh request the owner has to
+    approve. Only a candidate past the ORIGINAL ceiling still needs one.
+    """
+    service = FourUserMemoryService()
+    for user_id in ("user_a", "user_b"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+    ceiling = service.grants[grant["id"]]["ceiling_expires_at"]
+    assert ceiling == service.grants[grant["id"]]["expires_at"]
+
+    service.shorten_grant(caller_user_id="user_b", grant_id=grant["id"], duration_hours=0.5)
+    service.shorten_grant(caller_user_id="user_b", grant_id=grant["id"], duration_hours=0.25)
+    assert service.grants[grant["id"]]["ceiling_expires_at"] == ceiling
+
+    # Back up to 30 min -- above the current (shrunk) expiry, but still
+    # under the hour originally approved. Must succeed with no new request.
+    regrown = service.shorten_grant(
+        caller_user_id="user_b", grant_id=grant["id"], duration_hours=0.5
+    )
+    assert regrown["status"] == "active"
+    assert service.grants[grant["id"]]["ceiling_expires_at"] == ceiling
+    regrow_events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_shortened"
+    ]
+    assert regrow_events[-1]["metadata"]["direction"] == "extended"
+    assert len(service.requests) == 0
+
+    # 4 hours is past the original 1-hour ceiling -- still refused, and
+    # still the recipient's cue to go through request_access instead.
+    with pytest.raises(OneLocationAgentError) as extend_attempt:
+        service.shorten_grant(caller_user_id="user_b", grant_id=grant["id"], duration_hours=4)
+    assert extend_attempt.value.code == "LOCATION_GRANT_SHORTEN_ONLY"
+    assert service.grants[grant["id"]]["ceiling_expires_at"] == ceiling
+
+
+def test_set_grant_duration_moves_the_ceiling_with_it() -> None:
+    """The owner's own explicit choice is a fresh authorization -- it must
+    become the grant's new ceiling too, not leave the recipient bounded by
+    a number the owner has since moved past (or below).
+    """
+    service, grant = _duration_service_with_grant(1)
+
+    lengthened = service.set_grant_duration(
+        owner_user_id="user_a", grant_id=grant["id"], duration_hours=4
+    )
+    assert lengthened["status"] == "active"
+    assert (
+        service.grants[grant["id"]]["ceiling_expires_at"]
+        == service.grants[grant["id"]]["expires_at"]
+    )
+    ceiling_after_lengthen = service.grants[grant["id"]]["ceiling_expires_at"]
+
+    # The recipient can now self-serve anywhere up to the NEW (4-hour)
+    # ceiling, not the original 1-hour one.
+    grown = service.shorten_grant(
+        caller_user_id="user_b", grant_id=grant["id"], duration_hours=3
+    )
+    assert grown["status"] == "active"
+    assert service.grants[grant["id"]]["ceiling_expires_at"] == ceiling_after_lengthen
 
 
 def _duration_service_with_grant(duration_hours: float = 0.5):

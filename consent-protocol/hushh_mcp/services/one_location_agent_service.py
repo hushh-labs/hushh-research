@@ -2245,6 +2245,10 @@ class OneLocationAgentService:
                 float(row.get("duration_hours")) if row.get("duration_hours") is not None else None
             ),
             "expiresAt": _iso(row.get("expires_at")),
+            # Furthest-out expiry the owner has explicitly authorized. Lets a
+            # duration edit tell "still within what was approved" (no consent
+            # needed) apart from "asking for more" (needs request_access).
+            "ceilingExpiresAt": _iso(row.get("ceiling_expires_at")),
             "createdAt": _iso(row.get("created_at")),
             "updatedAt": _iso(row.get("updated_at")),
             "revokedAt": _iso(row.get("revoked_at")),
@@ -4311,12 +4315,13 @@ class OneLocationAgentService:
                             INSERT INTO one_location_share_grants (
                               owner_user_id, recipient_user_id, recipient_key_id, status,
                               consent_scope, capability_scopes, duration_hours, expires_at,
-                              duration_mode, source_circle_id, created_at, updated_at, metadata
+                              ceiling_expires_at, duration_mode, source_circle_id,
+                              created_at, updated_at, metadata
                             )
                             VALUES (
                               :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                               'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                              :duration_hours, :expires_at, :duration_mode,
+                              :duration_hours, :expires_at, :ceiling_expires_at, :duration_mode,
                               CAST(:source_circle_id AS UUID), NOW(), NOW(),
                               CAST(:metadata_json AS JSONB)
                             )
@@ -4486,6 +4491,11 @@ class OneLocationAgentService:
             "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
             "duration_hours": duration,
             "expires_at": expires_at,
+            # The owner is authorizing this expiry right now -- at creation
+            # time the ceiling and the live expiry are the same moment. A
+            # later self-serve shrink/regrow (shorten_grant) will move
+            # expires_at without ever touching this.
+            "ceiling_expires_at": expires_at,
             "duration_mode": resolved_duration_mode,
             "source_circle_id": source_circle_id,
             "metadata_json": _json_param(metadata),
@@ -4519,12 +4529,13 @@ class OneLocationAgentService:
                 INSERT INTO one_location_share_grants (
                   owner_user_id, recipient_user_id, recipient_key_id, status,
                   consent_scope, capability_scopes, duration_hours, expires_at,
-                  duration_mode, source_circle_id, created_at, updated_at, metadata
+                  ceiling_expires_at, duration_mode, source_circle_id,
+                  created_at, updated_at, metadata
                 )
                 VALUES (
                   :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                   'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                  :duration_hours, :expires_at, :duration_mode,
+                  :duration_hours, :expires_at, :ceiling_expires_at, :duration_mode,
                   CAST(:source_circle_id AS UUID), NOW(), NOW(),
                   CAST(:metadata_json AS JSONB)
                 )
@@ -4824,13 +4835,14 @@ class OneLocationAgentService:
               INSERT INTO one_location_share_grants (
                 id, owner_user_id, recipient_user_id, recipient_key_id,
                 status, consent_scope, capability_scopes, duration_hours,
-                expires_at, duration_mode, source_circle_id, created_at, updated_at, metadata
+                expires_at, ceiling_expires_at, duration_mode, source_circle_id,
+                created_at, updated_at, metadata
               )
               SELECT
                 CAST(:grant_id AS UUID),
                 :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                 'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                :duration_hours, :expires_at, :duration_mode,
+                :duration_hours, :expires_at, :expires_at, :duration_mode,
                 CAST(:source_circle_id AS UUID), NOW(), NOW(),
                 CAST(:metadata_json AS JSONB)
               FROM eligible_recipient
@@ -6530,21 +6542,29 @@ class OneLocationAgentService:
     def shorten_grant(
         self, *, caller_user_id: str, grant_id: str, duration_hours: float
     ) -> dict[str, Any]:
-        """Bring a grant's expiry earlier. Either side may do this; neither may extend.
+        """Move a grant's expiry anywhere the owner already authorized. Either side may do this.
 
-        Shortening only ever reduces exposure, so it needs no fresh consent
-        from the other party -- the owner already agreed to be seen at least
-        this long, and the recipient giving back time early is just an
-        early, partial revoke. Extending is a different question: it grows
-        how long the recipient can see the owner, and that is the owner's
-        consent to give again, not something either side can hand
-        themselves through this endpoint. A person who wants more time goes
-        through request_access instead, and the owner approves it like any
-        other request.
+        The owner already agreed to be seen up to `ceiling_expires_at` --
+        moving the live expiry to anything at or under that ceiling, in
+        either direction, needs no fresh consent from the other party: a
+        decrease is a partial early revoke, and a later increase back toward
+        the ceiling is just returning to what was already agreed, not asking
+        for anything new. Only a candidate PAST the ceiling grows how long
+        the recipient can see the owner, which is the owner's consent to
+        give again, not something either side can hand themselves through
+        this endpoint -- that goes through request_access instead, and the
+        owner approves it like any other request (which also mints a fresh
+        ceiling for the grant it produces).
+
+        A grant with no known ceiling (an until_stopped share, or a row from
+        before the ceiling existed) falls back to the live `expires_at` as
+        its own bound, which reproduces this endpoint's original shorten-only
+        behavior exactly.
         """
         row = self._execute_one(
             """
-            SELECT id, owner_user_id, recipient_user_id, expires_at, status
+            SELECT id, owner_user_id, recipient_user_id, expires_at,
+                   ceiling_expires_at, status
             FROM one_location_share_grants
             WHERE id = CAST(:grant_id AS UUID)
               AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
@@ -6569,13 +6589,18 @@ class OneLocationAgentService:
             ) from exc
         candidate_expires_at = datetime.now(timezone.utc) + timedelta(hours=duration)
         current_expires_at = row.get("expires_at")
-        if current_expires_at is not None:
-            if current_expires_at.tzinfo is None:
-                current_expires_at = current_expires_at.replace(tzinfo=timezone.utc)
-            if candidate_expires_at >= current_expires_at:
+        ceiling_expires_at = row.get("ceiling_expires_at")
+        # No ceiling on record -- fall back to the live expiry, which is
+        # exactly the original shorten-only bound this endpoint had before
+        # ceilings existed.
+        bound = ceiling_expires_at if ceiling_expires_at is not None else current_expires_at
+        if bound is not None:
+            if bound.tzinfo is None:
+                bound = bound.replace(tzinfo=timezone.utc)
+            if candidate_expires_at > bound:
                 raise OneLocationAgentError(
                     "LOCATION_GRANT_SHORTEN_ONLY",
-                    "This can only make a share end sooner, not later.",
+                    "This can only move within what was already approved.",
                     status_code=422,
                 )
 
@@ -6589,6 +6614,11 @@ class OneLocationAgentService:
             WHERE id = CAST(:grant_id AS UUID)
               AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
               AND status = 'active'
+              -- Re-checked atomically against whatever the row's bound is
+              -- RIGHT NOW, not the possibly-stale value read above -- closes
+              -- the window where a concurrent set_grant_duration lowers the
+              -- ceiling between this function's read and this write.
+              AND :new_expires_at <= COALESCE(ceiling_expires_at, expires_at)
             RETURNING *
             """,
             {
@@ -6599,8 +6629,9 @@ class OneLocationAgentService:
             },
         )
         if not updated:
-            # Revoked between the read above and this write -- report the
-            # grant as it now stands rather than raising on a race.
+            # Revoked, or raced past a since-lowered ceiling, between the
+            # read above and this write -- report the grant as it now
+            # stands rather than raising on a race.
             existing_row = self._execute_one(
                 """
                 SELECT * FROM one_location_share_grants
@@ -6617,6 +6648,15 @@ class OneLocationAgentService:
         owner_label = _identity_notification_label(owner_identity)
         recipient_identity = self._identity_row(recipient_user_id or "")
         recipient_label = _identity_notification_label(recipient_identity)
+        # Which way this particular call moved the expiry -- shrinking to 15
+        # min and then regrowing to 30 (still under the ceiling) is a real
+        # increase, and must not be reported to either party as a shorten.
+        direction = _share_duration_change_direction(
+            previous_expires_at=current_expires_at,
+            new_expires_at=candidate_expires_at,
+            new_mode="timed",
+        )
+        grew = direction == "extended"
         self._insert_event(
             owner_user_id=str(row.get("owner_user_id") or caller_user_id),
             actor_user_id=caller_user_id,
@@ -6625,21 +6665,32 @@ class OneLocationAgentService:
             event_type="location_share_shortened",
             metadata={
                 "reason": "owner_shorten" if actor_is_owner else "recipient_shorten",
+                "direction": direction,
                 "counterpart_label": recipient_label,
             },
         )
         notification_user_id = (
             recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")
         )
-        self._send_metadata_notification(
-            user_id=notification_user_id,
-            notification_type="location_share_shortened",
-            title="Location access shortened",
-            body=(
+        if grew:
+            notification_title = "Location access time changed"
+            notification_body = (
+                f"{owner_label} adjusted the shared time, within what was already approved."
+                if actor_is_owner
+                else f"{recipient_label} adjusted their viewing time, within what you already approved."
+            )
+        else:
+            notification_title = "Location access shortened"
+            notification_body = (
                 f"{owner_label} shortened your location access."
                 if actor_is_owner
                 else f"{recipient_label} gave back some of their remaining time early."
-            ),
+            )
+        self._send_metadata_notification(
+            user_id=notification_user_id,
+            notification_type="location_share_shortened",
+            title=notification_title,
+            body=notification_body,
             notification_tag=f"one-location-shortened:{grant_id}",
             request_url=_one_location_url(
                 grantId=grant_id, section="shared" if actor_is_owner else "people"
@@ -6650,6 +6701,7 @@ class OneLocationAgentService:
                 "owner_display_label": owner_label,
                 "recipient_user_id": recipient_user_id,
                 "recipient_display_label": recipient_label,
+                "direction": direction,
             },
         )
         return self._grant_payload(updated) or {}
@@ -6744,6 +6796,11 @@ class OneLocationAgentService:
             SET duration_mode = :duration_mode,
                 duration_hours = :duration_hours,
                 expires_at = :new_expires_at,
+                -- The owner is re-authorizing this share right now, in
+                -- whichever direction they moved it -- their explicit choice
+                -- is the new ceiling a later self-serve shrink/regrow (via
+                -- shorten_grant) can move freely within, same as at creation.
+                ceiling_expires_at = :new_expires_at,
                 updated_at = NOW()
             WHERE id = CAST(:grant_id AS UUID)
               AND owner_user_id = :owner_user_id
