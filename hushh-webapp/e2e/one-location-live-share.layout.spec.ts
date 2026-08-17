@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { productFontStyle } from "./fixtures/product-font";
+
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
   LIVE_SHARE_ACTION_CLASSNAME,
@@ -142,6 +144,7 @@ async function buildFixture(): Promise<string> {
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
     `<!doctype html><html><head><meta charset="utf-8">
+<style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css"></head>
 <body style="margin:0;background:#f2f2f7">
 <div style="display:flex;flex-direction:column;gap:12px;padding:12px">
@@ -188,6 +191,7 @@ test.describe("One Location live share card layout", () => {
     }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture());
+      await page.evaluate(() => document.fonts.ready);
 
       const documentOverflow = await page.evaluate(() => {
         const root = document.documentElement;
@@ -270,6 +274,7 @@ test.describe("One Location live share card layout", () => {
     // different widths, so the whole row shuffles on every tick.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(await buildFixture());
+    await page.evaluate(() => document.fonts.ready);
 
     const clock = page.getByTestId("clock-short");
     const widths: number[] = [];

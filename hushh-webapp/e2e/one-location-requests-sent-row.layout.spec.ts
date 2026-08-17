@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { productFontStyle } from "./fixtures/product-font";
+
 /**
  * The "Requests sent" row, measured in a real browser at phone widths.
  *
@@ -86,7 +88,8 @@ async function buildFixture(): Promise<string> {
     --app-secondary-label: #8e8e93; --app-neutral-fill: #f2f2f7;
     --app-card-shadow-standard: 0 1px 2px rgba(0,0,0,.06);
   }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; }
+  body { margin: 0; }
+${productFontStyle()}
 </style></head><body><div style="padding:0 8px">${markup}</div></body></html>`,
   );
   return `file://${path.join(dir, "fixture.html")}`;
@@ -107,6 +110,7 @@ test.describe("Requests sent row", () => {
     test(`keeps the name on one line at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture());
+      await page.evaluate(() => document.fonts.ready);
 
       const measured = await page.evaluate(() => {
         const root = document.documentElement;

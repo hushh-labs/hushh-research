@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { productFontStyle } from "./fixtures/product-font";
+
 /**
  * The Feed's "Needs you" rows, measured in a real browser at phone widths.
  *
@@ -103,7 +105,8 @@ async function buildFixture(): Promise<string> {
     letter-spacing: var(--type-row-description-tracking) !important;
     color: var(--app-tertiary-label) !important;
   }
-  body { margin: 0; background: #000; font-family: -apple-system, system-ui, sans-serif; }
+  body { margin: 0; background: #000; }
+${productFontStyle()}
 </style></head><body>
 <div style="margin:0 auto;max-width:40rem">${markup}</div>
 </body></html>`,
@@ -142,6 +145,7 @@ test.describe("Feed 'Needs you' row", () => {
     }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(await buildFixture());
+      await page.evaluate(() => document.fonts.ready);
 
       const rows = await page.evaluate(() => {
         const out: Probe[] = [];

@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { productFontStyle } from "./fixtures/product-font";
+
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import { INPUT_CLASSNAME } from "../components/ui/input";
 
@@ -96,7 +98,8 @@ async function buildFixture(): Promise<string> {
     --app-accent: #087ff5;
     --app-focus-ring: rgba(8,127,245,.35);
   }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; }
+  body { margin: 0; }
+${productFontStyle()}
   .stack { display: grid; gap: 8px; padding: 0 16px; }
 </style></head><body><div class="stack">${markup}</div></body></html>`,
   );
@@ -133,6 +136,7 @@ test.describe("Choose your AI — API endpoint fields", () => {
     test(`the picker and the key field agree at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture());
+      await page.evaluate(() => document.fonts.ready);
 
       const select = await probe(page, "endpoint-select");
       const input = await probe(page, "key-input");
@@ -164,6 +168,7 @@ test.describe("Choose your AI — API endpoint fields", () => {
     // there — recording exactly why a Chromium-only run cannot gate this.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(await buildFixture());
+    await page.evaluate(() => document.fonts.ready);
 
     const input = await probe(page, "key-input");
     const withoutAppearance = await probe(page, "regression-select");

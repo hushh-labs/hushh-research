@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { productFontStyle } from "./fixtures/product-font";
+
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
   resolveSignedInShellContentOffset,
@@ -159,6 +161,7 @@ async function writeFixture(): Promise<string> {
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
     `<!doctype html><html><head><meta charset="utf-8">
+<style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css">
 <style>
   html { --top-chrome-collapse-px: 0px; }
@@ -176,6 +179,7 @@ test.describe("app shell bottom clearance", () => {
     }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await writeFixture());
+      await page.evaluate(() => document.fonts.ready);
 
       const measured = await page.evaluate(() => {
         const scrollRoot = document.querySelector<HTMLElement>(

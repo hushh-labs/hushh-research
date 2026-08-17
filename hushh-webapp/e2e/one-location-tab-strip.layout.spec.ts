@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { productFontStyle } from "./fixtures/product-font";
+
 /**
  * The Location hub's Menu / People / Links strip, measured against the cards
  * under it.
@@ -174,7 +176,8 @@ async function buildFixture(): Promise<string> {
      do not resolve outside Next), which is why the working specs in this folder
      all inject the tokens the same way. */
   ${tokenCss()}
-  body{margin:0;font-family:-apple-system,system-ui,sans-serif}
+  body{margin:0}
+${productFontStyle()}
 </style>
 </head><body>${markup}</body></html>`,
   );
@@ -186,6 +189,7 @@ test.describe("One Location tab strip", () => {
     test(`shares its edges with the cards below at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(await buildFixture());
+      await page.evaluate(() => document.fonts.ready);
 
       const measured = await page.evaluate(() => {
         const tablist = document
