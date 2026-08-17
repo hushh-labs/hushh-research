@@ -33,6 +33,8 @@ export interface PodLifecycleFrame {
   stage: string | null;
   progressPct: number;
   terminal: boolean;
+  /** Snapshot frames only: the log's max seq at connect. The live/history divide. */
+  head?: number;
   substrateStep?: string;
   stepOk?: boolean;
   reason?: string;
@@ -50,6 +52,17 @@ export interface PodLifecycleFollowerOptions {
   signal?: AbortSignal;
   /** Poll cadence on native and after stream degradation. */
   pollIntervalMs?: number;
+  /**
+   * Suppress HISTORY: deliver the snapshot, then only frames past the
+   * snapshot's head. Without this, a caller at cursor 0 receives the entire
+   * retained narrative replayed as if live -- a settled journey re-renders its
+   * provisioning arc on every mount, dragging surfaces backwards through
+   * states the person already lived. State-following callers (the deployment
+   * hook) want this on; a narrative panel that renders the arc wants it off.
+   * The cursor still advances past history either way, so reconnects and
+   * later followers never replay it again.
+   */
+  fromHead?: boolean;
 }
 
 const POLL_INTERVAL_MS = 6_000;
@@ -66,6 +79,7 @@ function toFrame(payload: Record<string, unknown>, event: string, terminal: bool
     stage: typeof payload.stage === "string" ? payload.stage : null,
     progressPct: typeof payload.progress_pct === "number" ? payload.progress_pct : 0,
     terminal,
+    ...(typeof payload.head === "number" ? { head: payload.head } : {}),
     ...(typeof payload.substrate_step === "string"
       ? { substrateStep: payload.substrate_step, stepOk: payload.step_ok === true }
       : {}),
@@ -88,8 +102,15 @@ async function pollOnce(
   let next = cursor;
   let terminal = Boolean(result?.terminal);
   for (const event of result?.events ?? []) {
-    const frame = toFrame(event as Record<string, unknown>, "stage", false);
+    // Per-frame event kind and terminal ride IN the payload on the JSON path,
+    // so poll and stream really do hand the caller identical frames -- the
+    // parity the two-transport design promises, asserted rather than assumed.
+    const record = event as Record<string, unknown>;
+    const frameEvent = typeof record.event === "string" ? record.event : "stage";
+    const frameTerminal = record.terminal === true;
+    const frame = toFrame(record, frameEvent, frameTerminal);
     next = Math.max(next, frame.cursor);
+    terminal = terminal || frameTerminal;
     onFrame(frame);
   }
   if (typeof result?.nextCursor === "number") {
@@ -125,7 +146,20 @@ async function streamSegment(
       terminal = terminal || envelope.terminal;
       onFrame(frame);
     },
-    { signal, idleTimeoutMs: SEGMENT_IDLE_TIMEOUT_MS }
+    {
+      signal,
+      idleTimeoutMs: SEGMENT_IDLE_TIMEOUT_MS,
+      // THE segment contract: a clean end without a terminal frame is the
+      // NORMAL outcome of every healthy 40s segment (`segment_end` carries
+      // terminal=false by design). The consumer's default of requiring a
+      // terminal envelope belongs to Kai's one-shot streams; here it would
+      // throw on every healthy segment, discard the cursor advance, replay
+      // the narrative from the caller's original cursor, and degrade every
+      // web client to polling within three segments -- making the entire
+      // reconnect-at-cursor path unreachable. Found by adversarial review;
+      // this argument is the fix.
+      requireTerminal: false,
+    }
   );
   return { cursor: latest, terminal, reconnectAfterMs };
 }
@@ -137,9 +171,25 @@ async function streamSegment(
 export async function followPodLifecycle(
   options: PodLifecycleFollowerOptions
 ): Promise<{ cursor: number; terminal: boolean }> {
-  const { onFrame, onTransport, signal } = options;
+  const { onTransport, signal } = options;
   const pollIntervalMs = options.pollIntervalMs ?? POLL_INTERVAL_MS;
   let cursor = Math.max(0, options.cursor ?? 0);
+  // The live/history divide, learned from the first snapshot. Frames at or
+  // below it are history and, under fromHead, are advanced past silently.
+  let suppressBelow = 0;
+  const onFrame = (frame: PodLifecycleFrame) => {
+    if (frame.event === "snapshot") {
+      if (options.fromHead && typeof frame.head === "number") {
+        suppressBelow = Math.max(suppressBelow, frame.head);
+      }
+      options.onFrame(frame);
+      return;
+    }
+    if (options.fromHead && frame.cursor > 0 && frame.cursor <= suppressBelow) {
+      return; // history: the snapshot already told the caller where things stand
+    }
+    options.onFrame(frame);
+  };
   let streamFailures = 0;
   // Native cannot stream, ever (Capacitor buffers whole responses) -- start on
   // the poll and stay there.

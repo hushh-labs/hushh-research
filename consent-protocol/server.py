@@ -995,8 +995,14 @@ async def startup_personal_agent_reconcile_worker() -> None:
             # every retry into a no-op -- and provision() re-reads the row anyway.
             try:
                 row = await registry.get(user_id)
-            except Exception:  # noqa: BLE001 - the provision path re-reads
-                row = None
+            except Exception:  # noqa: BLE001 - skip the pass; never provision blind
+                # The sweep now also returns `connecting` rows, so an unreadable
+                # row might be one whose host is LIVE mid-handshake. Falling
+                # through to provision on a failed read would risk replacing a
+                # running service to save one 300s pass -- the wrong trade in
+                # both directions. Do nothing; the next pass re-reads.
+                logger.warning("personal_agent_reconcile.row_read_failed -- skipping this pass")
+                return
             if str((row or {}).get("status") or "") == "connecting":
                 from hushh_mcp.services.pod_key_collector import (
                     collect_pod_key_if_pending,

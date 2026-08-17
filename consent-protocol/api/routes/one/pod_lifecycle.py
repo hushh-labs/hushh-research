@@ -114,7 +114,14 @@ async def _snapshot_payload(user_id: str, cursor: int) -> dict[str, Any]:
 
 
 def _frame_payload(row: dict[str, Any]) -> dict[str, Any]:
-    """One narrative row as one frame payload. Identifiers and verdicts only."""
+    """One narrative row as one frame payload. Identifiers and verdicts only.
+
+    Carries the row's EVENT KIND and TERMINAL verdict in the payload itself,
+    not only in the SSE envelope: the JSON twin returns these payloads bare,
+    and without both fields in the payload the two transports would hand the
+    client different frames -- the exact parity the dual-transport design
+    promises.
+    """
     from api.routes.one.personal_agent import _STATE_BY_REGISTRY_STATUS  # noqa: PLC0415
 
     payload: dict[str, Any] = {
@@ -122,6 +129,8 @@ def _frame_payload(row: dict[str, Any]) -> dict[str, Any]:
         "state": _STATE_BY_REGISTRY_STATUS.get(str(row.get("registry_status") or ""), "reserved"),
         "stage": row.get("stage"),
         "progress_pct": int(row.get("progress_pct") or 0),
+        "event": str(row.get("event") or "stage"),
+        "terminal": bool(row.get("terminal")),
     }
     if row.get("substrate_step"):
         payload["substrate_step"] = row["substrate_step"]
@@ -219,7 +228,7 @@ async def pod_lifecycle_stream(
                 except asyncio.TimeoutError:
                     yield ": hb\n\n"
         finally:
-            await pod_lifecycle_listener.unregister(user_id)
+            await pod_lifecycle_listener.unregister(user_id, queue)
 
         yield _sse(
             stream.event(

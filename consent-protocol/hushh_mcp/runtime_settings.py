@@ -400,8 +400,10 @@ def pod_lifecycle_log_enabled() -> bool:
     up but the table absent every append would log a swallowed failure on every
     lifecycle transition, which is noise describing configuration rather than
     fault. The writer is fail-safe either way -- this flag only decides whether
-    it tries. Nothing READS the log behind this flag; the stream endpoints check
-    it independently so a half-enabled deployment degrades to snapshot-only."""
+    it tries. The READ side does not consult this flag at all -- by design, not
+    omission: the endpoints treat an absent or empty table as an empty narrative
+    and serve the snapshot from the registry row, so a half-enabled deployment
+    degrades to snapshot-only with no second flag to keep in sync."""
     return _bool_from_value(_clean_env("POD_LIFECYCLE_LOG_ENABLED"), default=False)
 
 

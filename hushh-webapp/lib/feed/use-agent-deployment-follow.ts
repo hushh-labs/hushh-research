@@ -6,6 +6,7 @@ import {
   decideFollow,
   deploymentTaskId,
   describeDeployment,
+  DEPLOYMENT_FOLLOW_CEILING_MS,
   DEPLOYMENT_POLL_INTERVAL_MS,
   DEPLOYMENT_TASK_KIND,
   isDeploymentInFlight,
@@ -199,29 +200,53 @@ export function useAgentDeploymentFollow(options?: {
     // frames still come from the registry row.
     if (process.env.NEXT_PUBLIC_POD_LIFECYCLE_STREAM === "1") {
       const abort = new AbortController();
+      // The ceiling survives the transport swap. decideFollow bounds the poll
+      // path; the follower is bounded the same way, from the same constant, so
+      // a forgotten tab cannot hold segments open forever. Same-mount restarts
+      // of the clock are acceptable here for the same reason they are on the
+      // poll path: the effect keys deliberately exclude `state`.
+      const ceiling = setTimeout(() => abort.abort(), DEPLOYMENT_FOLLOW_CEILING_MS);
       void (async () => {
         const { followPodLifecycle } = await import("@/lib/streaming/pod-lifecycle-client");
-        await followPodLifecycle({
-          cursor: 0,
-          signal: abort.signal,
-          onFrame: (frame) => {
-            if (cancelled || !frame.state) return;
-            const raw = String(frame.state);
-            if (!VALID.includes(raw)) return;
-            if (frame.hushhId) setHushhId(frame.hushhId);
-            if (frame.health) setHealth(frame.health);
-            if (raw !== previousRef.current) {
-              const deployment = raw as AgentDeploymentState;
-              setState(deployment);
-              previousRef.current = raw;
-              reportBackgroundTask(userId, deployment);
-              dispatchFeedStateChanged();
-            }
-          },
-        });
+        setFollowing(true);
+        try {
+          await followPodLifecycle({
+            cursor: 0,
+            // History is the snapshot's job. Without this, every mount replays
+            // the retained narrative as live transitions -- a settled journey
+            // resurrects its own deployment card and drags the chip backwards
+            // through states the person already lived.
+            fromHead: true,
+            signal: abort.signal,
+            onFrame: (frame) => {
+              if (cancelled || !frame.state) return;
+              const raw = String(frame.state);
+              if (!VALID.includes(raw)) return;
+              if (frame.hushhId) setHushhId(frame.hushhId);
+              if (frame.health) setHealth(frame.health);
+              if (raw !== previousRef.current) {
+                const deployment = raw as AgentDeploymentState;
+                setState(deployment);
+                previousRef.current = raw;
+                reportBackgroundTask(userId, deployment);
+                dispatchFeedStateChanged();
+              }
+              // A snapshot of a journey that is not in flight is the whole
+              // answer: there is nothing to follow. Streaming segments for a
+              // settled agent would hold connections open to report that
+              // nothing is happening.
+              if (frame.event === "snapshot" && !isDeploymentInFlight(raw)) {
+                abort.abort();
+              }
+            },
+          });
+        } finally {
+          if (!cancelled) setFollowing(false);
+        }
       })();
       return () => {
         cancelled = true;
+        clearTimeout(ceiling);
         abort.abort();
       };
     }

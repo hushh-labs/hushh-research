@@ -30,24 +30,34 @@ logger = logging.getLogger(__name__)
 
 _QUEUE_MAXSIZE = 100
 
-_queues: Dict[str, asyncio.Queue] = {}
+# A SET of queues per user, one per open segment, mirroring the consent
+# listener's developer-subscriber shape. The first cut shared one queue per
+# user, which had two defects a person with two tabs hits immediately: the
+# doorbell is a queue.get race (each ring wakes ONE segment, starving the
+# other onto its 15s heartbeat), and whichever segment ended first tore the
+# shared queue out from under the one still open. Fan-out to every open
+# segment costs a set iteration per ring and removes both.
+_queues: Dict[str, set[asyncio.Queue]] = {}
 _queues_lock = asyncio.Lock()
 _listener_active = False
 
 
 async def register(user_id: str) -> asyncio.Queue:
-    """A doorbell queue for one user's open stream. Caller must unregister."""
+    """A doorbell queue for ONE open segment. Caller must unregister the same queue."""
+    queue: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
     async with _queues_lock:
-        queue = _queues.get(user_id)
-        if queue is None:
-            queue = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
-            _queues[user_id] = queue
-        return queue
+        _queues.setdefault(user_id, set()).add(queue)
+    return queue
 
 
-async def unregister(user_id: str) -> None:
+async def unregister(user_id: str, queue: asyncio.Queue) -> None:
     async with _queues_lock:
-        _queues.pop(user_id, None)
+        listeners = _queues.get(user_id)
+        if listeners is None:
+            return
+        listeners.discard(queue)
+        if not listeners:
+            _queues.pop(user_id, None)
 
 
 def listener_active() -> bool:
@@ -65,17 +75,16 @@ def _notify_callback(_conn, _pid, _channel, payload: str) -> None:
         return
     if not user_id:
         return
-    queue = _queues.get(user_id)
-    if queue is None:
-        return  # nobody is streaming for this user; the log row still exists
-    try:
-        queue.put_nowait(seq)
-    except asyncio.QueueFull:
-        # Drop the OLDEST: the newest seq is the one that lets the reader catch
-        # everything up in a single cursored SELECT.
-        with contextlib.suppress(Exception):
-            queue.get_nowait()
+    # Iterate a snapshot: a segment may unregister concurrently on the loop.
+    for queue in list(_queues.get(user_id) or ()):
+        try:
             queue.put_nowait(seq)
+        except asyncio.QueueFull:
+            # Drop the OLDEST: the newest seq is the one that lets the reader
+            # catch everything up in a single cursored SELECT.
+            with contextlib.suppress(Exception):
+                queue.get_nowait()
+                queue.put_nowait(seq)
 
 
 async def run_pod_lifecycle_listener() -> None:

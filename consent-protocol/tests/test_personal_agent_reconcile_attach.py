@@ -263,6 +263,19 @@ async def test_the_retry_refuses_an_unverified_phone(wired, monkeypatch):
 async def test_the_retry_provisions_for_a_verified_owner(wired, monkeypatch):
     provisioned: list = []
 
+    # The retry now probes the row FIRST, because the sweep also returns
+    # `connecting` rows and an unreadable row might have a live host -- so a
+    # failed read skips the pass instead of provisioning blind. This test is
+    # about the provision path, so the probe must succeed and answer with a
+    # genuinely stalled status.
+    async def _stalled_row(self, user_id):
+        return {"user_id": user_id, "status": "provisioning"}
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo.get",
+        _stalled_row,
+    )
+
     class _Identity:
         async def get_many(self, user_ids):
             return {

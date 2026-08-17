@@ -105,6 +105,14 @@ _STATE_BY_REGISTRY_STATUS: dict[str, str] = {
     "connecting": "connecting",
     "provisioned": "active",
     "provisioning_failed": "failed",
+    # A reaped agent's identity survives its host: the HusshID is retained and a
+    # new host can be earned again, which is exactly what `reserved` means to a
+    # client. Without this entry a reaped row fell to the default -- also
+    # `reserved` -- but by ACCIDENT, and the vocabulary guard could not tell the
+    # mapped case from the forgotten one. No writer sets `reaped` yet (the reap
+    # sweep is deliberately inert); the mapping exists so the first writer does
+    # not ship a status every client renders by fallback.
+    "reaped": "reserved",
 }
 
 # Every unmapped status degrades to this. A raw DB value is NEVER echoed to the
