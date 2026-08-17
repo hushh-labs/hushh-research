@@ -3,6 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import {
+  awaitProductFont,
+  productFontStyle,
+  stripAppFontFaces,
+} from "./fixtures/product-font";
+
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
   CONNECT_SEARCH_INPUT_CLASSNAME,
@@ -106,7 +112,9 @@ async function buildStylesheet(candidates: string[]): Promise<string> {
     },
   });
 
-  return compiler.build(candidates);
+  // The app's own @font-face rules cannot load over file:// and, sharing a
+  // family name with the working one, stop it satisfying fonts.check.
+  return stripAppFontFaces(compiler.build(candidates));
 }
 
 /**
@@ -134,6 +142,7 @@ async function buildFixture(name: string, body: string, candidates: string[]) {
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
     `<!doctype html><html><head><meta charset="utf-8">
+<style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css"></head>
 <body style="margin:0"><div style="padding:0 ${PAGE_PADDING_PX}px">${body}</div></body></html>`,
   );
@@ -624,6 +633,7 @@ test.describe("Connect list rows", () => {
     }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture("connect-rows", rowsBody, ROW_CANDIDATES));
+      await awaitProductFont(page);
       await fontsReady(page);
 
       expect(width, "this width is below sm: and therefore a phone").toBeLessThan(
@@ -657,6 +667,7 @@ test.describe("Connect list rows", () => {
   }) => {
     await page.setViewportSize({ width: 375, height: 844 });
     await page.goto(await buildFixture("connect-rows", rowsBody, ROW_CANDIDATES));
+    await awaitProductFont(page);
     await fontsReady(page);
 
     const cancel = await boxOf(page, '[data-testid="cancel-action"]');

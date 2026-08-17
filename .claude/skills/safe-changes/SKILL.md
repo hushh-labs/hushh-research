@@ -779,6 +779,127 @@ for (const n of ["झुम्मा","नीलेश","सुमन"])
 ---
 
 
+### R21 — The top shell paints lower than it reserves. Clear the fade, not the reserve
+
+**Incident (2026-08-17, "header overlay ho rha hai" reported across screens.)**
+The fixed top shell is solid down to `--top-shell-reserved-height` and then
+dissolves over `--top-fade-active`. `--top-shell-mask-visible-height` is the sum,
+and that is the header's real bottom edge. Standard routes are cleared
+structurally — `app/providers.tsx` renders `[data-app-shell-top-spacer]` inside
+the scroll root, so a page cannot start under the header even if it forgets to
+ask. A `flow` route gets **no spacer at all**, and
+`resolveSignedInShellContentOffset` forced its `--page-top-start` to `0px`. So
+`--app-fullscreen-flow-content-offset` came out exactly equal to the reserved
+height and every fullscreen flow began its first line 22px *inside* the
+dissolve. Measured on UAT: `/ria/claim` content top 76px against a header
+painting to 82px, identically at 390px and 1024px.
+
+It then survived the obvious fix. Two RIA screens hard-set that same variable
+back to `var(--top-shell-reserved-height)` in a local `style` prop, so they kept
+the old geometry after the shared token was corrected — which is exactly what
+"it's fixed on some pages but not others" looks like from the outside.
+
+**Rule.** Clearance is measured against the mask's **visible** height, never its
+reserved height. A `flow` route has no shell spacer, so its page must consume
+`--app-fullscreen-flow-content-offset` (through `FullscreenFlowShell`) or
+`--top-content-pad`, and no page may redefine either token down to the bare
+reserved height. Prove it in a browser: JSDOM performs no layout, so a green unit
+suite says nothing about whether a header covers text.
+
+**Check.**
+```bash
+cd ~/Desktop/husshresearch/hushh-webapp
+npx vitest run __tests__/navigation/fullscreen-flow-top-clearance.contract.test.ts
+npm run test:layout-contracts
+```
+The first fails closed for any `flow` route that does not name the file owning
+its clearance. The second measures the pixels at eight widths in Chromium and in
+WebKit — WebKit being the engine the iOS app actually runs.
+
+### R22 — A fixture that inherits `:root` is measuring a different app than the one that ships
+
+**Incident (2026-08-17, extending the R21 contract to the sticky section rail.)**
+The new browser test passed with the bug deliberately reintroduced. The fixture
+built the shell from `resolveSignedInShellContentOffset` and let everything else
+inherit from `app/globals.css`, which looked faithful and was not: CSS
+substitutes a custom property using the values present where it is **declared**,
+so `:root`'s `--top-shell-mask-visible-height` bakes in `:root`'s own
+`--top-fade-active` (8px) and keeps that computed value as it inherits. The real
+route shell re-declares the whole derived block, resolving the same token
+against 22px. The fixture's header was therefore **14px shorter** than the
+shipped one — and a rail pinned 6px too high cleared it comfortably.
+
+A passing new test is not evidence. Only the mutation is.
+
+**Rule.** When a test reproduces a runtime surface outside the app, it must
+build it from the **same exported function** the app uses, never from a
+hand-picked subset of tokens. If a value is re-declared at a scope below
+`:root`, inheriting it instead of re-declaring it silently changes the number.
+And every new contract test gets mutation-checked against the bug it claims to
+catch, before it is committed — reintroduce the defect, watch it go red, restore.
+
+**Check.**
+```bash
+cd ~/Desktop/husshresearch/hushh-webapp
+# The fixture and the shell must read one source; this returns two call sites.
+grep -rn "resolveTopShellGeometryStyle" app components e2e
+```
+One call site means something is hand-copying the geometry again.
+
+### R23 — The `:root` substitution trap is in the shipped CSS too, not only in fixtures
+
+**Incident (2026-08-17, the empty band under every screen — PR #5390.)** R22
+caught this pattern in a *test fixture*. It is also in `app/globals.css`:
+
+```css
+:root {
+  --app-bottom-content-clearance: calc(
+    var(--bottom-chrome-stack-height, var(--app-bottom-inset)) + 24px
+  );
+}
+```
+
+`--bottom-chrome-stack-height` is set on the route shell in `app/providers.tsx`
+and **never on `:root`**, so this token froze the `--app-bottom-inset` fallback
+and inherited that computed value everywhere — 112px measured, against the 132px
+`AppBottomShell` actually publishes. `.app-page-shell` then applied it as a
+second bottom reserve on top of the scroll root's real one, and
+`.profile-home-screen` a third. Result: a wide empty band under the last card on
+every screen in the app, and enough manufactured scroll travel that short pages
+scrolled their content up under the top bar.
+
+Nobody spotted it for months because the number is wrong by a constant. It does
+not look like a bug; it looks like a slightly generous gap.
+
+**Rule.** A token declared at `:root` may only read other tokens that are also
+defined at `:root`. If it needs a value the route shell owns, declare it at the
+shell too (as `resolveTopShellGeometryStyle` does) — or do the `calc()` at the
+point of use. And before adding any clearance, find out who already reserves that
+edge: in this app the scroll root owns the fixed bottom chrome, and its own
+comment says so.
+
+**Check.** Every `:root` token that reads a shell-scoped var, listed:
+
+```bash
+cd ~/Desktop/husshresearch/hushh-webapp
+# Tokens providers.tsx declares on the route shell, not on :root.
+python3 - <<'EOF'
+import re
+shell = set(re.findall(r'"(--[a-z0-9-]+)":', open('app/providers.tsx').read()))
+css = open('app/globals.css').read()
+root = css.split('}')[0] if css.startswith(':root') else re.search(r':root\s*{(.*?)\n}', css, re.S).group(1)
+hits = sorted({v for v in re.findall(r'var\((--[a-z0-9-]+)', root) if v in shell})
+print('\n'.join(hits) or 'clean')
+EOF
+```
+Anything printed is a token to check by hand: it is frozen to its `:root`
+fallback **unless** the shell also re-declares every token derived from it (the
+top-shell block does; the bottom one did not). Read the computed value back in a
+browser before believing either answer, then either move the declaration or move
+the `calc()`. And grep for other places applying the same clearance — this one
+was being added four times: `.app-page-shell`, `.profile-home-screen`,
+`profile-stack-navigator.tsx`, and the scroll root that legitimately owns it.
+
 ## Adding a rule
 
 Every mistake found becomes a rule. Fix the **cause**, not the symptom, then add

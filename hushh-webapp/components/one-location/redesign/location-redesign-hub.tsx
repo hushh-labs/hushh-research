@@ -458,6 +458,12 @@ export type LocationHubViewModel = {
      provenance rides in the request's optional sourceCircleId. */
   onCheckIn: (request: PrivateCheckInRequest) => Promise<PrivateCheckInResult>;
   onDiscardPrivateCheckInOperation: (operationId: string | null) => void;
+  /**
+   * Bumped by the voice `location.send_check_in` action while this flow is
+   * mounted. `CheckInFlow` watches it and submits its own local draft --
+   * page.tsx has no reach into that component's selection state otherwise.
+   */
+  voiceCheckInSendRequestId?: number;
 
   /* label helpers (reuse existing formatting) */
   recipientLabel: (r: OneLocationRecipient) => string;
@@ -668,21 +674,27 @@ function locationHeaderStatusText(vm: LocationHubViewModel): string {
 }
 
 /**
- * The status line for the Location header, rendered UNDER the title.
+ * The status line for the Location header, rendered UNDER THE SWITCH.
  *
- * It used to sit in the actions column beside the switch, and the full string
- * made that column wide enough to wrap the 28px "Location Agent" title at every
- * iPhone width. The fix for THAT was to shorten it to one word on phones — so
- * iOS, the platform this control was designed for, showed a bare green switch
- * over the single word "On", which never said what it switched. Under the title
- * the line costs the title no width at all, so it can say the whole thing.
+ * Three positions have been tried. Beside the switch, the full string made the
+ * actions column wide enough to wrap the 28px "Location Agent" title at every
+ * iPhone width. Shortened to one word to fix that, iOS — the platform this
+ * control was designed for — got a bare green switch over the word "On", which
+ * never said what it switched. Under the TITLE it could say the whole thing,
+ * but it read as a subtitle for the screen rather than as the state of the
+ * control on the opposite side of the row.
+ *
+ * So: its own full-width row under the header, right-aligned, which puts it
+ * directly beneath the switch it describes while still costing the title no
+ * width at all. `block` is load-bearing — `text-right` on an inline span aligns
+ * nothing.
  */
 function LocationHeaderStatus({ vm }: { vm: LocationHubViewModel }) {
   return (
     <span
       id={LOCATION_HEADER_STATUS_ID}
       data-testid="one-location-header-status"
-      className="ui-text-helper-text text-[color:var(--app-secondary-label)]"
+      className="ui-text-helper-text block w-full text-right text-[color:var(--app-secondary-label)]"
     >
       {locationHeaderStatusText(vm)}
     </span>
@@ -1221,6 +1233,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         accent="location"
         titleRole="agent"
         description={<LocationHeaderStatus vm={vm} />}
+        // Its own row under the header, not a subtitle indented beside the
+        // title — see LocationHeaderStatus.
+        descriptionFullWidth
         actionsInlineMobile
         actions={<LocationHeaderActions vm={vm} />}
       />
@@ -1406,6 +1421,11 @@ function NowHub({
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
           rather than only the screen it lives on. */}
+      {/* The two things a person DOES on this screen, together. Sharing your
+          location and asking for someone else's are the same kind of decision
+          pointed in opposite directions, and they were two groups apart — one
+          alone at the top, the other buried under three status rows. Everything
+          below is what is already happening, or where to look at it. */}
       <SettingsGroup
         separatorInset
         testId="one-location-now-share"
@@ -1422,10 +1442,32 @@ function NowHub({
           voiceControlId="one-location-action-share"
           voiceActionId="location.open_share"
         />
+        {/* Asking someone to share was reachable only from the People tab, so
+            the Now tab listed every way to give a location out and none to ask
+            for one. Same flow and same voice control id as that entry -- this
+            is an additional way in, not a second implementation. */}
+        {/* Not `Send`: that is the same paper-plane silhouette as `Navigation`
+            on "Share location" two rows up, so at row size the two entries read
+            as the same icon -- and they are opposites. A speech bubble asking a
+            question is distinct at a glance and matches what the flow does:
+            "Requests should explain why. The other person chooses whether to
+            share." Radar and Crosshair were rejected for implying tracking on a
+            surface built around consent. */}
+        <SettingsRow
+          icon={MessageCircleQuestionMark}
+          iconTone="blue"
+          title="Request location"
+          density="compact"
+          chevron
+          onClick={onRequestLocation}
+          testId="one-location-request-row"
+          voiceControlId="one-location-action-ask"
+          voiceActionId="location.open_ask"
+        />
       </SettingsGroup>
       <SettingsGroup
         separatorInset
-        testId="one-location-now-primary"
+        testId="one-location-now-status"
         shellClassName={groupedShellClassName}
       >
         <SettingsRow
@@ -1439,13 +1481,6 @@ function NowHub({
           voiceControlId="one-location-open-map"
           voiceActionId="location.open_map"
         />
-      </SettingsGroup>
-
-      <SettingsGroup
-        separatorInset
-        testId="one-location-now-status"
-        shellClassName={groupedShellClassName}
-      >
         <SettingsRow
           icon={UsersRound}
           iconTone={activeSharesIconTone}
@@ -1478,28 +1513,6 @@ function NowHub({
           onClick={onOpenNeedsReview}
           voiceControlId="one-location-action-needs-review"
           voiceActionId="location.open_needs_review"
-        />
-        {/* Asking someone to share was reachable only from the People tab, so
-            the Now tab listed every way to give a location out and none to ask
-            for one. Same flow and same voice control id as that entry -- this
-            is an additional way in, not a second implementation. */}
-        {/* Not `Send`: that is the same paper-plane silhouette as `Navigation`
-            on "Share location" two rows up, so at row size the two entries read
-            as the same icon -- and they are opposites. A speech bubble asking a
-            question is distinct at a glance and matches what the flow does:
-            "Requests should explain why. The other person chooses whether to
-            share." Radar and Crosshair were rejected for implying tracking on a
-            surface built around consent. */}
-        <SettingsRow
-          icon={MessageCircleQuestionMark}
-          iconTone="blue"
-          title="Request location"
-          density="compact"
-          chevron
-          onClick={onRequestLocation}
-          testId="one-location-request-row"
-          voiceControlId="one-location-action-ask"
-          voiceActionId="location.open_ask"
         />
         <SettingsRow
           icon={Lock}
@@ -3389,52 +3402,42 @@ function AskFlow({
         )}
       </section>
 
-      {/* Three separate cards stood here, one per field, each with its heading
-          inside its own frame. Settings puts a set of related fields in ONE
-          grouped card under a single label, with each field a row — which is
-          the same shape this screen's Circles and People lists already use, and
-          the reason Ask read as a different screen from the rest of Location.
+      {/* Ask and Share are the same decision pointed in opposite directions,
+          so they are now the same card: one surface, "How long" over the
+          ladder, then the next field. Ask used to put its duration in a
+          SettingsRow trailing slot as a two-column scroll wheel — a control
+          that needs 260px pinned to the right edge of a row, overlapping the
+          row it sat in and looking nothing like the screen people reach it
+          from.
 
-          Message keeps its own labelled block: a two-row textarea is not a row
-          control, and forcing it into a trailing slot would squeeze it into a
-          third of the width for the sake of matching a shape. */}
-      <SettingsGroup title="Details" separatorInset>
-        <SettingsRow
-          title="How long"
-          description="How much of their time you are asking for."
-          trailing={
-            <DurationSelector
-              value={vm.durationHours}
-              onChange={vm.setDurationHours}
-              label=""
-              presentation="wheel"
-              /* No open-ended option on this lane. There is no such thing as
-                 asking to see someone else's location until THEY stop — the
-                 backend has no open-ended mode on a request — and this
-                 screen writes the same `durationHours` string the
-                 circle-invite and public-link lanes later run Number() over.
-                 Since the wheel's sentinel became the non-numeric
-                 "until_stopped", leaving the toggle here posts NaN to a
-                 `gt=0` field. */
-              allowUntilStop={false}
-            />
-          }
-          stackTrailingOnMobile
-        />
-        <SettingsRow
-          title="Reason"
-          description="Says why, so the answer is not a guess."
-          trailing={
-            <ReasonChips
-              value={reason}
-              onChange={setReason}
-              label=""
-              presentation="select"
-            />
-          }
-          stackTrailingOnMobile
-        />
-      </SettingsGroup>
+          Message keeps its own labelled block below: a two-row textarea is not
+          a row control. */}
+      <SectionCard>
+        <div className="space-y-5">
+          <DurationSelector
+            value={vm.durationHours}
+            onChange={vm.setDurationHours}
+            // The column is already measured by the card, so the ladder fills
+            // it instead of stopping short.
+            maxWidthClassName={null}
+            label="How long"
+            presentation="ladder"
+            /* No open-ended option on this lane. There is no such thing as
+               asking to see someone else's location until THEY stop — the
+               backend has no open-ended mode on a request — and this screen
+               writes the same `durationHours` string the circle-invite and
+               public-link lanes later run Number() over, so a non-numeric
+               sentinel here posts NaN to a `gt=0` field. */
+            allowUntilStop={false}
+          />
+          <ReasonChips
+            value={reason}
+            onChange={setReason}
+            label="Reason"
+            presentation="select"
+          />
+        </div>
+      </SectionCard>
 
       <section className="space-y-3">
         <AppSectionLabel as="h2">Message</AppSectionLabel>

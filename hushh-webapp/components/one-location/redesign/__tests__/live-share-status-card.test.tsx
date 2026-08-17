@@ -221,7 +221,35 @@ describe("LiveShareStatusCard", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Change time" })).toBeNull();
+    // "Last ends", not "Ends": the clock is the LATEST of the three, and two of
+    // them may stop long before it.
+    expect(screen.getByText(/^Last ends /)).toBeTruthy();
+  });
+
+  it("says whose end time the clock is when several shares run", () => {
+    const { unmount } = render(
+      <LiveShareStatusCard
+        status={status()}
+        onManage={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+    // One share: the end time is simply the end time.
     expect(screen.getByText(/^Ends /)).toBeTruthy();
+    expect(screen.queryByText(/^Last ends /)).toBeNull();
+    unmount();
+
+    render(
+      <LiveShareStatusCard
+        status={status({
+          count: 2,
+          names: ["A", "B"],
+          stoppableGrantId: null,
+        })}
+        onManage={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/^Last ends /)).toBeTruthy();
   });
 
   it("keeps Change time on an open-ended share", () => {

@@ -214,6 +214,39 @@ class TestAgentTreeShape:
         assert "Do not call open_screen" in instruction
         assert "First assess meaning semantically" in instruction
 
+    def test_runtime_instruction_warns_when_voice_control_is_off(self):
+        # Gate 1/Gate 2 refuse every actual tool call while voice is off, but
+        # a plain "what can you do" question never reaches a tool -- it is
+        # answered straight from this instruction, so the off state must be
+        # stated here or the model narrates capabilities as if nothing changed.
+        instruction = _one_runtime_instruction(
+            SimpleNamespace(
+                state={
+                    STATE_VOICE_CONTEXT: {
+                        "available_action_ids": ["location.pause_updates"],
+                        "voice_settings": {"voice_enabled": False},
+                    }
+                }
+            )
+        )
+
+        assert "VOICE CONTROL IS OFF" in instruction
+        assert "Do not describe, offer, or attempt any action" in instruction
+
+    def test_runtime_instruction_has_no_voice_off_warning_when_voice_is_on(self):
+        instruction = _one_runtime_instruction(
+            SimpleNamespace(
+                state={
+                    STATE_VOICE_CONTEXT: {
+                        "available_action_ids": ["location.pause_updates"],
+                        "voice_settings": {"voice_enabled": True},
+                    }
+                }
+            )
+        )
+
+        assert "VOICE CONTROL IS OFF" not in instruction
+
     def test_runtime_instruction_prioritizes_top_modal_layer(self):
         instruction = _one_runtime_instruction(
             SimpleNamespace(
@@ -360,6 +393,29 @@ class TestSpecialistTurn:
         assert result["status"] == "domain_disabled"
         assert result["reason"] == "voice_domain_disabled_by_user"
         assert "Location" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_refuses_every_specialist_when_the_master_toggle_is_off(self):
+        # The master Voice control switch, distinct from any per-domain
+        # toggle: turning it off must refuse specialist delegation the same
+        # way a domain-specific disable does, not just influence the model's
+        # own conversational judgment.
+        result = await _specialist_turn(
+            "agent_location",
+            "share my location with Sarah",
+            _tool_context(
+                {
+                    STATE_USER_ID: "u1",
+                    STATE_CONSENT_TOKEN: "t1",
+                    STATE_VOICE_CONTEXT: {
+                        "voice_settings": {"voice_enabled": False},
+                    },
+                }
+            ),
+        )
+        assert result["status"] == "domain_disabled"
+        assert result["reason"] == "voice_disabled_by_user"
+        assert "Location" not in result["message"]
 
     @pytest.mark.asyncio
     async def test_domain_disabled_takes_priority_over_missing_auth(self):
@@ -762,6 +818,19 @@ class TestRunAppAction:
         assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
+    async def test_run_app_action_refuses_when_voice_entirely_disabled(self):
+        state = {
+            "hussh:voice_context": {
+                "available_action_ids": ["location.pause_updates"],
+                "voice_settings": {"voice_enabled": False},
+            }
+        }
+        result = await run_app_action("location.pause_updates", {}, _tool_context(state))
+        assert result["status"] == "domain_disabled"
+        assert "Location" not in result["message"]
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
+
+    @pytest.mark.asyncio
     async def test_run_app_action_allows_when_domain_not_disabled(self):
         state = {
             "hussh:voice_context": {
@@ -788,6 +857,21 @@ class TestRunAppAction:
             "hussh:voice_context": {
                 "available_action_ids": ["location.select_share_recipient"],
                 "voice_settings": {"disabled_domains": ["location"]},
+            }
+        }
+        result = await start_app_goal(
+            "location.select_share_recipient", {"person": "Sarah"}, _tool_context(state)
+        )
+        assert result["status"] == "domain_disabled"
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
+        assert _STATE_GOAL_RUN not in state
+
+    @pytest.mark.asyncio
+    async def test_start_app_goal_refuses_when_voice_entirely_disabled(self):
+        state = {
+            "hussh:voice_context": {
+                "available_action_ids": ["location.select_share_recipient"],
+                "voice_settings": {"voice_enabled": False},
             }
         }
         result = await start_app_goal(

@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
+
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
   SHEET_BODY_CLASSNAME,
@@ -105,6 +107,7 @@ async function buildFixture(): Promise<string> {
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
     `<!doctype html><html><head><meta charset="utf-8">
+<style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css">
 <style>:root{--app-separator:#e5e5ea;--app-card-surface-default-solid:#fff}</style>
 </head><body style="margin:0;background:#111">
@@ -146,6 +149,7 @@ test.describe("Save-location address sheet layout", () => {
     }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture());
+      await awaitProductFont(page);
 
       const header = await boxOf(page, "sheet-header");
       const body = await boxOf(page, "sheet-body");
@@ -166,6 +170,7 @@ test.describe("Save-location address sheet layout", () => {
     }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture());
+      await awaitProductFont(page);
 
       const back = await boxOf(page, "sheet-back");
       const title = await boxOf(page, "sheet-title");
@@ -182,6 +187,7 @@ test.describe("Save-location address sheet layout", () => {
     }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture());
+      await awaitProductFont(page);
 
       const headerBefore = await boxOf(page, "sheet-header");
       const footerBefore = await boxOf(page, "sheet-footer");
@@ -216,6 +222,7 @@ test.describe("Save-location address sheet layout", () => {
   test("paints the footer on a fully opaque surface", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(await buildFixture());
+    await awaitProductFont(page);
 
     // Measured through a canvas rather than pattern-matched on the computed
     // string. Tailwind resolves `bg-…/95` to `oklab(… / 0.95)`, not to an

@@ -10,6 +10,9 @@ import { Children, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/lib/services/api-client";
+// The rungs themselves, not a copy of their labels: Ask and Share must offer
+// the same ladder, so the test reads the same list the component does.
+import { SHARE_DURATION_LADDER } from "@/components/one-location/redesign/duration-presets";
 
 const {
   mockUseRequireAuth,
@@ -1244,6 +1247,38 @@ describe("OneLocationAgentPage", () => {
     expect(await toneOf("Needs my review")).toBe("orange");
   });
 
+  it("groups the two things you do apart from the things that are happening", async () => {
+    // Reported: "share location / request location ek sath hona chahiye kyuki
+    // yeh user ke action items hain" — sharing your location and asking for
+    // someone else's are the same kind of decision pointed in opposite
+    // directions, and they sat two groups apart: one alone at the top, the
+    // other buried under three status rows.
+    //
+    // Everything else on this tab is either what is already happening (active
+    // shares, shared with me, needs my review) or where to look at it (Your
+    // Map) or how to change it (Settings). Two groups, not three.
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    const actions = await screen.findByTestId("one-location-now-share");
+    expect(within(actions).getByText("Share location")).toBeTruthy();
+    expect(within(actions).getByText("Request location")).toBeTruthy();
+
+    const rest = screen.getByTestId("one-location-now-status");
+    expect(within(rest).getByText("Your Map")).toBeTruthy();
+    expect(within(rest).getByText("Active shares")).toBeTruthy();
+    expect(within(rest).getByText("Settings")).toBeTruthy();
+
+    // The two must not drift back apart.
+    expect(within(rest).queryByText("Share location")).toBeNull();
+    expect(within(rest).queryByText("Request location")).toBeNull();
+    // And the standalone map group is gone, so the tab is two groups.
+    expect(screen.queryByTestId("one-location-now-primary")).toBeNull();
+  });
+
   it("keeps the heading and location toggle inline as the only header action", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
@@ -1260,9 +1295,21 @@ describe("OneLocationAgentPage", () => {
     expect(headerActions.className).toContain("justify-end");
     // The actions column holds the switch and nothing else now, so it no
     // longer needs `max-w-full` to survive wrapping text. The status words that
-    // used to sit here moved under the title — see the status assertions below.
+    // used to sit here moved to their own row under it — see the status
+    // assertions below.
     const status = screen.getByTestId("one-location-header-status");
     expect(headerActions.contains(status)).toBe(false);
+    // Reported from UAT: "location on / location pause toggle ke just neeche
+    // lao". Its own full-width row UNDER the header, right-aligned, so it lands
+    // directly beneath the switch it describes — not indented beside the title
+    // as a subtitle for the whole screen, and not back inside the actions
+    // column, where its width wrapped the title on every iPhone.
+    const headerRowForStatus = status.closest('[data-slot="page-header-row"]');
+    expect(
+      headerRowForStatus,
+      "the status is back inside the header row",
+    ).toBeNull();
+    expect(status).toHaveClass("block", "w-full", "text-right");
     // iOS used to get the one-word form: a bare green switch over "On", which
     // never said what it switched. Reported from the device.
     expect(status.textContent).toBe("Location off");
@@ -2628,7 +2675,6 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openLocationPermissionsStep();
-    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(mockRequestLocationPermission).toHaveBeenCalledTimes(1),
     );
@@ -2636,6 +2682,17 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() =>
       expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1),
     );
+    // The real rule is an ORDER — ask before you read — not a moment. This was
+    // `expect(mockCaptureCurrentPosition).not.toHaveBeenCalled()` on the line
+    // straight after the step opened, which is a negative assertion made at an
+    // unsynchronised instant: when the grant and the capture happened to flush
+    // inside `openLocationPermissionsStep`, a correct run failed. Measured at
+    // roughly one run in four on untouched main. Invocation order states the
+    // same contract and cannot race.
+    expect(
+      mockRequestLocationPermission.mock.invocationCallOrder[0],
+      "the device was read before permission was asked for",
+    ).toBeLessThan(mockCaptureCurrentPosition.mock.invocationCallOrder[0]!);
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
@@ -3873,11 +3930,12 @@ describe("OneLocationAgentPage", () => {
   });
 
   // Lives here, with the other Request-flow tests, and not up beside the share
-  // tests where it was first written. This is the earliest test in the file to
-  // mount the duration WHEEL, and Embla measures asynchronously; opening the
-  // Ask flow hundreds of tests earlier leaked that work into the onboarding
-  // permission test, which then failed about one run in two. Same assertions,
-  // same flow, stable placement.
+  // tests where it was first written. It used to be the earliest test in the
+  // file to mount the duration WHEEL, and Embla measures asynchronously;
+  // opening the Ask flow hundreds of tests earlier leaked that work into the
+  // onboarding permission test, which then failed about one run in two. Ask no
+  // longer mounts a wheel at all (see the ladder test below), but the placement
+  // stays: the flake was about where the Ask flow opens, not only about Embla.
   it("never offers an open-ended duration when asking someone else", async () => {
     // Reported from UAT: "request location mein bhi 'Until I stop' hain. main
     // dusron se req karungi, and duration 'until i stop' meaningful rahega??"
@@ -3901,8 +3959,35 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("Until you stop")).toBeNull();
     // The timed control itself is still there — this removes one option, not
     // the ability to say how long.
-    expect(screen.getByRole("spinbutton", { name: "Hours" })).toBeTruthy();
-    expect(screen.getByRole("spinbutton", { name: "Minutes" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "15 min" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Custom" })).toBeTruthy();
+  });
+
+  it("asks for a duration with the same control the Share screen uses", async () => {
+    // Reported from UAT: "share location mein jaise time ka div aayega, request
+    // mein bhi same aana chahiye". Ask put a two-column scroll wheel in a
+    // settings-row trailing slot — a 260px control pinned to the right edge of
+    // a row, which is why it overlapped the row it sat in and looked nothing
+    // like the screen people reach it from. Share had already moved to the
+    // preset ladder; Ask had not.
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    // Every rung the Share ladder offers, in the same order.
+    for (const rung of SHARE_DURATION_LADDER) {
+      expect(
+        screen.getByRole("button", { name: rung.label }),
+        `Ask is missing the "${rung.label}" rung`,
+      ).toBeTruthy();
+    }
+    // And no wheel: the spinbuttons only exist inside the wheel, and mounting
+    // one here is what the report was about.
+    expect(screen.queryByRole("spinbutton", { name: "Hours" })).toBeNull();
+    expect(screen.queryByRole("spinbutton", { name: "Minutes" })).toBeNull();
   });
 
   it("sends an approval-first location request without sharing coordinates", async () => {

@@ -326,6 +326,16 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      # The layout-contract pack drives real Chromium and WebKit. WebKit is not
+      # optional: it is the engine iOS ships, and a native <select> there
+      # ignores an author border-radius that Chromium honours, so a
+      # Chromium-only run passes controls that are visibly broken on an iPhone.
+      - name: Install Playwright browsers
+        run: |
+          set -euo pipefail
+          npm ci --prefix hushh-webapp
+          (cd hushh-webapp && npx playwright install --with-deps chromium webkit)
+
       - name: Run targeted web contract checks
         run: bash scripts/ci/orchestrate.sh web-targeted
         env:

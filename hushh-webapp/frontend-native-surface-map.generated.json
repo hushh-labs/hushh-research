@@ -3987,10 +3987,18 @@
       },
       "voice_action_contract_file": "app/one/location/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "location.accept_circle_invite",
         "location.add_connections",
         "location.add_emergency_contact",
         "location.add_to_circle",
+        "location.approve_request",
+        "location.change_share_duration",
         "location.create_circle",
+        "location.decline_circle_invite",
+        "location.decline_request",
+        "location.delete_circle",
+        "location.delete_saved_location",
+        "location.leave_circle",
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
@@ -4012,11 +4020,18 @@
         "location.refresh",
         "location.remove_emergency_contact",
         "location.remove_from_circle",
+        "location.rename_circle",
         "location.resume_updates",
+        "location.save_current_location",
+        "location.select_ask_recipient",
         "location.select_share_recipient",
+        "location.send_check_in",
+        "location.send_request",
         "location.set_auto_share",
         "location.share_selected",
-        "location.stop_sos"
+        "location.stop_share",
+        "location.stop_sos",
+        "location.trigger_sos"
       ],
       "api_dependencies": [
         {
@@ -6925,8 +6940,10 @@
       "route_contract": {
         "mode": "flow",
         "exemption_reason": "Finance preferences use the existing full-height wizard inside the setup route.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "shell_verification_file": "app/one/setup/kai/page.tsx",
+        "shell_verification_includes": [
+          "--top-content-pad"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -6993,8 +7010,10 @@
       "route_contract": {
         "mode": "flow",
         "exemption_reason": "Finance source selection uses the existing import flow inside the setup route.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "shell_verification_file": "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
+        "shell_verification_includes": [
+          "FullscreenFlowShell"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -7274,8 +7293,10 @@
       "route_contract": {
         "mode": "flow",
         "exemption_reason": "RIA onboarding retains its existing full-screen verification flow inside the setup route.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "shell_verification_file": "app/ria/onboarding/page.tsx",
+        "shell_verification_includes": [
+          "FullscreenFlowShell"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -8628,5 +8649,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "abffe02c63b4bbd6d400a9804f06375462cdd7a24444962f73feed3dfc74ccbb"
+  "content_sha256": "9a3c240dd408c5ee9ecc402a04822b3475da92d0e47ea9533d3bcb696df96cc3"
 }
