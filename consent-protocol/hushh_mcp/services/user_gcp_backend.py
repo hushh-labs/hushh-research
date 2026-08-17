@@ -137,6 +137,30 @@ def pod_service_account_id(hushh_id: str) -> str:
     return f"{_SA_PREFIX}{head}-{digest}" if head else f"{_SA_PREFIX}{digest}"
 
 
+def _pod_vertex_location(fallback_region: str) -> str:
+    """Where a BYOC pod should address Vertex, taken from the MODEL's own contract.
+
+    The pod's Cloud Run region and its Vertex endpoint are unrelated facts that happened
+    to share a variable. `registry.py` already declares which locations each model is
+    served at -- the default model is ``("global",)`` -- and `locations_for_model` is the
+    managed tier's use of that same declaration. The BYOC renderer had no equivalent, so
+    it substituted the one region it had at hand.
+
+    Falls back to the pod's region rather than raising: a model that declares no
+    supported locations is making no claim, and refusing to render a pod over a missing
+    registry annotation would trade a wrong endpoint for no agent at all.
+    """
+    from hushh_mcp.constants import GEMINI_MODEL  # noqa: PLC0415
+    from hushh_mcp.runtime_providers.registry import resolve_model_entry  # noqa: PLC0415
+
+    try:
+        supported = resolve_model_entry("gemini", GEMINI_MODEL).supported_vertex_locations
+    except Exception:  # noqa: BLE001 - an unknown model is not a reason to refuse a pod
+        logger.warning("user_gcp.vertex_location_unresolved model=%s", GEMINI_MODEL)
+        return fallback_region
+    return supported[0] if supported else fallback_region
+
+
 #: Env the MANAGED tier ships that a BYOC pod must never receive. Two are plaintext
 #: keys derived from hushh's master; the third points at hushh's own bucket. Listed by
 #: name rather than filtered by pattern, so adding a managed-only variable later is a
@@ -336,7 +360,14 @@ class UserGcpBackend:
                 # than inherited so the hub's Vertex address can never reach a pod it
                 # does not own.
                 {"name": "GOOGLE_CLOUD_PROJECT", "value": project},
-                {"name": "GOOGLE_CLOUD_LOCATION", "value": region},
+                # A Vertex location is a property of the MODEL, not of where the pod
+                # happens to run. This used to render `region`, the pod's Cloud Run
+                # region, so every BYOC pod addressed Vertex at us-central1 while the
+                # default model is declared `global`-only -- a 404 on the first turn,
+                # surfacing as the same opaque error every other turn failure produces.
+                # The hub gets this right for itself (`GOOGLE_CLOUD_LOCATION=global`);
+                # nothing carried that fact into a pod.
+                {"name": "GOOGLE_CLOUD_LOCATION", "value": _pod_vertex_location(region)},
                 # The NAME for what the two lines above already make true. Without it
                 # `_resolve_runtime_mode` has no branch for "serve on my own ADC" and a
                 # credential-less turn 400s -- so a BYOC pod, whose model access is
@@ -366,7 +397,20 @@ class UserGcpBackend:
             {
                 "name": "APP_SIGNING_KEY",
                 "valueFrom": {
-                    "secretKeyRef": {"name": f"one-pod-{slug}-signing-key", "key": "latest"}
+                    # Named from `pod_service_account_id`, NOT the raw slug. The bootstrap
+                    # creates, seeds and IAM-binds `{pod_service_account_id(hushh_id)}
+                    # -signing-key`, which truncates and hashes to fit Google's 30-char
+                    # service-account limit. The raw slug agrees with that only for SHORT
+                    # ids -- exactly the synthetic ids every BYOC test uses -- so for every
+                    # real 36-character HusshID this mounted a secret nothing ever creates.
+                    # The revision then crash-loops on `APP_SIGNING_KEY must be set`, and
+                    # Cloud Run reports an unresolvable secretKeyRef as a PERMISSION error
+                    # naming the pod account, which sends an operator to a secretAccessor
+                    # binding that is present and correct on the other name.
+                    "secretKeyRef": {
+                        "name": f"{pod_service_account_id(spec.hushh_id)}-signing-key",
+                        "key": "latest",
+                    }
                 },
             }
         )

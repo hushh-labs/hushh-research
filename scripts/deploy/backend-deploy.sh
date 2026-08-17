@@ -345,6 +345,7 @@ dev_simulation_enabled=""
 consent_plane_sa=""
 user_gcp_live=""
 user_gcp_substrate_apply=""
+pod_ingress=""
 dev_phone_test_numbers=""
 dev_pod_state_bucket=""
 dev_pod_key_master_secret=""
@@ -433,6 +434,21 @@ if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   # separate from _LIVE, because the dry-run default is what makes "we rendered a plan"
   # and "we built infrastructure in a customer project" different acts.
   user_gcp_substrate_apply="true"
+  # Where a pod may be CONNECTED TO from. `GcpBackend` defaults to "internal", which is
+  # right wherever the hub and the pod share a project. BYOC does not: the pod lives in
+  # the customer's project and the hub is a Cloud Run service in ours, with no VPC
+  # connector, so the hub's call leaves over public egress and arrives as external. An
+  # internal BYOC pod is unreachable by the ONE principal permitted to invoke it, and
+  # the relay reports the front end's non-JSON 404 as "pod returned a non-JSON body" --
+  # a healthy pod that reads as a broken one, in a project we cannot see.
+  #
+  # This widens WHERE a caller may connect from, never WHO may invoke: no allUsers
+  # binding is ever written (`set_invoker_binding` refuses one), so Cloud Run still
+  # demands a signed Google identity token and an anonymous request gets 403. The
+  # invoker binding remains the actual control, which is why this stays dev-only --
+  # `append_optional_env` drops empties, so uat and production keep "internal" by
+  # construction rather than by anyone remembering.
+  pod_ingress="all"
 fi
 append_optional_env "PERSONAL_AGENT_ENABLED" "${personal_agent_enabled}"
 append_optional_env "PERSONAL_AGENT_BACKEND" "${personal_agent_backend}"
@@ -449,6 +465,7 @@ append_optional_env "POD_STORAGE_GCS_BUCKET" "${dev_pod_state_bucket}"
 append_optional_env "HUSSH_CONSENT_PLANE_SA" "${consent_plane_sa}"
 append_optional_env "HUSSH_USER_GCP_LIVE" "${user_gcp_live}"
 append_optional_env "HUSSH_USER_GCP_SUBSTRATE_APPLY" "${user_gcp_substrate_apply}"
+append_optional_env "HUSSH_POD_INGRESS" "${pod_ingress}"
 # The other half of durable state. A SECRET, not an env literal: it derives every
 # managed pod's sealing keys, so it is the one value that must never appear in a
 # deploy log or a service description. append_optional_secret probes Secret Manager

@@ -486,6 +486,44 @@ def _hushh_caller_identity() -> str:
     return str(_bare_service_account(os.getenv("HUSSH_CONSENT_PLANE_SA", "")))
 
 
+async def _reserve_pending_agent_record(user_id: str) -> bool:
+    """Reserve the pending registry row this person should already have had.
+
+    Reads the verified phone from the identity service exactly as
+    ``ai_connection_gate._verified_phone`` and the owner-authorized provision route do:
+    the ``phone_verified`` FLAG, never merely the presence of a number, because an
+    unverified number would mint a HusshID against a phone nobody proved they hold.
+
+    Returns False when the phone is unverified, which is the one case the caller's 409
+    genuinely describes -- so that message becomes true rather than misleading.
+    """
+    from hushh_mcp.services.actor_identity_service import ActorIdentityService
+    from hushh_mcp.services.compute_backend import resolve_compute_backend
+    from hushh_mcp.services.personal_agent_provisioning_service import (
+        PersonalAgentProvisioningService,
+    )
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    try:
+        identity = (await ActorIdentityService().get_many([user_id])).get(user_id) or {}
+        if identity.get("phone_verified") is not True:
+            return False
+        phone = str(identity.get("phone_number") or "").strip()
+        if not phone:
+            return False
+        # The SAME backend the owner-authorized route resolves. Constructing this
+        # service without one silently yields NullBackend, and this path must not be
+        # the one that quietly disagrees with every other about where a pod lives.
+        service = PersonalAgentProvisioningService(
+            registry=PersonalAgentRegistryRepo(), backend=resolve_compute_backend()
+        )
+        await service.register_pending(user_id=user_id, phone_e164=phone)
+        return True
+    except Exception:  # noqa: BLE001 - a failed reservation is a 409, never a 500
+        logger.warning("byoc_project.reserve_pending_failed", exc_info=True)
+        return False
+
+
 @router.post("/byoc/project/save", response_model=ByocProjectSaveResponse)
 @limiter.limit(RateLimits.AGENT_CHAT)
 async def save_byoc_project(
@@ -545,18 +583,40 @@ async def save_byoc_project(
         logger.info("byoc_project.authorization_probe_unavailable project=%s", project)
 
     repo = PersonalAgentRegistryRepo()
-    wrote = await repo.set_user_cloud(
-        user_id=firebase_uid,
-        project=project,
-        region=body.region,
-        bootstrap_sa=bootstrap_sa,
-        authorized=authorized,
-        # Named here, not in the registry: the common layer must not be able to name a
-        # provider (test_deployment_boundary_holds). This route is the layer that knows
-        # a person chose their own cloud, so it is the layer allowed to say so.
-        deployment_target="user_gcp",
-        model_credential_mode="user_adc",
-    )
+
+    async def _attach_cloud() -> bool:
+        return bool(
+            await repo.set_user_cloud(
+                user_id=firebase_uid,
+                project=project,
+                region=body.region,
+                bootstrap_sa=bootstrap_sa,
+                authorized=authorized,
+                # Named here, not in the registry: the common layer must not be able to
+                # name a provider (test_deployment_boundary_holds). This route is the
+                # layer that knows a person chose their own cloud, so it is the layer
+                # allowed to say so.
+                deployment_target="user_gcp",
+                model_credential_mode="user_adc",
+            )
+        )
+
+    wrote = await _attach_cloud()
+    if not wrote:
+        # `set_user_cloud` is an UPDATE, and the row it updates is written at phone
+        # verification ONLY on the legacy trigger. With
+        # PERSONAL_AGENT_PROVISION_ON_AI_CONNECTION at its default of True,
+        # `schedule_provision_personal_agent` returns before `register_pending` -- its
+        # one non-test caller -- so a person who did everything right arrives here with
+        # no row. The cloud step then 409s permanently while telling them to re-verify a
+        # phone that is already verified, which is a loop that cannot terminate.
+        #
+        # Reserving here is the smallest correct repair. `register_pending` mints the
+        # HusshID and writes a `pending` row; it provisions NOTHING, so validate-then-
+        # provision is untouched and a pod still has to be earned by a working AI
+        # connection. Doing it on the failure path keeps the common case one query.
+        if await _reserve_pending_agent_record(firebase_uid):
+            wrote = await _attach_cloud()
     if not wrote:
         raise HTTPException(
             status_code=409,

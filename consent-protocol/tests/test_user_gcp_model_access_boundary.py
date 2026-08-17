@@ -92,15 +92,42 @@ def test_vertex_project_is_the_users_when_the_hub_names_nothing(monkeypatch) -> 
     assert env.get("GOOGLE_CLOUD_PROJECT") == USER_PROJECT
 
 
-def test_vertex_location_follows_the_users_region(monkeypatch) -> None:
-    """The location is half the address; a right project in a wrong region still fails."""
+def test_vertex_location_follows_the_model_not_the_hub(monkeypatch) -> None:
+    """The location is half the address; a right project in a wrong region still fails.
+
+    Two distinct wrong answers are ruled out here, and only the first was before.
+
+    1. The HUB's location must not leak into the pod. That is what setting
+       ``HUSSH_POD_VERTEX_LOCATION`` below probes, and it is the boundary this module
+       exists for.
+    2. The pod's own Cloud Run REGION is equally wrong, and it is the answer the
+       renderer used to give. A Vertex location and a Cloud Run region are unrelated
+       facts that happened to share a variable: the default model is declared
+       ``("global",)`` in the provider registry, so a pod addressed at ``us-central1``
+       404s on its first turn and surfaces as the same opaque error every other turn
+       failure produces.
+
+    The previous assertion pinned the literal ``us-central1``, which made the second
+    wrong answer the expected one. It passed for the whole time the defect was live,
+    which is the shape this file's own docstring warns about: a boundary that holds by
+    coincidence is not a boundary.
+    """
+    from hushh_mcp.constants import GEMINI_MODEL
+    from hushh_mcp.runtime_providers.registry import resolve_model_entry
+
     monkeypatch.setenv("HUSSH_POD_VERTEX_LOCATION", "europe-west4")
 
     env = _env_of(
         UserGcpBackend(user_project=USER_PROJECT, live=False).render_deploy_config(_spec())
     )
 
-    assert env.get("GOOGLE_CLOUD_LOCATION") == "us-central1"
+    location = env.get("GOOGLE_CLOUD_LOCATION")
+    assert location != "europe-west4", "the hub's Vertex location leaked into the pod"
+    supported = resolve_model_entry("gemini", GEMINI_MODEL).supported_vertex_locations
+    assert location in supported, (
+        f"the pod addresses Vertex at {location!r}, which does not serve {GEMINI_MODEL}. "
+        f"Declared locations: {supported}"
+    )
 
 
 def test_vertex_is_still_addressed_at_all(monkeypatch) -> None:
