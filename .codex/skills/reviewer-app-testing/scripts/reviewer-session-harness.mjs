@@ -224,6 +224,17 @@ export async function createReviewerSessionHarness({
           waitUntil: "domcontentloaded",
         });
         await waitForUnlock(page, attemptTimeoutMs);
+        // The bridge reports `vault_unlocked` while /login is still resolving
+        // its redirect. Returning here hands the caller a page with a pending
+        // navigation that silently clobbers their first navigateInApp, which
+        // then times out against a URL the login route overwrote. Wait for the
+        // handoff to leave /login. The destination is deliberately not asserted:
+        // the redirect is state-aware and may legitimately land on onboarding.
+        await page.waitForFunction(
+          () => !window.location.pathname.startsWith("/login"),
+          undefined,
+          { timeout: attemptTimeoutMs }
+        );
         return { context, page, capture };
       } catch (error) {
         lastError = error;
