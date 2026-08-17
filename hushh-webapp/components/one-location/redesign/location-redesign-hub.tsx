@@ -3246,6 +3246,14 @@ function AskFlow({
     const timer = window.setInterval(() => setStatusNowMs(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
+  // A grant accepted between ticks would otherwise be measured against a
+  // `statusNowMs` from before it existed, inflating "Sharing with you, X
+  // more" by up to a tick's worth of staleness -- enough to round a whole
+  // hour up to "1h 1m more". Resyncing the instant new data lands keeps the
+  // remaining-time math honest from the very first render of a fresh grant.
+  useEffect(() => {
+    setStatusNowMs(Date.now());
+  }, [vm.receivedGrants, vm.requestedByMe]);
   return (
     <div className="space-y-5">
       <TaskFlowHeader
