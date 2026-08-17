@@ -791,6 +791,7 @@
       "capability_scopes",
       "duration_hours",
       "expires_at",
+      "ceiling_expires_at",
       "duration_mode",
       "created_at",
       "updated_at",
