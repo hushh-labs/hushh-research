@@ -500,6 +500,9 @@ describe("NearbyCheckInSheet", () => {
 
     expect(await screen.findByText("Maya Chen")).toBeInTheDocument();
     expect(screen.getByTestId("nearby-attendee-roster")).toBeInTheDocument();
+    // The count sits beside the heading it counts, so it reads as part of
+    // "People nearby" rather than as a loose number in the card's corner.
+    expect(screen.getByTestId("nearby-attendee-count")).toHaveTextContent("1");
     expect(
       screen.queryByTestId("nearby-private-share-card"),
     ).not.toBeInTheDocument();
@@ -519,6 +522,48 @@ describe("NearbyCheckInSheet", () => {
     expect(
       await screen.findByRole("button", { name: "Requested with Maya Chen" }),
     ).toBeDisabled();
+  });
+
+  it("prints no roster count when nobody is nearby, and states the pin rule once", async () => {
+    // Reported as "0 on right top of div": with nobody nearby the badge was a
+    // bare zero pushed to the far right of a three-line block, level with the
+    // middle of a paragraph and touching nothing. The empty state right below
+    // it already says the same thing in words, so the badge has no zero to
+    // print -- and the drawer no longer says "never pinned on your map" twice
+    // in one screen, once under the heading and once under Check out.
+    service.getNearbyPresence.mockResolvedValue({
+      presence: {
+        status: "active",
+        audience: "all_opted_in",
+        radiusMeters: 500,
+        allowConnectionRequests: false,
+        consentVersion: "one-location-nearby-presence-v3",
+        checkedInAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        placeLabel: "Stanford University",
+      },
+      attendees: [],
+    });
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText("No one else is checked in nearby yet"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("nearby-attendee-count"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getAllByText(/never as pins on your map|never pinned on your map/i),
+    ).toHaveLength(1);
   });
 
   it("prepares a fresh check-in when an active presence expires while open", async () => {
