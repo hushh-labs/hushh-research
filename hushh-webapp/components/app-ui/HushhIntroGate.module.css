@@ -19,6 +19,10 @@
  * overlay, not a gate. That is what lets boot and animation overlap
  * rather than queue, and it is why `.root` takes pointer events.
  *
+ * Every duration below is paced to match HushhIntroGate.tsx's phase
+ * timers (`TOTAL_DURATION_MS`, ~4.8s total) so no phase change ever cuts
+ * a transition off mid-motion.
+ *
  * Follows the app's own light/dark theme: white background + dark ink in
  * light mode, the app's near-black elevated surface + light ink in dark
  * mode — never pure black, never a jarring flash either way.

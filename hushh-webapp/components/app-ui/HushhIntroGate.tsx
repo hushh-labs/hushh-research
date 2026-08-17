@@ -85,19 +85,25 @@ const LAST_UID_KEY = "hushh.one.intro.lastUid.v1";
 type Phase = "idle" | "sweep" | "greet1" | "greet2" | "exit";
 
 /*
- * The whole script, in milliseconds. It was 4,770; the industry bar for
- * launch-to-interactive is 500–1,000, so this is 1,000 exactly.
+ * The whole script, in milliseconds. It was 4,770; #5440 took it to 3,280 by
+ * shortening the holds. That helped, but the dominant cost was never the
+ * animation's length — it was that this component WITHHELD its children, so
+ * boot could not begin until the animation ended (see the header). As an
+ * overlay the two run together, which is what lets the script itself come
+ * down to the 500–1,000 ms launch benchmark rather than to 3.3 s.
  *
- * The mark no longer waits for the mist to finish rising — it reveals over
- * it, which is why MIST_TO_MARK_MS is 60 rather than 1,250. That buys both
- * held moments a real 420 ms / 340 ms rather than smearing two 1.5 s holds
- * into a blur, and the mist keeps drifting behind both of them.
+ * SWEEP_DELAY_MS is 0, from #5440: there is no reason to wait a frame before
+ * the mist starts. The mark no longer waits for the mist to finish rising
+ * either — it reveals over it, which is why MIST_TO_MARK_MS is 80 rather
+ * than 900. That buys both held moments a real 420 ms / 340 ms instead of
+ * smearing two long holds into a blur, and the mist keeps drifting behind
+ * both of them.
  *
  * Every value here has a partner in HushhIntroGate.module.css sized to fit
  * inside its phase. Change one, change both.
  */
-const SWEEP_DELAY_MS = 20;
-const MIST_TO_MARK_MS = 60;
+const SWEEP_DELAY_MS = 0;
+const MIST_TO_MARK_MS = 80;
 const GREET1_HOLD_MS = 420;
 const GREET2_HOLD_MS = 340;
 const EXIT_DURATION_MS = 140;
