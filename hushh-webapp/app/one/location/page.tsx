@@ -12245,7 +12245,7 @@ export function OneLocationAgentPageContent({
                             maxLength={REQUEST_MESSAGE_MAX_LENGTH}
                             className="rounded-[14px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]"
                           />
-                          <p className="px-1 text-right text-[11px] font-medium text-[#8e8e93] dark:text-white/45">
+                          <p className="px-1 text-right text-[11px] font-medium text-[#8e8e93] dark:text-white/70">
                             {requestMessage.length}/{REQUEST_MESSAGE_MAX_LENGTH}
                           </p>
                         </div>

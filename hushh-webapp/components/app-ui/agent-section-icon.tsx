@@ -201,6 +201,12 @@ export function AgentSectionIcon({
       )}
       style={toneStyle}
       data-testid={`one-agent-icon-${id}`}
+      // Emitted by both treatments. The launcher slot is only *painted* by
+      // the profile treatment, but the roster's ordering contract is asserted
+      // off this attribute, and that ordering is real on either treatment.
+      data-agent-icon-palette-index={
+        Number.isInteger(paletteIndex) ? paletteIndex : undefined
+      }
       data-agent-icon-kind={icon.kind}
       data-agent-icon-src={icon.kind === "image" ? icon.src : undefined}
       aria-hidden
@@ -222,9 +228,15 @@ export function AgentSectionIcon({
           // ancestor cannot override the requested contrast. Branded chips
           // use dark glyphs in light mode and light glyphs in dark mode; the
           // same primitive drives the dashboard grid and the top switcher.
+          //
+          // `--agent-icon-glyph` lets a tone opt out of white when its fill
+          // follows the accent preference (see the `location` tone) — every
+          // other tone leaves the variable unset and falls back to white.
           className={cn(
             classes.lucide,
-            tone ? "!text-white" : "text-current",
+            tone
+              ? "!text-[color:var(--agent-icon-glyph,#ffffff)]"
+              : "text-current",
           )}
           aria-hidden
         />

@@ -38,6 +38,9 @@ import {
   SHEET_DETAILS_SHELL_CLASSNAME,
   SHEET_FOOTER_CLASSNAME,
   SHEET_HEADER_CLASSNAME,
+  SHEET_INDICATOR_SLOT_CLASSNAME,
+  STEP_DOT_REACHED_CLASSNAME,
+  STEP_DOT_UPCOMING_CLASSNAME,
 } from "@/components/one-location/onboarding/save-location-sheet-layout";
 import { isNative } from "@/lib/capacitor/platform";
 import { cn } from "@/lib/utils";
@@ -101,10 +104,40 @@ function primaryActionClassName(enabled: boolean): string {
   );
 }
 
+/*
+ * THE STEP INDICATOR SLOT (#5396).
+ *
+ * This sheet used to emit its indicator three different ways, one per pane:
+ * nothing at all on "summary", a 44px-tall dot rail at the BOTTOM of "map",
+ * and an 18px-tall rail at the TOP of "details" — or a plain grabber where
+ * the carousel had collapsed. Same two steps, three different headers, so
+ * the rail appeared to move and resize as the person advanced.
+ *
+ * `SHEET_INDICATOR_SLOT_CLASSNAME` is now the one slot every pane renders,
+ * in the pinned-header position, at one height. It doubles as the iOS
+ * grabber, which is why 18px is load-bearing: a taller rail reintroduces
+ * the third stacked header row that e2e/save-location-sheet.layout.spec.ts
+ * measures at six widths.
+ *
+ * The fills were the other half of the bug. The inactive pill was
+ * --app-neutral-fill-strong, which composites to #E4E4E6 on the white sheet
+ * (1.27:1) and #47474C on the dark one (1.51:1) — against the 3:1 WCAG 2.2
+ * SC 1.4.11 sets for a control that carries state. And there were only two
+ * states, so a step already finished looked exactly like one not reached.
+ *
+ * The three class constants live in save-location-sheet-layout.ts beside the
+ * rest of this sheet's measured geometry, so the Playwright contract imports
+ * the exact strings this file paints.
+ */
+
 /**
  * Where you are in the pin-then-details pair, and a way to move without
  * hunting for the button. Replaces the "Step 1 of 2" / "Step 2 of 2" labels,
  * which announced the flow as longer than it is.
+ *
+ * Three visual states, not two — colour says "reached", width says "here":
+ *
+ *   completed  7px accent    upcoming  7px grey    active  24px accent
  */
 function CarouselDots({
   index,
@@ -112,20 +145,12 @@ function CarouselDots({
   labels,
   onSelect,
   canAdvance,
-  compact = false,
 }: {
   index: number;
   count: number;
   labels: string[];
   onSelect: (next: number) => void;
   canAdvance: boolean;
-  /**
-   * Sits where an iOS sheet's grabber sits, doing both jobs at once. Half the
-   * height, so the pinned header stays a header -- the touch target is given
-   * back vertically by the painted `::after` box, and the 44px of horizontal
-   * separation that keeps a tap off the wrong dot is untouched.
-   */
-  compact?: boolean;
 }) {
   return (
     <div
@@ -135,6 +160,7 @@ function CarouselDots({
     >
       {Array.from({ length: count }, (_, dot) => {
         const active = dot === index;
+        const completed = dot < index;
         const reachable = dot <= index || canAdvance;
         return (
           <button
@@ -145,22 +171,26 @@ function CarouselDots({
             aria-label={labels[dot]}
             disabled={!reachable}
             onClick={() => onSelect(dot)}
+            data-step-state={
+              active ? "active" : completed ? "completed" : "upcoming"
+            }
             // A real 44x44 each, laid out rather than faked, because two dots
             // sit side by side and overlapping hit regions would send a tap
-            // near the boundary to the wrong slide.
+            // near the boundary to the wrong slide. The rail itself stays
+            // 18px so the pinned header stays a header; the rest of the
+            // target is given back vertically by the painted `::after` box.
             className={cn(
-              "flex w-11 items-center justify-center disabled:cursor-not-allowed",
-              compact
-                ? `relative h-[18px] after:h-11 after:w-11 ${touchTargetClassName}`
-                : "h-11",
+              "relative flex h-[18px] w-11 items-center justify-center after:h-11 after:w-11 disabled:cursor-not-allowed",
+              touchTargetClassName,
             )}
           >
             <span
               className={cn(
                 "block h-[5px] rounded-full transition-all duration-200",
-                active
-                  ? "w-[24px] bg-[color:var(--app-accent)]"
-                  : "w-[7px] bg-[color:var(--app-neutral-fill-strong)]",
+                active ? "w-[24px]" : "w-[7px]",
+                active || completed
+                  ? STEP_DOT_REACHED_CLASSNAME
+                  : STEP_DOT_UPCOMING_CLASSNAME,
               )}
             />
           </button>
@@ -170,11 +200,53 @@ function CarouselDots({
   );
 }
 
-/** The plain iOS grabber, for a sheet with only one slide to be on. */
+/**
+ * The plain iOS grabber, for a sheet with only one slide to be on. Same slot
+ * and same height as the dot rail, so a sheet with no steps has the identical
+ * header geometry as one that has them.
+ */
 function SheetGrabber() {
   return (
-    <div className="flex h-[18px] items-center justify-center" aria-hidden>
-      <span className="block h-[5px] w-9 rounded-full bg-[color:var(--app-neutral-fill-strong)]" />
+    <div className={SHEET_INDICATOR_SLOT_CLASSNAME} aria-hidden>
+      <span
+        className={cn(
+          "block h-[5px] w-9 rounded-full",
+          STEP_DOT_UPCOMING_CLASSNAME,
+        )}
+      />
+    </div>
+  );
+}
+
+/**
+ * The single indicator every pane renders, in the same place, at the same
+ * height — dots when there are steps, the grabber when there are not.
+ */
+function SheetIndicator({
+  carouselMode,
+  index,
+  count,
+  labels,
+  onSelect,
+  canAdvance,
+}: {
+  carouselMode: boolean;
+  index: number;
+  count: number;
+  labels: string[];
+  onSelect: (next: number) => void;
+  canAdvance: boolean;
+}) {
+  if (!carouselMode) return <SheetGrabber />;
+  return (
+    <div className={SHEET_INDICATOR_SLOT_CLASSNAME}>
+      <CarouselDots
+        index={index}
+        count={count}
+        labels={labels}
+        onSelect={onSelect}
+        canAdvance={canAdvance}
+      />
     </div>
   );
 }
@@ -912,6 +984,17 @@ export function SaveLocationModal({
       <style>{CAROUSEL_KEYFRAMES}</style>
         {flowStep === "map" && canPickOnMap ? (
           <div {...paneProps}>
+            {/* Top of the pane, same slot as every other pane. This rail used
+                to sit at the BOTTOM of this one pane and at twice the height,
+                so advancing a step appeared to move the indicator. */}
+            <SheetIndicator
+              carouselMode={carouselMode}
+              index={0}
+              count={2}
+              labels={carouselLabels}
+              canAdvance={mapReady}
+              onSelect={goToSlide}
+            />
             <DialogTitle ref={mapTitleRef} tabIndex={-1} className="sr-only">
               {rendererReady ? "Pin your entrance" : "Before Google Maps opens"}
             </DialogTitle>
@@ -944,15 +1027,6 @@ export function SaveLocationModal({
               }
               cancelLabel={startWithMapPicker ? "Skip for now" : "Cancel"}
             />
-            {carouselMode ? (
-              <CarouselDots
-                index={0}
-                count={2}
-                labels={carouselLabels}
-                canAdvance={mapReady}
-                onSelect={goToSlide}
-              />
-            ) : null}
           </div>
         ) : flowStep === "details" && collectAddressDetails ? (
           <div
@@ -967,18 +1041,14 @@ export function SaveLocationModal({
                   it dismisses the sheet -- the dots sit exactly where an iOS
                   grabber sits and were already doing that job visually. */}
               <SheetDragRegion>
-                {carouselMode ? (
-                  <CarouselDots
-                    compact
-                    index={1}
-                    count={2}
-                    labels={carouselLabels}
-                    canAdvance
-                    onSelect={goToSlide}
-                  />
-                ) : (
-                  <SheetGrabber />
-                )}
+                <SheetIndicator
+                  carouselMode={carouselMode}
+                  index={1}
+                  count={2}
+                  labels={carouselLabels}
+                  canAdvance
+                  onSelect={goToSlide}
+                />
               </SheetDragRegion>
               <div className="mt-1 flex items-center gap-2">
                 <button
@@ -1397,6 +1467,20 @@ export function SaveLocationModal({
             >
               <X className="h-4.5 w-4.5" strokeWidth={2.4} />
             </button>
+
+            {/* This pane rendered no indicator and no grabber at all, so the
+                sheet's header geometry changed the moment you advanced. It
+                is also the pane a cold start lands on most often: both call
+                sites pass `startWithMapPicker`, but `mapInitial` is null
+                until the GPS fix resolves, which collapses `carouselMode`. */}
+            <SheetIndicator
+              carouselMode={carouselMode}
+              index={0}
+              count={2}
+              labels={carouselLabels}
+              canAdvance={canPickOnMap}
+              onSelect={goToSlide}
+            />
 
             <header className="pr-8">
               <span className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
