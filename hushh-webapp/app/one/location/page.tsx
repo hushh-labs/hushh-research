@@ -9306,6 +9306,67 @@ export function OneLocationAgentPageContent({
     };
   });
 
+  useLocalOnboardingActionHandler("location.trigger_sos", async (slots) => {
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary: "Unlock One before sending an SOS alert.",
+      };
+    }
+    // Same re-entry guard handleTriggerSos itself enforces -- checked here
+    // too so the person hears why nothing happened, instead of a silent
+    // no-op behind a "succeeded" that never actually sent a second alert.
+    if (sosIncident) {
+      return {
+        status: "blocked" as const,
+        summary: "There is already an SOS running. Say stop the S O S to end it first.",
+      };
+    }
+    if (locationPermissionBlocksSharing(permission)) {
+      return {
+        status: "blocked" as const,
+        summary: "Location access is off, so I cannot send an SOS alert with your position.",
+      };
+    }
+    const readyRecipients = smsActionRecipients.filter(isSosShareReadyRecipient);
+    if (!readyRecipients.length) {
+      return {
+        status: "blocked" as const,
+        summary: smsActionRecipients.length
+          ? "Your emergency contacts are not ready to receive an alert yet."
+          : "Add at least one emergency contact before sending an SOS alert.",
+      };
+    }
+    const note = String(slots?.note ?? "").trim() || null;
+    if (slots?.confirmed !== true) {
+      // The highest-consequence action on this surface -- a misheard "yes"
+      // here dispatches a real emergency alert, including a fallback email,
+      // to real people. Every other destructive action on Location gets a
+      // spoken confirmation at most; this one gets the same explicit,
+      // tappable card as removing an emergency contact, but never skips it.
+      const names = formatNameList(readyRecipients.map((r) => recipientLabel(r)));
+      return {
+        status: "blocked" as const,
+        summary: "Sending an SOS alert needs a confirmation.",
+        data: {
+          [VOICE_CONFIRM_DATA_KEY]: {
+            actionId: "location.trigger_sos",
+            slots: { note: note ?? "", confirmed: true },
+            prompt: `Send an SOS alert to ${names} right now?`,
+            subject: { name: "SOS alert", detail: names },
+            consequence: getKaiActionById("location.trigger_sos")?.meaning ?? null,
+            confirmLabel: "Send SOS",
+          },
+        },
+      };
+    }
+    void handleTriggerSos(note);
+    return {
+      status: "succeeded" as const,
+      summary: "Sending your SOS alert now.",
+    };
+  });
+
   useLocalOnboardingActionHandler("location.add_emergency_contact", async (slots) => {
     const spoken = String(slots?.person ?? "").trim().toLowerCase();
     if (!spoken) {

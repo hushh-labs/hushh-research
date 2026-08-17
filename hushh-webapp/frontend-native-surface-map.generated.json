@@ -4030,7 +4030,8 @@
         "location.set_auto_share",
         "location.share_selected",
         "location.stop_share",
-        "location.stop_sos"
+        "location.stop_sos",
+        "location.trigger_sos"
       ],
       "api_dependencies": [
         {
@@ -8648,5 +8649,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "9e41a83ac8bf4dc2331ad09e206066f7d0eb197104346e3cc80915471c9aa391"
+  "content_sha256": "9a3c240dd408c5ee9ecc402a04822b3475da92d0e47ea9533d3bcb696df96cc3"
 }
