@@ -293,15 +293,25 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     }
     case "location_share_shortened": {
       const hasWho = who !== "Someone";
-      const ownerShortened =
+      const ownerActor =
         metadataString(item.metadata, "reason") === "owner_shorten";
+      // A duration edit that stays within the grant's ceiling can move
+      // either way -- shrinking to 15 min and regrowing to 30 emits this
+      // same event type, so a real decrease and a within-ceiling regrow
+      // need different copy rather than both reading as "shortened".
+      const grew = metadataString(item.metadata, "direction") === "extended";
+      const description = grew
+        ? ownerActor
+          ? "You adjusted their location access time"
+          : "Adjusted your viewing time, within what was already approved"
+        : ownerActor
+          ? "You shortened their location access"
+          : "Gave back their remaining time early";
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: ownerShortened
-          ? "You shortened their location access"
-          : "Gave back their remaining time early",
+        description,
         href: ROUTES.ONE_LOCATION,
       };
     }
