@@ -23,6 +23,7 @@ import {
   RefreshCw,
   Share2,
   ShieldCheck,
+  Siren,
   User,
   X,
 } from "lucide-react";
@@ -382,6 +383,7 @@ export function SharedWithMeCard({
   viewStatus,
   onAskReshare,
   askReshareBusy,
+  isSmsTriggered,
 }: {
   name: string;
   statusLine: string;
@@ -413,8 +415,11 @@ export function SharedWithMeCard({
   /** Re-request access from the owner. Offered only for the `blocked` tone. */
   onAskReshare?: () => void;
   askReshareBusy?: boolean;
+  /** Came from the Save My Soul panic flow -- the one this UI calls "SMS". */
+  isSmsTriggered?: boolean;
 }) {
   const warningRole = roleClasses("warning");
+  const dangerRole = roleClasses("danger");
   const canOpenMap = Boolean(previewExpanded && mapHref);
   const previewRegionId = useId();
   const isPreviewExpanded = Boolean(previewExpanded);
@@ -432,6 +437,22 @@ export function SharedWithMeCard({
       <div className="flex items-start gap-3">
         <Avatar initials={initialsFrom(name)} />
         <div className="min-w-0 flex-1">
+          {isSmsTriggered ? (
+            // Its own line, not squeezed into the status row: this has to
+            // stay legible next to a long name/status on a narrow screen,
+            // and "prominent" is the whole point of the badge.
+            <span
+              className={cn(
+                "mb-1 inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[12px] font-semibold",
+                dangerRole.tile,
+                dangerRole.border,
+                dangerRole.glyph,
+              )}
+            >
+              <Siren className="h-3 w-3 shrink-0" aria-hidden="true" />
+              Shared via SMS
+            </span>
+          ) : null}
           <p className="truncate text-base font-semibold text-foreground">
             {name}
           </p>
