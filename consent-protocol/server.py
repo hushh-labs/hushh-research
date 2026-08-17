@@ -1010,9 +1010,17 @@ async def startup_personal_agent_reconcile_worker() -> None:
                         advanced or "no",
                     )
                 except Exception as exc:  # noqa: BLE001 - next pass retries
+                    # Same pinned format as the heartbeat site: the pod and the
+                    # reason, never just the class. test_journey_is_traceable
+                    # asserts these fields at every site that collects.
+                    detail = " ".join(str(exc).split())[:300] or "<no detail>"
                     logger.warning(
-                        "personal_agent_reconcile.key_collection_failed err=%s",
+                        "personal_agent.key_collection_failed hushh_id=%s service=%s "
+                        "err=%s detail=%s",
+                        (row or {}).get("hushh_id") or "<none>",
+                        (row or {}).get("external_agent_id") or "<none>",
                         type(exc).__name__,
+                        detail,
                     )
                 return
 

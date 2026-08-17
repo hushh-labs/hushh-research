@@ -132,7 +132,20 @@ async def _finish_provisioning(row: dict, *, collector: Any = None) -> str:
     try:
         new_status = await collect(row)
     except Exception as exc:  # noqa: BLE001 - a beat must never fail on this
-        logger.warning("pod_heartbeat.collect_failed %s", type(exc).__name__)
+        # THE most important failure of the onboarding journey: the host exists
+        # and the handshake that would make it usable did not happen. The class
+        # name alone (`err=ClientResponseError`) names neither the pod nor the
+        # reason, which is what this line said the last time an operator needed
+        # it -- the format is pinned by test_journey_is_traceable, and this beat
+        # became the PRIMARY collection site when the status GET went pure.
+        detail = " ".join(str(exc).split())[:300] or "<no detail>"
+        logger.warning(
+            "personal_agent.key_collection_failed hushh_id=%s service=%s err=%s detail=%s",
+            (row or {}).get("hushh_id") or "<none>",
+            (row or {}).get("external_agent_id") or "<none>",
+            type(exc).__name__,
+            detail,
+        )
         return status_now
 
     if new_status:

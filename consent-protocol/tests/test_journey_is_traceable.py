@@ -100,14 +100,39 @@ def test_the_handshake_stall_is_detected_somewhere() -> None:
 
 
 def test_the_key_collection_failure_names_the_pod_it_failed_on() -> None:
-    """The most important failure in the journey, and it used to log only a class name."""
-    body = (_BACKEND / "api/routes/one/personal_agent.py").read_text(encoding="utf-8")
-    match = re.search(r'"personal_agent\.key_collection_failed[^"]*"', body)
-    assert match, "the key-collection failure log line is gone"
-    line = match.group(0)
-    for field in ("hushh_id=%s", "service=%s", "detail=%s"):
-        assert field in line, (
-            f"key_collection_failed does not report {field}. `err=ClientResponseError` "
-            "names neither the pod nor the reason, which is what this line said for "
-            "the single most important failure of the onboarding journey."
-        )
+    """The most important failure in the journey, and it used to log only a class name.
+
+    The line MOVED when the status GET became a pure reader: collection now
+    happens at the pod's first heartbeat (the primary site) and in the reconcile
+    worker's fallback for rows a heartbeat never reached. The contract follows
+    the collection, not the file -- every site that calls the collector must
+    report the pod and the reason on failure, because `err=ClientResponseError`
+    names neither, and that was the entire content of this line the last time an
+    operator needed it. The old home is asserted CLEAN so the line cannot
+    quietly resurrect alongside the consent-minting read it used to ride on.
+    """
+    collection_sites = (
+        _BACKEND / "api/routes/one/pod_heartbeat.py",
+        _BACKEND / "server.py",
+    )
+    # re.DOTALL because both sites split the format string across source lines;
+    # the runtime string is one line either way.
+    pattern = re.compile(r'"personal_agent\.key_collection_failed.*?detail=%s"', re.DOTALL)
+    for site in collection_sites:
+        body = site.read_text(encoding="utf-8")
+        match = pattern.search(body)
+        assert match, f"the key-collection failure log line is gone from {site.name}"
+        line = " ".join(match.group(0).split())
+        for field in ("hushh_id=%s", "service=%s", "detail=%s"):
+            assert field in line, (
+                f"{site.name}: key_collection_failed does not report {field}. "
+                "`err=ClientResponseError` names neither the pod nor the reason, "
+                "which is what this line said for the single most important "
+                "failure of the onboarding journey."
+            )
+
+    pure_reader = (_BACKEND / "api/routes/one/personal_agent.py").read_text(encoding="utf-8")
+    assert "collect_pod_key_if_pending(" not in pure_reader, (
+        "the status GET is collecting keys again -- it minted a standing pkm.read "
+        "per poll per tab the last time it did this"
+    )
