@@ -82,7 +82,7 @@
   color: rgba(0, 0, 0, 0.42);
 }
 :global(.dark) .cinematicSettings [data-slot="settings-row-description"] {
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 /* Sign out (destructive) — red circle + red label. */

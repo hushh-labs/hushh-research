@@ -1138,13 +1138,13 @@ export function AuthStep({
                 </span>
               </div>
 
-              <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[#86868b] dark:text-white/45">
+              <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[#86868b] dark:text-white/70">
                 By continuing, you agree to the{" "}
                 <button
                   type="button"
                   onClick={() => void openLegalDoc("terms")}
                   data-voice-control-id="auth_terms"
-                  className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+                  className="-mx-1 -my-3 px-1 py-3 font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
                 >
                   Terms of Service
                 </button>
@@ -1153,7 +1153,7 @@ export function AuthStep({
                   type="button"
                   onClick={() => void openLegalDoc("privacy")}
                   data-voice-control-id="auth_privacy"
-                  className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+                  className="-mx-1 -my-3 px-1 py-3 font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
                 >
                   Privacy Policy
                 </button>
