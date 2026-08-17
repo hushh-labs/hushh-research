@@ -1791,6 +1791,12 @@
     "route": "/one/setup/finance",
     "mode": "flow",
     "exemptionReason": "Finance preferences use the existing full-height wizard inside the setup route.",
+    "shellVerification": {
+      "file": "app/one/setup/kai/page.tsx",
+      "includes": [
+        "--top-content-pad"
+      ]
+    },
     "voicePlaybook": {
       "playbookId": "route.one.setup.finance",
       "purpose": "Collect Finance preferences before choosing Plaid, a statement, or a later source choice.",
@@ -1826,6 +1832,12 @@
     "route": "/one/setup/finance/import",
     "mode": "flow",
     "exemptionReason": "Finance source selection uses the existing import flow inside the setup route.",
+    "shellVerification": {
+      "file": "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
+      "includes": [
+        "FullscreenFlowShell"
+      ]
+    },
     "voicePlaybook": {
       "playbookId": "route.one.setup.finance.import",
       "purpose": "Choose Plaid, a statement, or a later source choice for Finance setup.",
@@ -1856,6 +1868,12 @@
     "route": "/one/setup/ria",
     "mode": "flow",
     "exemptionReason": "RIA onboarding retains its existing full-screen verification flow inside the setup route.",
+    "shellVerification": {
+      "file": "app/ria/onboarding/page.tsx",
+      "includes": [
+        "FullscreenFlowShell"
+      ]
+    },
     "voicePlaybook": {
       "playbookId": "route.one.setup.ria",
       "purpose": "Submit an RIA profile, then explicitly finish or skip its setup.",
