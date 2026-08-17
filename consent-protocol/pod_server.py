@@ -47,6 +47,7 @@ from api.routes import health  # noqa: E402
 from api.routes.one.a2a import router as a2a_router  # noqa: E402
 from api.routes.one.a2a import well_known_router as a2a_well_known_router  # noqa: E402
 from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E402
+from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
 from api.routes.one.pod_turn import router as pod_turn_router  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
@@ -103,6 +104,11 @@ _POD_ROUTERS = (
     # The turn route: this is what makes a pod run Agent One rather than merely
     # host its prompt. Flag-gated off and pod-mode-only; see api/routes/one/pod_turn.py.
     pod_turn_router,
+    # The tick: background attention arrives as an inbound authenticated request,
+    # because an economy pod has no CPU between requests and no process a loop
+    # could live in. Fail-closed without its audience/allowlist env; see the
+    # module docstring for why the wake wiring lands separately.
+    pod_maintenance_router,
 )
 
 app = FastAPI(

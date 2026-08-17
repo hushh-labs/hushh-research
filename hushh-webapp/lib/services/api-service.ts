@@ -3609,6 +3609,26 @@ export class ApiService {
    * "healthy". Render them when present and say nothing when absent.
    */
   /**
+   * Wake the caller's own pod, explicitly. Fired on composer focus so the
+   * ~12s cold start runs while the person is still typing. The response is the
+   * server's honest estimate for a determinate warming bar; presence truth then
+   * arrives through the lifecycle surface, never invented here.
+   */
+  static async wakePod(): Promise<{ state: "awake" | "waking"; etaMs: number }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/pod/wake", {
+      method: "POST",
+      headers: {
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`pod wake failed: HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
    * The lifecycle narrative since `cursor`, as one JSON read. This is the
    * NATIVE transport for provisioning progress (Capacitor cannot stream) and
    * the degradation target for the web stream. Pure read: unlike the old

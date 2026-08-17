@@ -144,3 +144,38 @@ def test_funnel_stages_have_progress_or_are_terminal(status: str):
     assert stage in STAGE_PROGRESS or stage in {"failed", "reaped"}, (
         f"stage {stage!r} would render progress 0 mid-journey"
     )
+
+
+def test_the_wake_route_mounts_on_the_hub_and_the_tick_on_the_pod():
+    """Phase 5/6 placement: wake is a HUB surface (it reads the registry and
+    reaches into the pod), the tick is a POD surface (it is what Cloud Scheduler
+    and Pub/Sub push wake). Mounting either on the wrong plane is not a style
+    error: a hub-mounted tick would accept scheduler identities against the
+    wrong audience, and a pod-mounted wake would need a registry the pod
+    deliberately does not have."""
+    from api.routes.one import router as one_router
+    from pod_server import _POD_ROUTERS
+
+    hub_paths = {getattr(r, "path", "") for r in one_router.routes}
+    assert "/api/one/pod/wake" in hub_paths
+    pod_paths = {getattr(r, "path", "") for router in _POD_ROUTERS for r in router.routes}
+    assert "/pod/tick" in pod_paths
+    assert "/api/one/pod/wake" not in pod_paths, "the pod must not mount the wake"
+
+
+def test_the_tick_refuses_without_scheduler_identity():
+    """Fail-closed is the whole point: no audience, no allowlist, no work."""
+    import asyncio
+
+    from fastapi import HTTPException
+
+    from api.routes.one.pod_maintenance import pod_tick
+
+    async def _call():
+        return await pod_tick(request=None, authorization=None)
+
+    try:
+        asyncio.get_event_loop().run_until_complete(_call())
+        raise AssertionError("an unauthenticated tick was accepted")
+    except HTTPException as exc:
+        assert exc.status_code == 403
