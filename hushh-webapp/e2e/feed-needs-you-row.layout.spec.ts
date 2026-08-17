@@ -3,6 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import {
+  awaitProductFont,
+  productFontStyle,
+  stripAppFontFaces,
+} from "./fixtures/product-font";
+
 /**
  * The Feed's "Needs you" rows, measured in a real browser at phone widths.
  *
@@ -67,7 +73,9 @@ async function buildFixture(): Promise<string> {
   for (const match of markup.matchAll(/class="([^"]*)"/g)) {
     for (const token of match[1].split(/\s+/)) if (token) used.add(token);
   }
-  const css = compiler.build([...used]);
+  // The app's own @font-face rules cannot load over file:// and, sharing a
+  // family name with the working one, stop it satisfying fonts.check.
+  const css = stripAppFontFaces(compiler.build([...used]));
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "feed-needs-you-"));
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
@@ -103,7 +111,8 @@ async function buildFixture(): Promise<string> {
     letter-spacing: var(--type-row-description-tracking) !important;
     color: var(--app-tertiary-label) !important;
   }
-  body { margin: 0; background: #000; font-family: -apple-system, system-ui, sans-serif; }
+  body { margin: 0; background: #000; }
+${productFontStyle()}
 </style></head><body>
 <div style="margin:0 auto;max-width:40rem">${markup}</div>
 </body></html>`,
@@ -142,6 +151,7 @@ test.describe("Feed 'Needs you' row", () => {
     }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(await buildFixture());
+      await awaitProductFont(page);
 
       const rows = await page.evaluate(() => {
         const out: Probe[] = [];

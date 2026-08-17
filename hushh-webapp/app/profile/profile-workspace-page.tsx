@@ -165,7 +165,7 @@ import {
 } from "@/lib/profile/pkm-section-preview";
 import { loadProfilePkmMetadataForVaultState } from "@/lib/profile/profile-pkm-metadata-policy";
 import { applySlicePosture } from "@/lib/personal-knowledge-model/slice-publishing";
-import { maskPhoneNumber } from "@/lib/services/phone-mandate-service";
+import { formatMaskedPhoneNumber } from "@/lib/services/phone-display";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
@@ -2016,8 +2016,8 @@ function ProfilePageContent() {
       ? "People with your number can find you"
       : "Hidden from contact sync";
   const phoneSummaryText = phoneNumber
-    ? maskPhoneNumber(phoneNumber)
-    : "No phone number linked yet";
+    ? formatMaskedPhoneNumber(phoneNumber)
+    : "No phone number yet";
   const emailVerified = Boolean(user?.emailVerified);
 
   const gmailStatusLabel = gmailPresentation.badgeLabel;

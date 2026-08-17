@@ -5774,19 +5774,24 @@ export function OneLocationAgentPageContent({
    * Edit a received grant's remaining time -- from any list that shows one
    * (Ask's "already sharing" rows, Requests sent, Shared with me).
    *
-   * Shortening is self-limiting -- the owner already agreed to be seen at
-   * least this long -- so it applies immediately. Extending is a different
-   * question: it grows how long the recipient can see the owner, and that
-   * is the owner's consent to give again, via a fresh request_access the
-   * owner approves like any other.
+   * The owner already agreed to be seen up to the grant's ceiling -- the
+   * furthest expiry ever explicitly authorized -- so moving the live expiry
+   * anywhere at or under that ceiling applies immediately, whichever
+   * direction it moves ("shorten" or "grow"). Shrinking a 1-hour share to 15
+   * minutes and then back up to 30 is still inside what was already agreed,
+   * so it needs nobody's permission a second time. Only a candidate PAST the
+   * ceiling grows how long the recipient can see the owner, and that is the
+   * owner's consent to give again, via a fresh request_access the owner
+   * approves like any other.
    *
    * Which one this is gets decided here, from the same expiry the row is
-   * already rendering as "30 more min". It used to be decided by calling
-   * shorten_grant and waiting for the backend to refuse: every ask-for-more
-   * -time paid for a doomed round trip before the real one, which is the
-   * "Save is slow" report. The refusal is still handled -- a client clock
-   * can disagree with the server's near the boundary -- but it is now the
-   * rare correction rather than the normal path.
+   * already rendering as "30 more min", plus the ceiling that came with it.
+   * It used to be decided by calling shorten_grant and waiting for the
+   * backend to refuse: every ask-for-more-time paid for a doomed round trip
+   * before the real one, which is the "Save is slow" report. The refusal is
+   * still handled -- a client clock can disagree with the server's near the
+   * boundary -- but it is now the rare correction rather than the normal
+   * path.
    */
   const handleEditGrantDuration = useCallback(
     async (
@@ -5816,14 +5821,16 @@ export function OneLocationAgentPageContent({
           setEditingGrantId(null);
           return;
         }
-        if (intent === "shorten") {
+        if (intent === "shorten" || intent === "grow") {
           try {
             await OneLocationService.shortenGrant({
               vaultOwnerToken,
               grantId,
               durationHours,
             });
-            toast.success("Access shortened.");
+            toast.success(
+              intent === "grow" ? "Time updated." : "Access shortened.",
+            );
             setEditingGrantId(null);
             // Held until the list has actually reconciled, so this grant is
             // not savable again against the expiry it just replaced.
@@ -5838,7 +5845,8 @@ export function OneLocationAgentPageContent({
               );
               return;
             }
-            // The backend read the clock differently. Fall through and ask.
+            // The backend says this is past what was approved (a stale
+            // ceiling/expiry read, or a genuine excess). Fall through and ask.
           }
         }
         // Extending needs the owner's approval again -- send a new request
@@ -9341,6 +9349,67 @@ export function OneLocationAgentPageContent({
         grantCount === 1
           ? "Stopped the SOS and revoked the share it created."
           : `Stopped the SOS and revoked the ${grantCount} shares it created.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.trigger_sos", async (slots) => {
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary: "Unlock One before sending an SOS alert.",
+      };
+    }
+    // Same re-entry guard handleTriggerSos itself enforces -- checked here
+    // too so the person hears why nothing happened, instead of a silent
+    // no-op behind a "succeeded" that never actually sent a second alert.
+    if (sosIncident) {
+      return {
+        status: "blocked" as const,
+        summary: "There is already an SOS running. Say stop the S O S to end it first.",
+      };
+    }
+    if (locationPermissionBlocksSharing(permission)) {
+      return {
+        status: "blocked" as const,
+        summary: "Location access is off, so I cannot send an SOS alert with your position.",
+      };
+    }
+    const readyRecipients = smsActionRecipients.filter(isSosShareReadyRecipient);
+    if (!readyRecipients.length) {
+      return {
+        status: "blocked" as const,
+        summary: smsActionRecipients.length
+          ? "Your emergency contacts are not ready to receive an alert yet."
+          : "Add at least one emergency contact before sending an SOS alert.",
+      };
+    }
+    const note = String(slots?.note ?? "").trim() || null;
+    if (slots?.confirmed !== true) {
+      // The highest-consequence action on this surface -- a misheard "yes"
+      // here dispatches a real emergency alert, including a fallback email,
+      // to real people. Every other destructive action on Location gets a
+      // spoken confirmation at most; this one gets the same explicit,
+      // tappable card as removing an emergency contact, but never skips it.
+      const names = formatNameList(readyRecipients.map((r) => recipientLabel(r)));
+      return {
+        status: "blocked" as const,
+        summary: "Sending an SOS alert needs a confirmation.",
+        data: {
+          [VOICE_CONFIRM_DATA_KEY]: {
+            actionId: "location.trigger_sos",
+            slots: { note: note ?? "", confirmed: true },
+            prompt: `Send an SOS alert to ${names} right now?`,
+            subject: { name: "SOS alert", detail: names },
+            consequence: getKaiActionById("location.trigger_sos")?.meaning ?? null,
+            confirmLabel: "Send SOS",
+          },
+        },
+      };
+    }
+    void handleTriggerSos(note);
+    return {
+      status: "succeeded" as const,
+      summary: "Sending your SOS alert now.",
     };
   });
 

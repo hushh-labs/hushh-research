@@ -846,6 +846,60 @@ grep -rn "resolveTopShellGeometryStyle" app components e2e
 ```
 One call site means something is hand-copying the geometry again.
 
+### R23 — The `:root` substitution trap is in the shipped CSS too, not only in fixtures
+
+**Incident (2026-08-17, the empty band under every screen — PR #5390.)** R22
+caught this pattern in a *test fixture*. It is also in `app/globals.css`:
+
+```css
+:root {
+  --app-bottom-content-clearance: calc(
+    var(--bottom-chrome-stack-height, var(--app-bottom-inset)) + 24px
+  );
+}
+```
+
+`--bottom-chrome-stack-height` is set on the route shell in `app/providers.tsx`
+and **never on `:root`**, so this token froze the `--app-bottom-inset` fallback
+and inherited that computed value everywhere — 112px measured, against the 132px
+`AppBottomShell` actually publishes. `.app-page-shell` then applied it as a
+second bottom reserve on top of the scroll root's real one, and
+`.profile-home-screen` a third. Result: a wide empty band under the last card on
+every screen in the app, and enough manufactured scroll travel that short pages
+scrolled their content up under the top bar.
+
+Nobody spotted it for months because the number is wrong by a constant. It does
+not look like a bug; it looks like a slightly generous gap.
+
+**Rule.** A token declared at `:root` may only read other tokens that are also
+defined at `:root`. If it needs a value the route shell owns, declare it at the
+shell too (as `resolveTopShellGeometryStyle` does) — or do the `calc()` at the
+point of use. And before adding any clearance, find out who already reserves that
+edge: in this app the scroll root owns the fixed bottom chrome, and its own
+comment says so.
+
+**Check.** Every `:root` token that reads a shell-scoped var, listed:
+
+```bash
+cd ~/Desktop/husshresearch/hushh-webapp
+# Tokens providers.tsx declares on the route shell, not on :root.
+python3 - <<'EOF'
+import re
+shell = set(re.findall(r'"(--[a-z0-9-]+)":', open('app/providers.tsx').read()))
+css = open('app/globals.css').read()
+root = css.split('}')[0] if css.startswith(':root') else re.search(r':root\s*{(.*?)\n}', css, re.S).group(1)
+hits = sorted({v for v in re.findall(r'var\((--[a-z0-9-]+)', root) if v in shell})
+print('\n'.join(hits) or 'clean')
+EOF
+```
+Anything printed is a token to check by hand: it is frozen to its `:root`
+fallback **unless** the shell also re-declares every token derived from it (the
+top-shell block does; the bottom one did not). Read the computed value back in a
+browser before believing either answer, then either move the declaration or move
+the `calc()`. And grep for other places applying the same clearance — this one
+was being added four times: `.app-page-shell`, `.profile-home-screen`,
+`profile-stack-navigator.tsx`, and the scroll root that legitimately owns it.
+
 ## Adding a rule
 
 Every mistake found becomes a rule. Fix the **cause**, not the symptom, then add
