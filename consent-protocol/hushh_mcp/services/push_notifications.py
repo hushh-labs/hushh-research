@@ -235,7 +235,15 @@ def send_connection_request_push(
             loop = asyncio.get_running_loop()
             loop.create_task(_push_to_consent_queue(addressee_user_id, sse_payload))
         except RuntimeError:
-            pass
+            # No running loop: we are on a FastAPI threadpool worker, which is
+            # where BOTH production callers actually run (`def
+            # create_connection_request`, `def request_nearby_connection` are
+            # sync). This used to `pass`, which silently discarded the event and
+            # left the SSE lane dead for connection requests -- so a web client
+            # without a push subscription could never learn about one.
+            from api.consent_listener import push_to_consent_queue_threadsafe
+
+            push_to_consent_queue_threadsafe(addressee_user_id, sse_payload)
     except Exception as exc:  # noqa: BLE001
         logger.warning("push.sse_queue_failed error=%s", exc)
 

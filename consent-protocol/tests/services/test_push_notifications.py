@@ -164,6 +164,90 @@ def test_connection_request_push_prefers_the_caller_supplied_name(monkeypatch):
     assert captured["data"]["requester_label"] == "Ankit"
 
 
+def test_connection_request_push_reaches_sse_from_a_sync_handler(monkeypatch):
+    """The SSE lane must survive being called off the event loop.
+
+    Both production callers are sync FastAPI handlers (`def
+    create_connection_request`, `def request_nearby_connection`), which run on a
+    threadpool worker where `asyncio.get_running_loop()` raises. The old code
+    caught that RuntimeError and did nothing, so the SSE payload -- the only one
+    that can reach a web client with no push subscription -- was silently
+    discarded on every real request.
+    """
+    _capture_push(monkeypatch)
+    scheduled: list = []
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda user_id, data: scheduled.append((user_id, data)) or True,
+    )
+
+    # This test body itself has no running loop -- same as the worker thread.
+    send_connection_request_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="John Smith",
+        connection_request_id="req-42",
+    )
+
+    assert len(scheduled) == 1, "the SSE payload was dropped instead of scheduled"
+    user_id, payload = scheduled[0]
+    assert user_id == "addressee-1"
+    assert payload["type"] == "connection_request"
+    assert payload["requester_label"] == "John Smith"
+    assert payload["request_id"] == "req-42"
+    assert payload["body"] == "John Smith wants to connect with you on Hussh."
+    assert payload["deep_link"] == "/one/consent?tab=pending&requestId=req-42"
+
+
+def test_threadsafe_enqueue_delivers_to_a_waiting_sse_consumer():
+    """End-to-end across the thread boundary, with no mocks in between."""
+    import asyncio
+    import threading
+
+    from api import consent_listener as cl
+
+    async def scenario():
+        queue = cl.get_consent_queue("addressee-e2e")
+        outcome: dict = {}
+
+        def worker():
+            try:
+                asyncio.get_running_loop()
+                outcome["had_loop"] = True
+            except RuntimeError:
+                outcome["had_loop"] = False
+            outcome["scheduled"] = cl.push_to_consent_queue_threadsafe(
+                "addressee-e2e", {"type": "connection_request", "requester_label": "John Smith"}
+            )
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join()
+
+        # Proves the worker really is off-loop, i.e. a faithful stand-in for the
+        # FastAPI threadpool the production callers run on.
+        assert outcome["had_loop"] is False
+        assert outcome["scheduled"] is True
+        return await asyncio.wait_for(queue.get(), timeout=5)
+
+    delivered = asyncio.run(scenario())
+    assert delivered["requester_label"] == "John Smith"
+
+
+def test_threadsafe_enqueue_is_a_noop_without_a_consumer():
+    """No SSE consumer in this process is not an error -- there is nobody to tell."""
+    from api import consent_listener as cl
+
+    original = cl._serving_loop
+    cl._serving_loop = None
+    try:
+        assert (
+            cl.push_to_consent_queue_threadsafe("nobody", {"type": "connection_request"}) is False
+        )
+    finally:
+        cl._serving_loop = original
+
+
 # ---------------------------------------------------------------------------
 # Name resolution
 # ---------------------------------------------------------------------------
