@@ -2120,8 +2120,7 @@ class FourUserMemoryService(OneLocationAgentService):
             grant = self.grants.get(params["grant_id"])
             if (
                 grant
-                and params["owner_user_id"]
-                in {grant["owner_user_id"], grant["recipient_user_id"]}
+                and params["owner_user_id"] in {grant["owner_user_id"], grant["recipient_user_id"]}
                 and grant["status"] == "active"
             ):
                 grant["expires_at"] = params["new_expires_at"]
@@ -3008,9 +3007,7 @@ def test_shorten_grant_lets_either_party_bring_expiry_earlier() -> None:
     original_expires_at = service.grants[grant["id"]]["expires_at"]
 
     with pytest.raises(OneLocationAgentError) as unrelated:
-        service.shorten_grant(
-            caller_user_id="user_c", grant_id=grant["id"], duration_hours=1
-        )
+        service.shorten_grant(caller_user_id="user_c", grant_id=grant["id"], duration_hours=1)
     assert unrelated.value.code == "LOCATION_GRANT_NOT_FOUND"
 
     # The recipient gives back time early -- self-limiting, needs no
@@ -3060,9 +3057,7 @@ def test_shorten_grant_rejects_any_attempt_to_extend() -> None:
     original_expires_at = service.grants[grant["id"]]["expires_at"]
 
     with pytest.raises(OneLocationAgentError) as extend_attempt:
-        service.shorten_grant(
-            caller_user_id="user_b", grant_id=grant["id"], duration_hours=24
-        )
+        service.shorten_grant(caller_user_id="user_b", grant_id=grant["id"], duration_hours=24)
     assert extend_attempt.value.code == "LOCATION_GRANT_SHORTEN_ONLY"
     assert service.grants[grant["id"]]["expires_at"] == original_expires_at
 

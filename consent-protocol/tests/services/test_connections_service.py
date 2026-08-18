@@ -376,9 +376,7 @@ def test_accept_request_never_imports_or_calls_location_service():
     from hushh_mcp.services.connections_service import ConnectionsService
 
     lines = inspect.getsource(ConnectionsService.accept_request).splitlines()
-    code_only = "\n".join(
-        line for line in lines if not line.strip().startswith("#")
-    )
+    code_only = "\n".join(line for line in lines if not line.strip().startswith("#"))
     assert "one_location_agent_service" not in code_only.lower()
     assert "OneLocationAgentService" not in code_only
     assert "auto_start_share_for_new_peer" not in code_only
