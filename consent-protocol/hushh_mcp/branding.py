@@ -38,3 +38,14 @@ def connection_request_body(requester_label: str | None = None) -> str:
     """
     label = str(requester_label or "").strip() or GENERIC_REQUESTER_LABEL
     return f"{label} wants to connect with you on {BRAND_NAME}."
+
+
+def connection_accepted_body(approver_label: str | None = None) -> str:
+    """The one connection-accepted sentence, for every platform.
+
+    Same authority and same never-emits-None/undefined guarantee as
+    ``connection_request_body`` above, for the symmetric event: telling the
+    original requester that their request was accepted.
+    """
+    label = str(approver_label or "").strip() or GENERIC_REQUESTER_LABEL
+    return f"{label} accepted your connection request on {BRAND_NAME}."
