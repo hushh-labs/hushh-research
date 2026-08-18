@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Grid2X2, List, Search } from "lucide-react";
+import { ChevronRight, Grid2X2, List, Search, X } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { PageTitle } from "@/components/app-ui/typography";
+import { PageSubtitle, PageTitle } from "@/components/app-ui/typography";
 import {
   getOneSetupCapability,
   isOneCapabilityEnabled,
@@ -49,9 +49,27 @@ type OneAgentMode = {
 
 type AgentMetric = OneAgentMode["primaryMetric"];
 type AgentRosterView = "grid" | "list";
-type AgentMetricTone = "default" | "positive" | "accent" | "warning" | "muted";
 
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
+
+/**
+ * Screen-local rename: this roster shows plain, friendly labels instead of
+ * the internal capability names. `capability.id`, routes, analytics and
+ * every other screen that reads `capability.title` (setup steps, breadcrumbs,
+ * the onboarding preview) are untouched — this map only changes what a
+ * person reads on THIS grid/list.
+ */
+const AGENT_ROSTER_DISPLAY_LABEL: Partial<Record<string, string>> = {
+  finance: "Money",
+  ria: "Advisor",
+  email: "Identity", // capability id for the KYC agent
+  consent: "Approvals",
+  "connected-systems": "Customers",
+};
+
+function agentDisplayLabel(mode: OneAgentMode): string {
+  return AGENT_ROSTER_DISPLAY_LABEL[mode.id] ?? mode.title;
+}
 
 /*
  * AGENT ARTWORK IS IDENTITY, NOT STATE.
@@ -71,8 +89,7 @@ const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
  * `AGENT_THEME_BY_TONE`, in both themes, whatever its setup state — which is
  * what `capability-status-display.ts` already asks for: "the premium card
  * model forbids tinting outer chrome to signal state — emphasis comes from
- * copy + elevation". Setup state is carried by the row's metric copy, where
- * a reader can actually read it.
+ * copy + elevation". Setup state is carried by the row's pending badge only.
  */
 
 /** Icon feedback for a whole tile/row press. Lift on hover, settle on press. */
@@ -80,7 +97,7 @@ const AGENT_ICON_INTERACTION_CLASSNAME =
   "transition-[transform,box-shadow] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] " +
   "group-hover:-translate-y-px group-hover:shadow-[0_6px_16px_rgba(0,0,0,0.18)] " +
   "group-active:translate-y-0 group-active:scale-[0.94] group-active:shadow-none " +
-  "motion-reduce:transition-none motion-reduce:group-hover:translate-y-0 motion-reduce:group-active:scale-100";
+  "motion-reduce:transition-none motion-reduce:group-active:scale-100";
 
 /**
  * The roster only ever mounts client-side (its `/one` route renders a loader
@@ -375,119 +392,89 @@ function resolvePrimaryMetric({
   };
 }
 
-function isZeroMetric(metric: AgentMetric): boolean {
-  return Number(metric.value) === 0;
+/**
+ * A single, reused rule for turning an existing metric into an at-a-glance
+ * signal: a small amber count badge for pending work, or — for Location only
+ * — a blue "Live" badge instead of a raw share count. No new backend state:
+ * this only reads `mode.primaryMetric`, exactly as the roster already did.
+ * Zero, unresolved ("—") and informational values (e.g. Finance's ticker,
+ * which is text, not a count) all resolve to `null`, i.e. no badge — the
+ * screen shows nothing for them rather than a "0" or a stale placeholder.
+ */
+type AgentBadge = { kind: "count"; value: number } | { kind: "live" };
+
+function resolveAgentBadge(mode: OneAgentMode): AgentBadge | null {
+  const raw = Number(mode.primaryMetric.value);
+  if (!Number.isFinite(raw) || raw <= 0) return null;
+  if (mode.id === "location") return { kind: "live" };
+  return { kind: "count", value: raw };
 }
 
-function resolveMetricTone(mode: OneAgentMode): AgentMetricTone {
-  const metric = mode.primaryMetric;
-  const isZero = isZeroMetric(metric);
-
-  if (metric.value === "—") return "muted";
-
-  if (mode.id === "finance") {
-    return metric.label.endsWith("%") ? "default" : "muted";
-  }
-
-  if (mode.id === "location") {
-    return isZero ? "muted" : "accent";
-  }
-
-  if (mode.id === "pkm") {
-    return "default";
-  }
-
-  if (
-    mode.id === "ria" ||
-    mode.id === "email" ||
-    mode.id === "consent" ||
-    mode.id === "connected-systems"
-  ) {
-    return isZero ? "muted" : "warning";
-  }
-
-  return mode.statusTone === "muted" ? "muted" : "default";
+/** Screen-reader-only text for the badge, using the existing metric wording. */
+function agentBadgeAccessibleText(mode: OneAgentMode, badge: AgentBadge): string {
+  if (badge.kind === "live") return "Live";
+  return `${badge.value} ${mode.primaryMetric.label}`;
 }
 
-function metricValueClassName(tone: AgentMetricTone): string {
-  if (tone === "positive") return "text-[#34C759]";
-  if (tone === "accent") return "text-[color:var(--app-accent-deep)]";
-  if (tone === "warning") return "text-[#FF9500]";
-  if (tone === "muted") return "text-[#8E8E93]";
-  return "text-[#1D1D1F] dark:text-[#F5F5F7]";
-}
-
-function metricLabelClassName(tone: AgentMetricTone): string {
-  if (tone === "positive") return "text-[#34C759]";
-  if (tone === "accent") return "text-[color:var(--app-accent-deep)]";
-  if (tone === "warning") return "text-[#8E8E93]";
-  if (tone === "muted") return "text-[#8E8E93]";
-  return "text-[#8E8E93]";
-}
-
-function AgentMetric({
-  mode,
-  compact = false,
-  align = "right",
+function AgentStatusBadge({
+  badge,
+  agentId,
 }: {
-  mode: OneAgentMode;
-  compact?: boolean;
-  /**
-   * `left`/`right` are the list-view alignments. `grid` is the dashboard card:
-   * one centered line — value + label together at a smaller size — that never
-   * wraps or clips (labels shrink to fit; see the 11px label class below).
-   */
-  align?: "right" | "left" | "grid";
+  badge: AgentBadge;
+  agentId: string;
 }) {
-  const isTopWinner =
-    mode.id === "finance" && mode.primaryMetric.label.endsWith("%");
-  const tone = resolveMetricTone(mode);
-  const valueTone = isTopWinner ? "default" : tone;
-  const labelTone = isTopWinner ? "positive" : tone;
-  const isGrid = align === "grid";
-
+  if (badge.kind === "live") {
+    return (
+      <span
+        aria-hidden
+        data-testid={`one-agent-badge-${agentId}`}
+        data-agent-badge-kind="live"
+        className="absolute -right-1 -top-1 z-20 flex h-[18px] items-center whitespace-nowrap rounded-full bg-[color:var(--app-accent)] px-[6px] text-[11px] font-semibold leading-none text-white ring-2 ring-background"
+      >
+        Live
+      </span>
+    );
+  }
   return (
     <span
-      data-testid={isTopWinner ? "one-finance-top-winner-kpi" : undefined}
-      className={cn(
-        "inline-flex w-full min-w-0 items-baseline gap-1",
-        isGrid
-          ? "justify-center whitespace-nowrap text-center"
-          : align === "left"
-            ? "justify-start text-left"
-            : "text-right",
-        !isGrid &&
-          (compact
-            ? "max-w-full flex-wrap justify-center"
-            : align === "left"
-              ? "flex-wrap"
-              : "justify-end whitespace-nowrap"),
-      )}
+      aria-hidden
+      data-testid={`one-agent-badge-${agentId}`}
+      data-agent-badge-kind="count"
+      className="absolute -right-1 -top-1 z-20 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#FF9500] px-1 text-[11px] font-semibold leading-none text-white ring-2 ring-background"
     >
-      <span
-        data-ui-role="body-strong"
-        className={cn(
-          "shrink-0 tabular-nums font-semibold tracking-normal",
-          isGrid ? "text-[11px] leading-4" : "text-[15px] leading-5",
-          metricValueClassName(valueTone),
-        )}
-      >
-        {mode.primaryMetric.value}
-      </span>
-      <span
-        data-ui-role="trailing-value"
-        className={cn(
-          "min-w-0 font-normal tracking-normal",
-          isGrid ? "truncate text-[11px] leading-4" : "text-[15px] leading-5",
-          !isGrid &&
-            (compact
-              ? "whitespace-normal text-center [overflow-wrap:anywhere]"
-              : "truncate"),
-          metricLabelClassName(labelTone),
-        )}
-      >
-        {mode.primaryMetric.label}
-      </span>
+      {badge.value}
+    </span>
+  );
+}
+
+/** Shared icon + corner badge, used identically by the grid tile and the list row. */
+function AgentIconWithBadge({
+  mode,
+  size,
+  badge,
+  descriptionId,
+}: {
+  mode: OneAgentMode;
+  size: "roster" | "roster-dashboard";
+  badge: AgentBadge | null;
+  descriptionId: string;
+}) {
+  return (
+    <span className="relative inline-flex shrink-0">
+      <AgentSectionIcon
+        id={mode.id}
+        icon={mode.icon}
+        tone={mode.tone}
+        paletteIndex={mode.paletteIndex}
+        size={size}
+        className={AGENT_ICON_INTERACTION_CLASSNAME}
+      />
+      {badge ? <AgentStatusBadge badge={badge} agentId={mode.id} /> : null}
+      {badge ? (
+        <span id={descriptionId} className="sr-only">
+          {agentBadgeAccessibleText(mode, badge)}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -499,10 +486,15 @@ function AgentGridItem({
   mode: OneAgentMode;
   className?: string;
 }) {
+  const label = agentDisplayLabel(mode);
+  const badge = resolveAgentBadge(mode);
+  const descriptionId = `one-agent-status-${mode.id}-grid`;
+
   return (
     <Link
       href={mode.href}
-      aria-label={`Open ${mode.title}`}
+      aria-label={`Open ${label}`}
+      aria-describedby={badge ? descriptionId : undefined}
       data-testid={`one-agent-tile-${mode.id}`}
       title={mode.description}
       className={cn(
@@ -512,22 +504,17 @@ function AgentGridItem({
         className,
       )}
     >
-      <AgentSectionIcon
-        id={mode.id}
-        icon={mode.icon}
-        tone={mode.tone}
-        paletteIndex={mode.paletteIndex}
+      <AgentIconWithBadge
+        mode={mode}
         size="roster-dashboard"
-        className={cn("relative z-10", AGENT_ICON_INTERACTION_CLASSNAME)}
+        badge={badge}
+        descriptionId={descriptionId}
       />
-      <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-[2px] text-center">
-        <span
-          className="block w-full truncate text-center text-[14px] font-semibold leading-[18px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
-          data-ui-role="body-strong"
-        >
-          {mode.title}
-        </span>
-        <AgentMetric mode={mode} align="grid" />
+      <span
+        className="relative z-10 block w-full min-w-0 truncate text-center text-[14px] font-semibold leading-[18px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
+        data-ui-role="body-strong"
+      >
+        {label}
       </span>
       <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
@@ -535,57 +522,40 @@ function AgentGridItem({
 }
 
 function AgentListRow({ mode }: { mode: OneAgentMode }) {
+  const label = agentDisplayLabel(mode);
+  const badge = resolveAgentBadge(mode);
+  const descriptionId = `one-agent-status-${mode.id}-list`;
+
   return (
     <Link
       href={mode.href}
-      aria-label={`Open ${mode.title}`}
+      aria-label={`Open ${label}`}
+      aria-describedby={badge ? descriptionId : undefined}
       title={mode.description}
       data-testid={`one-agent-list-row-${mode.id}`}
       className={cn(
         // Both group names on purpose: `agent-row` is the named group the row
-        // hairline and metrics already key off, and the bare `group` is what
-        // the shared icon interaction class reads.
-        "group group/agent-row relative grid min-h-[58px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(84px,auto)_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
+        // hairline already keys off, and the bare `group` is what the shared
+        // icon interaction class reads.
+        "group group/agent-row relative grid min-h-[58px] w-full grid-cols-[40px_minmax(0,1fr)_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
         "transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
       )}
     >
       <span className="relative z-10 flex items-center justify-center">
-        <AgentSectionIcon
-          id={mode.id}
-          icon={mode.icon}
-          tone={mode.tone}
-          paletteIndex={mode.paletteIndex}
+        <AgentIconWithBadge
+          mode={mode}
           size="roster"
-          className={AGENT_ICON_INTERACTION_CLASSNAME}
+          badge={badge}
+          descriptionId={descriptionId}
         />
       </span>
-      <span className="relative z-10 flex min-w-0 flex-col justify-center">
-        <span
-          data-ui-role="row-label"
-          className="ui-text-row-label min-w-0 truncate"
-        >
-          {mode.title}
-        </span>
-        {/*
-          The description was carried on every capability but rendered only as a
-          `title` attribute — a hover tooltip, which does not exist on a phone.
-          A roster of nine one-word labels asks the reader to already know what
-          each agent does, and the one people do not find is the one whose name
-          explains least.
-        */}
-        {mode.description ? (
-          <span
-            data-ui-role="row-description"
-            className="min-w-0 truncate text-[12px] leading-[16px] text-[#6E6E73] dark:text-[#98989D]"
-          >
-            {mode.description}
-          </span>
-        ) : null}
-      </span>
-      <span className="relative z-10 flex min-w-0 max-w-[132px] justify-end">
-        <AgentMetric mode={mode} />
+      <span
+        data-ui-role="row-label"
+        className="ui-text-row-label relative z-10 min-w-0 truncate"
+      >
+        {label}
       </span>
       <ChevronRight
         aria-hidden
@@ -670,6 +640,7 @@ export function OneAgentRoster({
     if (!normalized) return modes;
     return modes.filter((mode) =>
       [
+        agentDisplayLabel(mode),
         mode.title,
         mode.description,
         mode.primaryMetric.value,
@@ -698,15 +669,20 @@ export function OneAgentRoster({
       data-testid="one-agents-section"
       className="mx-auto w-full max-w-[720px] pb-[calc(var(--app-bottom-fixed-ui,96px)+1.75rem)] md:pb-[calc(var(--app-bottom-fixed-ui,96px)+2rem)]"
     >
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <PageTitle
-          as="h1"
-          id="one-agents-heading"
-          className="min-w-0 whitespace-nowrap"
-        >
-          Agents ({modes.length})
-        </PageTitle>
-        <AgentRosterViewToggle value={view} onChange={selectView} />
+      <div className="mb-4 flex flex-col gap-1">
+        <div className="flex items-center justify-between gap-3">
+          <PageTitle
+            as="h1"
+            id="one-agents-heading"
+            className="min-w-0 whitespace-nowrap"
+          >
+            Your agents
+          </PageTitle>
+          <AgentRosterViewToggle value={view} onChange={selectView} />
+        </div>
+        <PageSubtitle className="text-muted-foreground">
+          Choose what you need.
+        </PageSubtitle>
       </div>
       <label className="relative mb-3.5 block">
         <Search
@@ -717,12 +693,22 @@ export function OneAgentRoster({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search agents"
+          placeholder="Search"
           aria-label="Search agents"
           data-ui-role="input-text"
           data-testid="one-agents-search"
-          className="h-11 w-full rounded-[14px] border border-[rgba(60,60,67,.12)] bg-white py-[11px] pl-11 pr-4 text-[15px] font-normal leading-5 text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 dark:bg-[#1C1C1E] dark:text-[#F5F5F7]"
+          className="h-[52px] w-full rounded-[16px] border border-[rgba(60,60,67,.12)] bg-white py-[11px] pl-11 pr-11 text-[15px] font-normal leading-5 text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 dark:bg-[#1C1C1E] dark:text-[#F5F5F7]"
         />
+        {query ? (
+          <button
+            type="button"
+            aria-label="Clear search"
+            onClick={() => setQuery("")}
+            className="absolute right-3 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-[rgba(120,120,128,.16)] text-[#8E8E93] hover:bg-[rgba(120,120,128,.24)]"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        ) : null}
       </label>
       <div
         key={view}
@@ -732,16 +718,12 @@ export function OneAgentRoster({
         {view === "grid" ? (
           <div
             data-testid="one-agents-grid"
-            className="overflow-hidden rounded-[20px] bg-white p-[18px] shadow-none dark:bg-[#1C1C1E]"
+            data-agent-roster-layout="grouped-icon-grid"
+            className="grid w-full grid-cols-[repeat(3,minmax(84px,1fr))] justify-center gap-x-2 gap-y-6 min-[430px]:grid-cols-[repeat(3,minmax(96px,1fr))] sm:gap-x-3 sm:gap-y-7"
           >
-            <div
-              data-agent-roster-layout="grouped-icon-grid"
-              className="grid w-full grid-cols-[repeat(3,minmax(84px,1fr))] justify-center gap-x-2 gap-y-5 min-[430px]:grid-cols-[repeat(3,minmax(96px,1fr))] sm:gap-x-3 sm:gap-y-6"
-            >
-              {visibleModes.map((mode) => (
-                <AgentGridItem key={mode.id} mode={mode} />
-              ))}
-            </div>
+            {visibleModes.map((mode) => (
+              <AgentGridItem key={mode.id} mode={mode} />
+            ))}
           </div>
         ) : (
           <div
