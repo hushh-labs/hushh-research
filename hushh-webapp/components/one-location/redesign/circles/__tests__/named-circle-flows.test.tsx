@@ -1037,7 +1037,84 @@ describe("named Circle flows", () => {
     );
   });
 
-  it("filters the Members list by name and shows an empty state for no match", async () => {
+  it("scopes quick actions to the row's own member and hides actions that don't apply", async () => {
+    const onShareWithMember = vi.fn();
+    const ownerCircle = {
+      ...circle("circle-1", "Meena Family"),
+      members: [
+        ...circle("circle-1", "Meena Family").members,
+        {
+          // Share-ready member: both menu actions apply.
+          userId: "ready-user",
+          displayName: "Ready Ronnie",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+        {
+          // Not phone-verified yet: Share is invalid and must not appear,
+          // even though Remove still does.
+          userId: "pending-user",
+          displayName: "Pending Priya",
+          role: "member" as const,
+          phoneVerified: false,
+          secureLocationReady: false,
+        },
+      ],
+    };
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => ownerCircle)}
+        onShareWithMember={onShareWithMember}
+      />,
+    );
+
+    // The owner row (viewer, not removable, share excluded as self) gets no
+    // overflow trigger at all — nothing valid to act on.
+    await screen.findByText("Ready Ronnie");
+    expect(
+      screen.queryByRole("button", { name: "Actions for Owner" }),
+    ).toBeNull();
+
+    // Pending Priya cannot yet receive a share: only Remove is offered.
+    const priyaTrigger = screen.getByRole("button", {
+      name: "Actions for Pending Priya",
+    });
+    fireEvent.keyDown(priyaTrigger, { key: "Enter" });
+    expect(
+      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("menuitem", { name: /Share location/i }),
+    ).toBeNull();
+    fireEvent.keyDown(document.activeElement ?? priyaTrigger, {
+      key: "Escape",
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("menuitem", { name: /Remove from Circle/i }),
+      ).toBeNull(),
+    );
+
+    // Ready Ronnie's row offers both, and triggering Share calls back with
+    // exactly Ronnie's id — not a stale id left over from another row.
+    const ronnieTrigger = screen.getByRole("button", {
+      name: "Actions for Ready Ronnie",
+    });
+    fireEvent.keyDown(ronnieTrigger, { key: "Enter" });
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: /Share location/i }),
+    );
+    expect(onShareWithMember).toHaveBeenCalledWith("circle-1", "ready-user");
+    expect(onShareWithMember).not.toHaveBeenCalledWith(
+      "circle-1",
+      "pending-user",
+    );
+  });
+
+  it("filters the Members list by name, case-insensitively, and shows an empty state for no match", async () => {
     const ownerCircle = {
       ...circle("circle-1", "Meena Family"),
       members: [
@@ -1063,14 +1140,33 @@ describe("named Circle flows", () => {
     expect(screen.getByText("Owner (you)")).toBeInTheDocument();
 
     const search = screen.getByPlaceholderText("Search members");
-    fireEvent.change(search, { target: { value: "john" } });
 
+    // Partial, uppercase query — filtering is instant on every keystroke and
+    // case never matters, same contract as the Add People connection search.
+    fireEvent.change(search, { target: { value: "JOH" } });
     expect(screen.getByText("John Smith")).toBeInTheDocument();
     expect(screen.queryByText("Owner (you)")).not.toBeInTheDocument();
 
+    // Zero matches gets a real empty state, not a blank list.
     fireEvent.change(search, { target: { value: "zzz" } });
-    expect(await screen.findByText("No matching members")).toBeInTheDocument();
+    expect(await screen.findByText("No members found")).toBeInTheDocument();
     expect(screen.queryByText("John Smith")).not.toBeInTheDocument();
+
+    // Clearing the query restores the original, unfiltered roster.
+    fireEvent.change(search, { target: { value: "" } });
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+    expect(screen.getByText("Owner (you)")).toBeInTheDocument();
+    expect(screen.queryByText("No members found")).not.toBeInTheDocument();
+  });
+
+  it("shows the member search bar even for a single-member Circle", async () => {
+    const onLoad = vi.fn(async () => circle("circle-1", "Meena Family"));
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    expect(
+      await screen.findByPlaceholderText("Search members"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Owner (you)")).toBeInTheDocument();
   });
 
   it("closes the add-people sheet after inviting, for one person or many", async () => {

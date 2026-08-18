@@ -1625,7 +1625,7 @@ export function CircleDetailFlow({
           </Sheet>
 
           <div className="space-y-3">
-            {members.length > 1 ? (
+            {members.length ? (
               <label className="relative block">
                 <span className="sr-only">Search members</span>
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -1665,7 +1665,7 @@ export function CircleDetailFlow({
             ) : (
               <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
                 <EmptyState
-                  title="No matching members"
+                  title="No members found"
                   description="Try a different name."
                 />
               </div>
