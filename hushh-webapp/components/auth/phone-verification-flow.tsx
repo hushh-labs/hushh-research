@@ -1073,10 +1073,11 @@ export function PhoneVerificationFlow({
             </Field>
           </FieldGroup>
 
-          <FieldDescription className="type-callout text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
-            {helperText ||
-              "Choose your country code and enter your phone number. We’ll send you a verification code."}
-          </FieldDescription>
+          {helperText ? (
+            <FieldDescription className="type-callout text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
+              {helperText}
+            </FieldDescription>
+          ) : null}
           <div className="grid gap-3">
             <Button
               type="submit"
