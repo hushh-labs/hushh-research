@@ -96,7 +96,7 @@ import {
   TrustNoteCard,
   WarningCard,
 } from "./primitives";
-import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
+import { ACCENT_ICON_BUBBLE, CARD_SURFACE, MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import {
   initialsFrom,
   RequestCard,
@@ -460,7 +460,15 @@ export type LocationHubViewModel = {
   onTriggerSos: (message?: string | null) => void | Promise<void>;
   onStopSos: () => void;
   onAddSmsContact: (recipientUserId: string) => void;
-  onAddSmsCircle: (circleId: string) => Promise<void>;
+  /**
+   * Adds a Circle's SMS-ready members. The picker passes the subset it
+   * resolved; omitting it keeps the whole-Circle behaviour for callers that
+   * still want it.
+   */
+  onAddSmsCircle: (
+    circleId: string,
+    memberUserIds?: readonly string[],
+  ) => Promise<void>;
   onRemoveSmsContact: (recipientUserId: string) => Promise<boolean>;
 
   /* Check-In (quick action) — reuses the encrypted share pipeline. Circle
@@ -682,6 +690,22 @@ function locationHeaderStatusText(vm: LocationHubViewModel): string {
 }
 
 /**
+ * The one supporting line under the status headline, in the same state
+ * order as `locationHeaderStatusText` so the two never describe different
+ * moments. Kept to one short sentence: the fuller blocked-state recovery
+ * steps still live in `LocationPermissionRecoveryCard`, rendered directly
+ * below this card, so this line only needs to summarize, not instruct.
+ */
+function locationHeaderSupportText(vm: LocationHubViewModel): string {
+  if (vm.locationAcquiring) return "This won’t take long.";
+  if (vm.locationPaused) return "Resume to keep sharing.";
+  if (vm.locationBlocked) return "Turn it on in Settings.";
+  if (!vm.locationEnabled) return "Turn it on when you need it.";
+  if (vm.locationAccuracyLimited) return "Turn on precise location.";
+  return "Share only when you choose.";
+}
+
+/**
  * The status line for the Location header, rendered directly under the
  * switch it describes, in the same right-aligned column.
  *
@@ -694,19 +718,15 @@ function locationHeaderStatusText(vm: LocationHubViewModel): string {
  * it with the switch in one flex column makes the pairing structural: same
  * box, same right edge, one small fixed gap.
  */
-function LocationHeaderStatus({ vm }: { vm: LocationHubViewModel }) {
-  return (
-    <span
-      id={LOCATION_HEADER_STATUS_ID}
-      data-testid="one-location-header-status"
-      className="ui-text-helper-text text-[color:var(--app-secondary-label)]"
-    >
-      {locationHeaderStatusText(vm)}
-    </span>
-  );
-}
-
-function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
+/**
+ * One compact status card: a small location glyph, the status headline and
+ * its supporting line, and the toggle that drives both — replacing the
+ * former large "Location Agent" title + icon plus a separate switch-and-
+ * caption column that used to sit in the page header above the tabs. Same
+ * switch, same aria-describedby pairing, same voice control id; only the
+ * visual grouping changed.
+ */
+function LocationStatusCard({ vm }: { vm: LocationHubViewModel }) {
   const locationOn = vm.locationEnabled;
   const acquiring = vm.locationAcquiring;
 
@@ -723,12 +743,30 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
     <div
       role="group"
       aria-label="Location"
-      // Switch on top, its status directly beneath — one right-aligned
-      // column so the two read as a single paired control instead of a
-      // switch up here and a caption somewhere else on the screen.
-      className="ml-auto flex shrink-0 flex-col items-end gap-1"
-      data-testid="one-location-header-actions"
+      data-testid="one-location-status-card"
+      className={cn(CARD_SURFACE, "flex items-center gap-3 px-4 py-3.5")}
     >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+          ACCENT_ICON_BUBBLE,
+        )}
+      >
+        <MapPin className="h-[18px] w-[18px]" />
+      </span>
+      <div
+        id={LOCATION_HEADER_STATUS_ID}
+        data-testid="one-location-header-status"
+        className="min-w-0 flex-1"
+      >
+        {/* Wrap, don't truncate: "Location is blocked" + the icon and
+            switch it shares a row with measures wider than a 320px card can
+            give the text column, and this status is required information,
+            not decoration. */}
+        <p className="ui-text-headline">{locationHeaderStatusText(vm)}</p>
+        <p className={MUTED_TEXT}>{locationHeaderSupportText(vm)}</p>
+      </div>
       <Switch
         size="ios"
         checked={locationOn}
@@ -739,9 +777,7 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
         // finding them, which is when they are most likely to change their
         // mind. The status text carries the waiting instead.
         aria-label={locationOn ? "Turn location off" : "Turn location on"}
-        // The status text is the switch's description, not decoration. It used
-        // to be aria-hidden, so a VoiceOver user got "Turn location on" and no
-        // way to hear whether it was blocked, paused, or still finding them.
+        // The status text is the switch's description, not decoration.
         aria-describedby={LOCATION_HEADER_STATUS_ID}
         // The same pair of contract actions the Settings toggle carries.
         // Both are the same control in two places, so voice can offer
@@ -749,9 +785,8 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
         data-voice-control-id="one-location-updates-toggle"
         // No colour override: the shared Switch already carries the iOS
         // system green, so this toggle reads the same as every other one.
-        className={cn(acquiring && "animate-pulse")}
+        className={cn("shrink-0", acquiring && "animate-pulse")}
       />
-      <LocationHeaderStatus vm={vm} />
     </div>
   );
 }
@@ -1160,7 +1195,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             selectedUserIds={vm.smsContactUserIds}
             busyKey={vm.busy}
             onAdd={vm.onAddSmsContact}
-            onAddCircle={vm.onAddSmsCircle}
+            onAddCircleMembers={(circleId, userIds) =>
+              vm.onAddSmsCircle(circleId, userIds)
+            }
+            onLoadCircleMembers={(circleId) =>
+              vm.onResolveNamedCircleRecipients(circleId, "sms")
+            }
             onRemove={vm.onRemoveSmsContact}
             recipientLabel={vm.recipientLabel}
             recipientSubtitle={vm.recipientSubtitle}
@@ -1251,16 +1291,19 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* ----------------------------------------------------------------- */
   return (
     <div className="space-y-4 sm:space-y-5">
-      <PageHeader
-        title="Location Agent"
-        icon={MapPin}
-        accent="location"
-        titleRole="agent"
-        // No `description` — the switch and its status render together as
-        // one group inside `actions`. See LocationHeaderActions.
-        actionsInlineMobile
-        actions={<LocationHeaderActions vm={vm} />}
-      />
+      {tab === "people" ? (
+        // The People tab gets its own plain title instead of the Location
+        // toggle header: the switch already lives on the Home tab, and
+        // repeating it here read as two Location controls on the same
+        // screen. Still the same `PageHeader` (keeps the shared collapsing
+        // top-bar title behavior), just without the icon/accent/actions.
+        <PageHeader
+          title="People you trust"
+          description="Choose who can see your location."
+        />
+      ) : (
+        <LocationStatusCard vm={vm} />
+      )}
 
       {/*
         Directly under the header, above the tabs, because a blocked permission
@@ -1297,9 +1340,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
                 nearbyCheckInAvailable
                   ? router.push(ROUTES.ONE_LOCATION_CHECK_IN)
                   : openFlow("check-in")
-              }
-              checkInSubtitle={
-                nearbyCheckInAvailable ? "See people nearby" : "Share now"
               }
               onSos={() => openFlow("sos")}
               onOpenMap={() => router.push(ROUTES.ONE_LOCATION_MAP)}
@@ -1362,7 +1402,6 @@ function NowHub({
   vm,
   onStartShare,
   onCheckIn,
-  checkInSubtitle,
   onSos,
   onOpenMap,
   onOpenActiveShares,
@@ -1374,7 +1413,6 @@ function NowHub({
   vm: LocationHubViewModel;
   onStartShare: () => void;
   onCheckIn: () => void;
-  checkInSubtitle: string;
   onSos: () => void;
   onOpenMap: () => void;
   onOpenActiveShares: () => void;
@@ -1443,54 +1481,66 @@ function NowHub({
           saving={vm.liveShareDurationSaving}
         />
       ) : null}
-      {/* Every row and tile below carries the `control_ids` / `action_id` pair
+      {/* Every tile and row below carries the `control_ids` / `action_id` pair
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
           rather than only the screen it lives on. */}
-      {/* The two things a person DOES on this screen, together. Sharing your
-          location and asking for someone else's are the same kind of decision
-          pointed in opposite directions, and they were two groups apart — one
-          alone at the top, the other buried under three status rows. Everything
-          below is what is already happening, or where to look at it. */}
-      <SettingsGroup
-        separatorInset
-        testId="one-location-now-share"
-        shellClassName={groupedShellClassName}
-      >
-        <SettingsRow
-          icon={Navigation}
-          iconTone="blue"
+      {/* The four things a person DOES on this screen, in one grid, right
+          under the status card and before anything that has already
+          happened. Share and Ask stay Apple blue -- the same "my action"
+          colour -- and Check-In moved from its own green into that same
+          family so the grid reads as one calm accent plus the single red
+          exception for SOS, not four unrelated tile colours. */}
+      <QuickActionsSection title="Quick actions" columns={2}>
+        <QuickActionCard
+          tone="blue"
+          icon={<Navigation />}
           title="Share location"
-          density="compact"
-          chevron
           onClick={onStartShare}
           testId="one-location-share-row"
-          voiceControlId="one-location-action-share"
-          voiceActionId="location.open_share"
+          controlId="one-location-action-share"
         />
-        {/* Asking someone to share was reachable only from the People tab, so
-            the Now tab listed every way to give a location out and none to ask
-            for one. Same flow and same voice control id as that entry -- this
-            is an additional way in, not a second implementation. */}
         {/* Not `Send`: that is the same paper-plane silhouette as `Navigation`
-            on "Share location" two rows up, so at row size the two entries read
-            as the same icon -- and they are opposites. A speech bubble asking a
+            on "Share location" one tile over, so at this size the two read as
+            the same icon -- and they are opposites. A speech bubble asking a
             question is distinct at a glance and matches what the flow does:
             "Requests should explain why. The other person chooses whether to
-            share." Radar and Crosshair were rejected for implying tracking on a
-            surface built around consent. */}
-        <SettingsRow
-          icon={MessageCircleQuestionMark}
-          iconTone="blue"
-          title="Request location"
-          density="compact"
-          chevron
+            share." Radar and Crosshair were rejected for implying tracking on
+            a surface built around consent. */}
+        <QuickActionCard
+          tone="blue"
+          icon={<MessageCircleQuestionMark />}
+          title="Ask for location"
           onClick={onRequestLocation}
           testId="one-location-request-row"
-          voiceControlId="one-location-action-ask"
-          voiceActionId="location.open_ask"
+          controlId="one-location-action-ask"
         />
-      </SettingsGroup>
+        <QuickActionCard
+          tone="blue"
+          icon={<ShieldCheck />}
+          title="Check-In"
+          onClick={onCheckIn}
+          controlId="one-location-action-check-in"
+        />
+        {/* "Live now" is the one subtitle this grid still shows, and only
+            while an SOS is actually broadcasting -- a safety-critical state
+            that colour alone must not carry (accessibility requires a visible
+            label, not just a red tile). Every other moment the tile is calm:
+            title only, no subtitle. */}
+        <QuickActionCard
+          tone="red"
+          icon={<Shield />}
+          title="SOS"
+          subtitle={vm.sosActive ? "Live now" : undefined}
+          onClick={onSos}
+          controlId="one-location-action-sos"
+        />
+      </QuickActionsSection>
+
+      {/* Everything below is either already happening (Sharing now, Shared
+          with you, Needs review), where to look at it (Map), or how to
+          change it (Settings) -- one grouped list, after the actions above
+          it, not before. */}
       <SettingsGroup
         separatorInset
         testId="one-location-now-status"
@@ -1499,7 +1549,7 @@ function NowHub({
         <SettingsRow
           icon={Map}
           iconTone="blue"
-          title="Your Map"
+          title="Map"
           density="compact"
           chevron
           onClick={onOpenMap}
@@ -1510,9 +1560,9 @@ function NowHub({
         <SettingsRow
           icon={UsersRound}
           iconTone={activeSharesIconTone}
-          title="Active shares"
+          title="Sharing now"
           density="compact"
-          trailing={activeShareCount}
+          trailing={activeShareCount > 0 ? activeShareCount : undefined}
           chevron
           onClick={onOpenActiveShares}
           voiceControlId="one-location-action-active-shares"
@@ -1521,9 +1571,11 @@ function NowHub({
         <SettingsRow
           icon={MapPin}
           iconTone={sharedWithMeIconTone}
-          title="Shared with me"
+          title="Shared with you"
           density="compact"
-          trailing={vm.receivedGrants.length}
+          trailing={
+            vm.receivedGrants.length > 0 ? vm.receivedGrants.length : undefined
+          }
           chevron
           onClick={onOpenSharedWithMe}
           voiceControlId="one-location-action-shared-with-me"
@@ -1532,9 +1584,13 @@ function NowHub({
         <SettingsRow
           icon={ShieldCheck}
           iconTone={reviewIconTone}
-          title="Needs my review"
+          title="Needs review"
           density="compact"
-          trailing={vm.pendingOwnerRequests.length}
+          trailing={
+            vm.pendingOwnerRequests.length > 0
+              ? vm.pendingOwnerRequests.length
+              : undefined
+          }
           chevron
           onClick={onOpenNeedsReview}
           voiceControlId="one-location-action-needs-review"
@@ -1552,30 +1608,6 @@ function NowHub({
           voiceActionId="location.open_settings"
         />
       </SettingsGroup>
-
-      <QuickActionsSection title="Quick actions" columns={2}>
-        {/* Green, not blue: Check-In is a presence state you enter, the same
-            family as the header switch being on — and it is the one tile that
-            sits beside the red SMS tile, where "safe / emergency" has to read
-            at a glance. Blue here made the two tiles differ only in the second
-            colour, not the first. */}
-        <QuickActionCard
-          tone="green"
-          icon={<ShieldCheck />}
-          title="Check-In"
-          subtitle={checkInSubtitle}
-          onClick={onCheckIn}
-          controlId="one-location-action-check-in"
-        />
-        <QuickActionCard
-          tone="red"
-          icon={<Shield />}
-          title="SMS"
-          subtitle={vm.sosActive ? "Live now" : "Save my soul"}
-          onClick={onSos}
-          controlId="one-location-action-sos"
-        />
-      </QuickActionsSection>
     </div>
   );
 }
@@ -2096,6 +2128,7 @@ function PeopleHub({
 }) {
   const hasSearch = vm.recipientSearch.trim().length > 0;
   const filtered = vm.visibleRecipients;
+  const hasAnyRecipients = vm.recipients.length > 0;
   const isDesktopPeopleLayout = useMediaQuery("(min-width: 640px)");
   const addPeopleAction = (
     <Button
@@ -2126,11 +2159,11 @@ function PeopleHub({
   );
 
   return (
-    /* No top padding: the tab strip and PageHeader above already set the gap
-       every hub tab opens with, so Menu and Links start their first section
-       flush against it. People used to add 24px on top of that, and 52px from
-       `sm:` up — enough that "Circles" visibly floated lower here than on
-       either neighbouring tab. */
+    /* No top padding: the tab strip and status card above already set the
+       gap every hub tab opens with, so Menu and Links start their first
+       section flush against it. People used to add 24px on top of that, and
+       52px from `sm:` up — enough that "Circles" visibly floated lower here
+       than on either neighbouring tab. */
     <div data-testid="one-location-people-hub">
       <div className="space-y-10 sm:space-y-[72px]">
         <CirclesSection
@@ -2162,7 +2195,7 @@ function PeopleHub({
               id="one-location-connections-heading"
               className="col-start-1 row-start-1 text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-section-label)]"
             >
-              Connections
+              Trusted people
             </h2>
 
             {isDesktopPeopleLayout ? (
@@ -2194,20 +2227,23 @@ function PeopleHub({
                 : syncContactsAction}
             </div>
 
-            <div
-              className={cn(
-                "col-span-3 row-start-2 mt-3 sm:col-span-4 sm:mt-3.5",
-                "[&_input]:h-[46px] [&_input]:rounded-full [&_input]:border-0 [&_input]:bg-[color:var(--app-primary-surface)] [&_input]:pl-[46px] [&_input]:pr-[18px] [&_input]:text-[17px] [&_input]:leading-[22px] [&_input]:tracking-[-0.3px]",
-                "[&_svg]:left-[18px] [&_svg]:text-[color:var(--app-tertiary-label)]",
-                "sm:[&_input]:h-12 sm:[&_input]:rounded-[var(--app-radius-md)] sm:[&_input]:pl-12 sm:[&_input]:pr-5 sm:[&_input]:text-base sm:[&_svg]:left-5",
-              )}
-              data-testid="one-location-people-search"
-            >
-              <PersonSearchInput
-                value={vm.recipientSearch}
-                onChange={vm.setRecipientSearch}
-              />
-            </div>
+            {hasAnyRecipients ? (
+              <div
+                className={cn(
+                  "col-span-3 row-start-2 mt-3 sm:col-span-4 sm:mt-3.5",
+                  "[&_input]:h-[46px] [&_input]:rounded-full [&_input]:border-0 [&_input]:bg-[color:var(--app-primary-surface)] [&_input]:pl-[46px] [&_input]:pr-[18px] [&_input]:text-[17px] [&_input]:leading-[22px] [&_input]:tracking-[-0.3px]",
+                  "[&_svg]:left-[18px] [&_svg]:text-[color:var(--app-tertiary-label)]",
+                  "sm:[&_input]:h-12 sm:[&_input]:rounded-[var(--app-radius-md)] sm:[&_input]:pl-12 sm:[&_input]:pr-5 sm:[&_input]:text-base sm:[&_svg]:left-5",
+                )}
+                data-testid="one-location-people-search"
+              >
+                <PersonSearchInput
+                  value={vm.recipientSearch}
+                  onChange={vm.setRecipientSearch}
+                  placeholder="Search people"
+                />
+              </div>
+            ) : null}
 
             <div className="col-span-3 row-start-3 mt-3 sm:col-span-4 sm:mt-3.5">
               {filtered.length ? (
@@ -2274,12 +2310,12 @@ function PeopleHub({
                 <div className="[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)]">
                   <EmptyState
                     title={
-                      hasSearch ? "No matching people" : "No connections yet"
+                      hasSearch ? "No matching people" : "No people added"
                     }
                     description={
                       hasSearch
                         ? "Try a different name."
-                        : "Invite someone to start sharing."
+                        : "Add family or friends to start sharing."
                     }
                   />
                 </div>

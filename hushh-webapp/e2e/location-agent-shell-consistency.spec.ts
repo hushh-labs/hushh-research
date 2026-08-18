@@ -8,11 +8,16 @@ const ROUTES = {
   links: "/one/location?tab=links",
 } as const;
 
+// "agent-hero" / "agent-title" used to be the shared `<PageHeader
+// titleRole="agent">` ("Location Agent") rendered above the tab strip on
+// every tab. The Now-hub redesign removed that header for good (not
+// renamed) and replaced it with LocationStatusCard, which carries no
+// data-ui-role -- so those two roles no longer exist on any of the three
+// tabs and have been dropped from this list rather than asserted as
+// permanently absent-but-equal.
 const SHARED_ROLES = [
   "top-navigation",
   "agent-tab-bar",
-  "agent-hero",
-  "agent-title",
   "talk-to-one",
   "bottom-tab-bar",
 ] as const;
@@ -78,7 +83,7 @@ async function openReviewerLocation(page: Page) {
   }
 
   await page.goto(ROUTES.now, { waitUntil: "domcontentloaded" });
-  await page.getByRole("heading", { name: "Location Agent" }).waitFor({
+  await page.getByTestId("one-location-status-card").waitFor({
     state: "visible",
     timeout: 90_000,
   });
@@ -114,7 +119,7 @@ async function computedStyleForRole(page: Page, role: string) {
 
 async function openLocationTab(page: Page, route: keyof typeof ROUTES) {
   await page.goto(ROUTES[route], { waitUntil: "domcontentloaded" });
-  await page.getByRole("heading", { name: "Location Agent" }).waitFor({
+  await page.getByTestId("one-location-status-card").waitFor({
     state: "visible",
     timeout: 60_000,
   });

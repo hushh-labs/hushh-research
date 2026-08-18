@@ -86,7 +86,7 @@ const CIRCLES_EMPTY_STATE_WRAPPER =
 /**
  * A circle is a group of trusted people, so its glyph carries the PEOPLE role
  * rather than the accent used for things you can DO. The action controls that
- * sit alongside it (New circle, Join, Share, Add people) stay accent, which is
+ * sit alongside it (Create circle, Join, Share, Add people) stay accent, which is
  * what keeps "this is a group" and "this is a button" from looking alike.
  *
  * Glyph only. The wells this sits in ask for `--app-accent-soft`, a token that
@@ -128,7 +128,8 @@ function circleInitials(value: string): string {
  */
 function circleListMemberCountLabel(memberCount: number): string {
   const others = Math.max(0, memberCount - 1);
-  return `${others} ${others === 1 ? "member" : "members"}`;
+  if (others === 0) return "No members yet";
+  return `${others} ${others === 1 ? "person" : "people"}`;
 }
 
 function circleFlowErrorMessage(error: unknown, fallback: string): string {
@@ -224,7 +225,7 @@ export function CirclesSection({
     <div className="space-y-[14px]" data-testid="one-location-named-circles">
       <div className="flex items-baseline justify-between gap-4">
         <h2 className="text-[13px] font-normal leading-[17px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
-          Circles
+          Your circles
         </h2>
 
         {/* The static phone reference omits Join, but it remains a shipped
@@ -239,7 +240,7 @@ export function CirclesSection({
             data-voice-control-id="one-location-action-create-circle"
             className="relative !h-auto !min-h-0 !rounded-none !px-0 !py-0 text-[16px] font-normal leading-5 tracking-[-0.24px] after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] sm:text-[15px]"
           >
-            New circle
+            Create circle
           </Button>
           <Button
             type="button"
@@ -479,28 +480,28 @@ export function CreateCircleFlow({
 
   return (
     <div className="space-y-6" data-testid="one-location-create-circle-flow">
+      {/* No `eyebrow` — a single-screen flow does not need the route name
+          repeated above the title (location-header-system treats the
+          eyebrow as optional). */}
       <TaskFlowHeader
-        eyebrow="People"
         title="Create a circle"
-        description="Name the group."
+        description="A private group for people you trust."
       />
 
       <label className="block space-y-2">
-        <span className="text-sm font-semibold text-foreground">
-          Circle name
-        </span>
+        <span className="text-sm font-semibold text-foreground">Name</span>
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
           maxLength={80}
           autoComplete="off"
           spellCheck
-          placeholder="e.g. Meena Family"
-          className="h-12 w-full rounded-2xl border border-border bg-[color:var(--app-card-surface-default-solid)] px-4 text-base outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+          placeholder="e.g. Family"
+          className="h-14 w-full rounded-2xl border border-border bg-[color:var(--app-card-surface-default-solid)] px-4 text-base outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
         />
       </label>
 
-      <SettingsGroup title="Circle type" separatorInset>
+      <SettingsGroup title="Who is it for?" separatorInset>
         {CIRCLE_KIND_OPTIONS.map((option) => (
           <SettingsRow
             key={option.value}
@@ -514,7 +515,6 @@ export function CreateCircleFlow({
             icon={UsersRound}
             iconTone={option.value === "family" ? "purple" : "blue"}
             title={option.label}
-            description={option.description}
             trailing={
               kind === option.value ? (
                 <Check className="h-5 w-5 text-[color:var(--app-accent)]" />
@@ -526,10 +526,13 @@ export function CreateCircleFlow({
         ))}
       </SettingsGroup>
 
-      <TrustNoteCard
-        title="Connected, still private"
-        description="Members connect. Sharing stays explicit."
-      />
+      <p className="flex items-center gap-1.5 text-[14px] leading-4 text-[color:var(--app-secondary-label)]">
+        <ShieldCheck
+          className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"
+          aria-hidden="true"
+        />
+        Sharing starts only when you choose.
+      </p>
 
       <Button
         type="button"
@@ -537,7 +540,7 @@ export function CreateCircleFlow({
         isLoading={busy}
         onClick={() => void submit()}
         className={cn(
-          "h-12 w-full rounded-full text-base font-semibold",
+          "h-[54px] w-full rounded-full text-base font-semibold",
           BLOCKED_CTA,
         )}
       >

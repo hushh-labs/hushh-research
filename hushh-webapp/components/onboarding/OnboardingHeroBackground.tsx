@@ -24,27 +24,37 @@ const MOTES = Array.from({ length: 5 }, (_, i) => {
   };
 });
 
-// `motes` defaults to true so every existing caller (the welcome route "/" and
-// /register-phone) keeps exactly the background it has today. Sign-in opts out:
-// five accent-blue specks drifting behind a sign-in form read as dirt on the
-// screen, not as atmosphere.
+/**
+ * `ambient` (the default) is the long-standing treatment every pre-auth
+ * surface already uses. `plain` is the quiet welcome canvas: one opaque
+ * near-white sheet, no motes, no grain. It is a variant rather than a second
+ * component so sign-in, the phone step, and the preview carousel keep their
+ * current backdrop byte for byte.
+ */
 export function OnboardingHeroBackground({
-  motes = true,
+  variant = "ambient",
 }: {
-  motes?: boolean;
-} = {}) {
+  variant?: "ambient" | "plain";
+}) {
+  const plain = variant === "plain";
+
   return (
     <div
       aria-hidden
-      className={styles.root}
+      className={plain ? `${styles.root} ${styles.plainRoot}` : styles.root}
     >
       {/* Base wash. One neutral Foundation surface keeps attention on One,
-          rather than introducing coloured edge bands around the composition. */}
-      <div className={styles.base} />
+          rather than introducing coloured edge bands around the composition.
+          The plain variant paints its own opaque canvas here so the welcome
+          reads near-white rather than inheriting the grouped-grey app
+          background — and, because this layer is viewport-fixed, it also
+          covers the strip the scroll root reserves for the Agent Bar, so no
+          background seam appears under the bar. */}
+      <div className={plain ? styles.plainBase : styles.base} />
 
       {/* Drifting motes are the only movement: they preserve calm and avoid
           colour shifts behind the brand, content, and navigation. */}
-      {motes ? (
+      {plain ? null : (
         <div className={styles.moteLayer}>
           {MOTES.map((p, i) => (
             <span
@@ -64,10 +74,10 @@ export function OnboardingHeroBackground({
             />
           ))}
         </div>
-      ) : null}
+      )}
 
       {/* Fine film grain across the whole canvas so it never looks flat. */}
-      <div className={styles.grain} />
+      {plain ? null : <div className={styles.grain} />}
     </div>
   );
 }

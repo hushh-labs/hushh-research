@@ -145,7 +145,7 @@ async function buildFixture(): Promise<string> {
       <div style="position:relative;width:100%;flex-shrink:0">
         <div class="flex h-14 w-full items-center justify-center">
           <div data-testid="tablist" role="tablist" class="${TABLIST_CLASS}">
-            <button class="flex h-full flex-1 items-center justify-center px-3">Menu</button>
+            <button class="flex h-full flex-1 items-center justify-center px-3">Home</button>
             <button class="flex h-full flex-1 items-center justify-center px-3">People</button>
             <button class="flex h-full flex-1 items-center justify-center px-3">Links</button>
           </div>

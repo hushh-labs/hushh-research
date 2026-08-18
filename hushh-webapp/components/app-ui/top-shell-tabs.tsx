@@ -165,7 +165,11 @@ export function TopShellTabs({
               // tab sets take the underline arm and do not move. Do NOT
               // generalise this: the RIA workspace runs a 96rem shell, and an
               // 880px cap would leave its strip ~600px short per side.
-              "h-9 w-full max-w-[calc(var(--app-shell-agent)-2*var(--page-inline-gutter-standard))] rounded-[10px] bg-[color:var(--app-neutral-fill)] p-0.5"
+              //
+              // h-10 (40px), not h-9 (36px): the compact iOS segmented-control
+              // spec calls for a 40-44px control height. The outer bar row
+              // (--top-tabs-h) is tall enough to absorb this without moving.
+              "h-10 w-full max-w-[calc(var(--app-shell-agent)-2*var(--page-inline-gutter-standard))] rounded-[10px] bg-[color:var(--app-neutral-fill)] p-0.5"
             : "h-full w-full",
         )}
         role="tablist"
@@ -219,7 +223,7 @@ export function TopShellTabs({
                   "ui-text-agent-tab-label relative truncate transition-colors duration-150",
                   isLocationTabs
                     ? isActive
-                      ? "font-semibold text-[color:var(--app-label)]"
+                      ? "font-semibold text-[color:var(--app-accent)]"
                       : "font-medium text-[color:var(--app-secondary-label)] hover:text-[color:var(--app-label)]"
                     : isActive
                       ? "text-[color:var(--app-accent)]"

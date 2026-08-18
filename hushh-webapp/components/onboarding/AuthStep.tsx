@@ -1041,7 +1041,7 @@ export function AuthStep({
       data-testid="auth-step-primary"
     >
       {/* Shared immersive gradient backdrop (welcome / login / carousel). */}
-      <OnboardingHeroBackground motes={false} />
+      <OnboardingHeroBackground variant="plain" />
       <NativeTestBeacon
         routeId="/login"
         marker="native-route-login"
