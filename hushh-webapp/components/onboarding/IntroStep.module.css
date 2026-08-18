@@ -76,22 +76,13 @@
 
 .brand {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
   animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
 }
 
-/* Small on purpose. At the 48px it used to be it competed with One for the
-   eye; at 26px it reads as the brand's own mark sitting under its wordmark. */
-.quietMark {
-  font-size: 26px;
-  line-height: 1;
-}
-
 .wordmark {
-  height: 31px;
+  height: 33px;
   width: auto;
 }
 
@@ -108,11 +99,65 @@
   align-items: center;
 }
 
+/* The mark and its wash. `closest-side` keeps the gradient a circle inside
+   the square box no matter how the emoji font measures, and the accent is
+   read from the glyph token so Molten Gold repaints the wash with it. */
+.markWrap {
+  position: relative;
+  display: flex;
+  width: 168px;
+  height: 168px;
+  align-items: center;
+  justify-content: center;
+  animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 160ms both;
+}
+
+.markGlow {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in oklab, var(--intro-blue-text) 28%, transparent),
+    color-mix(in oklab, var(--intro-blue-text) 7%, transparent) 56%,
+    transparent 74%
+  );
+  filter: blur(5px);
+}
+
+/* Apple Color Emoji first: the mark is the brand's glyph and must render as
+   the colour emoji, not a monochrome fallback glyph. */
+.quietMark {
+  position: relative;
+  font-family:
+    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 80px;
+  line-height: 1;
+}
+
 .title {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin: 0;
+  margin-top: 22px;
   font-family: var(--font-app-display);
   line-height: 1;
-  animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 200ms both;
+  animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 240ms both;
+}
+
+.titleGlow {
+  position: absolute;
+  width: 280px;
+  height: 150px;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in oklab, var(--intro-blue-text) 16%, transparent),
+    transparent 72%
+  );
+  filter: blur(8px);
 }
 
 /* The one bold element on the screen. Solid accent, no foil gradient, no
@@ -122,9 +167,9 @@
   display: inline-block;
   color: var(--intro-blue-text);
   font-family: var(--font-app-display);
-  font-size: clamp(72px, 20.5vw, 84px);
+  font-size: clamp(76px, 26vw, 104px);
   font-weight: 700;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.045em;
   line-height: 1.02;
 }
 
@@ -134,13 +179,13 @@
      two-line supporting line from looking accidental. */
   text-wrap: balance;
   max-width: 19rem;
-  margin: 14px auto 0;
+  margin: 16px auto 0;
   color: var(--foundation-ink);
-  font-size: 17px;
+  font-size: 20px;
   font-weight: 400;
-  letter-spacing: -0.01em;
-  line-height: 1.4;
-  animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 300ms both;
+  letter-spacing: -0.02em;
+  line-height: 1.36;
+  animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 320ms both;
 }
 
 .footer {
@@ -155,19 +200,29 @@
   position: relative;
   overflow: hidden;
   display: inline-flex;
-  min-height: 56px;
+  min-height: 58px;
   width: 100%;
   align-items: center;
   justify-content: center;
   gap: 10px;
   border: 0;
-  border-radius: 19px;
+  border-radius: 980px;
   background: var(--intro-blue);
+  /* A wash of the accent, not a drop shadow: it lifts the only action on the
+     screen without putting a grey edge under it. */
+  box-shadow: 0 12px 30px
+    color-mix(in oklab, var(--intro-blue) 32%, transparent);
   color: var(--intro-blue-fg);
   font-family: var(--font-app-body);
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 600;
-  line-height: 1;
+  letter-spacing: -0.02em;
+  /* Not `1`. The arrow glyph's box is taller than a 19px line box, and this
+     button sets `overflow: hidden` for the ripple, so a line-height of 1
+     genuinely clips the label's descender rather than merely looking tight.
+     Chromium reports it; WebKit does not — which is why the contract runs on
+     both. */
+  line-height: 1.2;
   transition:
     background-color var(--motion-duration-sm) var(--motion-ease-standard);
 }
@@ -185,9 +240,9 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  margin: 14px 0 0;
+  margin: 18px 0 0;
   color: var(--intro-secondary);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 400;
   line-height: 1.3;
 }
@@ -205,7 +260,7 @@
   margin-top: 18px;
   border-top: 1px solid var(--foundation-hairline);
   color: var(--intro-secondary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
 }
 
@@ -245,13 +300,32 @@
 /* Short screens (iPhone SE and the landscape/keyboard cases) give back space
    from the gaps first, exactly as the master rules require, before anything
    touches type size or the 56px button. */
-@media (max-height: 700px) {
+@media (max-height: 780px) {
+  .markWrap {
+    width: 116px;
+    height: 116px;
+  }
+
+  .quietMark {
+    font-size: 58px;
+  }
+
+  .title {
+    margin-top: 14px;
+  }
+
+  .titleGlow {
+    width: 220px;
+    height: 112px;
+  }
+
   .oneMark {
-    font-size: clamp(60px, 17vw, 68px);
+    font-size: clamp(64px, 20vw, 84px);
   }
 
   .tagline {
-    margin-top: 10px;
+    margin-top: 12px;
+    font-size: 18px;
   }
 
   .privacy {
