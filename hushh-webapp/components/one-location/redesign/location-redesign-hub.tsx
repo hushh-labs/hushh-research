@@ -2456,6 +2456,12 @@ function ActiveLinkRow({
           {subtitle}
         </RowDescription>
       </div>
+      {/* Same geometry as the Copy button inside TemporaryLinkCard, so the one
+          action a person meets twice on this surface is the same control both
+          times: `sm` owns height and horizontal padding (this used to force
+          `px-3.5` against the card's `px-3`), and the pill radius matches every
+          other compact action in the feature. Only the accent tint is local —
+          it is this row's own affordance, distinct from the row-wide tap. */}
       <Button
         variant="outline"
         onClick={(e) => {
@@ -2463,7 +2469,7 @@ function ActiveLinkRow({
           onCopy();
         }}
         size="sm"
-        className="shrink-0 border-[color:var(--app-accent)] px-3.5 text-[color:var(--app-accent)]"
+        className="shrink-0 rounded-full border-[color:var(--app-accent)] text-[color:var(--app-accent)]"
       >
         Copy
       </Button>

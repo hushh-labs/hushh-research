@@ -15,13 +15,11 @@ import {
   AlertTriangle,
   ChevronDown,
   Clock3,
-  Copy,
   ExternalLink,
   Loader2,
   MapPin,
   Pencil,
   RefreshCw,
-  Share2,
   ShieldCheck,
   Siren,
   User,
@@ -671,23 +669,29 @@ export function TemporaryLinkCard({
         </div>
         <StatusPill tone="live">Live</StatusPill>
       </div>
+      {/* One action group, one geometry. Height, horizontal padding and label
+          size all come from `size="sm"`, so the only thing this row states is
+          the pill radius every compact action on the Links surface shares.
+          The three used to disagree: `h-9` restated the size variant, and only
+          two of them carried an icon, so the odd cell read shorter than its
+          neighbours inside equal grid columns. Labels stay icon-free because at
+          a 320px viewport each column is ~81px, which an icon plus "Revoke"
+          overflows. */}
       <div className="grid grid-cols-3 gap-2">
         <Button
           variant="outline"
           size="sm"
           onClick={onCopy}
-          className="h-9 rounded-full text-sm"
+          className="rounded-full"
         >
-          <Copy className="mr-1 h-3.5 w-3.5" />
           Copy
         </Button>
         <Button
           variant="outline"
           size="sm"
           onClick={onShare}
-          className="h-9 rounded-full text-sm"
+          className="rounded-full"
         >
-          <Share2 className="mr-1 h-3.5 w-3.5" />
           Share
         </Button>
         <Button
@@ -695,7 +699,7 @@ export function TemporaryLinkCard({
           size="sm"
           onClick={onRevoke}
           isLoading={revokeBusy}
-          className="h-9 rounded-full text-sm"
+          className="rounded-full"
         >
           Revoke
         </Button>
