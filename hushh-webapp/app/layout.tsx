@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { buildOrganizationGraph } from "@/lib/seo/structured-data";
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
+import { headers } from "next/headers";
 import "./globals.css";
 import { RootLayoutClient } from "./layout-client";
 import {
@@ -84,11 +85,16 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // CS-3 fix: the CSP set in middleware.ts binds script execution to this
+  // per-request nonce. Every inline <script> below must carry it or the
+  // browser will refuse to run it.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html lang="en" suppressHydrationWarning className="h-full">
       <head>
@@ -98,16 +104,18 @@ export default function RootLayout({
           href="https://fonts.gstatic.com"
           crossOrigin="anonymous"
         />
-        <JsonLd data={buildOrganizationGraph()} />
+        <JsonLd data={buildOrganizationGraph()} nonce={nonce} />
         {/* Accent no-FOUC: apply the persisted accent preference before first
             paint (default iOS Blue needs no attribute; gold sets data-accent).
             Body mirrors ACCENT_NO_FOUC_SCRIPT in lib/theme/accent.ts. */}
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `try{var a=localStorage.getItem("hushh.app.accent.v1");if(a==="gold"){document.documentElement.setAttribute("data-accent","gold");}}catch(e){}`,
           }}
         />
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `try{var c=window.Capacitor;if(c&&typeof c.getPlatform==="function"&&c.getPlatform()==="ios"){document.documentElement.classList.add("native-ios");}}catch(e){}`,
           }}
@@ -117,6 +125,7 @@ export default function RootLayout({
             <Script
               id="ga-base"
               strategy="afterInteractive"
+              nonce={nonce}
               dangerouslySetInnerHTML={{
                 __html: `window.dataLayer = window.dataLayer || []; window.gtag = window.gtag || function(){window.dataLayer.push(arguments);}; window.gtag('js', new Date()); window.gtag('config', '${analyticsMeasurementId}', { send_page_view: false });`,
               }}
@@ -124,6 +133,7 @@ export default function RootLayout({
             <Script
               id="ga-loader"
               strategy="afterInteractive"
+              nonce={nonce}
               src={`https://www.googletagmanager.com/gtag/js?id=${analyticsMeasurementId}`}
             />
           </>
@@ -132,6 +142,7 @@ export default function RootLayout({
           <Script
             id="gtm-base"
             strategy="afterInteractive"
+            nonce={nonce}
             dangerouslySetInnerHTML={{
               __html: `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':Date.now(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode&&f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${gtmContainerId}');`,
             }}
@@ -142,7 +153,12 @@ export default function RootLayout({
         suppressHydrationWarning
         className="font-sans antialiased min-h-[100dvh] flex flex-col overflow-x-hidden"
       >
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          nonce={nonce}
+        >
           <RootLayoutClient fontClasses="">
             <NetworkStatusBanner />
             {children}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 
 declare global {
   interface Window {
@@ -76,20 +77,34 @@ function sanitizeConfiguredValue(value: string | null | undefined) {
   return trimmed;
 }
 
-function readNativeTestBridgeEnabled(): boolean {
+// SECURITY: `window.__HUSHH_NATIVE_TEST__` is an ordinary page global. Any
+// script running in the page (injected content script, extension, XSS) can
+// set `window.__HUSHH_NATIVE_TEST__ = { enabled: true, ... }` itself — a
+// bare `enabled === true` check is therefore not proof the real native
+// XCUITest/Espresso harness injected it. The harness only ever runs inside
+// the Capacitor-wrapped native app, so we additionally require
+// `Capacitor.isNativePlatform()`, which a page script on the web origin
+// cannot forge. This is the single trust boundary for the bridge; every
+// consumer must go through it instead of reading the raw global.
+export function isTrustedNativeTestBridge(): boolean {
   if (typeof window === "undefined") {
     return false;
   }
-  // Require the injected bridge from -UITestMode launch args.
-  // Do not treat DOM dataset hints alone as a test session.
+  if (!Capacitor.isNativePlatform()) {
+    return false;
+  }
   return window.__HUSHH_NATIVE_TEST__?.enabled === true;
 }
 
+function readNativeTestBridgeEnabled(): boolean {
+  // Require the injected bridge from -UITestMode launch args, running on a
+  // real native platform. Do not treat DOM dataset hints alone as a test
+  // session.
+  return isTrustedNativeTestBridge();
+}
+
 export function getNativeUiTestVaultPassphrase(): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  if (window.__HUSHH_NATIVE_TEST__?.enabled !== true) {
+  if (!isTrustedNativeTestBridge()) {
     return null;
   }
   const value = String(window.__HUSHH_NATIVE_TEST__?.vaultPassphrase || "").trim();
@@ -194,9 +209,14 @@ export function getNativeTestConfig(): NativeTestConfig {
 
   const raw = window.__HUSHH_NATIVE_TEST__ ?? {};
   const root = document.documentElement;
+  // Dataset attributes are just as page-writable as the window global, so
+  // they only count on a real native platform (see isTrustedNativeTestBridge).
+  const isNativePlatform = Capacitor.isNativePlatform();
   const enabledFromDataset =
+    isNativePlatform &&
     root.getAttribute("data-hushh-native-test-enabled") === "true";
   const autoReviewerLoginFromDataset =
+    isNativePlatform &&
     root.getAttribute("data-hushh-native-test-auto-reviewer-login") === "true";
   const expectedMarkerFromDataset =
     root.getAttribute("data-hushh-native-test-expected-marker");
@@ -205,7 +225,7 @@ export function getNativeTestConfig(): NativeTestConfig {
   const expectedRouteFromDataset =
     root.getAttribute("data-hushh-native-test-expected-route");
   return {
-    enabled: raw.enabled === true || enabledFromDataset,
+    enabled: isNativePlatform && (raw.enabled === true || enabledFromDataset),
     autoReviewerLogin:
       raw.autoReviewerLogin === true || autoReviewerLoginFromDataset,
     vaultPassphrase:

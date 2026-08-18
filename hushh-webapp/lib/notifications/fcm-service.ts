@@ -459,6 +459,7 @@ async function initializeNativeFCM(
   try {
     if (
       typeof window !== "undefined" &&
+      Capacitor.isNativePlatform() &&
       window.__HUSHH_NATIVE_TEST__?.enabled === true
     ) {
       return {

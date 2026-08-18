@@ -1,5 +1,15 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// The bridge is only trusted on a real native platform (CS-6 fix, see
+// isTrustedNativeTestBridge in lib/testing/native-test.ts); mock one here so
+// this test still models a genuine native-harness injection.
+vi.mock("@capacitor/core", () => ({
+  Capacitor: {
+    isNativePlatform: () => true,
+    getPlatform: () => "ios",
+  },
+}));
 
 import { useNativeTestConfig } from "@/lib/testing/native-test";
 

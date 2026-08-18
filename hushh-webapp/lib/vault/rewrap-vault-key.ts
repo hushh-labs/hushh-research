@@ -1,7 +1,11 @@
 "use client";
 
 import { bytesToBase64 } from "@/lib/vault/base64";
-import { deriveKeyFromPassphrase } from "@/lib/vault/passphrase-key";
+import {
+  deriveKeyFromPassphrase,
+  encodeVersionedSalt,
+  PBKDF2_ITERATIONS_CURRENT,
+} from "@/lib/vault/passphrase-key";
 
 function hexToBytes(hex: string): Uint8Array {
   const normalized = hex.trim();
@@ -35,7 +39,11 @@ export async function rewrapVaultKeyWithPassphrase(params: {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
 
-  const wrappingKey = await deriveKeyFromPassphrase(params.wrappingSecret, salt);
+  const wrappingKey = await deriveKeyFromPassphrase(
+    params.wrappingSecret,
+    salt,
+    PBKDF2_ITERATIONS_CURRENT
+  );
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     wrappingKey,
@@ -44,7 +52,11 @@ export async function rewrapVaultKeyWithPassphrase(params: {
 
   return {
     encryptedVaultKey: bytesToBase64(new Uint8Array(encrypted)),
-    salt: bytesToBase64(salt),
+    // CS-4 fix: version-tag the salt with its iteration count (see
+    // decodeVersionedSalt in passphrase-key.ts) so this new wrapper unlocks
+    // at PBKDF2_ITERATIONS_CURRENT while older untouched wrappers keep
+    // unlocking at the legacy round count.
+    salt: encodeVersionedSalt(salt, PBKDF2_ITERATIONS_CURRENT),
     iv: bytesToBase64(iv),
   };
 }
