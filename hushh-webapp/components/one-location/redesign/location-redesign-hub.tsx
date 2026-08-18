@@ -2107,7 +2107,12 @@ function PeopleHub({
   );
 
   return (
-    <div className="pt-6 sm:pt-[52px]" data-testid="one-location-people-hub">
+    /* No top padding: the tab strip and PageHeader above already set the gap
+       every hub tab opens with, so Menu and Links start their first section
+       flush against it. People used to add 24px on top of that, and 52px from
+       `sm:` up — enough that "Circles" visibly floated lower here than on
+       either neighbouring tab. */
+    <div data-testid="one-location-people-hub">
       <div className="space-y-10 sm:space-y-[72px]">
         <CirclesSection
           circles={vm.circles}
