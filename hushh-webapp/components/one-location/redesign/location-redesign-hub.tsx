@@ -460,7 +460,15 @@ export type LocationHubViewModel = {
   onTriggerSos: (message?: string | null) => void | Promise<void>;
   onStopSos: () => void;
   onAddSmsContact: (recipientUserId: string) => void;
-  onAddSmsCircle: (circleId: string) => Promise<void>;
+  /**
+   * Adds a Circle's SMS-ready members. The picker passes the subset it
+   * resolved; omitting it keeps the whole-Circle behaviour for callers that
+   * still want it.
+   */
+  onAddSmsCircle: (
+    circleId: string,
+    memberUserIds?: readonly string[],
+  ) => Promise<void>;
   onRemoveSmsContact: (recipientUserId: string) => Promise<boolean>;
 
   /* Check-In (quick action) — reuses the encrypted share pipeline. Circle
@@ -1160,7 +1168,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             selectedUserIds={vm.smsContactUserIds}
             busyKey={vm.busy}
             onAdd={vm.onAddSmsContact}
-            onAddCircle={vm.onAddSmsCircle}
+            onAddCircleMembers={(circleId, userIds) =>
+              vm.onAddSmsCircle(circleId, userIds)
+            }
+            onLoadCircleMembers={(circleId) =>
+              vm.onResolveNamedCircleRecipients(circleId, "sms")
+            }
             onRemove={vm.onRemoveSmsContact}
             recipientLabel={vm.recipientLabel}
             recipientSubtitle={vm.recipientSubtitle}
