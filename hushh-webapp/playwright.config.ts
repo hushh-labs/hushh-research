@@ -64,7 +64,7 @@ export default defineConfig({
       // every new person sees and the app ships inside an iOS WKWebView: a
       // Chromium-only pass proves nothing about the container they launch.
       testMatch:
-        /(circle-join-responsive-contract|auth-sign-in\.layout|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|one-intro-welcome\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|auth-sign-in\.layout|connect-circle-cta\.layout|connect-pagination\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|one-intro-welcome\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",

@@ -61,6 +61,13 @@ import {
   CONNECT_SEARCH_PLACEHOLDER,
   CONNECT_SELECT_TOGGLE_CLASSNAME,
 } from "./connect-search-layout";
+import {
+  CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME,
+  CONNECT_PAGER_BUTTON_CLASSNAME,
+  CONNECT_PAGINATION_LEFT_CLASSNAME,
+  CONNECT_PAGINATION_RIGHT_CLASSNAME,
+  CONNECT_PAGINATION_ROW_CLASSNAME,
+} from "./connect-pagination-layout";
 import { cn } from "@/lib/utils";
 
 type ConnectTab = "people" | "advisors" | "nearby";
@@ -159,8 +166,6 @@ const PAGE_SIZE_OPTIONS = [8, 16, 24, 50] as const;
 const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
 const CONNECT_ROW_ACTION_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px]";
-const CONNECT_PAGER_BUTTON_CLASSNAME =
-  "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
 
@@ -1845,15 +1850,17 @@ export default function ConnectPageClient() {
                   })
                 )}
                 {people.length > 0 || currentPage > 1 ? (
-                  <div className="flex flex-col gap-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex min-h-9 flex-wrap items-center gap-2.5">
-                      <span className="ui-text-helper-text tabular-nums text-[color:var(--app-secondary-label)]">
+                  <div
+                    className={cn(
+                      CONNECT_PAGINATION_ROW_CLASSNAME,
+                      "border-t border-[color:var(--app-card-border-standard)]"
+                    )}
+                  >
+                    <div className={CONNECT_PAGINATION_LEFT_CLASSNAME}>
+                      <span className="ui-text-helper-text tabular-nums whitespace-nowrap text-[color:var(--app-tertiary-label)]">
                         Page {currentPage}
                       </span>
-                      <span className="h-1 w-1 rounded-full bg-[color:var(--app-tertiary-label)]" />
-                      <span className="ui-text-helper-text text-[color:var(--app-secondary-label)]">
-                        Per page
-                      </span>
+                      <span className="h-1 w-1 shrink-0 rounded-full bg-[color:var(--app-tertiary-label)]" />
                       <Select
                         value={String(pageSize)}
                         onValueChange={(value) => setPageSize(Number(value))}
@@ -1861,7 +1868,7 @@ export default function ConnectPageClient() {
                         <SelectTrigger
                           size="sm"
                           aria-label="People per page"
-                          className="h-8 min-h-8 w-[74px] rounded-2xl text-[15px] font-medium leading-5"
+                          className={CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME}
                         >
                           <SelectValue />
                         </SelectTrigger>
@@ -1875,7 +1882,7 @@ export default function ConnectPageClient() {
                       </Select>
                     </div>
                     <div
-                      className="flex min-h-9 items-center justify-end gap-2"
+                      className={CONNECT_PAGINATION_RIGHT_CLASSNAME}
                       aria-live="polite"
                     >
                       <Button
