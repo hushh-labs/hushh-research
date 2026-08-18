@@ -10,38 +10,38 @@ import styles from "./HushhIntroGate.module.css";
  * The app's real first screen for the `/one` section, and the ONLY splash
  * trigger in the app — mounted in `app/one/layout.tsx`, one level ABOVE
  * `OneAuthGate` (and therefore above `VaultLockGuard` and every other
- * auth/vault guard). While the intro is playing, `VaultLockGuard` and the
- * rest of the protected app are not rendered at all — not hidden
- * underneath, not mounted in the background, simply not in the tree —
- * so nothing they do (an auth-loading flicker, a vault re-check re-render)
- * can restart, extend, or remove the intro: its own phase timers live here,
- * one level up, entirely untouched by whatever mounts below it once it's
- * done. `VaultLockGuard` only mounts, for the first time, the instant this
- * component's own animation finishes — there is no second trigger anywhere
- * else in the app, and `VaultLockGuard`'s unlock success handler
- * intentionally does nothing: a successful unlock simply lets the guard's
- * own render fall through to `{children}` (the home page), with no splash
- * of any kind.
+ * auth/vault guard).
  *
- * Sequence — a soft splash, not a cinematic logo reveal: a slow mist of
+ * AN OVERLAY, NOT A GATE (this is the load-bearing property — see #5394).
+ *
+ * `{children}` render from the very first frame and the intro paints on
+ * top of them. It used to be the other way round: children were withheld
+ * from the tree until the animation finished, so `VaultLockGuard` did not
+ * mount — and the vault-presence network check did not even START — until
+ * the animation was over. Every millisecond of animation was ADDED to real
+ * boot cost instead of overlapping it. Now the animation and the boot run
+ * at the same time, so the wait is whichever of the two is slower rather
+ * than their sum. Two consequences to preserve when editing this:
+ *
+ * - The overlay must swallow taps while it is opaque, because a live app
+ *   is mounted underneath it. `.root` therefore takes pointer events and
+ *   only releases them once the exit fade begins.
+ * - The whole script is 1,000 ms, and every duration in the companion CSS
+ *   module is tuned to fit inside its own phase. Lengthening one without
+ *   the other desynchronises the fade from the unmount.
+ *
+ * Sequence — a soft splash, not a cinematic logo reveal: a mist of
  * blurred purple/pink/blue drifts up from below the screen through the
- * centre and out past the top (~2.5s, Zomato-referenced motion, an
- * original organic-cloud treatment); the 🤫 mark and the greeting —
- * "Hi, {first name}" and "Welcome to One." shown together, as one group,
- * not staggered — reveal through the still-moving mist; that holds for
- * `GREET_HOLD_MS`; the whole screen then fades gently to reveal whatever's
- * already mounted underneath — and only THEN does `VaultLockGuard` mount
- * for the first time and reveal the vault screen. There is deliberately no
- * separate "Hushh One." beat and no cross-dissolve between two text
- * groups: the greeting is the only text this shows, so it only ever needs
- * one clean reveal. The real signed-in user's first name is already
- * available here via Firebase auth, which resolves before the vault ever
- * does; "Hi there" is only a fallback for the rare case neither a display
- * name nor an email local-part exists. `TOTAL_DURATION_MS` is the sum of
- * every phase below; every CSS transition/animation duration in the
- * stylesheet is paced to match (see that file's own header) so nothing is
- * ever cut off mid-transition by a phase change firing before its
- * predecessor's motion has finished.
+ * centre and out past the top; the 🤫 mark and the greeting — "Hi,
+ * {first name}" and "Welcome to One." shown together, as one group, never
+ * staggered — reveal through the still-moving mist; that holds; the whole
+ * screen then fades to reveal the app that has been booting underneath it
+ * the entire time. There is deliberately no separate "Hushh One." beat and
+ * no cross-dissolve between two text groups: the greeting is the only text
+ * this shows, so it only ever needs one clean reveal. The real signed-in
+ * user's first name is already available here via Firebase auth, which
+ * resolves before the vault ever does; "Hi there" is only a fallback for
+ * the rare case neither a display name nor an email local-part exists.
  *
  * Plays only for a signed-in user who hasn't unlocked their vault yet this
  * login — never for a logged-out visitor, and never again on refresh,
@@ -74,23 +74,34 @@ import styles from "./HushhIntroGate.module.css";
  *   admits the route once auth is settled — so the uid read here is not a
  *   race against auth still loading.
  *
- * Fully skipped under prefers-reduced-motion too — `VaultLockGuard` and
- * `{children}` mount immediately with no overlay at all.
+ * Fully skipped under prefers-reduced-motion too — no overlay at all.
  * ──────────────────────────────────────────────────────────── */
 
 const LAST_UID_KEY = "hushh.one.intro.lastUid.v1";
 
 type Phase = "idle" | "sweep" | "greet" | "exit";
 
-const SWEEP_DELAY_MS = 0;
-const MIST_TO_GREET_MS = 1000;
-const GREET_HOLD_MS = 1500;
-const EXIT_DURATION_MS = 500;
-const EXIT_BUFFER_MS = 80;
+/*
+ * The whole script, in milliseconds: 1,000 exactly — the industry bar for
+ * launch-to-interactive is 500–1,000 (see #5394).
+ *
+ * The mark and the greeting reveal over the still-rising mist rather than
+ * waiting for it to finish, which is why MIST_TO_GREET_MS is 60. That
+ * buys the single hold a real 760 ms rather than splitting it across two
+ * beats, and the mist keeps drifting behind it the whole time.
+ *
+ * Every value here has a partner in HushhIntroGate.module.css sized to
+ * fit inside its phase. Change one, change both.
+ */
+const SWEEP_DELAY_MS = 20;
+const MIST_TO_GREET_MS = 60;
+const GREET_HOLD_MS = 760;
+const EXIT_DURATION_MS = 140;
+const EXIT_BUFFER_MS = 20;
 
-const GREET_AT_MS = SWEEP_DELAY_MS + MIST_TO_GREET_MS;
-const EXIT_AT_MS = GREET_AT_MS + GREET_HOLD_MS;
-const TOTAL_DURATION_MS = EXIT_AT_MS + EXIT_DURATION_MS + EXIT_BUFFER_MS;
+const GREET_AT_MS = SWEEP_DELAY_MS + MIST_TO_GREET_MS; // 80
+const EXIT_AT_MS = GREET_AT_MS + GREET_HOLD_MS; // 840
+const TOTAL_DURATION_MS = EXIT_AT_MS + EXIT_DURATION_MS + EXIT_BUFFER_MS; // 1000
 
 function resolveFirstName(
   displayName?: string | null,
@@ -178,34 +189,44 @@ export function HushhIntroGate({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (introComplete) {
-    return <>{children}</>;
-  }
-
   const firstName = resolveFirstName(user?.displayName, user?.email);
 
+  // `{children}` are ALWAYS in the tree. Auth, the vault-presence check and
+  // every first-screen fetch below run while the intro plays, instead of
+  // queueing behind it — the single change that fixes #5394. The overlay is
+  // painted over the top and removed when its own clock runs out.
   return (
-    <div aria-hidden="true" className={styles.root} data-phase={phase}>
-      <div className={styles.mist}>
-        <div className={`${styles.blob} ${styles.blobPurple}`} />
-        <div className={`${styles.blob} ${styles.blobPink}`} />
-        <div className={`${styles.blob} ${styles.blobBlue}`} />
-      </div>
-      <div className={styles.halo} />
-      <div className={styles.iconWrap}>
-        <span className={styles.icon}>🤫</span>
-      </div>
-      {/* One text group only — both lines share the same reveal, at the
-          same time, no stagger between them (see .module.css: both use
-          the identical transition, same delay). */}
-      <div className={styles.greeting}>
-        <p className={styles.greetingLine}>
-          {firstName ? `Hi, ${firstName}` : "Hi there"}
-        </p>
-        <p className={styles.greetingLine}>
-          Welcome to <span className={styles.greetingAccent}>One.</span>
-        </p>
-      </div>
-    </div>
+    <>
+      {children}
+      {introComplete ? null : (
+        <div
+          aria-hidden="true"
+          className={styles.root}
+          data-phase={phase}
+          data-testid="hushh-intro-gate"
+        >
+          <div className={styles.mist}>
+            <div className={`${styles.blob} ${styles.blobPurple}`} />
+            <div className={`${styles.blob} ${styles.blobPink}`} />
+            <div className={`${styles.blob} ${styles.blobBlue}`} />
+          </div>
+          <div className={styles.halo} />
+          <div className={styles.iconWrap}>
+            <span className={styles.icon}>🤫</span>
+          </div>
+          {/* One text group only — both lines share the same reveal, at
+              the same time, no stagger between them (see .module.css:
+              both use the identical transition, same delay). */}
+          <div className={styles.greeting}>
+            <p className={styles.greetingLine}>
+              {firstName ? `Hi, ${firstName}` : "Hi there"}
+            </p>
+            <p className={styles.greetingLine}>
+              Welcome to <span className={styles.greetingAccent}>One.</span>
+            </p>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
