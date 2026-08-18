@@ -30,7 +30,7 @@ every other personal-agent surface.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -508,9 +508,15 @@ async def _authorize_and_frame_directives(
     for item in raw:
         if not isinstance(item, dict):
             continue
+        # kind is pod-supplied and untrusted; narrow it to the two the type
+        # allows. Anything that is not an explicit "prompt" is treated as an
+        # action (the only other path; a delegate directive renders as a
+        # specialist regardless of kind, so the default never mis-routes it).
+        kind: Literal["action", "prompt"] = "prompt" if item.get("kind") == "prompt" else "action"
+        payload_value = item.get("payload")
         directive = OneTextDirective(
-            kind=str(item.get("kind") or ""),
-            payload=item.get("payload") if isinstance(item.get("payload"), dict) else {},
+            kind=kind,
+            payload=payload_value if isinstance(payload_value, dict) else {},
             delegate_agent_id=item.get("delegateAgentId"),
         )
         # A directive renders as a SPECIALIST card (no ledger) only when it names

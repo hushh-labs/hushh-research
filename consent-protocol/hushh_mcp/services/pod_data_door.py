@@ -195,7 +195,7 @@ def project_location_state(raw: dict[str, Any]) -> dict[str, Any]:
     circles / invites / requests). A field added to the underlying service later,
     at either level, is dropped by omission.
     """
-    empty = {
+    empty: dict[str, Any] = {
         "recipients": [],
         "circles": [],
         "myRecipientKey": None,
