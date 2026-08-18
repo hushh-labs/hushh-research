@@ -370,12 +370,15 @@ def test_connection_accepted_push_puts_the_approver_label_in_the_data_map():
         captured.update(kwargs)
         return 1
 
-    with patch(
-        "hushh_mcp.services.push_notifications.send_user_data_push",
-        _fake_send,
-    ), patch(
-        "hushh_mcp.services.push_notifications._lookup_display_name",
-        return_value="Ankit Sharma",
+    with (
+        patch(
+            "hushh_mcp.services.push_notifications.send_user_data_push",
+            _fake_send,
+        ),
+        patch(
+            "hushh_mcp.services.push_notifications._lookup_display_name",
+            return_value="Ankit Sharma",
+        ),
     ):
         send_connection_accepted_push("requester-1", "approver-1")
 
