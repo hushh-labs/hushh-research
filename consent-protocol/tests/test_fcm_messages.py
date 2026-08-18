@@ -228,6 +228,70 @@ def test_location_notification_name_only_body_reaches_every_platform() -> None:
     assert ios.apns.payload.aps.alert.body == body
 
 
+def test_connection_request_identity_reaches_every_platform() -> None:
+    """The requester's name and the review-sheet link must survive on all three.
+
+    Regression guard for issue #5422. The resolved name used to reach only the
+    banner body, never the FCM ``data`` map -- and the in-app toast reads the data
+    map exclusively, so it rendered "Someone" while the OS banner named the
+    requester correctly. Both halves are asserted per platform, because each one
+    carries the banner differently: web via WebpushNotification, Android via the
+    top-level Notification (no AndroidConfig is built for this type), iOS via
+    aps.alert plus custom_data.
+    """
+    from hushh_mcp.services.push_notifications import (
+        _connection_request_body,
+        _connection_request_link,
+    )
+
+    request_id = "8f14e45f-ceea-467a-9c1d-5b8f0f9a1234"
+    body = _connection_request_body("Rohan Mehta")
+    deep_link = _connection_request_link(request_id)
+    data = {
+        "type": "connection_request",
+        "requester_user_id": "requester-uid",
+        "requester_label": "Rohan Mehta",
+        "request_id": request_id,
+        "request_url": deep_link,
+        "deep_link": deep_link,
+        "notification_tag": "connection-request:addressee-uid",
+    }
+
+    messages = {
+        platform: build_push_message(
+            _MessagingStub,
+            token=f"{platform}-device-id",
+            platform=platform,
+            data=dict(data),
+            title="New connection request",
+            body=body,
+            request_url=deep_link,
+            notification_tag="connection-request:addressee-uid",
+            show_alert=True,
+        )
+        for platform in ("web", "ios", "android")
+    }
+
+    assert body == "Rohan Mehta wants to connect with you on Hussh."
+    assert deep_link == f"/one/consent?tab=pending&requestId={request_id}"
+
+    for platform, message in messages.items():
+        # The field the in-app toast reads, on every platform.
+        assert message.data["requester_label"] == "Rohan Mehta", platform
+        assert message.data["request_id"] == request_id, platform
+        # The banner a person sees on the lock screen.
+        assert message.notification.body == body, platform
+        assert "hushh" not in message.notification.body.lower(), platform
+        assert "Someone" not in message.notification.body, platform
+
+    assert messages["web"].webpush.notification.body == body
+    assert messages["web"].webpush.notification.data == {"url": deep_link}
+    assert messages["ios"].apns.payload.aps.alert.body == body
+    # iOS receives the data map as APNS custom_data, which is what feeds the
+    # Capacitor notificationReceived listener.
+    assert messages["ios"].apns.payload.custom_data["requester_label"] == "Rohan Mehta"
+
+
 def test_sms_emergency_uses_distinct_cross_platform_alert_profile() -> None:
     android_delivery_target = "android-device-id"
     ios_delivery_target = "ios-device-id"

@@ -994,7 +994,7 @@ describe("named Circle flows", () => {
     );
   });
 
-  it("removes a member from a labelled destructive action rather than a bare icon", async () => {
+  it("removes a member from a labelled destructive menu action, behind a labelled overflow trigger", async () => {
     const onRemoveMember = vi.fn(async () => undefined);
     const ownerCircle = {
       ...circle("circle-1", "Meena Family"),
@@ -1019,10 +1019,15 @@ describe("named Circle flows", () => {
     );
 
     const trigger = await screen.findByRole("button", {
-      name: "Remove John Smith from this Circle",
+      name: "Actions for John Smith",
     });
-    expect(trigger).toHaveTextContent("Remove");
-    fireEvent.click(trigger);
+    // Radix opens DropdownMenuTrigger on pointerdown (no PointerEvent in
+    // jsdom) or on Enter/Space keydown — use the keyboard path here.
+    fireEvent.keyDown(trigger, { key: "Enter" });
+
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
+    );
 
     fireEvent.click(
       await screen.findByRole("button", { name: "Remove", hidden: true }),
