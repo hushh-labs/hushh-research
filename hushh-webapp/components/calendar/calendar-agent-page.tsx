@@ -206,7 +206,7 @@ export function CalendarAgentPage({
       className={cn(
         "motion-step-enter",
         isDisconnected &&
-          "min-h-[calc(100vh-220px)] flex flex-col justify-center items-center w-full pb-12 sm:pb-16"
+          "h-[calc(100vh-140px)] min-h-0 overflow-hidden flex flex-col justify-center items-center w-full"
       )}
     >
       <AppPageHeaderRegion
