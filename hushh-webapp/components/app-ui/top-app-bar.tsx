@@ -1442,8 +1442,8 @@ function OnboardingRouteActions() {
           user={user}
           open={vaultUnlockOpen}
           onOpenChange={setVaultUnlockOpen}
-          title="Unlock Vault to Delete Account"
-          description="Unlock your vault to confirm deletion. This is permanent and removes all encrypted records."
+          title="Unlock to delete account"
+          description="This can't be undone — it removes everything you've saved."
           onSuccess={() => {
             setVaultUnlockOpen(false);
             window.setTimeout(() => void requestDeleteAccount(), 300);
