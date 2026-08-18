@@ -423,6 +423,16 @@ export type LocationHubViewModel = {
   /** Share a Circle's invite code from a surface that only knows its id. */
   onShareNamedCircleCodeById: (circleId: string) => Promise<void>;
 
+  /**
+   * Sends a connection request to a co-member of a Circle.
+   *
+   * Being in the same Circle is not being connected, so this is the explicit
+   * ask the roster offers -- answered by the other person, never assumed.
+   */
+  onConnectCircleMember: (
+    circleId: string,
+    memberUserId: string,
+  ) => Promise<void>;
   onRemoveNamedCircleMember: (
     circleId: string,
     memberUserId: string,
@@ -1227,6 +1237,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             onGenerateCode={vm.onGenerateNamedCircleCode}
             onCopyCode={vm.onCopyNamedCircleCode}
             onShareCode={vm.onShareNamedCircleCode}
+            onConnectMember={(circleId, memberUserId) =>
+              vm.onConnectCircleMember(circleId, memberUserId)
+            }
             onShareWithMember={(circleId, recipientUserId) => {
               vm.prepareNamedCircleShare(circleId, recipientUserId);
               openFlow("share");

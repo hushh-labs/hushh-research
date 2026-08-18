@@ -6703,6 +6703,37 @@ export function OneLocationAgentPageContent({
     [vaultOwnerToken],
   );
 
+  const handleConnectCircleMember = useCallback(
+    async (circleId: string, memberUserId: string) => {
+      // Sharing a Circle does not connect two people -- a joiner is paired with
+      // whoever invited them and nobody else -- so this is a real request the
+      // other person answers, exactly like one sent from anywhere else.
+      const idToken = await auth.user?.getIdToken();
+      if (!idToken) {
+        toast.error("Sign in again to send a connection request.");
+        return;
+      }
+      try {
+        await ConnectionsService.sendRequest({
+          idToken,
+          addresseeUserId: memberUserId,
+        });
+        toast.success("Connection request sent.");
+        // Re-read the Circle so the row moves to "Requested" from the server's
+        // answer rather than from an optimistic guess this screen made.
+        await handleLoadNamedCircle(circleId).catch(() => null);
+      } catch (error) {
+        toast.error(
+          oneLocationErrorMessage(
+            error,
+            "Could not send the connection request.",
+          ),
+        );
+      }
+    },
+    [auth.user, handleLoadNamedCircle],
+  );
+
   const handleResolveNamedCircleRecipients = useCallback(
     async (
       circleId: string,
@@ -11495,6 +11526,7 @@ export function OneLocationAgentPageContent({
     onCopyNamedCircleCode: handleCopyNamedCircleCode,
     onShareNamedCircleCode: handleShareNamedCircleCode,
     onShareNamedCircleCodeById: handleShareNamedCircleCodeById,
+    onConnectCircleMember: handleConnectCircleMember,
     onRemoveNamedCircleMember: handleRemoveNamedCircleMember,
 
     onLoadNamedCircleEligibleConnections:

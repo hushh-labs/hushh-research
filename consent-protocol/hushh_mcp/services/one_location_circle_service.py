@@ -373,6 +373,7 @@ class OneLocationCircleService:
     @staticmethod
     def _member_payload(row: dict[str, Any]) -> dict[str, Any]:
         display_name = str(row.get("display_name") or "").strip()
+        relationship = str(row.get("relationship") or "none")
         key_id = str(row.get("key_id") or "").strip()
         public_key_jwk = _json_object(row.get("public_key_jwk"))
         can_receive_location = bool(key_id and public_key_jwk)
@@ -393,6 +394,16 @@ class OneLocationCircleService:
             "keyAlgorithm": str(row.get("algorithm") or "ECDH-P256-AES256-GCM"),
             "keyRegisteredAt": _iso(row.get("key_created_at")),
             "canReceiveLocation": can_receive_location,
+            # Being in the same Circle is not being connected -- a joiner is
+            # paired with whoever invited them and nobody else. Surfacing the
+            # relationship here is what lets the roster offer the introduction
+            # the Circle deliberately does not make by itself.
+            "relationship": relationship,
+            # 'self' and 'connected' have nothing to request; the two pending
+            # states already have a request in flight. Phone verification is
+            # required for the same reason it is everywhere else a connection
+            # can start.
+            "canConnect": (relationship == "none" and bool(row.get("phone_verified"))),
         }
 
     @staticmethod
@@ -580,7 +591,32 @@ class OneLocationCircleService:
                   identity.custom_photo_url, identity.phone_verified,
                   recipient_key.key_id, recipient_key.public_key_jwk,
                   recipient_key.algorithm,
-                  recipient_key.created_at AS key_created_at
+                  recipient_key.created_at AS key_created_at,
+                  CASE
+                    WHEN membership.user_id = :viewer_user_id THEN 'self'
+                    WHEN EXISTS (
+                      SELECT 1
+                      FROM connections c
+                      WHERE c.status = 'active'
+                        AND c.user_a_id = LEAST(:viewer_user_id, membership.user_id)
+                        AND c.user_b_id = GREATEST(:viewer_user_id, membership.user_id)
+                    ) THEN 'connected'
+                    WHEN EXISTS (
+                      SELECT 1
+                      FROM connection_requests cr
+                      WHERE cr.status = 'pending'
+                        AND cr.requester_user_id = :viewer_user_id
+                        AND cr.addressee_user_id = membership.user_id
+                    ) THEN 'pending_outgoing'
+                    WHEN EXISTS (
+                      SELECT 1
+                      FROM connection_requests cr
+                      WHERE cr.status = 'pending'
+                        AND cr.requester_user_id = membership.user_id
+                        AND cr.addressee_user_id = :viewer_user_id
+                    ) THEN 'pending_incoming'
+                    ELSE 'none'
+                  END AS relationship
                 FROM one_location_circle_memberships membership
                 LEFT JOIN actor_identity_cache identity
                   ON identity.user_id = membership.user_id
@@ -600,7 +636,7 @@ class OneLocationCircleService:
                   CASE membership.role WHEN 'owner' THEN 0 ELSE 1 END,
                   COALESCE(identity.display_name, membership.user_id)
                 """,
-                {"circle_id": cleaned_circle_id},
+                {"circle_id": cleaned_circle_id, "viewer_user_id": user_id},
             )
             circle = self._circle_summary(dict(summary_row))
             circle["members"] = [self._member_payload(row) for row in (members_result.data or [])]
