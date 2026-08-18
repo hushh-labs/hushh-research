@@ -40,47 +40,11 @@ import {
 import {
   Pagination,
   PaginationContent,
-  PaginationEllipsis,
   PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
 } from "@/components/ui/pagination";
 import { Search } from "lucide-react";
 import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
 import { cn } from "@/lib/utils";
-
-function buildPaginationItems(
-  currentPage: number,
-  pageCount: number,
-): Array<number | "ellipsis"> {
-  if (pageCount <= 7) {
-    return Array.from({ length: pageCount }, (_, index) => index + 1);
-  }
-  if (currentPage <= 4) {
-    return [1, 2, 3, 4, 5, "ellipsis", pageCount];
-  }
-  if (currentPage >= pageCount - 3) {
-    return [
-      1,
-      "ellipsis",
-      pageCount - 4,
-      pageCount - 3,
-      pageCount - 2,
-      pageCount - 1,
-      pageCount,
-    ];
-  }
-  return [
-    1,
-    "ellipsis",
-    currentPage - 1,
-    currentPage,
-    currentPage + 1,
-    "ellipsis",
-    pageCount,
-  ];
-}
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
@@ -219,11 +183,6 @@ export function DataTable<TData, TValue>({
   const pageCount = table.getPageCount();
   const currentPage = pageCount === 0 ? 0 : pageIndex + 1;
   const hasMultiplePages = pageCount > 1;
-
-  const paginationItems = React.useMemo(
-    () => buildPaginationItems(currentPage, pageCount),
-    [currentPage, pageCount],
-  );
 
   const compact = density === "compact";
   const resolvedTableShellClassName = cn("w-full", tableContainerClassName);
@@ -430,59 +389,68 @@ export function DataTable<TData, TValue>({
       </div>
 
       {hasMultiplePages && (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 pt-2 text-xs text-muted-foreground">
+          {/* Row 1: Rows selector (left) + Range indicator (right) */}
           <div
             aria-live="polite"
             aria-atomic="true"
-            className="flex w-full flex-nowrap items-center justify-between gap-3 text-xs text-muted-foreground sm:text-sm"
+            className="flex w-full items-center justify-between gap-3"
             data-slot="data-table-range-controls"
           >
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 min-w-[64px] justify-between px-2 text-xs sm:min-w-[80px] sm:px-3 sm:text-sm"
-                  data-no-route-swipe
-                  aria-label="Rows per page"
-                >
-                  {table.getState().pagination.pageSize}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                {normalizedPageSizeOptions.map((size) => (
-                  <DropdownMenuItem
-                    key={size}
-                    onSelect={() => table.setPageSize(size)}
-                    className="cursor-pointer"
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Rows</span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 min-w-[48px] justify-center text-center px-2 text-xs font-medium"
+                    data-no-route-swipe
+                    aria-label="Rows per page"
                   >
-                    {size}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <span className="whitespace-nowrap text-right">
-              Showing {rangeStart}-{rangeEnd} of {filteredCount}
+                    {table.getState().pagination.pageSize}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {normalizedPageSizeOptions.map((size) => (
+                    <DropdownMenuItem
+                      key={size}
+                      onSelect={() => table.setPageSize(size)}
+                      className="cursor-pointer text-xs"
+                    >
+                      {size}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            <span className="whitespace-nowrap text-xs text-muted-foreground">
+              Showing {rangeStart}–{rangeEnd} of {filteredCount}
             </span>
           </div>
 
+          {/* Row 2: Page X of Y (left) + Compact Pagination < [ 2 ] > (right) */}
           <div
-            className="flex w-full flex-nowrap items-center justify-between gap-3"
+            className="flex w-full items-center justify-between gap-3"
             data-slot="data-table-page-controls"
           >
+            <span className="whitespace-nowrap text-xs text-muted-foreground">
+              Page {currentPage} of {pageCount}
+            </span>
             <Pagination className="mx-0 w-auto justify-end">
               <PaginationContent
                 data-no-route-swipe
-                className="flex-wrap gap-y-1"
+                className="flex-nowrap items-center gap-1"
               >
                 <PaginationItem>
-                  <PaginationPrevious
-                    href="#"
-                    aria-disabled={!table.getCanPreviousPage()}
-                    tabIndex={!table.getCanPreviousPage() ? -1 : undefined}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!table.getCanPreviousPage()}
                     className={cn(
+                      "h-7 w-7 p-0 text-xs text-muted-foreground hover:text-foreground",
                       !table.getCanPreviousPage() &&
-                        "pointer-events-none opacity-50",
+                        "pointer-events-none opacity-40",
                     )}
                     onClick={(event) => {
                       event.preventDefault();
@@ -490,44 +458,25 @@ export function DataTable<TData, TValue>({
                         table.previousPage();
                       }
                     }}
-                  />
+                    aria-label="Previous page"
+                  >
+                    ‹
+                  </Button>
                 </PaginationItem>
-                {paginationItems.map((item, index) =>
-                  item === "ellipsis" ? (
-                    <PaginationItem
-                      key={`ellipsis-${index}`}
-                      className="hidden sm:flex"
-                    >
-                      <PaginationEllipsis />
-                    </PaginationItem>
-                  ) : (
-                    <PaginationItem
-                      key={item}
-                      className={
-                        item === currentPage ? undefined : "hidden sm:flex"
-                      }
-                    >
-                      <PaginationLink
-                        href="#"
-                        isActive={item === currentPage}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          table.setPageIndex(item - 1);
-                        }}
-                      >
-                        {item}
-                      </PaginationLink>
-                    </PaginationItem>
-                  ),
-                )}
                 <PaginationItem>
-                  <PaginationNext
-                    href="#"
-                    aria-disabled={!table.getCanNextPage()}
-                    tabIndex={!table.getCanNextPage() ? -1 : undefined}
+                  <span className="flex h-7 min-w-[28px] items-center justify-center rounded-md bg-secondary px-2 text-xs font-semibold text-secondary-foreground">
+                    {currentPage}
+                  </span>
+                </PaginationItem>
+                <PaginationItem>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!table.getCanNextPage()}
                     className={cn(
+                      "h-7 w-7 p-0 text-xs text-muted-foreground hover:text-foreground",
                       !table.getCanNextPage() &&
-                        "pointer-events-none opacity-50",
+                        "pointer-events-none opacity-40",
                     )}
                     onClick={(event) => {
                       event.preventDefault();
@@ -535,13 +484,13 @@ export function DataTable<TData, TValue>({
                         table.nextPage();
                       }
                     }}
-                  />
+                    aria-label="Next page"
+                  >
+                    ›
+                  </Button>
                 </PaginationItem>
               </PaginationContent>
             </Pagination>
-            <span className="whitespace-nowrap text-right text-xs text-muted-foreground sm:text-sm">
-              Page {currentPage} of {pageCount}
-            </span>
           </div>
         </div>
       )}
