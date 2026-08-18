@@ -429,7 +429,7 @@ function AgentStatusBadge({
         aria-hidden
         data-testid={`one-agent-badge-${agentId}`}
         data-agent-badge-kind="live"
-        className="absolute -right-1 -top-1 z-20 flex h-4 items-center whitespace-nowrap rounded-full bg-[color:var(--app-accent)] px-[6px] text-[9px] font-semibold leading-none text-white ring-2 ring-background"
+        className="absolute -right-1 -top-1 z-20 flex h-[18px] items-center whitespace-nowrap rounded-full bg-[color:var(--app-accent)] px-[6px] text-[11px] font-semibold leading-none text-white ring-2 ring-background"
       >
         Live
       </span>
@@ -440,7 +440,7 @@ function AgentStatusBadge({
       aria-hidden
       data-testid={`one-agent-badge-${agentId}`}
       data-agent-badge-kind="count"
-      className="absolute -right-1 -top-1 z-20 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#FF9500] px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-background"
+      className="absolute -right-1 -top-1 z-20 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#FF9500] px-1 text-[11px] font-semibold leading-none text-white ring-2 ring-background"
     >
       {badge.value}
     </span>
