@@ -263,6 +263,23 @@ async def run_pod_turn(
         # the same reason `/health` stopped reporting a hand-written roster.
         "grounded": bool(grounding),
         "directiveCount": len(directives),
+        # The directive PAYLOADS, not just their count -- this is what lets an
+        # in-pod Agent One drive the app (navigate, render an action card, launch
+        # a Debate via analysis.start). The pod PROPOSES only: it mints no
+        # directive id, no receipt, no grant. The hub relay is the sole authority
+        # that re-validates each action against the gateway, supersedes the prior
+        # directive, and issues a single-use ledger entry before any card renders
+        # -- so a directive here can never assert authority the pod does not hold.
+        # Emitted unconditionally because it is inert until the relay's
+        # POD_DIRECTIVE_TRANSPORT flag processes it; an older relay ignores it.
+        "directives": [
+            {
+                "kind": getattr(d, "kind", ""),
+                "payload": getattr(d, "payload", {}) or {},
+                "delegateAgentId": getattr(d, "delegate_agent_id", None),
+            }
+            for d in directives
+        ],
         # Whose model answered. Stated, because "your AI" is a product promise and a
         # cost boundary, not an implementation detail.
         "runtimeMode": runtime_mode,

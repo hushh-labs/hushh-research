@@ -393,6 +393,23 @@ def personal_agent_enabled() -> bool:
     return _bool_from_value(_clean_env("PERSONAL_AGENT_ENABLED"), default=False)
 
 
+def pod_directive_transport_enabled() -> bool:
+    """Let the hub relay authorize and return an in-pod agent's directives.
+
+    OFF by default. When off, the relay forwards the pod's text answer and
+    ignores the ``directives`` the pod now always includes -- today's behaviour,
+    exactly. When on, the relay supersedes the prior directive, re-validates each
+    action against the gateway, issues a single-use ledger entry, and returns the
+    resulting frames so the browser can render the card or launch the Debate.
+
+    The switch is on the RELAY, not the pod, deliberately: the pod only ever
+    PROPOSES intent (inert without an authorizer), and authorization is a hub
+    responsibility because the ledger is DB-backed and the pod holds no database
+    credential. Flipping this off is an instant, total rollback of app-driving
+    from a pod turn."""
+    return _bool_from_value(_clean_env("POD_DIRECTIVE_TRANSPORT_ENABLED"), default=False)
+
+
 def pod_lifecycle_log_enabled() -> bool:
     """Append provisioning narrative to ``pod_lifecycle_events`` (migration 907).
 

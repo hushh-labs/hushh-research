@@ -386,7 +386,127 @@ async def relay_pod_turn(
         # The pod's own refusal, forwarded with its shape intact. A pod that says
         # "connect an AI key first" (400) must not reach the person as a 500.
         raise HTTPException(status_code=status, detail=answer)
+
+    # THE AUTHORITY HOP. The pod PROPOSED directives (intent, no id, no grant);
+    # here -- and only here, on the DB-capable hub, for the authenticated owner --
+    # they are superseded, re-validated, ledger-issued, and translated to the same
+    # frames the hub chat route emits. Flag-gated: off, the pod's directives are
+    # ignored exactly as today; on, the browser can act on them.
+    from hushh_mcp.runtime_settings import pod_directive_transport_enabled  # noqa: PLC0415
+
+    if pod_directive_transport_enabled() and isinstance(answer, dict):
+        answer = {
+            **answer,
+            "frames": await _authorize_and_frame_directives(
+                user_id=user_id,
+                conversation_id=payload.conversation_id,
+                answer=answer,
+            ),
+        }
     return {"hushhId": hushh_id, **(answer if isinstance(answer, dict) else {"pod": answer})}
+
+
+async def _authorize_and_frame_directives(
+    *, user_id: str, conversation_id: Optional[str], answer: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Authorize the pod's PROPOSED directives into browser-ready SSE frames.
+
+    The security spine of pod directive transport. A pod cannot reach this code;
+    only the relay can, and only for the authenticated owner. For each directive
+    the pod proposed:
+
+      * prior proposals for this conversation are superseded first (the
+        server-side disarm the hub performs and the relay lacked until now -- a
+        pod directive used to linger to its TTL);
+      * an ``action`` directive is re-validated against the gateway (an unknown
+        id yields no card), issued as a SINGLE-USE ledger entry with
+        ``trusted_activation_required=True`` forced on (no direct-execute bypass),
+        capped at one per turn;
+      * a delegate/prompt directive carries no ledger entry -- it is a screen
+        hint the owner's own session acts on.
+
+    A directive therefore grants nothing the pod did not already have: the pod's
+    only standing grant is ``pkm.read``, which actions never consult, and every
+    action still executes only through the vault-owner-token-gated
+    confirm/consume/settle path the pod cannot touch. A failed issue drops the
+    CARD, never the answer -- the owner's model already billed for the turn. Logs
+    carry ``action_id`` and outcome only, never slots or payload (slots can be
+    holdings-derived).
+    """
+    from hushh_mcp.one_adk.text_runtime import OneTextDirective  # noqa: PLC0415
+    from hushh_mcp.services.action_directive_ledger import (  # noqa: PLC0415
+        get_action_directive_store,
+    )
+    from hushh_mcp.services.action_gateway import get_action_gateway_action  # noqa: PLC0415
+    from hushh_mcp.services.one_directive_frames import one_directive_frames  # noqa: PLC0415
+
+    raw = answer.get("directives")
+    if not isinstance(raw, list) or not raw:
+        return []
+    text = str(answer.get("text") or "")
+    store = get_action_directive_store()
+
+    if conversation_id:
+        try:
+            await store.cancel_open_for_conversation(
+                user_id=user_id, conversation_id=conversation_id
+            )
+        except Exception:  # noqa: BLE001 - a failed supersede must not drop the answer
+            logger.warning("pod_relay.directive_cancel_open_failed")
+
+    frames: list[tuple[str, dict[str, Any]]] = []
+    action_issued = False
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        directive = OneTextDirective(
+            kind=str(item.get("kind") or ""),
+            payload=item.get("payload") if isinstance(item.get("payload"), dict) else {},
+            delegate_agent_id=item.get("delegateAgentId"),
+        )
+        if directive.delegate_agent_id or directive.kind != "action":
+            frames.extend(one_directive_frames(directive, conversation_text=text))
+            continue
+        if action_issued:
+            continue  # one action directive per turn, mirroring the hub cap
+        action_id = str(directive.payload.get("actionId") or "").strip()
+        action = get_action_gateway_action(action_id)
+        if action is None or not conversation_id:
+            logger.info(
+                "pod_relay.directive_dropped action_id=%s outcome=unknown_action", action_id
+            )
+            continue
+        try:
+            issued = await store.issue(
+                user_id=user_id,
+                channel="typed_chat",
+                conversation_id=conversation_id,
+                action_id=action_id,
+                context_revision=f"conversation:{conversation_id}",
+                action_contract=action,
+                slots=directive.payload.get("slots")
+                if isinstance(directive.payload.get("slots"), dict)
+                else {},
+                trusted_activation_required=True,
+            )
+        except Exception:  # noqa: BLE001 - a failed issue drops the CARD, never the answer
+            logger.warning(
+                "pod_relay.directive_issue_failed action_id=%s outcome=dropped", action_id
+            )
+            continue
+        action_issued = True
+        frames.extend(
+            one_directive_frames(
+                directive,
+                conversation_text=text,
+                directive_id=issued.directive_id,
+                conversation_id=conversation_id,
+                context_revision=issued.context_revision,
+                expires_at=issued.expires_at.isoformat(),
+            )
+        )
+        logger.info("pod_relay.directive_issued action_id=%s outcome=issued", action_id)
+    return [{"event": name, "data": data} for name, data in frames]
 
 
 @router.post("/{hushh_id}/turn")

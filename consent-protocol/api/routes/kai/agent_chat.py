@@ -7,7 +7,6 @@ import json
 import logging
 import time
 from typing import Any, Literal, Optional
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -31,12 +30,17 @@ from hushh_mcp.services.agent_chat_service import (
     PreparedAgentChatTurn,
     get_agent_chat_service,
 )
+from hushh_mcp.services.one_directive_frames import (
+    EXCLUDED_AGENT_CHAT_SPECIALISTS as _EXCLUDED_AGENT_CHAT_SPECIALISTS,
+)
+from hushh_mcp.services.one_directive_frames import (
+    one_directive_frames as _one_directive_frames,
+)
 from hushh_mcp.services.pkm_grounding_service import resolve_grounding
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Agent Chat"])
-_EXCLUDED_AGENT_CHAT_SPECIALISTS = frozenset({"agent_personal_information"})
 
 
 class DelegateResultModel(BaseModel):
@@ -223,81 +227,6 @@ def _frontend_tool_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
     if str(payload.get("kind") or "") != "frontend_tool":
         return None
     return {key: value for key, value in payload.items() if key != "kind"}
-
-
-def _one_directive_frames(
-    directive: OneTextDirective,
-    *,
-    conversation_text: str,
-    directive_id: str | None = None,
-    conversation_id: str | None = None,
-    context_revision: str | None = None,
-    expires_at: str | None = None,
-) -> list[tuple[str, dict[str, Any]]]:
-    """Translate One's canonical directive into the existing chat SSE frames."""
-    if (
-        directive.delegate_agent_id
-        and directive.delegate_agent_id not in _EXCLUDED_AGENT_CHAT_SPECIALISTS
-    ):
-        return [
-            (
-                "specialist_directive",
-                {
-                    "delegate_agent_id": directive.delegate_agent_id,
-                    "directive": {
-                        "kind": directive.kind,
-                        "payload": directive.payload,
-                    },
-                    "message": conversation_text,
-                    "state_changed": False,
-                },
-            )
-        ]
-
-    if directive.kind != "action":
-        return []
-    action_id = str(directive.payload.get("actionId") or "").strip()
-    action = get_action_gateway_action(action_id)
-    if action is None:
-        return []
-    label = str(action.get("label") or action_id).strip()
-    receipt = conversation_text.strip() or f"{label} in the app."
-    payload: dict[str, Any] = {
-        "call_id": directive_id or f"one_text_{uuid4().hex}",
-        "action_id": action_id,
-        "label": label,
-        "execution": "frontend",
-        "slots": directive.payload.get("slots")
-        if isinstance(directive.payload.get("slots"), dict)
-        else {},
-        "message": receipt,
-        "execution_policy": str(
-            (action.get("risk") or {}).get("execution_policy") or "allow_direct"
-        ),
-        "requires_confirmation": True,
-        "trusted_activation_required": bool(
-            directive.payload.get("trustedActivationRequired") is True
-            or action.get("activation_policy") == "trusted_activation_required"
-        ),
-    }
-    if directive_id is not None:
-        payload["directive_id"] = directive_id
-    if conversation_id is not None:
-        payload["conversation_id"] = conversation_id
-    if context_revision is not None:
-        payload["context_revision"] = context_revision
-    if expires_at is not None:
-        payload["expires_at"] = expires_at
-    return [
-        ("tool_start", payload),
-        (
-            "tool_waiting",
-            {
-                **payload,
-                "status": "waiting_for_frontend",
-            },
-        ),
-    ]
 
 
 def _event(event: str, data: dict[str, Any]) -> str:
