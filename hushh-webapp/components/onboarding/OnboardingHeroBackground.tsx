@@ -24,7 +24,15 @@ const MOTES = Array.from({ length: 5 }, (_, i) => {
   };
 });
 
-export function OnboardingHeroBackground() {
+// `motes` defaults to true so every existing caller (the welcome route "/" and
+// /register-phone) keeps exactly the background it has today. Sign-in opts out:
+// five accent-blue specks drifting behind a sign-in form read as dirt on the
+// screen, not as atmosphere.
+export function OnboardingHeroBackground({
+  motes = true,
+}: {
+  motes?: boolean;
+} = {}) {
   return (
     <div
       aria-hidden
@@ -36,25 +44,27 @@ export function OnboardingHeroBackground() {
 
       {/* Drifting motes are the only movement: they preserve calm and avoid
           colour shifts behind the brand, content, and navigation. */}
-      <div className={styles.moteLayer}>
-        {MOTES.map((p, i) => (
-          <span
-            key={i}
-            className={styles.mote}
-            style={
-              {
-                left: p.left,
-                top: p.top,
-                width: p.size,
-                height: p.size,
-                ["--m-dur" as string]: p.dur,
-                ["--m-delay" as string]: p.delay,
-                ["--m-opacity" as string]: String(p.opacity),
-              } as CSSProperties
-            }
-          />
-        ))}
-      </div>
+      {motes ? (
+        <div className={styles.moteLayer}>
+          {MOTES.map((p, i) => (
+            <span
+              key={i}
+              className={styles.mote}
+              style={
+                {
+                  left: p.left,
+                  top: p.top,
+                  width: p.size,
+                  height: p.size,
+                  ["--m-dur" as string]: p.dur,
+                  ["--m-delay" as string]: p.delay,
+                  ["--m-opacity" as string]: String(p.opacity),
+                } as CSSProperties
+              }
+            />
+          ))}
+        </div>
+      ) : null}
 
       {/* Fine film grain across the whole canvas so it never looks flat. */}
       <div className={styles.grain} />

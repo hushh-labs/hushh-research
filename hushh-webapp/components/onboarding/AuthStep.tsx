@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Shield } from "lucide-react";
+import { ArrowLeft, Lock, Shield } from "lucide-react";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -48,17 +48,40 @@ const AUTH_CANCEL_CODES = new Set([
   "auth/user-cancelled",
 ]);
 
-// Provider-button treatments MATCH the theme (light surfaces in light mode,
-// dark surfaces in dark mode) so the sheet reads as one coherent material:
-// Apple/Google are white cards with ink text on the light sheet, and deep
-// charcoal cards with light text on the dark sheet. Reviewer stays a quiet
-// outlined tertiary in both themes.
+// One first choice, one quiet alternative: Apple is a solid black card, Google
+// a white card with a hairline edge, in BOTH themes so the pair never swaps
+// rank on a dark sheet. Reviewer stays an outlined tertiary.
+//
+// Three sizing rules this file learned the hard way:
+//  * `size="lg"` sets BOTH h-[50px] and min-h-[50px] (components/ui/button.tsx)
+//    and tailwind-merge treats them as separate groups, so a height override
+//    must set both or the control silently keeps the other value.
+//  * `rounded-full` is applied three times up the stack; only a later
+//    `rounded-*` replaces it.
+//  * `.ui-text-button-label` (globals.css) forces `opacity: 1 !important`, so
+//    the primitive's `disabled:opacity-50` never paints here. The busy state
+//    has to be a solid colour swap, or a disabled button still looks tappable.
+const SHARED_PROVIDER_BTN_CLASS =
+  "h-[56px] min-h-[56px] rounded-[18px] shadow-none";
+const APPLE_BTN_EDGE = "border border-transparent dark:border-white/15";
+const GOOGLE_BTN_EDGE = "border border-black/10 dark:border-white/15";
+
+// Idle and busy are two whole treatments, never a base plus a `disabled:`
+// override. Measured in Chromium: a `disabled:!bg-*` utility loses the cascade
+// to the plain `!bg-*` it is meant to replace, so the button stayed fully
+// black while sign-in was in flight — a dead control that still looked
+// tappable. Swapping the entire class string means only one background rule
+// is ever in the list.
 const APPLE_BTN_CLASS =
-  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
+  `${SHARED_PROVIDER_BTN_CLASS} ${APPLE_BTN_EDGE} !bg-black !text-white hover:!bg-[#141414] hover:text-white dark:!bg-black dark:!text-white dark:hover:!bg-[#141414]`;
+const APPLE_BTN_BUSY_CLASS =
+  `${SHARED_PROVIDER_BTN_CLASS} ${APPLE_BTN_EDGE} !bg-[#8a8a8e] !text-white dark:!bg-[#3a3a3c] dark:!text-white/70`;
 const GOOGLE_BTN_CLASS =
-  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
+  `${SHARED_PROVIDER_BTN_CLASS} ${GOOGLE_BTN_EDGE} !bg-white !text-[#1d1d1f] hover:!bg-[#f5f5f7] hover:text-[#1d1d1f] dark:!bg-white dark:!text-[#1d1d1f] dark:hover:!bg-[#f5f5f7]`;
+const GOOGLE_BTN_BUSY_CLASS =
+  `${SHARED_PROVIDER_BTN_CLASS} ${GOOGLE_BTN_EDGE} !bg-[#e5e5ea] !text-[#6e6e73] dark:!bg-[#2c2c2e] dark:!text-white/50`;
 const REVIEWER_BTN_CLASS =
-  "!bg-transparent !text-[#6b6b70] border border-black/10 shadow-none hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]";
+  `${SHARED_PROVIDER_BTN_CLASS} !bg-transparent !text-[#6b6b70] border border-black/10 hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]`;
 
 type AuthProviderId = "google" | "apple";
 type ProviderAttemptPhase =
@@ -997,15 +1020,22 @@ export function AuthStep({
       // parser requires escaped whitespace around the minus sign
       // ("100dvh_-_var(...)"); without it the whole declaration is invalid
       // CSS and silently dropped, which is what happened here before.
+      //
+      // min-height, NOT height. A fixed height plus overflow-hidden does not
+      // scroll when the content outgrows it — it silently CUTS the content,
+      // with no scrollbar and no error. At 200% text the bottom reservation
+      // doubles too (it is measured in rem), and the mark and title were being
+      // clipped off the top edge. With a minimum, the block still fills exactly
+      // one viewport at normal size (measured: 0px of scroll at 320-430 wide)
+      // and grows into the scroll root only when the text genuinely needs it.
       className="relative w-full overflow-hidden"
       style={{
-        height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
-        minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
+        minHeight: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
       }}
       data-testid="auth-step-primary"
     >
       {/* Shared immersive gradient backdrop (welcome / login / carousel). */}
-      <OnboardingHeroBackground />
+      <OnboardingHeroBackground motes={false} />
       <NativeTestBeacon
         routeId="/login"
         marker="native-route-login"
@@ -1046,8 +1076,7 @@ export function AuthStep({
       <div
         className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center"
         style={{
-          height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
-          minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
+          minHeight: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
         }}
         data-auth-content-block
       >
@@ -1060,25 +1089,43 @@ export function AuthStep({
           data-auth-signin-clusters
         >
           <div className="flex flex-col items-center gap-4">
-            {/* Quiet mark: the bare 🤫 over a soft accent glow, no medallion
-                chrome (badge circle removed by design). */}
+            {/* The One mark. The glyph is the logo, so it is never restyled;
+                only the geometry around it shrank — a 64px box and a 72px halo
+                instead of a 92px box under a 112px blur that washed the whole
+                top of the screen blue. The drop-shadow went with it: at 25%
+                black it read as a smudge on the #f2f2f7 canvas. */}
             <div
-              className="relative flex h-[92px] w-[92px] items-center justify-center"
+              className="relative flex h-[64px] w-[64px] items-center justify-center"
               aria-hidden="true"
             >
-              <span className="pointer-events-none absolute h-28 w-28 rounded-full bg-accent/20 blur-2xl" />
-              <span className="relative select-none text-[56px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
+              <span className="pointer-events-none absolute h-[80px] w-[80px] rounded-full bg-accent/[0.18] blur-[24px]" />
+              <span className="relative select-none text-[52px] leading-none">
                 🤫
               </span>
             </div>
-            <h1
-              role="heading"
-              aria-level={1}
-              aria-label="Welcome to One"
-              className="font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
-            >
-              Welcome to One<span style={{ color: "var(--app-accent)" }}>.</span>
-            </h1>
+            {/* Title and its one supporting line are a tight pair (gap-1.5);
+                the 16px rhythm belongs between the mark and this pair. The
+                line is a SIBLING of the h1, never a child, because the smoke
+                test matches the heading by accessible name.
+
+                The h1 sets no size, line-height or weight on purpose: the base
+                `h1` rule in globals.css locks all three with !important
+                (28px / 700 at 390px wide), so a Tailwind size class here
+                paints nothing and only misleads the next reader. Tracking is
+                the one property that rule leaves overridable. */}
+            <div className="flex flex-col items-center gap-1.5">
+              <h1
+                role="heading"
+                aria-level={1}
+                aria-label="Welcome to One"
+                className="font-[family-name:var(--font-app-display)] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
+              >
+                Welcome to One
+              </h1>
+              <p className="type-callout text-[color:var(--app-secondary-label)]">
+                Sign in to continue.
+              </p>
+            </div>
           </div>
 
           {/* Buttons sit directly on the shared hero background (no card/sheet
@@ -1109,7 +1156,13 @@ export function AuthStep({
                   disabled={providerBusy}
                   voiceControlId={`auth_${option.id}`}
                   className={cn(
-                    option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS,
+                    option.id === "apple"
+                      ? providerBusy
+                        ? APPLE_BTN_BUSY_CLASS
+                        : APPLE_BTN_CLASS
+                      : providerBusy
+                        ? GOOGLE_BTN_BUSY_CLASS
+                        : GOOGLE_BTN_CLASS,
                   )}
                 />
               ))}
@@ -1126,19 +1179,26 @@ export function AuthStep({
             </div>
 
             <div className="flex flex-col items-center gap-3" data-auth-supporting-content>
-              {/* Consent-first reassurance chip. */}
-              <div className="flex w-fit items-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1.5 dark:bg-white/[0.06]">
+              {/* Reassurance, not a control. The blue pill read as a tappable
+                  filter, and accent-blue body text on the #f2f2f7 canvas sits
+                  under the 4.5:1 contrast floor — so the words moved to the
+                  secondary label colour and only the lock stays accent.
+                  Both this line and the legal line below use
+                  --app-secondary-label: the tertiary grey measures 2.9:1 on
+                  this canvas, which fails AA. Hierarchy is carried by size
+                  (15px here, 13px below), not by an unreadable grey. */}
+              <div className="flex items-center gap-1.5">
                 <Icon
-                  icon={Shield}
+                  icon={Lock}
                   size="sm"
-                  className="text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]"
+                  className="text-[color:var(--app-accent-deep)]"
                 />
-                <span className="type-footnote text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]">
+                <span className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
                   You choose what One can see.
                 </span>
               </div>
 
-              <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[#86868b] dark:text-white/70">
+              <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[color:var(--app-secondary-label)]">
                 By continuing you agree to our{" "}
                 <button
                   type="button"
@@ -1176,7 +1236,7 @@ export function AuthStep({
 
 function GoogleIcon() {
   return (
-    <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden>
+    <svg className="size-5" viewBox="0 0 24 24" aria-hidden>
       <title>Google</title>
       <path
         fill="#4285F4"
@@ -1201,7 +1261,7 @@ function GoogleIcon() {
 function AppleIcon() {
   return (
     <svg
-      className="h-5 w-5"
+      className="size-5"
       viewBox="0 0 24 24"
       fill="currentColor"
       aria-hidden

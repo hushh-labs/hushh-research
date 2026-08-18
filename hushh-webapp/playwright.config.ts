@@ -56,8 +56,11 @@ export default defineConfig({
       // rail is measured through a canvas, and the sheet it guards is a
       // first-run iOS surface. A colour contract that only ever ran on
       // Chromium proves nothing about the container people actually launch.
+      // `auth-sign-in.layout` is opted in because sign-in is the first screen
+      // every new person sees and the app ships inside an iOS WKWebView: a
+      // Chromium-only pass proves nothing about the container they launch.
       testMatch:
-        /(circle-join-responsive-contract|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|auth-sign-in\.layout|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",
