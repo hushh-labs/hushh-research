@@ -50,7 +50,6 @@ import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
   EmptyState,
   TaskFlowHeader,
-  TrustNoteCard,
 } from "@/components/one-location/redesign/primitives";
 import { MUTED_TEXT } from "@/components/one-location/redesign/tokens";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
@@ -1691,25 +1690,12 @@ export function CircleDetailFlow({
             ))}
           </SettingsGroup>
 
-          <TrustNoteCard
-            title="Connected does not mean visible"
-            description="Live access still needs approval."
-          />
-
-          {circle.isSystem ? (
-            <TrustNoteCard
-              title="This Circle can't be deleted"
-              description="Emergency SMS alerts are sent to these people. You can add or remove anyone at any time."
-            />
-          ) : null}
-
           {/* A system Circle (today: SMS Contacts) is provisioned by the product
               and read by SOS, so deleting it would switch emergency alerts off
               with nothing on screen saying so. Every other owner power stays --
-              rename, invite, remove -- and the note below says why the control
-              is missing rather than leaving a silent gap where it used to be.
-              The API and a database trigger refuse it too; this only keeps the
-              person from being offered something that cannot happen. */}
+              rename, invite, remove. The API and a database trigger refuse the
+              delete too; this only keeps the person from being offered
+              something that cannot happen. */}
           {isOwner && !circle.isSystem ? (
             <AlertDialog>
               <AlertDialogTrigger asChild>
