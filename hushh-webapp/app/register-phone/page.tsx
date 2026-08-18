@@ -358,13 +358,19 @@ export function PhoneMandatePageContent() {
         </div>
 
         {/* Verification is a focused task, not a hero. Keep the heading tight
-            so the active field row can clear the native keyboard. */}
+            so the active field row can clear the native keyboard.
+
+            `phone-mandate-title` (app/globals.css) is a scoped override of the
+            foundation h1 scale: this title sits in a card capped at
+            max-w-[440px] above, so its font may not keep climbing with raw
+            viewport width past that point the way the base h1 rule does —
+            that mismatch is what wrapped "number" onto its own line. */}
         <div className="px-6 pb-3 pt-7 text-center">
           <h1
             role="heading"
             aria-level={1}
             aria-label="Verify your phone number"
-            className="font-[family-name:var(--font-app-display)] text-[28px] font-extrabold leading-[1.1] tracking-[-0.9px] text-[#17130C] dark:text-[#FAF6EE]"
+            className="phone-mandate-title font-[family-name:var(--font-app-display)] text-[#17130C] dark:text-[#FAF6EE]"
           >
             Verify your phone number
           </h1>
