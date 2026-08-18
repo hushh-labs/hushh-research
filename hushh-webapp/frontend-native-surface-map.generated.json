@@ -5798,7 +5798,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/profile/preferences/voice",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fvoice",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/voice",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -5853,7 +5864,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/profile/preferences/voice/changelog",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fvoice%2Fchangelog",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/voice/changelog",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -8649,5 +8671,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "9a3c240dd408c5ee9ecc402a04822b3475da92d0e47ea9533d3bcb696df96cc3"
+  "content_sha256": "3faa66956cc0e58c9048e997025e93391c1d8243f6a6b2491b8a1fc8d10706d6"
 }
