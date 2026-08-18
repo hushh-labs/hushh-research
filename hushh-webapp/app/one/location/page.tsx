@@ -1526,7 +1526,17 @@ function LocalMapPreview({
   return (
     <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
       <div className="relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]">
-        <LiveMap point={point} viewportResetKey={viewportResetKey} />
+        <LiveMap
+          point={point}
+          viewportResetKey={viewportResetKey}
+          // The map's own tiles (JS canvas) or the iframe fallback are each
+          // GPU-composited, and Safari/WebKit doesn't reliably clip a
+          // composited layer to an ancestor two levels up — the square top
+          // corners bled past this card's rounded frame. Rounding the map's
+          // own element (LiveMap forwards className onto whichever DOM node
+          // actually holds the map) clips it where the compositing happens.
+          className="rounded-t-[var(--app-card-radius-standard)]"
+        />
         <div className="pointer-events-none absolute left-3 top-3">
           <span
             className={cn(
