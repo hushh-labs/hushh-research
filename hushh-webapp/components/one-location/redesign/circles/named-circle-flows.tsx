@@ -885,6 +885,7 @@ export function CircleDetailFlow({
   >([]);
   const [remainingCapacity, setRemainingCapacity] = useState(0);
   const [peopleSearch, setPeopleSearch] = useState("");
+  const [memberSearch, setMemberSearch] = useState("");
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<
     Set<string>
   >(() => new Set());
@@ -938,6 +939,7 @@ export function CircleDetailFlow({
     setPeopleSheetOpen(false);
     setPeopleSearch("");
     setSelectedConnectionIds(new Set());
+    setMemberSearch("");
     setSavingName(false);
     peopleRequestRef.current += 1;
     void reload();
@@ -981,6 +983,19 @@ export function CircleDetailFlow({
   const externalMembersCount = useMemo(
     () => members.filter((member) => member.userId !== currentUserId).length,
     [members, currentUserId],
+  );
+
+  // Filters the already-loaded Members list client-side, same as the "Add
+  // people" sheet's connection search — a circle's roster is small enough
+  // that there is no server round trip worth making for this.
+  const filteredMembers = useMemo(
+    () =>
+      filterPeopleByQuery(
+        sortPeopleByName(members, (member) => member.displayName),
+        memberSearch,
+        (member) => member.displayName,
+      ),
+    [members, memberSearch],
   );
 
   const filteredEligibleConnections = useMemo(
@@ -1609,27 +1624,53 @@ export function CircleDetailFlow({
             </SheetContent>
           </Sheet>
 
-          <SettingsGroup
-            title="Members"
-            description="Members connect through this Circle."
-            testId="one-location-circle-members"
-          >
-            {members.map((member) => (
-              <CircleMemberRow
-                key={member.userId}
-                member={member}
-                currentUserId={currentUserId}
-                isOwner={Boolean(isOwner)}
-                busy={busy}
-                onShare={() =>
-                  onShareWithMember(circle.id, member.userId)
-                }
-                onRemove={async () => {
-                  await removeMember(member.userId);
-                }}
-              />
-            ))}
-          </SettingsGroup>
+          <div className="space-y-3">
+            {members.length ? (
+              <label className="relative block">
+                <span className="sr-only">Search members</span>
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={memberSearch}
+                  onChange={(event) => setMemberSearch(event.target.value)}
+                  placeholder="Search members"
+                  autoComplete="off"
+                  className="h-11 w-full rounded-full border border-border bg-[color:var(--app-card-surface-default-solid)] pl-11 pr-4 text-base outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+                  data-testid="one-location-circle-member-search"
+                />
+              </label>
+            ) : null}
+
+            {filteredMembers.length ? (
+              <SettingsGroup
+                title="Members"
+                description="Members connect through this Circle."
+                testId="one-location-circle-members"
+              >
+                {filteredMembers.map((member) => (
+                  <CircleMemberRow
+                    key={member.userId}
+                    member={member}
+                    currentUserId={currentUserId}
+                    isOwner={Boolean(isOwner)}
+                    busy={busy}
+                    onShare={() =>
+                      onShareWithMember(circle.id, member.userId)
+                    }
+                    onRemove={async () => {
+                      await removeMember(member.userId);
+                    }}
+                  />
+                ))}
+              </SettingsGroup>
+            ) : (
+              <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
+                <EmptyState
+                  title="No members found"
+                  description="Try a different name."
+                />
+              </div>
+            )}
+          </div>
 
           <TrustNoteCard
             title="Connected does not mean visible"
