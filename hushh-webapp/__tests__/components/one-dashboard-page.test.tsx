@@ -30,20 +30,6 @@ function buildStatusMap(
   return map;
 }
 
-function countRosterMetrics(
-  container: HTMLElement,
-  value: string,
-  label: string,
-): number {
-  return Array.from(
-    container.querySelectorAll('span[data-ui-role="body-strong"]'),
-  ).filter(
-    (node) =>
-      node.textContent === value &&
-      node.nextElementSibling?.textContent === label,
-  ).length;
-}
-
 describe("OneDashboardPage", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -65,7 +51,8 @@ describe("OneDashboardPage", () => {
 
     // Root onboarding completion is not Finance completion. The resolver's
     // actionable state must still lead to the bounded Finance setup workspace.
-    const financeLink = screen.getByRole("link", { name: "Open Finance" });
+    // The roster shows Finance under its plain label, "Money".
+    const financeLink = screen.getByRole("link", { name: "Open Money" });
     expect(financeLink.getAttribute("href")).toBe(
       buildOneSetupCapabilityRoute("finance"),
     );
@@ -92,12 +79,13 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
     expect(screen.getByTestId("one-agents-list")).toBeTruthy();
     expect(container.textContent).not.toContain("Finish setup");
-    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Your agents" })).toBeTruthy();
 
     // Every dashboard tile enters the same static setup workspace as the hub.
     // A resolved journey is redirected by that workspace to the normal product
     // destination, so direct product routes never bypass first-run setup.
-    const financeLink = screen.getByRole("link", { name: "Open Finance" });
+    // The roster shows Finance under its plain label, "Money".
+    const financeLink = screen.getByRole("link", { name: "Open Money" });
     expect(financeLink.getAttribute("href")).toBe(
       buildOneSetupCapabilityRoute("finance"),
     );
@@ -191,7 +179,8 @@ describe("OneDashboardPage", () => {
       "!text-[color:var(--agent-icon-glyph,#ffffff)]",
     );
     expect(financeIcon.querySelector(".backdrop-blur-\\[8px\\]")).toBeNull();
-    const riaLink = screen.getByRole("link", { name: "Open RIA" });
+    // RIA is shown as "Advisor" — a plain label swap local to this screen.
+    const riaLink = screen.getByRole("link", { name: "Open Advisor" });
     expect(riaLink.getAttribute("href")).toBe(
       buildOneSetupCapabilityRoute("ria"),
     );
@@ -205,32 +194,55 @@ describe("OneDashboardPage", () => {
     expect(
       screen.getByRole("link", { name: "Open Calendar" }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("calendar"));
+    // KYC is shown as "Identity" and CRM as "Customers" — plain labels local
+    // to this screen; the route and every internal id are untouched.
     expect(
-      screen.getByRole("link", { name: "Open KYC" }).getAttribute("href"),
+      screen.getByRole("link", { name: "Open Identity" }).getAttribute("href"),
     ).toBe(ROUTES.ONE_KYC);
     expect(
       screen.getByRole("link", { name: "Open Location" }).getAttribute("href"),
     ).toBe(ROUTES.ONE_LOCATION);
     expect(
-      screen.getByRole("link", { name: "Open CRM" }).getAttribute("href"),
+      screen.getByRole("link", { name: "Open Customers" }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("connected-systems"));
 
-    // The roster shows a concise, numeric action KPI rather than generic
-    // progress words such as Ready, Open, or Explore.
-    expect(countRosterMetrics(container, "0", "actions")).toBe(2);
-    expect(
-      countRosterMetrics(container, "—", "checking"),
-    ).toBeGreaterThan(0);
+    // Zero-value and unresolved ("—") statuses are no longer shown as visible
+    // text at all — an agent with nothing pending shows no status line and no
+    // badge. Only genuine pending work earns a small badge on its icon.
+    expect(screen.queryByText("0 actions")).toBeNull();
+    expect(screen.queryByText("—")).toBeNull();
+    expect(screen.queryByText("checking")).toBeNull();
     expect(screen.queryByText("Ready")).toBeNull();
     expect(screen.queryByText("Explore")).toBeNull();
+    // finance/ria/gmail/calendar/connected-systems each have one action due
+    // in this fixture and surface a badge; location/email are genuinely at
+    // zero, and pkm/consent have no status loaded — none of those four show
+    // a badge.
+    const badgedAgentIds = [
+      "finance",
+      "ria",
+      "gmail",
+      "calendar",
+      "connected-systems",
+    ];
+    for (const id of badgedAgentIds) {
+      expect(screen.getByTestId(`one-agent-badge-${id}`)).toHaveTextContent(
+        "1",
+      );
+    }
+    const quietAgentIds = ["location", "email", "pkm", "consent"];
+    for (const id of quietAgentIds) {
+      expect(screen.queryByTestId(`one-agent-badge-${id}`)).toBeNull();
+    }
     // Gmail and Calendar are first-class setup capabilities; Memory and
     // Consent remain direct workspaces and do not inflate setup progress.
     expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(9);
     expect(
       screen.getByRole("link", { name: "Open Memory" }).getAttribute("href"),
     ).toBe(ROUTES.PKM);
+    // Consent is shown as "Approvals" — a plain label local to this screen.
     expect(
-      screen.getByRole("link", { name: "Open Consent" }).getAttribute("href"),
+      screen.getByRole("link", { name: "Open Approvals" }).getAttribute("href"),
     ).toContain(ROUTES.CONSENTS);
     expect(
       screen.queryByRole("link", { name: "Open Information Marketplace" }),
@@ -256,10 +268,11 @@ describe("OneDashboardPage", () => {
       />,
     );
 
-    // Completed workspace setup is represented as an operational KPI rather
-    // than the generic Ready label.
-    expect(countRosterMetrics(container, "0", "actions")).toBe(7);
-    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
+    // A fully completed setup has nothing pending, so no agent shows a badge.
+    expect(container.querySelectorAll('[data-testid^="one-agent-badge-"]'))
+      .toHaveLength(0);
+    expect(screen.queryByText("0 actions")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Your agents" })).toBeTruthy();
     expect(screen.queryByText("Finish setup")).toBeNull();
   });
 
@@ -267,9 +280,12 @@ describe("OneDashboardPage", () => {
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
     expect(screen.queryAllByText("Checking...")).toHaveLength(0);
     expect(screen.queryByText("Connect Gmail")).toBeNull();
+    // No status has resolved yet, so nothing renders a badge or a "checking"
+    // placeholder — the screen stays quiet until real state arrives.
+    expect(screen.queryByText("checking")).toBeNull();
     expect(
-      countRosterMetrics(document.body, "—", "checking"),
-    ).toBeGreaterThan(0);
+      document.body.querySelectorAll('[data-testid^="one-agent-badge-"]'),
+    ).toHaveLength(0);
   });
 
   it("renders the complete roster as a list first and keeps the grid available", () => {
@@ -280,7 +296,7 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agents-list")).toBeTruthy();
     expect(screen.getByTestId("one-agent-list-row-finance")).toBeTruthy();
     expect(
-      screen.getByRole("link", { name: "Open Finance" }).getAttribute("href"),
+      screen.getByRole("link", { name: "Open Money" }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("finance"));
     expect(screen.getByLabelText("Show agent grid view")).toHaveAttribute(
       "aria-pressed",
