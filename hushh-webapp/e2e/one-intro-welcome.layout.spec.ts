@@ -116,7 +116,7 @@ function welcomeMarkup(): string {
       >
         <main class="shell">
           <div class="stage">
-            <div class="brand"><span class="wordmark" data-wordmark>hussh</span></div>
+            <div class="brand"><span class="wordmark" data-wordmark>hussh</span><span aria-hidden class="quietMark" data-quiet-mark>&#129323;</span></div>
 
             <div class="hero">
               <h1 class="title"><span class="oneMark">One</span></h1>
@@ -237,6 +237,7 @@ for (const phone of PHONES) {
 
       const parts = {
         wordmark: page.locator("[data-wordmark]"),
+        quietMark: page.locator("[data-quiet-mark]"),
         one: page.getByRole("heading", { name: "One" }),
         supporting: page.getByText(
           "Your personal assistant for everyday tasks.",

@@ -33,6 +33,7 @@ import {
 import {
   ADDRESS_LABEL_ROW_CLASSNAME,
   DOOR_DETAILS_TOGGLE_CLASSNAME,
+  OPTIONAL_BADGE_CLASSNAME,
   REQUIRED_BADGE_CLASSNAME,
   SHEET_BODY_CLASSNAME,
   SHEET_DETAILS_SHELL_CLASSNAME,
@@ -1255,19 +1256,23 @@ export function SaveLocationModal({
               </label>
 
               <div className="space-y-3.5">
-                {/* Said once, for the group, instead of an "(optional)" tag
-                    hanging off every label. */}
-                <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
-                  Optional — helps at the door.
-                </p>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <label
-                      htmlFor="saved-location-house-or-flat"
-                      className={controlLabelClassName}
-                    >
-                      House or flat
-                    </label>
+                    {/* A badge on the field itself, the same place Address
+                        carries "Required" -- a box shaped exactly like the
+                        required Address box above it reads as required no
+                        matter what a sentence higher up the screen said. */}
+                    <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
+                      <label
+                        htmlFor="saved-location-house-or-flat"
+                        className={cn(controlLabelClassName, "mb-0")}
+                      >
+                        House or flat
+                      </label>
+                      <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
+                        Optional
+                      </span>
+                    </div>
                     <input
                       id="saved-location-house-or-flat"
                       type="text"
@@ -1283,12 +1288,17 @@ export function SaveLocationModal({
                     />
                   </div>
                   <div>
-                    <label
-                      htmlFor="saved-location-postal-code"
-                      className={controlLabelClassName}
-                    >
-                      PIN / postcode
-                    </label>
+                    <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
+                      <label
+                        htmlFor="saved-location-postal-code"
+                        className={cn(controlLabelClassName, "mb-0")}
+                      >
+                        PIN / postcode
+                      </label>
+                      <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
+                        Optional
+                      </span>
+                    </div>
                     <input
                       id="saved-location-postal-code"
                       type="text"
@@ -1410,13 +1420,15 @@ export function SaveLocationModal({
                 </div>
               </div>
 
-              {/* A caption, not a card. It reassures; it is not a control, and
-                  the panel it used to sit in gave it a control's weight. */}
-              <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
-                {deferredUntilVault
-                  ? "Saves once your lock is set."
-                  : "Private to you."}
-              </p>
+              {/* Only shown pre-vault, where it is new information: the save
+                  is deferred. Once a vault exists the place saves right away,
+                  and "private to you" was already said on the summary pane --
+                  repeating it here answered a question nobody was asking. */}
+              {deferredUntilVault ? (
+                <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
+                  Saves once your lock is set.
+                </p>
+              ) : null}
             </div>
 
             <div className={SHEET_FOOTER_CLASSNAME}>
