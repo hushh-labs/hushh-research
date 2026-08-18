@@ -38,7 +38,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_firebase_auth
 from hushh_mcp.constants import ConsentScope
-from hushh_mcp.runtime_settings import personal_agent_enabled
+from hushh_mcp.runtime_settings import personal_agent_enabled, pod_data_door_enabled
 from hushh_mcp.services.personal_agent_grant_service import PersonalAgentDisabledError
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 from hushh_mcp.services.pod_access_audit import (
@@ -320,6 +320,7 @@ async def relay_pod_turn(
     registry: Optional[PersonalAgentRegistryRepo] = None,
     audit: Optional[PodAccessAuditService] = None,
     grants: Any = None,
+    door_grants: Any = None,
     correlation: Optional[dict[str, str]] = None,
     session: Any = None,
 ) -> dict:
@@ -371,6 +372,31 @@ async def relay_pod_turn(
             status_code=503, detail="could not authorize your agent to read for you"
         ) from exc
 
+    # The data-door grants: standing, owner-visible, revocable scopes that let a
+    # keyless pod READ a DB-backed specialist THROUGH the hub broker. Minted here,
+    # server-side, exactly like the pkm.read grant and never accepted from the
+    # caller. Best-effort by design: unlike pkm.read (no grant, no turn), a
+    # location grant that cannot be minted just means the pod falls back to
+    # runtime_unavailable for location -- today's DB-wall behaviour -- so a mint
+    # failure must degrade the read, never fail the turn. Behind the flag: off,
+    # no grant is couriered and the pod cannot reach the door at all.
+    data_door_grants: dict[str, str] = {}
+    if pod_data_door_enabled():
+        from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
+            PersonalAgentGrantService,
+        )
+
+        door_issuer = (
+            door_grants or PersonalAgentGrantService().issue_or_reuse_standing_location_view
+        )
+        try:
+            location_grant = await door_issuer(user_id)
+            token = str((location_grant or {}).get("token") or "")
+            if token:
+                data_door_grants["location"] = token
+        except Exception as exc:  # noqa: BLE001 - a door mint failure degrades the read, never the turn
+            logger.info("pod_relay.data_door_grant_skipped %s", type(exc).__name__)
+
     body: dict[str, Any] = {
         "message": payload.message,
         "conversationId": payload.conversation_id,
@@ -384,6 +410,9 @@ async def relay_pod_turn(
         # the turn and holds nothing after. Absent stays absent (an older webapp
         # sends none -> today's empty-history behaviour).
         "history": payload.history or [],
+        # The per-specialist scope tokens the pod couriers back to the broker to
+        # read. Empty unless the flag is on and a grant minted.
+        "dataDoorGrants": data_door_grants,
     }
     status, answer = await _proxy_post(
         url,

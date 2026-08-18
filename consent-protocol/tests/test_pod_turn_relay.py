@@ -335,3 +335,60 @@ def test_the_client_surfaces_the_typed_not_ready_state():
     ).read_text(encoding="utf-8")
 
     assert "AGENT_NOT_READY" in api_service
+
+
+# -- the data-door grants (Phase 5) ------------------------------------------------
+# The relay mints standing, owner-visible location-view grants and couriers the
+# scope token to the pod so a keyless pod can READ location through the broker.
+# Best-effort by design: a mint failure degrades the read, never the turn.
+
+
+async def _door_grants(_user_id):
+    return {"token": "standing-location-view", "scope": "cap.location.live.view", "reused": True}
+
+
+async def test_the_door_grant_is_couriered_to_the_pod_when_enabled(monkeypatch):
+    monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: True)
+    pod = _Pod()
+    await _turn(session=pod, door_grants=_door_grants)
+    assert pod.calls[0]["json"]["dataDoorGrants"] == {"location": "standing-location-view"}
+
+
+async def test_no_door_grant_is_couriered_when_the_flag_is_off(monkeypatch):
+    monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: False)
+    pod = _Pod()
+    # A door issuer is provided but must never be consulted while the flag is off.
+    consulted = {"called": False}
+
+    async def _tripwire(_user_id):
+        consulted["called"] = True
+        return {"token": "should-not-be-used"}
+
+    await _turn(session=pod, door_grants=_tripwire)
+    assert pod.calls[0]["json"]["dataDoorGrants"] == {}
+    assert consulted["called"] is False
+
+
+async def test_a_door_mint_failure_degrades_the_read_not_the_turn(monkeypatch):
+    monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: True)
+    pod = _Pod()
+
+    async def _broken(_user_id):
+        raise RuntimeError("consent DB down")
+
+    # The turn still completes and returns the pod's answer; only the door grant
+    # is dropped, so location falls back to today's runtime_unavailable.
+    result = await _turn(session=pod, door_grants=_broken)
+    assert result["text"] == "hello"
+    assert pod.calls[0]["json"]["dataDoorGrants"] == {}
+
+
+async def test_the_door_grant_is_never_the_pkm_read_grant(monkeypatch):
+    """The two grants are distinct authorities. The pod's turn runs on pkm.read
+    (the consent-token header); the door grant is a SEPARATE location-view scope
+    in the body. A bug that reused one for the other would over- or under-grant."""
+    monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: True)
+    pod = _Pod()
+    await _turn(session=pod, door_grants=_door_grants)
+    assert pod.calls[0]["headers"]["X-Consent-Token"] == "standing-pkm-read"
+    assert pod.calls[0]["json"]["dataDoorGrants"]["location"] == "standing-location-view"
