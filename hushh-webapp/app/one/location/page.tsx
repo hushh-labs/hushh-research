@@ -8944,7 +8944,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see who you are connected to while the vault is locked, so I cannot tell whether they are there.",
+          "Unlock One first -- I cannot see who you are connected to while it's locked, so I cannot tell whether they are there.",
       };
     }
     // A navigation journey can arrive before the full Location workspace
@@ -9265,7 +9265,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see who you are connected to while the vault is locked, so I cannot tell whether they are there.",
+          "Unlock One first -- I cannot see who you are connected to while it's locked, so I cannot tell whether they are there.",
       };
     }
     if (resolved.kind === "none" && vaultOwnerToken) {
@@ -9442,7 +9442,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see who you are connected to while the vault is locked.",
+          "Unlock One first -- I cannot see who you are connected to while it's locked.",
       };
     }
     // Resolved against the people who are ELIGIBLE to receive an SOS, not the
@@ -9506,7 +9506,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see your emergency contacts while the vault is locked.",
+          "Unlock One first -- I cannot see your emergency contacts while it's locked.",
       };
     }
     // Only the people actually ON the list. Matching the wider connection list
@@ -9699,7 +9699,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot create a circle while the vault is locked.",
+          "Unlock One first -- I cannot create a circle while it's locked.",
       };
     }
     const spokenKind = String(slots?.kind ?? "")
@@ -9750,7 +9750,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see your circles while the vault is locked.",
+          "Unlock One first -- I cannot see your circles while it's locked.",
       };
     }
     const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
@@ -9858,7 +9858,7 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked" as const,
           summary:
-            "Unlock One first -- I cannot see your circles while the vault is locked.",
+            "Unlock One first -- I cannot see your circles while it's locked.",
         };
       }
       const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
@@ -9973,7 +9973,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see your circles while the vault is locked.",
+          "Unlock One first -- I cannot see your circles while it's locked.",
       };
     }
     const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
@@ -10025,7 +10025,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see your circles while the vault is locked.",
+          "Unlock One first -- I cannot see your circles while it's locked.",
       };
     }
     const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
@@ -10077,7 +10077,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see your circles while the vault is locked.",
+          "Unlock One first -- I cannot see your circles while it's locked.",
       };
     }
     const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
@@ -10132,7 +10132,7 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked" as const,
           summary:
-            "Unlock One first -- I cannot see your circle invitations while the vault is locked.",
+            "Unlock One first -- I cannot see your circle invitations while it's locked.",
         };
       }
       const resolved = resolveVoiceCircleInvite(
@@ -10163,7 +10163,7 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked" as const,
           summary:
-            "Unlock One first -- I cannot see your circle invitations while the vault is locked.",
+            "Unlock One first -- I cannot see your circle invitations while it's locked.",
         };
       }
       const resolved = resolveVoiceCircleInvite(
@@ -10204,7 +10204,7 @@ export function OneLocationAgentPageContent({
       if (!vaultKey || !vaultOwnerToken || !auth.userId) {
         return {
           status: "blocked" as const,
-          summary: "Unlock One first -- I cannot save a place while the vault is locked.",
+          summary: "Unlock One first -- I cannot save a place while it's locked.",
         };
       }
       const normalized = normalizeSpokenName(spokenLabel);
@@ -10261,7 +10261,7 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked" as const,
           summary:
-            "Unlock One first -- I cannot see your saved places while the vault is locked.",
+            "Unlock One first -- I cannot see your saved places while it's locked.",
         };
       }
       let saved: SavedLocation[];
@@ -10754,7 +10754,7 @@ export function OneLocationAgentPageContent({
         toast.success(
           canPersistNow
             ? "Location saved securely."
-            : "Location ready. One will save it after your private vault is set up.",
+            : "Location ready. One will save it after you set a lock.",
         );
       } catch (error) {
         if (

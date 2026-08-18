@@ -522,7 +522,7 @@ describe("encrypted saved-locations PKM store", () => {
         vaultKey: null,
         vaultOwnerToken: null,
       }),
-    ).rejects.toThrow(/unlock your vault/i);
+    ).rejects.toThrow(/unlock before managing saved locations/i);
     expect(pkm.getStaleFirst).not.toHaveBeenCalled();
   });
 

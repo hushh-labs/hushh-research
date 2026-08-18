@@ -1990,7 +1990,7 @@ export function AgentChatWorkspace({
       if (nextConversationId === conversationId || historyInteractionDisabled) return;
       const token = getVaultOwnerToken();
       if (!token) {
-        toast.error("Vault access expired. Unlock again to continue.");
+        toast.error("Locked. Unlock again to continue.");
         return;
       }
       abortAgentTurnWork();
@@ -2050,7 +2050,7 @@ export function AgentChatWorkspace({
     async (targetConversationId: string, title: string) => {
       const token = getVaultOwnerToken();
       if (!token) {
-        toast.error("Vault access expired. Unlock again to continue.");
+        toast.error("Locked. Unlock again to continue.");
         return;
       }
       setHistoryActionPendingId(targetConversationId);
@@ -2081,7 +2081,7 @@ export function AgentChatWorkspace({
       if (historyInteractionDisabled) return;
       const token = getVaultOwnerToken();
       if (!token || !user?.uid) {
-        toast.error("Vault access expired. Unlock again to continue.");
+        toast.error("Locked. Unlock again to continue.");
         return;
       }
       if (conversationId === targetConversationId) {
@@ -2146,7 +2146,7 @@ export function AgentChatWorkspace({
       const review = pkmReviews.find((item) => item.id === reviewId);
       const token = getVaultOwnerToken();
       if (!review || !user?.uid || !vaultKey || !token) {
-        toast.error("Unlock your vault before saving to Memory.");
+        toast.error("Unlock before saving to Memory.");
         return;
       }
 
@@ -2499,7 +2499,7 @@ export function AgentChatWorkspace({
           reason: !vaultKey ? "vault_key_unavailable" : "vault_owner_token_unavailable",
           tool: toolEvent,
         });
-        upsertPkmStatusMessage("Unlock your vault before saving to Memory.", "error");
+        upsertPkmStatusMessage("Unlock before saving to Memory.", "error");
         return;
       }
 
@@ -2883,7 +2883,7 @@ export function AgentChatWorkspace({
       });
       updateMessage(assistantMessageId, (message) => ({
         ...message,
-        text: "Vault access expired. Unlock again to continue.",
+        text: "Locked. Unlock again to continue.",
         status: "error",
         streamEvents: [],
       }));
@@ -2977,7 +2977,7 @@ export function AgentChatWorkspace({
         });
         updateMessage(assistantMessageId, (message) => ({
           ...message,
-          text: "One couldn't load your private memory for this turn. Keep your vault unlocked and try again.",
+          text: "One couldn't load your private memory for this turn. Keep it unlocked and try again.",
           status: "error",
           streamEvents: [],
         }));
@@ -3197,7 +3197,7 @@ export function AgentChatWorkspace({
     const userId = user.uid;
     const token = getVaultOwnerToken();
     if (!token) {
-      addErrorMessage("Vault access expired. Unlock again to continue.");
+      addErrorMessage("Locked. Unlock again to continue.");
       return;
     }
 
@@ -3769,9 +3769,9 @@ export function AgentChatWorkspace({
   const accessMessage = authLoading
     ? null
     : !user?.uid
-      ? "You're chatting with One. Sign in and unlock your vault for personalized help."
+      ? "You're chatting with One. Sign in and unlock for personalized help."
       : needsVaultUnlock
-        ? "You're chatting with One. Unlock your vault to work with your private information."
+        ? "You're chatting with One. Unlock to work with your private information."
         : null;
   const accessAction = authLoading
     ? null
@@ -3783,7 +3783,7 @@ export function AgentChatWorkspace({
         }
       : needsVaultUnlock
         ? {
-            label: "Unlock vault",
+            label: "Unlock",
             icon: KeyRound,
             // Just-in-time unlock in place via the shared dialog, instead of
             // navigating away to /one/profile and losing the agent context.
@@ -4518,7 +4518,7 @@ export function AgentChatWorkspace({
                       }
                       const token = getVaultOwnerToken();
                       if (!token || !user?.uid) {
-                        addErrorMessage("Vault access expired. Unlock again to continue.");
+                        addErrorMessage("Locked. Unlock again to continue.");
                         return;
                       }
                       enqueueCalendarDirective(directive, token, user.uid);
@@ -4545,7 +4545,7 @@ export function AgentChatWorkspace({
                       try {
                         const token = getVaultOwnerToken();
                         if (!token) {
-                          addErrorMessage("Vault access expired. Unlock again to continue.");
+                          addErrorMessage("Locked. Unlock again to continue.");
                           return;
                         }
                         const confirmLabel = String(
@@ -4620,7 +4620,7 @@ export function AgentChatWorkspace({
                         // other authed call uses (never hardcoded/invented).
                         const token = getVaultOwnerToken();
                         if (!token) {
-                          addErrorMessage("Vault access expired. Unlock again to continue.");
+                          addErrorMessage("Locked. Unlock again to continue.");
                           return;
                         }
                         appendMessage({
@@ -4891,8 +4891,8 @@ export function AgentChatWorkspace({
           user={user}
           open={vaultDialogOpen}
           onOpenChange={setVaultDialogOpen}
-          title="Unlock Vault to use Agent"
-          description="Unlock your Vault so the agent can work with your private information."
+          title="Unlock to use Agent"
+          description="Unlock so the agent can work with your private information."
           onSuccess={() => setVaultDialogOpen(false)}
         />
       ) : null}

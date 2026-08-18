@@ -1842,7 +1842,7 @@ export function KaiFlow({
           });
           setError(null);
           toast.info(
-            "Your statement will import after you finish setting up your private vault.",
+            "Your statement will import after you set a lock.",
           );
           router.push(ROUTES.ONE_SETUP);
           return;
@@ -1851,7 +1851,7 @@ export function KaiFlow({
         setResumeImportAfterVault(false);
         setVaultDialogOpen(true);
         setError(null);
-        toast.info("Set up or open your private vault to import a portfolio.");
+        toast.info("Set a lock, or unlock it, to import a portfolio.");
         return;
       }
 
@@ -3379,7 +3379,7 @@ export function KaiFlow({
             environment: environment ?? null,
           });
           toast.info(
-            "Plaid will open after you finish setting up your private vault.",
+            "Plaid will open after you set a lock.",
           );
           router.push(ROUTES.ONE_SETUP);
           return;
@@ -3387,7 +3387,7 @@ export function KaiFlow({
         setPendingPlaidConnection(true);
         setResumePlaidAfterVault(false);
         setVaultDialogOpen(true);
-        toast.info("Set up your private vault to connect your portfolio.");
+        toast.info("Set a lock to connect your portfolio.");
         return;
       }
       setIsConnectingPlaid(true);
@@ -3508,7 +3508,7 @@ export function KaiFlow({
                     setResumePlaidAfterVault(false);
                     setVaultDialogOpen(true);
                     toast.info(
-                      "Set up or open your private vault to save Plaid details.",
+                      "Set a lock, or unlock it, to save Plaid details.",
                     );
                   } else if (mode === "import") {
                     if (onSetupSourceSettled && !shouldSettleSetupSource) {
@@ -3660,7 +3660,7 @@ export function KaiFlow({
       setError(null);
       toast.success(
         vaultKey
-          ? "Sample brokerage information loaded. Review and save to Vault."
+          ? "Sample brokerage information loaded. Review and save."
           : "Sample brokerage information loaded. Review it and continue setup when ready.",
       );
     } catch (preloadError) {
@@ -3729,7 +3729,7 @@ export function KaiFlow({
   const handleAnalyzeStock = useCallback(
     (symbol: string, _options?: AnalysisLaunchOptions) => {
       if (!symbol || !effectiveVaultOwnerToken) {
-        toast.error("Set up or open your private vault first.");
+        toast.error("Set a lock, or unlock it, first.");
         return;
       }
       useKaiSession.getState().setAnalysisParams(null);
@@ -3942,13 +3942,13 @@ export function KaiFlow({
           onOpenChange={setVaultDialogOpen}
           title={
             pendingPlaidConnection
-              ? "Set up your private vault for Plaid"
-              : "Set up your private vault for Finance"
+              ? "Set a lock for Plaid"
+              : "Set a lock for Finance"
           }
           description={
             pendingPlaidConnection
-              ? "Open your private vault so One can save the Plaid portfolio details you approved."
-              : "Set up or open your private vault before importing your statement."
+              ? "Unlock so One can save the Plaid portfolio details you approved."
+              : "Set a lock, or unlock it, before importing your statement."
           }
           enableGeneratedDefault={!preferPassphraseUnlockForAutomation()}
           onSuccess={() => {

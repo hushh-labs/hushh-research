@@ -1149,7 +1149,7 @@ export default function GmailReceiptsPage({
 
   const requestVaultUnlock = useCallback(() => {
     setShowVaultUnlock(true);
-    toast.info("Set up your private vault to save this summary to memory.");
+    toast.info("Set a lock to save this summary to memory.");
   }, []);
 
   const handleBuildReceiptMemoryPreview = useCallback(
@@ -1225,7 +1225,7 @@ export default function GmailReceiptsPage({
       if (!vaultKey || !vaultOwnerToken || !isVaultUnlocked) {
         setReceiptMemorySaveState("error");
         setReceiptMemoryMessage(
-          "Set up your private vault to save this summary to memory.",
+          "Set a lock to save this summary to memory.",
         );
         return;
       }
@@ -1644,7 +1644,7 @@ export default function GmailReceiptsPage({
               ) : null}
               {!vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (
                 <p className="text-xs text-muted-foreground">
-                  Set up your private vault to create and save this summary to
+                  Set a lock to create and save this summary to
                   memory.
                 </p>
               ) : null}
@@ -1714,10 +1714,10 @@ export default function GmailReceiptsPage({
             <SurfaceInset className="flex flex-col items-start gap-3 px-4 py-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-2 text-foreground">
                 <Lock className="h-4 w-4" />
-                Set up or open your private vault to view and summarize synced
+                Set a lock, or unlock it, to view and summarize synced
                 receipts.
               </div>
-              <Button onClick={requestVaultUnlock}>Set up vault</Button>
+              <Button onClick={requestVaultUnlock}>Set a lock</Button>
             </SurfaceInset>
           ) : null}
 
@@ -1786,11 +1786,11 @@ export default function GmailReceiptsPage({
           user={user}
           open={showVaultUnlock}
           onOpenChange={setShowVaultUnlock}
-          title="Set up your private vault"
-          description="Set up your private vault to create and save receipt summaries to memory."
+          title="Set a lock"
+          description="Set a lock to create and save receipt summaries to memory."
           onSuccess={() => {
             setShowVaultUnlock(false);
-            toast.success("Private vault is ready.");
+            toast.success("Lock ready.");
           }}
         />
       ) : null}

@@ -1236,7 +1236,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         {showVaultUnlockAction ? (
                           <ShellActionSurface
                             variant="icon"
-                            aria-label="Unlock vault"
+                            aria-label="Unlock"
                             onClick={() => setVaultUnlockOpen(true)}
                           >
                             <KeyRound className="h-5 w-5 text-amber-600 dark:text-amber-300" />
@@ -1312,12 +1312,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           user={user}
           open={vaultUnlockOpen}
           onOpenChange={setVaultUnlockOpen}
-          title="Unlock vault"
-          description="Unlock your vault to use secure memory and background activity."
+          title="Unlock"
+          description="Unlock to use secure memory and background activity."
           onSuccess={() => {
             setVaultUnlockOpen(false);
             setHasVault(true);
-            toast.success("Vault unlocked.");
+            toast.success("Unlocked.");
           }}
         />
       ) : null}

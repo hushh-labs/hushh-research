@@ -189,6 +189,11 @@ export function SmsContactsFlow({
           description="Emergency contacts."
         />
 
+        <SelectedContactsPill
+          count={selected.length}
+          onOpen={() => setReviewOpen(true)}
+        />
+
         {/* Two sections, named for what they hold. "Add contacts" described the
             button on each row rather than the list, which left the screen with
             a "Contacts" list and an "Add contacts" list that were the same
@@ -336,11 +341,6 @@ export function SmsContactsFlow({
           )}
         </div>
       </div>
-
-      <SelectedContactsPill
-        count={selected.length}
-        onOpen={() => setReviewOpen(true)}
-      />
 
       <SelectedContactsSheet
         open={reviewOpen}

@@ -58,7 +58,7 @@ describe("PermissionGate", () => {
     );
 
     expect(screen.getByTestId("permission-locked-state")).toBeTruthy();
-    expect(screen.getByText("Vault permission required")).toBeTruthy();
+    expect(screen.getByText("Lock required")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Review permissions" }).getAttribute("href")).toBe(
       buildConsentCenterHref("pending")
     );

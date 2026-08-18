@@ -2580,7 +2580,7 @@ export class RiaService {
     screening_sections?: RiaScreeningSection[];
   }): Promise<RiaPicksResponse> {
     if (!params.vaultKey || !params.vaultOwnerToken) {
-      throw new Error("Unlock the vault before saving advisor picks.");
+      throw new Error("Unlock before saving advisor picks.");
     }
 
     const nextPackage = normalizePickPackage({

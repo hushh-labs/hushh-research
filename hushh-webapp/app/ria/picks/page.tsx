@@ -2063,7 +2063,7 @@ export default function RiaPicksPage() {
     try {
       setSubmitting(true);
       if (!vaultKey || !vaultOwnerToken) {
-        throw new Error("Unlock the vault before importing advisor picks.");
+        throw new Error("Unlock before importing advisor picks.");
       }
       const idToken = await user.getIdToken();
       await RiaService.importPickCsv({
@@ -2099,7 +2099,7 @@ export default function RiaPicksPage() {
     try {
       setPackageSaving(true);
       if (!vaultKey || !vaultOwnerToken) {
-        throw new Error("Unlock the vault before saving advisor picks.");
+        throw new Error("Unlock before saving advisor picks.");
       }
       const { payload, validation } = await validateDraft(draftPackage);
       setValidationState(validation);
@@ -2126,7 +2126,7 @@ export default function RiaPicksPage() {
     () => ({
       screenId: "ria_picks",
       title: "RIA Picks",
-      purpose: "Advisor stock universe with Kai reference picks and vault-backed advisor package.",
+      purpose: "Advisor stock universe with Kai reference picks and an encrypted advisor package.",
       sections: [
         {
           id: "ria_picks_source",
