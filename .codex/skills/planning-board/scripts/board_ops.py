@@ -6,14 +6,20 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import subprocess
 import sys
+import time
 from collections import Counter
 from typing import Any
 
 OWNER = "hushh-labs"
-PROJECT_NUMBER = 73
-PROJECT_TITLE = "Hushh Engineering Core"
+# Defaults to Hushh Engineering Core (#73). Override to drive another board on the
+# same owner -- e.g. HUSSH_BOARD_PROJECT_NUMBER=79 for "Hussh Action Items" -- so
+# one tool maintains every board rather than a copy per board. Fields are still
+# resolved dynamically per project, so no ids are assumed across boards.
+PROJECT_NUMBER = int(os.environ.get("HUSSH_BOARD_PROJECT_NUMBER", "73"))
+PROJECT_TITLE = os.environ.get("HUSSH_BOARD_PROJECT_TITLE", "Hushh Engineering Core")
 DEFAULT_REPO = "hushh-labs/hushh-research"
 DEFAULT_STATUS = "In progress"
 ASSIGNEE_HIERARCHY_DEFAULTS = {
@@ -36,7 +42,6 @@ class BoardOpsError(RuntimeError):
 
 
 def run_gh(args: list[str], *, input_text: str | None = None) -> str:
-    import time
     retries = 3
     delay = 1
     for attempt in range(retries):
@@ -190,9 +195,6 @@ def get_issue_node_id(repo: str, issue_number: int) -> str:
         raise BoardOpsError(f"issue/PR #{issue_number} not found in {repo}")
     return node_id["id"]
 
-
-import os
-import time
 
 CACHE_FILE = os.path.expanduser("~/.hermes/scripts/.board_issue_cache.json")
 _issue_json_cache = {}
