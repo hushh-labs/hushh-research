@@ -535,6 +535,15 @@ def build_pod_memory_service(*, hushh_id: str, pod_key: bytes, log: Any = None) 
         async def add_session_to_memory(self, session: Any) -> None:
             await self._ensure_hydrated()
             for event in getattr(session, "events", None) or []:
+                # Browser-carried history turns are seeded into the session with an
+                # invocation_id of "history_<n>" (text_runtime seeds them for
+                # within-conversation continuity). They are NOT new memory: re-sealing
+                # them here would re-add the entire thread on EVERY turn -- a live
+                # double-count -- and once the one-time import owns the historical
+                # turns they would be duplicated besides. Only genuinely new turns of
+                # this invocation become memory; history is read, never re-stored.
+                if str(getattr(event, "invocation_id", "") or "").startswith("history_"):
+                    continue
                 text = _content_text(getattr(event, "content", None))
                 if not text:
                     continue

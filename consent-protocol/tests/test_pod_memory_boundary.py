@@ -83,3 +83,56 @@ def test_export_holds_no_plaintext():
     store = PodMemoryStore(hushh_id=_OWNER, pod_key=_KEY_A)
     store.add(text="a very distinctive secret phrase zubzub")
     assert "zubzub" not in store.export()
+
+
+# ---- the double-count guard: history is read, never re-stored -----------------
+
+
+class _FakeEvent:
+    def __init__(self, text: str, *, invocation_id: str = "", author: str = "user"):
+        self.invocation_id = invocation_id
+        self.author = author
+
+        class _Part:
+            def __init__(self, t):
+                self.text = t
+                self.thought = False
+
+        class _Content:
+            def __init__(self, t):
+                self.parts = [_Part(t)]
+
+        self.content = _Content(text)
+
+
+class _FakeSession:
+    def __init__(self, events):
+        self.events = events
+
+
+@pytest.mark.asyncio
+async def test_history_events_are_not_re_stored_as_new_memory(monkeypatch):
+    """The double-count bug: browser history turns are seeded with
+    invocation_id='history_<n>'. add_session_to_memory must skip them, or the
+    whole thread is re-sealed on every turn (and duplicated once the import owns
+    it). Only the genuinely new turn of this invocation becomes memory."""
+    from hushh_mcp.services import pod_memory_service as pms
+
+    svc = pms.build_pod_memory_service(hushh_id=_OWNER, pod_key=_KEY_A, log=None)
+    session = _FakeSession(
+        [
+            _FakeEvent("old turn one", invocation_id="history_0"),
+            _FakeEvent("old turn two", invocation_id="history_1"),
+            _FakeEvent("the brand new question", invocation_id="live-xyz"),
+        ]
+    )
+    await svc.add_session_to_memory(session)
+    # Only the non-history turn was stored -- assert via the public search API.
+    new_hits = (
+        await svc.search_memory(app_name="one", user_id=_OWNER, query="brand new question")
+    ).memories
+    old_hits = (
+        await svc.search_memory(app_name="one", user_id=_OWNER, query="old turn one")
+    ).memories
+    assert new_hits, "the new turn should be remembered"
+    assert not old_hits, "a history turn was re-sealed as new memory (double-count)"
