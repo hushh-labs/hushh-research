@@ -67,8 +67,13 @@ export default defineConfig({
       // compositing contract (backdrop-blur + a colour-mix background) --
       // exactly the kind of thing that can render differently between
       // engines, and the Feed ships inside the same WKWebView.
+      // `register-phone-title.layout` is opted in because it is a text-metric
+      // and line-break contract (does this string wrap at this font size) --
+      // exactly the kind of thing that can differ between engines, and the
+      // phone-verification screen every new person hits ships inside the same
+      // WKWebView.
       testMatch:
-        /(circle-join-responsive-contract|auth-sign-in\.layout|connect-circle-cta\.layout|connect-pagination\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|feed-sticky-header-opaque\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|one-intro-welcome\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|auth-sign-in\.layout|register-phone-title\.layout|connect-circle-cta\.layout|connect-pagination\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|feed-sticky-header-opaque\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|one-intro-welcome\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",
