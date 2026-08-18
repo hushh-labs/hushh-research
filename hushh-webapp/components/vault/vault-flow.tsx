@@ -147,6 +147,8 @@ export function VaultFlow({
   const [error, setError] = useState<string | null>(null);
   const [passphrase, setPassphrase] = useState("");
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
+  const [createPasswordTouched, setCreatePasswordTouched] = useState(false);
+  const [createConfirmTouched, setCreateConfirmTouched] = useState(false);
   const [recoveryKey, setRecoveryKey] = useState<string>("");
   const [recoveryKeyInput, setRecoveryKeyInput] = useState("");
   const [copied, setCopied] = useState(false);
@@ -250,7 +252,6 @@ export function VaultFlow({
   const isPasskeyQuickUnlock =
     createQuickUnlockMethod === "generated_default_web_prf" ||
     createQuickUnlockMethod === "generated_default_native_passkey_prf";
-  const createQuickUnlockLabel = isPasskeyQuickUnlock ? "passkey" : "Face ID or fingerprint";
 
   const recoveryKeyDisclosureActive =
     step === "recovery" && Boolean(recoveryKey);
@@ -278,11 +279,17 @@ export function VaultFlow({
     step === "create" &&
     confirmPassphrase.length > 0 &&
     passphrase !== confirmPassphrase;
-  const createPassphraseHelperText = createPassphraseTooShort
-    ? "Minimum 8 characters required."
-    : createPassphraseMismatch
-      ? "Passphrases do not match."
-      : null;
+  // Display only: the underlying rules above still gate the button the
+  // instant they're true. This just holds the message back until the person
+  // has actually left the field, so a password typed one keystroke at a time
+  // doesn't turn red before it's finished.
+  const showCreatePassphraseTooShort =
+    createPassphraseTooShort && createPasswordTouched;
+  const showCreatePassphraseMismatch =
+    createPassphraseMismatch && createConfirmTouched;
+  const createPassphraseHelperText = showCreatePassphraseMismatch
+    ? "Passwords do not match."
+    : null;
   const canCreatePassphrase =
     !isUnlocking &&
     passphrase.length >= 8 &&
@@ -496,7 +503,7 @@ export function VaultFlow({
       return;
     }
     if (passphrase !== confirmPassphrase) {
-      toast.error("Passphrases do not match.");
+      toast.error("Passwords do not match.");
       return;
     }
 
@@ -1036,22 +1043,12 @@ export function VaultFlow({
             >
               <VaultFlowHeader
                 icon={Lock}
-                /* "Set a lock" — the phrase this product already uses for
-                   this exact dialog. one-setup-hub.tsx:607 passes it as the
-                   dialog's accessible title while the visible heading said
-                   something else, so the screen announced one name and showed
-                   another. It also stops naming the mechanism: what the person
-                   is doing is locking their private place, and the passphrase
-                   is merely how. The fields below still say "Passphrase",
-                   which is where that word belongs. */
-                title="Set a lock"
-                // Carries the promise the removed "private place" invitation
-                // screen used to make, on the step that actually needs it.
-                description="Only you can open what you save."
+                title="Create a password"
+                description="Only you can unlock what you save."
               />
               <div className="space-y-1.5">
                 <Label htmlFor="passphrase" className="type-footnote font-medium text-muted-foreground">
-                  Passphrase
+                  Password
                 </Label>
                 <div
                   className={cn(
@@ -1066,9 +1063,10 @@ export function VaultFlow({
                   <input
                     id="passphrase"
                     type="password"
-                    placeholder="Create passphrase"
+                    placeholder="Enter a password"
                     value={passphrase}
                     onChange={(e) => setPassphrase(e.target.value)}
+                    onBlur={() => setCreatePasswordTouched(true)}
                     autoFocus
                     autoComplete="new-password"
                     className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-foreground/35"
@@ -1077,7 +1075,7 @@ export function VaultFlow({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="confirm" className="type-footnote font-medium text-muted-foreground">
-                  Confirm passphrase
+                  Confirm password
                 </Label>
                 <div
                   className={cn(
@@ -1092,9 +1090,10 @@ export function VaultFlow({
                   <input
                     id="confirm"
                     type="password"
-                    placeholder="Confirm passphrase"
+                    placeholder="Enter it again"
                     value={confirmPassphrase}
                     onChange={(e) => setConfirmPassphrase(e.target.value)}
+                    onBlur={() => setCreateConfirmTouched(true)}
                     autoComplete="new-password"
                     className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-foreground/35"
                   />
@@ -1105,8 +1104,16 @@ export function VaultFlow({
                   </p>
                 )}
               </div>
-              <p className="text-center type-footnote leading-snug text-muted-foreground">
-                At least 8 characters. Only you know it.
+              <p
+                className={cn(
+                  "text-center type-footnote leading-snug",
+                  showCreatePassphraseTooShort
+                    ? "font-medium text-destructive"
+                    : "text-muted-foreground",
+                )}
+                role={showCreatePassphraseTooShort ? "status" : undefined}
+              >
+                Use at least 8 characters.
               </p>
               {createQuickUnlockMethod ? (
                 // The whole of the screen this replaced. It asked one yes/no
@@ -1116,7 +1123,7 @@ export function VaultFlow({
                 <label
                   data-vault-quick-unlock-option
                   htmlFor="vault-quick-unlock"
-                  className="flex items-center gap-3 rounded-2xl border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] px-4 py-3 text-left"
+                  className="flex items-center gap-3 rounded-2xl border border-black/10 bg-black/[0.02] px-4 py-3 text-left dark:border-white/12 dark:bg-white/[0.04]"
                 >
                   <Icon
                     icon={isPasskeyQuickUnlock ? Key : Fingerprint}
@@ -1125,10 +1132,10 @@ export function VaultFlow({
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block type-subhead font-medium text-foreground">
-                      Also unlock with {createQuickUnlockLabel}
+                      Unlock with your device
                     </span>
                     <span className="block type-footnote leading-snug text-muted-foreground">
-                      Your passphrase and recovery key still work.
+                      Use your face, fingerprint or PIN.
                     </span>
                   </span>
                   <Switch
@@ -1144,7 +1151,7 @@ export function VaultFlow({
                 effect="fill"
                 size="default"
                 fullWidth
-                className="mt-1 h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
+                className="mt-1 h-[54px] min-h-[54px] rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                 type="submit"
                 disabled={!canCreatePassphrase}
               >
@@ -1153,7 +1160,7 @@ export function VaultFlow({
                     <Icon icon={Loader2} size="md" className="mr-2 animate-spin" /> Creating...
                   </>
                 ) : (
-                  "Create passphrase"
+                  "Create password"
                 )}
               </Button>
             </form>
@@ -1560,20 +1567,25 @@ export function VaultFlow({
               <VaultFlowHeader
                 icon={Key}
                 title="Save your recovery key"
-                description="Keep it somewhere only you can reach."
+                description="Use it if you forget your password."
               />
 
-              <Alert className="rounded-[18px] border-orange-500/30 bg-orange-500/10">
+              <Alert className="rounded-[16px] border-orange-500/30 bg-orange-500/10">
                 <Icon icon={AlertCircle} size="sm" className="text-orange-500" />
                 <AlertDescription className="text-[13.5px] leading-[1.4] text-orange-700 dark:text-orange-300">
-                  Save this now. It cannot be shown again.
+                  Save it now. You won’t see it again.
                 </AlertDescription>
               </Alert>
 
-              <div className="rounded-[18px] border border-dashed border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] p-4">
-                <code className="break-all font-mono text-[15px] font-medium leading-[1.5] tracking-normal">
-                  {recoveryKey}
-                </code>
+              <div className="space-y-1.5">
+                <Label className="type-footnote font-medium text-muted-foreground">
+                  Your recovery key
+                </Label>
+                <div className="rounded-[16px] border border-dashed border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] p-4">
+                  <code className="break-all font-mono text-[17px] font-medium leading-[1.5] tracking-normal">
+                    {recoveryKey}
+                  </code>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -1582,7 +1594,7 @@ export function VaultFlow({
                   effect="fade"
                   size="default"
                   fullWidth
-                  className={VAULT_ALTERNATIVE_BUTTON_CLASS}
+                  className={cn(VAULT_ALTERNATIVE_BUTTON_CLASS, "h-[52px] min-h-[52px]")}
                   onClick={handleCopyRecoveryKey}
                 >
                   {copied ? (
@@ -1592,7 +1604,7 @@ export function VaultFlow({
                         size="sm"
                         className="mr-2 text-green-500"
                       />
-                      Copied!
+                      Copied
                     </>
                   ) : (
                     <>
@@ -1606,14 +1618,14 @@ export function VaultFlow({
                   effect="fade"
                   size="default"
                   fullWidth
-                  className={VAULT_ALTERNATIVE_BUTTON_CLASS}
+                  className={cn(VAULT_ALTERNATIVE_BUTTON_CLASS, "h-[52px] min-h-[52px]")}
                   onClick={async () => {
                     const content = `Hussh Recovery Key\n\n${recoveryKey}\n\nStore this file securely. This is the ONLY way to recover your vault if you lose your vault credentials.`;
                     await downloadTextFile(content, "hushh-recovery-key.txt");
                   }}
                 >
                   <Icon icon={Download} size="sm" className="mr-2" />
-                  Download
+                  Save file
                 </Button>
               </div>
 
@@ -1622,11 +1634,11 @@ export function VaultFlow({
                 effect="fill"
                 size="default"
                 fullWidth
-                className="h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
+                className="h-[54px] min-h-[54px] rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                 onClick={handleRecoveryKeyContinue}
                 disabled={isUnlocking}
               >
-                {isUnlocking ? "Opening..." : "I’ve saved my recovery key"}
+                {isUnlocking ? "Opening..." : "I saved it"}
               </Button>
             </div>
           ) : null}

@@ -206,8 +206,7 @@ describe("One setup hub terminal action contract", () => {
       expect(hub).not.toContain(phrase);
     }
 
-    expect(hub).toContain("Only you can open what you save.");
-    expect(hub).toContain("Not even we can read it.");
+    expect(hub).toContain("Only you can unlock what you save.");
     // "Add" was the wrong verb for a list of things you SET UP, and the line
     // is the last thing read before "Finish setup".
     expect(hub).toContain('"Set up the rest later."');
@@ -306,7 +305,7 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain("const completeSetupAfterVault = useCallback(async ()");
     const masterHandler = source.slice(source.indexOf("const handleMasterAck"));
     expect(masterHandler).not.toContain("acknowledgeOneSetupExit");
-    expect(source).toContain("Set a lock");
+    expect(source).toContain("Create a password");
     expect(source).not.toContain("I’ll do this later");
     expect(source).not.toContain("one-setup-vault-invitation-later");
     expect(source).toContain("<VaultUnlockDialog");
@@ -341,7 +340,7 @@ describe("One setup hub terminal action contract", () => {
       join(process.cwd(), "components/vault/vault-flow.tsx"),
       "utf8",
     );
-    expect(vaultFlow).toContain('description="Only you can open what you save."');
+    expect(vaultFlow).toContain('description="Only you can unlock what you save."');
   });
 
   it("keeps AI access one tap from the hub instead of behind a prologue", () => {

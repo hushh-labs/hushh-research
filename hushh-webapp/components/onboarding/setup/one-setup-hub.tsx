@@ -604,8 +604,8 @@ export function OneSetupHub() {
           onOpenChange={setVaultDialogOpen}
           dismissible={false}
           enableGeneratedDefault
-          title="Set a lock"
-          description="Only you can open what you save. Not even we can read it."
+          title="Create a password"
+          description="Only you can unlock what you save."
           onSuccess={() => undefined}
         />
       ) : null}
