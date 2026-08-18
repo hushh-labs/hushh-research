@@ -160,6 +160,7 @@ import {
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
 import {
   isOneLocationGrantUnwatched,
+  isSmsTriggeredGrant,
   markOneLocationGrantOpened,
   markOneLocationGrantUnwatched,
   ONE_LOCATION_GRANT_ID_PARAM,
@@ -2985,9 +2986,15 @@ export function OneLocationAgentPageContent({
   // here (the backend keeps them for ~12h for history only).
   const activeReceivedGrants = useMemo(
     () =>
-      (state?.receivedGrants ?? []).filter(
-        (grant) => grant.status === "active",
-      ),
+      (state?.receivedGrants ?? [])
+        .filter((grant) => grant.status === "active")
+        // Stable sort: only ever moves an SMS-triggered (Save My Soul) share
+        // earlier. Array.prototype.sort is stable, so the backend's existing
+        // most-recent-first order is untouched within each group.
+        .sort(
+          (a, b) =>
+            Number(isSmsTriggeredGrant(b)) - Number(isSmsTriggeredGrant(a)),
+        ),
     [state?.receivedGrants],
   );
   const visibleReceivedGrants = useMemo(() => {
@@ -8859,10 +8866,6 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
-  const handleResumeMyLocation = useCallback(() => {
-    void handleShowMyLiveLocation();
-  }, [handleShowMyLiveLocation]);
-
   // The Location surface's first two actions that DO something rather than
   // open something. Both delegate to the same callbacks the on-screen controls
   // use, so voice can never take a path a tap could not, and both report the
@@ -11410,7 +11413,6 @@ export function OneLocationAgentPageContent({
     toggleRequestOwner: (id) => toggleRequestOwner(id, "section_list"),
     onShowMyLocation: () => void handleShowMyLiveLocation(),
     onHideMyLocation: () => void handleHideMyLiveLocation(),
-    onResumeMyLocation: handleResumeMyLocation,
     onAutoApproveRequestsChange: handleAutoApproveChange,
     onRequestPermission: () => void handleRequestLocationPermission(),
     onOpenLocationSettings: () => void handleOpenLocationSettings(),

@@ -7,6 +7,7 @@ import {
   formatLocationDurationLabel,
   locationAskFacts,
 } from "@/lib/one-location/duration-copy";
+import type { OneLocationGrant } from "@/lib/one-location/types";
 
 export const ONE_LOCATION_GRANT_OPENED_EVENT =
   "hushh:one-location-grant-opened";
@@ -542,6 +543,19 @@ export function oneLocationShareKindLabel(kind?: string | null): string {
     default:
       return "Share";
   }
+}
+
+/**
+ * Whether a grant came from the Save My Soul panic flow -- the one thing in
+ * this codebase the UI calls "SMS" (no real text message is ever sent; see
+ * the `_classify_share_kind` comment on the backend). The single place that
+ * decides "counts as SMS-triggered," so the "Shared with me" sort and its
+ * badge can never disagree with each other.
+ */
+export function isSmsTriggeredGrant(
+  grant: Pick<OneLocationGrant, "shareKind">,
+): boolean {
+  return normalizeOneLocationShareKind(grant.shareKind) === "sos";
 }
 
 /**
