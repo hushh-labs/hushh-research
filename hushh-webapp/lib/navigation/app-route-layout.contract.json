@@ -5,9 +5,9 @@
     "exemptionReason": "Anonymous auth-split entry route redirects signed-in users to /one and intentionally does not own the signed-in dashboard shell.",
     "voicePlaybook": {
       "playbookId": "route.one.intro",
-      "purpose": "Welcome a new person and help them claim their private agent.",
+      "purpose": "Welcome a new person and help them get started with One.",
       "screen": "one_intro",
-      "entryCue": "Say ‘Claim your One’ whenever you are ready.",
+      "entryCue": "Say ‘Get started’ whenever you are ready.",
       "proactivity": "on_entry",
       "primaryActionId": "onboarding.claim_one",
       "happyPathActionIds": [

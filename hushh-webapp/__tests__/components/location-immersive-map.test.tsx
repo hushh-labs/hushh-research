@@ -1222,7 +1222,7 @@ describe("LocationImmersiveMap demo experience", () => {
   // here because dismiss no longer consults where the person came from; if it
   // ever starts again, the `query: ""` case is the one that regresses first.
   const CHECK_IN_ENTRIES = [
-    { name: "Your Map", query: "source=map" },
+    { name: "Map", query: "source=map" },
     { name: "the Location hub", query: "" },
     { name: "a legacy deep link", query: "demo=people" },
   ] as const;

@@ -4696,6 +4696,24 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   background: rgba(28, 28, 30, 0.78) !important;
 }
 
+/* Sign-in (/login) keeps the Talk to One bar and every control inside it, but
+   drops the bar to a quieter material so the two sign-in buttons are clearly
+   the first thing to touch. Scoped to the AuthStep cluster attribute, which
+   only the sign-in screen renders, so no other route moves. The signed-in
+   bottom nav (.kai-bottom-nav-pill) is deliberately excluded — it does not
+   render here, and matching it would reach every signed-in route.
+   !important is required: the base rule above is itself !important. */
+body:has([data-auth-signin-clusters]) .bottom-chrome-surface {
+  border: 0.5px solid rgba(60, 60, 67, 0.1) !important;
+  background: rgba(255, 255, 255, 0.55) !important;
+  box-shadow: none !important;
+}
+
+.dark body:has([data-auth-signin-clusters]) .bottom-chrome-surface {
+  border-color: rgba(84, 84, 88, 0.32) !important;
+  background: rgba(28, 28, 30, 0.55) !important;
+}
+
 .kai-bottom-nav-pill [data-segment-indicator] {
   display: none;
   background: transparent !important;

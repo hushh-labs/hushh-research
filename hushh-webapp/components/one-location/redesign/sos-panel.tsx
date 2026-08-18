@@ -10,7 +10,13 @@ import {
   type MutableRefObject,
   type PointerEvent,
 } from "react";
-import { Check, Loader2, Phone, Plus, SendHorizontal } from "lucide-react";
+import {
+  Check,
+  Loader2,
+  Phone,
+  SendHorizontal,
+  UsersRound,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -91,8 +97,14 @@ export type SosPanelProps = {
    * from `onClose` (which only closes the screen without stopping sharing).
    */
   onStopSos: () => void;
-  /** True while the stop request is in flight (shows a spinner on Cancel). */
+  /** True while the stop request is in flight (shows a spinner on Stop sharing). */
   stopBusy: boolean;
+  /**
+   * Kept for interface parity with the other Location flows the caller
+   * renders interchangeably. The panel itself draws no in-content Cancel —
+   * the shell's single back control is the only way out — so this is unused
+   * inside `SosPanel` today.
+   */
   onClose: () => void;
   onEditContacts: () => void;
 
@@ -102,18 +114,6 @@ export type SosPanelProps = {
   emergencyStatus: EmergencyNumberLookupStatus;
   onResolveEmergencyNumber: () => void;
 };
-
-function firstNameOf(label: string): string {
-  return label.trim().split(/\s+/)[0] || label.trim();
-}
-
-function formatNames(names: string[]): string {
-  if (names.length === 0) return "";
-  if (names.length === 1) return names[0]!;
-  if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`;
-  return `${names[0]}, ${names[1]} and ${names.length - 2} others`;
-}
 
 type UseHoldToConfirmOptions = {
   durationMs: number;
@@ -293,9 +293,14 @@ export function SosPanel({
   onTrigger,
   onStopSos,
   stopBusy,
-  onClose,
+  // The shell's single back control is this screen's only way out now — see
+  // the SosPanelProps doc comment on `onClose` for why the prop stays.
+  onClose: _onClose,
   onEditContacts,
-  recipientLabel,
+  // No longer read directly: the per-recipient name line this once fed was
+  // dropped as a duplicate of the "N people will be alerted" row above (see
+  // that row's comment). Kept in the props contract for interface parity.
+  recipientLabel: _recipientLabel,
   isRecipientShareReady,
   emergency,
   emergencyStatus,
@@ -322,15 +327,6 @@ export function SosPanel({
   const readyRecipients = useMemo(
     () => recipients.filter(isRecipientShareReady),
     [isRecipientShareReady, recipients],
-  );
-  const names = useMemo(
-    () =>
-      formatNames(
-        readyRecipients.map((recipient) =>
-          firstNameOf(recipientLabel(recipient)),
-        ),
-      ),
-    [readyRecipients, recipientLabel],
   );
   const customMessageLength = customMessage.length;
   const customMessageLimitExceeded =
@@ -540,58 +536,58 @@ export function SosPanel({
     // SOS is a Location task flow, not a separate app. It renders INSIDE the
     // signed-in shell like every other `?action=…` flow (Settings, Check-In,
     // Shared with me), so the top bar keeps showing the single back control,
-    // the "Location › Save my Soul" breadcrumb and the profile avatar. It used
-    // to escape the shell as a pinned full-viewport black overlay, which is
-    // what removed all three and forced a second back button into the content.
+    // the "Location › Emergency help" breadcrumb and the profile avatar. It
+    // used to escape the shell as a pinned full-viewport black overlay, which
+    // is what removed all three and forced a second back button into the
+    // content. The shell's single back control is also this screen's only
+    // way out now — no separate in-content Cancel — since a second exit next
+    // to a real emergency control invites the wrong tap under stress.
     <section data-testid="sms-safety-screen">
       {/* Same header grammar as every other Location screen: the crumb text and
           the heading are the same words. Back lives in the top bar only. */}
       <TaskFlowHeader
-        title="Save my Soul"
+        title="Emergency help"
         // Two facts, and only the two the screen cannot show: who it reaches,
-        // and that it sends where you are. "Hold to…" was the third statement
-        // of an instruction the button itself carries and the line under it
-        // repeats verbatim.
-        //
-        // Still the literal truth, which matters more here than anywhere else
-        // in the product: this creates a location grant and fires one push, so
-        // it needs the network and it is not an offline text message. Someone
-        // may hold this instead of calling for help.
-        description="Alerts your emergency contacts with your live location."
+        // and that it sends where you are — the literal truth, since this
+        // creates a location grant and fires one push over the network rather
+        // than an offline text message, and someone may hold this instead of
+        // calling for help.
+        description="Hold SOS to alert your people and share your location."
       />
 
-      {/* The design's top-right actions. The screen's own title moved into the
-          header above, so only the two controls remain here. Width-matched
-          to the message column below (max-w-[520px], centered) so "Cancel"
-          doesn't right-align to the section edge while the input right-aligns
-          to a narrower centered column beneath it (#5431). */}
-      <div className="mx-auto mt-4 flex w-full max-w-[520px] flex-wrap items-center justify-end gap-x-6 gap-y-2 sm:gap-x-8">
-        {active ? (
-          <span className="mr-auto flex items-center gap-2 sm:mr-0">
-            <span
-              aria-hidden
-              className="h-[7px] w-[7px] rounded-full bg-[color:var(--app-destructive)]"
-            />
-            <span className="text-[15px] font-medium tracking-[-0.2px] text-[color:var(--app-destructive)]">
-              Live
-            </span>
-          </span>
-        ) : null}
+      {/* Emergency contacts live above the button that uses them: who gets
+          alerted is a fact the person should see before they commit to
+          sending, not a settings link tucked beside a Cancel action. Reuses
+          the existing edit-contacts destination and the same ready-recipient
+          count the status line below already computes. */}
+      <div className="mx-auto mt-6 w-full max-w-[520px]">
+        <p className="mb-2 text-[13px] font-semibold tracking-[-0.1px] text-[color:var(--sos-label)]">
+          Emergency contacts
+        </p>
         <button
           type="button"
           onClick={onEditContacts}
-          aria-label="Edit SMS contacts"
-          className="press-scale flex items-center gap-[7px] text-[15px] tracking-[-0.2px] text-[color:var(--sos-label)] transition-colors hover:text-foreground"
+          // No separate aria-label: the visible text ("N people will be
+          // alerted" / "No contacts added", plus "Edit"/"Add") already reads
+          // as a complete, correctly-pluralized accessible name.
+          className="press-scale flex min-h-[60px] w-full items-center gap-3 rounded-xl bg-[color:var(--sos-control-surface)] px-4 py-3 text-left transition-colors hover:bg-[color:var(--sos-control-surface-hover)]"
         >
-          <Plus className="h-[15px] w-[15px]" strokeWidth={1.8} aria-hidden />
-          <span>Contacts</span>
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="press-scale text-[15px] tracking-[-0.2px] text-[color:var(--sos-label)] transition-colors hover:text-foreground"
-        >
-          Cancel
+          <span
+            aria-hidden
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--sos-control-surface-active)] text-[color:var(--sos-label)]"
+          >
+            <UsersRound className="h-[18px] w-[18px]" />
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[15px] tracking-[-0.2px] text-foreground">
+            {readyRecipients.length
+              ? `${readyRecipients.length} ${
+                  readyRecipients.length === 1 ? "person" : "people"
+                } will be alerted`
+              : "No contacts added"}
+          </span>
+          <span className="shrink-0 text-[15px] font-medium tracking-[-0.2px] text-[color:var(--app-accent)]">
+            {readyRecipients.length ? "Edit" : "Add"}
+          </span>
         </button>
       </div>
 
@@ -726,14 +722,14 @@ export function SosPanel({
                     : "0 0 64px 4px rgb(var(--sos-glow-rgb) / 0.2), inset 0 1px 0 rgba(255,255,255,0.24)",
               }}
             >
-              {/* "SMS", the name this feature carries everywhere else in the
-                  product — the Location menu tile is "SMS / Save my soul", and
-                  the outgoing message is an SMS. Only the visible glyph
-                  changes: every identifier (data-testid, event name, scope
-                  handle, backend enum) still says sos, because those are
-                  contracts, not copy. */}
+              {/* "SOS" is a user-facing label only. Every identifier
+                  (data-testid, event name, scope handle, backend enum) still
+                  says sos/SMS, because those are contracts, not copy — the
+                  Location menu tile still reads "SMS / Save my soul" too,
+                  since renaming an entry point elsewhere is out of scope for
+                  this screen. */}
               <span className="text-[44px] font-semibold tracking-[1.5px] lg:text-[64px] lg:tracking-[2px]">
-                SMS
+                SOS
               </span>
             </button>
           )}
@@ -744,13 +740,6 @@ export function SosPanel({
           className="mt-[26px] text-center text-[15px] tracking-[-0.2px] text-[color:var(--sos-label)] lg:mt-[34px] lg:text-[17px] lg:tracking-[-0.37px]"
         >
           {statusLabel}
-        </p>
-
-        {/* Who the SMS reaches. The design has no equivalent, but sending an
-            emergency message to an audience you cannot see is not a thing to
-            ask anyone to do. */}
-        <p className="mt-2 max-w-full truncate px-2 text-center text-[13px] text-[color:var(--sos-label)]">
-          {names ? `Alerts ${names}` : "No emergency contacts selected"}
         </p>
 
         <div className="mt-9 flex w-full max-w-[520px] flex-col gap-2.5 lg:mt-[52px] lg:gap-3">
@@ -774,10 +763,14 @@ export function SosPanel({
                   : "Your location, with no message."}
               </p>
               <p className="mt-2 text-muted-foreground/70">
-                Cancel to change it.
+                Stop sharing to change it.
               </p>
             </div>
           ) : null}
+
+          <p className="text-[13px] font-semibold tracking-[-0.1px] text-[color:var(--sos-label)]">
+            Message — optional
+          </p>
 
           <div className="flex gap-2.5 lg:gap-3">
             {QUICK_MESSAGES.map((option) => {
@@ -944,6 +937,10 @@ export function SosPanel({
             ) : (
               <span />
             )}
+            {/* Hidden while the field is empty — a "0/140" nobody has typed
+                into yet is a number to parse, not information. The id stays
+                on the DOM node regardless so the input's aria-describedby
+                always resolves, even before there is a count to announce. */}
             <div
               id="sos-short-message-count"
               className={cn(
@@ -953,7 +950,9 @@ export function SosPanel({
                   : "text-[color:var(--sos-label)]",
               )}
             >
-              {customMessageLength}/{ONE_LOCATION_SHARE_NOTE_MAX_LENGTH}
+              {customMessageLength > 0
+                ? `${customMessageLength}/${ONE_LOCATION_SHARE_NOTE_MAX_LENGTH}`
+                : null}
             </div>
           </div>
 

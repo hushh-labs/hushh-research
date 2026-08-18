@@ -532,7 +532,7 @@ const LOCATION_HUB_TAB_LABELS: Readonly<Record<string, string>> = {
 
 const LOCATION_TAB_MODULES: Readonly<Record<string, string[]>> = {
   now: ["Sharing status", "Active shares", "Shared with me", "Quick actions"],
-  people: ["Circles", "Connections"],
+  people: ["Your circles", "Trusted people"],
   links: ["Temporary links"],
 };
 
@@ -2162,7 +2162,7 @@ function OneLocationInitialSkeleton() {
       </section>
 
       <section className="space-y-2 px-1">
-        {sectionLabel("Shared with me")}
+        {sectionLabel("Shared with you")}
         <div className={cn(onePanelClassName, "flex items-center gap-3 p-3.5")}>
           <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
           <div className="flex-1 space-y-2">
