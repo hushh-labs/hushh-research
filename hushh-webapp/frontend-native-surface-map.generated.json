@@ -4295,7 +4295,7 @@
         "baseline_transport": "Active recipient-scoped ciphertext only; no public or iframe fallback",
         "coordinate_storage": "Live-share map coordinates stay in foreground renderer memory. Nearby presence captures a final check-in point and stores it only under AES-256-GCM plus a rotating spatial token; accuracy is request-memory-only, and peers receive no coordinates.",
         "location_capture": "After renderer consent, Map takes one bounded foreground fix for camera focus. Locate me publishes only on an explicit tap. Nearby check-in takes a fresh bounded fix only for an explicit, time-boxed check-in.",
-        "visibility": "An active private or Circle share is visible on the recipient's map unconditionally -- no separate map-visibility opt-in. Local/UAT nearby discovery requires separate explicit visibility consent, returns a roster without peer coordinates, and fails closed in production."
+        "visibility": "Ghost Mode remains the map default. Local/UAT nearby discovery requires separate explicit visibility consent, returns a roster without peer coordinates, and fails closed in production."
       }
     },
     {
@@ -5798,7 +5798,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/profile/preferences/voice",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fvoice",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/voice",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -5853,7 +5864,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/profile/preferences/voice/changelog",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fvoice%2Fchangelog",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/voice/changelog",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -8649,5 +8671,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "f6953dba2e7b07b66475566d189ac1f9e45cbfd07a3534763e765b3622739b24"
+  "content_sha256": "3faa66956cc0e58c9048e997025e93391c1d8243f6a6b2491b8a1fc8d10706d6"
 }

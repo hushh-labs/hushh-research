@@ -1066,7 +1066,10 @@ textarea {
   --app-label: #ffffff;
   --app-secondary-label: #98989d;
   --app-section-label: #98989d;
-  --app-tertiary-label: #636366;
+  /* Was #636366 (~3.3:1 on the near-black app background — fails WCAG AA's
+     4.5:1 for normal text). #86868b keeps it visibly dimmer than
+     --app-secondary-label while clearing AA (~5.5:1). */
+  --app-tertiary-label: #86868b;
   --app-quaternary-label: #48484a;
   --app-separator: rgba(84, 84, 88, 0.65);
   --app-opaque-separator: #38383a;

@@ -872,7 +872,7 @@ async function openAskFlow() {
 async function openTemporaryLinkFlow() {
   fireEvent.click(screen.getByRole("button", { name: "Links" }));
   fireEvent.click(
-    await screen.findByRole("button", { name: /Create link/i }),
+    await screen.findByRole("button", { name: /Create (Public )?link/i }),
   );
   expect(
     await screen.findByRole("heading", { name: "Share outside your Circle" }),
@@ -899,7 +899,19 @@ describe("OneLocationAgentPage", () => {
       error: null,
     });
     mockBusEnsure.mockResolvedValue(busSnapshot);
-    Element.prototype.scrollIntoView = vi.fn();
+    if (!window.localStorage || typeof window.localStorage.clear !== "function") {
+      const store = new Map<string, string>();
+      Object.defineProperty(window, "localStorage", {
+        value: {
+          getItem: (k: string) => store.get(k) ?? null,
+          setItem: (k: string, v: string) => store.set(k, String(v)),
+          removeItem: (k: string) => store.delete(k),
+          clear: () => store.clear(),
+        },
+        writable: true,
+        configurable: true,
+      });
+    }
     window.localStorage.clear();
     // Most page-flow tests are not about the optional saved-place prompt.
     // A dedicated integration test below clears this outcome and proves it.
@@ -1323,24 +1335,23 @@ describe("OneLocationAgentPage", () => {
       name: "Location",
     });
     expect(headerActions.className).toContain("ml-auto");
-    expect(headerActions.className).toContain("justify-end");
-    // The actions column holds the switch and nothing else now, so it no
-    // longer needs `max-w-full` to survive wrapping text. The status words that
-    // used to sit here moved to their own row under it — see the status
-    // assertions below.
+    expect(headerActions.className).toContain("flex-col");
+    expect(headerActions.className).toContain("items-end");
+    // The actions column holds the switch AND its status, stacked in one
+    // right-aligned group (#5404) — a full-width row below the header put
+    // the two in the same place only by coincidence, not as a paired control.
     const status = screen.getByTestId("one-location-header-status");
-    expect(headerActions.contains(status)).toBe(false);
+    expect(headerActions.contains(status)).toBe(true);
     // Reported from UAT: "location on / location pause toggle ke just neeche
-    // lao". Its own full-width row UNDER the header, right-aligned, so it lands
-    // directly beneath the switch it describes — not indented beside the title
-    // as a subtitle for the whole screen, and not back inside the actions
-    // column, where its width wrapped the title on every iPhone.
+    // lao". It renders directly beneath the switch, in the same box, so it is
+    // structurally paired with it — not indented beside the title as a
+    // subtitle for the whole screen, and not a separate full-width row whose
+    // alignment only happened to match the switch's.
     const headerRowForStatus = status.closest('[data-slot="page-header-row"]');
     expect(
       headerRowForStatus,
-      "the status is back inside the header row",
-    ).toBeNull();
-    expect(status).toHaveClass("block", "w-full", "text-right");
+      "the status should render inside the same header row as the switch",
+    ).not.toBeNull();
     // iOS used to get the one-word form: a bare green switch over "On", which
     // never said what it switched. Reported from the device.
     expect(status.textContent).toBe("Location off");
@@ -1380,8 +1391,8 @@ describe("OneLocationAgentPage", () => {
     // one-word form on phones, because the full string in the actions column
     // wrapped the 28px title at 320-390px. That fit, and it cost iOS the
     // meaning — the device showed a bare green switch over the word "On". The
-    // status now renders under the title instead of beside the switch, so it
-    // takes no width from the title and never has to abbreviate.
+    // status now renders under the switch inside the same right-aligned
+    // group, not beside it, so it never competes with the title for width.
     expect(locationStatus.querySelector(".sm\\:hidden")).toBeNull();
     expect(locationStatus.querySelector(".hidden.sm\\:inline")).toBeNull();
     expect(locationStatus.textContent).toBe("Location off");
@@ -1418,7 +1429,11 @@ describe("OneLocationAgentPage", () => {
     expect(mockRevokeGrant).not.toHaveBeenCalled();
   });
 
-  it("keeps the header, Pause setting, and active Nearby presence synchronized", async () => {
+  it("keeps the header toggle synced with Nearby, with Settings unaffected by the removed Pause row", async () => {
+    // The Settings "Pause my location" row was removed as a duplicate of this
+    // same header switch (#5427) -- both read and wrote the identical
+    // `locationControl.paused` state, so this test now drives pause/resume
+    // from the one control that is left.
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -1446,34 +1461,33 @@ describe("OneLocationAgentPage", () => {
       ).toHaveAttribute("aria-checked", "true"),
     );
 
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location off" }));
+    await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Turn location on" }),
+      ).toHaveAttribute("aria-checked", "false"),
+    );
+
+    mockCaptureCurrentPosition.mockClear();
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Turn location off" }),
+      ).toHaveAttribute("aria-checked", "true"),
+    );
+
+    // Settings still opens cleanly and its unrelated toggles still work now
+    // that "Location sharing" has one fewer row.
     fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
-    const pauseSwitch = await screen.findByRole("switch", {
-      name: "Pause my location",
-    });
-    const autoApproveSwitch = screen.getByRole("switch", {
+    const autoApproveSwitch = await screen.findByRole("switch", {
       name: "Auto-approve requests",
     });
-    expect(pauseSwitch).toHaveAttribute("aria-checked", "false");
     // Off until asked for: approving a location request is consent, and a
     // default may not give it.
     expect(autoApproveSwitch).toHaveAttribute("aria-checked", "false");
-
     fireEvent.click(autoApproveSwitch);
-    expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
-
-    fireEvent.click(pauseSwitch);
-    await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(pauseSwitch).toHaveAttribute("aria-checked", "true"),
-    );
-    expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
-
-    mockCaptureCurrentPosition.mockClear();
-    fireEvent.click(pauseSwitch);
-    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(pauseSwitch).toHaveAttribute("aria-checked", "false"),
-    );
     expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
   });
 
@@ -1505,22 +1519,20 @@ describe("OneLocationAgentPage", () => {
       ).toHaveAttribute("aria-checked", "true"),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
-    const pauseSwitch = await screen.findByRole("switch", {
-      name: "Pause my location",
-    });
-    fireEvent.click(pauseSwitch);
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location off" }));
 
     await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalled());
     // The optimistic toggle reverts a render after the rejection resolves, so
     // this has to be waited for rather than read on the same tick. It passed
     // before only because onboarding left fake timers draining behind it.
     await waitFor(() =>
-      expect(pauseSwitch).toHaveAttribute("aria-checked", "false"),
+      expect(
+        screen.getByRole("switch", { name: "Turn location off" }),
+      ).toHaveAttribute("aria-checked", "true"),
     );
   });
 
-  it("keeps Pause enabled when resuming cannot capture a fresh point", async () => {
+  it("keeps location paused when resuming cannot capture a fresh point", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     await waitFor(() =>
@@ -1538,14 +1550,12 @@ describe("OneLocationAgentPage", () => {
     mockCaptureCurrentPosition.mockRejectedValue(
       new Error("fresh location unavailable"),
     );
-    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
-    const pauseSwitch = await screen.findByRole("switch", {
-      name: "Pause my location",
-    });
-    fireEvent.click(pauseSwitch);
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
 
     await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
-    expect(pauseSwitch).toHaveAttribute("aria-checked", "true");
+    expect(
+      screen.getByRole("switch", { name: "Turn location on" }),
+    ).toHaveAttribute("aria-checked", "false");
   });
 
   it("shows a limited status when the captured point is too approximate for Nearby", async () => {
@@ -3230,10 +3240,10 @@ describe("OneLocationAgentPage", () => {
     // mock has no active links, so the empty state shows.
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
     expect(
-      await screen.findByRole("button", { name: /Create link/i }),
+      await screen.findByRole("button", { name: /Create (Public )?link/i }),
     ).toBeTruthy();
     expect(screen.getByText("Active links")).toBeTruthy();
-    expect(screen.getByText("No active links")).toBeTruthy();
+    expect(screen.queryByText("No active links")).toBeNull();
     expect(screen.queryByText("Public link responses")).toBeNull();
     expect(screen.queryByText(/Share a public location link/i)).toBeNull();
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
@@ -3653,7 +3663,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openTemporaryLinkFlow();
     fireEvent.click(
-      screen.getByRole("button", { name: /^Create link$/i }),
+      screen.getByRole("button", { name: /Create (Public )?link/i }),
     );
 
     await waitFor(() =>
@@ -4840,7 +4850,7 @@ describe("OneLocationAgentPage", () => {
     // Links hub CTA opens the flow; the flow's own CTA creates the invite.
     // Both are labelled "Create link", so take the one on screen each time.
     fireEvent.click(
-      await screen.findByRole("button", { name: /^Create link$/i }),
+      await screen.findByRole("button", { name: /Create (Public )?link/i }),
     );
     fireEvent.click(
       await screen.findByRole("button", { name: /^Create link$/i }),
@@ -5119,7 +5129,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
     expect(
-      await screen.findByRole("button", { name: /Create link/i }),
+      await screen.findByRole("button", { name: /Create (Public )?link/i }),
     ).toBeTruthy();
   });
 

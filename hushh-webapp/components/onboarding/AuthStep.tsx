@@ -1138,7 +1138,7 @@ export function AuthStep({
                 </span>
               </div>
 
-              <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[#86868b] dark:text-white/45">
+              <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[#86868b] dark:text-white/70">
                 By continuing you agree to our{" "}
                 <button
                   type="button"
