@@ -59,6 +59,7 @@ tests/test_journey_is_traceable.py
 tests/test_pod_lifecycle_log.py
 tests/test_journey_parity.py
 tests/test_pod_journey_parity.py
+tests/test_pod_directive_authority.py
 tests/test_kai_analyze_durable_run_store_deploy_parity.py
 tests/test_kai_analyze_run_store.py
 tests/test_kai_auth_matrix.py
@@ -123,6 +124,7 @@ tests/test_pod_liveness_attach.py
 tests/test_pod_liveness_service.py
 tests/test_pod_liveness_worker.py
 tests/test_pod_memory_durability.py
+tests/test_pod_memory_boundary.py
 tests/test_pod_memory_is_actually_used.py
 tests/test_pod_memory_service.py
 tests/test_pod_mode.py
