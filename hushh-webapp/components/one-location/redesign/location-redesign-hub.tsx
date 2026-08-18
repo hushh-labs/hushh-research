@@ -42,6 +42,7 @@ import {
   Shield,
   ShieldCheck,
   UserPlus,
+  Users,
   UsersRound,
 } from "lucide-react";
 
@@ -1034,24 +1035,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     const requested: FlowKind = flowAction
       ? (ACTION_TO_FLOW[flowAction] ?? "none")
       : "none";
-    if (
-      nearbyCheckInAvailable &&
-      (action === "check-in" || action === "event-check-in")
-    ) {
-      // Straight to the screen that owns the flow. This used to hand off to
-      // `/one/location/map?action=check-in`, which mounts Your Map -- a screen
-      // that structurally cannot show check-in, since the sheet and the place
-      // list are withheld unless `surface="check-in"` -- and lets its own
-      // redirect carry on to the same destination. The person saw the wrong
-      // map appear and jump away, the Google renderer was built and torn down
-      // for nothing, and an extra history entry was left behind. Anyone
-      // arriving on `?action=check-in` from outside the app still gets that
-      // legacy redirect; nothing inside the app should be using it.
-      router.replace(ROUTES.ONE_LOCATION_CHECK_IN, {
-        scroll: false,
-      });
-      return;
-    }
+    // `?action=check-in` (including the legacy `event-check-in` alias) always
+    // opens the lightweight private Check-In flow below -- the "send a
+    // one-off note" screen its own contract entry describes. Nearby Check-In
+    // is a distinct, map-based feature with its own entry (the "Nearby" row)
+    // and its own route, ROUTES.ONE_LOCATION_CHECK_IN; being available no
+    // longer redirects this action into it (#5459).
     const desired = requested;
     if (desired === "none" && pendingFlowRef.current !== "none") {
       return;
@@ -1071,7 +1060,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       vm.clearNamedCircleShareContext();
     }
   }, [
-    nearbyCheckInAvailable,
     pathname,
     resetShareDraft,
     router,
@@ -1318,14 +1306,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
                 vm.clearNamedCircleShareContext();
                 openShareFlow();
               }}
-              onCheckIn={() =>
-                nearbyCheckInAvailable
-                  ? router.push(ROUTES.ONE_LOCATION_CHECK_IN)
-                  : openFlow("check-in")
-              }
-              checkInSubtitle={
-                nearbyCheckInAvailable ? "See people nearby" : "Share now"
-              }
+              onCheckIn={() => openFlow("check-in")}
+              nearbyCheckInAvailable={nearbyCheckInAvailable}
+              onOpenNearby={() => router.push(ROUTES.ONE_LOCATION_CHECK_IN)}
               onSos={() => openFlow("sos")}
               onOpenMap={() => router.push(ROUTES.ONE_LOCATION_MAP)}
               onOpenActiveShares={() => openFlow("active-shares")}
@@ -1387,7 +1370,8 @@ function NowHub({
   vm,
   onStartShare,
   onCheckIn,
-  checkInSubtitle,
+  nearbyCheckInAvailable,
+  onOpenNearby,
   onSos,
   onOpenMap,
   onOpenActiveShares,
@@ -1399,7 +1383,8 @@ function NowHub({
   vm: LocationHubViewModel;
   onStartShare: () => void;
   onCheckIn: () => void;
-  checkInSubtitle: string;
+  nearbyCheckInAvailable: boolean;
+  onOpenNearby: () => void;
   onSos: () => void;
   onOpenMap: () => void;
   onOpenActiveShares: () => void;
@@ -1532,6 +1517,17 @@ function NowHub({
           voiceControlId="one-location-open-map"
           voiceActionId="location.open_map"
         />
+        {nearbyCheckInAvailable ? (
+          <SettingsRow
+            icon={Users}
+            iconTone="blue"
+            title="Nearby"
+            density="compact"
+            chevron
+            onClick={onOpenNearby}
+            testId="one-location-nearby-row"
+          />
+        ) : null}
         <SettingsRow
           icon={UsersRound}
           iconTone={activeSharesIconTone}
@@ -1588,7 +1584,7 @@ function NowHub({
           tone="green"
           icon={<ShieldCheck />}
           title="Check-In"
-          subtitle={checkInSubtitle}
+          subtitle="Share now"
           onClick={onCheckIn}
           controlId="one-location-action-check-in"
         />
