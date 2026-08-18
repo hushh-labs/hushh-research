@@ -3165,14 +3165,66 @@ export function OneLocationAgentPageContent({
     () => selectShareReadyRecipients(rankedRecipients),
     [rankedRecipients],
   );
-  const smsContactUserIds = useMemo(
+  const legacySmsContactUserIds = useMemo(
     () => state?.smsContactUserIds ?? [],
     [state?.smsContactUserIds],
+  );
+  /**
+   * The SMS Circle's roster, provisioned and kept by `ensureSmsSystemCircle`.
+   *
+   * Issue #5426 makes this Circle the source of truth for who receives an
+   * emergency SMS. The owner is excluded -- they are a member of their own
+   * Circle and are not one of their own emergency contacts.
+   */
+  const [smsSystemCircleMemberIds, setSmsSystemCircleMemberIds] = useState<
+    string[] | null
+  >(null);
+
+  /**
+   * Circle first, legacy list as the fallback.
+   *
+   * Not belt-and-braces -- an ordering guarantee. Provisioning is a network
+   * call that can be slow, fail, or not have run yet on this device, and SOS
+   * must never resolve to an empty recipient list because a migration had not
+   * finished. `null` means "the Circle has not answered yet", which is exactly
+   * when the pre-#5426 source is still the honest one. Once it answers, it
+   * wins outright, including when it is deliberately empty.
+   */
+  const smsContactUserIds = useMemo(
+    () => smsSystemCircleMemberIds ?? legacySmsContactUserIds,
+    [legacySmsContactUserIds, smsSystemCircleMemberIds],
   );
   const smsActionRecipients = useMemo(
     () => selectSmsRecipients(sosActionRecipients, smsContactUserIds),
     [smsContactUserIds, sosActionRecipients],
   );
+
+  // Provision on bootstrap, once the vault token exists. Idempotent server-side,
+  // so a re-run costs one request and changes nothing.
+  useEffect(() => {
+    if (!auth.userId || !vaultOwnerToken) return;
+    let cancelled = false;
+    // Wrapped so a synchronous throw becomes a rejection the catch below can
+    // absorb. Provisioning is an enhancement to where SOS reads its recipients
+    // from; it must never be able to take the Location screen down with it.
+    void Promise.resolve()
+      .then(() => OneLocationService.ensureSmsSystemCircle({ vaultOwnerToken }))
+      .then((circle) => {
+        if (cancelled) return;
+        setSmsSystemCircleMemberIds(
+          (circle.members ?? [])
+            .map((member) => member.userId)
+            .filter((userId) => userId && userId !== auth.userId),
+        );
+      })
+      .catch(() => {
+        // Leave it null: SOS keeps reading the legacy list rather than
+        // resolving to nobody because provisioning failed.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.userId, vaultOwnerToken]);
 
   // Ref kept in sync with the latest sosIncident value so the reconcile effect
   // can read it without adding it as a dependency (preventing infinite loops).
