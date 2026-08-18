@@ -407,15 +407,19 @@ async def relay_pod_turn(
     # ignored exactly as today; on, the browser can act on them.
     from hushh_mcp.runtime_settings import pod_directive_transport_enabled  # noqa: PLC0415
 
-    if pod_directive_transport_enabled() and isinstance(answer, dict):
-        answer = {
-            **answer,
-            "frames": await _authorize_and_frame_directives(
+    if isinstance(answer, dict):
+        # The authority hop is the ONLY source of "frames". A compromised pod
+        # could return its own "frames" array; strip it UNCONDITIONALLY (in both
+        # flag states) so a forged card can never reach the browser, then set it
+        # only from the authorized translation when the flag is on. Defense in
+        # depth: the browser never renders a frame the relay did not mint.
+        answer = {k: v for k, v in answer.items() if k != "frames"}
+        if pod_directive_transport_enabled():
+            answer["frames"] = await _authorize_and_frame_directives(
                 user_id=user_id,
                 conversation_id=payload.conversation_id,
                 answer=answer,
-            ),
-        }
+            )
     return {"hushhId": hushh_id, **(answer if isinstance(answer, dict) else {"pod": answer})}
 
 
@@ -451,7 +455,10 @@ async def _authorize_and_frame_directives(
         get_action_directive_store,
     )
     from hushh_mcp.services.action_gateway import get_action_gateway_action  # noqa: PLC0415
-    from hushh_mcp.services.one_directive_frames import one_directive_frames  # noqa: PLC0415
+    from hushh_mcp.services.one_directive_frames import (  # noqa: PLC0415
+        EXCLUDED_AGENT_CHAT_SPECIALISTS,
+        one_directive_frames,
+    )
 
     raw = answer.get("directives")
     if not isinstance(raw, list) or not raw:
@@ -477,9 +484,22 @@ async def _authorize_and_frame_directives(
             payload=item.get("payload") if isinstance(item.get("payload"), dict) else {},
             delegate_agent_id=item.get("delegateAgentId"),
         )
-        if directive.delegate_agent_id or directive.kind != "action":
+        # A directive renders as a SPECIALIST card (no ledger) only when it names
+        # a non-excluded delegate. The check must match how one_directive_frames
+        # actually renders, not merely whether a delegate tag is present: the
+        # translator renders an EXCLUDED delegate as an ACTION card, so a pod
+        # tagging an action directive with an excluded delegate must NOT take the
+        # ledger-free path. That was the hole -- it emitted a confirm-shaped card
+        # with no directive_id, no ledger row, dodging the cap and the supersede.
+        renders_as_specialist = bool(
+            directive.delegate_agent_id
+            and directive.delegate_agent_id not in EXCLUDED_AGENT_CHAT_SPECIALISTS
+        )
+        if renders_as_specialist or directive.kind != "action":
             frames.extend(one_directive_frames(directive, conversation_text=text))
             continue
+        # Everything reaching here renders as an ACTION card and MUST carry a
+        # single-use ledger entry, capped at one per turn.
         if action_issued:
             continue  # one action directive per turn, mirroring the hub cap
         action_id = str(directive.payload.get("actionId") or "").strip()
