@@ -98,7 +98,7 @@ describe("named Circle flows", () => {
 
     render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
 
-    fireEvent.change(screen.getByPlaceholderText("e.g. Meena Family"), {
+    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
       target: { value: "Meena Family" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
@@ -117,7 +117,7 @@ describe("named Circle flows", () => {
     render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
 
     const create = screen.getByRole("button", { name: "Create circle" });
-    const input = screen.getByPlaceholderText("e.g. Meena Family");
+    const input = screen.getByPlaceholderText("e.g. Family");
 
     // Nothing typed: the button is genuinely blocked, and it is painted as a
     // neutral fill rather than a half-opacity accent that still reads as live.

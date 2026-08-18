@@ -315,7 +315,7 @@
           "assertion_pattern": "expect\\(",
           "min_assertions": 400,
           "required_titles": [
-            "keeps the heading and location toggle inline as the only header action"
+            "keeps the status card and location toggle grouped as one control"
           ]
         },
         {

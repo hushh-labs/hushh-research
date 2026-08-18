@@ -532,7 +532,7 @@ const LOCATION_HUB_TAB_LABELS: Readonly<Record<string, string>> = {
 
 const LOCATION_TAB_MODULES: Readonly<Record<string, string[]>> = {
   now: ["Sharing status", "Active shares", "Shared with me", "Quick actions"],
-  people: ["Circles", "Connections"],
+  people: ["Your circles", "Trusted people"],
   links: ["Temporary links"],
 };
 
@@ -2162,7 +2162,7 @@ function OneLocationInitialSkeleton() {
       </section>
 
       <section className="space-y-2 px-1">
-        {sectionLabel("Shared with me")}
+        {sectionLabel("Shared with you")}
         <div className={cn(onePanelClassName, "flex items-center gap-3 p-3.5")}>
           <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
           <div className="flex-1 space-y-2">
@@ -4804,8 +4804,17 @@ export function OneLocationAgentPageContent({
     [auth.userId, busy, refresh, vaultOwnerToken],
   );
 
+  /**
+   * Add some or all of a Circle's SMS-ready members in one pass.
+   *
+   * `memberUserIds` is the picker's hand-picked subset; omitting it keeps the
+   * original whole-Circle behaviour for any caller that still wants it (voice
+   * actions, deep links). Either way the roster is re-resolved here rather than
+   * trusted from the client, so a stale picker cannot smuggle in someone who
+   * has since left the Circle or lost phone verification.
+   */
   const handleAddSmsCircle = useCallback(
-    async (circleId: string) => {
+    async (circleId: string, memberUserIds?: readonly string[]) => {
       if (!auth.userId || !vaultOwnerToken || busy) return;
       setBusy(`sms-circle:${circleId}`);
       try {
@@ -4819,14 +4828,19 @@ export function OneLocationAgentPageContent({
           requirePhoneVerified: true,
         });
         const alreadySelected = new Set(smsContactUserIds);
+        const requested = memberUserIds ? new Set(memberUserIds) : null;
         const targets = selection.ready.filter(
-          (target) => !alreadySelected.has(target.recipient.userId),
+          (target) =>
+            !alreadySelected.has(target.recipient.userId) &&
+            (!requested || requested.has(target.recipient.userId)),
         );
         if (!targets.length) {
           toast.message(
-            selection.ready.length
-              ? `${selection.circle.name} is already in your SMS contacts.`
-              : `${selection.circle.name} has no members ready for SMS yet.`,
+            !selection.ready.length
+              ? `${selection.circle.name} has no members ready for SMS yet.`
+              : requested
+                ? "Those people are already in your SMS contacts."
+                : `${selection.circle.name} is already in your SMS contacts.`,
           );
           return;
         }

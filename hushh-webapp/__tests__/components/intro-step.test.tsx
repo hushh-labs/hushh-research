@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe("IntroStep voice contract", () => {
-  it("publishes and executes the same Claim your One control used by tapping", async () => {
+  it("publishes and executes the same Get started control used by tapping", async () => {
     const onLogin = vi.fn();
     render(<IntroStep onLogin={onLogin} />);
 
@@ -35,7 +35,7 @@ describe("IntroStep voice contract", () => {
       ).not.toBeNull();
     });
 
-    const button = screen.getByRole("button", { name: /claim your one/i });
+    const button = screen.getByRole("button", { name: /get started/i });
     expect(button).toHaveAttribute(
       "data-voice-control-id",
       "onboarding_claim_one",
@@ -55,19 +55,20 @@ describe("IntroStep voice contract", () => {
     });
   });
 
-  it("uses the standardized root quiet mark between the private-agent line and One", () => {
+  it("keeps every older spoken phrasing on the renamed control", async () => {
     render(<IntroStep onLogin={vi.fn()} />);
 
-    const privateAgent = screen.getByText("Your private agent");
-    const quietMark = screen.getByText("🤫");
-    const one = screen.getByRole("heading", { name: "One" });
-
-    expect(privateAgent.compareDocumentPosition(quietMark)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
-    expect(quietMark.compareDocumentPosition(one)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
+    await waitFor(() => {
+      const metadata = getVoiceSurfaceMetadata();
+      expect(metadata?.controls?.[0]).toMatchObject({
+        label: "Get started",
+        voiceAliases: expect.arrayContaining([
+          "get started",
+          "claim your one",
+          "claim one",
+        ]),
+      });
+    });
   });
 
   it("keeps the root public navigation to Research, Blog, and Developers", () => {
@@ -87,5 +88,50 @@ describe("IntroStep voice contract", () => {
       "href",
       "/developers",
     );
+  });
+});
+
+describe("IntroStep welcome clarity", () => {
+  it("shows one message and one action, in reading order", () => {
+    const { container } = render(<IntroStep onLogin={vi.fn()} />);
+
+    const wordmark = screen.getByText("hussh");
+    const one = screen.getByRole("heading", { name: "One" });
+    const supporting = screen.getByText(
+      "Your personal assistant for everyday tasks.",
+    );
+    const cta = screen.getByRole("button", { name: /get started/i });
+    const privacy = screen.getByText(/You control what you share\./);
+    const nav = screen.getByRole("navigation", { name: "Explore Hussh" });
+
+    const order = [wordmark, one, supporting, cta, privacy, nav];
+    for (let i = 0; i < order.length - 1; i += 1) {
+      expect(order[i].compareDocumentPosition(order[i + 1])).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    }
+
+    // One heading, one button. A second primary action on a welcome screen is
+    // the failure this test exists to catch.
+    expect(container.querySelectorAll("h1")).toHaveLength(1);
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+  });
+
+  it("carries no marketing text ahead of the decision", () => {
+    render(<IntroStep onLogin={vi.fn()} />);
+
+    for (const removed of [
+      /Your private agent/i,
+      /Yours to own/i,
+      /Listens/i,
+      /Remembers/i,
+      /Decides/i,
+      /Acts/i,
+      /stays locked/i,
+      /Nothing moves without/i,
+      /🤫/,
+    ]) {
+      expect(screen.queryByText(removed)).toBeNull();
+    }
   });
 });

@@ -533,21 +533,6 @@ function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
   );
 }
 
-const SHARE_LOCATION_AVATARS = [
-  {
-    src: "/one-location/onboarding/feature-share-person-1.webp",
-    className: "right-[7%] top-[10%]",
-  },
-  {
-    src: "/one-location/onboarding/feature-share-person-2.webp",
-    className: "bottom-[10%] left-[3%]",
-  },
-  {
-    src: "/one-location/onboarding/feature-share-person-3.webp",
-    className: "bottom-[8%] right-[7%]",
-  },
-] as const;
-
 function FeatureStatusPill({
   children,
   className,
@@ -626,6 +611,13 @@ function TwoLineFeatureTitle({
   );
 }
 
+/**
+ * Renders in the hero slot (data-one-feature-card="share", keeping that
+ * structural key so the ~500 lines of breakpoint tuning below it don't move).
+ * The real Check-In flow only tells chosen people you have arrived — it has
+ * no hotel or key-pickup capability — so Check-In gets this card's content,
+ * promoted to the hero position; Share moves to a compact card below.
+ */
 function ShareLocationFeatureCard() {
   return (
     <article
@@ -634,24 +626,24 @@ function ShareLocationFeatureCard() {
       data-one-use-case-card
       data-one-feature-card="share"
     >
-      <MapBackdrop tone="share" />
+      <MapBackdrop tone="checkin" />
       <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#f2f5f8] from-[35%] via-[#f2f5f8]/95 via-[51%] to-transparent dark:from-[#171d27] dark:via-[#171d27]/95" />
       <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
         <span
           className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)]"
           data-one-use-case-tag
         >
-          Share location
+          Check in
         </span>
         <TwoLineFeatureTitle
-          lines={["Can’t explain", "where you are?"]}
+          lines={["Can’t find", "each other?"]}
           className="font-[family-name:var(--font-app-display)] text-[21px]"
         />
         <p
           className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Share once. Your Circle can find you safely.
+          Check in once. Everyone knows you arrived.
         </p>
       </div>
       <div
@@ -659,51 +651,24 @@ function ShareLocationFeatureCard() {
         data-one-use-case-art
         aria-hidden="true"
       >
-        <svg
-          viewBox="0 0 220 240"
-          preserveAspectRatio="none"
-          className="absolute inset-0 h-full w-full"
-        >
-          <path
-            d="M104 119 L178 42 M104 119 L42 198 M104 119 L178 198"
-            fill="none"
-            stroke="var(--app-accent)"
-            strokeWidth="1.5"
-            strokeDasharray="3 5"
-            opacity="0.72"
-          />
-        </svg>
-        <span className="absolute left-[47%] top-[49%] h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/10" />
-        <span className="absolute left-[47%] top-[49%] h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/15" />
-        <span className="absolute left-[47%] top-[49%] h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.28)] dark:border-[#171d27]" />
-        {SHARE_LOCATION_AVATARS.map((avatar, index) => (
-          <span
-            key={avatar.src}
-            className={cn(
-              "absolute h-11 w-11 overflow-hidden rounded-full border-[3px] border-white bg-white shadow-[0_5px_14px_rgba(24,57,91,0.2)] dark:border-[#dce5ef]",
-              avatar.className,
-            )}
-            data-one-share-avatar={index + 1}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-            <img
-              src={avatar.src}
-              alt=""
-              loading="eager"
-              decoding="async"
-              fetchPriority="high"
-              className="h-full w-full object-cover"
-            />
-          </span>
-        ))}
+        <span className="absolute left-1/2 top-1/2 z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_8px_20px_rgba(8,127,245,0.32)] dark:border-[#171d27]">
+          <MapPin className="h-7 w-7 text-white" strokeWidth={2.2} />
+        </span>
+        <span className="absolute left-[calc(50%+18px)] top-[calc(50%-30px)] z-20 flex h-6 w-6 items-center justify-center rounded-full border-[3px] border-white bg-[#28b867] dark:border-[#171d27]">
+          <Check className="h-3 w-3 text-white" strokeWidth={3.5} />
+        </span>
       </div>
-      <FeatureStatusRow className="px-5">
-        Sharing with Mom, Driver +1
-      </FeatureStatusRow>
+      <FeatureStatusRow className="px-5">Checked in</FeatureStatusRow>
     </article>
   );
 }
 
+/**
+ * Renders in the first compact slot (data-one-feature-card="checkin"), kept
+ * for the same responsive tuning this key already carries. Share's content
+ * moved here so it sits beside SOS as an equal compact card, now that
+ * Check-In occupies the hero slot above.
+ */
 function CheckInFeatureCard() {
   return (
     <article
@@ -714,20 +679,20 @@ function CheckInFeatureCard() {
     >
       <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
         <span
-          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f] dark:bg-[#1c3f2b] dark:text-[#78d69a]"
+          className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)]"
           data-one-use-case-tag
         >
-          Check in
+          Share
         </span>
         <TwoLineFeatureTitle
-          lines={["At the venue, but", "can\u2019t find each other?"]}
+          lines={["Can\u2019t explain", "where you are?"]}
           className="text-[19px]"
         />
         <p
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Check in anywhere. Your Circle knows you arrived.
+          Share your location in one tap.
         </p>
       </div>
       <div
@@ -735,36 +700,45 @@ function CheckInFeatureCard() {
         data-one-use-case-art
         aria-hidden="true"
       >
-        <MapBackdrop tone="checkin" />
+        <MapBackdrop tone="share" />
         <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#f4f6f8] to-transparent dark:from-[#171d27]" />
-        {/* Green location-pin overlay removed: the check-in card now shows the
-            clean building artwork on its own. The [data-one-checkin-pin]
-            responsive rules below are harmless no-ops now. */}
-        <span
-          className="absolute bottom-[48%] left-1/2 w-[54%] -translate-x-1/2"
-          style={{ perspective: "320px", perspectiveOrigin: "50% 100%" }}
-          data-one-checkin-art
+        <svg
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          className="absolute inset-0 h-full w-full"
         >
+          <path
+            d="M50 62 L30 20"
+            fill="none"
+            stroke="var(--app-accent)"
+            strokeWidth="1.5"
+            strokeDasharray="3 5"
+            opacity="0.72"
+          />
+        </svg>
+        <span className="absolute left-1/2 top-[62%] h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.28)] dark:border-[#171d27]" />
+        <span className="absolute left-[30%] top-[20%] h-10 w-10 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full border-[3px] border-white bg-white shadow-[0_5px_14px_rgba(24,57,91,0.2)] dark:border-[#dce5ef]">
           {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
           <img
-            src="/one-location/onboarding/feature-checkin-house-transparent.webp"
+            src="/one-location/onboarding/feature-share-person-1.webp"
             alt=""
             loading="eager"
             decoding="async"
             fetchPriority="high"
-            className="block w-full origin-bottom object-contain drop-shadow-[0_8px_10px_rgba(20,30,50,0.22)]"
-            style={{ transform: "rotateY(8deg)" }}
-            data-one-checkin-hotel
+            className="h-full w-full object-cover"
           />
         </span>
       </div>
-      <FeatureStatusRow className="px-3">
-        Checked in at Hotel Grand
-      </FeatureStatusRow>
+      <FeatureStatusRow className="px-3">Sharing</FeatureStatusRow>
     </article>
   );
 }
 
+/**
+ * Visible label is "SOS", not "SMS" — "SMS" reads as text messaging to a
+ * first-time user. Internal `data-one-sms-*` hooks keep their name; they are
+ * structural, not shown, and renaming them buys nothing.
+ */
 function SaveMySoulFeatureCard() {
   return (
     <article
@@ -778,17 +752,17 @@ function SaveMySoulFeatureCard() {
           className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[#55252a] dark:text-[#ff9a98]"
           data-one-use-case-tag
         >
-          SMS &middot; Save My Soul
+          SOS
         </span>
         <TwoLineFeatureTitle
-          lines={["Need help but can\u2019t", "call or speak?"]}
+          lines={["Can\u2019t call", "for help?"]}
           className="text-[19px]"
         />
         <p
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#c2aeb2]"
           data-one-feature-body
         >
-          Send your location when you need help fast.
+          Send your location to family and friends.
         </p>
       </div>
       <div
@@ -824,15 +798,13 @@ function SaveMySoulFeatureCard() {
                 className="absolute inset-0 rounded-full bg-[#ef302f] shadow-[0_12px_22px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
               />
               <span className="relative z-10" data-one-sms-label>
-                SMS
+                SOS
               </span>
             </span>
           </span>
         </div>
       </div>
-      <FeatureStatusRow className="px-3">
-        Alerted 3 contacts
-      </FeatureStatusRow>
+      <FeatureStatusRow className="px-3">Help sent</FeatureStatusRow>
     </article>
   );
 }
@@ -852,10 +824,10 @@ function SaveMySoulFeatureCard() {
  * ContactsScreen already uses for the address book. The CTA is one button
  * with three jobs, so the primer costs no extra screen:
  *
- *   not asked yet  -> "Allow location"  asks, once, on an explicit tap
- *   blocked        -> "Open settings"   the only place a refusal is fixable,
- *                     plus "Not now"    because a refusal is not a dead end
- *   granted        -> "Find my people"  the original forward action
+ *   not asked yet  -> "Allow location"   asks, once, on an explicit tap
+ *   blocked        -> "Open settings"    the only place a refusal is fixable,
+ *                     plus "Not now"     because a refusal is not a dead end
+ *   granted        -> "Choose my people" the original forward action
  */
 function FeaturesScreen({
   locationGranted,
@@ -919,7 +891,6 @@ function FeaturesScreen({
       data-one-feature-screen
     >
       <OnboardingNavigation
-        floating
         onBack={onBack}
         onSkip={onSkip}
         disabled={leaving}
@@ -941,13 +912,11 @@ function FeaturesScreen({
             className="ui-text-agent-title text-[#111823] dark:!text-[#f6f8fc]"
             data-one-feature-heading
           >
-            Keep people updated
+            Location that helps
           </h1>
-          {/* This replaced a subtitle that listed the same three things the
-              three cards below already show. A permission primer is allowed
-              more than four words, and this is the only place the person
-              learns who sees them and that they can stop — the two facts
-              that decide whether they tap Allow. */}
+          {/* Blocked state stays as its own recovery copy — a distinct error
+              state from the marketing subtitle below it, and the only place
+              that explains why the button turned into "Open settings". */}
           <p
             className="mt-3 text-[15px] font-normal leading-[20px] text-[#737a84] dark:text-[#aeb8c7]"
             data-one-feature-subtitle
@@ -955,7 +924,7 @@ function FeaturesScreen({
           >
             {locationBlocked
               ? "Location is off. Turn it on in Settings."
-              : "Only people you pick can see you. Stop anytime."}
+              : "Share, check in, or get help."}
           </p>
         </header>
         <div className="mx-auto mt-6 grid w-full max-w-[700px] shrink-0 gap-4" data-one-feature-grid>
@@ -991,7 +960,7 @@ function FeaturesScreen({
           disabled={permissionBusy}
           className="h-[58px] min-h-[58px]"
         >
-          {/* Four jobs, one button. "Find my people" names the next screen —
+          {/* Four jobs, one button. "Choose my people" names the next screen —
               a deliberately distinct string, so the reviewer flow's exact
               button match cannot collide with a generic "Continue". */}
           {locationPreparationRetry
@@ -1000,7 +969,7 @@ function FeaturesScreen({
               ? "Allow location"
               : locationBlocked
                 ? "Open settings"
-                : "Find my people"}
+                : "Choose my people"}
         </PrimaryButton>
         {/* A refusal is not a dead end. Everything except live sharing still
             works, so the only screen that must hold someone is one whose
