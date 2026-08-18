@@ -126,10 +126,14 @@ function circleInitials(value: string): string {
  * There are three kinds and nothing on this screen acts on any of them, so
  * the word was decoration in front of the fact. The count stands alone.
  */
-function circleListMemberCountLabel(memberCount: number): string {
-  const others = Math.max(0, memberCount - 1);
-  if (others === 0) return "No members yet";
+/** Wording for a member count that has already excluded the viewer. */
+export function othersCountLabel(others: number): string {
+  if (others <= 0) return "No members yet";
   return `${others} ${others === 1 ? "person" : "people"}`;
+}
+
+export function circleListMemberCountLabel(memberCount: number): string {
+  return othersCountLabel(Math.max(0, memberCount - 1));
 }
 
 function circleFlowErrorMessage(error: unknown, fallback: string): string {
@@ -1184,9 +1188,7 @@ export function CircleDetailFlow({
             ? // Same line as the list row this screen was opened from, so the
               // count does not change wording between the two. The kind is
               // dropped here for the same reason it is dropped there.
-              `${externalMembersCount} ${
-                externalMembersCount === 1 ? "member" : "members"
-              }`
+              othersCountLabel(externalMembersCount)
             : "Loading Circle…"
         }
       />

@@ -532,7 +532,7 @@ const LOCATION_HUB_TAB_LABELS: Readonly<Record<string, string>> = {
 
 const LOCATION_TAB_MODULES: Readonly<Record<string, string[]>> = {
   now: ["Sharing status", "Active shares", "Shared with me", "Quick actions"],
-  people: ["Circles", "Connections"],
+  people: ["Your circles", "Trusted people"],
   links: ["Temporary links"],
 };
 
