@@ -1424,7 +1424,6 @@ describe("SaveLocationModal", () => {
       const kindOfPlace = screen.getByRole("group", {
         name: "Saved location category",
       });
-      const optionalGroup = screen.getByText("Optional — helps at the door.");
       const houseOrFlat = screen.getByLabelText(/House or flat/);
       const doorDetails = screen.getByTestId(
         "save-location-door-details-toggle",
@@ -1432,10 +1431,28 @@ describe("SaveLocationModal", () => {
       const buildingColour = screen.getByLabelText(/Building colour/);
 
       expect(isBefore(address, kindOfPlace)).toBe(true);
-      expect(isBefore(kindOfPlace, optionalGroup)).toBe(true);
-      expect(isBefore(optionalGroup, houseOrFlat)).toBe(true);
+      expect(isBefore(kindOfPlace, houseOrFlat)).toBe(true);
       expect(isBefore(houseOrFlat, doorDetails)).toBe(true);
       expect(isBefore(doorDetails, buildingColour)).toBe(true);
+    });
+
+    it("marks House/flat and PIN as optional right beside each field's own label", () => {
+      render(<SaveLocationModal {...detailsProps} />);
+
+      const houseOrFlatLabel = screen.getByText("House or flat");
+      const postalCodeLabel = screen.getByText("PIN / postcode");
+      const optionalBadges = screen.getAllByText("Optional");
+      expect(optionalBadges).toHaveLength(2);
+
+      // Each badge is a sibling of its own field's label -- the same row
+      // Address uses for "Required" -- not one sentence above the whole group
+      // that a person can scroll past before reaching the fields it described.
+      expect(houseOrFlatLabel.parentElement).toContainElement(
+        optionalBadges[0],
+      );
+      expect(postalCodeLabel.parentElement).toContainElement(
+        optionalBadges[1],
+      );
     });
 
     it("keeps building colour behind a tap for a new place", () => {
