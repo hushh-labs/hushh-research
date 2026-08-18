@@ -1095,17 +1095,24 @@ export function AuthStep({
           data-auth-signin-clusters
         >
           <div className="flex flex-col items-center gap-4">
-            {/* The One mark. The glyph is the logo, so it is never restyled;
-                only the geometry around it shrank — a 64px box under an 80px
-                halo, instead of a 92px box under a 112px blur that washed the
-                whole top of the screen blue. The drop-shadow went with it: at 25%
-                black it read as a smudge on the #f2f2f7 canvas. */}
+            {/* The One mark, at the size and wash the approved design gives
+                it and identical to the welcome screen's — the two entry
+                screens must not disagree about how big the brand is. The
+                glyph is the logo, so it is never restyled; the geometry is a
+                168px box carrying a closest-side accent wash, which keeps the
+                halo a circle regardless of how the emoji font measures. */}
             <div
-              className="relative flex h-[64px] w-[64px] items-center justify-center"
+              className="relative flex h-[168px] w-[168px] items-center justify-center [@media(max-height:780px)]:h-[116px] [@media(max-height:780px)]:w-[116px]"
               aria-hidden="true"
             >
-              <span className="pointer-events-none absolute h-[80px] w-[80px] rounded-full bg-accent/[0.18] blur-[24px]" />
-              <span className="relative select-none text-[52px] leading-none">
+              <span
+                className="pointer-events-none absolute inset-0 rounded-full blur-[5px]"
+                style={{
+                  background:
+                    "radial-gradient(closest-side, color-mix(in oklab, var(--app-accent-deep) 28%, transparent), color-mix(in oklab, var(--app-accent-deep) 7%, transparent) 56%, transparent 74%)",
+                }}
+              />
+              <span className="relative select-none font-[family-name:'Apple_Color_Emoji','Segoe_UI_Emoji','Noto_Color_Emoji'] text-[80px] leading-none [@media(max-height:780px)]:text-[58px]">
                 🤫
               </span>
             </div>

@@ -16,6 +16,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { cn } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -164,7 +165,7 @@ export function CalendarAgentPage({
         }`
       : status.status === "needs_reauth"
         ? "Your Google authorization needs to be refreshed."
-        : "Connect once to summarize your schedule, find availability, and schedule confirmed meetings.";
+        : "One learns your availability and schedule directly from your calendar.";
 
   const connectionLabel = connectionPending
     ? "Finishing connection"
@@ -180,6 +181,7 @@ export function CalendarAgentPage({
     ? "Reconnect Calendar"
     : "Connect Calendar";
   const shouldShowSetup = !connected && status?.status !== "needs_reauth";
+  const isDisconnected = !connected;
 
   const openChat = (prompt?: string) => {
     if (!agentPopover) return;
@@ -199,28 +201,43 @@ export function CalendarAgentPage({
   };
 
   return (
-    <AppPageShell width="reading" className="motion-step-enter">
-      <AppPageHeaderRegion>
+    <AppPageShell
+      width="reading"
+      className={cn(
+        "motion-step-enter",
+        isDisconnected &&
+          "fixed inset-x-0 top-[64px] bottom-[115px] z-10 m-auto flex w-full max-w-[720px] flex-col items-center justify-center overflow-hidden px-4"
+      )}
+    >
+      <AppPageHeaderRegion
+        className={cn(isDisconnected && "w-full max-w-md mx-auto mb-5 text-center")}
+      >
         <PageHeader
           title="Calendar"
           description="Plan your schedule with One."
-          icon={CalendarDays}
+          className={cn(
+            isDisconnected &&
+              "text-center flex flex-col items-center justify-center space-y-1.5"
+          )}
         />
       </AppPageHeaderRegion>
-      <AppPageContentRegion>
-        <SurfaceCard className="overflow-hidden">
-          <SurfaceCardHeader className="pb-4 sm:pb-5">
-            <div className="flex items-start gap-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-primary/10 text-primary sm:size-11">
-                <CalendarDays className="size-5" aria-hidden />
+
+      <AppPageContentRegion
+        className={cn(isDisconnected && "w-full max-w-md mx-auto")}
+      >
+        <SurfaceCard className="overflow-hidden w-full shadow-md">
+          <SurfaceCardHeader className="pb-5 sm:pb-6 pt-5 sm:pt-6">
+            <div className="flex items-start gap-3.5">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-[12px] bg-primary/10 text-primary sm:size-12">
+                <CalendarDays className="size-5 sm:size-6" aria-hidden />
               </div>
-              <div className="min-w-0">
-                <SurfaceCardTitle>
+              <div className="min-w-0 flex-1 space-y-1">
+                <SurfaceCardTitle className="text-lg sm:text-xl font-semibold tracking-tight">
                   {connected
                     ? "Google Calendar is connected"
                     : "Connect Google Calendar"}
                 </SurfaceCardTitle>
-                <SurfaceCardDescription className="mt-1.5 max-w-2xl">
+                <SurfaceCardDescription className="mt-1.5 leading-relaxed text-sm text-muted-foreground">
                   {detail}
                 </SurfaceCardDescription>
               </div>
@@ -283,25 +300,25 @@ export function CalendarAgentPage({
                 </div>
               </div>
             ) : shouldShowSetup ? (
-              <div className="border-t border-border/60 pt-4 sm:pt-5">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+              <div className="border-t border-border/60 pt-5 sm:pt-6 pb-2">
+                <div className="flex flex-col items-center justify-center text-center space-y-3.5 w-full">
                   <Button
                     disabled={busy}
                     onClick={() => void connect()}
-                    className="w-full sm:w-auto"
+                    className="w-full justify-center h-12 text-base font-semibold shadow-sm"
                     data-voice-control-id="open_calendar_connector"
                     data-voice-action-id={
                       journeyVariant === "onboarding"
                         ? "setup.connect_calendar"
                         : undefined
                     }
-                    data-voice-label="Connect Calendar"
+                    data-voice-label={connectLabel}
                     data-voice-purpose="starts Google Calendar authorization from this Calendar agent."
                   >
                     {connectLabel}
                   </Button>
-                  <p className="text-sm leading-5 text-muted-foreground">
-                    Private by default. You can disconnect at any time.
+                  <p className="text-xs text-muted-foreground text-center leading-relaxed">
+                    Private by default. Disconnect anytime.
                   </p>
                 </div>
               </div>
@@ -332,7 +349,7 @@ export function CalendarAgentPage({
 
         {journeyVariant === "onboarding" && onFinishSetup && onSkipSetup ? (
           <SetupCompletionFooter
-            label={connected ? "Finish Calendar setup" : "Skip Calendar setup"}
+            label={connected ? "Finish setup" : "Skip for now"}
             onComplete={connected ? onFinishSetup : onSkipSetup}
             busy={connected ? finishingSetup : skippingSetup}
             disabled={busy}
@@ -352,7 +369,7 @@ export function CalendarAgentPage({
             supportingText={
               connected
                 ? undefined
-                : "You can connect Calendar from setup whenever you are ready."
+                : "You can connect Calendar whenever you are ready."
             }
           />
         ) : null}
