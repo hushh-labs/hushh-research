@@ -2162,7 +2162,7 @@ function OneLocationInitialSkeleton() {
       </section>
 
       <section className="space-y-2 px-1">
-        {sectionLabel("Shared with me")}
+        {sectionLabel("Shared with you")}
         <div className={cn(onePanelClassName, "flex items-center gap-3 p-3.5")}>
           <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
           <div className="flex-1 space-y-2">
