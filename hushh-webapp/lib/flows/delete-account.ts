@@ -21,7 +21,7 @@ export type DeleteAccountAuthResolution =
  */
 export const DELETE_ACCOUNT_DIALOG_TITLE = "Delete your One account?";
 export const DELETE_ACCOUNT_DIALOG_DESCRIPTION =
-  "This action cannot be undone. This permanently deletes your One account, your encrypted vault and saved details, every connected service, and your cloud-linked identity.";
+  "This can't be undone — it deletes your account, private data, and every connected service.";
 
 export async function resolveDeleteAccountAuth(params: {
   userId: string;
