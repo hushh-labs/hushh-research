@@ -1914,7 +1914,8 @@ class OneLocationCircleService:
                             """
                             SELECT
                               circle.id, circle.name, circle.kind,
-                              circle.owner_user_id, circle.member_limit
+                              circle.owner_user_id, circle.member_limit,
+                              circle.is_system
                             FROM one_location_circles circle
                             WHERE circle.id = CAST(:circle_id AS UUID)
                               AND circle.status = 'active'
@@ -2231,12 +2232,49 @@ class OneLocationCircleService:
                         ),
                         status_code=409,
                     )
+                is_system_circle = bool(circle_row.get("is_system"))
                 if new_user_ids and reserved_count + len(new_user_ids) > member_limit:
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_INVITE_CAPACITY_REACHED",
                         "This Circle does not have room for all selected invitations.",
                         status_code=409,
                     )
+                if is_system_circle and new_user_ids:
+                    # Straight to active membership, exactly as add_sms_contact
+                    # did. `_connect_member_to_circle` is deliberately NOT called:
+                    # these people are the owner's existing contacts, and being on
+                    # an emergency list is not an introduction to the rest of it.
+                    for invitee_user_id in new_user_ids:
+                        conn.execute(
+                            text(
+                                """
+                                INSERT INTO one_location_circle_memberships (
+                                  circle_id, user_id, role, status, joined_at,
+                                  updated_at, metadata
+                                )
+                                VALUES (
+                                  CAST(:circle_id AS UUID), :user_id, 'member',
+                                  'active', NOW(), NOW(),
+                                  jsonb_build_object('addedVia', 'sms_system_circle')
+                                )
+                                ON CONFLICT (circle_id, user_id) DO UPDATE
+                                SET status = 'active',
+                                    ended_at = NULL,
+                                    updated_at = NOW()
+                                """
+                            ),
+                            {
+                                "circle_id": cleaned_circle_id,
+                                "user_id": invitee_user_id,
+                            },
+                        )
+                    logger.info(
+                        "one_location.sms_system_circle_members_added actor=%s count=%d",
+                        redact_log_field("user_id", actor_user_id),
+                        len(new_user_ids),
+                    )
+                    new_user_ids = []
+
                 for invitee_user_id in new_user_ids:
                     invite_row = _first(
                         conn.execute(

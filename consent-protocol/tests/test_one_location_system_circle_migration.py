@@ -171,3 +171,21 @@ def test_deletion_is_the_only_power_a_system_circle_removes() -> None:
     # on the emergency list are the ones who may need to reach each other, and
     # a roster only the owner can read is useless exactly then.
     assert "canViewRoster" not in service
+
+
+def test_system_circle_adds_take_effect_without_an_invitation() -> None:
+    service = _service()
+
+    # An emergency contact has never needed the other person's agreement --
+    # add_sms_contact (migration 116) added them outright. Routing system-Circle
+    # adds through the pending-invitation flow would change that in the worst
+    # direction: the owner sees someone on their emergency list, believes SOS
+    # will reach them, and it will not until an invitation nobody mentioned is
+    # accepted.
+    assert "if is_system_circle and new_user_ids:" in service
+    assert "'sms_system_circle'" in service
+
+    # Every other Circle still requires acceptance -- joining someone's Family
+    # Circle IS a relationship, and consent belongs there.
+    assert "INSERT INTO one_location_circle_member_invites" in service
+    assert "'pending'" in service
