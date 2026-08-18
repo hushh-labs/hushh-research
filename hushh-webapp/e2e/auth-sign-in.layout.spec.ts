@@ -93,6 +93,38 @@ function classConstant(source: string, name: string, seen = 0): string {
   );
 }
 
+/**
+ * The colour actually painted behind the sign-in text.
+ *
+ * It is NOT `--app-grouped-background`. The shared hero background paints its
+ * own opaque sheet over the app canvas, and which sheet depends on the variant
+ * the screen asks for — so contrast measured against the app token would be
+ * measured against a surface nobody sees. Derived from the two real sources.
+ */
+function paintedCanvas(auth: string): { light: string; dark: string } {
+  if (!auth.includes('variant="plain"')) {
+    return {
+      light: "var(--app-grouped-background)",
+      dark: "var(--app-grouped-background)",
+    };
+  }
+  const css = readSource(
+    "components/onboarding/OnboardingHeroBackground.module.css",
+  );
+  const light = css.match(/\.plainBase\s*\{[^}]*background:\s*([^;]+);/)?.[1];
+  const dark = css.match(
+    /:global\(\.dark\)\s*\.plainBase\s*\{[^}]*background:\s*([^;]+);/,
+  )?.[1];
+  if (!light || !dark) {
+    throw new Error(
+      "auth-sign-in.layout: the sign-in screen asks for the plain hero canvas, " +
+        "but its light and dark backgrounds are no longer both declared — this " +
+        "spec would measure contrast against a surface the screen never paints.",
+    );
+  }
+  return { light: light.trim(), dark: dark.trim() };
+}
+
 /** Pull the first capture of `pattern`, or explain what to fix. */
 function capture(source: string, pattern: RegExp, what: string): string {
   const found = source.match(pattern)?.[1];
@@ -215,6 +247,7 @@ type Pieces = {
   actionsWrap: string;
   providerActions: string;
   supportingWrap: string;
+  canvas: { light: string; dark: string };
   mainStyle: string;
   contentStyle: string;
 };
@@ -287,6 +320,7 @@ function readPieces(): Pieces {
       /className="(flex flex-col items-center gap-3)" data-auth-supporting-content/,
       "the supporting content column",
     ),
+    canvas: paintedCanvas(auth),
     mainStyle: inlineStyleAfter(auth, 'data-testid="auth-step-primary"'),
     contentStyle: inlineStyleAfter(auth, "data-auth-content-block"),
   };
@@ -394,7 +428,15 @@ async function writeFixture({
     `<!doctype html><html><head><meta charset="utf-8">
 <style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css">
-<style>html { font-size: ${textScale}%; } body { margin: 0; }</style></head>
+<style>
+  html { font-size: ${textScale}%; }
+  body { margin: 0; }
+  /* Matches the class on the body element so it wins: a class selector
+     outranks a bare element rule, and the sheet the screen really paints has
+     to be the one contrast is measured against. */
+  body.foundation-public-ambient { background: ${pieces.canvas.light}; }
+  body.dark.foundation-public-ambient { background: ${pieces.canvas.dark}; }
+</style></head>
 <body class="foundation-public-ambient ${theme === "dark" ? "dark" : ""}" data-ambient-chrome-primed="true">${shellMarkup(pieces)}</body></html>`,
   );
   return `file://${path.join(dir, "fixture.html")}`;
