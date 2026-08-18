@@ -45,11 +45,17 @@ def test_a_fully_matching_turn_is_at_parity():
     assert diff.at_parity, f"expected parity, got {diff.failures} :: {diff.detail}"
 
 
-def test_the_debate_launch_is_a_directive_drop_today():
-    """The decisive gap: hub emits analysis.start, pod carries only a count."""
+def test_the_debate_launch_reaches_parity_after_directive_transport():
+    """Phase 2 closed the decisive gap IN PLACE: the same journey that was a
+    directive-drop now reaches parity, because the pod carries directive payloads
+    and the relay authorizes them into the same frames the hub emits.
+
+    This assertion flipped from 'directive-drop fires' to 'at parity' -- same
+    file, same journey, the divergence closing in the fixture. If it regresses to
+    directive-drop, the transport path broke and the Debate no longer launches
+    from a pod turn."""
     diff = _BY_NAME["analyze_nvidia_debate"].run()
-    assert ParityFailureClass.DIRECTIVE_DROP in diff.failures, diff.detail
-    assert diff.owners == ("phase-2-directive-transport",)
+    assert diff.at_parity, f"Debate launch regressed to {diff.failures} :: {diff.detail}"
 
 
 @pytest.mark.parametrize("name", ["location_question", "consent_question"])
@@ -89,3 +95,119 @@ def test_the_pod_holds_zero_database_credentials():
                 "point; a specialist must reach data through the hub broker, never a "
                 "database credential in the pod."
             )
+
+
+# ---- regression guards: the five oracle holes the adversarial review found ----
+# Each of these would have PASSED (wrongly) against the first-cut oracle. They
+# pin the ruler so a future edit cannot silently reopen a false-parity hole.
+
+from hushh_mcp.observability.parity_oracle import (  # noqa: E402
+    DirectiveObservation,
+    EquivalenceMode,
+    SpecialistObservation,
+    TurnObservation,
+    classify,
+    observe_hub,
+)
+
+
+def _hub_served(agent_id: str) -> TurnObservation:
+    return TurnObservation(
+        path="hub",
+        has_text=True,
+        grounded=True,
+        runtime_mode="hub",
+        specialists=(SpecialistObservation(agent_id=agent_id, status="ok"),),
+    )
+
+
+@pytest.mark.parametrize(
+    "bad_status", ["error", "timeout", "unavailable", "", "failed", "degraded"]
+)
+def test_hole1_any_nonok_specialist_status_is_a_miss_not_parity(bad_status: str):
+    """The false-parity blocker: the original ladder had no `else`, so a status
+    it did not anticipate certified parity. Every non-ok outcome for a hub-served
+    specialist is now a data-door miss."""
+    pod = TurnObservation(
+        path="pod",
+        has_text=True,
+        grounded=True,
+        runtime_mode="pod",
+        specialists=(SpecialistObservation(agent_id="agent_location", status=bad_status),),
+    )
+    diff = classify(pod, _hub_served("agent_location"), EquivalenceMode.EXACT)
+    assert not diff.at_parity, f"status {bad_status!r} wrongly certified parity"
+    assert ParityFailureClass.DATA_DOOR_MISS in diff.failures
+
+
+def test_hole2_a_journey_that_asserts_nothing_is_rejected():
+    """The vacuous-pass blocker: a journey declaring no expectation must raise,
+    not silently pass empty-vs-empty as parity."""
+    from hushh_mcp.observability.parity_evaluator import ParityJourney
+
+    empty = ParityJourney(
+        name="empty",
+        mode=EquivalenceMode.EXACT,
+        hub_frames=[],
+        hub_grounded=False,
+        pod_turn={},
+        pod_specialist_statuses=[],
+        expect_hub_directive_kinds=[],
+        expect_hub_specialists=[],
+        expect_hub_text=False,
+        expect_hub_grounded=False,
+    )
+    with pytest.raises(AssertionError, match="asserts nothing"):
+        empty.assert_reference_is_not_vacuous()
+
+
+def test_hole3_a_silent_or_ungrounded_pod_is_not_parity():
+    """classify used to ignore has_text/grounded, so a silent ungrounded pod
+    scored parity against a texting grounded hub."""
+    hub = TurnObservation(path="hub", has_text=True, grounded=True, runtime_mode="hub")
+    silent = TurnObservation(path="pod", has_text=False, grounded=True, runtime_mode="pod")
+    ungrounded = TurnObservation(path="pod", has_text=True, grounded=False, runtime_mode="pod")
+    assert not classify(silent, hub, EquivalenceMode.EXACT).at_parity
+    assert not classify(ungrounded, hub, EquivalenceMode.EXACT).at_parity
+
+
+def test_hole4_a_hollow_action_directive_is_not_parity_in_exact_mode():
+    """Keying on action_id alone let a hollow directive (right id, no execution
+    target) pass. EXACT mode now requires dispatchability."""
+    hub = TurnObservation(
+        path="hub",
+        has_text=True,
+        grounded=True,
+        runtime_mode="hub",
+        directives=(
+            DirectiveObservation(kind="action", action_id="analysis.start", dispatchable=True),
+        ),
+    )
+    pod = TurnObservation(
+        path="pod",
+        has_text=True,
+        grounded=True,
+        runtime_mode="pod",
+        directives=(
+            DirectiveObservation(kind="action", action_id="analysis.start", dispatchable=False),
+        ),
+    )
+    diff = classify(pod, hub, EquivalenceMode.EXACT)
+    assert not diff.at_parity, "a hollow action directive was certified parity"
+    assert ParityFailureClass.DIRECTIVE_DROP in diff.failures
+
+
+def test_hole5_a_tool_waiting_only_hub_still_shows_the_directive():
+    """tool_waiting had no branch, so a hub signalling an action only via
+    tool_waiting was observed as having zero directives."""
+    obs = observe_hub(
+        [
+            {
+                "event": "tool_waiting",
+                "data": {"action_id": "analysis.start", "execution": "frontend"},
+            }
+        ]
+    )
+    assert len(obs.directives) == 1
+    assert obs.directives[0].action_id == "analysis.start"
+    assert obs.directives[0].dispatchable is True

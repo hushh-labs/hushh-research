@@ -47,6 +47,12 @@ class ParityJourney:
     #: parity of two empty turns proves nothing).
     expect_hub_directive_kinds: list[str]
     expect_hub_specialists: list[str]
+    #: A journey with no directives and no specialists (a plain conversational
+    #: turn) is still meaningful IF it asserts the fundamentals -- that the hub
+    #: produced text and stayed grounded. These let the control journey assert
+    #: exactly that, so it is not a vacuous pass.
+    expect_hub_text: bool
+    expect_hub_grounded: bool
 
     @staticmethod
     def from_json(path: Path) -> "ParityJourney":
@@ -60,10 +66,31 @@ class ParityJourney:
             pod_specialist_statuses=list(raw.get("pod_specialist_statuses") or []),
             expect_hub_directive_kinds=list(raw.get("expect_hub_directive_kinds") or []),
             expect_hub_specialists=list(raw.get("expect_hub_specialists") or []),
+            expect_hub_text=bool(raw.get("expect_hub_text", False)),
+            expect_hub_grounded=bool(raw.get("expect_hub_grounded", False)),
         )
 
     def assert_reference_is_not_vacuous(self) -> None:
-        """A journey whose hub side asserts nothing cannot certify parity."""
+        """A journey whose hub side asserts nothing cannot certify parity.
+
+        Two obligations. First, the journey must DECLARE it is testing something
+        -- at least one directive kind, one specialist, or a fundamental (text /
+        grounding). A journey that declares nothing is a vacuous pass by
+        construction and is rejected outright; the original guard missed this and
+        blessed empty-vs-empty as parity. Second, the reference must actually
+        CONTAIN every declared expectation.
+        """
+        if not (
+            self.expect_hub_directive_kinds
+            or self.expect_hub_specialists
+            or self.expect_hub_text
+            or self.expect_hub_grounded
+        ):
+            raise AssertionError(
+                f"journey '{self.name}' asserts nothing: declare at least one of "
+                "expect_hub_directive_kinds / expect_hub_specialists / expect_hub_text "
+                "/ expect_hub_grounded, or the run is a vacuous pass"
+            )
         obs = observe_hub(self.hub_frames, grounded=self.hub_grounded)
         got_kinds = {d.kind for d in obs.directives}
         for kind in self.expect_hub_directive_kinds:
@@ -79,6 +106,14 @@ class ParityJourney:
                     f"journey '{self.name}' is vacuous: hub reference lacks served "
                     f"specialist '{agent_id}' (has {sorted(got_specialists)})"
                 )
+        if self.expect_hub_text and not obs.has_text:
+            raise AssertionError(
+                f"journey '{self.name}' expects hub text but its reference has none"
+            )
+        if self.expect_hub_grounded and not obs.grounded:
+            raise AssertionError(
+                f"journey '{self.name}' expects hub grounding but its reference is ungrounded"
+            )
 
     def run(self) -> ParityDiff:
         """Observe both paths from delivered bytes and classify the divergence."""

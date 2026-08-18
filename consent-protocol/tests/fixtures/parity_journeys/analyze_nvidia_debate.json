@@ -3,12 +3,61 @@
   "mode": "exact",
   "hub_grounded": true,
   "hub_frames": [
-    {"event": "token", "data": {"text": "Let me run a full analysis on NVIDIA."}},
-    {"event": "tool_start", "data": {"action_id": "analysis.start", "label": "Analyze NVIDIA", "execution": "frontend"}},
-    {"event": "tool_waiting", "data": {"action_id": "analysis.start", "status": "waiting_for_frontend"}}
+    {
+      "event": "token",
+      "data": {
+        "text": "Let me run a full analysis on NVIDIA."
+      }
+    },
+    {
+      "event": "tool_start",
+      "data": {
+        "action_id": "analysis.start",
+        "label": "Analyze NVIDIA",
+        "execution": "frontend"
+      }
+    },
+    {
+      "event": "tool_waiting",
+      "data": {
+        "action_id": "analysis.start",
+        "status": "waiting_for_frontend"
+      }
+    }
   ],
-  "pod_turn": {"text": "Let me run a full analysis on NVIDIA.", "grounded": true, "directiveCount": 1, "runtimeMode": "user_adc"},
+  "pod_turn": {
+    "text": "Let me run a full analysis on NVIDIA.",
+    "grounded": true,
+    "directiveCount": 1,
+    "runtimeMode": "user_adc",
+    "frames": [
+      {
+        "event": "tool_start",
+        "data": {
+          "action_id": "analysis.start",
+          "label": "Analyze NVIDIA",
+          "execution": "frontend",
+          "directive_id": "dir_x",
+          "conversation_id": "c1",
+          "context_revision": "conversation:c1"
+        }
+      },
+      {
+        "event": "tool_waiting",
+        "data": {
+          "action_id": "analysis.start",
+          "status": "waiting_for_frontend",
+          "directive_id": "dir_x",
+          "execution": "frontend"
+        }
+      }
+    ]
+  },
   "pod_specialist_statuses": [],
-  "expect_hub_directive_kinds": ["action"],
-  "expect_hub_specialists": []
+  "expect_hub_directive_kinds": [
+    "action"
+  ],
+  "expect_hub_specialists": [],
+  "expect_hub_text": true,
+  "expect_hub_grounded": true
 }

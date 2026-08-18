@@ -62,17 +62,28 @@ class DirectiveObservation:
     action_id: str = ""
     #: For a delegate directive, the specialist agent id.
     delegate_agent_id: str = ""
+    #: For an action directive, whether it carries a real execution target
+    #: (execution == "frontend"). A directive with the right action_id but no
+    #: execution target is HOLLOW -- it cannot drive the app, which is the exact
+    #: thing directive_drop exists to catch. Keyed in EXACT mode so a hollow pod
+    #: directive can never satisfy the set-difference against a real hub one.
+    dispatchable: bool = True
 
     def key(self, mode: EquivalenceMode) -> tuple[str, ...]:
         """The comparison key.
 
-        Both modes currently key on (kind, action_id, delegate) -- a directive's
-        identity, never its free text, so paraphrase never breaks a diff. ``mode``
-        is threaded through for the day a directive gains a text-bearing field
-        that EXACT should compare and STRUCTURAL should not; keeping the parameter
-        now avoids re-plumbing every call site then.
+        Identity (kind, action_id, delegate) in both modes -- never free text, so
+        paraphrase never breaks a diff. EXACT additionally requires the directive
+        be DISPATCHABLE, so a hollow action directive (right id, no execution
+        target, no args) fails the diff instead of passing as parity. STRUCTURAL
+        (the live smoke, real LLM) keeps identity only, because a live turn's
+        exact slot fill varies and demanding it would train the team to ignore
+        the smoke.
         """
-        return (self.kind, self.action_id, self.delegate_agent_id)
+        base = (self.kind, self.action_id, self.delegate_agent_id)
+        if mode is EquivalenceMode.EXACT and self.kind == "action":
+            return (*base, "dispatchable" if self.dispatchable else "hollow")
+        return base
 
 
 @dataclass(frozen=True)
@@ -112,11 +123,24 @@ class TurnObservation:
 
 @dataclass(frozen=True)
 class ParityDiff:
-    """The result of comparing a pod turn against its hub reference."""
+    """The result of comparing a pod turn against its hub reference.
 
-    at_parity: bool
+    ``failures`` are the five remediation-owning classes. ``regressions`` are
+    FUNDAMENTAL divergences that map to no phase because they mean the turn did
+    not fundamentally work in the pod -- the pod produced no text where the hub
+    did, or lost grounding the hub had. Both gate parity: a turn is at parity
+    only when it has neither a classified failure nor a fundamental regression.
+    Separating them keeps the phase-routing table clean while still refusing to
+    certify a silent or ungrounded pod as equivalent.
+    """
+
     failures: tuple[ParityFailureClass, ...] = ()
+    regressions: tuple[str, ...] = ()
     detail: tuple[str, ...] = ()
+
+    @property
+    def at_parity(self) -> bool:
+        return not self.failures and not self.regressions
 
     @property
     def owners(self) -> tuple[str, ...]:
@@ -145,9 +169,20 @@ def observe_hub(
         data = frame.get("data") or {}
         if event in ("token", "message", "final"):
             has_text = has_text or bool(str(data.get("text") or data.get("delta") or ""))
-        elif event == "tool_start":
+        elif event in ("tool_start", "tool_waiting"):
+            # tool_start and tool_waiting are the two frames of ONE action
+            # directive; either carries the action_id, and the pair is collapsed
+            # by the dedupe below. Observing both means a hub that signals an
+            # action only via tool_waiting is still seen as having the directive.
             directives.append(
-                DirectiveObservation(kind="action", action_id=str(data.get("action_id") or ""))
+                DirectiveObservation(
+                    kind="action",
+                    action_id=str(data.get("action_id") or ""),
+                    # Dispatchable only when it names a real execution target. A
+                    # frame with an action_id but no "frontend" execution cannot
+                    # drive the app; it is a hollow directive, not a real one.
+                    dispatchable=str(data.get("execution") or "") == "frontend",
+                )
             )
         elif event == "specialist_directive":
             inner = data.get("directive") or {}
@@ -239,15 +274,28 @@ def _rebuild_pod_from_frames(turn: dict[str, Any], frames: list[dict[str, Any]])
 
 
 def _dedupe_directives(directives: list[DirectiveObservation]) -> list[DirectiveObservation]:
-    seen: set[tuple[str, str, str]] = set()
-    out: list[DirectiveObservation] = []
+    """Collapse the tool_start/tool_waiting pair into one directive.
+
+    Dispatchability is OR-ed across the pair: if EITHER frame named a real
+    execution target, the merged directive is dispatchable. So a real directive
+    whose waiting frame happened to omit execution is not demoted to hollow.
+    """
+    by_key: dict[tuple[str, str, str], DirectiveObservation] = {}
+    order: list[tuple[str, str, str]] = []
     for d in directives:
         k = (d.kind, d.action_id, d.delegate_agent_id)
-        if k in seen:
-            continue
-        seen.add(k)
-        out.append(d)
-    return out
+        if k in by_key:
+            prev = by_key[k]
+            by_key[k] = DirectiveObservation(
+                kind=prev.kind,
+                action_id=prev.action_id,
+                delegate_agent_id=prev.delegate_agent_id,
+                dispatchable=prev.dispatchable or d.dispatchable,
+            )
+        else:
+            by_key[k] = d
+            order.append(k)
+    return [by_key[k] for k in order]
 
 
 # ---- the diff + classifier ---------------------------------------------------
@@ -260,6 +308,7 @@ def classify(pod: TurnObservation, hub: TurnObservation, mode: EquivalenceMode) 
     hub (a pod doing MORE than the hub is out of scope for parity and ignored).
     """
     failures: list[ParityFailureClass] = []
+    regressions: list[str] = []
     detail: list[str] = []
 
     hub_dirs = {d.key(mode) for d in hub.directives}
@@ -270,27 +319,47 @@ def classify(pod: TurnObservation, hub: TurnObservation, mode: EquivalenceMode) 
         if pod.directives_dropped:
             detail.append(f"pod dropped directive payloads; hub delivered {len(hub_dirs)}")
         else:
-            detail.append(f"pod missing directives: {sorted(missing_dirs)}")
+            detail.append(f"pod missing/hollow directives: {sorted(missing_dirs)}")
 
     hub_served = {s.agent_id for s in hub.specialists if s.served}
     pod_status = {s.agent_id: s.status for s in pod.specialists}
+    hub_status_of = {s.agent_id: s.status for s in hub.specialists}
     for agent_id in hub_served:
         status = pod_status.get(agent_id)
         if status == "ok":
             continue
-        if status in ("runtime_unavailable", None):
-            failures.append(ParityFailureClass.DATA_DOOR_MISS)
-            detail.append(f"specialist {agent_id}: hub=ok pod={status or 'absent'}")
-        elif status in ("authority_required",):
-            # Refused on both sides is parity of a non-working arm, not a pod
-            # regression -- only a pod-ONLY refusal is a data-door miss.
-            hub_status = next((s.status for s in hub.specialists if s.agent_id == agent_id), "ok")
-            if hub_status != status:
-                failures.append(ParityFailureClass.TOKEN_FAIL)
-                detail.append(f"specialist {agent_id}: hub={hub_status} pod={status}")
+        # A pod-side authority refusal that ALSO refuses on the hub is parity of a
+        # non-working arm, not a pod regression -- skip only that exact case.
+        if status == "authority_required" and hub_status_of.get(agent_id) == "authority_required":
+            continue
+        if status == "authority_required":
+            # Refused only in the pod -> a token-gate failure, not a data miss.
+            failures.append(ParityFailureClass.TOKEN_FAIL)
+            detail.append(f"specialist {agent_id}: hub=ok pod=authority_required")
+            continue
+        # EVERY other outcome -- runtime_unavailable, absent, '', 'error',
+        # 'timeout', any status the audit did not anticipate -- is a data-door
+        # miss. There is no fall-through: a hub-served specialist that did not
+        # serve 'ok' in the pod is a gap, full stop. (The original ladder had no
+        # `else`, so an unanticipated status silently certified parity -- the
+        # fatal false-parity hole this closes.)
+        failures.append(ParityFailureClass.DATA_DOOR_MISS)
+        detail.append(f"specialist {agent_id}: hub=ok pod={status or 'absent'}")
 
-    deduped = tuple(dict.fromkeys(failures))
-    return ParityDiff(at_parity=not deduped, failures=deduped, detail=tuple(detail))
+    # FUNDAMENTAL regressions: the turn did not fundamentally work in the pod.
+    # These map to no remediation phase but must still refuse parity, or the
+    # control journey (a plain grounded turn) would certify a silent, ungrounded
+    # pod as equivalent to a texting, grounded hub.
+    if hub.has_text and not pod.has_text:
+        regressions.append("pod produced no text where the hub did")
+    if hub.grounded and not pod.grounded:
+        regressions.append("pod lost grounding the hub had")
+
+    return ParityDiff(
+        failures=tuple(dict.fromkeys(failures)),
+        regressions=tuple(regressions),
+        detail=tuple(detail),
+    )
 
 
 __all__ = [
