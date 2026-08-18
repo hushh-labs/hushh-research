@@ -1413,8 +1413,8 @@ export function PortfolioReviewView({
       setVaultDialogOpen(true);
       toast.info(
         resolvedHasVault === false
-          ? "Create your Vault to save your portfolio."
-          : "Unlock your Vault to save your portfolio."
+          ? "Set a lock to save your portfolio."
+          : "Unlock to save your portfolio."
       );
       return;
     }
@@ -1436,7 +1436,7 @@ export function PortfolioReviewView({
 
       if (!resolvedVaultOwnerToken) {
         throw new Error(
-          "We could not complete Vault access. Unlock once and try again."
+          "We could not finish. Unlock once and try again."
         );
       }
 
@@ -1486,7 +1486,7 @@ export function PortfolioReviewView({
         userId,
         kind: "portfolio_save",
         title: "Portfolio save",
-        description: "Securing and storing your portfolio in Vault.",
+        description: "Securing your portfolio...",
         routeHref: ROUTES.KAI_DASHBOARD,
       });
 
@@ -1862,7 +1862,7 @@ export function PortfolioReviewView({
         if (financialResult.conflict) {
           throw new Error(
             financialResult.message ||
-              "Vault changed on another device. Refresh and save again."
+              "Changed on another device. Refresh and save again."
           );
         }
         throw new Error("Backend returned failure on store");
@@ -1899,8 +1899,8 @@ export function PortfolioReviewView({
         AppBackgroundTaskService.completeTask(
           saveTaskId,
           createdVaultCopyRef.current
-            ? "Vault created and portfolio saved."
-            : "Portfolio saved to Vault."
+            ? "Lock created and portfolio saved."
+            : "Portfolio saved."
         );
       }
       if (typeof window !== "undefined") {
@@ -1912,7 +1912,7 @@ export function PortfolioReviewView({
           })
         );
       }
-      toast.success("Portfolio saved to Vault.");
+      toast.success("Portfolio saved.");
       if (shouldVerifySave) {
         void (async () => {
           try {
@@ -2003,8 +2003,8 @@ export function PortfolioReviewView({
 	              {onStageForFinish && !effectiveVaultKey
 	                ? "Review now. Your portfolio is protected when setup finishes."
 	                : hasVault === false
-	                  ? "Review your portfolio, then create your Vault to save it."
-	                  : "Review before saving to Vault"}
+	                  ? "Review your portfolio, then set a lock to save it."
+	                  : "Review before saving"}
 	            </p>
 	          </div>
 	        </div>
@@ -2475,15 +2475,15 @@ export function PortfolioReviewView({
                   )}
                   {isBusySaving
                     ? hasVault === false
-                      ? "Creating Vault and saving portfolio..."
+                      ? "Setting up and saving portfolio..."
                       : isSaving
-                        ? "Securing portfolio in Vault..."
+                        ? "Securing portfolio..."
                         : "Saving portfolio in background..."
                     : onStageForFinish && !effectiveVaultKey
                       ? "Save portfolio"
                     : hasVault === false
-                    ? "Create Vault"
-                    : "Save to Vault"}
+                    ? "Set a lock"
+                    : "Save"}
                 </MorphyButton>
               </div>
             </CardContent>
@@ -2520,10 +2520,10 @@ export function PortfolioReviewView({
           }}
           title={
             hasVault === false
-              ? "Create Vault to save portfolio"
-              : "Unlock Vault to save portfolio"
+              ? "Set a lock to save portfolio"
+              : "Unlock to save portfolio"
           }
-          description="Create or unlock your Vault to save this portfolio securely."
+          description="Set a lock, or unlock it, to save this portfolio securely."
           enableGeneratedDefault={hasVault === false}
           onSuccess={(meta) => {
             createdVaultModeRef.current = meta?.mode ?? null;
@@ -2539,7 +2539,7 @@ export function PortfolioReviewView({
           <div className="mx-4 w-full max-w-sm rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] p-5 shadow-[var(--app-card-shadow-feature)]">
             <div className="flex items-center gap-3">
               <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              <p className="text-sm font-semibold">Securing and saving to Vault</p>
+              <p className="text-sm font-semibold">Securing and saving</p>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
               {toInvestorMessage("SAVE_IN_PROGRESS")}

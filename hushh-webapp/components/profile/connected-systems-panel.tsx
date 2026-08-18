@@ -656,7 +656,7 @@ export function ConnectedSystemsPanel({
   const loadSelectedSchema = useCallback(
     async (options?: { force?: boolean }) => {
       if (!vaultOwnerToken || !selectedSystem) {
-        throw new Error("Unlock your vault to review CRM fields.");
+        throw new Error("Unlock to review CRM fields.");
       }
       return ConnectedSystemsResourceService.loadSchema({
         userId: cacheScope,
@@ -1297,7 +1297,7 @@ export function ConnectedSystemsPanel({
 
   const readEncryptedFieldsRecord = async (returnFields: string[]) => {
     if (!selectedSystem || !vaultOwnerToken) {
-      throw new Error("Unlock your vault to read this CRM record privately.");
+      throw new Error("Unlock to read this CRM record privately.");
     }
     if (!encryptedFieldsReadReady) {
       throw new Error("This CRM is not ready for encrypted field reads.");
@@ -1654,7 +1654,7 @@ export function ConnectedSystemsPanel({
         if (encryptedFieldsEnabled) {
           if (!selectedSystem || !vaultOwnerToken) {
             throw new Error(
-              "Unlock your vault to approve this encrypted CRM update.",
+              "Unlock to approve this encrypted CRM update.",
             );
           }
           if (!encryptedFieldsUpdateReady) {
@@ -2040,8 +2040,8 @@ export function ConnectedSystemsPanel({
       <SettingsGroup title="CRM system">
         <SettingsRow
           icon={Database}
-          title="Unlock vault"
-          description="Unlock your vault to inspect connected CRM systems."
+          title="Unlock"
+          description="Unlock to inspect connected CRM systems."
           chevron
           onClick={onRequestUnlock}
         />

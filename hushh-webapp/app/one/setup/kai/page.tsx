@@ -589,8 +589,8 @@ function KaiOnboardingPageContent({
           user={user}
           open={vaultOpen}
           onOpenChange={setVaultOpen}
-          title="Open your private vault"
-          description="Continue Finance setup after your private vault is ready."
+          title="Open your private place"
+          description="Continue Finance setup after you set a lock."
           allowVaultCreation={false}
           onSuccess={() => setVaultOpen(false)}
         />
@@ -710,7 +710,7 @@ function KaiOnboardingPageContent({
 
               if (source === "vault") {
                 if (!vaultKey || !vaultOwnerToken) {
-                  toast.error("Set up or open your private vault to continue.");
+                  toast.error("Set a lock or unlock it to continue.");
                   return;
                 }
 

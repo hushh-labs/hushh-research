@@ -2192,7 +2192,7 @@ export class ApiService {
 
     if (!vaultOwnerToken) {
       const response = new Response(
-        JSON.stringify({ error: "Vault must be unlocked" }),
+        JSON.stringify({ error: "Please unlock" }),
         { status: 401 },
       );
       trackEvent("consent_action_result", {
@@ -2304,7 +2304,7 @@ export class ApiService {
 
     if (!vaultOwnerToken) {
       const response = new Response(
-        JSON.stringify({ error: "Vault must be unlocked" }),
+        JSON.stringify({ error: "Please unlock" }),
         { status: 401 },
       );
       trackEvent("consent_action_result", {
@@ -2380,7 +2380,7 @@ export class ApiService {
     });
     if (!vaultOwnerToken) {
       const response = new Response(
-        JSON.stringify({ error: "Vault must be unlocked" }),
+        JSON.stringify({ error: "Please unlock" }),
         { status: 401 },
       );
       trackEvent("consent_action_result", {
@@ -2485,7 +2485,7 @@ export class ApiService {
       options?.loadSurface ?? "screen";
     if (!vaultOwnerToken) {
       const response = new Response(
-        JSON.stringify({ error: "Vault must be unlocked" }),
+        JSON.stringify({ error: "Please unlock" }),
         { status: 401 },
       );
       trackEvent("consent_pending_loaded", {
@@ -2563,7 +2563,7 @@ export class ApiService {
     openedVia?: string;
   }): Promise<Response> {
     if (!data.vaultOwnerToken) {
-      return new Response(JSON.stringify({ error: "Vault must be unlocked" }), {
+      return new Response(JSON.stringify({ error: "Please unlock" }), {
         status: 401,
       });
     }
@@ -2680,7 +2680,7 @@ export class ApiService {
     vaultOwnerToken: string,
   ): Promise<Response> {
     if (!vaultOwnerToken) {
-      return new Response(JSON.stringify({ error: "Vault must be unlocked" }), {
+      return new Response(JSON.stringify({ error: "Please unlock" }), {
         status: 401,
       });
     }
@@ -2725,7 +2725,7 @@ export class ApiService {
     limit: number = 50,
   ): Promise<Response> {
     if (!vaultOwnerToken) {
-      return new Response(JSON.stringify({ error: "Vault must be unlocked" }), {
+      return new Response(JSON.stringify({ error: "Please unlock" }), {
         status: 401,
       });
     }
@@ -3054,7 +3054,7 @@ export class ApiService {
 
     const vaultOwnerToken = this.getVaultOwnerToken();
     if (!vaultOwnerToken) {
-      return new Response(JSON.stringify({ error: "Vault must be unlocked" }), {
+      return new Response(JSON.stringify({ error: "Please unlock" }), {
         status: 401,
       });
     }
@@ -3801,7 +3801,7 @@ export class ApiService {
             portfolioStreamLastError: "Vault must be unlocked",
           });
           return new Response(
-            JSON.stringify({ error: "Vault must be unlocked" }),
+            JSON.stringify({ error: "Please unlock" }),
             { status: 401 },
           );
         }
@@ -4014,7 +4014,7 @@ export class ApiService {
     // Use VAULT_OWNER token for consent-gated access
     if (!data.vaultOwnerToken) {
       const response = new Response(
-        JSON.stringify({ error: "Vault must be unlocked to import portfolio" }),
+        JSON.stringify({ error: "Please unlock to import portfolio" }),
         { status: 401 },
       );
       trackEvent("import_quality_gate_failed", {
@@ -4528,7 +4528,7 @@ export class ApiService {
         const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {
           return new Response(
-            JSON.stringify({ error: "Vault must be unlocked" }),
+            JSON.stringify({ error: "Please unlock" }),
             { status: 401 },
           );
         }
@@ -4673,7 +4673,7 @@ export class ApiService {
         const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {
           return new Response(
-            JSON.stringify({ error: "Vault must be unlocked" }),
+            JSON.stringify({ error: "Please unlock" }),
             { status: 401 },
           );
         }
@@ -4752,7 +4752,7 @@ export class ApiService {
         const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {
           return new Response(
-            JSON.stringify({ error: "Vault must be unlocked" }),
+            JSON.stringify({ error: "Please unlock" }),
             { status: 401 },
           );
         }
@@ -4981,7 +4981,7 @@ export class ApiService {
         const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {
           return new Response(
-            JSON.stringify({ error: "Vault must be unlocked" }),
+            JSON.stringify({ error: "Please unlock" }),
             { status: 401 },
           );
         }

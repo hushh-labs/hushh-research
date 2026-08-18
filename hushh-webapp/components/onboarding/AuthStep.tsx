@@ -835,7 +835,7 @@ export function AuthStep({
       screenId: "login",
       title: "Sign in to One",
       purpose:
-        "This is the sign-in screen. Help the person sign in with Apple or Google so they can open their private vault. Terms and Privacy Policy open as inline documents.",
+        "This is the sign-in screen. Help the person sign in with Apple or Google so they can open their private place. Terms and Privacy Policy open as inline documents.",
       actions: [
         ...(!providerBusy
           ? [

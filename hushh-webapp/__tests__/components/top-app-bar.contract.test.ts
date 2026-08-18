@@ -235,7 +235,7 @@ describe("Top app bar responsive contract", () => {
 
     expect(source).toContain("showVaultUnlockAction");
     expect(source).toContain("VaultService.checkVault(user.uid)");
-    expect(source).toContain('aria-label="Unlock vault"');
+    expect(source).toContain('aria-label="Unlock"');
     expect(source).toContain("<KeyRound");
     expect(source).not.toContain(
       "Notifications unavailable until your vault is unlocked",

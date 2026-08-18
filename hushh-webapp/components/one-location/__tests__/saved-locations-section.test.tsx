@@ -217,7 +217,7 @@ describe("SavedLocationsSection", () => {
     render(<SavedLocationsSection />);
 
     expect(
-      await screen.findByText(/unlock your vault to view saved places/i),
+      await screen.findByText(/unlock to view saved places/i),
     ).toBeInTheDocument();
     expect(mocks.loadSavedLocations).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /add place/i })).toBeDisabled();
@@ -295,7 +295,7 @@ describe("SavedLocationsSection", () => {
     resolveLoad([HOME]);
 
     expect(
-      await screen.findByText(/unlock your vault to view saved places/i),
+      await screen.findByText(/unlock to view saved places/i),
     ).toBeInTheDocument();
     await waitFor(() =>
       expect(

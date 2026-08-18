@@ -18,6 +18,7 @@ import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-compl
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -239,13 +240,28 @@ export function OneSetupHub() {
       });
       notifyGeminiRuntimeConfigurationChanged(user.uid);
 
-      await acknowledgeOneSetupExit({
-        userId: user.uid,
-        skipped: false,
-        isVaultUnlocked: true,
-        vaultKey,
-        vaultOwnerToken,
-      });
+      try {
+        await acknowledgeOneSetupExit({
+          userId: user.uid,
+          skipped: false,
+          isVaultUnlocked: true,
+          vaultKey,
+          vaultOwnerToken,
+        });
+      } catch (exitSyncError) {
+        // acknowledgeOneSetupExit primes the local completion latch
+        // SYNCHRONOUSLY, before it ever awaits the durable cross-device
+        // write (see one-setup-exit-service.ts) -- a flaky retry of that
+        // write rejecting here must not trap the person behind the
+        // undismissable lock dialog. That is exactly the "glitch, then
+        // setup comes up again" report: the dialog can't be dismissed while
+        // the recovery key is showing, so an error thrown past this point
+        // froze the screen with no visible way out.
+        console.warn(
+          "[OneSetupHub] Setup exit durable write did not land yet:",
+          exitSyncError,
+        );
+      }
       setVaultDialogOpen(false);
       setVaultInvitationOpen(false);
       // Finance source intents intentionally remain process-memory-only until
@@ -261,11 +277,17 @@ export function OneSetupHub() {
     try {
       await finalize;
     } catch (error) {
-      setFinalizationError(
+      const message =
         error instanceof Error
           ? error.message
-          : "Couldn't save your setup. Try again.",
-      );
+          : "Couldn't save your setup. Try again.";
+      setFinalizationError(message);
+      // The retry banner this sets lives on the hub page, underneath the
+      // still-open (and, while the recovery key shows, undismissable) lock
+      // dialog -- so it is invisible exactly when it matters most. A toast
+      // renders above the dialog and is the only way the person learns
+      // anything went wrong instead of the screen just going quiet.
+      toast.error(message);
       throw error;
     } finally {
       if (finalizationInFlightRef.current === finalize) {

@@ -99,7 +99,7 @@ describe("PortfolioSourceSwitcher", () => {
 
     expect(screen.getByRole("button", { name: "Brokerage" })).toBeDisabled();
     expect(
-      screen.getByText("Unlock your Vault to change the active portfolio."),
+      screen.getByText("Unlock to change the active portfolio."),
     ).toBeTruthy();
   });
 
