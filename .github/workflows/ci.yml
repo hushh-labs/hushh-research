@@ -314,7 +314,13 @@ jobs:
     needs: [preflight-gate]
     if: needs.preflight-gate.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Was 15, which the job could not fit. Downloading Chromium and WebKit
+    # took 13-15 minutes on its own, so the lane either died mid-download or
+    # reached the checks with ~100 seconds left and was cancelled part-way
+    # through them. Both outcomes report as "cancelled", which reads like
+    # infrastructure noise rather than a budget that was never large enough.
+    # 30 leaves room for a cold cache; a warm one finishes far inside it.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
         with:
@@ -326,6 +332,16 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      # The browsers are the whole cost of this lane, and they only change when
+      # the Playwright dependency does. Keying on the lockfile means a normal
+      # PR restores them instead of re-downloading ~400MB per run.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('hushh-webapp/package-lock.json') }}
+
       # The layout-contract pack drives real Chromium and WebKit. WebKit is not
       # optional: it is the engine iOS ships, and a native <select> there
       # ignores an author border-radius that Chromium honours, so a
@@ -334,7 +350,15 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --prefix hushh-webapp
-          (cd hushh-webapp && npx playwright install --with-deps chromium webkit)
+          # `--with-deps` installs the browsers AND the apt libraries they link
+          # against. The apt half is not covered by the cache (it writes outside
+          # ~/.cache/ms-playwright), so on a cache hit install only the system
+          # deps and let the restored browser binaries stand.
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
+            (cd hushh-webapp && npx playwright install-deps chromium webkit)
+          else
+            (cd hushh-webapp && npx playwright install --with-deps chromium webkit)
+          fi
 
       - name: Run targeted web contract checks
         run: bash scripts/ci/orchestrate.sh web-targeted
