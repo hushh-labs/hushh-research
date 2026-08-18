@@ -1937,7 +1937,7 @@ function ProfilePageContent() {
     "Clears saved details. Keeps sign-in.";
   const resetDialogTitle = "Reset account?";
   const resetDialogDescription =
-    "This clears all your saved details: connected services, finance and Gmail, your knowledge base, consents, and saved preferences. It keeps your account, your sign-in, and your lock. You will start onboarding again.";
+    "This clears your connected services, consents, and saved data. Your sign-in and lock remain safe.";
 
   const handleVaultUnlockOpenChange = (open: boolean) => {
     setShowVaultUnlock(open);
@@ -4369,7 +4369,7 @@ function ProfilePageContent() {
               }}
               disabled={isResetting}
             >
-              {isResetting ? "Resetting..." : "Yes, reset my account"}
+              {isResetting ? "Resetting..." : "Reset account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
