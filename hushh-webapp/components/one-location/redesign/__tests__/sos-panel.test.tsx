@@ -292,17 +292,54 @@ describe("SosPanel", () => {
     expect(onTrigger).toHaveBeenCalledTimes(2);
   });
 
-  it("sends a typed message straight from the send button in the message box", () => {
+  it("sends a typed message after a continuous two-second hold on the send button", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
 
     fireEvent.change(screen.getByLabelText("Add a message"), {
       target: { value: "Emergency" },
     });
-    fireEvent.click(screen.getByTestId("sos-send-custom-message"));
+    const send = screen.getByTestId("sos-send-custom-message");
+    fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2_000));
+    fireEvent.pointerUp(send, { pointerId: 1 });
 
     expect(onTrigger).toHaveBeenCalledTimes(1);
     expect(onTrigger).toHaveBeenCalledWith("Emergency");
+  });
+
+  // #5433: a typed message used to send on a single click, which made this
+  // the one control on the screen where a quick accidental tap dispatched a
+  // real emergency broadcast.
+  it("does not send the custom message on a quick tap of the send button", () => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+
+    fireEvent.change(screen.getByLabelText("Add a message"), {
+      target: { value: "Emergency" },
+    });
+    const send = screen.getByTestId("sos-send-custom-message");
+    fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
+    fireEvent.pointerUp(send, { pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2_000));
+
+    expect(onTrigger).not.toHaveBeenCalled();
+  });
+
+  it("does not send the custom message when the send-button hold is released early", () => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+
+    fireEvent.change(screen.getByLabelText("Add a message"), {
+      target: { value: "Emergency" },
+    });
+    const send = screen.getByTestId("sos-send-custom-message");
+    fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(1_500));
+    fireEvent.pointerUp(send, { pointerId: 1 });
+    act(() => vi.advanceTimersByTime(1_000));
+
+    expect(onTrigger).not.toHaveBeenCalled();
   });
 
   it("keeps the send button inert until the message box has text", () => {
@@ -318,7 +355,9 @@ describe("SosPanel", () => {
     });
     expect(send).toBeDisabled();
 
-    fireEvent.click(send);
+    fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2_000));
+    fireEvent.pointerUp(send, { pointerId: 1 });
     expect(onTrigger).not.toHaveBeenCalled();
   });
 
@@ -370,9 +409,7 @@ describe("SosPanel", () => {
 
     fireEvent.change(composer, { target: { value: "a".repeat(141) } });
     expect(screen.getByText("141/140")).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Message is too long",
-    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Message is too long");
     expect(hold).toBeDisabled();
 
     // Picking a preset replaces the over-length text, which clears the block.
