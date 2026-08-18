@@ -1037,6 +1037,42 @@ describe("named Circle flows", () => {
     );
   });
 
+  it("filters the Members list by name and shows an empty state for no match", async () => {
+    const ownerCircle = {
+      ...circle("circle-1", "Meena Family"),
+      members: [
+        ...circle("circle-1", "Meena Family").members,
+        {
+          userId: "friend-user",
+          displayName: "John Smith",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+      ],
+    };
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => ownerCircle)}
+      />,
+    );
+
+    await screen.findByText("John Smith");
+    expect(screen.getByText("Owner (you)")).toBeInTheDocument();
+
+    const search = screen.getByPlaceholderText("Search members");
+    fireEvent.change(search, { target: { value: "john" } });
+
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+    expect(screen.queryByText("Owner (you)")).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: "zzz" } });
+    expect(await screen.findByText("No matching members")).toBeInTheDocument();
+    expect(screen.queryByText("John Smith")).not.toBeInTheDocument();
+  });
+
   it("closes the add-people sheet after inviting, for one person or many", async () => {
     const eligibility = {
       eligibleConnections: [
