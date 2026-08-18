@@ -524,6 +524,32 @@ jobs:
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: sh scripts/git/check-main-sync.sh
 
+  # Advisory, not required: Base Freshness Gate proves a PR CONTAINS main's
+  # commits as ancestors; it says nothing about whether resolving those
+  # commits' conflicts kept their content. This scans every real "synced main
+  # in and resolved conflicts" merge the PR introduces for silently dropped
+  # or resurrected lines (2026-08-19 incident). It is a text heuristic with a
+  # real false-positive rate on large files with repeated boilerplate and on
+  # a branch's own early, later-corrected sync commits — read the output,
+  # don't just watch the check mark. Deliberately kept out of ci-status's
+  # `needs` and run with continue-on-error so it can never block a merge.
+  merge-fidelity-gate:
+    name: "Merge Fidelity Gate (advisory)"
+    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Scan this PR's sync merges for dropped upstream content
+        env:
+          MERGE_REGRESSION_MODE: warn
+        run: bash scripts/git/scan-pr-merges-for-regression.sh "origin/${{ github.base_ref }}"
+
   ci-status:
     name: "CI Status Gate"
     needs:
