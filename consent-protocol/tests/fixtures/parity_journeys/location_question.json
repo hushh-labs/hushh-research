@@ -1,0 +1,13 @@
+{
+  "name": "location_question",
+  "mode": "exact",
+  "hub_grounded": true,
+  "hub_frames": [
+    {"event": "token", "data": {"text": "You were near the office at 2pm."}},
+    {"event": "specialist_status", "data": {"agent_id": "agent_location", "status": "ok"}}
+  ],
+  "pod_turn": {"text": "I could not reach your location just now.", "grounded": true, "directiveCount": 0, "runtimeMode": "user_adc"},
+  "pod_specialist_statuses": [{"agent_id": "agent_location", "status": "runtime_unavailable"}],
+  "expect_hub_directive_kinds": [],
+  "expect_hub_specialists": ["agent_location"]
+}

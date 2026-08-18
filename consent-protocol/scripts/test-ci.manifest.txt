@@ -58,6 +58,7 @@ tests/test_hushh_managed_is_simulation_only.py
 tests/test_journey_is_traceable.py
 tests/test_pod_lifecycle_log.py
 tests/test_journey_parity.py
+tests/test_pod_journey_parity.py
 tests/test_kai_analyze_durable_run_store_deploy_parity.py
 tests/test_kai_analyze_run_store.py
 tests/test_kai_auth_matrix.py
