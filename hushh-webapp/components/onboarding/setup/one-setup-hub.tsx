@@ -386,7 +386,7 @@ export function OneSetupHub() {
   const summary = hubStateLoading
     ? "One moment…"
     : allReady
-      ? "Add more any time."
+      ? "All set."
       : "Start with AI. Add more anytime.";
 
   return (
