@@ -3795,6 +3795,21 @@ html.native-ios [data-testid="one-location-onboarding"] {
     letter-spacing: -3.5px;
   }
 
+  /* Phone verification title: the foundation h1 scale above assumes a
+     full-bleed shell, so its size keeps climbing with raw viewport width. This
+     title lives in a card capped at max-w-[440px] (register-phone/page.tsx) —
+     past 440px the text column stops growing while the font kept climbing
+     toward its 40px ceiling, wrapping "Verify your phone number" onto two
+     lines on anything wider than a narrow phone. The ramp here is tuned so it
+     reaches its own 28px ceiling by 440px viewport width — the same point the
+     card itself stops growing — so neither can outrun the other again. */
+  h1.phone-mandate-title {
+    font-size: clamp(1.375rem, 0.1rem + 6vw, 1.75rem) !important;
+    line-height: 1.15 !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.9px;
+  }
+
   h2 {
     font-size: var(--foundation-title2-size) !important;
     line-height: var(--foundation-title2-line) !important;
