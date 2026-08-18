@@ -64,6 +64,10 @@ function oneLocationActionLabel(action: string): string {
     "temp-link": "Public link",
     "check-in": "Check-In",
     "private-check-in": "Private Check-In",
+    // Matches the flow's own `TaskFlowHeader title` so the crumb and the
+    // on-screen title read as the same place — otherwise it fell back to
+    // `titleizeSegment` ("Create Circle"), which disagreed with the screen.
+    "create-circle": "Create a circle",
     "active-shares": "Active shares",
     "shared-with-me": "Shared with me",
     "needs-review": "Needs my review",

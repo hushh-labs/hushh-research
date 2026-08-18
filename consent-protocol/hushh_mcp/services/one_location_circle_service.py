@@ -37,7 +37,12 @@ CIRCLE_MEMBER_INVITE_TTL_HOURS = 72
 CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS = 12
 CIRCLE_NON_OWNER_PENDING_INVITE_LIMIT = 5
 CIRCLE_MAX_PER_USER = 10
-CIRCLE_DEFAULT_MEMBER_LIMIT = 20
+# Raised from 20 in migration 158. This constant is stamped onto a Circle at
+# INSERT and never edited afterwards, so it governs new Circles only -- the
+# migration lifts the stored ceiling on Circles that already carry the old
+# default, which is what makes the higher limit real for accounts that
+# already have Circles rather than only for ones created from here on.
+CIRCLE_DEFAULT_MEMBER_LIMIT = 100
 CIRCLE_CODE_LENGTH = 12
 CIRCLE_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 _CIRCLE_CODE_DOMAIN = b"one-location-circle-code:v1:"

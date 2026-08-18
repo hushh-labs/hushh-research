@@ -303,9 +303,9 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.intro",
-          "purpose": "Welcome a new person and help them claim their private agent.",
+          "purpose": "Welcome a new person and help them get started with One.",
           "screen": "one_intro",
-          "entry_cue": "Say ‘Claim your One’ whenever you are ready.",
+          "entry_cue": "Say ‘Get started’ whenever you are ready.",
           "proactivity": "on_entry",
           "primary_action_id": "onboarding.claim_one",
           "happy_path_action_ids": [
@@ -8671,5 +8671,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "3faa66956cc0e58c9048e997025e93391c1d8243f6a6b2491b8a1fc8d10706d6"
+  "content_sha256": "b18819f6c7b2be2e87c6dec042137a87763f2c2db5dd630052ecfe79ee7cae64"
 }

@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type MutableRefObject,
   type PointerEvent,
 } from "react";
 import {
@@ -49,6 +50,16 @@ const QUICK_MESSAGES: readonly SmsQuickMessage[] = [
 const RING_CIRCUMFERENCE = 1055.6;
 const RING_RADIUS = RING_CIRCUMFERENCE / (2 * Math.PI);
 const RING_CENTER = 172;
+
+/**
+ * The custom-message send button is a plain 40px circle, not the big ring's
+ * 232-344px stage, so it doesn't need the two-arc trig workaround above (that
+ * exists only because a `<path>` arc mis-anchors with stroke-dasharray -- a
+ * single full-circle sweep on a rotated `<circle>` is the case dasharray
+ * anchors correctly, so it's the simpler, standard technique here.
+ */
+const SEND_RING_RADIUS = 17;
+const SEND_RING_CIRCUMFERENCE = 2 * Math.PI * SEND_RING_RADIUS;
 
 type WindowsFallbackCopyStatus = "idle" | "copied" | "error";
 
@@ -104,6 +115,177 @@ export type SosPanelProps = {
   onResolveEmergencyNumber: () => void;
 };
 
+type UseHoldToConfirmOptions = {
+  durationMs: number;
+  /** Hard block on starting a hold at all -- mirrors the button's own `disabled`. */
+  disabled: boolean;
+  /**
+   * Shared across every hold control on the panel, not owned per-instance:
+   * only one send can ever be in flight, so every control needs to see the
+   * same "already armed" flag or two controls could both fire.
+   */
+  firedRef: MutableRefObject<boolean>;
+  /** Short vibration tick every ~200ms of hold. Off by default so the
+   * existing ring keeps its exact current behaviour when it adopts this hook. */
+  haptics?: boolean;
+  /** Runs on press before the timer starts; return false to block starting
+   * (after showing its own feedback, e.g. a toast) without consuming a hold. */
+  onGuardedStart?: () => boolean;
+  onComplete: () => void;
+};
+
+/**
+ * Press-and-hold state machine used by both the big SOS ring and the
+ * custom-message send button. Extracted from the ring's original
+ * implementation without changing its algorithm -- same RAF+setTimeout dual
+ * drive, same pointer-capture-aware release handling -- so the ring's
+ * existing tested behaviour carries over untouched.
+ */
+function useHoldToConfirm({
+  durationMs,
+  disabled,
+  firedRef,
+  haptics = false,
+  onGuardedStart,
+  onComplete,
+}: UseHoldToConfirmOptions) {
+  const [progress, setProgress] = useState(0);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const frameRef = useRef<number | null>(null);
+  const holdStartedAtRef = useRef(0);
+  const hapticBucketRef = useRef(0);
+
+  const clearOwnTimers = useCallback(
+    (resetProgress: boolean) => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+      timeoutRef.current = null;
+      frameRef.current = null;
+      holdStartedAtRef.current = 0;
+      if (resetProgress && !firedRef.current) setProgress(0);
+    },
+    [firedRef],
+  );
+
+  const tick = useCallback(
+    function tickProgress() {
+      if (!holdStartedAtRef.current || firedRef.current) return;
+      const elapsed = performance.now() - holdStartedAtRef.current;
+      setProgress(Math.min(elapsed / durationMs, 1));
+      if (haptics) {
+        const bucket = Math.floor(elapsed / 200);
+        if (bucket > hapticBucketRef.current) {
+          hapticBucketRef.current = bucket;
+          if (typeof navigator !== "undefined" && navigator.vibrate) {
+            navigator.vibrate(15);
+          }
+        }
+      }
+      if (elapsed < durationMs) {
+        frameRef.current = requestAnimationFrame(tickProgress);
+      }
+    },
+    [durationMs, firedRef, haptics],
+  );
+
+  // The timeout, not the RAF loop, is authoritative for completion -- RAF
+  // only drives the visual, so a throttled/backgrounded tab still fires.
+  const complete = useCallback(() => {
+    clearOwnTimers(false);
+    setProgress(1);
+    onComplete();
+  }, [clearOwnTimers, onComplete]);
+
+  const start = useCallback(() => {
+    if (disabled || holdStartedAtRef.current || firedRef.current) return;
+    if (onGuardedStart && !onGuardedStart()) return;
+    hapticBucketRef.current = 0;
+    holdStartedAtRef.current = performance.now();
+    setProgress(0);
+    frameRef.current = requestAnimationFrame(tick);
+    timeoutRef.current = setTimeout(complete, durationMs);
+  }, [complete, disabled, firedRef, onGuardedStart, tick, durationMs]);
+
+  const cancel = useCallback(() => clearOwnTimers(true), [clearOwnTimers]);
+
+  // Unconditional reset, called once the send this control may or may not
+  // have fired has resolved. A no-op for whichever instance never held.
+  const reset = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    timeoutRef.current = null;
+    frameRef.current = null;
+    holdStartedAtRef.current = 0;
+    setProgress(0);
+  }, []);
+
+  const onPointerDown = useCallback(
+    (event: PointerEvent<HTMLButtonElement>) => {
+      if (event.button > 0) return;
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      start();
+    },
+    [start],
+  );
+
+  // See the ring's original comment (kept in spirit): pointer capture is what
+  // lets a hold survive the cursor drifting off the hitbox, and some Chrome
+  // builds still fire `pointerleave` on boundary crossing even while capture
+  // is held -- only treat leave as a real release when capture was never
+  // established.
+  const onPointerLeave = useCallback(
+    (event: PointerEvent<HTMLButtonElement>) => {
+      if (event.currentTarget.hasPointerCapture?.(event.pointerId)) return;
+      cancel();
+    },
+    [cancel],
+  );
+
+  const onPointerEnd = useCallback(
+    (event: PointerEvent<HTMLButtonElement>) => {
+      if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      cancel();
+    },
+    [cancel],
+  );
+
+  const onKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLButtonElement>) => {
+      if ((event.key === " " || event.key === "Enter") && !event.repeat) {
+        event.preventDefault();
+        start();
+      }
+    },
+    [start],
+  );
+
+  const onKeyUp = useCallback(
+    (event: KeyboardEvent<HTMLButtonElement>) => {
+      if (event.key === " " || event.key === "Enter") {
+        event.preventDefault();
+        cancel();
+      }
+    },
+    [cancel],
+  );
+
+  return {
+    progress,
+    cancel,
+    reset,
+    pressHandlers: {
+      onPointerDown,
+      onPointerUp: onPointerEnd,
+      onPointerCancel: onPointerEnd,
+      onPointerLeave,
+      onKeyDown,
+      onKeyUp,
+    },
+  };
+}
+
 export function SosPanel({
   recipients,
   active,
@@ -136,14 +318,11 @@ export function SosPanel({
    */
   const [sentMessage, setSentMessage] = useState<string | null>(null);
 
-  const [progress, setProgress] = useState(0);
   const [windowsCopyStatus, setWindowsCopyStatus] =
     useState<WindowsFallbackCopyStatus>("idle");
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const frameRef = useRef<number | null>(null);
-  const holdStartedAtRef = useRef(0);
   const firedRef = useRef(false);
   const observedBusyRef = useRef(false);
+  const resetHoldsRef = useRef<() => void>(() => {});
 
   const readyRecipients = useMemo(
     () => recipients.filter(isRecipientShareReady),
@@ -170,11 +349,86 @@ export function SosPanel({
   const disabled = hardDisabled || noReadyRecipients;
   const shouldFallbackWindowsEmergencyCall =
     isWindowsDesktopEmCallUnsupported();
-  // Radar pulse is active the moment the user starts pressing, and keeps
-  // emanating continuously while the SMS is sending and after it goes live.
-  const showPulse = active || busy || progress > 0;
   // Editing is closed from the moment the alert is sent until it is cancelled.
   const messageLocked = active || busy;
+
+  /**
+   * Single path into `onTrigger`, shared by every hold control on the panel.
+   *
+   * The `finally` is the fix for a panel that could latch permanently: when
+   * `onTrigger` returned early it never set `busy`, so the reset effect below
+   * (which only runs on a busy true -> false edge) never fired and `firedRef`
+   * stayed true forever, refusing every later press. If the trigger never
+   * entered its busy phase there is nothing to wait for, so release the latch
+   * here. `resetHoldsRef` is populated below, once the hold hooks exist --
+   * `fireTrigger` has to come first so it can be handed to them as their
+   * shared `onComplete`.
+   */
+  const fireTrigger = useCallback(() => {
+    if (firedRef.current || disabled) return;
+    firedRef.current = true;
+    // Captured before the await so the record is of what was sent, not of
+    // whatever the picker happens to hold when the request settles.
+    setSentMessage(selectedMessage ?? "");
+    void Promise.resolve(onTrigger(selectedMessage)).finally(() => {
+      if (observedBusyRef.current) return;
+      firedRef.current = false;
+      resetHoldsRef.current();
+    });
+  }, [disabled, onTrigger, selectedMessage]);
+
+  const guardReadyRecipients = useCallback(() => {
+    if (noReadyRecipients) {
+      toast.error(
+        "Please add at least one contact in your SMS emergency contact list.",
+      );
+      return false;
+    }
+    return true;
+  }, [noReadyRecipients]);
+
+  const ringHold = useHoldToConfirm({
+    durationMs: HOLD_DURATION_MS,
+    disabled: hardDisabled,
+    firedRef,
+    onGuardedStart: guardReadyRecipients,
+    onComplete: fireTrigger,
+  });
+
+  /**
+   * Send button inside the message box. It used to fire on a single tap --
+   * a typed message being "already a deliberate act" -- but that made it the
+   * one control on this screen where a single accidental tap dispatched a
+   * real emergency broadcast, so it now runs the same hold gate as the ring.
+   * Enter deliberately still inserts a newline in the field above rather than
+   * arming this control: an emergency alert must not be one stray keystroke
+   * away.
+   */
+  const sendHold = useHoldToConfirm({
+    durationMs: HOLD_DURATION_MS,
+    disabled: hardDisabled || !selectedMessage,
+    firedRef,
+    haptics: true,
+    onGuardedStart: guardReadyRecipients,
+    onComplete: fireTrigger,
+  });
+
+  // Assigning a ref during render is unsafe in general, so this is done in an
+  // effect instead -- it only needs to be current by the time `fireTrigger`'s
+  // `.finally()` or the busy-observed-reset effect below actually calls it,
+  // both of which only ever run after a commit has already happened.
+  useEffect(() => {
+    resetHoldsRef.current = () => {
+      ringHold.reset();
+      sendHold.reset();
+    };
+  });
+
+  // Radar pulse is active the moment the user starts pressing the ring, and
+  // keeps emanating continuously while the SMS is sending and after it goes
+  // live. Not tied to `sendHold` -- that control has its own local progress
+  // ring and countdown label instead (see the message box below).
+  const showPulse = active || busy || ringHold.progress > 0;
 
   // Endpoint of each half-arc, computed directly from `progress` rather than
   // via stroke-dasharray/-dashoffset. The dash trick reliably anchors growth
@@ -185,7 +439,7 @@ export function SosPanel({
   // hand removes that ambiguity: at progress 0 the endpoint IS the top point
   // (a zero-length arc, invisible), and at progress 1 it is exactly the
   // bottom point, with nothing in between left to a dash/gap tiling.
-  const ringSweepAngle = progress * Math.PI;
+  const ringSweepAngle = ringHold.progress * Math.PI;
   const ringEndDx = RING_RADIUS * Math.sin(ringSweepAngle);
   const ringEndY = RING_CENTER - RING_RADIUS * Math.cos(ringSweepAngle);
   const ringRightArcD = `M${RING_CENTER},${RING_CENTER - RING_RADIUS} A${RING_RADIUS},${RING_RADIUS} 0 0 1 ${RING_CENTER + ringEndDx},${ringEndY}`;
@@ -199,151 +453,41 @@ export function SosPanel({
     if (!active && !busy) setSentMessage(null);
   }, [active, busy]);
 
-  const clearHold = useCallback((resetProgress = true) => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-    timeoutRef.current = null;
-    frameRef.current = null;
-    holdStartedAtRef.current = 0;
-    if (resetProgress && !firedRef.current) setProgress(0);
-  }, []);
-
-  /**
-   * Single path into `onTrigger`, shared by the press-and-hold ring and the
-   * send button in the message box.
-   *
-   * The `finally` is the fix for a panel that could latch permanently: when
-   * `onTrigger` returned early it never set `busy`, so the reset effect below
-   * (which only runs on a busy true -> false edge) never fired, `firedRef`
-   * stayed true, and `progress` stayed at 1. The ring then showed a frozen
-   * "0.0 s" with the radar pulse running forever and refused every later press.
-   * If the trigger never entered its busy phase there is nothing to wait for,
-   * so release the latch here.
-   */
-  const fireTrigger = useCallback(() => {
-    if (firedRef.current || disabled) return;
-    firedRef.current = true;
-    clearHold(false);
-    setProgress(1);
-    // Captured before the await so the record is of what was sent, not of
-    // whatever the picker happens to hold when the request settles.
-    setSentMessage(selectedMessage ?? "");
-    void Promise.resolve(onTrigger(selectedMessage)).finally(() => {
-      if (observedBusyRef.current) return;
-      firedRef.current = false;
-      setProgress(0);
-    });
-  }, [clearHold, disabled, onTrigger, selectedMessage]);
-
-  const completeHold = useCallback(() => {
-    fireTrigger();
-  }, [fireTrigger]);
-
-  const updateProgress = useCallback(function tickProgress() {
-    if (!holdStartedAtRef.current || firedRef.current) return;
-    const elapsed = performance.now() - holdStartedAtRef.current;
-    setProgress(Math.min(elapsed / HOLD_DURATION_MS, 1));
-    if (elapsed < HOLD_DURATION_MS) {
-      frameRef.current = requestAnimationFrame(tickProgress);
-    }
-  }, []);
-
-  const startHold = useCallback(() => {
-    if (hardDisabled || holdStartedAtRef.current || firedRef.current) return;
-    if (noReadyRecipients) {
-      toast.error(
-        "Please add at least one contact in your SMS emergency contact list.",
-      );
-      return;
-    }
-    holdStartedAtRef.current = performance.now();
-    setProgress(0);
-    frameRef.current = requestAnimationFrame(updateProgress);
-    timeoutRef.current = setTimeout(completeHold, HOLD_DURATION_MS);
-  }, [completeHold, hardDisabled, noReadyRecipients, updateProgress]);
-
-  const cancelHold = useCallback(() => clearHold(true), [clearHold]);
-
-  /**
-   * Send button inside the message box. A typed message is already a deliberate
-   * act, so this sends immediately rather than asking for a second two-second
-   * hold. Enter deliberately still inserts a newline: an emergency alert must
-   * not be one stray keystroke away.
-   */
-  const handleSendCustomMessage = useCallback(() => {
-    if (hardDisabled) return;
-    if (noReadyRecipients) {
-      toast.error(
-        "Please add at least one contact in your SMS emergency contact list.",
-      );
-      return;
-    }
-    fireTrigger();
-  }, [fireTrigger, hardDisabled, noReadyRecipients]);
-
   useEffect(() => {
-    const onWindowBlur = () => cancelHold();
+    const onWindowBlur = () => {
+      ringHold.cancel();
+      sendHold.cancel();
+    };
     const onVisibility = () => {
-      if (document.hidden) cancelHold();
+      if (document.hidden) {
+        ringHold.cancel();
+        sendHold.cancel();
+      }
     };
     window.addEventListener("blur", onWindowBlur);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       window.removeEventListener("blur", onWindowBlur);
       document.removeEventListener("visibilitychange", onVisibility);
-      clearHold();
+      ringHold.cancel();
+      sendHold.cancel();
     };
-  }, [cancelHold, clearHold]);
+    // `cancel` is stable for the life of the component (see `useHoldToConfirm`
+    // -- it only depends on the never-changing `firedRef`), so depending on
+    // the two functions directly is intentional; depending on `ringHold`/
+    // `sendHold` themselves would re-run this every render, since the hook
+    // returns a fresh object each time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ringHold.cancel, sendHold.cancel]);
 
   useEffect(() => {
     if (busy) observedBusyRef.current = true;
     if (!busy && observedBusyRef.current && !active) {
       observedBusyRef.current = false;
       firedRef.current = false;
-      setProgress(0);
+      resetHoldsRef.current();
     }
   }, [active, busy]);
-
-  const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
-    if (event.button > 0) return;
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    startHold();
-  };
-
-  // Pointer capture (set on pointerdown, above) is what lets the hold survive
-  // the cursor drifting off the circular hitbox — pointerup/pointercancel are
-  // routed to this button regardless of where the pointer physically ends up.
-  // Some Chrome builds still fire `pointerleave` on boundary crossing even
-  // while capture is held, which cancelled a perfectly good hold the instant a
-  // mouse wobbled off the circle for a frame. Only treat leave as a real
-  // release when capture was never established (e.g. an unsupported pointer
-  // type), so the ring cannot be reset by anything short of an actual
-  // pointerup/pointercancel/blur.
-  const handlePointerLeave = (event: PointerEvent<HTMLButtonElement>) => {
-    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) return;
-    cancelHold();
-  };
-
-  const handlePointerEnd = (event: PointerEvent<HTMLButtonElement>) => {
-    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    cancelHold();
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if ((event.key === " " || event.key === "Enter") && !event.repeat) {
-      event.preventDefault();
-      startHold();
-    }
-  };
-
-  const handleKeyUp = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key === " " || event.key === "Enter") {
-      event.preventDefault();
-      cancelHold();
-    }
-  };
 
   // The "your browser cannot dial" explanation is a toast, not body copy.
   //
@@ -381,8 +525,8 @@ export function SosPanel({
     ? "Sending…"
     : active
       ? "Live location"
-      : progress > 0
-        ? `${Math.max(0, 2 - progress * 2).toFixed(1)} s`
+      : ringHold.progress > 0
+        ? `${Math.max(0, 2 - ringHold.progress * 2).toFixed(1)} s`
         : "Hold to send location";
 
   const quickPill =
@@ -558,19 +702,14 @@ export function SosPanel({
               // can show an actionable toast instead of the press doing nothing.
               disabled={hardDisabled}
               aria-label="Press and hold for two seconds to send SMS"
-              onPointerDown={handlePointerDown}
-              onPointerUp={handlePointerEnd}
-              onPointerCancel={handlePointerEnd}
-              onPointerLeave={handlePointerLeave}
-              onKeyDown={handleKeyDown}
-              onKeyUp={handleKeyUp}
+              {...ringHold.pressHandlers}
               onContextMenu={(event) => event.preventDefault()}
               data-sos-core={busy ? "" : undefined}
               className={cn(
                 "relative z-10 flex h-[81%] w-[81%] touch-none select-none items-center justify-center rounded-full text-[color:var(--app-destructive-fg)] outline-none",
                 "transition-[transform,box-shadow] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background",
-                progress > 0 && "scale-[0.96]",
+                ringHold.progress > 0 && "scale-[0.96]",
                 busy && "[animation:sosCorePulse_2.2s_ease-in-out_infinite]",
                 disabled && "cursor-not-allowed",
               )}
@@ -578,7 +717,7 @@ export function SosPanel({
                 backgroundImage:
                   "linear-gradient(180deg, var(--sos-core-from) 0%, var(--sos-core-to) 100%)",
                 boxShadow:
-                  progress > 0
+                  ringHold.progress > 0
                     ? "0 0 118px 16px rgb(var(--sos-glow-rgb) / 0.44), inset 0 1px 0 rgba(255,255,255,0.24)"
                     : "0 0 64px 4px rgb(var(--sos-glow-rgb) / 0.2), inset 0 1px 0 rgba(255,255,255,0.24)",
               }}
@@ -701,15 +840,39 @@ export function SosPanel({
             />
             {/* Without this the only way to send a typed message was to go back
                 up and hold the ring for two seconds, with nothing in the field
-                confirming the text had been taken. */}
+                confirming the text had been taken. Now a hold gate of its own
+                (#5433): a typed message used to send on a single tap, which
+                made this the one control on the screen where one accidental
+                tap dispatched a real emergency broadcast. */}
+            {sendHold.progress > 0 ? (
+              <span
+                role="status"
+                className="pointer-events-none absolute -top-9 right-0 whitespace-nowrap rounded-full bg-[color:var(--sos-control-surface)] px-2.5 py-1 text-[12px] text-[color:var(--sos-label)] shadow-sm"
+              >
+                Hold to send…{" "}
+                {((HOLD_DURATION_MS / 1000) * (1 - sendHold.progress)).toFixed(
+                  1,
+                )}
+                s
+              </span>
+            ) : null}
             <button
               type="button"
               data-testid="sos-send-custom-message"
-              onClick={handleSendCustomMessage}
               disabled={hardDisabled || !selectedMessage}
-              aria-label="Send this SMS alert"
+              aria-label={
+                sendHold.progress > 0
+                  ? `Sending in ${(
+                      (HOLD_DURATION_MS / 1000) *
+                      (1 - sendHold.progress)
+                    ).toFixed(1)} seconds, release to cancel`
+                  : "Press and hold to send this SMS alert"
+              }
+              {...sendHold.pressHandlers}
+              onContextMenu={(event) => event.preventDefault()}
               className={cn(
-                "press-scale absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full transition-colors",
+                "press-scale absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 touch-none select-none items-center justify-center rounded-full outline-none transition-colors",
+                "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 // Solid emergency red is deliberate here and nowhere else in
                 // the message box: this button IS the send, so it is the one
                 // control whose consequence is the alert going out.
@@ -718,10 +881,42 @@ export function SosPanel({
                   : "bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]",
               )}
             >
+              <svg
+                viewBox="0 0 40 40"
+                aria-hidden
+                className="pointer-events-none absolute inset-0 h-full w-full -rotate-90"
+              >
+                <circle
+                  cx="20"
+                  cy="20"
+                  r={SEND_RING_RADIUS}
+                  fill="none"
+                  stroke="var(--sos-ring-track)"
+                  strokeWidth="2"
+                  vectorEffect="non-scaling-stroke"
+                />
+                <circle
+                  cx="20"
+                  cy="20"
+                  r={SEND_RING_RADIUS}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  vectorEffect="non-scaling-stroke"
+                  strokeDasharray={SEND_RING_CIRCUMFERENCE}
+                  strokeDashoffset={
+                    SEND_RING_CIRCUMFERENCE * (1 - sendHold.progress)
+                  }
+                />
+              </svg>
               {busy ? (
-                <Loader2 className="h-[18px] w-[18px] animate-spin" />
+                <Loader2 className="relative h-[18px] w-[18px] animate-spin" />
               ) : (
-                <SendHorizontal className="h-[18px] w-[18px]" strokeWidth={2} />
+                <SendHorizontal
+                  className="relative h-[18px] w-[18px]"
+                  strokeWidth={2}
+                />
               )}
             </button>
           </div>

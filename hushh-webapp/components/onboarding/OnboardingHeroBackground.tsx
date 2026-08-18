@@ -24,40 +24,60 @@ const MOTES = Array.from({ length: 5 }, (_, i) => {
   };
 });
 
-export function OnboardingHeroBackground() {
+/**
+ * `ambient` (the default) is the long-standing treatment every pre-auth
+ * surface already uses. `plain` is the quiet welcome canvas: one opaque
+ * near-white sheet, no motes, no grain. It is a variant rather than a second
+ * component so sign-in, the phone step, and the preview carousel keep their
+ * current backdrop byte for byte.
+ */
+export function OnboardingHeroBackground({
+  variant = "ambient",
+}: {
+  variant?: "ambient" | "plain";
+}) {
+  const plain = variant === "plain";
+
   return (
     <div
       aria-hidden
-      className={styles.root}
+      className={plain ? `${styles.root} ${styles.plainRoot}` : styles.root}
     >
       {/* Base wash. One neutral Foundation surface keeps attention on One,
-          rather than introducing coloured edge bands around the composition. */}
-      <div className={styles.base} />
+          rather than introducing coloured edge bands around the composition.
+          The plain variant paints its own opaque canvas here so the welcome
+          reads near-white rather than inheriting the grouped-grey app
+          background — and, because this layer is viewport-fixed, it also
+          covers the strip the scroll root reserves for the Agent Bar, so no
+          background seam appears under the bar. */}
+      <div className={plain ? styles.plainBase : styles.base} />
 
       {/* Drifting motes are the only movement: they preserve calm and avoid
           colour shifts behind the brand, content, and navigation. */}
-      <div className={styles.moteLayer}>
-        {MOTES.map((p, i) => (
-          <span
-            key={i}
-            className={styles.mote}
-            style={
-              {
-                left: p.left,
-                top: p.top,
-                width: p.size,
-                height: p.size,
-                ["--m-dur" as string]: p.dur,
-                ["--m-delay" as string]: p.delay,
-                ["--m-opacity" as string]: String(p.opacity),
-              } as CSSProperties
-            }
-          />
-        ))}
-      </div>
+      {plain ? null : (
+        <div className={styles.moteLayer}>
+          {MOTES.map((p, i) => (
+            <span
+              key={i}
+              className={styles.mote}
+              style={
+                {
+                  left: p.left,
+                  top: p.top,
+                  width: p.size,
+                  height: p.size,
+                  ["--m-dur" as string]: p.dur,
+                  ["--m-delay" as string]: p.delay,
+                  ["--m-opacity" as string]: String(p.opacity),
+                } as CSSProperties
+              }
+            />
+          ))}
+        </div>
+      )}
 
       {/* Fine film grain across the whole canvas so it never looks flat. */}
-      <div className={styles.grain} />
+      {plain ? null : <div className={styles.grain} />}
     </div>
   );
 }

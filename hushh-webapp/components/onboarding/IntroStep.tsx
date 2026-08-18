@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback } from "react";
+import { Lock } from "lucide-react";
 import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
@@ -11,15 +12,15 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 import styles from "./IntroStep.module.css";
 
 /* ────────────────────────────────────────────────────────────
- * Welcome ("/"). A restrained, Foundation-warm canvas carries one centered
- * brand anchor, one "One" moment, and one clear next action. The public
- * destinations below the CTA are a real navigation group with equal targets,
- * not footer text that happens to be clickable.
+ * Welcome ("/"). Three things in three seconds: this is One, One is a
+ * personal assistant, tap Get started. Everything that used to explain the
+ * product ahead of that decision — the eyebrow, the quiet mark, the divider,
+ * the brand punchline, the four motions, the two privacy lines — is gone,
+ * because a person deciding whether to begin does not read any of it.
+ *
+ * The public destinations below the button stay a real navigation group with
+ * equal targets, not footer text that happens to be clickable.
  * ──────────────────────────────────────────────────────────── */
-
-// One's four motions, shown as a quiet typographic rhythm — never as chips,
-// never labeled "framework". Matches docs/vision/agent-ontology.md.
-const MOTIONS = ["Listens", "Remembers", "Decides", "Acts"];
 
 export function IntroStep({ onLogin }: { onLogin?: () => void }) {
   const claimOne = useCallback(() => {
@@ -44,19 +45,22 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
   useLocalOnboardingActionHandler("onboarding.claim_one", claimOne);
   usePublishVoiceSurfaceMetadata({
     screenId: "one_intro",
-    title: "Claim your One",
+    title: "Welcome",
     purpose:
-      "This is One's public welcome screen. The person can claim their private agent and continue to sign in.",
+      "This is One's public welcome screen. The person can get started and continue to sign in.",
     actions: [
       {
         id: "onboarding_claim_one",
+        // The spoken label tracks the visible button so One never offers a
+        // control the screen does not show. The action id, its target, and
+        // every older phrasing stay exactly as they were.
         actionId: "onboarding.claim_one",
-        label: "Claim your One",
+        label: "Get started",
         purpose: "Continue to sign in and begin setting up One.",
         voiceAliases: [
+          "get started",
           "claim your one",
           "claim one",
-          "get started",
           "start with one",
         ],
       },
@@ -65,13 +69,13 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
       {
         id: "onboarding_claim_one",
         actionId: "onboarding.claim_one",
-        label: "Claim your One",
+        label: "Get started",
         type: "button",
         purpose: "Continue to sign in and begin setting up One.",
         voiceAliases: [
+          "get started",
           "claim your one",
           "claim one",
-          "get started",
           "start with one",
         ],
       },
@@ -80,73 +84,26 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
 
   return (
     <main className={styles.shell}>
-      <OnboardingHeroBackground />
+      <OnboardingHeroBackground variant="plain" />
 
       <div className={styles.stage}>
-        {/* One centered brand anchor keeps the page calm on both compact and
-            wide surfaces; the old wordmark/emoji pair read as two competing
-            logos rather than one header. */}
+        {/* One centered brand anchor. */}
         <div className={styles.brand}>
           <HushhWordmark className={styles.wordmark} />
         </div>
 
-        {/* ── Typography-led hero. No cards, no fake metrics. ── */}
+        {/* ── The single message: the name, then what it does. ── */}
         <div className={styles.hero}>
-          <span className={styles.eyebrow}>
-            Your private agent
-          </span>
-
-          <span
-            aria-hidden="true"
-            className={styles.emoji}
-          >
-            🤫
-          </span>
-
           <h1 className={styles.title}>
-            <span className={styles.molten}>
-              One
-            </span>
+            <span className={styles.oneMark}>One</span>
           </h1>
 
-          <div
-            aria-hidden
-            className={styles.divider}
-          />
-
-          {/* Approved durable product line (docs/vision/agent-ontology.md
-              Founder Copy Rules; brand punchline). Not ad-hoc copy. */}
           <p className={styles.tagline}>
-            Your agents. Yours to own.
-          </p>
-
-          {/* Quiet rhythm line: the four motions, typographic not chip-like. */}
-          <div className={styles.motions}>
-            {MOTIONS.map((motion, i) => (
-              <span key={motion} className={styles.motionItem}>
-                {i > 0 && (
-                  <span aria-hidden className={styles.motionDot}>
-                    &middot;
-                  </span>
-                )}
-                <span>{motion}</span>
-              </span>
-            ))}
-          </div>
-
-          {/* Plain words only. "Encrypted" and "consent" are the mechanism and
-              the legal term; "locked" and "your yes" are what a person actually
-              pictures. "Vault" is a code noun and never appears in copy. */}
-          <p className={styles.description}>
-            Everything you save stays locked.
-            <br />
-            Nothing moves without your yes.
+            Your personal assistant for everyday tasks.
           </p>
         </div>
 
-        {/* ── CTA: Morphy Button, ink surface, gradient ripple. Sits in the
-              flex column normally (no absolute anchoring needed without the
-              glass root constraint). Bottom padding clears the agent bar. ── */}
+        {/* ── The single action, then the two quiet rows under it. ── */}
         <div className={styles.footer}>
           <button
             type="button"
@@ -157,35 +114,31 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
             className={styles.cta}
           >
             <span className="relative z-0 inline-flex items-center gap-2">
-              Claim your One
+              Get started
               <span aria-hidden>&rarr;</span>
             </span>
             <MaterialRipple variant="gradient" effect="fill" className="z-10" />
           </button>
 
-          {/* Public destinations share the CTA width and use equal hit areas.
-              That preserves discoverable navigation on small screens without
-              letting the longest label push its siblings out of rhythm. */}
-          <nav
-            aria-label="Explore Hussh"
-            className={styles.links}
-          >
-            <Link
-              href={ROUTES.RESEARCH}
-              className={styles.link}
-            >
+          {/* One line, not a privacy section. "Locked", "encrypted" and
+              "consent" all made a person pause here; this says the only thing
+              that changes their decision. */}
+          <p className={styles.privacy}>
+            <Lock aria-hidden className={styles.privacyIcon} />
+            You control what you share.
+          </p>
+
+          {/* Public destinations share the button width and use equal hit
+              areas, so the longest label never pushes its siblings out of
+              rhythm on a small screen. */}
+          <nav aria-label="Explore Hussh" className={styles.links}>
+            <Link href={ROUTES.RESEARCH} className={styles.link}>
               Research
             </Link>
-            <Link
-              href={ROUTES.BLOG}
-              className={styles.link}
-            >
+            <Link href={ROUTES.BLOG} className={styles.link}>
               Blog
             </Link>
-            <Link
-              href={ROUTES.DEVELOPERS}
-              className={styles.link}
-            >
+            <Link href={ROUTES.DEVELOPERS} className={styles.link}>
               Developers
             </Link>
           </nav>

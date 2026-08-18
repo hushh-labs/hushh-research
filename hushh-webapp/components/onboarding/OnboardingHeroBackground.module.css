@@ -20,6 +20,29 @@
   background: transparent;
 }
 
+/* The shared Foundation canvas (`.foundation-public-ambient`, fixed and z-0)
+   paints the grouped iOS grey over anything at z-index -1, which is why the
+   ambient layers below were only ever visible as a tint. The plain variant
+   therefore sits at z-0 too and wins on DOM order, since route content mounts
+   after the app shell. `.stage` is z-10 and the Agent Bar is z-118, so both
+   still draw above this. */
+.plainRoot {
+  z-index: 0;
+}
+
+/* The welcome canvas: one flat near-white sheet, the Apple "content-first"
+   ground. Dark mode keeps the app's own background token so the theme toggle
+   in the Agent Bar still does what it says. */
+.plainBase {
+  position: absolute;
+  inset: 0;
+  background: #fbfbfd;
+}
+
+:global(.dark) .plainBase {
+  background: var(--background);
+}
+
 .moteLayer {
   position: absolute;
   inset: 0;
