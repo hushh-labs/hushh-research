@@ -627,7 +627,7 @@ async function openLocationFeatureStep() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
   expect(
     await screen.findByRole("heading", {
-      name: "Keep people updated",
+      name: "Location that helps",
     }),
   ).toBeTruthy();
 }
@@ -644,7 +644,7 @@ async function advanceFromLocationFeatureStep() {
   await waitFor(() => {
     const savePrompt = screen.queryByTestId("save-location-modal");
     const continueButton = screen.queryByRole("button", {
-      name: /Find my people|Allow location|Open settings/,
+      name: /Choose my people|Allow location|Open settings/,
     });
     expect(savePrompt || continueButton).toBeTruthy();
   });
@@ -674,7 +674,7 @@ async function advanceFromLocationFeatureStep() {
       continue;
     }
     const cta = screen.queryByRole("button", {
-      name: /Find my people|Allow location/,
+      name: /Choose my people|Allow location/,
     });
     if (!cta) break;
     await waitFor(() => expect(cta).toBeEnabled());
@@ -2772,7 +2772,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeLessThan(mockCaptureCurrentPosition.mock.invocationCallOrder[0]!);
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
@@ -2867,7 +2867,7 @@ describe("OneLocationAgentPage", () => {
       ),
     ).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
     await expectLocationInviteStep();
   });
 
@@ -2991,7 +2991,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockRequestLocationPermission).not.toHaveBeenCalled();
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
@@ -3035,7 +3035,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save location" }));
     await waitFor(() => expect(mockAddSavedLocation).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
@@ -3131,7 +3131,7 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
-          name: "Keep people updated",
+          name: "Location that helps",
         }),
       ).toBeNull();
       expect(
