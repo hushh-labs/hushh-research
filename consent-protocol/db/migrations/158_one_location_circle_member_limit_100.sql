@@ -57,6 +57,13 @@ BEGIN
 END
 $$;
 
+-- Same name, dropped and re-added together: the DO block above deliberately
+-- leaves a constraint already carrying this name untouched, so a replay
+-- against an environment where this migration already ran would otherwise
+-- collide with the ADD below.
+ALTER TABLE one_location_circles
+  DROP CONSTRAINT IF EXISTS one_location_circles_member_limit_bounds;
+
 ALTER TABLE one_location_circles
   ADD CONSTRAINT one_location_circles_member_limit_bounds
     CHECK (member_limit BETWEEN 2 AND 100);

@@ -47,6 +47,14 @@ BEGIN
 END
 $$;
 
+-- Same name, dropped and re-added together: the DO block above deliberately
+-- leaves a constraint already carrying this name untouched, so a replay
+-- against an environment where this migration already ran would otherwise
+-- collide with the ADD below -- exactly the bug 158 shipped with, caught here
+-- before it could repeat.
+ALTER TABLE one_location_circle_invite_codes
+  DROP CONSTRAINT IF EXISTS one_location_circle_invite_codes_max_uses_bounds;
+
 ALTER TABLE one_location_circle_invite_codes
   ADD CONSTRAINT one_location_circle_invite_codes_max_uses_bounds
     CHECK (max_uses BETWEEN 1 AND 100);
