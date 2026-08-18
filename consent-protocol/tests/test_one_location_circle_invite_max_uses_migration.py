@@ -81,6 +81,30 @@ def test_migration_widens_the_bound_and_the_default_together() -> None:
     assert "BETWEEN 1 AND 20" not in _statements(migration)
 
 
+def test_migration_is_replay_safe_against_itself() -> None:
+    """UAT and prod both run the full migration set in `replay` mode on every
+    deploy, so a migration must survive running twice against a database
+    where it already applied cleanly once.
+
+    158 shipped without that property and took down the very next UAT
+    deploy: `DuplicateObjectError: constraint
+    "one_location_circles_member_limit_bounds" ... already exists`, because
+    its DO block deliberately leaves a constraint already carrying the final
+    name untouched, and nothing dropped it before the ADD tried to recreate
+    it. This migration was written by copying that same shape, so it carried
+    the identical bug into a second file before ever running once. The fix
+    is the drop-then-add-by-the-same-name idiom the rest of this migration
+    set already follows (see 134, 155): a DROP CONSTRAINT IF EXISTS for the
+    bounds constraint, immediately before the ADD that recreates it.
+    """
+    migration = _migration()
+
+    drop = "DROP CONSTRAINT IF EXISTS one_location_circle_invite_codes_max_uses_bounds"
+    add = "ADD CONSTRAINT one_location_circle_invite_codes_max_uses_bounds"
+    assert drop in migration
+    assert migration.index(drop) < migration.index(add)
+
+
 def test_migration_never_touches_use_count_or_membership_rows() -> None:
     migration = _migration()
     statements = _statements(migration)
