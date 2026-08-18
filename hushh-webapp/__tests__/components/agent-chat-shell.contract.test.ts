@@ -78,4 +78,20 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("!message.renderAsPlainAssistantMessage;");
     expect(workspace).toContain("renderAsPlainAssistantMessage: true,");
   });
+
+  it("keeps the assistant response footer to essential utilities only", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    // Like/dislike were local `useState` that never reached storage, an API or
+    // analytics — the rating died with the component. They cluttered the footer
+    // while recording nothing, so the footer carries Copy, plus Retry when a
+    // turn offers it, and no reaction affordances.
+    expect(workspace).not.toContain("ThumbsUp");
+    expect(workspace).not.toContain("ThumbsDown");
+    expect(workspace).not.toContain("Like response");
+    expect(workspace).not.toContain("Dislike response");
+    expect(workspace).toContain(
+      'aria-label={copied ? "Response copied" : "Copy response"}',
+    );
+  });
 });
