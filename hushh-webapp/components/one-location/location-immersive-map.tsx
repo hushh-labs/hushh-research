@@ -98,6 +98,7 @@ import {
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { motionDurations, motionEasings } from "@/lib/morphy-ux/motion";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
+import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   claimNativeMap,
@@ -2339,6 +2340,25 @@ export function LocationImmersiveMap({
     visibleMarkers,
   ]);
 
+  /**
+   * The drawer is on screen, so the drawer is the authority.
+   *
+   * Open, it already names the place, the radius, the time left and how far the
+   * owner has drifted from it -- in full sentences, at the top of its own
+   * scroll. Every one of those facts also had a copy in the map chrome above
+   * it, and on a phone that chrome is a strip barely 150px tall carrying a 56px
+   * control row, a centred "Sharing with N" row of its own, and a four-line
+   * legend card that the Sharing row landed *on top of* (header z-30 over
+   * legend z-20). Reported as, simply, "too busy after tapping check in".
+   *
+   * So while it is open the chrome keeps only what the drawer cannot say: the
+   * way out, the way to recentre, and which pin is which. Dropping the pill that
+   * re-opens an already-open drawer is what frees the phone header's second row,
+   * which is what lets Sharing ride up beside the controls instead of forming a
+   * band of its own -- and the collision goes with it.
+   */
+  const checkInDrawerOpen = isCheckInSurface && nearbyCheckInOpen;
+
   return (
     <main
       className="one-location-map relative h-[100dvh] w-full overflow-hidden bg-muted"
@@ -2399,7 +2419,26 @@ export function LocationImmersiveMap({
         // widths and drops Sharing onto its own full-width row beneath them.
         // Nothing truncates, and the Sharing popover gains the room it needs to
         // open without being clipped by the screen edge.
-        className="pointer-events-none absolute inset-x-0 top-0 z-30 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:grid-cols-[1fr_auto_1fr]"
+        //
+        // With the check-in drawer open that second row is no longer needed:
+        // the Check-in pill is hidden (it re-opens what is already open), which
+        // gives the row back the ~95px that forced Sharing downward. A three
+        // column grid then reads the same at every width -- X, Sharing, Locate
+        // -- so the phone loses a whole band of chrome and the legend below can
+        // no longer be landed on by a row that used to sit at the same offset.
+        className={cn(
+          "pointer-events-none absolute inset-x-0 top-0 z-30 grid items-center gap-x-3 gap-y-2 p-4 pt-[max(1rem,env(safe-area-inset-top))]",
+          checkInDrawerOpen
+            ? "grid-cols-[auto_minmax(0,1fr)_auto]"
+            : "grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[1fr_auto_1fr]",
+          // From `md` up the drawer docks down the right edge as a portalled
+          // z-[712] panel -- above this z-30 header, and in a different stacking
+          // context, so no z-index here can win. Without this inset the Locate
+          // control renders underneath it: visible nowhere and tappable nowhere,
+          // for as long as the drawer is open. 27rem is the panel's own
+          // `md:w-[26rem]` plus the 1rem gutter this header already keeps.
+          nearbyCheckInOpen && "md:pr-[27rem]",
+        )}
       >
         <div className="col-start-1 row-start-1 flex min-w-0 items-center">
           <ShellActionSurface
@@ -2417,7 +2456,14 @@ export function LocationImmersiveMap({
             <X className="h-5 w-5 stroke-[2.25]" />
           </ShellActionSurface>
         </div>
-        <div className="col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center sm:col-span-1 sm:col-start-2 sm:row-start-1">
+        <div
+          className={cn(
+            "flex min-w-0 items-center justify-center",
+            checkInDrawerOpen
+              ? "col-start-2 row-start-1"
+              : "col-span-2 col-start-1 row-start-2 sm:col-span-1 sm:col-start-2 sm:row-start-1",
+          )}
+        >
           {!demoMode && (activeShareCount ?? 0) > 0 ? (
             <Popover
               open={sharingPopoverOpen}
@@ -2514,7 +2560,12 @@ export function LocationImmersiveMap({
           ) : null}
         </div>
         {rendererReady ? (
-          <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-3 sm:col-start-3">
+          <div
+            className={cn(
+              "row-start-1 flex min-w-0 items-center justify-end gap-3",
+              checkInDrawerOpen ? "col-start-3" : "col-start-2 sm:col-start-3",
+            )}
+          >
             {/*
               Your Map keeps this control in the tray below, not up here. Two
               floating pills plus the Sharing status is a second row of chrome
@@ -2525,11 +2576,19 @@ export function LocationImmersiveMap({
               Check-in's own route still needs it here: that surface renders no
               tray (see the `!isCheckInSurface` gate on the tray section), and
               this pill is the only way back into the sheet after dismissing it.
+
+              "After dismissing it" is the whole of its job, so it is gated on
+              exactly that. While the drawer is open the pill is a control that
+              opens what is already open, and it spends its width saying
+              "Nearby 0" directly above a drawer whose own header counts the
+              same people. Hiding it is also what collapses the phone header to
+              a single row -- see the grid comment above.
             */}
             {rendererReady &&
             nearbyCheckInAvailable &&
             !demoMode &&
-            isCheckInSurface ? (
+            isCheckInSurface &&
+            !nearbyCheckInOpen ? (
               <ShellActionSurface
                 variant="pill"
                 // ShellActionSurface's own wrapper is shrink-0 by default (a
@@ -2584,74 +2643,107 @@ export function LocationImmersiveMap({
             ) : null}
           </div>
         ) : null}
-      </header>
-      {/*
-        Two pins on one map need naming, or the owner cannot tell which is
-        "me" and which is "the place I'm checking in to" -- and those are
-        routinely a street apart.
-      */}
-      {rendererReady &&
-      (nearbyCheckInOpen || nearbyPlaceFocus?.active) &&
-      (nearbySearchPoint || nearbyPlaceFocus) ? (
-        <div
-          className="pointer-events-none absolute left-4 right-4 z-20 flex max-w-[18rem] flex-col gap-1.5 rounded-2xl border border-[var(--app-accent-border)] bg-background/90 px-3 py-2 text-xs font-semibold shadow-lg backdrop-blur-md md:right-auto"
-          style={{
-            top: "calc(max(1rem, env(safe-area-inset-top)) + 4.5rem)",
-          }}
-          data-testid="one-location-nearby-search-area-legend"
-        >
-          {nearbySearchPoint ? (
-            <span className="flex items-center gap-2">
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: tintCss(SELF_TINT) }}
-                aria-hidden="true"
-              />
-              <span className="truncate text-foreground">You are here</span>
-            </span>
-          ) : null}
-          {nearbyPlaceFocus ? (
-            <span
-              className="flex items-center gap-2"
-              data-testid="one-location-nearby-place-legend"
-            >
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{
-                  backgroundColor: tintCss(
-                    nearbyPlaceFocus.active
-                      ? PLACE_ACTIVE_TINT
-                      : PLACE_PENDING_TINT,
-                  ),
-                }}
-                aria-hidden="true"
-              />
-              <span className="truncate text-foreground">
-                {nearbyPlaceFocus.active ? "Checked in at " : "Checking in at "}
-                {nearbyPlaceFocus.label}
+        {/*
+          Two pins on one map need naming, or the owner cannot tell which is
+          "me" and which is "the place I'm checking in to" -- and those are
+          routinely a street apart.
+
+          A row of the header's own grid, not a floating card at a hand-counted
+          `top: calc(... + 4.5rem)`. That constant was measured against a
+          one-row header, so the moment the phone header grew its second row for
+          "Sharing with N" the two occupied the same band -- and since the
+          header is z-30 and this was z-20, the Sharing pill was painted
+          *through* the legend card. Being a grid row instead makes the overlap
+          unrepresentable, and it lands the legend inside the element the camera
+          padding and the name-pill layer already measure, so neither can treat
+          the space it takes as free map.
+        */}
+        {rendererReady &&
+        (nearbyCheckInOpen || nearbyPlaceFocus?.active) &&
+        (nearbySearchPoint || nearbyPlaceFocus) ? (
+          <div
+            className={cn(
+              "pointer-events-none flex w-full max-w-[18rem] flex-col gap-1.5 justify-self-start rounded-2xl border border-[var(--app-accent-border)] bg-background/90 px-3 py-2 text-xs font-semibold shadow-lg backdrop-blur-md",
+              checkInDrawerOpen
+                ? "col-span-3 row-start-2"
+                : "col-span-2 row-start-3 sm:col-span-3 sm:row-start-2",
+            )}
+            data-testid="one-location-nearby-search-area-legend"
+          >
+            {nearbySearchPoint ? (
+              <span className="flex items-center gap-2">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: tintCss(SELF_TINT) }}
+                  aria-hidden="true"
+                />
+                <span className="truncate text-foreground">You are here</span>
               </span>
-            </span>
-          ) : null}
-          {nearbyPlaceFocus?.distanceMeters != null &&
-          nearbyPlaceFocus.distanceMeters >= 25 ? (
-            <span className="pl-[1.125rem] font-normal text-muted-foreground">
-              {nearbyPlaceFocus.distanceMeters < 1_000
-                ? `${nearbyPlaceFocus.distanceMeters} m`
-                : `${(nearbyPlaceFocus.distanceMeters / 1_000).toFixed(1)} km`}{" "}
-              from you
-            </span>
-          ) : null}
-          <span className="pl-[1.125rem] font-normal text-muted-foreground">
-            {/* "match" is the backend's word for how it pairs attendees, and it
-                also hid a real difference: the live circle is drawn around the
-                PLACE, the search circle around the PERSON (see the circle title
-                at ~1396). Naming the anchor says both things in plain words. */}
-            {nearbyPlaceFocus?.active
-              ? "500 m around your place"
-              : "500 m around you"}
-          </span>
-        </div>
-      ) : null}
+            ) : null}
+            {nearbyPlaceFocus ? (
+              <span
+                className="flex items-center gap-2"
+                data-testid="one-location-nearby-place-legend"
+              >
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{
+                    backgroundColor: tintCss(
+                      nearbyPlaceFocus.active
+                        ? PLACE_ACTIVE_TINT
+                        : PLACE_PENDING_TINT,
+                    ),
+                  }}
+                  aria-hidden="true"
+                />
+                <span className="truncate text-foreground">
+                  {nearbyPlaceFocus.active
+                    ? "Checked in at "
+                    : "Checking in at "}
+                  {nearbyPlaceFocus.label}
+                </span>
+              </span>
+            ) : null}
+            {/*
+              The measurements, only when nothing else is saying them.
+
+              Open, the drawer states both a few centimetres below: the live
+              card reads "<place> · 500 m radius · 59 min left" and then "You've
+              moved about 451 m away", and the setup list is headed "Places
+              within 500 m". Printing them up here as well is the same two
+              numbers twice on the most crowded strip of a phone screen, which
+              is what turned a colour key into a four-line card.
+
+              Dismissed, this legend is the ONLY thing on screen describing a
+              live check-in, so it keeps its full form.
+            */}
+            {!nearbyCheckInOpen &&
+            nearbyPlaceFocus?.distanceMeters != null &&
+            nearbyPlaceFocus.distanceMeters >= 25 ? (
+              <span className="pl-[1.125rem] font-normal text-muted-foreground">
+                {nearbyPlaceFocus.distanceMeters < 1_000
+                  ? `${nearbyPlaceFocus.distanceMeters} m`
+                  : `${(nearbyPlaceFocus.distanceMeters / 1_000).toFixed(
+                      1,
+                    )} km`}{" "}
+                from you
+              </span>
+            ) : null}
+            {!nearbyCheckInOpen ? (
+              <span className="pl-[1.125rem] font-normal text-muted-foreground">
+                {/* "match" is the backend's word for how it pairs attendees, and
+                    it also hid a real difference: the live circle is drawn
+                    around the PLACE, the search circle around the PERSON (see
+                    the circle title at ~1396). Naming the anchor says both
+                    things in plain words. */}
+                {nearbyPlaceFocus?.active
+                  ? "500 m around your place"
+                  : "500 m around you"}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </header>
       {status !== "unavailable" && !mapReady ? (
         // The map now starts initializing as soon as this screen opens --
         // before consent it's a neutral world view with zero markers, no
