@@ -63,8 +63,12 @@ export default defineConfig({
       // `auth-sign-in.layout` is opted in because sign-in is the first screen
       // every new person sees and the app ships inside an iOS WKWebView: a
       // Chromium-only pass proves nothing about the container they launch.
+      // `feed-sticky-header-opaque.layout` is opted in because it is a
+      // compositing contract (backdrop-blur + a colour-mix background) --
+      // exactly the kind of thing that can render differently between
+      // engines, and the Feed ships inside the same WKWebView.
       testMatch:
-        /(circle-join-responsive-contract|auth-sign-in\.layout|connect-circle-cta\.layout|connect-pagination\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|one-intro-welcome\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|auth-sign-in\.layout|connect-circle-cta\.layout|connect-pagination\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|feed-sticky-header-opaque\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|one-intro-welcome\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",
