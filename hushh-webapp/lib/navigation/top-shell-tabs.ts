@@ -85,12 +85,12 @@ export const TOP_SHELL_TAB_REGISTRY = {
     queryParam: "view",
     defaultValue: "now",
     tabs: [
-      // Labelled "Menu", not "Now". Nothing on this tab is time-scoped — it
+      // Labelled "Home", not "Now". Nothing on this tab is time-scoped — it
       // holds Share location, Your Map, Settings and the rest of the action
       // list, so "Now" promised live status the tab never showed. The `value`
       // stays "now" so existing `?view=now` links and Kai's
       // `location.open_now` action keep resolving.
-      { value: "now", label: "Menu", href: "/one/location" },
+      { value: "now", label: "Home", href: "/one/location" },
       {
         value: "people",
         label: "People",

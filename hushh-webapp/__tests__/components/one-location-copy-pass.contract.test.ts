@@ -84,9 +84,9 @@ describe("One Location — link durations stay inside the server's ceiling", () 
 describe("One Location — hub tab naming", () => {
   const locationTabs = TOP_SHELL_TAB_REGISTRY.location;
 
-  it("labels the first tab Menu while keeping its `now` query value", () => {
+  it("labels the first tab Home while keeping its `now` query value", () => {
     const first = locationTabs.tabs[0];
-    expect(first.label).toBe("Menu");
+    expect(first.label).toBe("Home");
     // The value is the deep-link contract (`?view=now`, Kai's
     // `location.open_now`). Renaming the label must not move it.
     expect(first.value).toBe("now");
