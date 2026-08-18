@@ -1289,7 +1289,18 @@ class ConsentCenterService:
         actor: str,
         surface: str,
         mode: str = "consents",
+        location_buckets: dict[str, list[dict[str, Any]]] | None = None,
+        marketplace_buckets: dict[str, list[dict[str, Any]]] | None = None,
     ) -> int:
+        """
+        ``location_buckets``/``marketplace_buckets`` let a caller that already
+        fetched them for the investor+consents case (get_center_summary calls
+        this once per surface) pass them straight through instead of each
+        call independently re-fetching the same ~24-query bucket 3x over
+        (#5387 -- this alone accounted for most of the query volume behind
+        "app feels slow"). ``None`` (the default) preserves the original
+        fetch-it-yourself behaviour for any other caller.
+        """
         normalized_actor = "ria" if actor == "ria" else "investor"
         normalized_mode = "connections" if mode == "connections" else "consents"
         if normalized_mode == "connections":
@@ -1308,11 +1319,12 @@ class ConsentCenterService:
                 ]
             )
         if normalized_actor == "investor":
-            location_buckets = (
-                await self._location_buckets_async(user_id)
-                if normalized_mode == "consents"
-                else None
-            )
+            if location_buckets is None:
+                location_buckets = (
+                    await self._location_buckets_async(user_id)
+                    if normalized_mode == "consents"
+                    else None
+                )
             location_count = 0
             if location_buckets:
                 if surface == "pending":
@@ -1321,11 +1333,12 @@ class ConsentCenterService:
                     location_count = len(location_buckets["active_grants"])
                 else:
                     location_count = len(location_buckets["history"])
-            marketplace_buckets = (
-                await self._marketplace_buckets_async(user_id)
-                if normalized_mode == "consents"
-                else None
-            )
+            if marketplace_buckets is None:
+                marketplace_buckets = (
+                    await self._marketplace_buckets_async(user_id)
+                    if normalized_mode == "consents"
+                    else None
+                )
             if marketplace_buckets:
                 if surface == "pending":
                     location_count += len(marketplace_buckets["incoming_requests"])
@@ -1621,6 +1634,21 @@ class ConsentCenterService:
         normalized_actor = "ria" if actor == "ria" else "investor"
         normalized_mode = "connections" if mode == "connections" else "consents"
         if not _consent_summary_v2_enabled():
+            # Pre-fetch once, outside the per-surface gather below, rather than
+            # letting each of the 3 concurrent _get_surface_count calls
+            # independently re-fetch the same investor location/marketplace
+            # buckets -- the actual cause of the ~77-query "slow to load"
+            # symptom (#5387), not per-item N+1 loops. Both are already
+            # unconditionally sliced into all three surfaces by the callee, so
+            # fetching once and reading three ways changes no filtering logic.
+            if normalized_actor == "investor" and normalized_mode == "consents":
+                location_buckets, marketplace_buckets = await asyncio.gather(
+                    self._location_buckets_async(user_id),
+                    self._marketplace_buckets_async(user_id),
+                )
+            else:
+                location_buckets = None
+                marketplace_buckets = None
             pending_count, active_count, previous_count = await asyncio.gather(
                 *(
                     self._get_surface_count(
@@ -1628,6 +1656,8 @@ class ConsentCenterService:
                         actor=normalized_actor,
                         surface=surface,
                         mode=normalized_mode,
+                        location_buckets=location_buckets,
+                        marketplace_buckets=marketplace_buckets,
                     )
                     for surface in ("pending", "active", "previous")
                 )
