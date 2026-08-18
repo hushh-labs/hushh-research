@@ -31,6 +31,8 @@
   min-block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
   width: 100%;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
 }
 
@@ -49,7 +51,15 @@
   position: relative;
   z-index: 10;
   display: grid;
-  block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
+  /* A phone is ~844px tall; a laptop is not. Without a ceiling the `1fr`
+     middle row turned every extra pixel of a desktop viewport into empty
+     space above and below One, which read as a broken page rather than a
+     calm one. 760px is exactly what a 390x844 phone already gives this
+     screen (844 minus the 84px the scroll root reserves), so the cap is a
+     no-op on a phone and only stops a laptop from stretching it. */
+  max-block-size: 760px;
+  align-self: center;
+  block-size: 100%;
   min-height: 0;
   width: 100%;
   max-width: 34rem;
@@ -66,9 +76,18 @@
 
 .brand {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
+}
+
+/* Small on purpose. At the 48px it used to be it competed with One for the
+   eye; at 26px it reads as the brand's own mark sitting under its wordmark. */
+.quietMark {
+  font-size: 26px;
+  line-height: 1;
 }
 
 .wordmark {
