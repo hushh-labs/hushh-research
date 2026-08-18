@@ -10,7 +10,7 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(source.match(/href=\{item\.copy\.href\}/g)).toHaveLength(2);
+    expect(source.match(/href=\{item\.copy\.href\}/g)).toHaveLength(1);
     // The route coordinator owns durable completion. The hub must not invent a
     // second target that would diverge for taps, voice navigation, or deep links.
     expect(source).not.toContain(
@@ -24,7 +24,7 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(source).toContain('const masterActionLabel = "Finish setup"');
+    expect(source).toContain('const masterActionLabel = "Continue"');
     expect(source).toContain("isCapabilitySetupComplete(item.status)");
     expect(source).toContain('actionId="setup.hub_master_ack"');
     expect(source).toContain('variant="blue-gradient"');
@@ -68,23 +68,24 @@ describe("One setup hub terminal action contract", () => {
     expect(styles).not.toContain("--app-bottom-inset");
   });
 
-  it("keeps AI access with the remaining setup work instead of a separate private configuration section", () => {
+  it("keeps AI access as its own highlighted step instead of a separate private configuration section", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
 
-    expect(source).toContain('title="Remaining"');
-    expect(source).toContain('title="Choose your AI"');
+    expect(source).toContain('title="Start here"');
+    expect(source).toContain('title="Add anytime"');
+    expect(source).toContain('title="Choose AI"');
     expect(source).toContain("<SetupNavigationTile");
     expect(source).toContain('voiceControlId="one_setup_tile_connections"');
     expect(source).not.toContain("Private configuration");
-    expect(source.indexOf('title="Choose your AI"')).toBeLessThan(
-      source.indexOf("remainingItems.map"),
+    expect(source.indexOf('title="Choose AI"')).toBeLessThan(
+      source.indexOf("<CapabilitySetupTile"),
     );
   });
 
-  it("marks the one mandatory row as required rather than leaving it a quiet grey status", () => {
+  it("marks the one mandatory row with a blue accent action instead of a quiet grey status", () => {
     const hub = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
@@ -97,13 +98,14 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    // "Required" in the same muted grey as every other trailing label reads as
-    // one more optional status. The blocking row takes the accent pill and the
-    // current-step role so it is legible as the thing to do first.
-    expect(hub).toContain('statusLabel="Required"');
-    expect(hub).toContain('statusTone="required"');
-    expect(tile).toContain('statusTone === "required"');
-    expect(tile).toContain("bg-[var(--app-accent-tint)]");
+    // No "Required" badge: the row itself is the one soft-blue highlighted
+    // surface on the screen, with a blue "Start" action and the current-step
+    // role, so it reads as the thing to do first without a status pill.
+    expect(hub).toContain('statusLabel={runtimeChoiceComplete ? undefined : "Start"}');
+    expect(hub).toContain("isCurrent={!runtimeChoiceComplete}");
+    expect(hub).toContain("bg-[var(--app-accent-tint)]");
+    expect(hub).not.toContain("Required");
+    expect(tile).toContain("text-[var(--app-accent)]");
     expect(tile).toContain('aria-current={isCurrent ? "step" : undefined}');
   });
 
@@ -169,17 +171,15 @@ describe("One setup hub terminal action contract", () => {
     // ...and a visible edge with it. `muted` is the page surface in the light
     // theme, so the fill alone leaves no control on screen.
     expect(footer).toContain("disabled:!border-border");
-    expect(hub).toContain("disabled:text-muted-foreground");
-    expect(hub).not.toContain("disabled:opacity-40");
 
-    // The reason travels with the block on every surface. The desktop footer
-    // has a supporting line under the button; the phone header action has
-    // nothing but a `title` tooltip, which a touch device never shows -- so the
-    // header summary both layouts render has to name it too.
+    // The reason travels with the block: the blocked-handler summary and the
+    // one full-width footer's supporting line both name it, so there is
+    // exactly one place on screen (plus the handler's own return summary)
+    // explaining why Continue will not go through yet.
     expect(hub).toContain('"Choose your AI first."');
     expect(
       hub.match(/Choose your AI first\./g)?.length,
-    ).toBeGreaterThanOrEqual(3);
+    ).toBe(2);
   });
 
   it("keeps the mandatory-step language out of system nouns", () => {
@@ -265,35 +265,36 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain("isOneSetupSurfaceRoute(path) ? null : raw");
   });
 
-  it("surfaces the master action top-right on mobile and keeps the in-flow footer for desktop", () => {
+  it("surfaces one full-width Continue action for every breakpoint instead of a second top-right control", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
 
-    // Mobile shows a reachable top-right Skip/Finish (the fixed agent bar would
-    // cover a bottom footer on phones); desktop keeps the in-flow footer.
-    expect(source).toContain('data-testid="one-setup-master-ack-mobile"');
-    expect(source).toContain("sm:hidden");
-    expect(source).toContain('<div className="hidden sm:block">');
+    // Continue moved into the one full-width footer below the list. There is
+    // no separate top-right mobile action competing with it or with the title.
+    expect(source).not.toContain('data-testid="one-setup-master-ack-mobile"');
+    expect(source).not.toContain('<div className="hidden sm:block">');
+    expect(source).toContain("<SetupCompletionFooter");
+    expect(source).toContain('testId="one-setup-master-ack"');
+    expect(source).toContain("label={masterActionLabel}");
   });
 
-  it("lets the header action drop below the title rather than squeeze it", () => {
+  it("keeps the header a plain title and subtitle now that nothing competes with it", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
 
-    // The action cannot wrap its own label and never shrinks, so whatever it
-    // needs it takes. With `min-w-0` the title column surrendered all of it:
-    // at 320px / 200% text the title had 60px to paint 180px of "Finish
-    // setting up One" and ran 96px straight through the action. The floor
-    // plus a wrapping row is what stops that -- and it has to be min-width,
-    // since `flex-1` is `flex: 1 1 0%` and overwrites a basis utility.
-    expect(source).toContain('<div className="flex flex-wrap items-start gap-3">');
-    expect(source).toContain('<div className="min-w-[8rem] flex-1">');
-    expect(source).not.toContain('<div className="min-w-0 flex-1">');
-    expect(source).not.toContain("basis-[8rem]");
+    // The header used to share a flex row with a top-right Skip/Finish button
+    // that could run through the title at small widths / large text settings.
+    // That button is gone, so the header needs no wrapping workaround for it.
+    expect(source).not.toContain('data-testid="one-setup-master-ack-mobile"');
+    expect(source).toContain("<AppPageHeaderRegion>");
+    expect(source).toContain("<PageHeader");
+    expect(source.indexOf("<AppPageHeaderRegion>")).toBeLessThan(
+      source.indexOf("</AppPageHeaderRegion>"),
+    );
   });
 
   it("requires vault completion after master setup acknowledgement", () => {

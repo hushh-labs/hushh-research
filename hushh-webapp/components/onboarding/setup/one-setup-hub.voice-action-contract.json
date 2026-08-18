@@ -241,9 +241,10 @@
     },
     {
       "action_id": "setup.hub_master_ack",
-      "label": "Finish setup",
+      "label": "Continue",
       "meaning": "Validates the AI access choice, then requires the private vault to be created or unlocked before One opens home.",
       "aliases": [
+        "continue",
         "i'm done setting up",
         "finish setup",
         "finish setting up",

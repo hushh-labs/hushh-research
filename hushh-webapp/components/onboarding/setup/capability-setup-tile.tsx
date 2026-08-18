@@ -36,8 +36,8 @@ import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 export interface CapabilitySetupTileProps {
   capabilityId: string;
   title: string;
-  /** Plain, One-voice description of what this step sets up. */
-  description: string;
+  /** Plain, One-voice description of what this step sets up. Omit for a bare, one-line row. */
+  description?: string;
   /** Capability-specific next action for the trailing state label. */
   actionLabel: string;
   /** Capability-specific continuation label after a partial setup. */
@@ -45,7 +45,10 @@ export interface CapabilitySetupTileProps {
   href: string;
   voiceControlId: string;
   icon: OneCapabilityIcon;
-  tone: OneCapabilityTone;
+  /** Omit or pass `null` for a neutral (untoned) icon well. */
+  tone?: OneCapabilityTone | null;
+  /** Overrides the icon well's background/foreground classes. */
+  iconClassName?: string;
   status: CapabilityStatus;
   /** Explore-only capability — its badge reads "Explore"/"Explored". */
   isExploreOnly?: boolean;
@@ -65,21 +68,20 @@ export interface CapabilitySetupTileProps {
 export interface SetupNavigationTileProps {
   id: string;
   title: string;
-  description: string;
+  description?: string;
   href: string;
   voiceControlId: string;
   icon: OneCapabilityIcon;
-  tone: OneCapabilityTone;
+  /** Omit or pass `null` for a neutral (untoned) icon well. */
+  tone?: OneCapabilityTone | null;
+  /** Overrides the icon well's background/foreground classes. */
+  iconClassName?: string;
   statusLabel?: string;
-  /**
-   * How the trailing label reads. `required` is the mandatory step that blocks
-   * the exit: it takes the accent pill so it cannot be mistaken for the same
-   * quiet grey status every other row carries.
-   */
-  statusTone?: "muted" | "required";
   isComplete?: boolean;
   /** Mark the row as the current step in a guided sequence. */
   isCurrent?: boolean;
+  /** Defaults to true; pass false to omit the trailing chevron entirely. */
+  chevron?: boolean;
   className?: string;
 }
 
@@ -91,10 +93,11 @@ export function SetupNavigationTile({
   voiceControlId,
   icon,
   tone,
+  iconClassName,
   statusLabel,
-  statusTone = "muted",
   isComplete = false,
   isCurrent = false,
+  chevron = true,
   className,
 }: SetupNavigationTileProps) {
   const router = useRouter();
@@ -124,30 +127,28 @@ export function SetupNavigationTile({
           tone={tone}
           isActive={isComplete}
           size="menu"
+          className={iconClassName}
         />
       }
       title={title}
       description={
-        <div className="line-clamp-2 md:line-clamp-none">{description}</div>
+        description ? (
+          <div className="line-clamp-2 md:line-clamp-none">{description}</div>
+        ) : undefined
       }
       trailing={
-        statusLabel ? (
-          <span
-            data-setup-status-tone={statusTone}
-            className={cn(
-              "shrink-0 text-xs font-medium",
-              isComplete
-                ? "text-[var(--tone-green)]"
-                : statusTone === "required"
-                  ? "rounded-full bg-[var(--app-accent-tint)] px-2 py-0.5 font-semibold text-[var(--app-accent-deep)]"
-                  : "text-muted-foreground",
-            )}
-          >
+        isComplete ? (
+          <CheckCircle2
+            className="h-[18px] w-[18px] shrink-0 text-[var(--app-accent)]"
+            aria-hidden
+          />
+        ) : statusLabel ? (
+          <span className="shrink-0 text-xs font-semibold text-[var(--app-accent)]">
             {statusLabel}
           </span>
         ) : undefined
       }
-      chevron
+      chevron={chevron}
       className={className}
     >
       <button
@@ -157,7 +158,11 @@ export function SetupNavigationTile({
         onFocus={prefetchRoute}
         onTouchStart={prefetchRoute}
         aria-label={
-          statusLabel ? `${title}: ${statusLabel}` : title
+          isComplete
+            ? `${title}: Selected`
+            : statusLabel
+              ? `${title}: ${statusLabel}`
+              : title
         }
         aria-current={isCurrent ? "step" : undefined}
         data-href={href}
@@ -181,6 +186,7 @@ export function CapabilitySetupTile({
   voiceControlId,
   icon,
   tone,
+  iconClassName,
   status,
   isExploreOnly = false,
   isCurrent = false,
@@ -219,23 +225,21 @@ export function CapabilitySetupTile({
           tone={tone}
           isActive={isCapabilitySetupComplete(status)}
           size="menu"
+          className={iconClassName}
         />
       }
       title={title}
       description={
-        <div className="line-clamp-2 md:line-clamp-none">
-          {description}
-        </div>
+        description ? (
+          <div className="line-clamp-2 md:line-clamp-none">{description}</div>
+        ) : undefined
       }
-      chevron
-      className={cn(
-        isComplete && "bg-emerald-500/10 dark:bg-emerald-400/10",
-        className
-      )}
+      chevron={!isComplete}
+      className={className}
       trailing={
         isComplete ? (
           <CheckCircle2
-            className="h-[18px] w-[18px] shrink-0 text-emerald-600 dark:text-emerald-300"
+            className="h-[18px] w-[18px] shrink-0 text-[var(--app-accent)]"
             aria-hidden
           />
         ) : null

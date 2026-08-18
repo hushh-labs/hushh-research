@@ -40,7 +40,6 @@ import {
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { useCapabilitySetupStates } from "@/lib/onboarding/use-capability-setup-states";
-import { groupSetupCapabilities } from "@/lib/onboarding/setup-capability-order";
 import {
   isCapabilitySetupComplete,
   type CapabilityStatus,
@@ -53,6 +52,22 @@ import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
 
 /**
+ * Short, one-word-where-possible row labels for the flat "Add anytime" list.
+ * The fuller `item.copy.setupTitle` sentence still drives voice metadata and
+ * the per-capability step screen; this is a plain-copy pass on the row label
+ * only, never a change to routing, state, or the capability's own copy.
+ */
+const SETUP_ROW_LABEL: Record<string, string> = {
+  gmail: "Gmail",
+  calendar: "Calendar",
+  location: "Location",
+  email: "Verify identity",
+  finance: "Money",
+  ria: "Advisor profile",
+  "connected-systems": "Customer records",
+};
+
+/**
  * OneSetupHub: the `/one/setup` hub screen.
  *
  * It is the calm home for "what's left to set up". It opts into the expensive
@@ -63,8 +78,9 @@ import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemin
  * LAYOUT (Card Depth Model + recompose-by-breakpoint)
  * - Lives inside the normal app shell (`standard` chrome) so a person who has
  *   finished onboarding can still browse here without being trapped in a flow.
- * - Remaining and Complete inset lists preserve the authored product order.
- *   The shell itself owns the scroll; the header region stays put.
+ * - One highlighted "Start here" row for the mandatory AI choice, then one
+ *   flat "Add anytime" list in authored order — no separate Remaining/Complete
+ *   sections. The shell itself owns the scroll; the header region stays put.
  * - One owns the voice: "Set up One", plain language, no system nouns.
  */
 export function OneSetupHub() {
@@ -140,12 +156,6 @@ export function OneSetupHub() {
   }, [user?.uid]);
 
   const items = useMemo(() => buildSetupItems(byId), [byId]);
-  const groupedItems = groupSetupCapabilities(items, (item) =>
-    isCapabilitySetupComplete(item.status),
-  );
-  const remainingItems = groupedItems.remaining;
-  const completeItems = groupedItems.complete;
-  const visibleItems = groupedItems.visible;
 
   const runtimeChoiceComplete = runtimeChoiceState === "complete";
   // "Ready" counts only GENUINELY set-up capabilities (completed/skipped). A
@@ -168,7 +178,7 @@ export function OneSetupHub() {
   // Capability setup is optional, but the root vault is not. Finish setup is
   // therefore the only exit from the hub and always leads to vault setup when
   // the vault is not already unlocked.
-  const masterActionLabel = "Finish setup";
+  const masterActionLabel = "Continue";
   const hubStateLoading =
     isLoading || isEnriching || runtimeChoiceState === "loading";
 
@@ -182,7 +192,7 @@ export function OneSetupHub() {
     actions: hubStateLoading
       ? []
       : [
-          ...visibleItems.map((item) => ({
+          ...items.map((item) => ({
             id: item.id,
             actionId: getOneSetupCapability(item.id)?.setupActionId,
             label: item.copy.setupTitle,
@@ -373,21 +383,11 @@ export function OneSetupHub() {
     return handleMasterAck();
   });
 
-  // Phones get the master action as a bare header link with no supporting line
-  // under it, so the one mandatory step has to be named somewhere they can read
-  // it before they tap. The header description is the only copy both layouts
-  // share, so the blocker rides there rather than only in the desktop footer.
-  //
-  // It carries ONLY that. The segmented progress bar below already renders
-  // "done of total"; repeating the count in words was two facts competing for
-  // the one line people actually read.
   const summary = hubStateLoading
     ? "One moment…"
     : allReady
       ? "Add more any time."
-      : !runtimeChoiceComplete
-        ? "Choose your AI first."
-        : `${remaining} left.`;
+      : "Start with AI. Add more anytime.";
 
   return (
     <AppPageShell
@@ -402,54 +402,14 @@ export function OneSetupHub() {
       }}
     >
       <AppPageHeaderRegion>
-        {/* Header title + mobile master action share one flex row. The action
-            was absolutely positioned over the header before, so the large
-            display title ran underneath it and the two overlapped. A flex row
-            with a min-w-0 title column and a shrink-0 button keeps real
-            horizontal separation; the title shrinks within its column.
-
-            The row wraps, and the title column holds a floor before it does.
-            `min-w-0` let the title shrink to nothing while a shrink-0 action
-            whose label cannot wrap took what it needed first -- at 320px with
-            200% text that left the title 60px to paint 180px of "Finish
-            setting up One", which overflowed a visible box straight through
-            the action (measured: 96px of overlap, in every hub state). The
-            floor has to be min-width, not flex-basis: `flex-1` is
-            `flex: 1 1 0%`, so a basis utility next to it is simply overwritten
-            and the row never wraps. In rem, so it grows with the text setting
-            that causes the squeeze; above that threshold nothing moves. */}
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="min-w-[8rem] flex-1">
-          <PageHeader
-            title={
-              !hubStateLoading && allReady ? "You're all set" : "Set up One"
-            }
-            description={summary}
-            accent="neutral"
-            className={styles.setupHeader}
-          />
-          </div>
-          {/* Mobile surfaces the master Skip/Finish action top-right in the
-              header so it is always reachable and never hides behind the fixed
-              "Talk to One" agent bar. Desktop keeps the in-flow footer below. */}
-          {!hubStateLoading ? (
-            <button
-              type="button"
-              onClick={() => void handleMasterAck()}
-              disabled={dismissing || !runtimeChoiceComplete}
-              title={
-                !runtimeChoiceComplete ? "Choose your AI first." : undefined
-              }
-              data-testid="one-setup-master-ack-mobile"
-              // Same rule as the desktop footer: the accent is reserved for a
-              // tap that can actually finish. A faded accent still reads blue,
-              // so a blocked finish goes neutral rather than dimmed.
-              className="mt-1 shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:text-muted-foreground disabled:opacity-100 sm:hidden"
-            >
-              {masterActionLabel}
-            </button>
-          ) : null}
-        </div>
+        {/* Continue now lives in one full-width footer below the list, so the
+            header is a plain title + subtitle with nothing to overlap. */}
+        <PageHeader
+          title={!hubStateLoading && allReady ? "You're all set" : "Set up One"}
+          description={summary}
+          accent="neutral"
+          className={styles.setupHeader}
+        />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
@@ -457,127 +417,69 @@ export function OneSetupHub() {
           <SetupHubLoadingState />
         ) : (
           <>
-            {total > 0 ? (
-              <div
-                className={styles.segmentedProgress}
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={total}
-                aria-valuenow={done}
-                aria-label={`${done} of ${total} set up`}
-              >
-                {Array.from({ length: total }).map((_, index) => (
-                  <span
-                    key={index}
-                    data-filled={index < done ? "true" : undefined}
-                  />
-                ))}
-              </div>
-            ) : null}
             <div className={styles.flatChecklist}>
               <SettingsGroup
-                title="Remaining"
-                testId="one-setup-capabilities-remaining"
+                title="Start here"
+                testId="one-setup-ai-access"
+                className={styles.chooseAiGroup}
                 separatorInset
               >
-                {!runtimeChoiceComplete ? (
-                  <SetupNavigationTile
-                    id="connections"
-                    title="Choose your AI"
-                    description="Use ours, or bring your own."
-                    href={ROUTES.ONE_SETUP_CONNECTIONS}
-                    voiceControlId="one_setup_tile_connections"
-                    icon={lucideCapabilityIcon(PlugZap)}
-                    tone="connected"
-                    statusLabel="Required"
-                    // The one row that blocks the exit. A muted grey "Required"
-                    // reads like every other trailing label, so it gets the
-                    // accent pill and the current-step role instead.
-                    statusTone="required"
-                    isCurrent
-                  />
-                ) : null}
-                {remainingItems.map((item) => (
+                <SetupNavigationTile
+                  id="connections"
+                  title="Choose AI"
+                  href={ROUTES.ONE_SETUP_CONNECTIONS}
+                  voiceControlId="one_setup_tile_connections"
+                  icon={lucideCapabilityIcon(PlugZap)}
+                  tone={null}
+                  iconClassName="bg-[var(--app-accent-tint)] text-[var(--app-accent)]"
+                  statusLabel={runtimeChoiceComplete ? undefined : "Start"}
+                  isComplete={runtimeChoiceComplete}
+                  isCurrent={!runtimeChoiceComplete}
+                  chevron={false}
+                />
+              </SettingsGroup>
+              <SettingsGroup
+                title="Add anytime"
+                testId="one-setup-capabilities"
+                separatorInset
+              >
+                {items.map((item) => (
                   <CapabilitySetupTile
                     key={item.id}
                     capabilityId={item.id}
-                    title={item.copy.setupTitle}
-                    description={item.copy.setupBlurb}
+                    title={SETUP_ROW_LABEL[item.id] ?? item.copy.setupTitle}
                     actionLabel={item.copy.actionLabel}
                     resumeActionLabel={item.copy.resumeActionLabel}
                     href={item.copy.href}
                     voiceControlId={item.voiceControlId}
                     icon={item.icon}
-                    tone={item.tone}
+                    tone={null}
                     status={item.status}
                     isExploreOnly={item.isExploreOnly}
                     isCurrent={item.isCurrent}
                   />
                 ))}
               </SettingsGroup>
-              {completeItems.length > 0 || runtimeChoiceComplete ? (
-                <SettingsGroup
-                  title="Complete"
-                  testId="one-setup-capabilities-complete"
-                  separatorInset
-                >
-                  {runtimeChoiceComplete ? (
-                    <SetupNavigationTile
-                      id="connections"
-                      title="Choose your AI"
-                      description="Change this any time."
-                      href={ROUTES.ONE_SETUP_CONNECTIONS}
-                      voiceControlId="one_setup_tile_connections"
-                      icon={lucideCapabilityIcon(PlugZap)}
-                      tone="connected"
-                      statusLabel="Selected"
-                      isComplete
-                    />
-                  ) : null}
-                  {completeItems.map((item) => (
-                    <CapabilitySetupTile
-                      key={item.id}
-                      capabilityId={item.id}
-                      title={item.copy.setupTitle}
-                      description={item.copy.setupBlurb}
-                      actionLabel={item.copy.actionLabel}
-                      resumeActionLabel={item.copy.resumeActionLabel}
-                      href={item.copy.href}
-                      voiceControlId={item.voiceControlId}
-                      icon={item.icon}
-                      tone={item.tone}
-                      status={item.status}
-                      isExploreOnly={item.isExploreOnly}
-                      isCurrent={false}
-                    />
-                  ))}
-                </SettingsGroup>
-              ) : null}
             </div>
-            {/* Desktop keeps the calm in-flow terminal action; mobile uses the
-            top-right header action instead (the fixed agent bar would cover a
-            bottom footer on phones). */}
-            <div className="hidden sm:block">
-              <SetupCompletionFooter
-                label={masterActionLabel}
-                onComplete={() => void handleMasterAck()}
-                busy={dismissing}
-                disabled={!runtimeChoiceComplete}
-                controlId="one-setup-master-ack"
-                actionId="setup.hub_master_ack"
-                testId="one-setup-master-ack"
-                purpose={
-                  "Finish setup and protect what you save."
-                }
-                supportingText={
-                  !runtimeChoiceComplete
-                    ? "Choose your AI first."
-                    : "Set up the rest later."
-                }
-                variant="blue-gradient"
-                effect="fill"
-              />
-            </div>
+            <SetupCompletionFooter
+              label={masterActionLabel}
+              onComplete={() => void handleMasterAck()}
+              busy={dismissing}
+              disabled={!runtimeChoiceComplete}
+              controlId="one-setup-master-ack"
+              actionId="setup.hub_master_ack"
+              testId="one-setup-master-ack"
+              purpose={
+                "Finish setup and protect what you save."
+              }
+              supportingText={
+                !runtimeChoiceComplete
+                  ? "Choose your AI first."
+                  : "Set up the rest later."
+              }
+              variant="blue-gradient"
+              effect="fill"
+            />
           </>
         )}
         {finalizationError ? (
@@ -639,9 +541,8 @@ interface SetupItem {
 }
 
 function buildSetupItems(byId: Record<string, CapabilityStatus>): SetupItem[] {
-  // Preserve product order inside each state section. A completed item moves
-  // once from Remaining to Complete, then remains stable there; this keeps the
-  // visual list and the published voice-action order correlated.
+  // Preserve the authored catalog order regardless of completion state, so the
+  // visual list and the published voice-action order stay correlated.
   const enriched = CAPABILITY_SETUP_COPY.flatMap((copy) => {
     const capability = getOneSetupCapability(copy.id);
     if (!capability) return [];

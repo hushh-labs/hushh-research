@@ -3,39 +3,32 @@
  * existing setup logic intact. These overrides stay route-scoped.
  */
 
-.setupHeader :global(h1),
+.setupHeader :global(h1) {
+  font-size: 1.9rem !important;
+  line-height: 1.1 !important;
+  letter-spacing: -0.01em !important;
+}
+
 .stepHeader :global(h1) {
   font-size: 1.75rem !important;
   line-height: 1.08 !important;
   letter-spacing: -0.01em !important;
 }
 
-.setupHeader :global([data-slot="page-header-description"]),
+.setupHeader :global([data-slot="page-header-description"]) {
+  font-size: 1rem !important;
+  line-height: 1.4 !important;
+}
+
 .stepHeader :global([data-slot="page-header-description"]) {
   font-size: 0.9375rem !important;
   line-height: 1.45 !important;
 }
 
-.segmentedProgress {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 16px;
-}
-.segmentedProgress > span {
-  flex: 1 1 0%;
-  height: 4px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--foundation-hairline) 86%, transparent);
-  transition: background-color 200ms ease;
-}
-.segmentedProgress > span[data-filled="true"] {
-  background: var(--foundation-gold-deep);
-}
-
 /* Flat editorial checklist — drop the grouped-card chrome, keep inset hairlines. */
 .flatChecklist {
   display: grid;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
 .flatChecklist [data-slot="settings-group-shell"] {
@@ -50,7 +43,31 @@
   background: transparent;
 }
 
-.flatChecklist :global([data-slot="settings-row-title"]),
+/* "Start here" is the one highlighted surface on the screen: a soft accent
+   card, not another flat list row. */
+.flatChecklist .chooseAiGroup [data-slot="settings-group-shell"] {
+  background: var(--app-accent-tint);
+  border-radius: var(--app-card-radius-compact);
+}
+.flatChecklist .chooseAiGroup [data-testid="settings-row"] {
+  min-height: 60px;
+}
+
+.flatChecklist [data-slot="settings-group-heading"] {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.flatChecklist :global([data-slot="settings-row-title"]) {
+  font-family: var(--font-app-text);
+  font-size: 1rem !important;
+  font-weight: 500 !important;
+  line-height: 1.3 !important;
+  letter-spacing: 0 !important;
+}
+
 .stepGroup :global([data-slot="settings-row-title"]) {
   font-family: var(--font-app-text);
   font-size: 0.9375rem !important;
@@ -59,7 +76,6 @@
   letter-spacing: 0 !important;
 }
 
-.flatChecklist :global([data-slot="settings-row-description"]),
 .stepGroup :global([data-slot="settings-row-description"]) {
   font-size: 0.8125rem !important;
   line-height: 1.42 !important;
@@ -73,8 +89,13 @@
 }
 
 @media (min-width: 640px) {
-  .setupHeader :global(h1),
+  .setupHeader :global(h1) {
+    font-size: 2rem !important;
+  }
   .stepHeader :global(h1) {
     font-size: 1.95rem !important;
+  }
+  .flatChecklist .chooseAiGroup [data-testid="settings-row"] {
+    min-height: 64px;
   }
 }
