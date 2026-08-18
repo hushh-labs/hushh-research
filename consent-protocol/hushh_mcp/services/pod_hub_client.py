@@ -161,3 +161,36 @@ class PodHubClient:
             return self._session.post(url, json=json or {}, headers=merged, timeout=self._timeout)
         except Exception as exc:  # noqa: BLE001
             raise PodHubUnavailable(f"hub unreachable: {type(exc).__name__}") from exc
+
+    def read_specialist(self, name: str, scope_token: str) -> dict[str, Any]:
+        """Read a DB-backed specialist's state THROUGH the hub broker (the data door).
+
+        This is the pod's egress to ``POST /api/one/pod/specialist/{name}/read``.
+        The pod holds no database credential, so it hands the couriered per-turn
+        scope token to the hub, which authenticates the pod, binds the scope to
+        this pod's owner, runs the read on the owner's own project, and returns the
+        fail-closed projection. Returns the ``state`` projection on success.
+
+        Fails LOUD, never silent: an unreachable hub (from :meth:`post`) or any
+        non-200 -- a revoked scope (403), an unknown door (404), a hub blip (5xx)
+        -- raises ``PodHubUnavailable``. The caller degrades deliberately (the
+        specialist reports runtime_unavailable, today's DB-wall behaviour); a
+        swallowed failure that returned empty state would instead make the pod
+        answer "you share with nobody" for a person who shares with many.
+        """
+        if not scope_token:
+            raise PodHubUnavailable("no data-door scope token for this specialist")
+        response = self.post(
+            f"/api/one/pod/specialist/{name}/read", json={"scopeToken": scope_token}
+        )
+        status = getattr(response, "status_code", 502)
+        if status != 200:
+            raise PodHubUnavailable(f"hub refused specialist read name={name} status={status}")
+        try:
+            body = response.json()
+        except Exception as exc:  # noqa: BLE001
+            raise PodHubUnavailable("hub returned a non-JSON specialist body") from exc
+        state = body.get("state") if isinstance(body, dict) else None
+        if not isinstance(state, dict):
+            raise PodHubUnavailable("hub returned no specialist state")
+        return state
