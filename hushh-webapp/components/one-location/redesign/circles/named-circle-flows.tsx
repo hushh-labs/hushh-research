@@ -9,7 +9,6 @@ import {
   Loader2,
   LogOut,
   MoreVertical,
-  Pencil,
   Plus,
   RotateCw,
   Search,
@@ -888,7 +887,6 @@ export function CircleDetailFlow({
   const [cancellingInviteId, setCancellingInviteId] = useState<string | null>(
     null,
   );
-  const nameInputRef = useRef<HTMLInputElement | null>(null);
   const loadRequestRef = useRef(0);
   const peopleRequestRef = useRef(0);
   const peopleSubmitInFlightRef = useRef(false);
@@ -1223,7 +1221,6 @@ export function CircleDetailFlow({
               <div className={CIRCLE_NAME_ROW_CLASSNAME}>
                 <input
                   id={CIRCLE_NAME_INPUT_ID}
-                  ref={nameInputRef}
                   value={circleName}
                   onChange={(event) => setCircleName(event.target.value)}
                   onKeyDown={(event) => {
@@ -1252,16 +1249,15 @@ export function CircleDetailFlow({
                     Save
                   </Button>
                 ) : (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    aria-label="Edit Circle name"
-                    onClick={() => nameInputRef.current?.focus()}
+                  // Reserves the Save button's exact box so focusing the field
+                  // never shifts its width — see circle-name-row-layout.ts. The
+                  // pencil affordance itself was redundant: the input is already
+                  // focusable and clickable on its own.
+                  <div
+                    aria-hidden="true"
+                    data-testid="one-location-circle-name-placeholder"
                     className={CIRCLE_NAME_ACTION_CLASSNAME}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
+                  />
                 )}
               </div>
               <p className={cn(MUTED_TEXT, "mt-2")}>
