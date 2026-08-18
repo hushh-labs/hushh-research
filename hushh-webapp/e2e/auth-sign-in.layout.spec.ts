@@ -360,7 +360,8 @@ function shellMarkup(p: Pieces): string {
 
 async function writeFixture({
   textScale = 100,
-}: { textScale?: number } = {}): Promise<string> {
+  theme = "light",
+}: { textScale?: number; theme?: "light" | "dark" } = {}): Promise<string> {
   const pieces = readPieces();
   const candidates = [
     pieces.primitive,
@@ -379,7 +380,7 @@ async function writeFixture({
     pieces.actionsWrap,
     pieces.providerActions,
     pieces.supportingWrap,
-    "size-4 size-5 inline-flex items-center gap-3 relative select-none text-[52px] leading-none font-semibold text-[color:var(--app-accent-deep)] relative w-full overflow-hidden",
+    "dark foundation-public-ambient size-4 size-5 inline-flex items-center gap-3 relative select-none text-[52px] leading-none font-semibold text-[color:var(--app-accent-deep)] relative w-full overflow-hidden",
   ]
     .join(" ")
     .split(/\s+/)
@@ -394,7 +395,7 @@ async function writeFixture({
 <style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css">
 <style>html { font-size: ${textScale}%; } body { margin: 0; }</style></head>
-<body class="foundation-public-ambient" data-ambient-chrome-primed="true">${shellMarkup(pieces)}</body></html>`,
+<body class="foundation-public-ambient ${theme === "dark" ? "dark" : ""}" data-ambient-chrome-primed="true">${shellMarkup(pieces)}</body></html>`,
   );
   return `file://${path.join(dir, "fixture.html")}`;
 }
@@ -541,11 +542,12 @@ test.describe("sign-in screen layout", () => {
       ).toEqual([]);
     });
 
-    test(`the two sign-in buttons read as one pair at ${width}px`, async ({
+    for (const theme of ["light", "dark"] as const) {
+    test(`the two sign-in buttons read as one pair at ${width}px (${theme})`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: HEIGHT });
-      await page.goto(await writeFixture());
+      await page.goto(await writeFixture({ theme }));
       await awaitProductFont(page);
 
       const measured = await page.evaluate(`(() => {
@@ -565,6 +567,10 @@ test.describe("sign-in screen layout", () => {
             shadow: cs.boxShadow,
             opacity: Number.parseFloat(cs.opacity),
             contrast: contrast(toRgb(cs.backgroundColor), toRgb(cs.color)),
+            canvasContrast: contrast(
+              toRgb(cs.backgroundColor),
+              toRgb(getComputedStyle(document.body).backgroundColor),
+            ),
             bgAlpha: toRgb(cs.backgroundColor).a,
           };
         };
@@ -637,7 +643,17 @@ test.describe("sign-in screen layout", () => {
         measured.google.borderWidth as number,
         "the Google button has no visible edge against the canvas",
       ).toBeGreaterThan(0);
+
+      // The first choice has to be the one that stands out ON THIS SHEET.
+      // Painting Apple black in dark mode leaves a black card on a black
+      // canvas beside a bright white Google button, and the quiet option is
+      // the one that shouts.
+      expect(
+        measured.apple.canvasContrast as number,
+        `on the ${theme} sheet the Apple button stands out ${String(measured.apple.canvasContrast).slice(0, 4)}:1 from the canvas and Google ${String(measured.google.canvasContrast).slice(0, 4)}:1 — the quiet option is louder than the first choice`,
+      ).toBeGreaterThan(measured.google.canvasContrast as number);
     });
+    }
 
     test(`the reassurance line reads as text, not a button, at ${width}px`, async ({
       page,

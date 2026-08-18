@@ -48,9 +48,15 @@ const AUTH_CANCEL_CODES = new Set([
   "auth/user-cancelled",
 ]);
 
-// One first choice, one quiet alternative: Apple is a solid black card, Google
-// a white card with a hairline edge, in BOTH themes so the pair never swaps
-// rank on a dark sheet. Reviewer stays an outlined tertiary.
+// One first choice, one quiet alternative — in BOTH themes.
+//
+// Apple is the high-contrast card and Google the quiet one, which means they
+// swap colours with the sheet: black-on-light becomes white-on-dark, exactly
+// as Apple's own sign-in button does. Painting Apple black in dark mode too
+// would leave a black card on a black canvas next to a bright white Google
+// button, and the *quiet* option would be the one that shouts. Google keeps a
+// light label and a visible edge in both themes so it never reads as switched
+// off. Reviewer stays an outlined tertiary.
 //
 // Three sizing rules this file learned the hard way:
 //  * `size="lg"` sets BOTH h-[50px] and min-h-[50px] (components/ui/button.tsx)
@@ -63,7 +69,7 @@ const AUTH_CANCEL_CODES = new Set([
 //    has to be a solid colour swap, or a disabled button still looks tappable.
 const SHARED_PROVIDER_BTN_CLASS =
   "h-[56px] min-h-[56px] rounded-[18px] shadow-none";
-const APPLE_BTN_EDGE = "border border-transparent dark:border-white/15";
+const APPLE_BTN_EDGE = "border border-transparent";
 const GOOGLE_BTN_EDGE = "border border-black/10 dark:border-white/15";
 
 // Idle and busy are two whole treatments, never a base plus a `disabled:`
@@ -73,11 +79,11 @@ const GOOGLE_BTN_EDGE = "border border-black/10 dark:border-white/15";
 // tappable. Swapping the entire class string means only one background rule
 // is ever in the list.
 const APPLE_BTN_CLASS =
-  `${SHARED_PROVIDER_BTN_CLASS} ${APPLE_BTN_EDGE} !bg-black !text-white hover:!bg-[#141414] hover:text-white dark:!bg-black dark:!text-white dark:hover:!bg-[#141414]`;
+  `${SHARED_PROVIDER_BTN_CLASS} ${APPLE_BTN_EDGE} !bg-black !text-white hover:!bg-[#141414] hover:text-white dark:!bg-white dark:!text-black dark:hover:!bg-[#eaeaec]`;
 const APPLE_BTN_BUSY_CLASS =
   `${SHARED_PROVIDER_BTN_CLASS} ${APPLE_BTN_EDGE} !bg-[#8a8a8e] !text-white dark:!bg-[#3a3a3c] dark:!text-white/70`;
 const GOOGLE_BTN_CLASS =
-  `${SHARED_PROVIDER_BTN_CLASS} ${GOOGLE_BTN_EDGE} !bg-white !text-[#1d1d1f] hover:!bg-[#f5f5f7] hover:text-[#1d1d1f] dark:!bg-white dark:!text-[#1d1d1f] dark:hover:!bg-[#f5f5f7]`;
+  `${SHARED_PROVIDER_BTN_CLASS} ${GOOGLE_BTN_EDGE} !bg-white !text-[#1d1d1f] hover:!bg-[#f5f5f7] hover:text-[#1d1d1f] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:hover:!bg-[#26262a]`;
 const GOOGLE_BTN_BUSY_CLASS =
   `${SHARED_PROVIDER_BTN_CLASS} ${GOOGLE_BTN_EDGE} !bg-[#e5e5ea] !text-[#6e6e73] dark:!bg-[#2c2c2e] dark:!text-white/50`;
 const REVIEWER_BTN_CLASS =
