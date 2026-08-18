@@ -60,6 +60,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { LocationPermissionRecoveryCard } from "@/components/one-location/location-permission-recovery-card";
+import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   RowDescription,
   RowLabel,
@@ -1277,7 +1278,19 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* ----------------------------------------------------------------- */
   return (
     <div className="space-y-4 sm:space-y-5">
-      <LocationStatusCard vm={vm} />
+      {tab === "people" ? (
+        // The People tab gets its own plain title instead of the Location
+        // toggle header: the switch already lives on the Home tab, and
+        // repeating it here read as two Location controls on the same
+        // screen. Still the same `PageHeader` (keeps the shared collapsing
+        // top-bar title behavior), just without the icon/accent/actions.
+        <PageHeader
+          title="People you trust"
+          description="Choose who can see your location."
+        />
+      ) : (
+        <LocationStatusCard vm={vm} />
+      )}
 
       {/*
         Directly under the header, above the tabs, because a blocked permission
@@ -2102,6 +2115,7 @@ function PeopleHub({
 }) {
   const hasSearch = vm.recipientSearch.trim().length > 0;
   const filtered = vm.visibleRecipients;
+  const hasAnyRecipients = vm.recipients.length > 0;
   const isDesktopPeopleLayout = useMediaQuery("(min-width: 640px)");
   const addPeopleAction = (
     <Button
@@ -2168,7 +2182,7 @@ function PeopleHub({
               id="one-location-connections-heading"
               className="col-start-1 row-start-1 text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-section-label)]"
             >
-              Connections
+              Trusted people
             </h2>
 
             {isDesktopPeopleLayout ? (
@@ -2200,20 +2214,23 @@ function PeopleHub({
                 : syncContactsAction}
             </div>
 
-            <div
-              className={cn(
-                "col-span-3 row-start-2 mt-3 sm:col-span-4 sm:mt-3.5",
-                "[&_input]:h-[46px] [&_input]:rounded-full [&_input]:border-0 [&_input]:bg-[color:var(--app-primary-surface)] [&_input]:pl-[46px] [&_input]:pr-[18px] [&_input]:text-[17px] [&_input]:leading-[22px] [&_input]:tracking-[-0.3px]",
-                "[&_svg]:left-[18px] [&_svg]:text-[color:var(--app-tertiary-label)]",
-                "sm:[&_input]:h-12 sm:[&_input]:rounded-[var(--app-radius-md)] sm:[&_input]:pl-12 sm:[&_input]:pr-5 sm:[&_input]:text-base sm:[&_svg]:left-5",
-              )}
-              data-testid="one-location-people-search"
-            >
-              <PersonSearchInput
-                value={vm.recipientSearch}
-                onChange={vm.setRecipientSearch}
-              />
-            </div>
+            {hasAnyRecipients ? (
+              <div
+                className={cn(
+                  "col-span-3 row-start-2 mt-3 sm:col-span-4 sm:mt-3.5",
+                  "[&_input]:h-[46px] [&_input]:rounded-full [&_input]:border-0 [&_input]:bg-[color:var(--app-primary-surface)] [&_input]:pl-[46px] [&_input]:pr-[18px] [&_input]:text-[17px] [&_input]:leading-[22px] [&_input]:tracking-[-0.3px]",
+                  "[&_svg]:left-[18px] [&_svg]:text-[color:var(--app-tertiary-label)]",
+                  "sm:[&_input]:h-12 sm:[&_input]:rounded-[var(--app-radius-md)] sm:[&_input]:pl-12 sm:[&_input]:pr-5 sm:[&_input]:text-base sm:[&_svg]:left-5",
+                )}
+                data-testid="one-location-people-search"
+              >
+                <PersonSearchInput
+                  value={vm.recipientSearch}
+                  onChange={vm.setRecipientSearch}
+                  placeholder="Search people"
+                />
+              </div>
+            ) : null}
 
             <div className="col-span-3 row-start-3 mt-3 sm:col-span-4 sm:mt-3.5">
               {filtered.length ? (
@@ -2280,12 +2297,12 @@ function PeopleHub({
                 <div className="[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)]">
                   <EmptyState
                     title={
-                      hasSearch ? "No matching people" : "No connections yet"
+                      hasSearch ? "No matching people" : "No people added"
                     }
                     description={
                       hasSearch
                         ? "Try a different name."
-                        : "Invite someone to start sharing."
+                        : "Add family or friends to start sharing."
                     }
                   />
                 </div>

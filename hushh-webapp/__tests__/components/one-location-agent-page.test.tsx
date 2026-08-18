@@ -1925,7 +1925,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     fireEvent.change(
-      await screen.findByPlaceholderText("Search trusted people"),
+      await screen.findByPlaceholderText("Search people"),
       { target: { value: "Investor" } },
     );
     fireEvent.click(
@@ -2002,7 +2002,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(
-      await screen.findByPlaceholderText("Search trusted people"),
+      await screen.findByPlaceholderText("Search people"),
     ).toHaveValue("Investor");
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
     fireEvent.click(screen.getByRole("button", { name: /^Share location$/i }));
@@ -3230,7 +3230,7 @@ describe("OneLocationAgentPage", () => {
     // empty state. Invite button assertions are covered by the empty-state test.
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(
-      await screen.findByPlaceholderText("Search trusted people"),
+      await screen.findByPlaceholderText("Search people"),
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", { name: "Pending invites" }),
@@ -4876,9 +4876,9 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await switchLocationTab("People", "Circles");
+    await switchLocationTab("People", "Your circles");
 
-    const search = await screen.findByPlaceholderText("Search trusted people");
+    const search = await screen.findByPlaceholderText("Search people");
     const person = await screen.findByText("Trusted B");
     expect(screen.getByTestId("one-location-people-list")).toHaveClass(
       "max-h-[50vh]",
@@ -4948,10 +4948,10 @@ describe("OneLocationAgentPage", () => {
       render(<OneLocationAgentPage />);
       await skipLocationEntryFlow();
       await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-      await switchLocationTab("People", "Circles");
+      await switchLocationTab("People", "Your circles");
 
       const addPeople = screen.getByRole("button", { name: /Add people/i });
-      const search = await screen.findByPlaceholderText("Search trusted people");
+      const search = await screen.findByPlaceholderText("Search people");
       const syncContacts = screen.getByRole("button", {
         name: /Find contacts/i,
       });
@@ -4974,19 +4974,19 @@ describe("OneLocationAgentPage", () => {
     }
   });
 
-  it("offers New circle and Join with code beside the circles heading", async () => {
+  it("offers Create circle and Join with code beside the circles heading", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await switchLocationTab("People", "Circles");
+    await switchLocationTab("People", "Your circles");
 
     const section = screen.getByTestId("one-location-named-circles");
     const heading = within(section).getByRole("heading", {
-      name: "Circles",
+      name: "Your circles",
     });
     const create = within(section).getByRole("button", {
-      name: /^New circle$/i,
+      name: /^Create circle$/i,
     });
     const join = within(section).getByRole("button", {
       name: /Join with code/i,
@@ -5104,7 +5104,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await switchLocationTab("People", "Circles");
+    await switchLocationTab("People", "Your circles");
     // Empty state keeps connection management and invite/sync/share actions.
     // Request-location affordances are populated-state-only, and the redundant
     // approval explainer must not add another card below these actions.
