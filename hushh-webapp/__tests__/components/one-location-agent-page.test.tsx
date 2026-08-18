@@ -1335,24 +1335,23 @@ describe("OneLocationAgentPage", () => {
       name: "Location",
     });
     expect(headerActions.className).toContain("ml-auto");
-    expect(headerActions.className).toContain("justify-end");
-    // The actions column holds the switch and nothing else now, so it no
-    // longer needs `max-w-full` to survive wrapping text. The status words that
-    // used to sit here moved to their own row under it — see the status
-    // assertions below.
+    expect(headerActions.className).toContain("flex-col");
+    expect(headerActions.className).toContain("items-end");
+    // The actions column holds the switch AND its status, stacked in one
+    // right-aligned group (#5404) — a full-width row below the header put
+    // the two in the same place only by coincidence, not as a paired control.
     const status = screen.getByTestId("one-location-header-status");
-    expect(headerActions.contains(status)).toBe(false);
+    expect(headerActions.contains(status)).toBe(true);
     // Reported from UAT: "location on / location pause toggle ke just neeche
-    // lao". Its own full-width row UNDER the header, right-aligned, so it lands
-    // directly beneath the switch it describes — not indented beside the title
-    // as a subtitle for the whole screen, and not back inside the actions
-    // column, where its width wrapped the title on every iPhone.
+    // lao". It renders directly beneath the switch, in the same box, so it is
+    // structurally paired with it — not indented beside the title as a
+    // subtitle for the whole screen, and not a separate full-width row whose
+    // alignment only happened to match the switch's.
     const headerRowForStatus = status.closest('[data-slot="page-header-row"]');
     expect(
       headerRowForStatus,
-      "the status is back inside the header row",
-    ).toBeNull();
-    expect(status).toHaveClass("block", "w-full", "text-right");
+      "the status should render inside the same header row as the switch",
+    ).not.toBeNull();
     // iOS used to get the one-word form: a bare green switch over "On", which
     // never said what it switched. Reported from the device.
     expect(status.textContent).toBe("Location off");
@@ -1392,8 +1391,8 @@ describe("OneLocationAgentPage", () => {
     // one-word form on phones, because the full string in the actions column
     // wrapped the 28px title at 320-390px. That fit, and it cost iOS the
     // meaning — the device showed a bare green switch over the word "On". The
-    // status now renders under the title instead of beside the switch, so it
-    // takes no width from the title and never has to abbreviate.
+    // status now renders under the switch inside the same right-aligned
+    // group, not beside it, so it never competes with the title for width.
     expect(locationStatus.querySelector(".sm\\:hidden")).toBeNull();
     expect(locationStatus.querySelector(".hidden.sm\\:inline")).toBeNull();
     expect(locationStatus.textContent).toBe("Location off");

@@ -28,8 +28,6 @@ import {
   Pencil,
   RotateCcw,
   Send,
-  ThumbsDown,
-  ThumbsUp,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -852,8 +850,6 @@ function AgentBubble({
   onSuggestionChipClick?: (chip: InlineSuggestionChip) => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const [liked, setLiked] = useState(false);
-  const [disliked, setDisliked] = useState(false);
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
@@ -993,44 +989,6 @@ function AgentBubble({
                 title={copied ? "Copied" : "Copy response"}
               >
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const nextLiked = !liked;
-                  setLiked(nextLiked);
-                  if (nextLiked) setDisliked(false);
-                }}
-                className={cn(
-                  "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
-                  liked
-                    ? "border-black/10 bg-black/[0.06] text-[#1d1d1f] dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100"
-                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-400 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
-                )}
-                aria-label="Like response"
-                aria-pressed={liked}
-                title="Like response"
-              >
-                <ThumbsUp className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const nextDisliked = !disliked;
-                  setDisliked(nextDisliked);
-                  if (nextDisliked) setLiked(false);
-                }}
-                className={cn(
-                  "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
-                  disliked
-                    ? "border-black/10 bg-black/[0.06] text-[#1d1d1f] dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100"
-                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-400 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
-                )}
-                aria-label="Dislike response"
-                aria-pressed={disliked}
-                title="Dislike response"
-              >
-                <ThumbsDown className="h-3.5 w-3.5" />
               </button>
               {onRetry ? (
                 <button

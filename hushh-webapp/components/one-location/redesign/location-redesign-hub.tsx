@@ -132,6 +132,8 @@ import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { ROUTES } from "@/lib/navigation/routes";
+import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
+import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
 import { resolveSmsContactsBackAction } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
   CircleDetailFlow,
@@ -659,9 +661,8 @@ export function resolveLocationDeepLinkFocus(input: {
 
 /**
  * The id the header switch points `aria-describedby` at. A constant, not
- * `useId`: the status text now renders under the title while the switch stays
- * in the actions column, and `aria-describedby` resolves by id anywhere in the
- * document. There is exactly one Location header on screen.
+ * `useId`: `aria-describedby` resolves by id anywhere in the document, and
+ * there is exactly one Location header on screen.
  */
 const LOCATION_HEADER_STATUS_ID = "one-location-header-status";
 
@@ -681,27 +682,24 @@ function locationHeaderStatusText(vm: LocationHubViewModel): string {
 }
 
 /**
- * The status line for the Location header, rendered UNDER THE SWITCH.
+ * The status line for the Location header, rendered directly under the
+ * switch it describes, in the same right-aligned column.
  *
- * Three positions have been tried. Beside the switch, the full string made the
- * actions column wide enough to wrap the 28px "Location Agent" title at every
- * iPhone width. Shortened to one word to fix that, iOS — the platform this
- * control was designed for — got a bare green switch over the word "On", which
- * never said what it switched. Under the TITLE it could say the whole thing,
- * but it read as a subtitle for the screen rather than as the state of the
- * control on the opposite side of the row.
- *
- * So: its own full-width row under the header, right-aligned, which puts it
- * directly beneath the switch it describes while still costing the title no
- * width at all. `block` is load-bearing — `text-right` on an inline span aligns
- * nothing.
+ * Two other positions have been tried and rejected. Beside the switch, the
+ * full string made the actions column wide enough to wrap the 28px "Location
+ * Agent" title at every iPhone width. Under the TITLE (a full-width row below
+ * the whole header) it no longer wrapped anything, but its right edge only
+ * matched the switch's by coincidence — two independent right-alignments,
+ * not a paired control, which read as visually unbalanced (#5404). Grouping
+ * it with the switch in one flex column makes the pairing structural: same
+ * box, same right edge, one small fixed gap.
  */
 function LocationHeaderStatus({ vm }: { vm: LocationHubViewModel }) {
   return (
     <span
       id={LOCATION_HEADER_STATUS_ID}
       data-testid="one-location-header-status"
-      className="ui-text-helper-text block w-full text-right text-[color:var(--app-secondary-label)]"
+      className="ui-text-helper-text text-[color:var(--app-secondary-label)]"
     >
       {locationHeaderStatusText(vm)}
     </span>
@@ -725,10 +723,10 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
     <div
       role="group"
       aria-label="Location"
-      // Just the switch now. The status words moved under the title, which is
-      // what lets them be the full "Location on / off / paused / blocked" at
-      // every width instead of the single word "On" that iOS used to get.
-      className="ml-auto flex shrink-0 items-center justify-end"
+      // Switch on top, its status directly beneath — one right-aligned
+      // column so the two read as a single paired control instead of a
+      // switch up here and a caption somewhere else on the screen.
+      className="ml-auto flex shrink-0 flex-col items-end gap-1"
       data-testid="one-location-header-actions"
     >
       <Switch
@@ -753,6 +751,7 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
         // system green, so this toggle reads the same as every other one.
         className={cn(acquiring && "animate-pulse")}
       />
+      <LocationHeaderStatus vm={vm} />
     </div>
   );
 }
@@ -781,6 +780,22 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     resolveLocationHubTab(searchParams.get(LOCATION_HUB_TAB_PARAM)),
   );
   const [flow, setFlow] = useState<FlowKind>("none");
+  // Opening a flow (SOS, Share, Ask, ...) mounts a fresh subtree under
+  // whatever scroll offset the Now/People/Links tab was left at -- the
+  // app-shell scroll-reset instance only keys on tab identity, never on
+  // `?action=`, so it never sees this transition. Without this, tapping an
+  // action after scrolling down reads as an abrupt jump (#5430).
+  useScrollReset(flow, { enabled: flow !== "none", behavior: "auto" });
+  const flowContainerRef = useRef<HTMLDivElement | null>(null);
+  // The bare conditional swap below had no enter transition at all, unlike
+  // every route-level surface in the app. Same canonical Morphy page-enter
+  // used by pkm-settings-shell.tsx and route navigation generally, keyed on
+  // `flow` so swapping between task flows (not just entering/leaving one)
+  // re-triggers it (#5430).
+  usePageEnterAnimation(flowContainerRef, {
+    key: flow,
+    enabled: flow !== "none",
+  });
   const focusedCircleMemberInviteId =
     String(searchParams.get("circleInviteId") || "").trim() || null;
   // Router state can settle one paint after a tap. Keep the local focused
@@ -1105,7 +1120,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   if (flow !== "none") {
     return (
       <div
-        className="space-y-6"
+        ref={flowContainerRef}
+        className="space-y-6 pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
         data-ambient-chrome-ignore
         data-testid="one-location-action-flow"
       >
@@ -1240,10 +1256,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         icon={MapPin}
         accent="location"
         titleRole="agent"
-        description={<LocationHeaderStatus vm={vm} />}
-        // Its own row under the header, not a subtitle indented beside the
-        // title — see LocationHeaderStatus.
-        descriptionFullWidth
+        // No `description` — the switch and its status render together as
+        // one group inside `actions`. See LocationHeaderActions.
         actionsInlineMobile
         actions={<LocationHeaderActions vm={vm} />}
       />
@@ -2112,7 +2126,12 @@ function PeopleHub({
   );
 
   return (
-    <div className="pt-6 sm:pt-[52px]" data-testid="one-location-people-hub">
+    /* No top padding: the tab strip and PageHeader above already set the gap
+       every hub tab opens with, so Menu and Links start their first section
+       flush against it. People used to add 24px on top of that, and 52px from
+       `sm:` up — enough that "Circles" visibly floated lower here than on
+       either neighbouring tab. */
+    <div data-testid="one-location-people-hub">
       <div className="space-y-10 sm:space-y-[72px]">
         <CirclesSection
           circles={vm.circles}
@@ -2461,6 +2480,12 @@ function ActiveLinkRow({
           {subtitle}
         </RowDescription>
       </div>
+      {/* Same geometry as the Copy button inside TemporaryLinkCard, so the one
+          action a person meets twice on this surface is the same control both
+          times: `sm` owns height and horizontal padding (this used to force
+          `px-3.5` against the card's `px-3`), and the pill radius matches every
+          other compact action in the feature. Only the accent tint is local —
+          it is this row's own affordance, distinct from the row-wide tap. */}
       <Button
         variant="outline"
         onClick={(e) => {
@@ -2468,7 +2493,7 @@ function ActiveLinkRow({
           onCopy();
         }}
         size="sm"
-        className="shrink-0 border-[color:var(--app-accent)] px-3.5 text-[color:var(--app-accent)]"
+        className="shrink-0 rounded-full border-[color:var(--app-accent)] text-[color:var(--app-accent)]"
       >
         Copy
       </Button>
@@ -2999,7 +3024,7 @@ function ShareFlow({
               <SettingsRow
                 key={circle.id}
                 density="compact"
-                disabled={vm.busy === "shareCircle"}
+                disabled={vm.busy === `shareCircle:${circle.id}`}
                 onClick={() => void vm.onSelectShareCircle(circle.id)}
                 ariaPressed={selected}
                 ariaLabel={`${selected ? "Deselect" : "Select"} the ${circle.name} Circle`}
@@ -3016,7 +3041,7 @@ function ShareFlow({
                 }
                 title={circle.name}
                 description={
-                  vm.busy === "shareCircle"
+                  vm.busy === `shareCircle:${circle.id}`
                     ? "Loading…"
                     : selected
                       ? `${selectedReady.length} ready now`

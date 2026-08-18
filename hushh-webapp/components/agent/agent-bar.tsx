@@ -95,6 +95,10 @@ import type {
   AgentVoiceStatus,
 } from "@/lib/agent/agent-voice-state";
 import { redactSensitiveVoiceTranscript } from "@/lib/voice/voice-sensitive-redaction";
+import {
+  playInstantLocalGreeting,
+  stopInstantLocalGreeting,
+} from "@/lib/voice/instant-local-greeting";
 
 type PrewarmedGeminiRelay = {
   relayUrl: string;
@@ -266,6 +270,24 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // consistently with the chat workspace, instead of recomputing locally.
   const runtime = useAgentRuntimeStateOptional();
   const { user, loading: authLoading } = useAuth();
+  // Prefer the shared runtime's derived signals so the bar and chat
+  // workspace agree on the home/onboarding surface; fall back to local
+  // computation when the provider is unavailable. Declared this early (used
+  // to live much further down, right where visualOnboardingChrome/
+  // physicalNavbarAbsent below still consume it) because startConversation
+  // needs onboardingGreeterMode/focusedOnboardingVoiceOnly before either of
+  // those computed further down would otherwise be initialized.
+  const isHomeRoute = runtime?.isHomeRoute ?? (pathname ?? "") === ROUTES.HOME;
+  const isLoginRoute = (pathname ?? "").startsWith(ROUTES.LOGIN);
+  // The logged-out welcome ("/") and the sign-in screen ("/login") both host
+  // the dogfooding onboarding voice greeter instead of unmounting the bar
+  // outright: it doubles as the pre-auth conversation starter and stays
+  // route-aware for whatever the signed-out flow visits next. On login the
+  // tier is anon_browsing, so the login route is opted in explicitly.
+  const onboardingGreeterMode =
+    (isHomeRoute && runtime?.tier === "anon_onboarding") || (isLoginRoute && !user);
+  const focusedOnboardingVoiceOnly =
+    isOneSetupRoute(pathname ?? "") || (pathname ?? "").startsWith(ROUTES.PHONE_MANDATE);
   const { theme, setTheme } = useTheme();
   const { vaultOwnerToken, vaultKey, isVaultUnlocked } = useVault();
   const { switchPersona } = usePersonaState();
@@ -300,6 +322,16 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const setVoiceStatus = useAgentVoiceState((s) => s.setStatus);
   const setVoiceLevel = useAgentVoiceState((s) => s.setLevel);
   const resetVoice = useAgentVoiceState((s) => s.reset);
+  // The instant local greeting (played synchronously on tap, see
+  // startConversation below) is short and normally finishes well before the
+  // real connection has anything to say -- but if the connection is
+  // unusually fast, stop it the moment real model audio actually starts so
+  // the two can never be heard overlapping.
+  useEffect(() => {
+    if (voiceStatus === "speaking") {
+      stopInstantLocalGreeting();
+    }
+  }, [voiceStatus]);
   const liveClientRef = useRef<RealtimeVoiceTransport | null>(null);
   const latestVoiceContextRef = useRef<OneVoiceContextSnapshot | null>(
     runtime?.oneVoiceContextSnapshot ?? null,
@@ -1276,6 +1308,14 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       stopConversation();
       return;
     }
+    // Instant, local, and reliable rather than raced against the relay: a
+    // fresh visitor or anyone on an onboarding screen still gets the relay's
+    // own richer greeting instead (see _greeting_eligible in adk_live.py,
+    // which this mirrors) -- speaking a flat local line on top of THAT
+    // greeting would just stack a second, worse one in front of it.
+    if (Boolean(user) && !onboardingGreeterMode && !focusedOnboardingVoiceOnly) {
+      playInstantLocalGreeting();
+    }
     const lease = appInteractionCoordinator.acquireVoiceLease({
       owner: "one_live",
       onRevoked: () => stopConversationRef.current(),
@@ -1356,8 +1396,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     stopConversation,
     vaultOwnerToken,
     vaultKey,
-    user?.uid,
+    user,
     setVoiceStatus,
+    onboardingGreeterMode,
+    focusedOnboardingVoiceOnly,
   ]);
 
   // Continuous voice context: when the user navigates while a live session is
@@ -1560,15 +1602,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   // The root intro screen ("/") has no bottom nav, exactly like the onboarding
   // flow, so the bar must anchor above the safe area (not against the absent
-  // nav inset) and must not ride the scroll-hide translation there. Prefer the
-  // shared runtime's derived signals so the bar and chat workspace agree on the
-  // home/onboarding surface; fall back to local computation when the provider
-  // is unavailable.
-  const isHomeRoute = runtime?.isHomeRoute ?? (pathname ?? "") === ROUTES.HOME;
-  // The sign-in screen ("/login") is a signed-out onboarding surface with no
-  // bottom nav (same as "/"), so the bar must anchor above the safe area and
-  // must not ride a scroll-hide translation there.
-  const isLoginRoute = (pathname ?? "").startsWith(ROUTES.LOGIN);
+  // nav inset) and must not ride the scroll-hide translation there.
+  // isHomeRoute/isLoginRoute are declared near the top of the component now
+  // (startConversation needs onboardingGreeterMode/focusedOnboardingVoiceOnly,
+  // which need these, before this point).
   const isFoundationPublic = isFoundationPublicRoute(pathname ?? "");
   
   // The visual styling of the bar (width, aurora, etc.) aligns with the chat
@@ -1612,17 +1649,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // auth transitions where the
   // app shell is not the host.
   const path = pathname ?? "";
-  // The logged-out welcome ("/") and the sign-in screen ("/login") both host
-  // the dogfooding onboarding voice greeter instead of unmounting the bar
-  // outright: it doubles as the pre-auth conversation starter and stays
-  // route-aware for whatever the signed-out flow visits next. On login the
-  // tier is anon_browsing, so the login route is opted in explicitly.
-  const onboardingGreeterMode =
-    (isHomeRoute && runtime?.tier === "anon_onboarding") ||
-    (isLoginRoute && !user);
-  const focusedOnboardingVoiceOnly =
-    isOneSetupRoute(pathname ?? "") ||
-    (pathname ?? "").startsWith(ROUTES.PHONE_MANDATE);
+  // onboardingGreeterMode/focusedOnboardingVoiceOnly are declared near the
+  // top of the component now (startConversation needs them before this
+  // point); both still describe exactly what their names say.
 
   // Signed-out dogfooding: greet the person the moment the onboarding welcome
   // ("/") loads, instead of waiting for a tap. This reuses the exact same

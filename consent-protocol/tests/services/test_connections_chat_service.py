@@ -3,7 +3,10 @@ from unittest.mock import MagicMock
 
 from google.genai import types
 
-from hushh_mcp.services.connections_chat_service import ConnectionsChatService
+from hushh_mcp.services.connections_chat_service import (
+    ConnectionsChatService,
+    _relationship_hint,
+)
 
 _TOKEN = "tok"  # noqa: S105
 
@@ -307,3 +310,40 @@ async def test_request_person_choice_multi_candidate_prompt():
     assert prompt["kind"] == "select"
     assert [o["ref"]["addresseeUserId"] for o in prompt["options"]] == ["u2", "u3"]
     assert all(o["ref"]["op"] == "send_request" for o in prompt["options"])
+    # Neither candidate has an existing relationship -- no qualifier needed.
+    assert [o["hint"] for o in prompt["options"]] == [None, None]
+
+
+async def test_request_person_choice_names_which_candidate_is_already_pending():
+    """Regression guard for #5377 (Jhumma: "if redundancy of names found
+    bring other cases as well, 1 requested other don't"). Two same-named
+    candidates must not render identically when one already has a pending
+    outgoing request and the other doesn't."""
+    fake = MagicMock()
+    fake.search_directory.return_value = {
+        "items": [
+            {"userId": "u2", "displayName": "Priya Rao", "relationship": "pending_outgoing"},
+            {"userId": "u3", "displayName": "Priya Shah", "relationship": "none"},
+        ],
+        "hasMore": False,
+    }
+    svc = _loop_service(
+        service=fake,
+        store=_FakeStore(),
+        responses=[
+            _fc_response("request_person_choice", {"name": "Priya"}),
+            _text_response("Which Priya?"),
+        ],
+    )
+    out = await svc.handle_turn(user_id="u1", message="connect me with Priya", consent_token=_TOKEN)
+    prompt = out["clientPrompt"]
+    assert [o["hint"] for o in prompt["options"]] == ["already requested", None]
+
+
+def test_relationship_hint_covers_every_state_search_directory_emits():
+    assert _relationship_hint("connected") == "already connected"
+    assert _relationship_hint("pending_outgoing") == "already requested"
+    assert _relationship_hint("pending_incoming") == "requested you"
+    assert _relationship_hint("none") is None
+    assert _relationship_hint("") is None
+    assert _relationship_hint(None) is None
