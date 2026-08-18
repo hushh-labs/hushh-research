@@ -5622,7 +5622,7 @@ class OneLocationAgentService:
         )
         return invite
 
-    def list_state(self, *, user_id: str) -> dict[str, Any]:
+    def list_state(self, *, user_id: str, read_only: bool = False) -> dict[str, Any]:
         # Resilience: one failing auxiliary section (e.g. schema drift on a
         # rarely-used table) must NOT 500 the whole endpoint. A 500 here cascades
         # into the consent-center contributor (which then returns empty buckets)
@@ -5642,7 +5642,12 @@ class OneLocationAgentService:
                 )
                 return []
 
-        read_only_state = str(
+        # An explicit ``read_only=True`` caller (the pod data-door reader) forces
+        # read-only regardless of env, so a read that must not mutate the owner's
+        # DB -- the door's headline guarantee -- holds structurally rather than
+        # resting on an env var the caller does not set. The env stays an
+        # independent global switch for the hub page path.
+        read_only_state = read_only or str(
             os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or ""
         ).strip().lower() in {"1", "true", "yes", "on"}
         if not read_only_state:

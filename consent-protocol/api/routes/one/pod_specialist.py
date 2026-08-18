@@ -13,17 +13,35 @@ What it adds is a THREE-way binding that has to hold before a single field is
 read:
 
   1. the caller is a pod (``verify_pod_identity``);
-  2. it carries a live, unrevoked per-turn scope for THIS read
+  2. it carries a live, unrevoked scope for THIS read
      (``validate_token_with_db`` against the DB revoked set); and
   3. the scope's owner is the very person this pod IS -- the owner's HusshID
      resolved from the token must equal the pod's asserted HusshID. Without this
      a valid location scope belonging to person A, presented to person B's pod,
-     would read A's holdings on B's pod. The pod cannot forge the binding: it
-     asserts its HusshID with a Google-signed identity token, and the owner side
-     comes from the hub-issued scope.
+     would read A's holdings on B's pod.
+
+Which of the three actually STOPS a cross-person read depends on the pod tier,
+and it is leg 2, not leg 3:
+
+* In the **attested/BYOC** tier a pod proves WHICH pod it is with a per-pod
+  identity, so leg 3 is an independent cryptographic guard.
+* In the **managed (logical)** tier every pod runs as the SAME service account,
+  so ``verify_pod_identity`` proves "a hussh pod is calling", never which one,
+  and the ``HUSSH_ID`` a managed pod asserts is self-declared -- leg 3 is
+  caller-forgeable there. What still blocks A-on-B is **leg 2**: the consent
+  token is signed with the HUB's ``APP_SIGNING_KEY`` (a DIFFERENT key from any
+  pod's) and validated here against the DB revoked set, so a pod cannot mint or
+  alter one, and the relay couriers a person's location scope ONLY to that
+  person's own pod. A cross-person read therefore requires STEALING a victim's
+  already-minted token, not forging the binding.
+
+That residual is why the door is triple-gated OFF by default and must stay
+team-only until the attested tier lands; leg 3 is defence-in-depth in managed
+tier, not the guarantee.
 
 The read itself is read-only by construction (``pod_data_door``): the registry
-maps a NAME to a read method and has no write path. Writes never come through
+maps a NAME to a read method and has no write path, and the underlying read is
+forced read-only so it never mutates the owner's DB. Writes never come through
 here; they take the directive transport, where the browser executes on the
 owner's own session.
 """
