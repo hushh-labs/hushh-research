@@ -50,6 +50,9 @@ def test_pod_mounts_the_agent_and_health_surface():
         "/api/one/webauthn",  # login lives centrally
         "/api/one/connections",
         "/api/one/location",
+        # The data-door broker READS a DB-backed specialist for a pod. A pod
+        # holds no DB credential and must never proxy this to other pods.
+        "/api/one/pod/specialist",
     ],
 )
 def test_pod_does_not_mount_central_or_unrelated_surface(forbidden_prefix):
