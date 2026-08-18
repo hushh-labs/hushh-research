@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import logging
 import os
+from types import SimpleNamespace
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Header, HTTPException
@@ -95,6 +96,11 @@ class PodTurnRequest(BaseModel):
     #
     # 20000 matches the hub's cap so the two paths cannot disagree about what fits.
     pkm_context: Optional[str] = Field(default=None, alias="pkmContext", max_length=20000)
+    # Recent conversation turns from the browser, so this turn has the thread the
+    # hub would have from its database. Seeded into the runner memory-only and
+    # capped by the runner (last 20, user/assistant only, 4000 chars each); the
+    # pod holds nothing after.
+    history: Optional[list[dict[str, str]]] = Field(default=None)
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -200,7 +206,20 @@ async def run_pod_turn(
             consent_token=consent_token,
             conversation_id=payload.conversation_id,
             message=payload.message,
-            history=[],
+            # Within-conversation continuity, memory-only. The browser-carried
+            # turns are wrapped as attribute-bearing objects because the runner
+            # reads `.role` / `.content` (text_runtime._history_content) and caps
+            # them itself; a non-dict item is skipped rather than raising, so a
+            # malformed history never fails a turn. Empty when the webapp sent
+            # none -> the pre-Phase-3 behaviour, unchanged.
+            history=[
+                SimpleNamespace(
+                    role=str(m.get("role", "")),
+                    content=str(m.get("content", "")),
+                )
+                for m in (payload.history or [])
+                if isinstance(m, dict)
+            ],
             timezone=payload.timezone,
             screen_context=None,
             # Grounded on the owner's OWN projection, opened by their key on their own

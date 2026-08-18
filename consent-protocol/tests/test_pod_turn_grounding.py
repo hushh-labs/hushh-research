@@ -141,3 +141,45 @@ def test_both_ends_agree_on_how_much_projection_fits() -> None:
     relay_cap = PodTurnRelayRequest.model_fields["pkm_context"].metadata
     pod_cap = pt.PodTurnRequest.model_fields["pkm_context"].metadata
     assert str(relay_cap) == str(pod_cap)
+
+
+@pytest.mark.asyncio
+async def test_recent_history_reaches_the_runtime_for_continuity(enabled) -> None:
+    """Phase 3: the browser-carried thread is seeded into the turn so a follow-up
+    does not lose the immediately-prior turn. The runner reads .role/.content, so
+    the dicts must arrive as attribute-bearing objects."""
+    seen: dict = {}
+    await _run(
+        _payload(
+            history=[
+                {"role": "user", "content": "how's my portfolio?"},
+                {"role": "assistant", "content": "concentrated in tech"},
+            ]
+        ),
+        seen,
+    )
+    hist = seen["history"]
+    assert [(h.role, h.content) for h in hist] == [
+        ("user", "how's my portfolio?"),
+        ("assistant", "concentrated in tech"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_absent_history_seeds_empty_not_none(enabled) -> None:
+    """An older webapp that sends no history gets the pre-Phase-3 behaviour: an
+    empty seed, never a None the runner would choke on."""
+    seen: dict = {}
+    await _run(_payload(), seen)
+    assert seen["history"] == []
+
+
+def test_a_non_dict_history_item_is_rejected_at_the_model_boundary() -> None:
+    """Defense at the edge: a non-dict history item never reaches the turn logic
+    because the request model types it as list[dict[str, str]] and Pydantic
+    refuses it. The isinstance guard inside run_pod_turn is belt-and-suspenders
+    for a value that, by this contract, cannot arrive."""
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        pt.PodTurnRequest(message="hi", history=[{"role": "user", "content": "ok"}, "nope"])  # type: ignore[list-item]

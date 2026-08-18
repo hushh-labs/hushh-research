@@ -279,6 +279,15 @@ class PodTurnRelayRequest(BaseModel):
     pkm_context: Optional[str] = Field(
         default=None, alias="pkmContext", max_length=20000, exclude=True
     )
+    # The recent conversation turns, carried from the browser so the pod has the
+    # thread the hub would have had from its database. Without it the pod seeded
+    # an empty history and lost within-conversation continuity (a follow-up could
+    # forget the immediately-prior turn). Memory-only by the same discipline as
+    # the projection above: `exclude=True` keeps it out of every serialisation so
+    # a request dump cannot carry the person's conversation into a log, and the
+    # pod caps it (last 20, user/assistant only, 4000 chars each) exactly as the
+    # hub runner does. It is the person's own words, couriered, never stored here.
+    history: Optional[list[dict[str, str]]] = Field(default=None, exclude=True)
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -371,6 +380,10 @@ async def relay_pod_turn(
         "vertexProject": payload.vertex_project,
         "vertexLocation": payload.vertex_location,
         "pkmContext": payload.pkm_context,
+        # Forwarded memory-only, exactly as pkmContext is: the pod seeds it into
+        # the turn and holds nothing after. Absent stays absent (an older webapp
+        # sends none -> today's empty-history behaviour).
+        "history": payload.history or [],
     }
     status, answer = await _proxy_post(
         url,
