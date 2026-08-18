@@ -764,9 +764,16 @@ describe("LocationImmersiveMap demo experience", () => {
         }),
       ]);
     });
-    expect(
-      screen.getByTestId("one-location-nearby-search-area-legend"),
-    ).toHaveTextContent("500 m around you");
+    const searchLegend = screen.getByTestId(
+      "one-location-nearby-search-area-legend",
+    );
+    // The colour key is the legend's own job: only the map can say which dot is
+    // the owner.
+    expect(searchLegend).toHaveTextContent("You are here");
+    // The ring's radius is not. With the drawer open its list is headed "Places
+    // within 500 m" a few centimetres below, and a phone header carrying the
+    // same number twice is what made this screen read as cluttered.
+    expect(searchLegend).not.toHaveTextContent("500 m around you");
     expect(mapHarness.map.fitBounds).toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId("clear-nearby-search-area"));
@@ -928,7 +935,15 @@ describe("LocationImmersiveMap demo experience", () => {
     const legend = screen.getByTestId("one-location-nearby-search-area-legend");
     expect(legend).toHaveTextContent("You are here");
     expect(legend).toHaveTextContent("Checking in at Hotel Two");
-    expect(legend).toHaveTextContent("180 m from you");
+    // Naming the two pins is the contract; restating the gap between them is
+    // not. The open drawer already says "You're about 180 m from here right
+    // now." under the selected row.
+    expect(legend).not.toHaveTextContent("180 m from you");
+    // And it is a row of the header's own grid now, not a card floating at a
+    // hand-counted offset that the phone's second header row landed on top of.
+    expect(
+      screen.getByRole("banner", { name: "Check in map controls" }),
+    ).toContainElement(legend);
 
     fireEvent.click(screen.getByTestId("clear-nearby-place-focus"));
     await waitFor(() => {
@@ -979,6 +994,19 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(
       screen.getByTestId("one-location-nearby-search-area-legend"),
     ).toHaveTextContent("Checked in at Hotel Two");
+
+    // Dismissed, this legend is the only thing on screen describing the live
+    // check-in -- the drawer that was stating the distance and the radius in
+    // words is gone -- so it takes them back.
+    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-nearby-search-area-legend"),
+      ).toHaveTextContent("500 m around your place");
+    });
+    expect(
+      screen.getByTestId("one-location-nearby-search-area-legend"),
+    ).toHaveTextContent("180 m from you");
   });
 
   it("keeps the full search circle in the visible mobile viewport above the sheet", async () => {
@@ -1341,12 +1369,22 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.getByTestId("one-location-map-close")).toHaveAccessibleName(
       "Back to Location",
     );
-    expect(
-      screen.getByTestId("one-location-map-nearby-check-in"),
-    ).toHaveAccessibleName("Check in nearby");
     expect(screen.getByTestId("one-location-map-locate")).toHaveAccessibleName(
       "Show my location",
     );
+    // The drawer opens with this route, and a pill that re-opens an open drawer
+    // is a control with nothing to do -- it spent its width saying "Nearby 0"
+    // directly above a drawer counting the same people. Its whole job is the
+    // dismissed case, so that is when it exists.
+    expect(
+      screen.queryByTestId("one-location-map-nearby-check-in"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-map-nearby-check-in"),
+      ).toHaveAccessibleName("Check in nearby");
+    });
     await waitFor(() => {
       expect(
         screen.getByTestId("one-location-map-sharing-status"),
@@ -1373,6 +1411,39 @@ describe("LocationImmersiveMap demo experience", () => {
     await waitFor(() => {
       expect(screen.queryByText("Ankit Kumar Singh")).not.toBeInTheDocument();
     });
+  });
+
+  it("keeps the top controls clear of the open check-in drawer on both layouts", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+
+    render(<LocationImmersiveMap surface="check-in" />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    const header = screen.getByRole("banner", {
+      name: "Check in map controls",
+    });
+    // From `md` up the drawer docks down the right edge as a portalled z-[712]
+    // panel, in its own stacking context above this z-30 header. Without the
+    // inset the Locate control renders underneath it -- on screen nowhere and
+    // tappable nowhere -- for as long as the drawer is open.
+    expect(header).toHaveClass("md:pr-[27rem]");
+    // On a phone, with the pill hidden the row has the width back, so Sharing
+    // rides beside the controls instead of taking a band of its own beneath
+    // them -- the band that used to be painted over the legend.
+    expect(header).toHaveClass("grid-cols-[auto_minmax(0,1fr)_auto]");
+
+    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
+    await waitFor(() => {
+      expect(header).not.toHaveClass("md:pr-[27rem]");
+    });
+    expect(header).toHaveClass("grid-cols-[auto_minmax(0,1fr)]");
   });
 
   it("does not build a synthetic history boundary on the check-in route", async () => {
@@ -1998,10 +2069,15 @@ describe("LocationImmersiveMap reported map defects", () => {
     ).toBe(true);
   });
 
-  it("keeps Check in in the header on check-in's own route", async () => {
+  it("keeps Check in in the header on check-in's own route once the drawer is dismissed", async () => {
     // That surface renders no tray at all, and this pill is the only way back
     // into the sheet after dismissing it. Removing it everywhere strands the
     // person on a map with nothing to do.
+    //
+    // "After dismissing it" is also the whole of its job, so it waits for that
+    // moment: while the drawer is up the pill re-opens what is already open,
+    // and spends its width reading "Nearby 0" above a drawer counting the same
+    // people.
     serviceHarness.getState.mockResolvedValue({
       recipients: [],
       ownerGrants: [],
@@ -2014,7 +2090,17 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
     expect(
       header.querySelector('[data-testid="one-location-map-nearby-check-in"]'),
-    ).not.toBeNull();
+    ).toBeNull();
+
+    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
+
+    await waitFor(() => {
+      expect(
+        header.querySelector(
+          '[data-testid="one-location-map-nearby-check-in"]',
+        ),
+      ).not.toBeNull();
+    });
   });
 
   it("answers Everyone instead of sitting disabled when no one shares with you", async () => {

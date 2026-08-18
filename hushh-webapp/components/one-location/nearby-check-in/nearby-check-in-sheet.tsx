@@ -1648,21 +1648,41 @@ export function NearbyCheckInSheet({
               </section>
 
               <section aria-labelledby="nearby-people-title">
-                <div className="flex items-end justify-between gap-3">
-                  <div>
-                    <h2 id="nearby-people-title" className="font-semibold">
-                      People nearby
-                    </h2>
-                    <p className="text-sm text-muted-foreground">
-                      Nearby check-ins appear in this list, not as map pins. A
-                      pin appears only after that person explicitly shares
-                      their location with you.
-                    </p>
-                  </div>
-                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold">
-                    {state.attendees.length}
-                  </span>
+                {/*
+                  The count belongs to the heading it counts.
+
+                  `items-end justify-between` pushed it to the far right of a
+                  three-line block, so it floated level with the middle of a
+                  paragraph with nothing beside it -- a bare "0" adrift in the
+                  corner of the card, which is exactly how it was reported. And
+                  a zero is not a count worth printing at all: the empty state
+                  immediately below says "No one else is checked in nearby yet"
+                  in words, so the badge only appears once there is somebody.
+                */}
+                <div className="flex items-center gap-2">
+                  <h2 id="nearby-people-title" className="font-semibold">
+                    People nearby
+                  </h2>
+                  {state.attendees.length ? (
+                    <span
+                      className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums"
+                      data-testid="nearby-attendee-count"
+                    >
+                      {state.attendees.length}
+                    </span>
+                  ) : null}
                 </div>
+                {/*
+                  One statement of the privacy rule, not two. This sentence and
+                  the footnote that used to close the drawer said the same thing
+                  -- nearby people are a list, never a pin -- one under the
+                  heading and one under the Check out button, so a person reading
+                  top to bottom met the same reassurance twice in a single
+                  screen. Kept here, where the list it describes actually is.
+                */}
+                <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
+                  They appear here as a list, never as pins on your map.
+                </p>
                 {state.attendees.length ? (
                   <ul className="mt-2" data-testid="nearby-attendee-roster">
                     {state.attendees.map((attendee) => (
@@ -1713,10 +1733,6 @@ export function NearbyCheckInSheet({
                 ) : null}
                 Check out now
               </Button>
-              <p className="text-center text-xs text-muted-foreground">
-                Nearby people appear as a list. Their precise locations are
-                never pinned on your map.
-              </p>
             </div>
           ) : (
             <div className="space-y-5" data-testid="nearby-presence-setup">
