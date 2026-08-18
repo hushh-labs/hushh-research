@@ -592,7 +592,7 @@ export async function loadAgentPkmContext(params: {
 }): Promise<AgentPkmContext> {
   if (params.requireDecrypted && (!params.vaultKey || params.metadataOnly)) {
     throw new AgentPkmContextNotReadyError(
-      "Unlock your vault before asking Agent about your private memory."
+      "Unlock before asking Agent about your private memory."
     );
   }
 
@@ -640,7 +640,7 @@ export async function loadAgentPkmContext(params: {
   }
   if (params.requireDecrypted) {
     throw new AgentPkmContextNotReadyError(
-      "Unlock your vault before asking Agent about your private memory."
+      "Unlock before asking Agent about your private memory."
     );
   }
   const metadata = await PersonalKnowledgeModelService.getMetadata(

@@ -81,7 +81,7 @@ export function MarketplaceChatPanel(props: {
           <MarketBotAvatar />
           <div>
             <p className="text-sm font-semibold text-foreground">Information Marketplace</p>
-            <p className={MARKET_MUTED_TEXT}>Unlock your vault to use the assistant.</p>
+            <p className={MARKET_MUTED_TEXT}>Unlock to use the assistant.</p>
           </div>
         </div>
       </section>

@@ -28,7 +28,7 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         url: SITE_URL,
         logo: absoluteUrl("/quiet-emoji-icon.png"),
         description:
-          "Hussh is the platform and trust infrastructure for consent-first private AI agents: scoped access, BYOK, zero-knowledge vault, and encrypted PKM.",
+          "Hussh is the platform and trust infrastructure for consent-first private AI agents: scoped access, BYOK, zero-knowledge encryption, and encrypted PKM.",
         sameAs: ["https://hushh.ai"],
       },
       {
@@ -66,10 +66,10 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         featureList: [
           "One: relationship layer and specialist handoffs",
           "Kai: finance, portfolio, and market intelligence",
-          "Nav: privacy, consent, and vault guardian",
+          "Nav: privacy, consent, and access guardian",
           "KYC: identity workflow specialist",
           "Consent-first scoped access with BYOK",
-          "Zero-knowledge vault and encrypted personal information memory",
+          "Zero-knowledge encryption and encrypted personal information memory",
         ],
       },
     ],

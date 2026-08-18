@@ -151,7 +151,7 @@ function pkmWriteFailureResult(error: unknown): PkmWriteCoordinatorResult {
   console.error("[PkmWriteCoordinator] PKM write failed:", error);
   return emptyResult(
     "failed",
-    "We couldn't save this to your vault. Try again, or make sure your vault is set up.",
+    "We couldn't save this. Try again, or make sure you've set a lock.",
   );
 }
 
@@ -273,7 +273,7 @@ export class PkmWriteCoordinator {
     build: (context: BaseContext) => Promise<MergedWritePlan> | MergedWritePlan;
   }): Promise<PkmWriteCoordinatorResult> {
     if (!params.vaultKey || !params.vaultOwnerToken) {
-      return emptyResult("blocked_pending_unlock", "Unlock your vault before saving.");
+      return emptyResult("blocked_pending_unlock", "Unlock before saving.");
     }
 
     let upgradedInSession = false;
@@ -385,7 +385,7 @@ export class PkmWriteCoordinator {
     build: (context: BaseContext) => Promise<PreparedWritePlan> | PreparedWritePlan;
   }): Promise<PkmWriteCoordinatorResult> {
     if (!params.vaultKey || !params.vaultOwnerToken) {
-      return emptyResult("blocked_pending_unlock", "Unlock your vault before saving.");
+      return emptyResult("blocked_pending_unlock", "Unlock before saving.");
     }
 
     let upgradedInSession = false;

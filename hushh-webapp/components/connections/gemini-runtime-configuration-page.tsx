@@ -303,10 +303,10 @@ export function GeminiRuntimeConfigurationPage({
           onOpenChange={setUnlockOpen}
           title={
             needsVaultCreation
-              ? "Set up your private vault"
-              : "Open your private vault"
+              ? "Set a lock"
+              : "Open your private place"
           }
-          description="Gemini access stays in your vault."
+          description="Gemini access stays private."
           onSuccess={() => setUnlockOpen(false)}
         />
       ) : null}
