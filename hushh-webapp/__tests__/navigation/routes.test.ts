@@ -218,6 +218,17 @@ describe("navigation routes", () => {
     );
   });
 
+  it("exempts the Circle join landing from onboarding admission (#5307)", () => {
+    // An entry point from outside the app, like /login: the destination is
+    // the reason the person opened the app, so a mid-setup user must still
+    // see the invitation instead of being bounced to /one/setup with the
+    // code dropped.
+    expect(ROUTES.CIRCLE_JOIN).toBe("/circle/join");
+    expect(isOnboardingAdmissionExemptRoute(ROUTES.CIRCLE_JOIN)).toBe(true);
+    // The destination it hands off to once a code is accepted stays gated.
+    expect(isOnboardingAdmissionExemptRoute(ROUTES.ONE_LOCATION)).toBe(false);
+  });
+
   it("preserves ria route classification for nested workspace paths", () => {
     expect(isRiaRoute("/ria")).toBe(true);
     expect(isRiaRoute("/ria/clients")).toBe(true);

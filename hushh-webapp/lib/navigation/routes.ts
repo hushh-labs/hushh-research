@@ -141,6 +141,12 @@ export const ROUTES = {
    * as the same feature.
    */
   ONE_LOCATION_CHECK_IN: "/one/location/check-in",
+  /**
+   * Recipient landing for a shared Circle join link. An entry point from
+   * outside the app, like LOGIN — the destination is the reason the person
+   * opened the app at all, so it must render before setup is checked.
+   */
+  CIRCLE_JOIN: "/circle/join",
   LEGACY_GMAIL: "/gmail",
   LEGACY_PKM: "/pkm",
   LEGACY_CONNECTED_SYSTEMS: "/connected-systems",
@@ -438,7 +444,8 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.LOGOUT ||
     normalizedPathname === ROUTES.PROFILE ||
     normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
-    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
+    normalizedPathname === ROUTES.CIRCLE_JOIN
   );
 }
 
