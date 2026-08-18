@@ -897,8 +897,11 @@ describe("named Circle flows", () => {
     const input = (await screen.findByLabelText(
       "Circle name",
     )) as HTMLInputElement;
-    // Untouched: the trailing control is the edit affordance, never a write.
-    expect(screen.getByRole("button", { name: "Edit Circle name" })).toBeTruthy();
+    // Untouched: no edit affordance is needed, and the trailing slot is never
+    // a write until the name actually changes.
+    expect(
+      screen.getByTestId("one-location-circle-name-placeholder"),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 
     // Only an empty name blocks the write; one character is a name.
@@ -921,19 +924,19 @@ describe("named Circle flows", () => {
     // renamed Circle without waiting for a refetch.
     expect(await screen.findByText("Meena Home")).toBeTruthy();
     expect(input.value).toBe("Meena Home");
-    // Saved state collapses back to the edit affordance.
+    // Saved state collapses back to the reserved placeholder.
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Save" })).toBeNull(),
     );
     expect(onLoad).toHaveBeenCalledTimes(1);
   });
 
-  it("gives Save and Edit one box, so the field never resizes mid-edit", async () => {
+  it("gives Save and the placeholder one box, so the field never resizes mid-edit", async () => {
     // QA: "Save CTA, not looking good". The cause was measurable. Save took
     // `Button`'s `default` size, whose `min-h-[50px]` outlives an `h-11` --
     // `h-` and `min-h-` are separate tailwind-merge groups -- so it rendered
-    // 50px against a 44px field. And because Save is wider than a pencil
-    // glyph, swapping one for the other resized the input on the first
+    // 50px against a 44px field. And because Save is wider than the reserved
+    // slot beside it, letting them differ resized the input on the first
     // keystroke.
     //
     // JSDOM cannot see either of those; it applies no CSS. What it can prove is
@@ -947,8 +950,10 @@ describe("named Circle flows", () => {
       "Circle name",
     )) as HTMLInputElement;
 
-    const edit = screen.getByRole("button", { name: "Edit Circle name" });
-    expect(edit.className).toContain(CIRCLE_NAME_ACTION_CLASSNAME);
+    const placeholder = screen.getByTestId(
+      "one-location-circle-name-placeholder",
+    );
+    expect(placeholder.className).toContain(CIRCLE_NAME_ACTION_CLASSNAME);
 
     fireEvent.change(input, { target: { value: "Meena Home" } });
     const save = screen.getByRole("button", { name: "Save" });
