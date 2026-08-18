@@ -4913,7 +4913,7 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "7e80edea1cd750f9883c78a6aca19341b5e4cb4d842f7a2ade9a49d446957f34",
+    "action_gateway": "34a2c1b619f0ddd486e99a184ed4033effebede336e2badf610524e1c42158b9",
     "agent_registry": "8f9c669153e52a57c68ca44db8b8419c1ecc8bb489ceee21a6286ca2eba3c207",
     "cache_manifest": "8732434110ef132132cb1fcedfcc0cc264d7cbcda94997b15d5cf2fc1050235d",
     "data_plane": "314c1b4e33e47c02b2438aade82b0b92d09f21404e7dbff62b45463b2f51d70c",

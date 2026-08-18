@@ -15,14 +15,13 @@ import {
   AlertTriangle,
   ChevronDown,
   Clock3,
-  Copy,
   ExternalLink,
   Loader2,
   MapPin,
   Pencil,
   RefreshCw,
-  Share2,
   ShieldCheck,
+  Siren,
   User,
   X,
 } from "lucide-react";
@@ -382,6 +381,7 @@ export function SharedWithMeCard({
   viewStatus,
   onAskReshare,
   askReshareBusy,
+  isSmsTriggered,
 }: {
   name: string;
   statusLine: string;
@@ -413,8 +413,11 @@ export function SharedWithMeCard({
   /** Re-request access from the owner. Offered only for the `blocked` tone. */
   onAskReshare?: () => void;
   askReshareBusy?: boolean;
+  /** Came from the Save My Soul panic flow -- the one this UI calls "SMS". */
+  isSmsTriggered?: boolean;
 }) {
   const warningRole = roleClasses("warning");
+  const dangerRole = roleClasses("danger");
   const canOpenMap = Boolean(previewExpanded && mapHref);
   const previewRegionId = useId();
   const isPreviewExpanded = Boolean(previewExpanded);
@@ -432,6 +435,22 @@ export function SharedWithMeCard({
       <div className="flex items-start gap-3">
         <Avatar initials={initialsFrom(name)} />
         <div className="min-w-0 flex-1">
+          {isSmsTriggered ? (
+            // Its own line, not squeezed into the status row: this has to
+            // stay legible next to a long name/status on a narrow screen,
+            // and "prominent" is the whole point of the badge.
+            <span
+              className={cn(
+                "mb-1 inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[12px] font-semibold",
+                dangerRole.tile,
+                dangerRole.border,
+                dangerRole.glyph,
+              )}
+            >
+              <Siren className="h-3 w-3 shrink-0" aria-hidden="true" />
+              Shared via SMS
+            </span>
+          ) : null}
           <p className="truncate text-base font-semibold text-foreground">
             {name}
           </p>
@@ -650,23 +669,29 @@ export function TemporaryLinkCard({
         </div>
         <StatusPill tone="live">Live</StatusPill>
       </div>
+      {/* One action group, one geometry. Height, horizontal padding and label
+          size all come from `size="sm"`, so the only thing this row states is
+          the pill radius every compact action on the Links surface shares.
+          The three used to disagree: `h-9` restated the size variant, and only
+          two of them carried an icon, so the odd cell read shorter than its
+          neighbours inside equal grid columns. Labels stay icon-free because at
+          a 320px viewport each column is ~81px, which an icon plus "Revoke"
+          overflows. */}
       <div className="grid grid-cols-3 gap-2">
         <Button
           variant="outline"
           size="sm"
           onClick={onCopy}
-          className="h-9 rounded-full text-sm"
+          className="rounded-full"
         >
-          <Copy className="mr-1 h-3.5 w-3.5" />
           Copy
         </Button>
         <Button
           variant="outline"
           size="sm"
           onClick={onShare}
-          className="h-9 rounded-full text-sm"
+          className="rounded-full"
         >
-          <Share2 className="mr-1 h-3.5 w-3.5" />
           Share
         </Button>
         <Button
@@ -674,7 +699,7 @@ export function TemporaryLinkCard({
           size="sm"
           onClick={onRevoke}
           isLoading={revokeBusy}
-          className="h-9 rounded-full text-sm"
+          className="rounded-full"
         >
           Revoke
         </Button>

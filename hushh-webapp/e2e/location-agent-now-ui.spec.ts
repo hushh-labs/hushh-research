@@ -161,11 +161,12 @@ test.describe("Location Agent Now visual contract", () => {
  * landed in the repo. This is that measurement, committed, so it can fail.
  *
  * Two invariants, at every supported width:
- *  1. The status is visible and has text — a switch never survives alone.
- *  2. "Location Agent" stays on one line. The full status string is wide
- *     enough to push a 28px title onto a second line at 320-390px, which is
- *     why the compact form exists; if someone drops the compact form this
- *     assertion is what notices.
+ *  1. The status is visible and has text, and reads the same full string
+ *     ("Location on/off/paused/blocked", "Finding you…") everywhere — the
+ *     compact one-word form this test used to gate on was removed once the
+ *     status moved out of the title row and into its own group with the
+ *     switch (#5404), where its width no longer competes with the title.
+ *  2. "Location Agent" stays on one line at every width above 320px.
  */
 const HEADER_WIDTHS = [320, 360, 375, 390, 430, 639, 640, 768] as const;
 
@@ -195,14 +196,11 @@ test.describe("Location Agent header responsive contract", () => {
         page.locator(`[role="switch"][aria-describedby="${statusId}"]`),
       ).toHaveCount(1);
 
-      // Below 640 the visible word is the compact form; at/above it is the
-      // full string. Neither may be empty, and they must not swap over.
+      // Same full string at every width — no compact/abbreviated form.
       const visibleText = (await status.innerText()).trim();
-      if (width < 640) {
-        expect(visibleText).not.toContain("Location ");
-      } else {
-        expect(visibleText).toContain("Location ");
-      }
+      expect(visibleText).toMatch(
+        /^(Location (on|off|paused|blocked|limited)|Finding you…)$/,
+      );
 
       // Product-owned title: one line, never clipped.
       const heading = page.getByRole("heading", { name: "Location Agent" });

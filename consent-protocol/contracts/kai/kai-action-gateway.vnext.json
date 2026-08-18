@@ -5670,7 +5670,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/location?action=temp-link"
+        "target": "/one/location?action=temp-link&view=links"
       },
       "control_ids": [
         "one-location-action-temp-link"
@@ -5685,7 +5685,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/location?action=temp-link"
+          "current route becomes /one/location?action=temp-link&view=links"
         ],
         "backend_effects": []
       },
@@ -5710,7 +5710,7 @@
             "label": "Create a temporary link",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/location?action=temp-link",
+              "route": "/one/location?action=temp-link&view=links",
               "screen": "one_location"
             }
           }
