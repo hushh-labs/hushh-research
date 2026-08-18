@@ -271,3 +271,186 @@ class PersonalAgentGrantService:
         )
         logger.info("personal_agent.standing_read_revoked agent_id=%s", pod_agent_id)
         return {"revoked": True, "scope": ConsentScope.PKM_READ.value, "agentId": pod_agent_id}
+
+    async def issue_or_reuse_standing_scope(
+        self,
+        user_id: str,
+        *,
+        scope: ConsentScope,
+        grant_kind: str,
+        scope_description: str,
+        pod_agent_id: str = PERSONAL_AGENT_ID,
+        expires_in_ms: int = DEFAULT_STANDING_READ_EXPIRY_MS,
+        ledger: Optional[_Ledger] = None,
+        lookup: Optional[Any] = None,
+        validator: Optional[Any] = None,
+    ) -> dict[str, Any]:
+        """Issue-or-reuse ANY standing, Nav-governed, owner-revocable pod scope.
+
+        The pkm.read grant keeps its own dedicated pair above because the turn
+        runs on it every single message; this is the general form every OTHER
+        standing pod authority uses -- location-view first. Keeping the two apart
+        is deliberate: it leaves the every-turn read path untouched while this one
+        evolves, at the cost of a copy of the re-issue logic.
+
+        Same re-issue rule as pkm.read (reuse a live grant, re-mint once it is
+        inside its last quarter), same VISIBLE ledger (so Nav narrates it and the
+        owner can revoke it in the Consent Center), same validate-don't-trust
+        check so a revoked grant is never reused. The only difference is the
+        scope, threaded through end to end.
+        """
+        if not personal_agent_enabled():
+            raise PersonalAgentDisabledError(
+                f"personal-agent standing scope {scope.value} requested "
+                "while PERSONAL_AGENT_ENABLED is off"
+            )
+        if not user_id:
+            raise ValueError("user_id is required")
+
+        service: Any = None
+        if lookup is None or validator is None:
+            from hushh_mcp.services.consent_db import ConsentDBService  # noqa: PLC0415
+
+            service = ConsentDBService()
+        if lookup is None:
+            lookup = service.get_active_tokens
+        if validator is None:
+            from hushh_mcp.consent.token import validate_token_with_db  # noqa: PLC0415
+
+            validator = validate_token_with_db
+
+        now_ms = int(time.time() * 1000)
+        floor_ms = min(60 * 60 * 1000, expires_in_ms // 4)
+        try:
+            rows = await lookup(user_id, agent_id=pod_agent_id, scope=scope.value)
+        except Exception as exc:  # noqa: BLE001 - a lookup failure means mint, never fail
+            logger.info(
+                "personal_agent.standing_scope_lookup_failed scope=%s %s",
+                scope.value,
+                type(exc).__name__,
+            )
+            rows = []
+
+        for row in rows or []:
+            expires_at = int(row.get("expires_at") or 0)
+            if expires_at <= now_ms + floor_ms:
+                continue
+            candidate = str(row.get("token_id") or "")
+            if not candidate:
+                continue
+            # Validate rather than trust the row: the ledger says ISSUED, only
+            # validation says still-live, and revocation is why that matters.
+            is_valid, _reason, payload = await validator(candidate, scope)
+            if is_valid and payload:
+                logger.info(
+                    "personal_agent.standing_scope_reused scope=%s agent_id=%s",
+                    scope.value,
+                    pod_agent_id,
+                )
+                return {
+                    "token": candidate,
+                    "expiresAt": expires_at,
+                    "scope": scope.value,
+                    "agentId": pod_agent_id,
+                    "reused": True,
+                }
+
+        minted = await self._issue_standing_scope(
+            user_id,
+            scope=scope,
+            grant_kind=grant_kind,
+            scope_description=scope_description,
+            pod_agent_id=pod_agent_id,
+            expires_in_ms=expires_in_ms,
+            ledger=ledger,
+        )
+        return {**minted, "reused": False}
+
+    async def _issue_standing_scope(
+        self,
+        user_id: str,
+        *,
+        scope: ConsentScope,
+        grant_kind: str,
+        scope_description: str,
+        pod_agent_id: str = PERSONAL_AGENT_ID,
+        expires_in_ms: int = DEFAULT_STANDING_READ_EXPIRY_MS,
+        ledger: Optional[_Ledger] = None,
+    ) -> dict[str, Any]:
+        """Mint a standing scoped grant and log it to the VISIBLE ledger."""
+        if not personal_agent_enabled():
+            raise PersonalAgentDisabledError(
+                f"personal-agent standing scope {scope.value} requested "
+                "while PERSONAL_AGENT_ENABLED is off"
+            )
+        if not user_id:
+            raise ValueError("user_id is required")
+
+        token_obj = issue_token(
+            user_id=user_id,
+            agent_id=pod_agent_id,
+            scope=scope,
+            expires_in_ms=expires_in_ms,
+        )
+
+        if ledger is None:
+            from hushh_mcp.services.consent_db import ConsentDBService  # noqa: PLC0415
+
+            ledger = ConsentDBService()
+
+        # Visible ledger (consent_audit), NOT internal: Nav narrates this grant
+        # and the owner must be able to revoke it -- the same reasoning as the
+        # pkm.read mint, for the same consent-first reason.
+        await ledger.insert_event(
+            user_id=user_id,
+            agent_id=pod_agent_id,
+            scope=scope.value,
+            action="CONSENT_GRANTED",
+            token_id=token_obj.token,
+            expires_at=token_obj.expires_at,
+            scope_description=scope_description,
+            metadata={"grant_kind": grant_kind},
+        )
+
+        logger.info(
+            "personal_agent.standing_scope_issued scope=%s agent_id=%s",
+            scope.value,
+            pod_agent_id,
+        )
+        return {
+            "token": token_obj.token,
+            "expiresAt": token_obj.expires_at,
+            "scope": scope.value,
+            "agentId": pod_agent_id,
+        }
+
+    async def issue_or_reuse_standing_location_view(
+        self,
+        user_id: str,
+        *,
+        pod_agent_id: str = PERSONAL_AGENT_ID,
+        expires_in_ms: int = DEFAULT_STANDING_READ_EXPIRY_MS,
+        ledger: Optional[_Ledger] = None,
+        lookup: Optional[Any] = None,
+        validator: Optional[Any] = None,
+    ) -> dict[str, Any]:
+        """The standing grant that lets a pod READ the owner's location-sharing
+        state through the hub broker (the data door).
+
+        Owner-visible and revocable exactly like the pkm.read grant: the person
+        sees "your agent may view your location sharing" in the Consent Center
+        and can revoke it. It authorizes a READ only -- the pod cannot MUTATE
+        location state with it, because the door is read-only by construction and
+        every change takes the directive transport (the pod proposes, the browser
+        executes on the owner's session)."""
+        return await self.issue_or_reuse_standing_scope(
+            user_id,
+            scope=ConsentScope.CAP_LOCATION_LIVE_VIEW,
+            grant_kind="personal_agent_location_view",
+            scope_description="Personal agent location live view (Nav-governed)",
+            pod_agent_id=pod_agent_id,
+            expires_in_ms=expires_in_ms,
+            ledger=ledger,
+            lookup=lookup,
+            validator=validator,
+        )
