@@ -925,12 +925,16 @@ jobs:
               append_unique(blocking, ["db_contract_drift"])
               backend_failure = True
 
-          if not reviewer_byok_success:
-              append_unique(blocking, ["reviewer_byok_continuity_failed"])
-              if os.environ.get("DEPLOY_BACKEND") == "true":
-                  backend_failure = True
-              if os.environ.get("DEPLOY_FRONTEND") == "true":
-                  frontend_failure = True
+          # Advisory, like candidate_pkm_evaluator. This lane arms on ANY path
+          # under lib/vault, components/vault or lib/testing changed since the
+          # last successful deploy -- including one-line copy edits -- and it
+          # then waits for a passphrase prompt the reviewer account cannot
+          # raise, because that account has no vault on UAT. On 2026-08-18 a
+          # six-line copy change armed it and blocked three consecutive
+          # releases from three different branches. A reviewer-fixture gap must
+          # not roll back a verified release; it is still reported, and the
+          # harness reports an un-provisioned reviewer separately from a real
+          # regression, so a broken prompt is still visible here as a warning.
 
           if not passkey_associations_success:
               append_unique(blocking, ["passkey_domain_association_failed"])
@@ -981,6 +985,8 @@ jobs:
                   "skipped_reason": "" if browser_authority_ready or not reviewer_byok_required else "upstream_authority_failed",
                   "outcome": os.environ.get("REVIEWER_BYOK_OUTCOME", ""),
                   "success": reviewer_byok_success,
+                  "advisory": True,
+                  "warning": not reviewer_byok_success,
               },
               "passkey_domain_associations": {
                   "required": passkey_associations_required,

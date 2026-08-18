@@ -437,22 +437,14 @@ function isPasskeyVaultMethod(method: VaultMethod | null): boolean {
 }
 
 const VAULT_INLINE_CONTROL_CLASS =
-  "inline-flex h-8 w-[7.5rem] items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium";
+  "inline-flex h-11 w-[7.5rem] items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium";
 const VAULT_INLINE_BADGE_CLASS =
-  "inline-flex h-8 w-[7.5rem] items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium";
+  "inline-flex h-11 w-[7.5rem] items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium";
 
 function vaultWrapperKey(
   wrapper: Pick<VaultWrapper, "method" | "wrapperId">,
 ): string {
   return `${wrapper.method}:${wrapper.wrapperId ?? "default"}`;
-}
-
-function formatPasskeyIdentifier(wrapper: VaultWrapper): string {
-  const raw = wrapper.passkeyCredentialId || wrapper.wrapperId || "";
-  if (!raw) return "Identifier unavailable";
-  const compact = raw.replace(/\s+/g, "");
-  if (compact.length <= 10) return `Identifier ${compact}`;
-  return `Identifier ending ${compact.slice(-6)}`;
 }
 
 function formatPasskeyLabel(wrapper: VaultWrapper): string {
@@ -462,9 +454,12 @@ function formatPasskeyLabel(wrapper: VaultWrapper): string {
   return "Saved passkey";
 }
 
+// A raw credential-id fragment ("Identifier ending FnkQ==") reads as broken
+// output, not information — nobody can act on it. The row title already
+// numbers multiple passkeys ("Passkey 1", "Passkey 2"), so the label alone
+// is enough to tell them apart.
 function describePasskeyWrapper(wrapper: VaultWrapper): string {
-  const parts = [formatPasskeyLabel(wrapper), formatPasskeyIdentifier(wrapper)];
-  return parts.join(" / ");
+  return formatPasskeyLabel(wrapper);
 }
 
 function VaultComingSoonLogos() {
@@ -3324,7 +3319,7 @@ function ProfilePageContent() {
         {vaultAccess.hasVault && loadingVaultMethod ? (
           <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
             <Icon icon={Loader2} size="sm" className="animate-spin" />
-            Loading vault methods...
+            Loading lock methods...
           </SurfaceInset>
         ) : null}
 
