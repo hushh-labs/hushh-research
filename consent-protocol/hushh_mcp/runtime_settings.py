@@ -1095,3 +1095,22 @@ def clear_runtime_settings_caches() -> None:
 
 
 hydrate_runtime_environment()
+
+
+def pod_data_door_enabled() -> bool:
+    """Let a keyless pod READ an owner's DB-backed specialist state through the hub.
+
+    OFF by default, and the default is the security position. When off, a pod's
+    DB-backed specialist (location first) returns ``runtime_unavailable`` exactly
+    as today, because the pod holds no database credential and never will. When
+    on, the pod turn couriers a per-turn, tightly-scoped grant to the hub broker,
+    which runs the read on the owner's own project and returns a fail-closed
+    PROJECTION (never the owner's wrapped private key, never raw coordinates).
+
+    The door is READ-only by construction: the broker registry
+    (``hushh_mcp.services.pod_data_door.POD_DATA_DOOR_READS``) maps a name to a
+    read method and holds no write path at all. Writes stay on the directive
+    transport -- the pod proposes, the browser executes on the owner's session --
+    so this flag can never widen a pod's authority to MUTATE anything. Flipping
+    it off is an instant, total rollback to the DB-wall behaviour."""
+    return _bool_from_value(_clean_env("POD_DATA_DOOR_ENABLED"), default=False)
