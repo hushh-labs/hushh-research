@@ -116,10 +116,14 @@ function welcomeMarkup(): string {
       >
         <main class="shell">
           <div class="stage">
-            <div class="brand"><span class="wordmark" data-wordmark>hussh</span><span aria-hidden class="quietMark" data-quiet-mark>&#129323;</span></div>
+            <div class="brand"><span class="wordmark" data-wordmark>hussh</span></div>
 
             <div class="hero">
-              <h1 class="title"><span class="oneMark">One</span></h1>
+              <div class="markWrap">
+                <span aria-hidden class="markGlow"></span>
+                <span aria-hidden class="quietMark" data-quiet-mark>&#129323;</span>
+              </div>
+              <h1 class="title"><span aria-hidden class="titleGlow"></span><span class="oneMark">One</span></h1>
               <p class="tagline">Your personal assistant for everyday tasks.</p>
             </div>
 
@@ -333,7 +337,7 @@ for (const phone of PHONES) {
       const cta = (await page
         .getByRole("button", { name: /get started/i })
         .boundingBox())!;
-      expect(cta.height).toBeGreaterThanOrEqual(56 - SLACK_PX);
+      expect(cta.height).toBeGreaterThanOrEqual(58 - SLACK_PX);
 
       for (const label of ["Research", "Blog", "Developers"]) {
         const box = (await page
@@ -350,7 +354,7 @@ for (const phone of PHONES) {
 test.describe("welcome composition", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("Get started is a full-width 56px control", async ({ page }) => {
+  test("Get started is a full-width 58px control", async ({ page }) => {
     await gotoWelcome(page);
 
     const box = (await page
