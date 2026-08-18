@@ -1090,9 +1090,9 @@ export function AuthStep({
         >
           <div className="flex flex-col items-center gap-4">
             {/* The One mark. The glyph is the logo, so it is never restyled;
-                only the geometry around it shrank — a 64px box and a 72px halo
-                instead of a 92px box under a 112px blur that washed the whole
-                top of the screen blue. The drop-shadow went with it: at 25%
+                only the geometry around it shrank — a 64px box under an 80px
+                halo, instead of a 92px box under a 112px blur that washed the
+                whole top of the screen blue. The drop-shadow went with it: at 25%
                 black it read as a smudge on the #f2f2f7 canvas. */}
             <div
               className="relative flex h-[64px] w-[64px] items-center justify-center"
