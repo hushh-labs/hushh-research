@@ -137,6 +137,7 @@ import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
 import { resolveSmsContactsBackAction } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
   CircleDetailFlow,
+  circleListMemberCountLabel,
   CirclesSection,
   CreateCircleFlow,
   JoinCircleFlow,
@@ -2310,10 +2311,12 @@ function PeopleHub({
                 <div className="[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)]">
                   <EmptyState
                     title={
-                      hasSearch ? "No matching people" : "No people added"
+                      hasSearch && hasAnyRecipients
+                        ? "No matching people"
+                        : "No people added"
                     }
                     description={
-                      hasSearch
+                      hasSearch && hasAnyRecipients
                         ? "Try a different name."
                         : "Add family or friends to start sharing."
                     }
@@ -3081,9 +3084,7 @@ function ShareFlow({
                     ? "Loading…"
                     : selected
                       ? `${selectedReady.length} ready now`
-                      : `${circle.memberCount} ${
-                          circle.memberCount === 1 ? "member" : "members"
-                        }`
+                      : circleListMemberCountLabel(circle.memberCount)
                 }
                 trailing={<SelectionDot selected={selected} />}
               />
