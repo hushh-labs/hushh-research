@@ -183,3 +183,17 @@ def test_a_non_dict_history_item_is_rejected_at_the_model_boundary() -> None:
 
     with pytest.raises(pydantic.ValidationError):
         pt.PodTurnRequest(message="hi", history=[{"role": "user", "content": "ok"}, "nope"])  # type: ignore[list-item]
+
+
+@pytest.mark.asyncio
+async def test_data_door_grants_reach_the_runtime(enabled) -> None:
+    """Phase 5: the couriered per-specialist read scopes are threaded to the
+    runner so a DB-backed specialist can read through the hub broker. Absent ->
+    an empty dict, never a None the state seed would choke on."""
+    seen: dict = {}
+    await _run(_payload(dataDoorGrants={"location": "scope-jwt"}), seen)
+    assert seen["data_door_grants"] == {"location": "scope-jwt"}
+
+    without: dict = {}
+    await _run(_payload(), without)
+    assert without["data_door_grants"] == {}

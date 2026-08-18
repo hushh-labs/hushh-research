@@ -31,6 +31,7 @@ from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
     STATE_CONVERSATION_ID,
+    STATE_DATA_DOOR_GRANTS,
     STATE_GROUNDING_REASON,
     STATE_PKM_CONTEXT,
     STATE_SCREEN,
@@ -349,6 +350,7 @@ async def _stream_one_text_turn_once(
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
+    data_door_grants: dict[str, str] | None = None,
     managed_location: str | None = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run one typed turn in one endpoint and expose replay boundaries."""
@@ -406,6 +408,10 @@ async def _stream_one_text_turn_once(
             # solely on that branch. Carried rather than recomputed because the
             # grounding service is the only thing that knows WHY.
             STATE_GROUNDING_REASON: str(grounding_reason or "").strip()[:200],
+            # The couriered per-specialist read scopes, threaded exactly like the
+            # consent token: state-only, so a DB-backed specialist reads through
+            # the hub broker and the model never sees the tokens themselves.
+            STATE_DATA_DOOR_GRANTS: dict(data_door_grants or {}),
         },
     )
 
@@ -552,6 +558,7 @@ async def stream_one_text_turn(
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
+    data_door_grants: dict[str, str] | None = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run One with same-model regional failover before any observable event."""
     locations: tuple[str | None, ...] = (None,)
@@ -580,6 +587,7 @@ async def stream_one_text_turn(
                 runtime_credential_transport=runtime_credential_transport,
                 runtime_vertex_project=runtime_vertex_project,
                 runtime_vertex_location=runtime_vertex_location,
+                data_door_grants=data_door_grants,
                 managed_location=location,
             ):
                 if event.kind == "boundary":

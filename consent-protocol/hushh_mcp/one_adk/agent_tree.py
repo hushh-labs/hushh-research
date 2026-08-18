@@ -165,6 +165,10 @@ STATE_PKM_CONTEXT = "hussh:pkm_context"
 # (`pkm_grounding_service.Grounding.reason`). Set whenever grounding is absent so the
 # agent can say what it does not know instead of inferring it from silence.
 STATE_GROUNDING_REASON = "hussh:grounding_reason"
+# Per-specialist read scopes the relay minted so a keyless pod can READ a
+# DB-backed specialist THROUGH the hub broker (the data door). {door_name: token}.
+# State-only, like the consent token: the model never sees the tokens.
+STATE_DATA_DOOR_GRANTS = "hussh:data_door_grants"
 # Pending client directive (navigation etc.) the relay forwards to the browser
 # after the current event batch; written by tools, cleared by the relay.
 STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
@@ -984,6 +988,22 @@ async def _specialist_turn(
             "availability": availability_payload,
             "message": "Unlock the vault before asking this specialist to use protected information.",
         }
+    # The data door: in a keyless pod, a DB-backed specialist would fail its
+    # dispatch (no DB credential) and report runtime_unavailable. When the relay
+    # couriered a read scope for this specialist, serve it through the hub broker
+    # instead. Returns None for anything that is not a served read (unmapped
+    # specialist, no grant, broker refusal), so the normal dispatch below still
+    # runs and still degrades to runtime_unavailable exactly as today.
+    if pod_mode():
+        from hushh_mcp.one_adk.pod_data_door_specialist import (  # noqa: PLC0415
+            serve_specialist_via_data_door,
+        )
+
+        door_payload = await serve_specialist_via_data_door(agent_id, tool_context)
+        if door_payload is not None:
+            door_payload.setdefault("availability", availability_payload)
+            return door_payload
+
     try:
         result = await dispatch(agent_id, task)
     except PermissionError as exc:

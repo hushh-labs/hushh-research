@@ -1,0 +1,154 @@
+"""Serve a DB-backed specialist in a keyless pod, by READING through the hub.
+
+On the hub, ``dispatch("agent_location", task)`` runs a full location sub-agent
+that reads Postgres and reasons to an answer. A pod holds no database credential,
+so that dispatch fails and the specialist reports ``runtime_unavailable`` -- the
+DB wall. This module is the read-path around the wall: when the relay couriered a
+per-specialist scope (the data door), the pod hands it to the hub broker, gets the
+owner's fail-closed state projection back, and renders a faithful answer from it.
+
+Where this sits on the parity ladder, stated honestly rather than overclaimed:
+
+* **runtime_unavailable** (before this) -- the pod answers nothing.
+* **deterministic render** (this) -- the pod answers the location question from
+  the owner's REAL state, rendered by fixed code. Accurate and verifiable, but
+  not the location sub-agent's own prose or its interactive cards.
+* **sub-agent parity** (next, live-verified) -- the same LocationChatService runs
+  in the pod with projection-backed tools, so the wording and directives match
+  the hub exactly. That step needs a pod-safe chat store and the pod's own model
+  wired, both of which must be proven against a live dev pod, so it lands
+  separately rather than as unverified enclave code.
+
+The gate is the GRANT's presence, not a second flag: the relay only couriers a
+scope when ``POD_DATA_DOOR_ENABLED`` is on, so an absent grant (the default)
+means this returns None and the caller falls through to the normal dispatch --
+today's behaviour, untouched.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from hushh_mcp.one_adk.agent_tree import STATE_DATA_DOOR_GRANTS
+
+logger = logging.getLogger(__name__)
+
+#: Which specialist maps to which data-door read. Mirrors the broker's
+#: ``_REQUIRED_SCOPE`` and the door registry -- location, first and only.
+_SPECIALIST_DOOR_NAMES: dict[str, str] = {
+    "agent_location": "location",
+}
+
+
+def _active(entries: Any, *statuses: str) -> list[dict[str, Any]]:
+    ok = {s.lower() for s in statuses}
+    return [
+        e
+        for e in (entries or [])
+        if isinstance(e, dict) and str(e.get("status") or "").strip().lower() in ok
+    ]
+
+
+def _name_of(entry: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = str(entry.get(key) or "").strip()
+        if value:
+            return value
+    return "someone"
+
+
+def _format_location_summary(projection: dict[str, Any]) -> str:
+    """A faithful, deterministic summary of the owner's location-sharing state.
+
+    Built only from what the projection actually carries, so it never claims a
+    share that is not there. One reasons over this to answer the specific question
+    the person asked; the job here is to make the real state available, complete
+    and correct, in words.
+    """
+    if not isinstance(projection, dict):
+        return "I could not read your location sharing just now."
+
+    lines: list[str] = []
+
+    sharing = _active(projection.get("ownerGrants"), "active")
+    if sharing:
+        who = ", ".join(_name_of(g, "recipientDisplayName") for g in sharing)
+        lines.append(f"You're currently sharing your location with {who}.")
+    else:
+        lines.append("You're not currently sharing your location with anyone.")
+
+    received = _active(projection.get("receivedGrants"), "active")
+    if received:
+        who = ", ".join(_name_of(g, "ownerDisplayName") for g in received)
+        lines.append(f"{who} is sharing their location with you.")
+
+    requests = _active(projection.get("requests"), "pending")
+    if requests:
+        who = ", ".join(_name_of(r, "requesterDisplayName") for r in requests)
+        lines.append(f"{who} is requesting access to your location.")
+
+    public = _active(projection.get("publicInvites"), "active")
+    if public:
+        count = len(public)
+        noun = "public link" if count == 1 else "public links"
+        lines.append(f"You have {count} active {noun}.")
+
+    circles = [c for c in (projection.get("circles") or []) if isinstance(c, dict)]
+    if circles:
+        names = ", ".join(str(c.get("name") or "").strip() for c in circles if c.get("name"))
+        if names:
+            lines.append(f"Your location circles: {names}.")
+
+    return " ".join(lines)
+
+
+async def serve_specialist_via_data_door(
+    agent_id: str,
+    tool_context: Any,
+    *,
+    broker: Any = None,
+) -> dict[str, Any] | None:
+    """Answer a DB-backed specialist through the hub broker, or return None.
+
+    Returns None -- so the caller falls through to the normal dispatch -- for
+    every case that is NOT a served data-door read: an unmapped specialist, no
+    couriered grant (the door is off), or a broker refusal/outage. None therefore
+    degrades to today's ``runtime_unavailable`` rather than to a wrong answer.
+    A non-None result is a completed specialist turn payload, shaped like the
+    dispatch path's ``ok`` payload so One consumes it identically.
+    """
+    door_name = _SPECIALIST_DOOR_NAMES.get(agent_id)
+    if not door_name:
+        return None
+
+    grants = tool_context.state.get(STATE_DATA_DOOR_GRANTS) or {}
+    scope_token = str(grants.get(door_name) or "") if isinstance(grants, dict) else ""
+    if not scope_token:
+        # No grant couriered -> the door is off for this turn. Fall through.
+        return None
+
+    client = broker
+    if client is None:
+        from hushh_mcp.services.pod_hub_client import PodHubClient  # noqa: PLC0415
+
+        client = PodHubClient()
+
+    try:
+        projection = client.read_specialist(door_name, scope_token)
+    except Exception as exc:  # noqa: BLE001 - a broker refusal/outage degrades the read, not the turn
+        logger.info(
+            "one_adk.data_door_read_unavailable agent_id=%s %s", agent_id, type(exc).__name__
+        )
+        return None
+
+    logger.info("one_adk.data_door_served agent_id=%s door=%s", agent_id, door_name)
+    return {
+        "status": "ok",
+        "source": "data_door",
+        "text": _format_location_summary(projection),
+        "is_complete": True,
+    }
+
+
+__all__ = ["serve_specialist_via_data_door", "_SPECIALIST_DOOR_NAMES"]

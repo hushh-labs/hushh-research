@@ -101,6 +101,12 @@ class PodTurnRequest(BaseModel):
     # capped by the runner (last 20, user/assistant only, 4000 chars each); the
     # pod holds nothing after.
     history: Optional[list[dict[str, str]]] = Field(default=None)
+    # Per-specialist scope tokens the relay minted so a keyless pod can READ a
+    # DB-backed specialist THROUGH the hub broker (the data door). Memory-only,
+    # like pkmContext: the pod hands each token straight back to the broker and
+    # holds nothing after. Absent stays absent -> the specialist reports
+    # runtime_unavailable, today's DB-wall behaviour.
+    data_door_grants: Optional[dict[str, str]] = Field(default=None, alias="dataDoorGrants")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -239,6 +245,10 @@ async def run_pod_turn(
             runtime_credential_transport=payload.runtime_credential_transport,  # type: ignore[arg-type]
             runtime_vertex_project=payload.vertex_project,
             runtime_vertex_location=payload.vertex_location,
+            # The couriered per-specialist read scopes. Seeded into the runtime so
+            # a DB-backed specialist reads through the hub broker rather than
+            # failing on the missing DB credential. Empty {} keeps today's behaviour.
+            data_door_grants=payload.data_door_grants or {},
         ):
             kind = getattr(event, "kind", "")
             if kind == "token":
