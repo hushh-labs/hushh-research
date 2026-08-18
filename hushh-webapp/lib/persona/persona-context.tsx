@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
+import { Capacitor } from "@capacitor/core";
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useAuth } from "@/hooks/use-auth";
@@ -356,6 +357,11 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // SECURITY: this bridge is page-writable. Without the native-platform
+    // check, an injected script could set `enabled: true` itself and get a
+    // callable `switchPersona` hook attached to the global below.
+    // See isTrustedNativeTestBridge in lib/testing/native-test.ts.
+    if (!Capacitor.isNativePlatform()) return;
     const bridge = window.__HUSHH_NATIVE_TEST__;
     if (!bridge?.enabled) return;
 

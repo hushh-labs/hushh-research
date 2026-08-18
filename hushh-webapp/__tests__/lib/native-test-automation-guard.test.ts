@@ -1,5 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+// The real native XCUITest/Espresso harness only ever injects
+// window.__HUSHH_NATIVE_TEST__ inside the Capacitor-wrapped native app (see
+// isTrustedNativeTestBridge in lib/testing/native-test.ts, CS-6 fix). Mock a
+// native platform here so the "genuine bridge" scenarios below still model
+// that context; window.__HUSHH_NATIVE_TEST__ alone is asserted insufficient.
+vi.mock("@capacitor/core", () => ({
+  Capacitor: {
+    isNativePlatform: () => true,
+    getPlatform: () => "ios",
+  },
+}));
+
 import {
   hasIncompleteNativeUiFlowSession,
   isNativeTestVaultBootstrapManaged,

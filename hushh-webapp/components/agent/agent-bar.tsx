@@ -21,6 +21,7 @@ import React, {
 import { usePathname, useRouter } from "next/navigation";
 import { AudioLines, MessageCircle, Monitor, Moon, Sun, X } from "lucide-react";
 import { useTheme } from "next-themes";
+import { Capacitor } from "@capacitor/core";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
@@ -1496,6 +1497,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     }
     if (
       typeof window !== "undefined" &&
+      Capacitor.isNativePlatform() &&
       window.__HUSHH_NATIVE_TEST__?.enabled === true
     ) {
       return;

@@ -190,103 +190,18 @@ function generateRecoveryKey(): string {
     .toUpperCase()}`;
 }
 
-/**
- * Wrap vault key with recovery key for backup
- */
-async function wrapVaultKey(
-  vaultKey: CryptoKey,
-  recoveryKey: string
-): Promise<{
-  wrappedKey: string;
-  iv: string;
-}> {
-  // Derive wrapping key from recovery key
-  const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(recoveryKey),
-    { name: "PBKDF2" },
-    false,
-    ["deriveKey"]
-  );
-
-  const wrappingKey = await crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: encoder.encode("hushh-recovery-salt"),
-      iterations: 100000,
-      hash: "SHA-256",
-    },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["wrapKey"]
-  );
-
-  // Wrap the vault key
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const wrappedKeyBuffer = await crypto.subtle.wrapKey(
-    "raw",
-    vaultKey,
-    wrappingKey,
-    { name: "AES-GCM", iv }
-  );
-
-  return {
-    wrappedKey: bytesToBase64(new Uint8Array(wrappedKeyBuffer)),
-    iv: bytesToBase64(iv),
-  };
-}
-
-/**
- * Unwrap vault key using recovery key
- */
-export async function unwrapVaultKey(
-  wrappedKey: string,
-  iv: string,
-  recoveryKey: string
-): Promise<CryptoKey> {
-  const encoder = new TextEncoder();
-
-  // Derive unwrapping key from recovery key
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(recoveryKey),
-    { name: "PBKDF2" },
-    false,
-    ["deriveKey"]
-  );
-
-  const unwrappingKey = await crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: encoder.encode("hushh-recovery-salt"),
-      iterations: 100000,
-      hash: "SHA-256",
-    },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["unwrapKey"]
-  );
-
-  // Decode wrapped key and IV
-  const wrappedKeyBuffer = base64ToBytes(wrappedKey);
-  const ivBuffer = base64ToBytes(iv);
-
-  // Unwrap the vault key
-  const vaultKey = await crypto.subtle.unwrapKey(
-    "raw",
-    wrappedKeyBuffer,
-    unwrappingKey,
-    { name: "AES-GCM", iv: ivBuffer },
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt", "decrypt"]
-  );
-
-  return vaultKey;
-}
+// CS-5 fix (security assessment, 2026-08-17): this file used to also export
+// wrapVaultKey/unwrapVaultKey, a second, unused vault-key-backup code path
+// that derived its wrapping key with a salt hardcoded to the literal string
+// "hushh-recovery-salt" for every user — a real bug (one cracking table would
+// work against every account), but confirmed dead code: registerWithPrf's
+// wrappedVaultKey/wrappedIv outputs were never read by any caller in this
+// repo (grep across web, iOS, Android, and the backend turned up nothing).
+// The recovery key users actually get is generated correctly, with a random
+// per-user salt, by createVaultWithPassphrase in ./passphrase-key.ts. Removed
+// rather than patched: there was no live behavior depending on it, so
+// deleting the vulnerable path is strictly safer than leaving a "fixed but
+// still unused" copy around.
 
 /**
  * Register a new passkey with PRF extension
@@ -300,8 +215,6 @@ export async function registerWithPrf(
   vaultKeyHex: string;
   recoveryKey: string;
   prfSalt: string;
-  wrappedVaultKey: string;
-  wrappedIv: string;
 }> {
   const prfSalt = generateSalt();
   const prfSaltB64 = bytesToBase64(prfSalt);
@@ -373,9 +286,10 @@ export async function registerWithPrf(
   const vaultKey = await deriveVaultKey(prfResult as ArrayBuffer, prfSalt);
   const vaultKeyHex = await exportKeyToHex(vaultKey);
 
-  // Generate recovery key and wrap vault key
+  // Generate recovery key. (Actual vault recovery is handled by
+  // createVaultWithPassphrase's recovery wrapper, which is what gets
+  // persisted and shown to the user; see the CS-5 note above.)
   const recoveryKey = generateRecoveryKey();
-  const { wrappedKey, iv } = await wrapVaultKey(vaultKey, recoveryKey);
 
   // Get credential ID
   const credentialId = bytesToBase64(new Uint8Array(credential.rawId));
@@ -385,8 +299,6 @@ export async function registerWithPrf(
     vaultKeyHex,
     recoveryKey,
     prfSalt: prfSaltB64,
-    wrappedVaultKey: wrappedKey,
-    wrappedIv: iv,
   };
 }
 

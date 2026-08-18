@@ -192,6 +192,9 @@ function updateNativePortfolioImportDebug(
   updates: Record<string, string | number | null | undefined>,
 ): void {
   if (typeof window === "undefined") return;
+  // SECURITY: page-writable global; only trust it on a real native platform.
+  // See isTrustedNativeTestBridge in lib/testing/native-test.ts.
+  if (!Capacitor.isNativePlatform()) return;
   const bridge = window.__HUSHH_NATIVE_TEST__;
   if (!bridge?.enabled) return;
   for (const [key, value] of Object.entries(updates)) {
@@ -3615,7 +3618,7 @@ export class ApiService {
                     return;
                   }
                   const nativeBridge =
-                    typeof window !== "undefined"
+                    typeof window !== "undefined" && Capacitor.isNativePlatform()
                       ? window.__HUSHH_NATIVE_TEST__
                       : undefined;
                   if (nativeBridge?.enabled) {
@@ -3651,7 +3654,7 @@ export class ApiService {
                   "Native import stream ended without terminal event",
                 );
                 const nativeBridge =
-                  typeof window !== "undefined"
+                  typeof window !== "undefined" && Capacitor.isNativePlatform()
                     ? window.__HUSHH_NATIVE_TEST__
                     : undefined;
                 if (nativeBridge?.enabled) {
@@ -3663,7 +3666,7 @@ export class ApiService {
               close();
             } catch (error) {
               const nativeBridge =
-                typeof window !== "undefined"
+                typeof window !== "undefined" && Capacitor.isNativePlatform()
                   ? window.__HUSHH_NATIVE_TEST__
                   : undefined;
               if (nativeBridge?.enabled) {
