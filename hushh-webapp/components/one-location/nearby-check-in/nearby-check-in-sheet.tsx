@@ -16,7 +16,9 @@ import {
   MapPin,
   Search,
   ShieldCheck,
+  Star,
   UsersRound,
+  X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -47,6 +49,12 @@ import {
   rememberLocationGrant,
 } from "@/lib/one-location/location-grant-memory";
 import { locationBlockReason } from "@/lib/one-location/location-readiness";
+import {
+  addSavedLocation,
+  DuplicateSavedLocationError,
+  findDuplicateSavedLocation,
+  loadSavedLocations,
+} from "@/lib/one-location/saved-locations";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
@@ -397,10 +405,47 @@ function NearbyPersonRow({
   );
 }
 
+/** A checked-out venue offered to Saved Places. */
+type SavePlaceCandidate = {
+  label: string;
+  latitude: number;
+  longitude: number;
+};
+
+/**
+ * The venue a check-in was anchored to, as a Saved Places candidate.
+ *
+ * Must be read from the presence record BEFORE checkout runs, because checkout
+ * clears it. `placeLat`/`placeLng` are the public venue the owner picked, never
+ * their live position — which is the whole reason this is safe to offer: it
+ * saves the bar they chose, not wherever they happened to be standing.
+ *
+ * Returns null for a check-in with no named anchor. A place with no label is
+ * not worth prompting about, since Saved Places would show a blank row.
+ */
+function savePlaceCandidate(
+  presence: OneLocationNearbyPresenceState["presence"],
+): SavePlaceCandidate | null {
+  if (!presence) return null;
+  const label = presence.placeLabel?.trim();
+  const { placeLat, placeLng } = presence;
+  if (
+    !label ||
+    typeof placeLat !== "number" ||
+    typeof placeLng !== "number" ||
+    !Number.isFinite(placeLat) ||
+    !Number.isFinite(placeLng)
+  ) {
+    return null;
+  }
+  return { label, latitude: placeLat, longitude: placeLng };
+}
+
 export function NearbyCheckInSheet({
   open,
   ownerId,
   vaultOwnerToken,
+  vaultKey = null,
   captureCurrentPosition,
   onOpenChange,
   onStateChange,
@@ -410,6 +455,13 @@ export function NearbyCheckInSheet({
   open: boolean;
   ownerId: string | null;
   vaultOwnerToken: string | null;
+  /**
+   * Passed in rather than read from `useVault()` so this sheet stays free of
+   * the vault provider, matching how it already receives `ownerId` and
+   * `vaultOwnerToken`. Null simply means Saved Places is unavailable this
+   * session, and the post-checkout offer is skipped.
+   */
+  vaultKey?: string | null;
   captureCurrentPosition: (options?: {
     maxAgeMs?: number;
     fresh?: boolean;
@@ -464,6 +516,14 @@ export function NearbyCheckInSheet({
   const [busy, setBusy] = useState<"check-in" | "checkout" | string | null>(
     null,
   );
+  /**
+   * The post-checkout Saved Places offer. Null whenever there is nothing to
+   * offer — no anchor, vault locked, or the place is already saved — so the
+   * banner's presence alone is the whole condition for showing it.
+   */
+  const [savePlaceCandidateState, setSavePlaceCandidateState] =
+    useState<SavePlaceCandidate | null>(null);
+  const [savingPlace, setSavingPlace] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationRecovery, setLocationRecovery] =
     useState<LocationRecovery>(null);
@@ -1180,6 +1240,15 @@ export function NearbyCheckInSheet({
    * live anchor from the server, so the pin survives a reload and keeps
    * describing where the owner checked in rather than where they now stand.
    */
+  /**
+   * Retire the Saved Places offer when the sheet closes. It belongs to the
+   * checkout that just happened; re-opening the sheet an hour later should not
+   * resurface a decision the person already walked away from.
+   */
+  useEffect(() => {
+    if (!open) setSavePlaceCandidateState(null);
+  }, [open]);
+
   useEffect(() => {
     if (!open) {
       onPlaceFocusChange?.(null);
@@ -1265,6 +1334,9 @@ export function NearbyCheckInSheet({
       return;
     }
     if (mutationInFlightRef.current) return;
+    // A new check-in supersedes any offer left over from the previous one, so
+    // the banner never sits above an active check-in naming a different venue.
+    setSavePlaceCandidateState(null);
     const ownerToken = vaultOwnerToken;
     const expectedOwnerEpoch = ownerEpochRef.current;
     const generation = ++presenceMutationGenerationRef.current;
@@ -1379,9 +1451,80 @@ export function NearbyCheckInSheet({
     }
   };
 
+  /**
+   * Decide whether the checked-out venue is worth offering to Saved Places.
+   *
+   * Silent on every "no": a locked vault, a read failure, or a place already
+   * saved within {@link SAVED_LOCATION_DUPLICATE_RADIUS_METERS} all just skip
+   * the banner. This runs after a checkout the person already saw succeed, so
+   * a follow-up nicety must never produce an error toast of its own.
+   */
+  const offerSavePlace = useCallback(
+    async (candidate: SavePlaceCandidate | null) => {
+      if (!candidate || !ownerId || !vaultKey || !vaultOwnerToken) return;
+      try {
+        const existing = await loadSavedLocations({
+          userId: ownerId,
+          vaultKey,
+          vaultOwnerToken,
+        });
+        if (findDuplicateSavedLocation(existing, candidate)) return;
+        setSavePlaceCandidateState(candidate);
+      } catch {
+        // Reading Saved Places is best-effort here. If it fails we simply do
+        // not offer, rather than reporting a second failure for something the
+        // person never asked for.
+      }
+    },
+    [ownerId, vaultKey, vaultOwnerToken],
+  );
+
+  const saveCheckedOutPlace = async () => {
+    if (
+      !savePlaceCandidateState ||
+      !ownerId ||
+      !vaultKey ||
+      !vaultOwnerToken ||
+      savingPlace
+    ) {
+      return;
+    }
+    const candidate = savePlaceCandidateState;
+    setSavingPlace(true);
+    try {
+      await addSavedLocation({
+        context: { userId: ownerId, vaultKey, vaultOwnerToken },
+        input: {
+          // Pinned to "other" rather than `defaultSavedLocationCategory`, which
+          // returns "home" whenever no home is set yet. A venue you checked out
+          // of is not your home, and silently filing the first one as Home
+          // would be a wrong answer that is tedious to undo.
+          category: "other",
+          label: candidate.label,
+          latitude: candidate.latitude,
+          longitude: candidate.longitude,
+        },
+      });
+      toast.success(`Saved ${candidate.label} to your places.`);
+      setSavePlaceCandidateState(null);
+    } catch (error) {
+      if (error instanceof DuplicateSavedLocationError) {
+        // Saved from somewhere else between the offer and the tap. The intent
+        // is satisfied either way, so retire the banner without an error.
+        setSavePlaceCandidateState(null);
+        return;
+      }
+      toast.error("Couldn't save that place. Try again from Saved Places.");
+    } finally {
+      setSavingPlace(false);
+    }
+  };
+
   const checkout = async () => {
     if (!ownerId || !vaultOwnerToken || mutationInFlightRef.current) return;
     const ownerToken = vaultOwnerToken;
+    // Snapshot the anchor before checkout clears the presence record.
+    const savedPlaceOffer = savePlaceCandidate(state.presence);
     const expectedOwnerEpoch = ownerEpochRef.current;
     const generation = ++presenceMutationGenerationRef.current;
     presenceReadGenerationRef.current += 1;
@@ -1401,6 +1544,7 @@ export function NearbyCheckInSheet({
       setConsentAccepted(false);
       setAllowConnectionRequests(false);
       toast.success("You checked out.");
+      void offerSavePlace(savedPlaceOffer);
       void captureAndLoadPlaces();
     } catch {
       if (
@@ -1597,6 +1741,53 @@ export function NearbyCheckInSheet({
             </div>
           ) : null}
 
+          {/* Post-checkout Saved Places offer. Deliberately rendered ABOVE the
+              branch below: checkout flips this sheet from the active view to
+              the setup view, so a banner living inside either branch would be
+              unmounted by the very action that creates it. Non-blocking — the
+              setup view stays fully usable behind it, and it carries its own
+              dismiss. */}
+          {savePlaceCandidateState ? (
+            <div
+              className="mb-4 rounded-2xl border border-border/60 bg-muted/60 p-3"
+              data-testid="nearby-save-place-prompt"
+            >
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
+                  <Star className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-foreground">
+                    Checked out from {savePlaceCandidateState.label}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Save this to your Saved Places?
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  className="-mr-1 -mt-1 shrink-0 text-muted-foreground"
+                  onClick={() => setSavePlaceCandidateState(null)}
+                  aria-label="Dismiss saved place suggestion"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="mt-3 w-full"
+                isLoading={savingPlace}
+                onClick={() => void saveCheckedOutPlace()}
+              >
+                <Star />
+                Save to Places
+              </Button>
+            </div>
+          ) : null}
+
           {loadingPresence && !state.presence ? null : state.presence ? (
             <div className="space-y-4" data-testid="nearby-presence-active">
               {/* Only rendered while a check-in is actually live, so the green
@@ -1701,9 +1892,14 @@ export function NearbyCheckInSheet({
                 )}
               </section>
 
+              {/* Neutral, not destructive. Checking out is a safe, reversible
+                  step in the check-in lifecycle — you can check back in. Red is
+                  reserved here for the genuinely dangerous and irreversible
+                  (SOS, delete), and spending it on a routine action drains the
+                  signal from the places that need it. */}
               <Button
                 type="button"
-                variant="destructive"
+                variant="outline"
                 className="w-full"
                 disabled={busy !== null}
                 onClick={() => void checkout()}

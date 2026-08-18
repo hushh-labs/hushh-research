@@ -466,7 +466,7 @@ export function LocationImmersiveMap({
   const searchParams = useSearchParams();
   const router = useRouter();
   const auth = useRequireAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultOwnerToken, vaultKey } = useVault();
   const demoAvailable = isLocationMapDemoAvailable();
   const nearbyCheckInAvailable = isOneLocationNearbyCheckInAvailable();
   const initialDemoMode = isLocationMapDemoEnabled(searchParams.get("demo"));
@@ -3250,6 +3250,7 @@ export function LocationImmersiveMap({
           open={nearbyCheckInOpen}
           ownerId={auth.userId}
           vaultOwnerToken={vaultOwnerToken}
+          vaultKey={vaultKey}
           captureCurrentPosition={captureAndRememberCurrentLocation}
           onOpenChange={(nextOpen) => {
             if (nextOpen) {
