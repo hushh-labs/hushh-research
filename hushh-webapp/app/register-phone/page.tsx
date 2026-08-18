@@ -369,7 +369,7 @@ export function PhoneMandatePageContent() {
             Verify your phone number
           </h1>
           <p className="mx-auto mt-1.5 max-w-[20rem] text-[15px] leading-[1.4] text-[rgba(23,19,12,0.6)] dark:text-[rgba(250,246,238,0.62)]">
-            Add your phone number to continue.
+            We’ll text you a code.
           </p>
         </div>
 

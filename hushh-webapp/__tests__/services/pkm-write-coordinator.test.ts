@@ -503,7 +503,9 @@ describe("PkmWriteCoordinator", () => {
       expect(result.success).toBe(false);
       // The raw backend error text must never reach the caller/UI verbatim.
       expect(result.message).not.toContain("Failed to store domain data: 500");
-      expect(result.message).toMatch(/vault/i);
+      expect(result.message).toBe(
+        "We couldn't save this. Try again, or make sure you've set a lock.",
+      );
     });
 
     it("requires recipient re-review when sharing changes during the write", async () => {

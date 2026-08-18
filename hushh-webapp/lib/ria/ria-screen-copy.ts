@@ -119,7 +119,7 @@ export const RIA_COPY = {
       title: "Avoid list is empty",
       description: "Add names for Kai to exclude from debates.",
     },
-    unlockRail: "Unlock the vault to edit or publish.",
+    unlockRail: "Unlock to edit or publish.",
   },
 
   debate: {

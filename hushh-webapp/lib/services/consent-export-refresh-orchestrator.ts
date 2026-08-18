@@ -42,7 +42,7 @@ export class ConsentExportRefreshOrchestrator {
   static pauseForLocalAuthResume(params: { userId: string }): void {
     this.pauseRequestedByUser.add(params.userId);
     AppBackgroundTaskService.updateTask(taskIdForUser(params.userId), {
-      description: "Unlock your vault to resume updating approved sharing.",
+      description: "Unlock to resume updating approved sharing.",
       routeHref: TASK_ROUTE,
       metadata: {
         pausedForLocalAuth: true,
@@ -67,7 +67,7 @@ export class ConsentExportRefreshOrchestrator {
         AppBackgroundTaskService.failTask(
           taskId,
           "Could not update approved sharing.",
-          "We could not finish updating approved sharing. It will retry after Vault unlock.",
+          "We could not finish updating approved sharing. It will retry after you unlock.",
           {
             failureKind:
               error instanceof Error ? error.name || "Error" : "unknown",
@@ -244,7 +244,7 @@ export class ConsentExportRefreshOrchestrator {
     } catch (error) {
       if (error instanceof ConsentExportRefreshPausedError) {
         AppBackgroundTaskService.updateTask(taskId, {
-          description: "Unlock your vault to resume updating approved sharing.",
+          description: "Unlock to resume updating approved sharing.",
           routeHref: TASK_ROUTE,
           metadata: {
             pausedForLocalAuth: true,
@@ -273,7 +273,7 @@ export class ConsentExportRefreshOrchestrator {
             } and left ${failureCount} update${
               failureCount === 1 ? "" : "s"
             } pending for retry.`
-          : "We paused while updating approved sharing. Try again after unlocking your vault."
+          : "We paused while updating approved sharing. Try again after unlocking."
       );
       return;
     }

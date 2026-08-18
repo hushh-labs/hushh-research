@@ -117,6 +117,25 @@ describe("IntroStep welcome clarity", () => {
     expect(screen.getAllByRole("button")).toHaveLength(1);
   });
 
+  it("keeps the quiet mark with the wordmark, as one brand lockup", () => {
+    render(<IntroStep onLogin={vi.fn()} />);
+
+    // The shush IS the brand — "hushh" is the word for it. It went missing in
+    // the first simplification pass and that is the regression this guards.
+    const quietMark = screen.getByText("🤫");
+    const wordmark = screen.getByText("hussh");
+    const one = screen.getByRole("heading", { name: "One" });
+
+    expect(wordmark.compareDocumentPosition(quietMark)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(quietMark.compareDocumentPosition(one)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    // Decorative twin of the wordmark: it must not be announced twice.
+    expect(quietMark).toHaveAttribute("aria-hidden", "true");
+  });
+
   it("carries no marketing text ahead of the decision", () => {
     render(<IntroStep onLogin={vi.fn()} />);
 
@@ -129,7 +148,6 @@ describe("IntroStep welcome clarity", () => {
       /Acts/i,
       /stays locked/i,
       /Nothing moves without/i,
-      /🤫/,
     ]) {
       expect(screen.queryByText(removed)).toBeNull();
     }

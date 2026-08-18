@@ -232,7 +232,7 @@ function descriptionForStatus(
     return `Checking ${domainLabel} without changing anything.`;
   }
   if (status === "awaiting_local_auth_resume") {
-    return `We will continue updating ${domainLabel} after you unlock your vault.`;
+    return `We will continue updating ${domainLabel} after you unlock.`;
   }
   if (status === "completed") {
     return "Your saved details are up to date.";

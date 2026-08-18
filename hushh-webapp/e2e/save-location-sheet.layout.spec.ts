@@ -9,6 +9,7 @@ import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 import {
   ADDRESS_LABEL_ROW_CLASSNAME,
   DOOR_DETAILS_TOGGLE_CLASSNAME,
+  OPTIONAL_BADGE_CLASSNAME,
   REQUIRED_BADGE_CLASSNAME,
   SHEET_BODY_CLASSNAME,
   SHEET_DETAILS_SHELL_CLASSNAME,
@@ -108,6 +109,7 @@ async function buildFixture(): Promise<string> {
     SHEET_FOOTER_CLASSNAME,
     ADDRESS_LABEL_ROW_CLASSNAME,
     REQUIRED_BADGE_CLASSNAME,
+    OPTIONAL_BADGE_CLASSNAME,
     DOOR_DETAILS_TOGGLE_CLASSNAME,
     row,
     button,
@@ -123,7 +125,7 @@ async function buildFixture(): Promise<string> {
     dotSmall,
     STEP_DOT_REACHED_CLASSNAME,
     STEP_DOT_UPCOMING_CLASSNAME,
-    "mt-1 space-y-3.5 mb-1.5 mb-0 block",
+    "mt-1 space-y-3.5 mb-1.5 mb-0 block grid grid-cols-1 gap-3 sm:grid-cols-2",
   ].join(" ");
   const css = compiler.build(classes.split(/\s+/).filter(Boolean));
 
@@ -143,10 +145,26 @@ async function buildFixture(): Promise<string> {
     `<span aria-hidden>v</span>` +
     `</button>`;
 
+  // House or flat / PIN sit side by side from 640px up (the desktop dialog
+  // width), so this is the one row on the sheet whose column narrows instead
+  // of just its own width shrinking -- the Optional badge has half the room
+  // the Required one does at the same viewport.
+  const optionalRow = (fieldTestId: string, fieldLabel: string) =>
+    `<div><div class="${ADDRESS_LABEL_ROW_CLASSNAME}">` +
+    `<label class="${label}" data-testid="${fieldTestId}-label">${fieldLabel}</label>` +
+    `<span class="${OPTIONAL_BADGE_CLASSNAME}" data-testid="${fieldTestId}-optional-badge">Optional</span>` +
+    `</div><input class="${field}" data-testid="sheet-field"></div>`;
+  const optionalFieldsGrid =
+    `<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">` +
+    optionalRow("house-or-flat", "House or flat") +
+    optionalRow("postal-code", "PIN / postcode") +
+    `</div>`;
+
   // Enough fields to overflow every width under test, so the body genuinely
   // has to scroll -- a footer only bleeds when there is something behind it.
   const fields =
     addressRow +
+    optionalFieldsGrid +
     Array.from(
       { length: 8 },
       (_, i) =>
@@ -313,6 +331,45 @@ test.describe("Save-location address sheet layout", () => {
       );
       expect(clipped).toEqual([]);
     });
+
+    for (const fieldTestId of ["house-or-flat", "postal-code"]) {
+      test(`keeps the Optional badge whole beside the ${fieldTestId} label at ${width}px`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.goto(await buildFixture());
+        await awaitProductFont(page);
+
+        const body = await boxOf(page, "sheet-body");
+        const label = await boxOf(page, `${fieldTestId}-label`);
+        const badge = await boxOf(page, `${fieldTestId}-optional-badge`);
+
+        // House or flat and PIN sit in a two-column row from 640px up, so this
+        // is the one badge on the sheet with HALF the column width Required
+        // gets on the full-width Address row above it.
+        expect(
+          Math.abs(label.y + label.height / 2 - (badge.y + badge.height / 2)),
+        ).toBeLessThanOrEqual(1);
+        expect(Math.round(label.x + label.width)).toBeLessThanOrEqual(
+          Math.round(badge.x),
+        );
+        expect(Math.round(badge.x + badge.width)).toBeLessThanOrEqual(
+          Math.round(body.x + body.width),
+        );
+
+        // Neither word is clipped. This badge is the only reason the field
+        // does not read as mandatory next to the required Address box above
+        // it -- a clipped "Optiona…" gives back exactly the confusion it was
+        // added to remove.
+        const clipped = await page.evaluate((ids) =>
+          ids
+            .map((id) => document.querySelector(`[data-testid="${id}"]`)!)
+            .filter((el) => el.scrollWidth > el.clientWidth + 1)
+            .map((el) => el.getAttribute("data-testid")),
+        [`${fieldTestId}-label`, `${fieldTestId}-optional-badge`]);
+        expect(clipped).toEqual([]);
+      });
+    }
 
     test(`gives the door-details row a real 44px at ${width}px`, async ({
       page,

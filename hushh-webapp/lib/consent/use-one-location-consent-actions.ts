@@ -151,7 +151,7 @@ export function useOneLocationConsentActions(
   const requireToken = useCallback((): string | null => {
     const token = getVaultOwnerToken();
     if (!token) {
-      toast.error("Unlock your vault to manage this location request.");
+      toast.error("Unlock to manage this location request.");
       return null;
     }
     return token;

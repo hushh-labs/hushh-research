@@ -87,9 +87,15 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
       <OnboardingHeroBackground variant="plain" />
 
       <div className={styles.stage}>
-        {/* One centered brand anchor. */}
+        {/* One centered brand anchor. The quiet mark is part of the brand,
+            not decoration: "hushh" IS the shush. It sits with the wordmark as
+            a single lockup rather than floating alone above One, so the brand
+            reads as one thing and One stays the only bold element. */}
         <div className={styles.brand}>
           <HushhWordmark className={styles.wordmark} />
+          <span aria-hidden className={styles.quietMark}>
+            🤫
+          </span>
         </div>
 
         {/* ── The single message: the name, then what it does. ── */}

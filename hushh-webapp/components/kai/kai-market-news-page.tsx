@@ -291,7 +291,7 @@ export function KaiMarketNewsPage() {
         description={
           mode === "personalized"
             ? "Latest reporting around the holdings currently available in your private workspace."
-            : "A current market briefing. Unlock your vault to tailor this to your holdings."
+            : "A current market briefing. Unlock to tailor this to your holdings."
         }
         actions={
           <Button

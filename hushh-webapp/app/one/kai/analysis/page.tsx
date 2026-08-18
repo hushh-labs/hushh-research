@@ -1076,13 +1076,13 @@ export function KaiAnalysisPageContent() {
           authState={user ? "authenticated" : "pending"}
           dataState="unavailable-valid"
           errorCode="vault_locked"
-          errorMessage="Vault locked"
+          errorMessage="Locked"
         />
         <SurfaceCard>
           <SurfaceCardContent className="p-5 text-center">
-          <h2 className="text-lg font-semibold">Unlock your Vault to continue</h2>
+          <h2 className="text-lg font-semibold">Unlock to continue</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Your portfolio and saved analysis stay encrypted in Vault. Unlock it to reopen analysis,
+            Your portfolio and saved analysis stay encrypted in your private place. Unlock it to reopen analysis,
             review history, or start a new debate with your stored holdings context.
           </p>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
