@@ -64,6 +64,7 @@ import {
   getBrowserMapsApiKey,
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
+import { neutralWorldCamera } from "@/lib/one-location/map-world-view";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import {
   filterPeopleByQuery,
@@ -505,6 +506,13 @@ export function LocationImmersiveMap({
   // undone on the next render.
   const checkInSheetDismissedRef = useRef(false);
   const entryLocationRequestedRef = useRef(false);
+  /**
+   * Whether this map instance is still showing the derived world view rather
+   * than a real position. Only a neutral camera may be re-framed by the resize
+   * pass below; once a coordinate has been applied the camera belongs to the
+   * entry-location, Locate and marker-tap paths.
+   */
+  const onNeutralWorldViewRef = useRef(false);
   const locationCaptureRef = useRef<Promise<PlainLocationPoint> | null>(null);
   const nearbyConnectInFlightRef = useRef(false);
   const nearbyConnectGenerationRef = useRef(0);
@@ -875,6 +883,8 @@ export function LocationImmersiveMap({
       };
       setSelfMarker(currentLocation);
       if (options.select) setSelected(currentLocation);
+      // A coordinate is on screen now, so the resize pass must stop re-framing.
+      onNeutralWorldViewRef.current = false;
       if (auth.userId) {
         const workspace = readLocationWorkspaceMemory(auth.userId);
         writeLocationWorkspaceMemory(auth.userId, {
@@ -1155,6 +1165,13 @@ export function LocationImmersiveMap({
       if (superseded()) return;
       await waitForLaidOutBox(element);
       if (superseded()) return;
+      // Derived from the element that has to be filled, not guessed. See
+      // `map-world-view` for why a fixed zoom cannot fill every container.
+      const neutralWorld = neutralWorldCamera(element.getBoundingClientRect());
+      // Only a neutral view may be re-framed on resize. A camera that is
+      // already showing a real position belongs to the entry-location and
+      // Locate effects, and must never be pulled back out to the world.
+      onNeutralWorldViewRef.current = !cachedPoint && !initialDemoModeRef.current;
       const map = await GoogleMap.create({
         id: MAP_ID,
         element,
@@ -1165,12 +1182,12 @@ export function LocationImmersiveMap({
             ? { lat: cachedPoint.latitude, lng: cachedPoint.longitude }
             : initialDemoModeRef.current
               ? { lat: 37.7749, lng: -122.4194 }
-              : { lat: 20, lng: 0 },
+              : neutralWorld.center,
           zoom: cachedPoint
             ? zoomForAccuracy(cachedPoint.accuracyM)
             : initialDemoModeRef.current
               ? 11
-              : 2,
+              : neutralWorld.zoom,
           disableDefaultUI: true,
           // `styles` is deliberately NOT passed.
           //
@@ -1239,6 +1256,7 @@ export function LocationImmersiveMap({
         const marker = markerByMapIdRef.current.get(event.markerId);
         if (!marker) return;
         setSelected(marker);
+        onNeutralWorldViewRef.current = false;
         void map.setCamera({
           coordinate: {
             lat: marker.point.latitude,
@@ -1288,6 +1306,61 @@ export function LocationImmersiveMap({
     // consent and a real position both land.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.userId]);
+
+  /**
+   * Keep the neutral world view filling its container when the container
+   * changes size.
+   *
+   * The zoom that covers a box is derived from that box, so a box that grows
+   * past a power-of-two boundary needs a new one -- otherwise a person who
+   * maximises the window, rotates the device, or opens the screen on an
+   * external display gets the out-of-world grey band back, on a camera that
+   * was correct when it was created.
+   *
+   * Deliberately limited to the pre-consent view. That is the only state in
+   * which the world camera is unambiguously decorative: there are no markers,
+   * nothing to explore, and the person is reading the disclosure over it. Once
+   * consent is given the camera means something, and re-framing it would fight
+   * whoever moved it -- including the person's own pan. `setCamera` is issued
+   * only when the derived zoom actually changes, so the constant small resizes
+   * a mobile browser emits (URL bar, safe-area settle) cost nothing.
+   */
+  useEffect(() => {
+    const element = mapElement.current;
+    if (!element || !mapReady || rendererReady) return;
+    if (!onNeutralWorldViewRef.current) return;
+    let frame: number | null = null;
+    let lastZoom = neutralWorldCamera(element.getBoundingClientRect()).zoom;
+    const reframe = () => {
+      frame = null;
+      const map = mapRef.current;
+      if (!map || !onNeutralWorldViewRef.current) return;
+      const next = neutralWorldCamera(element.getBoundingClientRect());
+      if (next.zoom === lastZoom) return;
+      lastZoom = next.zoom;
+      void map
+        .setCamera({
+          coordinate: next.center,
+          zoom: next.zoom,
+          animate: false,
+        })
+        .catch(() => undefined);
+    };
+    const schedule = () => {
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(reframe);
+    };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(element);
+    window.addEventListener("resize", schedule);
+    window.addEventListener("orientationchange", schedule);
+    return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("orientationchange", schedule);
+    };
+  }, [mapReady, rendererReady]);
 
   useEffect(() => {
     if (
