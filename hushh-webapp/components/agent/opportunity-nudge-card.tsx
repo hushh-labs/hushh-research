@@ -456,8 +456,8 @@ export function OpportunityNudgeStack({
                   onDismissPanel();
                 }}
                 className="mr-1 grid h-7 w-7 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
-                aria-label="Hide marketplace opportunities for this session"
-                title="Hide for this session"
+                aria-label="Hide marketplace opportunities for this vault session"
+                title="Hide for this vault session"
               >
                 <X className="h-3.5 w-3.5" aria-hidden />
               </button>

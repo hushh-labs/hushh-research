@@ -20,32 +20,10 @@
  * and this record never adds a share the backend does not report.
  */
 
-import {
-  normalizeOneLocationShareKind,
-  type OneLocationShareKind,
-} from "@/lib/one-location/notifications";
 import type { OneLocationGrant } from "@/lib/one-location/types";
 
 export type LiveShareSessionEntry = {
   grantId: string;
-  /**
-   * Who can see you through this grant.
-   *
-   * A pair can hold TWO live grants at once -- one ordinary share and one SOS
-   * -- so a grant is no longer a person. The count in {@link LiveShareWindow}
-   * is a headcount, and a headcount needs the head.
-   *
-   * Still identity-free by the standard this file sets: an opaque user id the
-   * device already holds, never a name, never a number.
-   */
-  recipientUserId: string;
-  /**
-   * Which replacement lane this share belongs to. Normalized to the same four
-   * kinds the rest of the client uses, from the `shareKind` the server puts on
-   * every grant -- so "is this the SMS one?" is answered here exactly as
-   * `isSmsTriggeredGrant` answers it everywhere else.
-   */
-  shareKind: OneLocationShareKind;
   /** When this share started, ISO 8601. */
   startedAt: string;
   /** When it auto-stops, ISO 8601. `null` means "until you stop". */
@@ -54,11 +32,6 @@ export type LiveShareSessionEntry = {
 
 /** The window every currently-live share of yours adds up to. */
 export type LiveShareWindow = {
-  /**
-   * How many PEOPLE can see you -- distinct recipients, not grants. One person
-   * holding both an ordinary share and an SOS share is one person, and saying
-   * "2 people" for a pair of shares to the same friend is simply wrong.
-   */
   count: number;
   /** Earliest start across the live shares. */
   startedAt: string;
@@ -95,11 +68,6 @@ function isEntry(value: unknown): value is LiveShareSessionEntry {
   if (!value || typeof value !== "object") return false;
   const entry = value as Partial<LiveShareSessionEntry>;
   if (typeof entry.grantId !== "string" || !entry.grantId) return false;
-  // `recipientUserId`/`shareKind` are deliberately NOT required here. Records
-  // written by a build from before this change are still perfectly good
-  // countdowns, and refusing them would blank a running share's first paint
-  // on the very upgrade that introduced the fields. They are normalized on
-  // read instead, and the server reconciliation fills them in within a second.
   if (typeof entry.startedAt !== "string" || toTime(entry.startedAt) === null) {
     return false;
   }
@@ -134,9 +102,6 @@ export function loadLiveShareEntries(
     return pruneLiveShareEntries(
       parsed.filter(isEntry).map((entry) => ({
         grantId: entry.grantId,
-        recipientUserId:
-          typeof entry.recipientUserId === "string" ? entry.recipientUserId : "",
-        shareKind: normalizeOneLocationShareKind(entry.shareKind),
         startedAt: entry.startedAt,
         expiresAt: entry.expiresAt ?? null,
       })),
@@ -203,8 +168,6 @@ export function reconcileLiveShareEntries(
     }
     next.push({
       grantId: grant.id,
-      recipientUserId: grant.recipientUserId ?? "",
-      shareKind: normalizeOneLocationShareKind(grant.shareKind),
       startedAt: knownStart.get(grant.id) ?? grant.createdAt ?? nowIso,
       expiresAt,
     });
@@ -231,57 +194,10 @@ export function liveShareEntriesEqual(
     return (
       Boolean(other) &&
       entry.grantId === other?.grantId &&
-      entry.recipientUserId === other?.recipientUserId &&
-      entry.shareKind === other?.shareKind &&
       entry.startedAt === other?.startedAt &&
       entry.expiresAt === other?.expiresAt
     );
   });
-}
-
-/**
- * A stable grouping key for "which person is this share pointing at".
- *
- * Records written before recipient ids were stored have none. Such an entry
- * becomes its own person rather than silently merging into somebody else's
- * row -- over-counting for the second it takes the server state to reconcile,
- * which is the safe direction for a privacy status.
- */
-function recipientKey(entry: LiveShareSessionEntry, index: number): string {
-  return entry.recipientUserId || `grant:${entry.grantId || index}`;
-}
-
-/**
- * The one grant the hero card's Stop (and its duration editor) may act on.
- *
- * The rule was "exactly one live entry", which read a GRANT count as a PERSON
- * count. Once an ordinary share and an SOS share to the same person can both be
- * live, that silently returned `null` for a single friend -- taking away the
- * owner's Stop button and their end-time editor at the exact moment they had
- * the most sharing running.
- *
- * The rule is a headcount now. With more than one person there is still no
- * single share to end, so the card keeps offering Manage. With one person the
- * ORDINARY share is what this resolves to: the SMS-lane share has its own Stop
- * on the SOS screen, ending it is a distinct decision ("I'm safe") from ending
- * a normal share, and after the two-lane split neither one stops the other.
- * When the SOS share is the only thing running it resolves to that, which is
- * exactly what happened before.
- */
-export function resolveStoppableGrantId(
-  entries: LiveShareSessionEntry[],
-): string | null {
-  if (!entries.length) return null;
-  const people = new Set(entries.map(recipientKey));
-  if (people.size !== 1) return null;
-
-  const ordinary = entries.filter((entry) => entry.shareKind !== "sos");
-  const candidates = ordinary.length ? ordinary : entries;
-  // Same-lane replacement still guarantees one live grant per lane per pair, so
-  // this is a belt-and-braces refusal: given an ambiguity that should not exist,
-  // offer Manage rather than guess which share a tap meant to end.
-  if (candidates.length !== 1) return null;
-  return candidates[0]?.grantId ?? null;
 }
 
 /** Collapse the live shares into the one window the status card renders. */
@@ -313,22 +229,8 @@ export function summarizeLiveShareEntries(
     }
   }
 
-  // Count is per PERSON; time is per EXPOSURE. Only the headcount collapses to
-  // distinct recipients -- the start/end fold above deliberately ran over EVERY
-  // entry, because `endsAt` is documented as "when you stop being visible to
-  // everyone". Dropping a duplicate recipient's second grant to dedupe would
-  // render a 1-hour share plus an 8-hour SOS to one person as "ends in 1 hour"
-  // while the owner stays visible for eight: under-claiming your own exposure,
-  // which is the one direction this file must never round.
-  //
-  // An entry restored from a record written before recipient ids were stored
-  // has no id to group on. It counts as its own person rather than silently
-  // merging into somebody else's row -- over-counting for the second it takes
-  // the server to reconcile, which is the safe direction for a privacy status.
-  const people = new Set(entries.map(recipientKey));
-
   return {
-    count: people.size,
+    count: entries.length,
     startedAt,
     endsAt: openEnded ? null : endsAt,
   };

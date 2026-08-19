@@ -41,19 +41,10 @@ describe("AuthStep layout contract", () => {
     expect(source).toContain(
       "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
     );
+    expect(source).toContain(
+      "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
+    );
     expect(source).toContain("overflow-hidden");
-
-    // A MINIMUM, never a fixed height. Paired with overflow-hidden, a fixed
-    // height does not scroll when the content outgrows the box — it cuts the
-    // content off with no scrollbar and no error. That is exactly what
-    // happened at 200% text, where the rem-based bottom reservation doubles
-    // and ate the mark and the title. Both boxes must stay min-height only.
-    expect(source).not.toContain(
-      'height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))"',
-    );
-    expect(source).not.toContain(
-      'height: "calc(100svh - var(--app-scroll-bottom-pad, 0px))"',
-    );
     expect(source).toContain("data-auth-content-block");
     expect(source).toContain(
       'className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center"',

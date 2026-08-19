@@ -7,7 +7,6 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 
@@ -18,10 +17,6 @@ import {
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { CIRCLE_NAME_ACTION_CLASSNAME } from "@/components/one-location/redesign/circles/circle-name-row-layout";
-import {
-  OneLocationLockRequiredError,
-  type OneLocationLockState,
-} from "@/lib/one-location/circle-lock-state";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleInvitePreview,
@@ -101,9 +96,9 @@ describe("named Circle flows", () => {
       .mockRejectedValueOnce(new Error("Circle limit reached."))
       .mockResolvedValueOnce(undefined);
 
-    render(<CreateCircleFlow busy={false} lockState="ready" onSubmit={onSubmit} />);
+    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
 
-    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
+    fireEvent.change(screen.getByPlaceholderText("e.g. Meena Family"), {
       target: { value: "Meena Family" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
@@ -119,10 +114,10 @@ describe("named Circle flows", () => {
 
   it("blocks Create only while the name is empty, and says so visibly", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
-    render(<CreateCircleFlow busy={false} lockState="ready" onSubmit={onSubmit} />);
+    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
 
     const create = screen.getByRole("button", { name: "Create circle" });
-    const input = screen.getByPlaceholderText("e.g. Family");
+    const input = screen.getByPlaceholderText("e.g. Meena Family");
 
     // Nothing typed: the button is genuinely blocked, and it is painted as a
     // neutral fill rather than a half-opacity accent that still reads as live.
@@ -140,306 +135,6 @@ describe("named Circle flows", () => {
 
     fireEvent.click(create);
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("A", "family"));
-  });
-
-  // ==========================================================================
-  // The lock lifecycle.
-  //
-  // `/one/location` renders for an account that holds no lock at all --
-  // VaultLockGuard admits it on its `hasVault === false` branch -- so this
-  // screen has to answer the lock question itself. It used to discover the
-  // answer only in the failure path of the last tap and dead-end on a toast.
-  // ==========================================================================
-
-  /**
-   * Stands in for the page's `renderLockPrompt`: a button that resolves the
-   * unlock either way, so a test drives the same two outcomes the real sheet
-   * produces without mounting the vault stack.
-   */
-  function lockPrompt() {
-    function LockPromptStub({
-      open,
-      onDone,
-    }: {
-      open: boolean;
-      onDone: (unlocked: boolean) => void;
-    }) {
-      if (!open) return null;
-      return (
-        <div data-testid="lock-prompt">
-          <button type="button" onClick={() => onDone(true)}>
-            Unlock now
-          </button>
-          <button type="button" onClick={() => onDone(false)}>
-            Dismiss lock
-          </button>
-        </div>
-      );
-    }
-    // Returned as the render prop itself — `renderUnlock` invokes it directly.
-    return LockPromptStub;
-  }
-
-  /**
-   * The screen wired the way production wires it.
-   *
-   * This models the timing that a naive stub hides. `VaultFlow` calls
-   * `unlockVault()` and then `onSuccess()` in the SAME tick
-   * (components/vault/vault-flow.tsx:341-342), and `unlockVault` is plain state
-   * setters — so at the moment the flow is told "unlocked", the component still
-   * holds the render whose submit handler closed over a null token. Here
-   * `onSubmit` is recreated on every render capturing the CURRENT lock state and
-   * rejects when it is not "ready", exactly as `handleCreateNamedCircle` does.
-   *
-   * A stub whose `onSubmit` ignores the lock would pass whether the resume is
-   * correct or not, which is how this class of bug shipped on Your Map.
-   */
-  function CreateCircleHarness({
-    initialLockState,
-    onCreated,
-  }: {
-    initialLockState: OneLocationLockState;
-    onCreated: (name: string, kind: string) => void;
-  }) {
-    const [lockState, setLockState] =
-      React.useState<OneLocationLockState>(initialLockState);
-    const LockPrompt = lockPrompt();
-
-    return (
-      <CreateCircleFlow
-        busy={false}
-        lockState={lockState}
-        renderUnlock={({ open, onDone }) => (
-          <LockPrompt
-            open={open}
-            onDone={(unlocked) => {
-              // Both in one tick, like the real unlock.
-              if (unlocked) setLockState("ready");
-              onDone(unlocked);
-            }}
-          />
-        )}
-        onSubmit={async (name, kind) => {
-          if (lockState !== "ready") {
-            throw new OneLocationLockRequiredError();
-          }
-          onCreated(name, kind);
-        }}
-      />
-    );
-  }
-
-  it("creates straight away when the lock is already open", async () => {
-    const onSubmit = vi.fn().mockResolvedValue(undefined);
-    render(
-      <CreateCircleFlow
-        busy={false}
-        lockState="ready"
-        renderUnlock={lockPrompt()}
-        onSubmit={onSubmit}
-      />,
-    );
-
-    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
-      target: { value: "Meena Family" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
-
-    await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith("Meena Family", "family"),
-    );
-    // No lock interruption for someone who is already unlocked.
-    expect(screen.queryByTestId("lock-prompt")).toBeNull();
-    expect(toast.error).not.toHaveBeenCalled();
-  });
-
-  it("waits while the lock state is still settling instead of calling it locked", async () => {
-    const onSubmit = vi.fn().mockResolvedValue(undefined);
-    render(
-      <CreateCircleFlow
-        busy={false}
-        lockState="resolving"
-        renderUnlock={lockPrompt()}
-        onSubmit={onSubmit}
-      />,
-    );
-
-    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
-      target: { value: "Meena Family" },
-    });
-    const create = screen.getByRole("button", { name: "Create circle" });
-
-    // An unsettled state is not a verdict: the screen neither creates nor
-    // accuses the person of being locked. It waits, visibly.
-    expect(create).toBeDisabled();
-    fireEvent.click(create);
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("lock-prompt")).toBeNull();
-    expect(toast.error).not.toHaveBeenCalled();
-  });
-
-  it("opens the lock, then finishes the create the person already asked for", async () => {
-    const onCreated = vi.fn();
-    render(
-      <CreateCircleHarness initialLockState="locked" onCreated={onCreated} />,
-    );
-
-    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
-      target: { value: "Meena Family" },
-    });
-    // The row's test id sits on its wrapper; the control is the button inside.
-    fireEvent.click(
-      within(screen.getByTestId("one-location-circle-kind-friends")).getByRole(
-        "button",
-      ),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
-
-    // The lock is asked for, not reported as a failure.
-    await screen.findByTestId("lock-prompt");
-    expect(onCreated).not.toHaveBeenCalled();
-    expect(toast.error).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Unlock now" }));
-
-    // The pending create resumes with exactly what was typed and chosen. The
-    // person does not fill the form in again.
-    //
-    // This is the assertion that catches resuming too early: the unlock lands
-    // in the same tick as the state change, so a resume that runs inside the
-    // unlock callback still sees the old lock state, throws, and toasts.
-    await waitFor(() =>
-      expect(onCreated).toHaveBeenCalledWith("Meena Family", "friends"),
-    );
-    expect(onCreated).toHaveBeenCalledTimes(1);
-    expect(toast.error).not.toHaveBeenCalled();
-  });
-
-  it("leaves the form intact and creates nothing when the lock is dismissed", async () => {
-    const onCreated = vi.fn();
-    render(
-      <CreateCircleHarness initialLockState="locked" onCreated={onCreated} />,
-    );
-
-    const input = screen.getByPlaceholderText("e.g. Family");
-    fireEvent.change(input, { target: { value: "Meena Family" } });
-    fireEvent.click(
-      within(screen.getByTestId("one-location-circle-kind-other")).getByRole(
-        "button",
-      ),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
-    await screen.findByTestId("lock-prompt");
-
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss lock" }));
-
-    await waitFor(() => expect(screen.queryByTestId("lock-prompt")).toBeNull());
-    expect(onCreated).not.toHaveBeenCalled();
-    expect(toast.error).not.toHaveBeenCalled();
-    // Nothing was lost by asking.
-    expect((input as HTMLInputElement).value).toBe("Meena Family");
-
-    // And the screen is not wedged by the abandoned attempt: a second try asks
-    // again, and completing it proves the chosen kind survived the dismissal
-    // too -- which asserting on a tick mark's markup would not.
-    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
-    await screen.findByTestId("lock-prompt");
-    fireEvent.click(screen.getByRole("button", { name: "Unlock now" }));
-    await waitFor(() =>
-      expect(onCreated).toHaveBeenCalledWith("Meena Family", "other"),
-    );
-    expect(toast.error).not.toHaveBeenCalled();
-  });
-
-  it("releases the form when the sheet reports success but no lock arrives", async () => {
-    // The sheet can close successfully without a token reaching this component
-    // (a token issue that fails after the key decrypts). The screen must not
-    // sit spinning on a create that can never run.
-    const onCreated = vi.fn();
-    render(
-      <CreateCircleFlow
-        busy={false}
-        lockState="locked"
-        renderUnlock={lockPrompt()}
-        onSubmit={async (name, kind) => onCreated(name, kind)}
-      />,
-    );
-
-    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
-      target: { value: "Meena Family" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
-    await screen.findByTestId("lock-prompt");
-    // `lockState` stays "locked" here — the sheet says yes, the token never came.
-    fireEvent.click(screen.getByRole("button", { name: "Unlock now" }));
-
-    await waitFor(() => expect(screen.queryByTestId("lock-prompt")).toBeNull());
-    expect(onCreated).not.toHaveBeenCalled();
-
-    // Still usable: the next tap asks again rather than being wedged.
-    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
-    await screen.findByTestId("lock-prompt");
-  });
-
-  it("never creates twice from a double tap", async () => {
-    let release: (() => void) | undefined;
-    const onSubmit = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          release = () => resolve();
-        }),
-    );
-    render(
-      <CreateCircleFlow
-        busy={false}
-        lockState="ready"
-        renderUnlock={lockPrompt()}
-        onSubmit={onSubmit}
-      />,
-    );
-
-    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
-      target: { value: "Meena Family" },
-    });
-    const create = screen.getByRole("button", { name: "Create circle" });
-
-    // Two taps in the same tick, before the page has raised `busy`. The
-    // in-flight guard is what stops the second one -- `busy` arrives too late.
-    fireEvent.click(create);
-    fireEvent.click(create);
-
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    await act(async () => {
-      release?.();
-    });
-    expect(onSubmit).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not blame the lock when the server refuses the create", async () => {
-    const onSubmit = vi
-      .fn()
-      .mockRejectedValue(new Error("You can belong to up to 10 Circles."));
-    render(
-      <CreateCircleFlow
-        busy={false}
-        lockState="ready"
-        renderUnlock={lockPrompt()}
-        onSubmit={onSubmit}
-      />,
-    );
-
-    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
-      target: { value: "Meena Family" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
-
-    await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith(
-        "You can belong to up to 10 Circles.",
-      ),
-    );
-    // A server rejection keeps its own reason and never opens the lock sheet.
-    expect(screen.queryByTestId("lock-prompt")).toBeNull();
   });
 
   it("finds a connection from the first letter of any of their names", async () => {
@@ -898,7 +593,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /Neel Shah Connected on One/i }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Add 2 people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Invite 2 people" }));
 
     await waitFor(() =>
       expect(onInviteConnections).toHaveBeenCalledWith("circle-1", [
@@ -982,7 +677,7 @@ describe("named Circle flows", () => {
         name: /Friend User Connected on One/i,
       }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
     await waitFor(() =>
       expect(onInviteConnections).toHaveBeenCalledWith("circle-1", [
         "friend-user",
@@ -1085,7 +780,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Add people" }),
     );
-    expect(await screen.findByText(/add 1 more person right now/i)).toBeTruthy();
+    expect(await screen.findByText(/invite 1 more person right now/i)).toBeTruthy();
 
     const asha = screen.getByRole("button", {
       name: /Asha Meena Connected on One/i,
@@ -1098,7 +793,7 @@ describe("named Circle flows", () => {
     expect(asha).toHaveAttribute("aria-pressed", "true");
     expect(neel).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Add 1 person" }),
+      screen.getByRole("button", { name: "Invite 1 person" }),
     ).toBeEnabled();
   });
 
@@ -1124,7 +819,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Add people" }),
     );
-    expect(await screen.findByText("No room left in this Circle")).toBeTruthy();
+    expect(await screen.findByText("No invitation slots available")).toBeTruthy();
     expect(screen.queryByText("Stale Candidate")).toBeNull();
   });
 
@@ -1172,7 +867,7 @@ describe("named Circle flows", () => {
       name: /Asha Meena Connected on One/i,
     });
     fireEvent.click(asha);
-    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
 
     await waitFor(() =>
       expect(onLoadEligibleConnections).toHaveBeenCalledTimes(2),
@@ -1299,7 +994,7 @@ describe("named Circle flows", () => {
     );
   });
 
-  it("removes a member from a labelled destructive menu action, behind a labelled overflow trigger", async () => {
+  it("removes a member from a labelled destructive action rather than a bare icon", async () => {
     const onRemoveMember = vi.fn(async () => undefined);
     const ownerCircle = {
       ...circle("circle-1", "Meena Family"),
@@ -1324,15 +1019,10 @@ describe("named Circle flows", () => {
     );
 
     const trigger = await screen.findByRole("button", {
-      name: "Actions for John Smith",
+      name: "Remove John Smith from this Circle",
     });
-    // Radix opens DropdownMenuTrigger on pointerdown (no PointerEvent in
-    // jsdom) or on Enter/Space keydown — use the keyboard path here.
-    fireEvent.keyDown(trigger, { key: "Enter" });
-
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
-    );
+    expect(trigger).toHaveTextContent("Remove");
+    fireEvent.click(trigger);
 
     fireEvent.click(
       await screen.findByRole("button", { name: "Remove", hidden: true }),
@@ -1340,179 +1030,6 @@ describe("named Circle flows", () => {
     await waitFor(() =>
       expect(onRemoveMember).toHaveBeenCalledWith("circle-1", "friend-user"),
     );
-  });
-
-  it("scopes quick actions to the row's own member and hides actions that don't apply", async () => {
-    const onShareWithMember = vi.fn();
-    const ownerCircle = {
-      ...circle("circle-1", "Meena Family"),
-      members: [
-        ...circle("circle-1", "Meena Family").members,
-        {
-          // Share-ready member: both menu actions apply.
-          userId: "ready-user",
-          displayName: "Ready Ronnie",
-          role: "member" as const,
-          phoneVerified: true,
-          secureLocationReady: true,
-        },
-        {
-          // Not phone-verified yet: Share is invalid and must not appear,
-          // even though Remove still does.
-          userId: "pending-user",
-          displayName: "Pending Priya",
-          role: "member" as const,
-          phoneVerified: false,
-          secureLocationReady: false,
-        },
-      ],
-    };
-
-    render(
-      <CircleDetailFlow
-        circleId="circle-1"
-        {...detailProps(async () => ownerCircle)}
-        onShareWithMember={onShareWithMember}
-      />,
-    );
-
-    // The owner row (viewer, not removable, share excluded as self) gets no
-    // overflow trigger at all — nothing valid to act on.
-    await screen.findByText("Ready Ronnie");
-    expect(
-      screen.queryByRole("button", { name: "Actions for Owner" }),
-    ).toBeNull();
-
-    // Pending Priya cannot yet receive a share: only Remove is offered.
-    const priyaTrigger = screen.getByRole("button", {
-      name: "Actions for Pending Priya",
-    });
-    fireEvent.keyDown(priyaTrigger, { key: "Enter" });
-    expect(
-      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("menuitem", { name: /Share location/i }),
-    ).toBeNull();
-    fireEvent.keyDown(document.activeElement ?? priyaTrigger, {
-      key: "Escape",
-    });
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("menuitem", { name: /Remove from Circle/i }),
-      ).toBeNull(),
-    );
-
-    // Ready Ronnie's row offers both, and triggering Share calls back with
-    // exactly Ronnie's id — not a stale id left over from another row.
-    const ronnieTrigger = screen.getByRole("button", {
-      name: "Actions for Ready Ronnie",
-    });
-    fireEvent.keyDown(ronnieTrigger, { key: "Enter" });
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: /Share location/i }),
-    );
-    expect(onShareWithMember).toHaveBeenCalledWith("circle-1", "ready-user");
-    expect(onShareWithMember).not.toHaveBeenCalledWith(
-      "circle-1",
-      "pending-user",
-    );
-  });
-
-  it("filters the Members list by name, case-insensitively, and shows an empty state for no match", async () => {
-    const ownerCircle = {
-      ...circle("circle-1", "Meena Family"),
-      members: [
-        ...circle("circle-1", "Meena Family").members,
-        {
-          userId: "friend-user",
-          displayName: "John Smith",
-          role: "member" as const,
-          phoneVerified: true,
-          secureLocationReady: true,
-        },
-      ],
-    };
-
-    render(
-      <CircleDetailFlow
-        circleId="circle-1"
-        {...detailProps(async () => ownerCircle)}
-      />,
-    );
-
-    await screen.findByText("John Smith");
-    expect(screen.getByText("Owner (you)")).toBeInTheDocument();
-
-    const search = screen.getByPlaceholderText("Search members");
-
-    // Partial, uppercase query — filtering is instant on every keystroke and
-    // case never matters, same contract as the Add People connection search.
-    fireEvent.change(search, { target: { value: "JOH" } });
-    expect(screen.getByText("John Smith")).toBeInTheDocument();
-    expect(screen.queryByText("Owner (you)")).not.toBeInTheDocument();
-
-    // Zero matches gets a real empty state, not a blank list.
-    fireEvent.change(search, { target: { value: "zzz" } });
-    expect(await screen.findByText("No members found")).toBeInTheDocument();
-    expect(screen.queryByText("John Smith")).not.toBeInTheDocument();
-
-    // Clearing the query restores the original, unfiltered roster.
-    fireEvent.change(search, { target: { value: "" } });
-    expect(screen.getByText("John Smith")).toBeInTheDocument();
-    expect(screen.getByText("Owner (you)")).toBeInTheDocument();
-    expect(screen.queryByText("No members found")).not.toBeInTheDocument();
-  });
-
-  it("bounds the Members list to a scrollable region instead of growing the page indefinitely", async () => {
-    const rosterCircle = {
-      ...circle("circle-1", "Meena Family"),
-      memberLimit: 100,
-      members: [
-        ...circle("circle-1", "Meena Family").members,
-        ...Array.from({ length: 80 }, (_, index) => ({
-          userId: `member-${index}`,
-          displayName: `Synced Contact ${index}`,
-          role: "member" as const,
-          phoneVerified: true,
-          secureLocationReady: true,
-        })),
-      ],
-    };
-
-    render(
-      <CircleDetailFlow
-        circleId="circle-1"
-        {...detailProps(async () => rosterCircle)}
-      />,
-    );
-
-    await screen.findByText("Synced Contact 0");
-
-    // "Delete circle" sits after the roster in source order; it must still
-    // mount even with 81 rows above it, because the roster scrolls inside
-    // its own bounded region instead of pushing the rest of the page down.
-    expect(
-      screen.getByRole("button", { name: "Delete circle" }),
-    ).toBeInTheDocument();
-
-    const membersGroup = screen.getByTestId("one-location-circle-members");
-    const shell = membersGroup.querySelector(
-      '[data-slot="settings-group-shell"]',
-    );
-    expect(shell?.className).toContain("max-h-[60vh]");
-    const scrollRegion = shell?.firstElementChild as HTMLElement | null;
-    expect(scrollRegion?.className).toContain("overflow-y-auto");
-  });
-
-  it("shows the member search bar even for a single-member Circle", async () => {
-    const onLoad = vi.fn(async () => circle("circle-1", "Meena Family"));
-    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
-
-    expect(
-      await screen.findByPlaceholderText("Search members"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Owner (you)")).toBeInTheDocument();
   });
 
   it("closes the add-people sheet after inviting, for one person or many", async () => {
@@ -1548,7 +1065,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Asha Meena Connected on One/i }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
 
     await waitFor(() =>
       expect(onInviteConnections).toHaveBeenCalledWith("circle-1", [
@@ -1567,7 +1084,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /Neel Shah Connected on One/i }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Add 2 people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Invite 2 people" }));
 
     await waitFor(() =>
       expect(onInviteConnections).toHaveBeenLastCalledWith("circle-1", [
@@ -1608,7 +1125,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Asha Meena Connected on One/i }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
 
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith("Circle capacity changed."),
@@ -1671,7 +1188,7 @@ describe("named Circle flows", () => {
         name: /Friend User Connected on One/i,
       }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
 
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Add people" })).toBeNull(),

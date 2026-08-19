@@ -341,7 +341,7 @@ function KaiSheet({
           <Bot className="h-4 w-4" />
         </span>
         <span className="min-w-0 flex-1">
-          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">Ask</b>
+          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">Kai</b>
           <span className="block truncate text-[12px] text-[color:var(--one-fg3)]">Personal intelligence - works only for you</span>
         </span>
         <button
@@ -391,14 +391,14 @@ function KaiSheet({
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Ask a question..."
+            placeholder="Message Kai..."
             className="w-full bg-transparent text-[14px] text-[color:var(--one-fg)] outline-none placeholder:text-[color:var(--one-fg3)]"
           />
         </div>
         <button
           type="submit"
           className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white"
-          aria-label="Send"
+          aria-label="Send to Kai"
         >
           <Mic className="h-4 w-4" />
         </button>
@@ -436,7 +436,7 @@ function NotificationsSheet({
       <div className="min-h-0 flex-1 overflow-y-auto py-1">
         {[
           { title: "Registration verified", body: "SEBI network check completed", time: "2m", tone: "up" },
-          { title: "Pick ready", body: "Emily Nakamura - 94% match", time: "1h", tone: "blue" },
+          { title: "Kai pick ready", body: "Emily Nakamura - 94% match", time: "1h", tone: "blue" },
           { title: "Consent receipt saved", body: "No advisor information shared yet", time: "3h", tone: "neutral" },
         ].map((item) => (
           <div key={item.title} className="flex items-start gap-3 border-t border-[color:var(--one-line)] px-4 py-3 first:border-t-0">
@@ -577,7 +577,7 @@ function AdvisorDetailSheet({
             ))}
           </div>
           <p className="mt-3 text-[12px] leading-snug text-[color:var(--one-fg3)]">
-            No commissions. Billed quarterly by the advisor.
+            No commissions. Billed quarterly by the advisor - never through Kai.
           </p>
         </div>
       </div>
@@ -710,14 +710,14 @@ export function KaiConnectPreviewView() {
               <Bot className="h-4 w-4" />
             </span>
             <span className="min-w-0 flex-1 text-[13px] leading-snug text-[color:var(--one-fg)]">
-              All five were compared against your portfolio - ask why Emily fits best.
+              <b className="font-semibold">Kai:</b> I compared all five against your portfolio - ask me why Emily fits best.
             </span>
             <ChevronRight className="h-[15px] w-[15px] shrink-0 text-[color:var(--one-fg3)]" />
           </button>
 
           <section className="mt-8">
             <SectionHeader
-              title="Recommended for you"
+              title="Kai's pick for you"
               icon={Star}
               tone="blue"
               action={

@@ -487,25 +487,10 @@ def _identity_notification_label(
     row: dict[str, Any] | None,
     fallback: str = "A trusted person",
 ) -> str:
-    """Return a lock-screen-safe identity label without phone-derived data.
-
-    Delegates the ladder to `resolve_requester_label` -- the resolver #5442
-    added when connection-request pushes were reading "Someone wants to connect
-    with you". It tries the display name, rejects values that are identifiers
-    rather than names (a UUID, the raw user id, an opaque token), and falls back
-    to the handle from the account's email.
-
-    `fallback` survives as the last resort, for an account that genuinely
-    resolves to nothing. That is the one case where a generic phrase is the
-    truthful answer rather than a missing one.
-    """
-
-    # Run against the row already in hand rather than through
-    # `resolve_requester_label`, which would re-query the same row for its
-    # email rung. Same ladder, one read instead of two.
-    from hushh_mcp.services.requester_identity import label_from_identity_row
-
-    return label_from_identity_row(row, fallback=fallback)
+    """Return a lock-screen-safe identity label without phone-derived data."""
+    if not row:
+        return fallback
+    return str(row.get("display_name") or "").strip() or fallback
 
 
 def _notification_safe_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -541,54 +526,6 @@ _INTERNAL_SHARE_REASONS = {
     _DRIVE_TO_SHARE_REASON,
     _CHECK_IN_SHARE_REASON,
 }
-
-
-# Which replacement lane a grant belongs to. Replacement of a live share is
-# scoped to a LANE, and there are exactly TWO of them: the emergency lane
-# (``share_kind == 'sos'``) and everything else. This is deliberately NOT one
-# lane per share kind. `_classify_share_kind` below can return four kinds, the
-# `/api/one/location/grants` route accepts `share_kind` as free text up to 40
-# characters with no enum, and the web client already sends values this module
-# never produces (e.g. `pick_me_up`). Per-exact-kind scoping would therefore let
-# a single owner/recipient pair accumulate an unbounded number of live grants
-# that no surface exposes a Stop for. Two lanes caps a pair at exactly two live
-# grants: one normal share and one SOS.
-#
-# The invariant this enforces: an SOS grant must never supersede a normal share,
-# and a normal share must never supersede an SOS grant. Within a lane, the newest
-# grant still replaces the older one exactly as it always has -- `drive_to`,
-# `check_in`, `pick_me_up` and plain `share` all sit in the non-emergency lane
-# together and keep replacing each other.
-#
-# Bound as ``:is_sos_lane`` (a boolean) by every caller. The second arm reads the
-# legacy `reason` marker for rows written before `share_kind` was persisted in
-# metadata; it is belt-and-braces only and must never be relied on alone, because
-# a user-typed SOS message REPLACES the `sos_panic` reason on the way in.
-#
-# Defined once, on purpose. Three hand-copied divergent versions of the
-# replacement UPDATE are exactly what let an SMS alert silently revoke a normal
-# share (#5506); a fourth write path must not be addable without this predicate.
-_SHARE_LANE_MATCH_SQL = """
-                AND (
-                  COALESCE({alias}metadata->>'share_kind', '') = 'sos'
-                  OR (
-                    {alias}metadata->>'share_kind' IS NULL
-                    AND {alias}metadata->>'reason' = 'sos_panic'
-                  )
-                ) = CAST(:is_sos_lane AS BOOLEAN)"""
-
-
-def _share_lane_match_sql(alias: str = "") -> str:
-    """The lane predicate, optionally qualified for an aliased UPDATE target."""
-    return _SHARE_LANE_MATCH_SQL.format(alias=f"{alias}." if alias else "")
-
-
-def _is_sos_lane(share_kind: str | None) -> bool:
-    """True when a grant belongs to the emergency replacement lane.
-
-    The lane split is `sos` vs everything-else -- NOT one lane per share kind.
-    """
-    return str(share_kind or "").strip() == "sos"
 
 
 def _classify_share_kind(reason: str | None) -> str:
@@ -1354,7 +1291,7 @@ class OneLocationAgentService:
         try:
             return self._execute_one(
                 """
-                SELECT user_id, display_name, email, phone_number, phone_verified
+                SELECT user_id, display_name, phone_number, phone_verified
                 FROM actor_identity_cache
                 WHERE user_id = :user_id
                 LIMIT 1
@@ -1398,40 +1335,13 @@ class OneLocationAgentService:
             return None
 
     @staticmethod
-    def _recipient_payload(
-        row: dict[str, Any] | None,
-        *,
-        allow_email_handle: bool = False,
-    ) -> dict[str, Any] | None:
-        """Project one person for a client list.
-
-        ``allow_email_handle`` is a privacy boundary, not a default. This same
-        projection serves two lists: the recipients list, scoped to people the
-        viewer is connected to or shares a Circle with, and the discovery
-        directory, which includes phone-verified strangers. An email's local
-        part is a name to the first group and an identifier about the second,
-        so only the relationship-scoped caller opts in.
-
-        Off, the behaviour is exactly what it was: the masked phone, then
-        "Verified user".
-        """
-
+    def _recipient_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not row:
             return None
-        from hushh_mcp.services.requester_identity import label_from_identity_row
-
+        display_name = str(row.get("display_name") or "").strip()
         email = str(row.get("email") or "").strip()
         masked_phone = _mask_phone(row.get("phone_number"))
         user_id = str(row.get("user_id") or "")
-        # The masked phone stays a rung, below the name and the handle. It is
-        # the one the client rejects on sight (MASKED_PHONE_ONLY_PATTERN) and
-        # replaces with "A trusted person", so anything resolvable above it is
-        # the difference between a name and a generic line.
-        display_name = label_from_identity_row(
-            row,
-            allow_email_handle=allow_email_handle,
-            fallback="",
-        )
         return {
             "userId": user_id,
             "displayName": display_name or masked_phone or "Verified user",
@@ -2335,10 +2245,6 @@ class OneLocationAgentService:
                 float(row.get("duration_hours")) if row.get("duration_hours") is not None else None
             ),
             "expiresAt": _iso(row.get("expires_at")),
-            # Furthest-out expiry the owner has explicitly authorized. Lets a
-            # duration edit tell "still within what was approved" (no consent
-            # needed) apart from "asking for more" (needs request_access).
-            "ceilingExpiresAt": _iso(row.get("ceiling_expires_at")),
             "createdAt": _iso(row.get("created_at")),
             "updatedAt": _iso(row.get("updated_at")),
             "revokedAt": _iso(row.get("revoked_at")),
@@ -2662,27 +2568,11 @@ class OneLocationAgentService:
                 else f"You viewed {owner_label}'s update"
             )
         elif event_type == "location_share_revoked":
-            # The feed lists both lanes together, so an entry that does not say
-            # which one ended reads as ambiguous next to a still-live share
-            # with the same person.
-            revoked_via_sms = (
-                str((_loads_json(row.get("metadata")) or {}).get("share_kind") or "")
-                .strip()
-                .lower()
-                == "sos"
+            title = (
+                f"Sharing stopped with {recipient_label}"
+                if owner_user_id == user_id
+                else f"{owner_label} stopped sharing"
             )
-            if revoked_via_sms:
-                title = (
-                    f"SMS sharing stopped with {recipient_label}"
-                    if owner_user_id == user_id
-                    else f"{owner_label} stopped SMS location sharing"
-                )
-            else:
-                title = (
-                    f"Sharing stopped with {recipient_label}"
-                    if owner_user_id == user_id
-                    else f"{owner_label} stopped sharing"
-                )
         elif event_type == "location_share_expired":
             title = (
                 f"Share expired for {recipient_label}"
@@ -3464,11 +3354,7 @@ class OneLocationAgentService:
                 "This secure key id is already bound to different key material.",
                 status_code=409,
             )
-        # The caller's own record, handed straight back to them. There is no
-        # privacy line to draw against yourself, and withholding it here would
-        # show a person their own masked phone where every other surface now
-        # shows their name.
-        return self._recipient_payload(row, allow_email_handle=True) or {}
+        return self._recipient_payload(row) or {}
 
     def list_verified_recipients(
         self, *, owner_user_id: str, limit: int = 50
@@ -3536,14 +3422,7 @@ class OneLocationAgentService:
             {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
         )
 
-        # Relationship-scoped: the statement above admits a person only on an
-        # active connection or a shared active Circle, so a name resolved from
-        # their email handle is a name about someone the viewer already knows.
-        recipients = [
-            payload
-            for row in rows
-            if (payload := self._recipient_payload(row, allow_email_handle=True))
-        ]
+        recipients = [payload for row in rows if (payload := self._recipient_payload(row))]
         return self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,
@@ -4413,16 +4292,6 @@ class OneLocationAgentService:
                     ),
                     "source_circle_id": source_circle_id,
                 }
-                # Replacement is scoped to ONE LANE, and there are exactly two
-                # of them: the emergency lane (`share_kind == 'sos'`) and
-                # everything else. An SOS grant must never supersede a normal
-                # share, and a normal share must never supersede an SOS grant --
-                # a person who shared their location for four hours and then
-                # raised an SMS alert with the same person had the four-hour
-                # share silently revoked at SEND time (#5506). This is two lanes,
-                # NOT one lane per share kind: `drive_to`, `check_in`,
-                # `pick_me_up` and plain `share` all sit in the non-emergency
-                # lane together and go on replacing each other exactly as before.
                 conn.execute(
                     text(
                         """
@@ -4430,12 +4299,7 @@ class OneLocationAgentService:
                         SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                         WHERE owner_user_id = :owner_user_id
                           AND recipient_user_id = :recipient_user_id
-                          AND status = 'active'"""  # nosec B608 - the lane predicate
-                        # below is a module-level constant of static SQL text and the
-                        # lane itself is BOUND as `:is_sos_lane`; nothing
-                        # caller-supplied reaches this statement.
-                        + _share_lane_match_sql()
-                        + """
+                          AND status = 'active'
                         """
                     ),
                     params,
@@ -4447,13 +4311,12 @@ class OneLocationAgentService:
                             INSERT INTO one_location_share_grants (
                               owner_user_id, recipient_user_id, recipient_key_id, status,
                               consent_scope, capability_scopes, duration_hours, expires_at,
-                              ceiling_expires_at, duration_mode, source_circle_id,
-                              created_at, updated_at, metadata
+                              duration_mode, source_circle_id, created_at, updated_at, metadata
                             )
                             VALUES (
                               :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                               'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                              :duration_hours, :expires_at, :ceiling_expires_at, :duration_mode,
+                              :duration_hours, :expires_at, :duration_mode,
                               CAST(:source_circle_id AS UUID), NOW(), NOW(),
                               CAST(:metadata_json AS JSONB)
                             )
@@ -4616,23 +4479,13 @@ class OneLocationAgentService:
         }
         if capability is not None:
             metadata["capability_token"] = capability["token"]
-        # Which of the two replacement lanes this grant lands in. Bound into
-        # BOTH write paths below -- the enforced transaction reads it out of
-        # `grant_params`, the non-enforced branch binds it on its own revoke.
-        is_sos_lane = _is_sos_lane(resolved_kind)
         grant_params = {
             "owner_user_id": owner_user_id,
             "recipient_user_id": recipient_user_id,
             "recipient_key_id": key_id,
-            "is_sos_lane": is_sos_lane,
             "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
             "duration_hours": duration,
             "expires_at": expires_at,
-            # The owner is authorizing this expiry right now -- at creation
-            # time the ceiling and the live expiry are the same moment. A
-            # later self-serve shrink/regrow (shorten_grant) will move
-            # expires_at without ever touching this.
-            "ceiling_expires_at": expires_at,
             "duration_mode": resolved_duration_mode,
             "source_circle_id": source_circle_id,
             "metadata_json": _json_param(metadata),
@@ -4647,30 +4500,18 @@ class OneLocationAgentService:
                 grant_params=grant_params,
             )
         else:
-            # Same two-lane replacement rule as the enforced path above: an
-            # SOS grant never supersedes a normal share and vice versa, and the
-            # split is `sos` vs everything-else rather than one lane per share
-            # kind. This is the branch `approve_request` reaches (it calls
-            # `create_grant` without `enforce_connection`), so approving a
-            # plain access request must not tear down a live SOS share either.
             self._execute_many(
                 """
                 UPDATE one_location_share_grants
                 SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                 WHERE owner_user_id = :owner_user_id
                   AND recipient_user_id = :recipient_user_id
-                  AND status = 'active'"""  # nosec B608 - the lane predicate below
-                # is a module-level constant of static SQL text and the lane itself is
-                # BOUND as `:is_sos_lane`; nothing caller-supplied reaches this
-                # statement.
-                + _share_lane_match_sql()
-                + """
+                  AND status = 'active'
                 RETURNING id
                 """,
                 {
                     "owner_user_id": owner_user_id,
                     "recipient_user_id": recipient_user_id,
-                    "is_sos_lane": is_sos_lane,
                 },
             )
             row = self._execute_one(
@@ -4678,13 +4519,12 @@ class OneLocationAgentService:
                 INSERT INTO one_location_share_grants (
                   owner_user_id, recipient_user_id, recipient_key_id, status,
                   consent_scope, capability_scopes, duration_hours, expires_at,
-                  ceiling_expires_at, duration_mode, source_circle_id,
-                  created_at, updated_at, metadata
+                  duration_mode, source_circle_id, created_at, updated_at, metadata
                 )
                 VALUES (
                   :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                   'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                  :duration_hours, :expires_at, :ceiling_expires_at, :duration_mode,
+                  :duration_hours, :expires_at, :duration_mode,
                   CAST(:source_circle_id AS UUID), NOW(), NOW(),
                   CAST(:metadata_json AS JSONB)
                 )
@@ -4971,21 +4811,11 @@ class OneLocationAgentService:
               LIMIT 1
             ),
             revoked_grants AS (
-              -- Two-lane replacement, same invariant as the two non-atomic
-              -- create paths: replacement is scoped to the emergency lane, so
-              -- an SOS grant never supersedes a normal share and a normal share
-              -- never supersedes an SOS grant. Two lanes (`sos` vs
-              -- everything-else), NOT one lane per share kind.
               UPDATE one_location_share_grants g
               SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
               WHERE g.owner_user_id = :owner_user_id
                 AND g.recipient_user_id = :recipient_user_id
-                AND g.status = 'active'"""  # nosec B608 - the lane predicate below
-            # is a module-level constant of static SQL text with a fixed alias
-            # substituted, and the lane itself is BOUND as `:is_sos_lane`; nothing
-            # caller-supplied reaches this statement.
-            + _share_lane_match_sql("g")
-            + """
+                AND g.status = 'active'
                 AND EXISTS (SELECT 1 FROM eligible_recipient)
                 AND NOT EXISTS (SELECT 1 FROM replayed_grant)
               RETURNING g.id
@@ -4994,14 +4824,13 @@ class OneLocationAgentService:
               INSERT INTO one_location_share_grants (
                 id, owner_user_id, recipient_user_id, recipient_key_id,
                 status, consent_scope, capability_scopes, duration_hours,
-                expires_at, ceiling_expires_at, duration_mode, source_circle_id,
-                created_at, updated_at, metadata
+                expires_at, duration_mode, source_circle_id, created_at, updated_at, metadata
               )
               SELECT
                 CAST(:grant_id AS UUID),
                 :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                 'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                :duration_hours, :expires_at, :expires_at, :duration_mode,
+                :duration_hours, :expires_at, :duration_mode,
                 CAST(:source_circle_id AS UUID), NOW(), NOW(),
                 CAST(:metadata_json AS JSONB)
               FROM eligible_recipient
@@ -5118,10 +4947,6 @@ class OneLocationAgentService:
                 "enforce_connection": enforce_connection,
                 "source_circle_id": grant_source_circle_id,
                 "require_sms_contact": resolved_kind == "sos",
-                # The `revoked_grants` CTE above is lane-scoped. This dict is
-                # built independently of `create_grant`'s, so a missing bind
-                # here fails OPEN to the old kind-blind replacement.
-                "is_sos_lane": _is_sos_lane(resolved_kind),
                 "envelope_metadata_json": envelope_fields["metadata_json"],
                 **{key: value for key, value in envelope_fields.items() if key != "metadata_json"},
             },
@@ -5601,12 +5426,19 @@ class OneLocationAgentService:
               envelope.created_at AS map_envelope_created_at,
               envelope.metadata AS map_envelope_metadata
             FROM one_location_share_grants g
-            -- Unconditional, not opt-in. A grant already IS the sharer's
-            -- consent -- they chose the recipient and the duration when they
-            -- created it. Gating map visibility behind a second, separate
-            -- `presence_mode` preference meant a share could exist, be
-            -- active, and still never appear where the recipient was most
-            -- likely to look for it. See #5425.
+            -- Opt-in, and it stays opt-in.
+            --
+            -- `presence_mode` defaults to 'ghost', so appearing on somebody
+            -- else's map is something the sharer has to choose. Widening this
+            -- to "anyone who has not explicitly opted out" was considered and
+            -- rejected: it would have made every existing sharer visible
+            -- without asking them, which is not a default anyone gets to
+            -- change on their behalf. The answer was to make the choice
+            -- findable instead -- it now lives in Location settings rather
+            -- than only behind a Ghost toggle on the map screen.
+            JOIN one_location_map_preferences preference
+              ON preference.user_id = g.owner_user_id
+             AND preference.presence_mode = 'foreground_private'
             LEFT JOIN actor_identity_cache owner ON owner.user_id = g.owner_user_id
             JOIN LATERAL (
               SELECT *
@@ -6658,12 +6490,6 @@ class OneLocationAgentService:
         owner_label = _identity_notification_label(owner_identity)
         recipient_identity = self._identity_row(recipient_user_id or "")
         recipient_label = _identity_notification_label(recipient_identity)
-        # Which lane ended. #5552 made `share_kind` the discriminator between
-        # the emergency (SMS / Save My Soul) lane and every other share, and a
-        # person can hold one of each at the same time -- so "a share ended"
-        # without naming the lane is genuinely ambiguous to the recipient.
-        revoked_share_kind = str(row.get("share_kind") or "").strip().lower()
-        revoked_via_sms = revoked_share_kind == "sos"
         self._insert_event(
             owner_user_id=str(row.get("owner_user_id") or owner_user_id),
             actor_user_id=owner_user_id,
@@ -6673,7 +6499,6 @@ class OneLocationAgentService:
             metadata={
                 "reason": "owner_revoke" if actor_is_owner else "recipient_revoke",
                 "counterpart_label": recipient_label,
-                "share_kind": revoked_share_kind or "standard",
             },
         )
         notification_user_id = (
@@ -6682,24 +6507,11 @@ class OneLocationAgentService:
         self._send_metadata_notification(
             user_id=notification_user_id,
             notification_type="location_share_revoked",
-            # "SMS location sharing" is the recipient's name for this, not
-            # "SOS" -- an SMS alert is how it reached them, and the phrase has
-            # to match what they remember receiving.
-            title=(
-                "SMS location sharing stopped" if revoked_via_sms else "Location access revoked"
-            ),
+            title="Location access revoked",
             body=(
-                (
-                    f"{owner_label} stopped sharing their location with you over SMS."
-                    if revoked_via_sms
-                    else f"{owner_label} removed your location access."
-                )
+                f"{owner_label} removed your location access."
                 if actor_is_owner
-                else (
-                    f"{recipient_label} stopped receiving your SMS location sharing."
-                    if revoked_via_sms
-                    else f"{recipient_label} stopped receiving your location share."
-                )
+                else f"{recipient_label} stopped receiving your location share."
             ),
             notification_tag=f"one-location-revoked:{grant_id}",
             request_url=_one_location_url(
@@ -6711,10 +6523,6 @@ class OneLocationAgentService:
                 "owner_display_label": owner_label,
                 "recipient_user_id": recipient_user_id,
                 "recipient_display_label": recipient_label,
-                # Carried so the client's own fallback copy can name the same
-                # lane instead of re-deriving it from a grant it may no longer
-                # be holding -- the grant is revoked by the time this arrives.
-                "share_kind": revoked_share_kind or "standard",
             },
         )
         return self._grant_payload(row) or {}
@@ -6722,29 +6530,21 @@ class OneLocationAgentService:
     def shorten_grant(
         self, *, caller_user_id: str, grant_id: str, duration_hours: float
     ) -> dict[str, Any]:
-        """Move a grant's expiry anywhere the owner already authorized. Either side may do this.
+        """Bring a grant's expiry earlier. Either side may do this; neither may extend.
 
-        The owner already agreed to be seen up to `ceiling_expires_at` --
-        moving the live expiry to anything at or under that ceiling, in
-        either direction, needs no fresh consent from the other party: a
-        decrease is a partial early revoke, and a later increase back toward
-        the ceiling is just returning to what was already agreed, not asking
-        for anything new. Only a candidate PAST the ceiling grows how long
-        the recipient can see the owner, which is the owner's consent to
-        give again, not something either side can hand themselves through
-        this endpoint -- that goes through request_access instead, and the
-        owner approves it like any other request (which also mints a fresh
-        ceiling for the grant it produces).
-
-        A grant with no known ceiling (an until_stopped share, or a row from
-        before the ceiling existed) falls back to the live `expires_at` as
-        its own bound, which reproduces this endpoint's original shorten-only
-        behavior exactly.
+        Shortening only ever reduces exposure, so it needs no fresh consent
+        from the other party -- the owner already agreed to be seen at least
+        this long, and the recipient giving back time early is just an
+        early, partial revoke. Extending is a different question: it grows
+        how long the recipient can see the owner, and that is the owner's
+        consent to give again, not something either side can hand
+        themselves through this endpoint. A person who wants more time goes
+        through request_access instead, and the owner approves it like any
+        other request.
         """
         row = self._execute_one(
             """
-            SELECT id, owner_user_id, recipient_user_id, expires_at,
-                   ceiling_expires_at, status
+            SELECT id, owner_user_id, recipient_user_id, expires_at, status
             FROM one_location_share_grants
             WHERE id = CAST(:grant_id AS UUID)
               AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
@@ -6769,18 +6569,13 @@ class OneLocationAgentService:
             ) from exc
         candidate_expires_at = datetime.now(timezone.utc) + timedelta(hours=duration)
         current_expires_at = row.get("expires_at")
-        ceiling_expires_at = row.get("ceiling_expires_at")
-        # No ceiling on record -- fall back to the live expiry, which is
-        # exactly the original shorten-only bound this endpoint had before
-        # ceilings existed.
-        bound = ceiling_expires_at if ceiling_expires_at is not None else current_expires_at
-        if bound is not None:
-            if bound.tzinfo is None:
-                bound = bound.replace(tzinfo=timezone.utc)
-            if candidate_expires_at > bound:
+        if current_expires_at is not None:
+            if current_expires_at.tzinfo is None:
+                current_expires_at = current_expires_at.replace(tzinfo=timezone.utc)
+            if candidate_expires_at >= current_expires_at:
                 raise OneLocationAgentError(
                     "LOCATION_GRANT_SHORTEN_ONLY",
-                    "This can only move within what was already approved.",
+                    "This can only make a share end sooner, not later.",
                     status_code=422,
                 )
 
@@ -6794,11 +6589,6 @@ class OneLocationAgentService:
             WHERE id = CAST(:grant_id AS UUID)
               AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
               AND status = 'active'
-              -- Re-checked atomically against whatever the row's bound is
-              -- RIGHT NOW, not the possibly-stale value read above -- closes
-              -- the window where a concurrent set_grant_duration lowers the
-              -- ceiling between this function's read and this write.
-              AND :new_expires_at <= COALESCE(ceiling_expires_at, expires_at)
             RETURNING *
             """,
             {
@@ -6809,9 +6599,8 @@ class OneLocationAgentService:
             },
         )
         if not updated:
-            # Revoked, or raced past a since-lowered ceiling, between the
-            # read above and this write -- report the grant as it now
-            # stands rather than raising on a race.
+            # Revoked between the read above and this write -- report the
+            # grant as it now stands rather than raising on a race.
             existing_row = self._execute_one(
                 """
                 SELECT * FROM one_location_share_grants
@@ -6828,15 +6617,6 @@ class OneLocationAgentService:
         owner_label = _identity_notification_label(owner_identity)
         recipient_identity = self._identity_row(recipient_user_id or "")
         recipient_label = _identity_notification_label(recipient_identity)
-        # Which way this particular call moved the expiry -- shrinking to 15
-        # min and then regrowing to 30 (still under the ceiling) is a real
-        # increase, and must not be reported to either party as a shorten.
-        direction = _share_duration_change_direction(
-            previous_expires_at=current_expires_at,
-            new_expires_at=candidate_expires_at,
-            new_mode="timed",
-        )
-        grew = direction == "extended"
         self._insert_event(
             owner_user_id=str(row.get("owner_user_id") or caller_user_id),
             actor_user_id=caller_user_id,
@@ -6845,32 +6625,21 @@ class OneLocationAgentService:
             event_type="location_share_shortened",
             metadata={
                 "reason": "owner_shorten" if actor_is_owner else "recipient_shorten",
-                "direction": direction,
                 "counterpart_label": recipient_label,
             },
         )
         notification_user_id = (
             recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")
         )
-        if grew:
-            notification_title = "Location access time changed"
-            notification_body = (
-                f"{owner_label} adjusted the shared time, within what was already approved."
-                if actor_is_owner
-                else f"{recipient_label} adjusted their viewing time, within what you already approved."
-            )
-        else:
-            notification_title = "Location access shortened"
-            notification_body = (
-                f"{owner_label} shortened your location access."
-                if actor_is_owner
-                else f"{recipient_label} gave back some of their remaining time early."
-            )
         self._send_metadata_notification(
             user_id=notification_user_id,
             notification_type="location_share_shortened",
-            title=notification_title,
-            body=notification_body,
+            title="Location access shortened",
+            body=(
+                f"{owner_label} shortened your location access."
+                if actor_is_owner
+                else f"{recipient_label} gave back some of their remaining time early."
+            ),
             notification_tag=f"one-location-shortened:{grant_id}",
             request_url=_one_location_url(
                 grantId=grant_id, section="shared" if actor_is_owner else "people"
@@ -6881,29 +6650,14 @@ class OneLocationAgentService:
                 "owner_display_label": owner_label,
                 "recipient_user_id": recipient_user_id,
                 "recipient_display_label": recipient_label,
-                "direction": direction,
             },
         )
         return self._grant_payload(updated) or {}
 
     def _active_grant_between(
-        self, *, owner_user_id: str, recipient_user_id: str, is_sos_lane: bool | None
+        self, *, owner_user_id: str, recipient_user_id: str
     ) -> dict[str, Any] | None:
-        """The live share from owner to recipient IN ONE LANE, if there is one.
-
-        A pair can now hold two live grants at once -- one normal share and one
-        SOS -- so "the live share between these two people" is no longer a
-        single well-defined row and this read must say which one it means.
-        ``is_sos_lane`` is required for exactly that reason: left implicit, the
-        ``ORDER BY created_at DESC`` below silently resolves to whichever grant
-        was created most recently, which during an emergency is the SOS grant.
-
-        Pass ``False`` for the normal-share lane, ``True`` for the emergency
-        lane, or ``None`` to deliberately mean "either lane, newest wins" --
-        which is the pre-#5506 behaviour and is almost never what a caller
-        wants.
-        """
-        lane_predicate = "" if is_sos_lane is None else _share_lane_match_sql()
+        """The live share from owner to recipient, if there is one right now."""
         return self._execute_one(
             """
             SELECT id, expires_at, duration_mode, duration_hours
@@ -6911,20 +6665,11 @@ class OneLocationAgentService:
             WHERE owner_user_id = :owner_user_id
               AND recipient_user_id = :recipient_user_id
               AND status = 'active'
-              AND (expires_at IS NULL OR expires_at > NOW())"""  # nosec B608 -
-            # `lane_predicate` is either empty or a module-level constant of static
-            # SQL text, and the lane itself is BOUND as `:is_sos_lane`; nothing
-            # caller-supplied reaches this statement.
-            + lane_predicate
-            + """
+              AND (expires_at IS NULL OR expires_at > NOW())
             ORDER BY created_at DESC
             LIMIT 1
             """,
-            {
-                "owner_user_id": owner_user_id,
-                "recipient_user_id": recipient_user_id,
-                "is_sos_lane": bool(is_sos_lane),
-            },
+            {"owner_user_id": owner_user_id, "recipient_user_id": recipient_user_id},
         )
 
     def set_grant_duration(
@@ -6999,11 +6744,6 @@ class OneLocationAgentService:
             SET duration_mode = :duration_mode,
                 duration_hours = :duration_hours,
                 expires_at = :new_expires_at,
-                -- The owner is re-authorizing this share right now, in
-                -- whichever direction they moved it -- their explicit choice
-                -- is the new ceiling a later self-serve shrink/regrow (via
-                -- shorten_grant) can move freely within, same as at creation.
-                ceiling_expires_at = :new_expires_at,
                 updated_at = NOW()
             WHERE id = CAST(:grant_id AS UUID)
               AND owner_user_id = :owner_user_id
@@ -7126,18 +6866,8 @@ class OneLocationAgentService:
         # crafted id cannot attach an ask to somebody else's grant. When it does
         # not check out we fall back to the real active grant rather than
         # failing: the person is asking for time either way.
-        # Scoped to the NORMAL-SHARE lane on purpose. An access request is an
-        # ask for ordinary visibility, and the only grant it can sensibly be an
-        # extension of is the ordinary one. Unscoped, this read returns the
-        # newest live grant -- so while the owner has an SOS share running with
-        # this same person, a client correctly naming the share it wants
-        # extended was silently redirected onto the SOS grant by the mismatch
-        # fallback below, and `remaining_label` then quoted the SOS grant's
-        # hours back at them. Nobody may extend an emergency share by asking.
         active_grant = self._active_grant_between(
-            owner_user_id=owner_user_id,
-            recipient_user_id=requester_user_id,
-            is_sos_lane=False,
+            owner_user_id=owner_user_id, recipient_user_id=requester_user_id
         )
         active_grant_id = str(active_grant.get("id") or "") if active_grant else ""
         requested_grant_id = str(extends_grant_id or "").strip()
@@ -7353,7 +7083,7 @@ class OneLocationAgentService:
         was_extension = bool(str(request_row.get("extends_grant_id") or "").strip())
         if duration_hours is None and duration_mode is None:
             resolved_mode = requested_mode or TIMED_LOCATION_SHARE_DURATION_MODE
-            delta_hours = (
+            resolved_hours = (
                 None
                 if _is_until_stopped_share(resolved_mode)
                 else (
@@ -7364,29 +7094,7 @@ class OneLocationAgentService:
             )
         else:
             resolved_mode = duration_mode or TIMED_LOCATION_SHARE_DURATION_MODE
-            delta_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
-        # For an extension, `delta_hours` is the extra amount being granted --
-        # what the requester asked for (or the owner's override), not the
-        # share's new total. The actual grant still needs the total (it
-        # replaces the live grant wholesale), so add the delta to however much
-        # time that grant has left right now -- read fresh here rather than
-        # trusting a total computed back when the ask was made, so a slow
-        # approval does not silently drift the result.
-        resolved_hours = delta_hours
-        if was_extension and delta_hours is not None:
-            existing_grant = self._active_grant_between(
-                owner_user_id=owner_user_id,
-                recipient_user_id=requester_user_id,
-                is_sos_lane=False,
-            )
-            existing_expires_at = existing_grant.get("expires_at") if existing_grant else None
-            if existing_expires_at is not None:
-                remaining_hours = max(
-                    0.0, (existing_expires_at - _utcnow()).total_seconds() / 3600.0
-                )
-                resolved_hours = remaining_hours + delta_hours
-            # else: nothing live to extend (expired/revoked since the ask) --
-            # grant exactly the delta, same as a fresh share.
+            resolved_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
         grant = self.create_grant(
             owner_user_id=owner_user_id,
             recipient_user_id=requester_user_id,
@@ -7412,15 +7120,10 @@ class OneLocationAgentService:
         owner_label = _identity_notification_label(owner_identity)
         granted_hours = _duration_metadata_value(grant.get("durationHours"))
         granted_mode = grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE
-        # The recipient does not need the share's new total repeated back at
-        # them -- they already knew that a second ago. What is new is how much
-        # MORE they just got, so an extension's notification and feed row name
-        # the delta actually applied, not the resulting total.
-        display_hours = delta_hours if was_extension else granted_hours
         granted_label = (
             "for as long as you need"
             if _is_until_stopped_share(str(granted_mode))
-            else format_duration_label(display_hours)
+            else format_duration_label(granted_hours)
         )
         self._insert_event(
             owner_user_id=owner_user_id,
@@ -7430,7 +7133,7 @@ class OneLocationAgentService:
             request_id=request_id,
             event_type="location_access_approved",
             metadata={
-                "duration_hours": display_hours,
+                "duration_hours": granted_hours,
                 "duration_mode": granted_mode,
                 "counterpart_label": requester_label,
                 # Swapped in for the requester's copy of this feed row, so they
@@ -7466,7 +7169,7 @@ class OneLocationAgentService:
                 "grant_id": grant["id"],
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
-                "duration_hours": display_hours,
+                "duration_hours": granted_hours,
                 "duration_mode": granted_mode,
                 "expires_at": grant.get("expiresAt"),
                 "is_extension": "true" if was_extension else None,

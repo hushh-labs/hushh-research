@@ -84,31 +84,6 @@ function SheetOverlay({
   )
 }
 
-/**
- * The pointer handlers that make an element behave as the sheet's grabber.
- *
- * Exposed through context so a sheet whose header ALREADY carries a grabber --
- * or something standing in for one, like a slide indicator -- can be dragged
- * by that row instead of stacking a second 44px handle above it. Attach all
- * four to the SAME element: the drag takes pointer capture on the element it
- * started from and releases it on the same one.
- */
-type SheetDragHandleProps = {
-  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void
-  onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void
-  onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void
-  onPointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void
-}
-
-const SheetDragHandleContext = React.createContext<SheetDragHandleProps | null>(
-  null,
-)
-
-/** Null unless the surrounding sheet is a draggable bottom sheet. */
-function useSheetDragHandle(): SheetDragHandleProps | null {
-  return React.useContext(SheetDragHandleContext)
-}
-
 type SheetContentProps =
   React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content> & {
     side?: "top" | "right" | "bottom" | "left"
@@ -118,18 +93,6 @@ type SheetContentProps =
      * sheets. Bottom sheets opt in by default; other sides are unaffected.
      */
     dragDismiss?: boolean
-    /**
-     * Lets a downward drag that starts anywhere in the sheet body dismiss it.
-     *
-     * On by default, because most sheets ARE their own scroll box: the drag
-     * only engages once that box is already scrolled to the top, so it cannot
-     * steal a scroll. A sheet that is a fixed frame with its own inner
-     * scroller has no such guard -- the outer surface never scrolls, so its
-     * `scrollTop` is permanently 0 and every downward drag inside the body
-     * would engage and `preventDefault()` the scroll it was trying to make.
-     * Those sheets pass `false` and keep the handle as the only drag surface.
-     */
-    contentDragDismiss?: boolean
     /** Renders the accessible drag affordance above a draggable bottom sheet. */
     showDragHandle?: boolean
     /** Optional surface-specific scrim treatment for a semantic app sheet. */
@@ -160,7 +123,6 @@ function SheetContent(
     showCloseButton = true,
     showOverlay = true,
     dragDismiss = true,
-    contentDragDismiss = true,
     showDragHandle,
     overlayClassName,
     onPointerDown,
@@ -186,19 +148,6 @@ function SheetContent(
   })
   const shouldShowDragHandle =
     side === "bottom" && dragDismiss && (showDragHandle ?? true)
-  const dragEnabled = side === "bottom" && dragDismiss
-  const dragHandleProps = React.useMemo<SheetDragHandleProps | null>(
-    () =>
-      dragEnabled
-        ? {
-            onPointerDown: onHandlePointerDown,
-            onPointerMove: onHandlePointerMove,
-            onPointerUp: onHandlePointerEnd,
-            onPointerCancel: onHandlePointerEnd,
-          }
-        : null,
-    [dragEnabled, onHandlePointerDown, onHandlePointerMove, onHandlePointerEnd],
-  )
 
   return (
     <SheetPortal>
@@ -221,19 +170,19 @@ function SheetContent(
           className
         )}
         onPointerDown={(event) => {
-          if (contentDragDismiss) onContentPointerDown(event)
+          onContentPointerDown(event)
           onPointerDown?.(event)
         }}
         onPointerMove={(event) => {
-          if (contentDragDismiss) onContentPointerMove(event)
+          onContentPointerMove(event)
           onPointerMove?.(event)
         }}
         onPointerUp={(event) => {
-          if (contentDragDismiss) onContentPointerEnd(event)
+          onContentPointerEnd(event)
           onPointerUp?.(event)
         }}
         onPointerCancel={(event) => {
-          if (contentDragDismiss) onContentPointerEnd(event)
+          onContentPointerEnd(event)
           onPointerCancel?.(event)
         }}
         {...props}
@@ -262,9 +211,7 @@ function SheetContent(
             />
           </div>
         ) : null}
-        <SheetDragHandleContext.Provider value={dragHandleProps}>
-          {children}
-        </SheetDragHandleContext.Provider>
+        {children}
         {/*
           The visible circle stays exactly 32px (p-2 + size-4) so no sheet
           changes appearance. `after:-inset-1.5` extends only the HIT region to
@@ -531,5 +478,4 @@ export {
   SheetFooter,
   SheetTitle,
   SheetDescription,
-  useSheetDragHandle,
 }

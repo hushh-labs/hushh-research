@@ -140,15 +140,6 @@ Production requires an explicit production request and an actor in
    health, provenance, schema, or semantic authority failures follow the owning
    workflow's bounded rollback contract. Humans do not repair traffic with an
    ad hoc `gcloud run deploy` or `update-traffic` command.
-6. For an instant rollback outside the deploy workflow's own automatic health
-   contract — e.g. a release that classified healthy but silently reverted
-   previously-shipped functionality — dispatch `.github/workflows/rollback.yml`
-   (`./bin/hushh rollback <uat|production> [backend|frontend|all] --reason
-   "<reason>"`). This is the sanctioned mechanism item 5 refers to, not the ad
-   hoc `gcloud` it prohibits: it is actor-gated by the same
-   `manual_dispatch_users` allowlist that already gates deploy dispatch,
-   authenticates via the same Workload Identity Federation, and calls the
-   same, unmodified `scripts/ci/cloudrun-rollback.sh` the automatic path uses.
 
 ### 7. Close out
 

@@ -126,7 +126,7 @@ describe("RuntimeSecretSettingsCard", () => {
       />,
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Unlock" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Unlock vault" })[0]);
 
     expect(unlock).toHaveBeenCalledTimes(1);
     expect(storeSpy).not.toHaveBeenCalled();

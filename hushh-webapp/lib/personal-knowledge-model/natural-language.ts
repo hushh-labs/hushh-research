@@ -278,7 +278,7 @@ function describeScopeForDomain(
   }
   if (normalizedScope === "vault.owner") {
     return {
-      label: "Can manage everything you've saved.",
+      label: "Can manage your full vault and everything inside it.",
       coverageKind: "broad",
     };
   }

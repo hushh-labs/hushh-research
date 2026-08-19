@@ -134,7 +134,7 @@ export function PortfolioSourceSwitcher({
           selectionBusy
             ? "Saving your portfolio choice."
             : !canChangePortfolioSource
-              ? "Unlock to change the active portfolio."
+              ? "Unlock your Vault to change the active portfolio."
             : "Choose the holdings you want to review."
         }
         separatorInset

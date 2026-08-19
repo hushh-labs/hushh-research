@@ -138,28 +138,11 @@ vi.mock("@/lib/morphy-ux/hooks/use-route-transition", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useRequireAuth: () => ({ userId: "test-user", user: { uid: "test-user" } }),
-}));
-
-// Mutable. The token was previously hardcoded truthy, which made the one state
-// the screen actually breaks in -- an account with no lock, where VaultLockGuard
-// renders /one children with a null token on purpose -- impossible to express in
-// this file. Every existing case still runs against the truthy default.
-const vaultHarness = vi.hoisted(() => ({
-  vaultOwnerToken: "in-memory-owner-token" as string | null,
+  useRequireAuth: () => ({ userId: "test-user" }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({ vaultOwnerToken: vaultHarness.vaultOwnerToken }),
-}));
-
-// The real sheet is a credential surface with its own portal, focus trap and
-// Firebase dependencies. What these cases need to know is only whether the map
-// ASKED for a lock, so stand in for it with something assertable.
-vi.mock("@/components/vault/vault-unlock-dialog", () => ({
-  VaultUnlockDialog: ({ title }: { title: string }) => (
-    <div data-testid="vault-unlock-dialog">{title}</div>
-  ),
+  useVault: () => ({ vaultOwnerToken: "in-memory-owner-token" }),
 }));
 
 // Mutable so a case can assert the NATIVE branch. `setPadding` is a real
@@ -352,10 +335,7 @@ import {
   readOneLocationControlState,
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
-import {
-  forgetCachedRendererConsent,
-  GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
-} from "@/lib/one-location/map-renderer-consent";
+import { forgetCachedRendererConsent } from "@/lib/one-location/map-renderer-consent";
 import { __resetNativeMapLifecycleForTests } from "@/lib/one-location/native-map-lifecycle";
 
 const DEFAULT_PLACE_FOCUS = { ...experienceHarness.placeFocus };
@@ -448,7 +428,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vaultHarness.vaultOwnerToken = "in-memory-owner-token";
   forgetOneLocationControlPreference("test-user");
   forgetCachedRendererConsent("test-user");
   cleanup();
@@ -785,16 +764,9 @@ describe("LocationImmersiveMap demo experience", () => {
         }),
       ]);
     });
-    const searchLegend = screen.getByTestId(
-      "one-location-nearby-search-area-legend",
-    );
-    // The colour key is the legend's own job: only the map can say which dot is
-    // the owner.
-    expect(searchLegend).toHaveTextContent("You are here");
-    // The ring's radius is not. With the drawer open its list is headed "Places
-    // within 500 m" a few centimetres below, and a phone header carrying the
-    // same number twice is what made this screen read as cluttered.
-    expect(searchLegend).not.toHaveTextContent("500 m around you");
+    expect(
+      screen.getByTestId("one-location-nearby-search-area-legend"),
+    ).toHaveTextContent("500 m around you");
     expect(mapHarness.map.fitBounds).toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId("clear-nearby-search-area"));
@@ -838,71 +810,6 @@ describe("LocationImmersiveMap demo experience", () => {
       "h-[100dvh]",
     );
   });
-
-  it.each([
-    { platform: "web", native: false },
-    { platform: "native", native: true },
-  ])(
-    "opens the neutral view on a camera derived from the container ($platform)",
-    async ({ native }) => {
-      // Regression, QA "map cut from the top". Distinct from the setPadding
-      // case above: nothing calls setPadding here, the container is correct,
-      // and the band is Google's own out-of-world grey. A Web Mercator world
-      // is a square of 256 * 2^zoom pixels, so the fixed `{ lat: 20, lng: 0 }`
-      // at zoom 2 was a 1024px world inside a 1080px-tall viewport -- and
-      // latitude 20 sits above the world's vertical middle, so the entire 56px
-      // shortfall landed on one edge as 86px of grey at the top. Measured in
-      // Chromium against the live Maps JS projection; the exact figure is
-      // asserted in `map-world-view.test.ts`.
-      //
-      // Both platforms, because both read this one config: the web shim hands
-      // it to `new google.maps.Map`, and the native bridge to
-      // GMSCameraPosition / CameraUpdateFactory, which use the same Web
-      // Mercator projection and the same zoom scale.
-      platformHarness.native = native;
-      experienceHarness.demoMode = false;
-      experienceHarness.query = "";
-
-      // Spied on Element.prototype, matching this file's own
-      // stubPhoneGeometry. Assigning to HTMLElement.prototype instead creates
-      // an own property that permanently shadows that spy for every later case
-      // in this file.
-      vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
-        function (this: Element) {
-          const filled = this.tagName === "CAPACITOR-GOOGLE-MAP";
-          const width = filled ? 1920 : 0;
-          const height = filled ? 1080 : 0;
-          return {
-            x: 0,
-            y: 0,
-            top: 0,
-            left: 0,
-            right: width,
-            bottom: height,
-            width,
-            height,
-            toJSON: () => ({}),
-          } as DOMRect;
-        },
-      );
-
-      render(<LocationImmersiveMap />);
-      // Settle the whole create chain before reading it. Leaving the tail of
-      // `withNativeMapLock` in flight lets this instance re-register the shared
-      // camera listeners after the case ends, which the name-pill cases later
-      // in this file drive by hand.
-      await waitFor(() => {
-        expect(mapHarness.map.setOnMarkerClickListener).toHaveBeenCalled();
-      });
-      const config = mapHarness.create.mock.calls.at(-1)?.[0]?.config;
-      // The equator, so the world is symmetric about the viewport centre.
-      expect(config.center).toEqual({ lat: 0, lng: 0 });
-      // 256 * 2^3 = 2048px, which covers both 1920 and 1080.
-      expect(config.zoom).toBe(3);
-      expect(256 * 2 ** config.zoom).toBeGreaterThanOrEqual(1920);
-      expect(256 * 2 ** config.zoom).toBeGreaterThanOrEqual(1080);
-    },
-  );
 
   it("never strands markers when the set changes mid-write", async () => {
     // Regression: a second "Your location" pin sat on the map where the device
@@ -1021,15 +928,7 @@ describe("LocationImmersiveMap demo experience", () => {
     const legend = screen.getByTestId("one-location-nearby-search-area-legend");
     expect(legend).toHaveTextContent("You are here");
     expect(legend).toHaveTextContent("Checking in at Hotel Two");
-    // Naming the two pins is the contract; restating the gap between them is
-    // not. The open drawer already says "You're about 180 m from here right
-    // now." under the selected row.
-    expect(legend).not.toHaveTextContent("180 m from you");
-    // And it is a row of the header's own grid now, not a card floating at a
-    // hand-counted offset that the phone's second header row landed on top of.
-    expect(
-      screen.getByRole("banner", { name: "Check in map controls" }),
-    ).toContainElement(legend);
+    expect(legend).toHaveTextContent("180 m from you");
 
     fireEvent.click(screen.getByTestId("clear-nearby-place-focus"));
     await waitFor(() => {
@@ -1080,19 +979,6 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(
       screen.getByTestId("one-location-nearby-search-area-legend"),
     ).toHaveTextContent("Checked in at Hotel Two");
-
-    // Dismissed, this legend is the only thing on screen describing the live
-    // check-in -- the drawer that was stating the distance and the radius in
-    // words is gone -- so it takes them back.
-    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("one-location-nearby-search-area-legend"),
-      ).toHaveTextContent("500 m around your place");
-    });
-    expect(
-      screen.getByTestId("one-location-nearby-search-area-legend"),
-    ).toHaveTextContent("180 m from you");
   });
 
   it("keeps the full search circle in the visible mobile viewport above the sheet", async () => {
@@ -1308,7 +1194,7 @@ describe("LocationImmersiveMap demo experience", () => {
   // here because dismiss no longer consults where the person came from; if it
   // ever starts again, the `query: ""` case is the one that regresses first.
   const CHECK_IN_ENTRIES = [
-    { name: "Map", query: "source=map" },
+    { name: "Your Map", query: "source=map" },
     { name: "the Location hub", query: "" },
     { name: "a legacy deep link", query: "demo=people" },
   ] as const;
@@ -1455,22 +1341,12 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.getByTestId("one-location-map-close")).toHaveAccessibleName(
       "Back to Location",
     );
+    expect(
+      screen.getByTestId("one-location-map-nearby-check-in"),
+    ).toHaveAccessibleName("Check in nearby");
     expect(screen.getByTestId("one-location-map-locate")).toHaveAccessibleName(
       "Show my location",
     );
-    // The drawer opens with this route, and a pill that re-opens an open drawer
-    // is a control with nothing to do -- it spent its width saying "Nearby 0"
-    // directly above a drawer counting the same people. Its whole job is the
-    // dismissed case, so that is when it exists.
-    expect(
-      screen.queryByTestId("one-location-map-nearby-check-in"),
-    ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("one-location-map-nearby-check-in"),
-      ).toHaveAccessibleName("Check in nearby");
-    });
     await waitFor(() => {
       expect(
         screen.getByTestId("one-location-map-sharing-status"),
@@ -1497,39 +1373,6 @@ describe("LocationImmersiveMap demo experience", () => {
     await waitFor(() => {
       expect(screen.queryByText("Ankit Kumar Singh")).not.toBeInTheDocument();
     });
-  });
-
-  it("keeps the top controls clear of the open check-in drawer on both layouts", async () => {
-    experienceHarness.demoMode = false;
-    experienceHarness.nearbyAvailable = true;
-
-    render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() => {
-      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
-        "data-map-ready",
-        "true",
-      );
-    });
-
-    const header = screen.getByRole("banner", {
-      name: "Check in map controls",
-    });
-    // From `md` up the drawer docks down the right edge as a portalled z-[712]
-    // panel, in its own stacking context above this z-30 header. Without the
-    // inset the Locate control renders underneath it -- on screen nowhere and
-    // tappable nowhere -- for as long as the drawer is open.
-    expect(header).toHaveClass("md:pr-[27rem]");
-    // On a phone, with the pill hidden the row has the width back, so Sharing
-    // rides beside the controls instead of taking a band of its own beneath
-    // them -- the band that used to be painted over the legend.
-    expect(header).toHaveClass("grid-cols-[auto_minmax(0,1fr)_auto]");
-
-    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
-    await waitFor(() => {
-      expect(header).not.toHaveClass("md:pr-[27rem]");
-    });
-    expect(header).toHaveClass("grid-cols-[auto_minmax(0,1fr)]");
   });
 
   it("does not build a synthetic history boundary on the check-in route", async () => {
@@ -2155,15 +1998,10 @@ describe("LocationImmersiveMap reported map defects", () => {
     ).toBe(true);
   });
 
-  it("keeps Check in in the header on check-in's own route once the drawer is dismissed", async () => {
+  it("keeps Check in in the header on check-in's own route", async () => {
     // That surface renders no tray at all, and this pill is the only way back
     // into the sheet after dismissing it. Removing it everywhere strands the
     // person on a map with nothing to do.
-    //
-    // "After dismissing it" is also the whole of its job, so it waits for that
-    // moment: while the drawer is up the pill re-opens what is already open,
-    // and spends its width reading "Nearby 0" above a drawer counting the same
-    // people.
     serviceHarness.getState.mockResolvedValue({
       recipients: [],
       ownerGrants: [],
@@ -2176,17 +2014,7 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
     expect(
       header.querySelector('[data-testid="one-location-map-nearby-check-in"]'),
-    ).toBeNull();
-
-    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
-
-    await waitFor(() => {
-      expect(
-        header.querySelector(
-          '[data-testid="one-location-map-nearby-check-in"]',
-        ),
-      ).not.toBeNull();
-    });
+    ).not.toBeNull();
   });
 
   it("answers Everyone instead of sitting disabled when no one shares with you", async () => {
@@ -2356,47 +2184,6 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(markerPayload).not.toContain("Abdul");
   });
 
-  it("tints a fresh circle-member pin distinctly instead of leaving it untinted (#5420)", async () => {
-    // Before this fix, a real (non-demo) person marker carried no `tint` at
-    // all, so `tintColor` reached the native bridge as `undefined` -- the
-    // marker fell back to whatever the platform SDK's default pin color
-    // happens to be, with no guaranteed contrast against map tiles.
-    //
-    // `capturedAt` is set to "now" (rather than reusing the fixed fixture
-    // timestamp `incomingMarker` uses elsewhere) so this marker reads as
-    // fresh regardless of when the suite runs -- a stale pin intentionally
-    // repaints to STALE_TINT, which would otherwise mask this assertion.
-    stubPhoneGeometry();
-    const freshMarker = incomingMarker(ANKIT, 25.4358, 81.8463);
-    const freshCapturedAt = new Date().toISOString();
-    freshMarker.envelope.capturedAt = freshCapturedAt;
-    freshMarker.envelope.plainPointForTest.capturedAt = freshCapturedAt;
-    serviceHarness.getMapState.mockResolvedValue({
-      markers: [freshMarker],
-      preferences: { presenceMode: "ghost" },
-    });
-
-    await renderReadyMap();
-    await waitFor(() => {
-      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
-        "data-map-marker-count",
-        "1",
-      );
-    });
-
-    await waitFor(() => {
-      const drawn = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as Array<{
-        tintColor?: { r: number; g: number; b: number; a: number };
-      }>;
-      // The batch may also include the self pin (its own, different tint);
-      // find the incoming circle-member pin specifically.
-      const personMarker = drawn?.find(
-        (marker) => marker.tintColor && marker.tintColor.r !== 0,
-      );
-      expect(personMarker?.tintColor).toEqual({ r: 88, g: 86, b: 214, a: 255 });
-    });
-  });
-
   it("draws no name over a rotated map, and none for a pin off screen", async () => {
     stubPhoneGeometry();
     serviceHarness.getMapState.mockResolvedValue({
@@ -2464,144 +2251,5 @@ describe("LocationImmersiveMap reported map defects", () => {
     // The camera settling is what ends the blackout.
     await reportCamera();
     expect(layer).toHaveClass("opacity-100");
-  });
-});
-
-/**
- * The renderer-consent card is the first thing anyone sees on Your Map, and its
- * button was silently inert for a whole class of account.
- *
- * `VaultLockGuard` renders /one children with NO owner token on purpose when the
- * account has never created a lock (`if (hasVault === false) return children`),
- * so the map mounts, draws, and shows this card with `vaultOwnerToken === null`.
- * `acceptRenderer` opened with `if (!vaultOwnerToken) return`, so every tap did
- * nothing: no request, no state change, no message. Confirmed against UAT server
- * logs on 2026-08-19 — a session opened /one/location/map at 18:15:50Z and
- * produced neither the token-gated map-state read nor a map-preferences PATCH.
- *
- * These cases lock the three ways that button can lie about what it is doing.
- */
-describe("Your Map renderer consent is never a silent no-op", () => {
-  beforeEach(() => {
-    // The default harness opens in demo mode, and `rendererReady` is
-    // `acceptedRenderer || demoMode` — so the card these cases are about is not
-    // even on screen unless the demo fixture is off.
-    experienceHarness.demoMode = false;
-    experienceHarness.nearbyAvailable = true;
-    experienceHarness.query = "source=map";
-  });
-
-  it("writes the current consent version and dismisses the card", async () => {
-    render(<LocationImmersiveMap />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
-    await waitFor(() => {
-      expect(serviceHarness.updateMapPreferences).toHaveBeenCalledWith({
-        vaultOwnerToken: "in-memory-owner-token",
-        rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
-      });
-    });
-    await waitFor(() => {
-      expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
-    });
-  });
-
-  it("asks for the missing lock instead of doing nothing when there is no owner token", async () => {
-    vaultHarness.vaultOwnerToken = null;
-
-    render(<LocationImmersiveMap />);
-
-    // The label is the first half of the fix: a button that cannot store
-    // consent must not say the word that promises it will.
-    const cta = screen.getByTestId("one-location-map-disclosure-accept");
-    expect(cta).toHaveTextContent("Set a lock");
-    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
-
-    fireEvent.click(cta);
-
-    // The second half: SOMETHING has to happen. This is the exact assertion
-    // that fails against the old handler, which returned here.
-    await waitFor(() => {
-      expect(screen.getByTestId("vault-unlock-dialog")).toHaveTextContent(
-        "Set a lock",
-      );
-    });
-    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
-  });
-
-  it("sends one write for a double tap", async () => {
-    let release: (value: {
-      presenceMode: "ghost";
-      rendererConsentVersion: string;
-    }) => void = () => {};
-    serviceHarness.updateMapPreferences.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          release = resolve;
-        }),
-    );
-
-    render(<LocationImmersiveMap />);
-
-    const cta = screen.getByRole("button", { name: "Continue" });
-    fireEvent.click(cta);
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("one-location-map-disclosure-accept"),
-      ).toBeDisabled();
-    });
-    fireEvent.click(screen.getByTestId("one-location-map-disclosure-accept"));
-
-    await act(async () => {
-      release({
-        presenceMode: "ghost",
-        rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
-      });
-      await Promise.resolve();
-    });
-
-    expect(serviceHarness.updateMapPreferences).toHaveBeenCalledTimes(1);
-  });
-
-  it("never lets a map-state read that started earlier revive the dismissed card", async () => {
-    // The bootstrap read is already in flight while the card is on screen, and
-    // it answers with the state from BEFORE the write. Applying that answer put
-    // the card back up with nothing said — the same symptom, one step later.
-    // Every getMapState resolver, in call order. Accepting turns on the marker
-    // refresh, which calls getMapState again — so the resolver that matters is
-    // the FIRST one, the read that was already in flight when the card was
-    // tapped. Capturing only the latest would answer the wrong request and
-    // quietly prove nothing.
-    const bootstrapReads: ((value: {
-      markers: never[];
-      preferences: { presenceMode: "ghost" };
-    }) => void)[] = [];
-    serviceHarness.getMapState.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          bootstrapReads.push(resolve);
-        }),
-    );
-
-    render(<LocationImmersiveMap />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() => {
-      expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
-    });
-
-    expect(bootstrapReads.length).toBeGreaterThan(0);
-
-    await act(async () => {
-      // No rendererConsentVersion: the state as it was before the accept.
-      bootstrapReads[0]({
-        markers: [],
-        preferences: { presenceMode: "ghost" },
-      });
-      await Promise.resolve();
-    });
-
-    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
   });
 });

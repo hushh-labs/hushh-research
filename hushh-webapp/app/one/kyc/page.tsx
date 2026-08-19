@@ -128,7 +128,7 @@ import {
 } from "./tokens";
 
 const STATUS_LABELS: Record<OneKycWorkflowStatus, string> = {
-  needs_client_connector: "Needs a lock",
+  needs_client_connector: "Needs vault setup",
   needs_scope: "Needs access",
   needs_documents: "Needs documents",
   needs_confirm: "Needs confirmation",
@@ -1345,7 +1345,7 @@ export function OneKycWorkspace({
       ) {
         return {
           status: "blocked" as const,
-          summary: "A reviewable draft and an unlocked private place are required.",
+          summary: "A reviewable draft and an unlocked vault are required.",
         };
       }
       const localDraft = localDrafts[selected.workflow_id];
@@ -1422,7 +1422,7 @@ export function OneKycWorkspace({
     async (workflow: OneKycWorkflow) => {
       if (workflowConsentRequestIds(workflow).length > 0) return workflow;
       if (!auth.userId || !vaultOwnerToken) {
-        throw new Error("Not ready yet. Try again.");
+        throw new Error("Vault owner token required.");
       }
       const selectedScopes = selectedScopesForWorkflow(
         workflow,
@@ -1670,7 +1670,7 @@ export function OneKycWorkspace({
       description?: string;
     }) => {
       if (!auth.userId || !vaultKey || !vaultOwnerToken) {
-        setError("Unlock to preview saved information.");
+        setError("Unlock your vault to preview saved information.");
         return;
       }
       const parsed = parseAttrScope(candidate.scope);
@@ -1876,11 +1876,11 @@ export function OneKycWorkspace({
 
         <div className="w-full">
           {(!vaultKey || !vaultOwnerToken) ? (
-            <SettingsGroup title="Lock required" description="Set a lock to use KYC.">
+            <SettingsGroup title="Vault required" description="Set up your vault to use KYC.">
               <SettingsRow
                 icon={AlertTriangle}
-                title="No lock yet"
-                description="Set a lock first."
+                title="Vault missing"
+                description="Set up your vault first."
               />
             </SettingsGroup>
           ) : (
@@ -2047,7 +2047,7 @@ export function OneKycWorkspace({
               </SettingsGroup>
 
               {selected.status === "needs_client_connector" ? (
-                <SettingsGroup embedded title="Data connector">
+                <SettingsGroup embedded title="Vault connector">
                   <SettingsRow
                     icon={AlertTriangle}
                     title="Sync required"
@@ -2537,7 +2537,7 @@ export function OneKycWorkspace({
             <SettingsGroup embedded title="Loading saved information">
               <SettingsRow
                 icon={RefreshCw}
-                title="Checking..."
+                title="Checking your vault"
                 description="Loading the saved values for this information section."
                 trailing={<Loader2 className="size-4 animate-spin text-muted-foreground" />}
                 stackTrailingOnMobile

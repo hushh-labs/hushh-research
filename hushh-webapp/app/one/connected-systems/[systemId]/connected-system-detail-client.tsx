@@ -115,7 +115,7 @@ export function ConnectedSystemDetailClient({
           user={user}
           open={showUnlock}
           onOpenChange={setShowUnlock}
-          title="Unlock"
+          title="Unlock vault"
           description="Unlock to review CRM."
           onSuccess={() => setShowUnlock(false)}
         />

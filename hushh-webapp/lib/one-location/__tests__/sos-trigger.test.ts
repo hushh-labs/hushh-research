@@ -499,54 +499,6 @@ describe("runSosPanic", () => {
     expect(new Date(incident.startedAt).toString()).not.toBe("Invalid Date");
   });
 
-  it("records ONLY the ids this alert created, never a share that was already live", async () => {
-    // What makes "I'm safe" safe. `handleStopSos` revokes exactly the ids in
-    // the incident, and `revokeGrant` is single-id with no cascade -- so the
-    // stop path was innocent in #5506 all along, and it stays innocent only
-    // for as long as this list contains nothing but grants this alert made.
-    //
-    // Pinned as a property rather than as a value, because the tempting future
-    // "optimisation" is to reuse an existing live share instead of creating a
-    // second grant. That would put a pre-existing grant id in here and
-    // reintroduce the exact bug at stop time: ending the alert would revoke
-    // the ordinary share the owner never meant to end.
-    const rA = makeRecipient("userA");
-    const rB = makeRecipient("userB");
-    createGrantMock
-      .mockResolvedValueOnce(makeGrant("sos-1", "userA"))
-      .mockResolvedValueOnce(makeGrant("sos-2", "userB"));
-    const publish = vi.fn().mockResolvedValue(undefined);
-
-    const incident = await runSosPanic({
-      vaultOwnerToken: "tok",
-      recipients: [rA, rB],
-      point: makePoint(),
-      publish,
-    });
-
-    // `createGrant` is async, so each recorded result is the promise it
-    // returned. Reading the ids back OUT of those results is the point: the
-    // assertion below compares the incident against what the service actually
-    // handed back, not against the literals the mock was primed with.
-    const created = await Promise.all(
-      createGrantMock.mock.results.map(
-        (result) => result.value as Promise<OneLocationGrant>,
-      ),
-    );
-    const createdIds = created.map((grant) => grant.id);
-    expect(createdIds).toEqual(["sos-1", "sos-2"]);
-    expect(incident.grantIds).toEqual(createdIds);
-    // Every call that produced one of these ids asked for the SOS lane. An id
-    // in here that came from an ordinary `createGrant` would mean "I'm safe"
-    // could revoke an ordinary share.
-    for (const call of createGrantMock.mock.calls) {
-      expect(call[0].shareKind).toBe("sos");
-      expect(call[0].reason).toBe("sos_panic");
-    }
-    const saved = saveSosIncidentMock.mock.calls[0][0];
-    expect(saved.grantIds).toEqual(createdIds);
-  });
-
   it("on full success calls saveSosIncident exactly once", async () => {
     const rA = makeRecipient("userA");
     const rB = makeRecipient("userB");

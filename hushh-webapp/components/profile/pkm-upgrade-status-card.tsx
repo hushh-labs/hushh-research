@@ -68,7 +68,7 @@ export function PkmUpgradeStatusCard({
               : status?.upgradeStatus === "current"
                 ? "Your saved details are up to date."
                 : status?.upgradeStatus === "awaiting_local_auth_resume"
-                  ? "Unlock to continue updating your saved details."
+                  ? "Unlock your vault to continue updating your saved details."
                   : status?.upgradeStatus === "running"
                     ? "Updating your saved details in the background while you keep using the app."
                     : status?.upgradeStatus === "failed"
@@ -133,7 +133,7 @@ export function PkmUpgradeStatusCard({
             Update paused
           </p>
           <p className="mt-1 text-sm text-foreground">
-            We could not finish updating your saved details. Try again after unlocking.
+            We could not finish updating your saved details. Try again after unlocking your vault.
           </p>
         </div>
       ) : null}

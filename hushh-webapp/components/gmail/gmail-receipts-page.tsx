@@ -1149,7 +1149,7 @@ export default function GmailReceiptsPage({
 
   const requestVaultUnlock = useCallback(() => {
     setShowVaultUnlock(true);
-    toast.info("Set a lock to save this summary to memory.");
+    toast.info("Set up your private vault to save this summary to memory.");
   }, []);
 
   const handleBuildReceiptMemoryPreview = useCallback(
@@ -1225,7 +1225,7 @@ export default function GmailReceiptsPage({
       if (!vaultKey || !vaultOwnerToken || !isVaultUnlocked) {
         setReceiptMemorySaveState("error");
         setReceiptMemoryMessage(
-          "Set a lock to save this summary to memory.",
+          "Set up your private vault to save this summary to memory.",
         );
         return;
       }
@@ -1338,11 +1338,7 @@ export default function GmailReceiptsPage({
     <AppPageShell
       as="div"
       width="reading"
-      className={
-        !isConnected
-          ? "min-h-[calc(100vh-160px)] flex flex-col justify-center items-center text-center pb-[calc(var(--app-bottom-fixed-ui,96px)+0.5rem)]"
-          : "pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
-      }
+      className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={
         journeyVariant === "workspace"
           ? {
@@ -1360,15 +1356,10 @@ export default function GmailReceiptsPage({
           : undefined
       }
     >
-      <AppPageHeaderRegion className={!isConnected ? "w-full max-w-md mx-auto" : undefined}>
+      <AppPageHeaderRegion>
         <PageHeader
           title="Receipts"
           description={pageTitle}
-          className={
-            !isConnected
-              ? "text-center flex flex-col items-center justify-center space-y-1 mb-4"
-              : undefined
-          }
           actions={
             isConnected ? (
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -1407,48 +1398,24 @@ export default function GmailReceiptsPage({
         />
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion className={!isConnected ? "w-full max-w-md mx-auto" : undefined}>
+      <AppPageContentRegion>
         <SurfaceStack compact>
           <SurfaceInset
-            className={`border px-4 py-4 text-sm sm:px-5 sm:py-5 ${statusToneClassName} ${
-              !isConnected
-                ? "flex flex-col items-center justify-center text-center space-y-4 p-6 sm:p-7"
-                : "space-y-4"
-            }`}
+            className={`space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5 ${statusToneClassName}`}
           >
-            <div
-              className={
-                !isConnected
-                  ? "flex flex-col items-center justify-center text-center w-full space-y-1.5"
-                  : "flex items-start justify-between gap-3"
-              }
-            >
-              <div
-                className={
-                  !isConnected
-                    ? "flex flex-col items-center justify-center text-center space-y-1.5 max-w-sm"
-                    : "space-y-1.5"
-                }
-              >
-                {isConnected ? (
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                    Status
-                  </p>
-                ) : null}
-                <h2
-                  className={
-                    !isConnected
-                      ? "text-xl font-semibold tracking-tight text-foreground text-center"
-                      : "text-lg font-semibold tracking-tight text-foreground"
-                  }
-                >
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  Status
+                </p>
+                <h2 className="text-lg font-semibold tracking-tight text-foreground">
                   {statusSummary.title}
                 </h2>
-                <p className="text-sm text-muted-foreground text-center">
+                <p className="text-sm text-muted-foreground">
                   {statusSummary.detail}
                 </p>
                 {statusSummary.helper ? (
-                  <p className="text-xs text-muted-foreground text-center">
+                  <p className="text-xs text-muted-foreground">
                     {statusSummary.helper}
                   </p>
                 ) : null}
@@ -1482,11 +1449,11 @@ export default function GmailReceiptsPage({
               </p>
             ) : null}
             {!isConnected && !loadingStatus ? (
-              <div className="flex w-full flex-col items-center justify-center pt-2">
+              <div className="flex flex-col items-center justify-center gap-2 pt-2 sm:flex-row">
                 <Button
                   onClick={() => void handleConnectGmail()}
                   disabled={gmailActionBusy !== null}
-                  className="h-12 w-full max-w-xs sm:max-w-sm px-8 text-base shadow-lg justify-center"
+                  className="h-12 w-full px-8 text-base shadow-lg sm:w-auto sm:min-w-[260px]"
                   data-voice-control-id="open_gmail_connector"
                   data-voice-action-id={
                     journeyVariant === "onboarding"
@@ -1509,7 +1476,7 @@ export default function GmailReceiptsPage({
                     effect="fade"
                     onClick={() => setShowDisconnectConfirm(true)}
                     disabled={gmailActionBusy !== null}
-                    className="mt-2 h-12 w-full max-w-xs px-8 text-base sm:w-auto"
+                    className="h-12 w-full px-8 text-base sm:w-auto"
                     data-voice-control-id="disconnect_gmail"
                     data-voice-label="Disconnect Gmail"
                     data-voice-purpose="disconnects Gmail sync while keeping stored receipts available."
@@ -1524,7 +1491,7 @@ export default function GmailReceiptsPage({
 
           {journeyVariant === "onboarding" && onFinishSetup && onSkipSetup ? (
             <SetupCompletionFooter
-              label={isConnected ? "Finish setup" : "Skip for now"}
+              label={isConnected ? "Finish Gmail setup" : "Skip Gmail setup"}
               onComplete={isConnected ? onFinishSetup : onSkipSetup}
               busy={isConnected ? finishingSetup : skippingSetup}
               disabled={gmailActionBusy !== null}
@@ -1539,7 +1506,11 @@ export default function GmailReceiptsPage({
               }
               variant={isConnected ? "blue-gradient" : "none"}
               effect={isConnected ? "fill" : "fade"}
-              supportingText={undefined}
+              supportingText={
+                isConnected
+                  ? undefined
+                  : "You can connect Gmail from setup whenever you are ready."
+              }
             />
           ) : null}
 
@@ -1644,7 +1615,7 @@ export default function GmailReceiptsPage({
               ) : null}
               {!vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (
                 <p className="text-xs text-muted-foreground">
-                  Set a lock to create and save this summary to
+                  Set up your private vault to create and save this summary to
                   memory.
                 </p>
               ) : null}
@@ -1714,10 +1685,10 @@ export default function GmailReceiptsPage({
             <SurfaceInset className="flex flex-col items-start gap-3 px-4 py-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-2 text-foreground">
                 <Lock className="h-4 w-4" />
-                Set a lock, or unlock it, to view and summarize synced
+                Set up or open your private vault to view and summarize synced
                 receipts.
               </div>
-              <Button onClick={requestVaultUnlock}>Set a lock</Button>
+              <Button onClick={requestVaultUnlock}>Set up vault</Button>
             </SurfaceInset>
           ) : null}
 
@@ -1786,11 +1757,11 @@ export default function GmailReceiptsPage({
           user={user}
           open={showVaultUnlock}
           onOpenChange={setShowVaultUnlock}
-          title="Set a lock"
-          description="Set a lock to create and save receipt summaries to memory."
+          title="Set up your private vault"
+          description="Set up your private vault to create and save receipt summaries to memory."
           onSuccess={() => {
             setShowVaultUnlock(false);
-            toast.success("Lock ready.");
+            toast.success("Private vault is ready.");
           }}
         />
       ) : null}

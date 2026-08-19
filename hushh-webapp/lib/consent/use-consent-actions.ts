@@ -262,9 +262,9 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       markAsHandling(consent.id);
 
       if (!userId || !vaultKey) {
-        toast.error("Locked", {
+        toast.error("Vault not unlocked", {
           id: toastId,
-          description: "Unlock to approve this request.",
+          description: "Unlock your vault to approve this request.",
           duration: 6000,
           action: {
             label: "Unlock",
@@ -281,7 +281,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       const promise = (async () => {
         const vaultOwnerToken = getVaultOwnerToken();
         if (!vaultOwnerToken) {
-          throw new Error("Not ready yet. Try again.");
+          throw new Error("Vault owner token required");
         }
 
         let scopeData: Record<string, unknown> = {};
@@ -303,7 +303,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           } catch (err) {
             if (err instanceof SyntaxError) {
               console.error("[Consent] Failed to parse PKM blob after decrypt");
-              throw new Error("Could not prepare export. Try again.");
+              throw new Error("Could not prepare export; check vault.");
             }
             if (err instanceof ConsentExportNoDataError) {
               throw err;
@@ -575,7 +575,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       const promise = (async () => {
         const vaultOwnerToken = getVaultOwnerToken();
         if (!vaultOwnerToken) {
-          throw new Error("Not ready yet. Try again.");
+          throw new Error("Vault owner token required");
         }
 
         const response = await ApiService.denyPendingConsent({
@@ -730,8 +730,8 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
             detail: { reason: "VAULT_OWNER token revoked" }
           }));
           
-          toast.info("Locked", {
-            description: "Your access has been revoked. Please unlock again to continue.",
+          toast.info("Vault locked", {
+            description: "Your VAULT_OWNER access has been revoked. Please unlock again to continue.",
             duration: 5000,
           });
         }

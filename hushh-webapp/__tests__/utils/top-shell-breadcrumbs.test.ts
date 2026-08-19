@@ -446,7 +446,7 @@ describe("top shell breadcrumbs", () => {
       items: [
         { label: "Profile", href: "/one/profile" },
         { label: "Security", href: "/one/profile/security" },
-        { label: "Lock methods" },
+        { label: "Vault methods" },
       ],
     });
 

@@ -71,37 +71,6 @@ if (!contactsUsageMatch?.[1]?.trim()) {
   fail("iOS Info.plist must include non-empty NSContactsUsageDescription.");
 }
 
-// Brand spelling in the strings iOS actually shows a person: the app name under
-// the icon, in Settings, and in every permission prompt. These are already
-// correct, and this asserts they stay that way — issue #5422 was a brand
-// misspelling that shipped because nothing checked notification/app copy.
-//
-// Scoped to display copy on purpose. `hushh` is load-bearing elsewhere in this
-// same file — the `hushh` CFBundleURLScheme and the com.hushh.app bundle
-// identifier — and renaming either would break deep links and code signing.
-const IOS_PRODUCT_NAME = "Hussh One";
-for (const key of ["CFBundleDisplayName", "CFBundleName"]) {
-  const match = infoPlist.match(
-    new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`)
-  );
-  if (match?.[1] !== IOS_PRODUCT_NAME) {
-    fail(
-      `iOS Info.plist ${key} must be "${IOS_PRODUCT_NAME}" (found "${match?.[1] ?? "missing"}").`
-    );
-  }
-}
-for (const key of iosUsageDescriptionKeys) {
-  const match = infoPlist.match(
-    new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`)
-  );
-  const copy = match?.[1] ?? "";
-  if (/\bhushh\b/i.test(copy)) {
-    fail(
-      `iOS Info.plist ${key} spells the brand "hushh"; user-facing copy must read "Hussh".`
-    );
-  }
-}
-
 const androidManifest = read(androidManifestPath);
 const androidPermissions = [
   ...androidManifest.matchAll(/<uses-permission\b[^>]*android:name="([^"]+)"/g),

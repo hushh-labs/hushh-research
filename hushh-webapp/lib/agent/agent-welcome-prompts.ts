@@ -15,7 +15,7 @@ export type AgentWelcomePromptContext = {
 const WELCOME_PROMPT_DECK: readonly (readonly AgentWelcomePrompt[])[] = [
   ["Review my portfolio", "Save a memory", "Explain consent flows"],
   ["Analyze a stock", "Help me organize a memory", "What can I safely share?"],
-  ["Review my portfolio", "How is my data kept private?", "Show my consent requests"],
+  ["Review my portfolio", "How does my vault stay private?", "Show my consent requests"],
   ["What moved in the market today?", "Save a memory", "What can One help with?"],
 ] as const;
 

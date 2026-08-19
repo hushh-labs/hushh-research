@@ -41,7 +41,7 @@ function signalSummary(
       : null;
   const tier = String(row.tier || "").trim();
   const dataQuality = row.degraded
-    ? "Information quality is delayed, so this is treated as lower-confidence context."
+    ? "Information quality is delayed, so Kai treats this as lower-confidence context."
     : null;
 
   if (signal === "CONSTRUCTIVE") {
@@ -68,7 +68,7 @@ function signalSummary(
     "Watchlist posture on the active advisor list.",
     tier ? `Conviction tier: ${tier}.` : null,
     fcf ? `Free cash flow stands at ${fcf}.` : null,
-    "No high-conviction directional signal from this list alone.",
+    "Kai has no high-conviction directional signal from this list alone.",
     dataQuality,
   ].filter(Boolean);
   return parts.join(" ");
@@ -152,7 +152,7 @@ export function RenaissanceVerdictCard({
       <p className="mt-2 text-sm leading-6 text-foreground/80">{summary}</p>
 
       <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-        This is market context, not a personalized instruction.
+        Kai presents this as market context, not a personalized instruction.
       </p>
     </div>
   );

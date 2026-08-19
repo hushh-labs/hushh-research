@@ -4,17 +4,12 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 
 import { describe, expect, it, vi } from "vitest";
 
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
-import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
-import type {
-  OneLocationCircleMember,
-  OneLocationRecipient,
-} from "@/lib/one-location/types";
+import type { OneLocationRecipient } from "@/lib/one-location/types";
 
 const recipients: OneLocationRecipient[] = [
   {
@@ -39,58 +34,6 @@ const recipients: OneLocationRecipient[] = [
   },
 ];
 
-function member(
-  userId: string,
-  displayName: string,
-): OneLocationCircleMember {
-  return {
-    userId,
-    displayName,
-    role: "member",
-    status: "active",
-    phoneVerified: true,
-    canReceiveLocation: true,
-    keyId: `key-${userId}`,
-    publicKeyJwk: { kty: "EC" },
-  } as OneLocationCircleMember;
-}
-
-/** A resolved Circle roster: two people ready, one held back with a reason. */
-function circleSelection(
-  ready: Array<{ userId: string; displayName: string }>,
-): CircleRecipientSelection {
-  return {
-    circle: {
-      id: "circle-1",
-      name: "Family",
-      kind: "family",
-      role: "owner",
-      memberCount: ready.length + 1,
-      memberLimit: 100,
-      members: ready.map((person) => member(person.userId, person.displayName)),
-    },
-    ready: ready.map((person) => ({
-      sourceCircleId: "circle-1",
-      recipient: {
-        userId: person.userId,
-        displayName: person.displayName,
-        phoneVerified: true,
-        keyId: `key-${person.userId}`,
-        publicKeyJwk: { kty: "EC" },
-        keyAlgorithm: "fixture",
-        canReceiveLocation: true,
-      },
-    })),
-    excluded: [
-      {
-        member: member("not-ready", "Priya"),
-        reason: "location_setup_needed",
-        label: "Location setup is not complete",
-      },
-    ],
-  } as CircleRecipientSelection;
-}
-
 const baseProps = {
   recipients,
   circles: [
@@ -100,33 +43,30 @@ const baseProps = {
       kind: "family" as const,
       role: "owner" as const,
       memberCount: 3,
-      memberLimit: 100,
+      memberLimit: 20,
     },
   ],
   selectedUserIds: ["selected"],
   busyKey: null,
+  onBack: vi.fn(),
   onAdd: vi.fn(),
-  onAddCircleMembers: vi.fn().mockResolvedValue(undefined),
-  onLoadCircleMembers: vi
-    .fn()
-    .mockResolvedValue(
-      circleSelection([
-        { userId: "aarav", displayName: "Aarav Shah" },
-        { userId: "maya", displayName: "Maya Chen" },
-      ]),
-    ),
+  onAddCircle: vi.fn().mockResolvedValue(undefined),
   onRemove: vi.fn(),
   recipientLabel: (recipient: OneLocationRecipient) => recipient.displayName,
   recipientSubtitle: (recipient: OneLocationRecipient) =>
     recipient.maskedPhone || "Connected",
   isRecipientShareReady: (recipient: OneLocationRecipient) =>
     recipient.canReceiveLocation,
+  onShareCircleCode: vi.fn().mockResolvedValue(undefined),
+  onLoadCircleEligibleConnections: vi.fn().mockResolvedValue({
+    eligibleConnections: [],
+    pendingInvites: [],
+    remainingCapacity: 0,
+  }),
+  onInviteCircleConnections: vi.fn().mockResolvedValue(undefined),
+  onCancelCircleMemberInvite: vi.fn().mockResolvedValue(undefined),
 };
 
-/** The flat directory lives behind the second tab now. */
-function openAllContacts() {
-  fireEvent.click(screen.getByRole("tab", { name: "All Contacts" }));
-}
 
 describe("SmsContactsFlow", () => {
   it("grows past phone width and keeps contacts in one calm column", () => {
@@ -140,253 +80,49 @@ describe("SmsContactsFlow", () => {
       .firstElementChild as HTMLElement;
     expect(column).toHaveClass("max-w-[430px]");
     expect(column).toHaveClass("md:max-w-[680px]", "xl:max-w-[720px]");
+
+    // SMS contacts are a simple contact-management task. A forced two-column
+    // desktop split made the page feel scattered.
+    const lists = screen.getByText("Contacts").closest("div")
+      ?.parentElement as HTMLElement;
+    expect(lists).toHaveClass("grid", "gap-6");
+    expect(lists).not.toHaveClass("md:grid-cols-2");
   });
 
-  it("presents exactly two sections: Circles and All Contacts", () => {
+  it("separates selected and available circle members", () => {
     render(<SmsContactsFlow {...baseProps} />);
 
-    const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual([
-      "Circles",
-      "All Contacts",
-    ]);
-    // "Add contacts" named the button on each row rather than the list, which
-    // left the screen holding a "Contacts" list and an "Add contacts" list that
-    // were the same people in two states.
-    expect(screen.queryByText("Add contacts")).not.toBeInTheDocument();
-
-    expect(screen.getByTestId("sms-circles-panel")).toBeInTheDocument();
-    openAllContacts();
-    expect(screen.getByTestId("sms-all-contacts-panel")).toBeInTheDocument();
+    expect(screen.getByText("Contacts")).toBeInTheDocument();
+    expect(screen.getByText("Add contacts")).toBeInTheDocument();
     expect(screen.getByText("Kushal")).toBeInTheDocument();
     expect(screen.getByText("Neelesh")).toBeInTheDocument();
-  });
-
-  it("opens on All Contacts when the account has no Circles", () => {
-    // Landing on an empty tab makes the screen look broken before the person
-    // has done anything.
-    render(<SmsContactsFlow {...baseProps} circles={[]} />);
-
-    expect(screen.getByTestId("sms-all-contacts-panel")).toBeInTheDocument();
   });
 
   it("adds an available recipient", () => {
     const onAdd = vi.fn();
     render(<SmsContactsFlow {...baseProps} onAdd={onAdd} />);
 
-    openAllContacts();
     fireEvent.click(screen.getByRole("button", { name: "Add Neelesh" }));
     expect(onAdd).toHaveBeenCalledWith("available");
   });
 
-  describe("per-Circle person picker", () => {
-    it("picks individual members instead of taking the whole Circle", async () => {
-      // The reported gap: a Circle offered one "Add" that took every member.
-      // Tolerable at 20; not at 100.
-      const onAddCircleMembers = vi.fn().mockResolvedValue(undefined);
-      render(
-        <SmsContactsFlow
-          {...baseProps}
-          onAddCircleMembers={onAddCircleMembers}
-        />,
-      );
+  it("adds the current ready members from an explicitly selected Circle", () => {
+    const onAddCircle = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SmsContactsFlow {...baseProps} onAddCircle={onAddCircle} />,
+    );
 
-      // Collapsed, the row is an expander -- not an all-or-nothing Add.
-      expect(
-        screen.queryByRole("button", { name: "Add Family" }),
-      ).not.toBeInTheDocument();
-      expect(screen.getByText("3 members")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add Family" }));
 
-      fireEvent.click(
-        screen.getByRole("button", { name: "Choose people from Family" }),
-      );
-
-      const list = await screen.findByTestId("circle-members-circle-1");
-      fireEvent.click(
-        within(list).getByRole("checkbox", { name: "Aarav Shah" }),
-      );
-
-      fireEvent.click(screen.getByTestId("circle-add-selected-circle-1"));
-      await waitFor(() => {
-        expect(onAddCircleMembers).toHaveBeenCalledWith("circle-1", ["aarav"]);
-      });
-      // Only the ticked person, never the roster.
-      expect(onAddCircleMembers).not.toHaveBeenCalledWith("circle-1", [
-        "aarav",
-        "maya",
-      ]);
-    });
-
-    it("resolves the roster only when the Circle is opened", async () => {
-      // Ten collapsed Circles must not cost ten roster requests.
-      const onLoadCircleMembers = baseProps.onLoadCircleMembers;
-      onLoadCircleMembers.mockClear();
-      render(<SmsContactsFlow {...baseProps} />);
-
-      expect(onLoadCircleMembers).not.toHaveBeenCalled();
-      fireEvent.click(
-        screen.getByRole("button", { name: "Choose people from Family" }),
-      );
-      await waitFor(() =>
-        expect(onLoadCircleMembers).toHaveBeenCalledWith("circle-1"),
-      );
-    });
-
-    it("names members it cannot add rather than dropping them silently", async () => {
-      render(<SmsContactsFlow {...baseProps} />);
-
-      fireEvent.click(
-        screen.getByRole("button", { name: "Choose people from Family" }),
-      );
-
-      // Someone hunting for a person who is not there needs to know they were
-      // found and skipped, not silently absent.
-      expect(await screen.findByText("Priya")).toBeInTheDocument();
-      expect(
-        screen.getByText("Location setup is not complete"),
-      ).toBeInTheDocument();
-      expect(screen.getByRole("checkbox", { name: "Priya" })).toBeDisabled();
-    });
-
-    it("selects and clears every addable member at once", async () => {
-      const onAddCircleMembers = vi.fn().mockResolvedValue(undefined);
-      render(
-        <SmsContactsFlow
-          {...baseProps}
-          onAddCircleMembers={onAddCircleMembers}
-        />,
-      );
-
-      fireEvent.click(
-        screen.getByRole("button", { name: "Choose people from Family" }),
-      );
-      fireEvent.click(await screen.findByRole("button", { name: "Select all 2" }));
-      fireEvent.click(screen.getByTestId("circle-add-selected-circle-1"));
-
-      await waitFor(() => {
-        expect(onAddCircleMembers).toHaveBeenCalledWith("circle-1", [
-          "aarav",
-          "maya",
-        ]);
-      });
-    });
-  });
-
-  describe("conditional list controls", () => {
-    it("hides search and sort while a list still fits on one screen", () => {
-      render(<SmsContactsFlow {...baseProps} />);
-
-      openAllContacts();
-      // Two contacts. A search field here is furniture, not help.
-      expect(
-        screen.queryByTestId("contact-list-controls"),
-      ).not.toBeInTheDocument();
-    });
-
-    it("reveals them once the list outgrows a screenful, and filters on it", () => {
-      const many: OneLocationRecipient[] = Array.from({ length: 24 }, (_, i) => ({
-        ...recipients[1]!,
-        userId: `person-${i}`,
-        displayName: i === 7 ? "Zubin Mehta" : `Person ${i}`,
-      }));
-      render(
-        <SmsContactsFlow {...baseProps} recipients={many} selectedUserIds={[]} />,
-      );
-
-      openAllContacts();
-      expect(screen.getByTestId("contact-list-controls")).toBeInTheDocument();
-
-      fireEvent.change(screen.getByLabelText("Search contacts"), {
-        target: { value: "zubin" },
-      });
-      expect(screen.getByText("Zubin Mehta")).toBeInTheDocument();
-      expect(screen.queryByText("Person 3")).not.toBeInTheDocument();
-
-      // The defect this guards: measuring the FILTERED list would unmount the
-      // field the moment it narrowed below the threshold, which clears the
-      // query, which regrows the list, which remounts the field.
-      expect(screen.getByTestId("contact-list-controls")).toBeInTheDocument();
-    });
-  });
-
-  describe("review pill and sheet", () => {
-    it("counts the added people and opens a sheet listing them", async () => {
-      render(<SmsContactsFlow {...baseProps} />);
-
-      const pill = screen.getByTestId("sms-selected-pill");
-      expect(pill).toHaveTextContent("1 person added");
-
-      fireEvent.click(pill);
-      const sheet = await screen.findByTestId("sms-selected-sheet");
-      // Only the people actually added, from either tab.
-      expect(within(sheet).getByText("Kushal")).toBeInTheDocument();
-      expect(within(sheet).queryByText("Neelesh")).not.toBeInTheDocument();
-    });
-
-    it("reads under the header and above the tabs, in flow", () => {
-      render(<SmsContactsFlow {...baseProps} />);
-
-      const pill = screen.getByTestId("sms-selected-pill");
-      const title = screen.getByRole("heading", { name: "SMS contacts" });
-      const tablist = screen.getByRole("tablist", { name: "Contact sources" });
-
-      // The defect this guards: the pill used to be lifted out of the flow and
-      // pinned near the bottom of the screen, which on a list short enough not
-      // to scroll left it sitting on top of the first contact row.
-      expect(
-        title.compareDocumentPosition(pill) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy();
-      expect(
-        pill.compareDocumentPosition(tablist) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy();
-
-      // In flow means in flow: no positioning, and no bottom offset left over
-      // from the version that floated.
-      const anchor = pill.parentElement!;
-      expect(anchor.className).not.toMatch(/\b(fixed|sticky|absolute)\b/);
-      expect(anchor.style.position).toBe("");
-      expect(anchor.style.bottom).toBe("");
-    });
-
-    it("renders the pill exactly once", () => {
-      render(<SmsContactsFlow {...baseProps} />);
-
-      // Moving it out of the footer slot is only a move if the old one went.
-      expect(screen.getAllByTestId("sms-selected-pill")).toHaveLength(1);
-    });
-
-    it("shows no pill at all when nobody is added", () => {
-      render(<SmsContactsFlow {...baseProps} selectedUserIds={[]} />);
-
-      // A permanent "0 people added" hovering over a screen whose whole job is
-      // to stop being 0.
-      expect(screen.queryByTestId("sms-selected-pill")).not.toBeInTheDocument();
-    });
-
-    it("removes from the sheet through the same confirmation", async () => {
-      const onRemove = vi.fn().mockResolvedValue(true);
-      render(<SmsContactsFlow {...baseProps} onRemove={onRemove} />);
-
-      fireEvent.click(screen.getByTestId("sms-selected-pill"));
-      const sheet = await screen.findByTestId("sms-selected-sheet");
-      fireEvent.click(
-        within(sheet).getByRole("button", { name: "Remove Kushal" }),
-      );
-
-      // Never a silent delete, wherever it is triggered from.
-      expect(onRemove).not.toHaveBeenCalled();
-      expect(await screen.findByText("Remove Kushal?")).toBeInTheDocument();
-    });
+    expect(onAddCircle).toHaveBeenCalledWith("circle-1");
+    expect(screen.getByText("3 members")).toBeInTheDocument();
   });
 
   it("requires confirmation and waits for successful removal", async () => {
     const onRemove = vi.fn().mockResolvedValue(true);
     render(<SmsContactsFlow {...baseProps} onRemove={onRemove} />);
 
-    openAllContacts();
-    const removeButton = screen.getByRole("button", { name: "Remove Kushal" });
+    const removeButton = screen.getByRole("button", { name: "Remove" });
     // The ground is the semantic `-tint` partner, not a one-off alpha on the
     // flat token. Hand-rolled alphas are what made the same destructive ground
     // render a slightly different colour on every screen that spelled it out.
@@ -400,9 +136,9 @@ describe("SmsContactsFlow", () => {
 
     const title = screen.getByRole("heading", { name: /Remove Kushal\?/i });
     expect(title.querySelector("span")).toHaveClass("text-foreground");
-    expect(screen.getByText("They won't receive SMS alerts.")).toHaveClass(
-      "!text-muted-foreground",
-    );
+    expect(
+      screen.getByText("They won't receive SMS alerts."),
+    ).toHaveClass("!text-muted-foreground");
 
     const removeButtons = screen.getAllByRole("button", {
       name: "Remove",
@@ -419,8 +155,7 @@ describe("SmsContactsFlow", () => {
     const onRemove = vi.fn().mockResolvedValue(false);
     render(<SmsContactsFlow {...baseProps} onRemove={onRemove} />);
 
-    openAllContacts();
-    fireEvent.click(screen.getByRole("button", { name: "Remove Kushal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     const removeButtons = screen.getAllByRole("button", {
       name: "Remove",
       hidden: true,
@@ -456,8 +191,7 @@ describe("SmsContactsFlow", () => {
       screen.getByRole("heading", { level: 1, name: "SMS contacts" }),
     ).toBeInTheDocument();
 
-    openAllContacts();
-    fireEvent.click(screen.getByRole("button", { name: "Remove Kushal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     expect(screen.getByRole("alertdialog")).toHaveClass(
       "!bottom-0",
       "!top-auto",
@@ -480,5 +214,11 @@ describe("SmsContactsFlow", () => {
     expect(
       screen.queryByRole("button", { name: /Invite people/i }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Share code/i }),
+    ).not.toBeInTheDocument();
+
+    // The contact lists it exists for are untouched.
+    expect(screen.getByText("Circles")).toBeInTheDocument();
   });
 });

@@ -159,11 +159,11 @@ export function locationStatusLabel(params: {
   paused: boolean;
   accuracyLimited: boolean;
 }): string {
-  if (params.paused) return "Location is paused";
-  if (params.readiness === "blocked") return "Location is blocked";
-  if (!params.previewOn) return "Location is off";
-  if (params.accuracyLimited) return "Location is limited";
-  return "Location is on";
+  if (params.paused) return "Location paused";
+  if (params.readiness === "blocked") return "Location blocked";
+  if (!params.previewOn) return "Location off";
+  if (params.accuracyLimited) return "Location limited";
+  return "Location on";
 }
 
 /**

@@ -1,7 +1,3 @@
-import {
-  isReadOnlyLocationQuery,
-  formatLocationQueryResponse,
-} from "@/lib/agent/tools/location-tools";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import { encryptLocationForRecipient } from "@/lib/one-location/encryption";
@@ -53,6 +49,25 @@ type Share = {
  * Run a location specialist_directive in the browser, reusing the exact crypto
  * logic from use-location-chat confirmAction. Returns a coordinate-free
  * DelegateResult for the follow-up turn.
+ *
+ * Adaptations vs brief:
+ * - encryptLocationForRecipient takes { point, recipientPublicKeyJwk, recipientKeyId }
+ *   not positional args (brief guessed wrong signature)
+ * - storeEnvelope takes { vaultOwnerToken, grantId, envelope } not (grantId, envelope)
+ * - createPublicInvite uses field `locationSnapshot` not `publicLocation`, requires vaultOwnerToken
+ * - viewEnvelope (not viewGrantEnvelope), takes { vaultOwnerToken, grantId }
+ * - All service methods except captureCurrentPosition require vaultOwnerToken;
+ *   added as second param defaulting to "" for test compat (mocks ignore it)
+ *
+ * SECURITY: the recipient public-key JWK is always sourced from the server via
+ * OneLocationService.getState() (matching use-location-chat confirmAction) and
+ * NEVER read from the directive payload — the directive is produced by an LLM,
+ * so trusting a payload-supplied JWK would let a hallucinating/adversarial agent
+ * substitute a key it controls.
+ *
+ * @param directive - The directive received from the SSE stream
+ * @param vaultOwnerToken - Vault owner token required by OneLocationService
+ *   (default "" for test compat; callers must supply a real token in production)
  */
 export async function runLocationDirective(
   directive: SpecialistDirective,
@@ -64,33 +79,6 @@ export async function runLocationDirective(
   const type = String(payload.type ?? "");
 
   try {
-    // ── Handle Read-Only Query Directives ──────────────────────────────────────
-    if (isReadOnlyLocationQuery(type)) {
-      let queryData = payload;
-      if (vaultOwnerToken) {
-        try {
-          const state = await OneLocationService.getState(vaultOwnerToken);
-          queryData = {
-            ...payload,
-            incomingShares: (state.receivedGrants ?? []).filter((g) => g.status === "active"),
-            activeShares: (state.ownerGrants ?? []).filter((g) => g.status === "active"),
-            publicLinks: (state.publicInvites ?? []).filter((i) => i.status === "active"),
-          };
-        } catch {
-          // Fall back to directive payload if service fetch fails
-        }
-      }
-      const formatted = formatLocationQueryResponse(type, queryData);
-      return {
-        delegate_agent_id: "agent_location",
-        kind: "action",
-        id,
-        type,
-        status: "completed",
-        detail: formatted.chatAnswer,
-      };
-    }
-
     if (type === "publish_share") {
       const shares = (payload.shares ?? []) as Share[];
       // Capture ONCE, encrypt PER recipient, store per recipient.

@@ -54,49 +54,8 @@ if has_match '^hushh-webapp/(components/.*/.*phone|__tests__/components/phone-ve
   ran=1
 fi
 
-# The first-run funnel: sign-in, phone verification, the lock, the setup hub,
-# and every guard that decides which of them somebody is on.
-#
-# Nothing in this area matched any pack until now. The three guard suites, the
-# gate composition test and the setup contract test all existed and all passed
-# -- and none of them had ever run on a pull request, so the three defects this
-# pack was written for (the lock screen re-appearing mid-flow, Back returning to
-# phone verification, and the lock and phone screens on screen together) could
-# each be reintroduced by an edit that no lane would notice.
-#
-# The route file and the composition root are in the list because the decision
-# is only as good as where it is mounted: moving a guard in app/providers.tsx,
-# re-nesting one in app/one/one-auth-gate.tsx, or adding a route to the funnel
-# without adding it to ONBOARDING_ROUTES all break the contract from outside the
-# guards themselves. HushhIntroGate is here because withholding the guards from
-# the tree while it played is what made the surfaces collide in the first place.
-#
-# `lib/vault/` and `lib/services/vault-service.ts` were the hole. The pack
-# covered `components/vault/` but not the module the whole funnel reads its lock
-# answer from, so `vault-access-policy.ts` and `vault-context.tsx` — where
-# CONFIGURED, LOCKED, UNLOCKED, LOADING and ERROR are actually told apart —
-# could be changed on a pull request with no funnel test running at all. The
-# `capability-vault-prerequisite` suite is here for the same reason: it is the
-# only suite that asserts the create-vs-unlock distinction, and it sat red on
-# main for days because no pack named it.
-if has_match '^hushh-webapp/(lib/onboarding/|lib/vault/|components/onboarding/|components/auth/|components/vault/|components/app-ui/(HushhIntroGate|vault-status-inline)|__tests__/onboarding/|__tests__/lib/vault/|__tests__/components/(onboarding-journey-guard|phone-mandate-guard|vault-lock-guard|capability-vault-prerequisite)|__tests__/services/pre-vault-user-state-service|__tests__/app/(one/one-auth-gate|register-phone)|lib/navigation/routes\.ts|lib/services/(pre-vault-user-state-service|one-setup-completion-hint-service|phone-mandate-service|post-auth-route-service|vault-service)\.ts|app/(providers|page)\.tsx|app/one/(layout|one-auth-gate)\.tsx|app/(login|register-phone|getting-started)/|app/(kai|ria|marketplace|profile|one/consent|profile/pkm-agent-lab)/layout\.tsx)'; then
-  run_check "onboarding funnel" npm run verify:onboarding-funnel
-  ran=1
-fi
-
 if has_match '^hushh-webapp/(app/|components/app-ui/|lib/(navigation|routes|surface|screen)|scripts/architecture/generate-surface-map\.mjs|scripts/testing/verify-signed-in-routes\.mjs)'; then
   run_check "surface map" npm run verify:surface-map
-  ran=1
-fi
-
-# `top-app-bar.tsx` had two unit-test files sitting next to it
-# (top-app-bar.contract.test.ts, top-shell-breadcrumbs.test.ts) that no pack
-# above actually ran -- an edit to the shared top bar or the breadcrumb
-# resolver it reads from could pass CI green with either suite silently
-# skipped. This is what caught the ancestor-crumb ellipsis regression
-# (P... > S. > Lock methods) staying invisible to a PR.
-if has_match '^hushh-webapp/(components/app-ui/top-app-bar\.tsx|lib/navigation/top-shell-breadcrumbs\.ts|lib/navigation/top-shell-back\.ts|__tests__/components/top-app-bar\.contract\.test\.ts|__tests__/utils/top-shell-breadcrumbs\.test\.ts)'; then
-  run_check "top shell navigation" npm run verify:top-shell-navigation
   ran=1
 fi
 

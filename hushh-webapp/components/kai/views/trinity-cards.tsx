@@ -32,7 +32,7 @@ export function TrinityCards({ bullCase, bearCase, renaissanceVerdict }: Trinity
               {bullCase}
             </p>
           ) : (
-            <div className="h-20 flex items-center justify-center text-xs text-muted-foreground/70 italic">
+            <div className="h-20 flex items-center justify-center text-xs text-muted-foreground/50 italic">
               Analyzing upside potential for your portfolio...
             </div>
           )}
@@ -53,7 +53,7 @@ export function TrinityCards({ bullCase, bearCase, renaissanceVerdict }: Trinity
               {bearCase}
             </p>
           ) : (
-            <div className="h-20 flex items-center justify-center text-xs text-muted-foreground/70 italic">
+            <div className="h-20 flex items-center justify-center text-xs text-muted-foreground/50 italic">
               Identifying risks to your specific holdings...
             </div>
           )}
@@ -74,7 +74,7 @@ export function TrinityCards({ bullCase, bearCase, renaissanceVerdict }: Trinity
               {renaissanceVerdict}
             </div>
           ) : (
-            <div className="h-20 flex items-center justify-center text-xs text-muted-foreground/70 italic">
+            <div className="h-20 flex items-center justify-center text-xs text-muted-foreground/50 italic">
               Calculating FCF & Tier Status...
             </div>
           )}

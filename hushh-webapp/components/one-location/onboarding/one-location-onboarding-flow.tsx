@@ -3,7 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -15,13 +14,10 @@ import {
   Copy,
   Loader2,
   MapPin,
-  Search,
   Share2,
   UserPlus,
 } from "lucide-react";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { filterPeopleByQuery } from "@/lib/one-location/people-search";
-import { shouldRevealListControls } from "@/lib/one-location/contact-picker-controls";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
 import {
   READY_MAP_CLASSNAME,
@@ -537,6 +533,21 @@ function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
   );
 }
 
+const SHARE_LOCATION_AVATARS = [
+  {
+    src: "/one-location/onboarding/feature-share-person-1.webp",
+    className: "right-[7%] top-[10%]",
+  },
+  {
+    src: "/one-location/onboarding/feature-share-person-2.webp",
+    className: "bottom-[10%] left-[3%]",
+  },
+  {
+    src: "/one-location/onboarding/feature-share-person-3.webp",
+    className: "bottom-[8%] right-[7%]",
+  },
+] as const;
+
 function FeatureStatusPill({
   children,
   className,
@@ -615,13 +626,6 @@ function TwoLineFeatureTitle({
   );
 }
 
-/**
- * Renders in the hero slot (data-one-feature-card="share", keeping that
- * structural key so the ~500 lines of breakpoint tuning below it don't move).
- * The real Check-In flow only tells chosen people you have arrived — it has
- * no hotel or key-pickup capability — so Check-In gets this card's content,
- * promoted to the hero position; Share moves to a compact card below.
- */
 function ShareLocationFeatureCard() {
   return (
     <article
@@ -630,24 +634,24 @@ function ShareLocationFeatureCard() {
       data-one-use-case-card
       data-one-feature-card="share"
     >
-      <MapBackdrop tone="checkin" />
+      <MapBackdrop tone="share" />
       <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#f2f5f8] from-[35%] via-[#f2f5f8]/95 via-[51%] to-transparent dark:from-[#171d27] dark:via-[#171d27]/95" />
       <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
         <span
           className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)]"
           data-one-use-case-tag
         >
-          Check in
+          Share location
         </span>
         <TwoLineFeatureTitle
-          lines={["Can’t find", "each other?"]}
+          lines={["Can’t explain", "where you are?"]}
           className="font-[family-name:var(--font-app-display)] text-[21px]"
         />
         <p
           className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Check in once. Everyone knows you arrived.
+          Share once. Your Circle can find you safely.
         </p>
       </div>
       <div
@@ -655,24 +659,51 @@ function ShareLocationFeatureCard() {
         data-one-use-case-art
         aria-hidden="true"
       >
-        <span className="absolute left-1/2 top-1/2 z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_8px_20px_rgba(8,127,245,0.32)] dark:border-[#171d27]">
-          <MapPin className="h-7 w-7 text-white" strokeWidth={2.2} />
-        </span>
-        <span className="absolute left-[calc(50%+18px)] top-[calc(50%-30px)] z-20 flex h-6 w-6 items-center justify-center rounded-full border-[3px] border-white bg-[#28b867] dark:border-[#171d27]">
-          <Check className="h-3 w-3 text-white" strokeWidth={3.5} />
-        </span>
+        <svg
+          viewBox="0 0 220 240"
+          preserveAspectRatio="none"
+          className="absolute inset-0 h-full w-full"
+        >
+          <path
+            d="M104 119 L178 42 M104 119 L42 198 M104 119 L178 198"
+            fill="none"
+            stroke="var(--app-accent)"
+            strokeWidth="1.5"
+            strokeDasharray="3 5"
+            opacity="0.72"
+          />
+        </svg>
+        <span className="absolute left-[47%] top-[49%] h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/10" />
+        <span className="absolute left-[47%] top-[49%] h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/15" />
+        <span className="absolute left-[47%] top-[49%] h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.28)] dark:border-[#171d27]" />
+        {SHARE_LOCATION_AVATARS.map((avatar, index) => (
+          <span
+            key={avatar.src}
+            className={cn(
+              "absolute h-11 w-11 overflow-hidden rounded-full border-[3px] border-white bg-white shadow-[0_5px_14px_rgba(24,57,91,0.2)] dark:border-[#dce5ef]",
+              avatar.className,
+            )}
+            data-one-share-avatar={index + 1}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
+            <img
+              src={avatar.src}
+              alt=""
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+              className="h-full w-full object-cover"
+            />
+          </span>
+        ))}
       </div>
-      <FeatureStatusRow className="px-5">Checked in</FeatureStatusRow>
+      <FeatureStatusRow className="px-5">
+        Sharing with Mom, Driver +1
+      </FeatureStatusRow>
     </article>
   );
 }
 
-/**
- * Renders in the first compact slot (data-one-feature-card="checkin"), kept
- * for the same responsive tuning this key already carries. Share's content
- * moved here so it sits beside SMS as an equal compact card, now that
- * Check-In occupies the hero slot above.
- */
 function CheckInFeatureCard() {
   return (
     <article
@@ -683,20 +714,20 @@ function CheckInFeatureCard() {
     >
       <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
         <span
-          className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)]"
+          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f] dark:bg-[#1c3f2b] dark:text-[#78d69a]"
           data-one-use-case-tag
         >
-          Share
+          Check in
         </span>
         <TwoLineFeatureTitle
-          lines={["Can\u2019t explain", "where you are?"]}
+          lines={["At the venue, but", "can\u2019t find each other?"]}
           className="text-[19px]"
         />
         <p
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Share your location in one tap.
+          Check in anywhere. Your Circle knows you arrived.
         </p>
       </div>
       <div
@@ -704,46 +735,36 @@ function CheckInFeatureCard() {
         data-one-use-case-art
         aria-hidden="true"
       >
-        <MapBackdrop tone="share" />
+        <MapBackdrop tone="checkin" />
         <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#f4f6f8] to-transparent dark:from-[#171d27]" />
-        <svg
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          className="absolute inset-0 h-full w-full"
+        {/* Green location-pin overlay removed: the check-in card now shows the
+            clean building artwork on its own. The [data-one-checkin-pin]
+            responsive rules below are harmless no-ops now. */}
+        <span
+          className="absolute bottom-[48%] left-1/2 w-[54%] -translate-x-1/2"
+          style={{ perspective: "320px", perspectiveOrigin: "50% 100%" }}
+          data-one-checkin-art
         >
-          <path
-            d="M50 62 L30 20"
-            fill="none"
-            stroke="var(--app-accent)"
-            strokeWidth="1.5"
-            strokeDasharray="3 5"
-            opacity="0.72"
-          />
-        </svg>
-        <span className="absolute left-1/2 top-[62%] h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.28)] dark:border-[#171d27]" />
-        <span className="absolute left-[30%] top-[20%] h-10 w-10 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full border-[3px] border-white bg-white shadow-[0_5px_14px_rgba(24,57,91,0.2)] dark:border-[#dce5ef]">
           {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
           <img
-            src="/one-location/onboarding/feature-share-person-1.webp"
+            src="/one-location/onboarding/feature-checkin-house-transparent.webp"
             alt=""
             loading="eager"
             decoding="async"
             fetchPriority="high"
-            className="h-full w-full object-cover"
+            className="block w-full origin-bottom object-contain drop-shadow-[0_8px_10px_rgba(20,30,50,0.22)]"
+            style={{ transform: "rotateY(8deg)" }}
+            data-one-checkin-hotel
           />
         </span>
       </div>
-      <FeatureStatusRow className="px-3">Sharing</FeatureStatusRow>
+      <FeatureStatusRow className="px-3">
+        Checked in at Hotel Grand
+      </FeatureStatusRow>
     </article>
   );
 }
 
-/**
- * Visible label is "SMS", matching the Home hub tile and the emergency
- * screen's own button. It read "SOS" for one day (fd73a42b1, reverted here).
- * Internal `data-one-sms-*` hooks keep their name either way; they are
- * structural, not shown, and renaming them buys nothing.
- */
 function SaveMySoulFeatureCard() {
   return (
     <article
@@ -757,17 +778,17 @@ function SaveMySoulFeatureCard() {
           className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[#55252a] dark:text-[#ff9a98]"
           data-one-use-case-tag
         >
-          SMS
+          SMS &middot; Save My Soul
         </span>
         <TwoLineFeatureTitle
-          lines={["Can\u2019t call", "for help?"]}
+          lines={["Need help but can\u2019t", "call or speak?"]}
           className="text-[19px]"
         />
         <p
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#c2aeb2]"
           data-one-feature-body
         >
-          Send your location to family and friends.
+          Send your location when you need help fast.
         </p>
       </div>
       <div
@@ -809,35 +830,16 @@ function SaveMySoulFeatureCard() {
           </span>
         </div>
       </div>
-      <FeatureStatusRow className="px-3">Help sent</FeatureStatusRow>
+      <FeatureStatusRow className="px-3">
+        Alerted 3 contacts
+      </FeatureStatusRow>
     </article>
   );
 }
 
-/*
- * STEP TWO IS THE PRIMER. IT MUST NOT SPRING THE OS DIALOG.
- *
- * This screen used to fire BOTH native permission dialogs — Core Location
- * and push notifications, in parallel — on the same tick as the "Get
- * started" tap that navigated here. The iOS alert landed over a screen the
- * person had not read, and iOS grants exactly one Core Location prompt per
- * install, so a reflexive "Don't Allow" was permanent and only recoverable
- * from Settings (#5395).
- *
- * The three cards below are the explanation. Nothing is asked until the
- * person taps a button that says what it does, which is the same pattern
- * ContactsScreen already uses for the address book. The CTA is one button
- * with three jobs, so the primer costs no extra screen:
- *
- *   not asked yet  -> "Allow location"   asks, once, on an explicit tap
- *   blocked        -> "Open settings"    the only place a refusal is fixable,
- *                     plus "Not now"     because a refusal is not a dead end
- *   granted        -> "Choose my people" the original forward action
- */
 function FeaturesScreen({
   locationGranted,
-  locationBlocked,
-  locationAsked,
+  notificationsGranted,
   locationBusy,
   locationPreparationBusy,
   locationPreparationRetry,
@@ -846,15 +848,10 @@ function FeaturesScreen({
   onBack,
   onSkip,
   leaving,
-  onAllowLocation,
-  onOpenLocationSettings,
   onContinue,
 }: {
   locationGranted: boolean;
-  /** Refused, or the phone's Location Services are off. */
-  locationBlocked: boolean;
-  /** The Allow button has already been tapped once on this screen. */
-  locationAsked: boolean;
+  notificationsGranted: boolean;
   locationBusy: boolean;
   locationPreparationBusy: boolean;
   locationPreparationRetry: boolean;
@@ -863,32 +860,24 @@ function FeaturesScreen({
   onBack: () => void;
   onSkip: () => void;
   leaving: boolean;
-  onAllowLocation: () => void;
-  onOpenLocationSettings: () => void;
   onContinue: () => void;
 }) {
+  const waitingForLocation = requireLocationToContinue && !locationGranted;
   const permissionBusy =
     locationBusy || locationPreparationBusy || notificationBusy;
-  // Asking is the job while Location is neither granted nor refused and has
-  // not already been asked once. After that there is nothing left to ask —
-  // iOS shows the Core Location alert exactly once per install — so the
-  // screen switches to moving on, or to recovery if it was refused.
-  const askingIsPending = !locationGranted && !locationBlocked && !locationAsked;
-  // A blocked person can still use everything except live sharing, so the
-  // flow stays open to them unless the caller says Location is mandatory.
-  const canContinueWithoutLocation = locationBlocked && !requireLocationToContinue;
-
   const status = locationPreparationBusy
-    ? "Getting your place ready"
+    ? "Preparing your saved place..."
     : locationBusy
-      ? "Asking your phone"
+      ? "Requesting Location permission..."
       : notificationBusy
-        ? "Turning on alerts"
+        ? "Turning on notifications..."
         : locationPreparationRetry
-          ? "That didn't work."
-          : locationGranted
-            ? "Location is on."
-            : "";
+          ? "We couldn't prepare your saved place. Try again."
+          : waitingForLocation
+            ? "Allow Location to continue. You stay in control of every share."
+            : locationGranted && notificationsGranted
+              ? "Location and notifications are ready."
+              : "You can adjust permissions later in Location Settings.";
 
   return (
     <div
@@ -896,6 +885,7 @@ function FeaturesScreen({
       data-one-feature-screen
     >
       <OnboardingNavigation
+        floating
         onBack={onBack}
         onSkip={onSkip}
         disabled={leaving}
@@ -917,19 +907,13 @@ function FeaturesScreen({
             className="ui-text-agent-title text-[#111823] dark:!text-[#f6f8fc]"
             data-one-feature-heading
           >
-            Location that helps
+            Need to keep people updated?
           </h1>
-          {/* Blocked state stays as its own recovery copy — a distinct error
-              state from the marketing subtitle below it, and the only place
-              that explains why the button turned into "Open settings". */}
           <p
             className="mt-3 text-[15px] font-normal leading-[20px] text-[#737a84] dark:text-[#aeb8c7]"
             data-one-feature-subtitle
-            data-testid="one-location-onboarding-location-reason"
           >
-            {locationBlocked
-              ? "Location is off. Turn it on in Settings."
-              : "Share, check in, or get help."}
+            Share location, check in, or send help in seconds.
           </p>
         </header>
         <div className="mx-auto mt-6 grid w-full max-w-[700px] shrink-0 gap-4" data-one-feature-grid>
@@ -945,7 +929,7 @@ function FeaturesScreen({
         <p
           className={cn(
             "shrink-0 pt-3 text-center text-[11px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]",
-            !permissionBusy && !locationPreparationRetry && "sr-only",
+            !waitingForLocation && !permissionBusy && "sr-only",
           )}
           aria-live="polite"
         >
@@ -954,42 +938,16 @@ function FeaturesScreen({
       </div>
       <div className="mx-auto w-full max-w-[560px] shrink-0 pt-5" data-one-feature-cta>
         <PrimaryButton
-          onClick={
-            askingIsPending
-              ? onAllowLocation
-              : locationBlocked
-                ? onOpenLocationSettings
-                : onContinue
-          }
+          onClick={onContinue}
           busy={permissionBusy}
           disabled={permissionBusy}
           className="h-[58px] min-h-[58px]"
         >
-          {/* Four jobs, one button. "Choose my people" names the next screen —
-              a deliberately distinct string, so the reviewer flow's exact
-              button match cannot collide with a generic "Continue". */}
-          {locationPreparationRetry
-            ? "Try again"
-            : askingIsPending
-              ? "Allow location"
-              : locationBlocked
-                ? "Open settings"
-                : "Choose my people"}
+          {/* Names the next screen, which is finding people you already know.
+              A deliberately distinct string also keeps the reviewer flow's
+              exact button match from colliding with a generic "Continue". */}
+          {locationPreparationRetry ? "Try again" : "Find my people"}
         </PrimaryButton>
-        {/* A refusal is not a dead end. Everything except live sharing still
-            works, so the only screen that must hold someone is one whose
-            caller made Location mandatory. */}
-        {canContinueWithoutLocation ? (
-          <button
-            type="button"
-            onClick={onContinue}
-            disabled={permissionBusy}
-            data-testid="one-location-onboarding-skip-location"
-            className="press-scale mt-2 min-h-11 w-full rounded-full text-[16px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-bright)]"
-          >
-            Not now
-          </button>
-        ) : null}
       </div>
       <style>{`
         @keyframes oneSmsRadar {
@@ -1558,21 +1516,6 @@ function ContactsScreen({
 }) {
   const primed = state.kind === "idle" || state.kind === "busy";
 
-  // A synced address book can match well past a screenful (issue #5564), so
-  // matches get the same word-beginning search every other people list on
-  // Location already uses. The body above already owns the screen's one
-  // scroll surface (`overflow-y-auto` on the flex-1 wrapper below), so this
-  // list stays a plain `<ul>` rather than nesting a second scroller inside it.
-  const [matchesQuery, setMatchesQuery] = useState("");
-  const filteredMatches = useMemo(
-    () => filterPeopleByQuery(matches, matchesQuery, (match) => match.displayName),
-    [matches, matchesQuery],
-  );
-  const showMatchesSearch = shouldRevealListControls(
-    matches.length,
-    matchesQuery.trim().length > 0,
-  );
-
   return (
     <div
       className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]"
@@ -1635,29 +1578,8 @@ function ContactsScreen({
         ) : null}
 
         {state.kind === "matched" ? (
-          <>
-            {showMatchesSearch ? (
-              <label className="relative mt-6 block">
-                <span className="sr-only">Search contacts</span>
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#96999e] dark:text-[#8d99a8]" />
-                <input
-                  value={matchesQuery}
-                  onChange={(event) => setMatchesQuery(event.target.value)}
-                  placeholder="Search contacts"
-                  autoComplete="off"
-                  className="h-11 w-full rounded-full border border-[#e4e6e9] bg-white pl-11 pr-4 text-[15px] text-[#151b26] outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:border-white/[0.08] dark:bg-[#1c212a] dark:text-[#f5f7fb]"
-                  data-testid="onboarding-contact-matches-search"
-                />
-              </label>
-            ) : null}
-
-            {filteredMatches.length === 0 ? (
-              <p className="mt-6 text-center text-[14px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
-                No contacts match “{matchesQuery.trim()}”.
-              </p>
-            ) : (
           <ul className="mt-6 space-y-2" data-testid="onboarding-contact-matches">
-            {filteredMatches.map((match) => {
+            {matches.map((match) => {
               const added = addedUserIds.includes(match.userId);
               const adding = addingUserIds.includes(match.userId);
               return (
@@ -1685,8 +1607,6 @@ function ContactsScreen({
               );
             })}
           </ul>
-            )}
-          </>
         ) : null}
 
         {state.kind === "none" ? (
@@ -1744,7 +1664,7 @@ function ContactsScreen({
  * the map is the finale: your own pin lands, an empty seat appears beside it,
  * and the circle code sits underneath as the way to fill that seat.
  *
- * It deliberately does not re-list Share / Check in / SMS. The features screen
+ * It deliberately does not re-list Share / Check in / SOS. The features screen
  * already introduces those; saying them twice in a four-screen flow turns the
  * payoff into a summary slide. What is new here is the map, and the one thing
  * the map cannot show on its own -- that it is empty until someone joins.
@@ -2044,11 +1964,7 @@ function ReadyScreen({
         ) : null}
         </div>
 
-        {/* The SAME surface as the panel it sits inside, by token rather than
-            by a second hand-picked hex. When the panel moved to the semantic
-            token and this did not, dark mode showed the panel at #1c1c1e and
-            its own footer at #14171d -- one card with a seam across it. */}
-        <footer className="relative z-10 shrink-0 bg-[color:var(--app-primary-surface)] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 md:px-7 md:pb-7">
+        <footer className="relative z-10 shrink-0 bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 dark:bg-[#14171d] md:px-7 md:pb-7">
           {settlementRetryCount > 0 ? (
             <p
               className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]"
@@ -2190,11 +2106,6 @@ export function OneLocationOnboardingFlow({
   const [completionBusy, setCompletionBusy] = useState(false);
   const [settlementRetryCount, setSettlementRetryCount] = useState(0);
   const permissionPromptAttemptedRef = useRef(false);
-  // Set on the tap, not on the answer. `locationPermission` is a prop the
-  // parent refreshes asynchronously, and on the web it can sit at "prompt"
-  // for a while after the browser dialog closes — so without this the CTA
-  // would keep offering to ask for something already asked.
-  const [locationAsked, setLocationAsked] = useState(false);
   // Funnel bookkeeping. Refs, not state: none of this should cause a render.
   const codeSharedRef = useRef(false);
   const codeCopiedRef = useRef(false);
@@ -2210,45 +2121,17 @@ export function OneLocationOnboardingFlow({
   const locationGranted =
     locationPermission?.state === "granted" &&
     locationPermission.locationServicesEnabled !== false;
-  // "Blocked" is the state where asking again cannot help: refused, held by
-  // device policy, or the phone's Location Services switch is off. `prompt`
-  // and a null (not yet read) permission are NOT blocked — those are exactly
-  // the states where the primer's Allow button still has something to do.
-  const locationBlocked =
-    locationPermission?.state === "denied" ||
-    locationPermission?.state === "restricted" ||
-    locationPermission?.locationServicesEnabled === false;
   const notificationsGranted = notificationDeliveryMode === "push_active";
 
-  /*
-   * Only ever called from an explicit tap on step two's "Allow location"
-   * (#5395). It used to run on the same tick as the navigation into that
-   * screen, and on mount for the `startAt: "permissions"` entry.
-   *
-   * The two asks are also SEQUENCED now, not raced. `Promise.allSettled`
-   * over both handlers put two native alerts on screen at once, and the
-   * second one covered the first — so the person answered a notifications
-   * prompt believing it was the location prompt they had just asked for.
-   * Notifications wait until Location has settled, whichever way it went.
-   */
-  const requestMissingPermissions = useCallback(async () => {
+  const requestMissingPermissions = useCallback(() => {
     if (permissionPromptAttemptedRef.current) return;
     permissionPromptAttemptedRef.current = true;
-    if (!locationGranted) {
-      try {
-        await onRequestLocation();
-      } catch {
-        // The parent owns the toast; the screen reads the resulting
-        // permission state rather than narrating its own failure.
-      }
-    }
+    const requests: Promise<void>[] = [];
+    if (!locationGranted) requests.push(Promise.resolve(onRequestLocation()));
     if (!notificationsGranted) {
-      try {
-        await onRequestNotifications();
-      } catch {
-        // Same: never block the flow on the secondary ask.
-      }
+      requests.push(Promise.resolve(onRequestNotifications()));
     }
+    void Promise.allSettled(requests);
   }, [
     locationGranted,
     notificationsGranted,
@@ -2292,10 +2175,9 @@ export function OneLocationOnboardingFlow({
     permissionPromptAttemptedRef.current = false;
   }, [startAt]);
 
-  // The `startAt: "permissions"` entry lands on the same step-two screen and
-  // gets the same primer. It used to fire both native dialogs from this
-  // effect with no interaction at all — the worst version of #5395, since
-  // the person had not even tapped "Get started" first.
+  useEffect(() => {
+    if (startAt === "permissions") requestMissingPermissions();
+  }, [requestMissingPermissions, startAt]);
 
   useEffect(() => {
     if (screen !== "features" || !locationGranted) return;
@@ -2583,28 +2465,9 @@ export function OneLocationOnboardingFlow({
     }
   };
 
-  // Navigation only. The permission ask now belongs to step two's own CTA.
   const openFeatures = () => {
     setScreen("features");
-  };
-
-  const allowLocationFromFeatures = () => {
-    setLocationAsked(true);
-    void requestMissingPermissions();
-  };
-
-  /*
-   * A refused device is only fixable in the OS. The parent's own handler is
-   * what knows how to get there — on native it opens app settings, on the web
-   * it toasts the site-settings instructions — so this re-enters through the
-   * same door rather than duplicating that knowledge here. Deliberately NOT
-   * behind `permissionPromptAttemptedRef`: this is a repeatable recovery
-   * action, not the one-shot first ask.
-   */
-  const openLocationSettingsFromFeatures = () => {
-    void Promise.resolve(onRequestLocation()).catch(() => {
-      // The parent owns the message; the screen reads the resulting state.
-    });
+    requestMissingPermissions();
   };
 
   const backFromFeatures = () => {
@@ -2621,9 +2484,6 @@ export function OneLocationOnboardingFlow({
 
   const continueFromFeatures = () => {
     if (requireLocationToComplete && !locationGranted) {
-      // Mandatory-Location callers keep re-asking. On a refused device the
-      // OS will not re-show the alert, and the parent's handler is what
-      // routes the person to Settings.
       void onRequestLocation();
       return;
     }
@@ -2686,8 +2546,7 @@ export function OneLocationOnboardingFlow({
         {screen === "features" ? (
           <FeaturesScreen
             locationGranted={locationGranted}
-            locationBlocked={locationBlocked}
-            locationAsked={locationAsked}
+            notificationsGranted={notificationsGranted}
             locationBusy={locationBusy}
             locationPreparationBusy={locationPreparationBusy}
             locationPreparationRetry={locationPreparationRetry}
@@ -2696,8 +2555,6 @@ export function OneLocationOnboardingFlow({
             onBack={backFromFeatures}
             onSkip={() => void runSkip()}
             leaving={leaving}
-            onAllowLocation={allowLocationFromFeatures}
-            onOpenLocationSettings={openLocationSettingsFromFeatures}
             onContinue={continueFromFeatures}
           />
         ) : null}

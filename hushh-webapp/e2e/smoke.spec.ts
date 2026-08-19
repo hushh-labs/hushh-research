@@ -23,7 +23,7 @@ test.describe("Application Boot", () => {
       timeout: 15_000,
     });
     await expect(
-      page.getByRole("button", { name: /Get started/i }),
+      page.getByRole("button", { name: /Claim your One/i }),
     ).toBeVisible();
   });
 

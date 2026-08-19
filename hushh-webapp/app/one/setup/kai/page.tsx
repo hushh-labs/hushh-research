@@ -429,7 +429,7 @@ function KaiOnboardingPageContent({
   // Hooks; the handler itself is a no-op unless a user session exists.
   useLocalOnboardingActionHandler("kai.setup.launch_dashboard", async () => {
     if (!user) {
-      return { status: "blocked", summary: "Sign in to finish setup." };
+      return { status: "blocked", summary: "Sign in to finish Kai setup." };
     }
     if (stage !== "persona") {
       return {
@@ -447,10 +447,10 @@ function KaiOnboardingPageContent({
     stage === "wizard" || stage === "persona"
       ? {
           screenId: "one_setup_finance",
-          title: "Investor preferences",
+          title: "Kai investor preferences",
           purpose:
             stage === "wizard"
-              ? "Three quick questions tune your investing style."
+              ? "Three quick questions tune Kai to your investing style."
               : "Review your computed investor persona and launch the dashboard.",
           actions:
             stage === "wizard"
@@ -568,14 +568,14 @@ function KaiOnboardingPageContent({
       <SetupKaiStageRegion>
         <div className="flex w-full max-w-sm flex-col items-center gap-4 text-center">
           <p className="text-sm text-muted-foreground">
-            Unlock to continue Finance setup.
+            Open your private vault to continue Finance setup.
           </p>
           <Button
             variant="blue-gradient"
             effect="fill"
             onClick={() => setVaultOpen(true)}
           >
-            Unlock
+            Open private vault
           </Button>
           {isStaticFinanceSetupRoute ? (
             <SetupCapabilityTerminalFooter
@@ -589,8 +589,8 @@ function KaiOnboardingPageContent({
           user={user}
           open={vaultOpen}
           onOpenChange={setVaultOpen}
-          title="Unlock One"
-          description="Continue Finance setup once you're unlocked."
+          title="Open your private vault"
+          description="Continue Finance setup after your private vault is ready."
           allowVaultCreation={false}
           onSuccess={() => setVaultOpen(false)}
         />
@@ -710,7 +710,7 @@ function KaiOnboardingPageContent({
 
               if (source === "vault") {
                 if (!vaultKey || !vaultOwnerToken) {
-                  toast.error("Set a lock or unlock it to continue.");
+                  toast.error("Set up or open your private vault to continue.");
                   return;
                 }
 

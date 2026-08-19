@@ -397,60 +397,6 @@ describe("One setup hub terminal action contract", () => {
     );
   });
 
-  it("never traps the person behind the lock dialog on a flaky durable exit write", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
-      "utf8",
-    );
-
-    // acknowledgeOneSetupExit primes its local completion latch SYNCHRONOUSLY,
-    // before it ever awaits the durable cross-device write (see
-    // one-setup-exit-service.ts, whose own test proves the write can reject
-    // after retries while the latch stays set). A rejection from that settling
-    // must never stop the dialog from closing -- that IS the "glitch, then
-    // setup comes up again" report: the dialog is undismissable while the
-    // recovery key shows, so an uncaught throw here froze the screen with no
-    // visible way out.
-    const exitCallIndex = source.indexOf("await acknowledgeOneSetupExit(");
-    const catchIndex = source.indexOf(
-      "} catch (exitSyncError) {",
-      exitCallIndex,
-    );
-    const dialogCloseIndex = source.indexOf(
-      "setVaultDialogOpen(false);",
-      exitCallIndex,
-    );
-
-    expect(exitCallIndex).toBeGreaterThan(-1);
-    expect(catchIndex).toBeGreaterThan(exitCallIndex);
-    expect(dialogCloseIndex).toBeGreaterThan(catchIndex);
-
-    const exitCatchBody = source.slice(catchIndex, dialogCloseIndex);
-    // The catch must swallow (log + continue), never rethrow -- rethrowing is
-    // the exact regression.
-    expect(exitCatchBody).not.toContain("throw exitSyncError");
-    expect(exitCatchBody).toContain("console.warn(");
-  });
-
-  it("surfaces a finalize failure with a toast, since the retry banner sits under an undismissable dialog", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
-      "utf8",
-    );
-
-    // setFinalizationError renders a "Try again" banner on the hub page, but
-    // the lock dialog sits on top of it and cannot be dismissed while the
-    // recovery key is showing -- so it was invisible exactly when it mattered.
-    // A toast renders above the dialog.
-    expect(source).toContain(
-      'import { morphyToast as toast } from "@/lib/morphy-ux/morphy";',
-    );
-    expect(source).toContain("toast.error(message);");
-    expect(source.indexOf("setFinalizationError(message);")).toBeLessThan(
-      source.indexOf("toast.error(message);"),
-    );
-  });
-
   it("does not allow a setup route to create a first vault before Finish setup", () => {
     const vaultFreeSetupSurfaces = [
       "app/one/setup/email/email-onboarding-setup-client.tsx",

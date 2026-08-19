@@ -96,11 +96,8 @@ existing 25-metre cross-category duplicate guard remains authoritative.
 shell, Agent Bar, bottom navigation, and ambient chrome. A person must accept
 the Google Maps renderer disclosure before it initializes.
 
-- An active private or Circle share is visible on the recipient's map
-  unconditionally. There is no separate map-visibility opt-in: a grant already
-  is the sharer's consent, and gating a second time behind a preference meant
-  an active share could still never appear where the recipient was most
-  likely to look for it (#5425).
+- Ghost Mode is the default. It hides the owner from Your Map without changing
+  any direct private share or its background publisher.
 - The map returns only fresh (90-second default), active, recipient-scoped
   `foreground_map_visible` ciphertext. It never promotes a direct or
   background-share envelope onto the map.
@@ -145,6 +142,6 @@ Maps key or be committed to source.
 
 Run `npm run verify:surface-map`, `npm run verify:capacitor:static`, focused
 Location tests, typecheck, and native builds. Native release verification must
-confirm multiple markers, unconditional share visibility, foreground-only
-update behavior, suppressed chrome, and a Back return to `/one/location` in
-the same vault session.
+confirm multiple markers, Ghost Mode, foreground-only update behavior,
+suppressed chrome, and a Back return to `/one/location` in the same vault
+session.

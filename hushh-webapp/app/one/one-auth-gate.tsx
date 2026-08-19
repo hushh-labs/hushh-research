@@ -128,17 +128,10 @@ export function OneAuthGate({ children }: { children: ReactNode }) {
   return (
     <>
       {funnelObserver}
-      {/* Phone before lock. Verifying an identity comes first in the funnel,
-          so its gate has to be the outer one: with the lock outside, an
-          unverified person got the lock dialog — a portal painted over the
-          whole screen — while the phone gate underneath was trying to send
-          them to verification, and both surfaces ended up on screen. */}
-      <PhoneMandateGuard>
-        <VaultLockGuard>
-          <LocationVaultUnlockedObserver />
-          {children}
-        </VaultLockGuard>
-      </PhoneMandateGuard>
+      <VaultLockGuard>
+        <LocationVaultUnlockedObserver />
+        <PhoneMandateGuard>{children}</PhoneMandateGuard>
+      </VaultLockGuard>
     </>
   );
 }

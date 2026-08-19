@@ -50,7 +50,7 @@ export function PreviewCarouselStep({
         title: "Your world,",
         accent: "kept private",
         subtitle:
-          "Everything is encrypted. Only you hold the key, not even we can read it.",
+          "Everything lives in an encrypted vault. Only you hold the key, not even we can read it.",
         preview: <VaultPreviewCompact />,
       },
       {
