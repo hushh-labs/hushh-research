@@ -1142,3 +1142,16 @@ def personal_agent_reachability_gate() -> bool:
     to ``waking``, never a spurious fresh setup that would change the user's agent
     identity. Flag-gated so the extra backend call is opt-in."""
     return _bool_from_value(_clean_env("PERSONAL_AGENT_REACHABILITY_GATE"), default=False)
+
+
+def personal_agent_fleet_reclaim_enabled() -> bool:
+    """The DESTRUCTIVE arm of fleet reconciliation: delete a billing Cloud Run
+    service that no active registry row claims -- in a possibly customer-owned
+    project.
+
+    OFF by default, and this default is a hard safety boundary, not caution:
+    deleting compute in someone else's cloud is a founder decision, never an
+    automated default. With this off the reconciler is REPORT-ONLY -- it names
+    orphans, deletes nothing. The classification core does not even consult this;
+    only the reclaim call does, so a report run can never destroy anything."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_FLEET_RECLAIM_ENABLED"), default=False)
