@@ -1419,6 +1419,48 @@ class ConnectionsService:
                 reason=reason,
             )
 
+    def _end_one_location_circle_memberships(
+        self,
+        *,
+        user_a_id: str,
+        user_b_id: str,
+    ) -> None:
+        """Take a disconnected pair out of each other's Circles.
+
+        Revoking the connection is not enough on its own. One Location decides
+        whether a location may be delivered by asking for an active non-Circle
+        connection origin OR a shared active Circle -- so a membership that
+        outlives the connection keeps the second arm of that OR true, and the
+        person who disconnected keeps receiving live location and, through the
+        system Circle's roster, an address in an emergency SMS.
+
+        Runs on this transaction's connection so it commits with the
+        disconnect, and AFTER the connection row is revoked: the grant
+        reconciliation inside asks whether an independent relationship still
+        supports each share, and would answer yes to a connection this
+        statement is in the middle of ending.
+        """
+
+        connection = getattr(self, "_transaction_connection", None)
+        if connection is None:
+            # Only reachable behind the lightweight doubles `_transaction`
+            # falls back to; a real runtime database always exposes
+            # `engine.begin`. Loud, because silently skipping this leaves a
+            # live location path open.
+            logger.warning(
+                "connections.disconnect_circle_cleanup_skipped_no_transaction",
+            )
+            return
+        from hushh_mcp.services.one_location_circle_service import (
+            OneLocationCircleService,
+        )
+
+        OneLocationCircleService.end_memberships_for_disconnected_pair(
+            connection,
+            user_a_id=user_a_id,
+            user_b_id=user_b_id,
+        )
+
     def _revoke_pair_capabilities(
         self,
         *,
@@ -2229,6 +2271,11 @@ class ConnectionsService:
                 """,
                 {"id": (connection_id or "").strip()},
             )
+            if conn:
+                self._end_one_location_circle_memberships(
+                    user_a_id=str(user_a or ""),
+                    user_b_id=str(user_b or ""),
+                )
         if conn:
             user_a_id = str(user_a or "")
             user_b_id = str(user_b or "")

@@ -10,6 +10,7 @@ from hushh_mcp.services.push_notifications import (
     send_connection_request_push,
 )
 from hushh_mcp.services.requester_identity import (
+    label_from_identity_row,
     looks_technical_label,
     resolve_requester_label,
 )
@@ -386,3 +387,64 @@ def test_connection_accepted_push_puts_the_approver_label_in_the_data_map():
     assert captured["data"]["approver_label"] == "Ankit Sharma"
     assert captured["data"]["approver_user_id"] == "approver-1"
     assert captured["body"] == "Ankit Sharma accepted your connection request on Hussh."
+
+
+def test_the_ladder_reads_a_row_the_caller_already_has():
+    """Same rungs as resolve_requester_label, without the second query.
+
+    The resolver reads the identity row itself, which is right for one push and
+    wrong for a list: a page of twenty people would become twenty round-trips.
+    Callers that already hold the rows -- a Circle roster, a recipients list --
+    run the ladder against what they read.
+    """
+
+    # A real name wins outright.
+    assert (
+        label_from_identity_row({"user_id": "u1", "display_name": "Neelesh Meena"})
+        == "Neelesh Meena"
+    )
+    # An empty name falls to the email handle. This is the case that made every
+    # surface invent its own substitute: a Google account with no profile name.
+    assert (
+        label_from_identity_row(
+            {"user_id": "u1", "display_name": "", "email": "damrianeelesh@gmail.com"}
+        )
+        == "damrianeelesh"
+    )
+    # A display name that is really an identifier is refused the same way the
+    # resolver refuses it -- a raw uid sitting in display_name is not a name.
+    assert (
+        label_from_identity_row(
+            {
+                "user_id": "NcVqGS5cXsRWisv3TsoxmRMqMnA2",
+                "display_name": "NcVqGS5cXsRWisv3TsoxmRMqMnA2",
+                "email": "damrianeelesh@gmail.com",
+            }
+        )
+        == "damrianeelesh"
+    )
+    # Nothing resolvable: the caller's own word, not a guess.
+    assert (
+        label_from_identity_row({"user_id": "u1", "display_name": ""}, fallback="Circle member")
+        == "Circle member"
+    )
+    assert label_from_identity_row(None, fallback="Circle member") == "Circle member"
+
+
+def test_the_email_handle_rung_is_a_privacy_switch_not_a_default():
+    """An email handle is a name to a contact and an identifier to a stranger.
+
+    The same projection serves the recipients list, which is scoped to people
+    the viewer is connected to, and the discovery directory, which includes
+    phone-verified strangers. Handing the second one a local part would answer
+    "who is this account" for anyone who can see the directory at all.
+    """
+
+    row = {"user_id": "u1", "display_name": "", "email": "damrianeelesh@gmail.com"}
+
+    assert label_from_identity_row(row, allow_email_handle=True) == "damrianeelesh"
+    assert label_from_identity_row(row, allow_email_handle=False) == ""
+    # Off, a real name still resolves -- the switch withholds the handle, not
+    # the person.
+    named = {"user_id": "u1", "display_name": "Neelesh", "email": "n@example.com"}
+    assert label_from_identity_row(named, allow_email_handle=False) == "Neelesh"
