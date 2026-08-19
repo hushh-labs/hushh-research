@@ -138,7 +138,6 @@
     "157_hussh_crm_delete_operation.sql",
     "158_one_location_circle_member_limit_100.sql",
     "159_one_location_circle_invite_max_uses_100.sql",
-<<<<<<< HEAD
     "160_one_location_system_circles.sql",
     "161_atomic_pkm_scope_exposure.sql"
   ],
@@ -231,7 +230,7 @@
       "155_one_location_grant_ceiling.sql",
       "158_one_location_circle_member_limit_100.sql",
       "159_one_location_circle_invite_max_uses_100.sql",
-      "160_one_location_system_circles.sql",
+      "160_one_location_system_circles.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

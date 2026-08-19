@@ -101,6 +101,9 @@ export class KycIdentityProfilePkmService {
             // operations. The extraction runs in the background and must not
             // make a completed KYC flow appear again if it needs a retry.
             about_me: undefined,
+            // Setting to null ensures it is removed from typed extraction but
+            // prevents any partial payload drops if strict JSON is expected.
+            about_me: null,
             identity_intake_status: "completed",
             identity_intake_completed_at: completedAt,
             updated_at: completedAt,

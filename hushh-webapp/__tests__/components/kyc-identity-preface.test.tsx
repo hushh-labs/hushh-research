@@ -128,7 +128,7 @@ describe("KycIdentityPreface", () => {
     render(<KycIdentityPreface onComplete={onComplete} />);
     advanceToIdentityForm();
 
-    fireEvent.click(screen.getByRole("button", { name: "Skip KYC setup" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip identity checks" }));
 
     expect(onComplete).toHaveBeenCalledTimes(1);
     expect(KycIdentityProfilePkmService.saveProfile).not.toHaveBeenCalled();
