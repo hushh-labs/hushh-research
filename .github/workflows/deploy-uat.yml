@@ -19,7 +19,11 @@ on:
         type: string
 
 permissions:
-  contents: read
+  # write: this workflow tags a healthy release as "last known good"
+  # (scripts/ci/tag-last-known-good.sh) so a future revert check and a
+  # future rollback both have a durable anchor. Scoped to pushing tags only
+  # — the workflow never touches a branch.
+  contents: write
   checks: read
   id-token: write
 
@@ -1246,6 +1250,33 @@ jobs:
             echo "- Shared changed files: \`${{ steps.scope.outputs.shared_changed_files || 'none' }}\`"
             echo "- Neutral changed files: \`${{ steps.scope.outputs.neutral_changed_files || 'none' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tag this release as last known good
+        id: tag-last-known-good
+        if: always()
+        # Advisory annotation, not a release-health signal: the deploy above
+        # already succeeded and classified healthy by this point. A tagging
+        # failure (e.g. a transient push conflict) must never turn a healthy
+        # release red or trigger the rollback investigation that implies.
+        continue-on-error: true
+        shell: bash
+        env:
+          ENVIRONMENT: uat
+          SHA: ${{ steps.resolve-sha.outputs.sha }}
+          BACKEND_REVISION: ${{ steps.final-state.outputs.backend_revision }}
+          BACKEND_SERVICE_URL: ${{ steps.final-state.outputs.backend_url }}
+          FRONTEND_REVISION: ${{ steps.final-state.outputs.frontend_revision }}
+          FRONTEND_SERVICE_URL: ${{ steps.final-state.outputs.frontend_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          STATUS="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")"
+          if [ "$STATUS" != "healthy" ]; then
+            echo "[tag-last-known-good] Release status is '$STATUS', not 'healthy' — not tagging."
+            exit 0
+          fi
+          bash scripts/ci/tag-last-known-good.sh
 
       - name: Fail workflow when UAT release did not end healthy
         if: always()

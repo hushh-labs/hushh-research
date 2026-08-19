@@ -15,8 +15,6 @@ function mockHubViewModel(overrides?: Partial<LocationHubViewModel>): LocationHu
     locationEnabled: true,
     locationBlocked: false,
     autoApproveRequestsEnabled: false,
-    mapPresenceEnabled: true,
-    onMapPresenceChange: vi.fn(),
     locationPaused: false,
     locationAccuracyLimited: false,
     locationAcquiring: false,

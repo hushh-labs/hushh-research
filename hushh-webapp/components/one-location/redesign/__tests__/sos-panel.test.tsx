@@ -361,6 +361,35 @@ describe("SosPanel", () => {
     expect(onTrigger).not.toHaveBeenCalled();
   });
 
+  // Regression: the send button's "Hold to send..." label snaps its hold
+  // progress to 1 on fire, and used to only unwind once `busy` cleared with
+  // `active` still false -- never true on a successful send, since `busy`
+  // and `active` flip together. The label stayed stuck on screen for as
+  // long as the alert stayed live.
+  it("clears the send-button hold label once the alert goes live", () => {
+    const onTrigger = vi.fn();
+    const { rerender } = render(
+      <SosPanel {...baseProps} onTrigger={onTrigger} />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Add a message"), {
+      target: { value: "Emergency" },
+    });
+    const send = screen.getByTestId("sos-send-custom-message");
+    fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2_000));
+    fireEvent.pointerUp(send, { pointerId: 1 });
+    expect(onTrigger).toHaveBeenCalledTimes(1);
+
+    // Parent goes busy while the request is in flight...
+    rerender(<SosPanel {...baseProps} onTrigger={onTrigger} busy />);
+    // ...then settles into the live state once it succeeds, same as a real
+    // successful send: `busy` and `active` flip together.
+    rerender(<SosPanel {...baseProps} onTrigger={onTrigger} active />);
+
+    expect(screen.queryByText(/Hold to send…/)).toBeNull();
+  });
+
   it("passes the selected fixed message and opens contacts from the Emergency contacts row", () => {
     const onTrigger = vi.fn();
     const onEditContacts = vi.fn();
@@ -380,9 +409,7 @@ describe("SosPanel", () => {
     act(() => vi.advanceTimersByTime(2_000));
     expect(onTrigger).toHaveBeenCalledWith("I'm not safe");
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /will be alerted/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /will be alerted/i }));
     expect(onEditContacts).toHaveBeenCalledTimes(1);
   });
 
@@ -549,9 +576,7 @@ describe("SosPanel — shell header contract", () => {
     const onEditContacts = vi.fn();
     render(<SosPanel {...baseProps} onEditContacts={onEditContacts} />);
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /will be alerted/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /will be alerted/i }));
     expect(onEditContacts).toHaveBeenCalledTimes(1);
   });
 

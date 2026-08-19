@@ -355,7 +355,7 @@ function KaiSheet({
           <Bot className="h-4 w-4" />
         </span>
         <span className="min-w-0 flex-1">
-          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">Kai</b>
+          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">Ask</b>
           <span className="block truncate text-[12px] text-[color:var(--one-fg3)]">Personal intelligence - works only for you</span>
         </span>
         <button
@@ -405,14 +405,14 @@ function KaiSheet({
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Message Kai..."
+            placeholder="Ask a question..."
             className="w-full bg-transparent text-[14px] text-[color:var(--one-fg)] outline-none placeholder:text-[color:var(--one-fg3)]"
           />
         </div>
         <button
           type="submit"
           className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white"
-          aria-label="Send to Kai"
+          aria-label="Send"
         >
           <Mic className="h-4 w-4" />
         </button>
@@ -450,7 +450,7 @@ function NotificationsSheet({
       <div className="min-h-0 flex-1 overflow-y-auto py-1">
         {[
           { title: "Receipt signed", body: "Banking agent - credit score - 30 min - revocable", time: "2m", tone: "up" },
-          { title: "Kai signal - Buy TSLA", body: "High conviction - 12+ month horizon", time: "1h", tone: "blue" },
+          { title: "Signal - Buy TSLA", body: "High conviction - 12+ month horizon", time: "1h", tone: "blue" },
           { title: "Markets closed soft", body: "S&P 500 -1.58% - defensives led", time: "3h", tone: "down" },
         ].map((item) => (
           <div key={item.title} className="flex items-start gap-3 border-t border-[color:var(--one-line)] px-4 py-3 first:border-t-0">
@@ -485,8 +485,8 @@ export function KaiAnalysisPreviewView() {
   const sheetOpen = kaiOpen || notificationsOpen;
   const recentRows = useMemo(
     () => [
-      { symbol: "AMZN", title: "Amazon", description: "Analyzed today - Kai debate", value: "Buy", change: "95% confidence" },
-      { symbol: "BUD", title: "Anheuser-Busch", description: "Analyzed yesterday - Kai debate", value: "Buy", change: "91% confidence" },
+      { symbol: "AMZN", title: "Amazon", description: "Analyzed today - debate", value: "Buy", change: "95% confidence" },
+      { symbol: "BUD", title: "Anheuser-Busch", description: "Analyzed yesterday - debate", value: "Buy", change: "91% confidence" },
     ],
     []
   );
@@ -630,7 +630,7 @@ export function KaiAnalysisPreviewView() {
               <Bot className="h-4 w-4" />
             </span>
             <span className="min-w-0 flex-1 text-[13px] leading-snug text-[color:var(--one-fg)]">
-              <b className="font-semibold">Kai:</b> Tesla drove most of this week's gain. Concentration is your main risk - ask me for a rebalance plan.
+              Tesla drove most of this week's gain. Concentration is your main risk - ask for a rebalance plan.
             </span>
             <ChevronRight className="h-[15px] w-[15px] shrink-0 text-[color:var(--one-fg3)]" />
           </button>
@@ -666,7 +666,7 @@ export function KaiAnalysisPreviewView() {
               <div className="mt-3.5 flex items-start gap-2.5 rounded-[13px] bg-[color:var(--one-orange-t)] px-[13px] py-3">
                 <Shield className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--one-orange)]" />
                 <p className="text-[13px] leading-snug text-[color:var(--one-fg)]">
-                  <b className="font-semibold">Tesla is 31% of your portfolio.</b> A single name above 25% drives most of your swings - ask Kai for a rebalance plan.
+                  <b className="font-semibold">Tesla is 31% of your portfolio.</b> A single name above 25% drives most of your swings - ask for a rebalance plan.
                 </p>
               </div>
             </div>

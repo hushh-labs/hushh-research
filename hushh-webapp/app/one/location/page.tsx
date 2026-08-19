@@ -2903,58 +2903,6 @@ export function OneLocationAgentPageContent({
       ),
     [contactSignalRecipients, selectedRequestOwnerIds],
   );
-  // Whether this person appears as a pin on the maps of people they already
-  // share with.
-  //
-  // The preference itself is not new -- it is `presence_mode`, and it defaults
-  // to 'ghost'. What was new is being able to find it: it lived only behind a
-  // Ghost toggle on the immersive map screen, so somebody who shared their
-  // location and then wondered why they never appeared on the other person's
-  // map had no way to discover the switch that decided it. Null while loading,
-  // so the control can be shown disabled rather than lying about its state.
-  const [mapPresenceEnabled, setMapPresenceEnabled] = useState<boolean | null>(
-    null,
-  );
-  useEffect(() => {
-    if (!vaultOwnerToken) return;
-    let cancelled = false;
-    void OneLocationService.getMapPreferences(vaultOwnerToken)
-      .then((preferences) => {
-        if (cancelled) return;
-        setMapPresenceEnabled(preferences.presenceMode === "foreground_private");
-      })
-      .catch(() => {
-        // Unknown is not the same as off, but the control has to say something
-        // -- and offering it as "off" is the honest failure: it cannot make a
-        // person more visible than they already are.
-        if (!cancelled) setMapPresenceEnabled(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [vaultOwnerToken]);
-  const handleMapPresenceChange = useCallback(
-    (next: boolean) => {
-      if (!vaultOwnerToken) return;
-      // Optimistic, then corrected by the server's answer. A privacy switch
-      // that lags behind the finger reads as broken, and people toggle it
-      // again -- which is how somebody ends up visible when they meant not to.
-      setMapPresenceEnabled(next);
-      void OneLocationService.updateMapPreferences({
-        vaultOwnerToken,
-        presenceMode: next ? "foreground_private" : "ghost",
-      })
-        .then((preferences) => {
-          setMapPresenceEnabled(preferences.presenceMode === "foreground_private");
-        })
-        .catch(() => {
-          setMapPresenceEnabled(!next);
-          toast.error("Could not change map visibility.");
-        });
-    },
-    [vaultOwnerToken],
-  );
-
   const pendingOwnerRequests = useMemo(
     () =>
       (state?.requests ?? []).filter(
@@ -7536,7 +7484,7 @@ export function OneLocationAgentPageContent({
   const approveAccessRequest = useCallback(
     async (
       request: OneLocationAccessRequest,
-      options?: { automatic?: boolean },
+      options?: { automatic?: boolean; overrideDurationHours?: number },
     ): Promise<boolean> => {
       if (!vaultOwnerToken) return false;
       const automatic = options?.automatic === true;
@@ -7553,24 +7501,34 @@ export function OneLocationAgentPageContent({
       }
       if (!automatic) setBusy("approve");
       try {
-        // Grant what they asked for. The owner is answering a request that
-        // named an amount -- their own duration control belongs to shares
-        // THEY start, and reading it here is how a person who asked for four
-        // hours silently got one. Fall back to the owner's control only when
-        // the ask carried no amount (older clients, referral requests).
+        // The owner's own explicit choice on the review card wins outright --
+        // that is the whole point of showing it a duration picker. Absent
+        // that, grant what they asked for: the owner's own duration control
+        // belongs to shares THEY start, and reading it here by default is how
+        // a person who asked for four hours silently got one. Fall back to
+        // the owner's control only when the ask carried no amount (older
+        // clients, referral requests).
         const requestedHours = Number(request.requestedDurationHours);
         const approvedHours =
-          Number.isFinite(requestedHours) && requestedHours > 0
-            ? requestedHours
-            : Number(durationHours);
+          typeof options?.overrideDurationHours === "number" &&
+          options.overrideDurationHours > 0
+            ? options.overrideDurationHours
+            : Number.isFinite(requestedHours) && requestedHours > 0
+              ? requestedHours
+              : Number(durationHours);
         const response = await OneLocationService.approveRequest({
           vaultOwnerToken,
           requestId: request.id,
           durationHours: approvedHours,
+          // The picker never offers "until I stop" as an option (it only
+          // appears at all for a timed ask), so an explicit override is
+          // always a timed grant.
           durationMode:
-            request.requestedDurationMode === "until_stopped"
-              ? "until_stopped"
-              : "timed",
+            typeof options?.overrideDurationHours === "number"
+              ? "timed"
+              : request.requestedDurationMode === "until_stopped"
+                ? "until_stopped"
+                : "timed",
         });
         await publishEnvelopeWithRetry(response.grant, requester, "manual");
         // Name the person. An automatic approval is still a share starting
@@ -7609,8 +7567,8 @@ export function OneLocationAgentPageContent({
   );
 
   const handleApprove = useCallback(
-    async (request: OneLocationAccessRequest) => {
-      await approveAccessRequest(request);
+    async (request: OneLocationAccessRequest, overrideDurationHours?: number) => {
+      await approveAccessRequest(request, { overrideDurationHours });
     },
     [approveAccessRequest],
   );
@@ -11456,8 +11414,6 @@ export function OneLocationAgentPageContent({
         observedDenial: locationDenialObserved,
       }) === "blocked",
     autoApproveRequestsEnabled: locationControl.autoApproveRequestsEnabled,
-    mapPresenceEnabled,
-    onMapPresenceChange: handleMapPresenceChange,
     locationPaused: locationControl.paused,
     locationAccuracyLimited,
     // The switch is already on and the device has not found us yet. This is the
@@ -11528,7 +11484,8 @@ export function OneLocationAgentPageContent({
     onEnterShareConfirm: announceShareReviewOpened,
     onConfirmShare: () => void handleShare(),
     onSendRequest: (reason) => handleRequestAccess(reason),
-    onApprove: (request) => void handleApprove(request),
+    onApprove: (request, durationOverrideHours) =>
+      void handleApprove(request, durationOverrideHours),
     onDeny: (requestId) => void handleDeny(requestId),
     onWithdrawRequest: (requestId) => void handleWithdrawRequest(requestId),
     onViewGrant: (grant) => void handleView(grant),
@@ -11559,8 +11516,11 @@ export function OneLocationAgentPageContent({
     onSaveLiveShareDuration: () => void handleSaveLiveShareDuration(),
     editGrantDurationHours,
     setEditGrantDurationHours,
-    onEditGrantSave: (params) =>
-      void handleEditGrantDuration(params, Number(editGrantDurationHours)),
+    onEditGrantSave: (params, durationHoursOverride) =>
+      void handleEditGrantDuration(
+        params,
+        Number(durationHoursOverride ?? editGrantDurationHours),
+      ),
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
     onCopyPublicInvite: () => void handleCopyPublicInvite(),
     onSharePublicInvite: () => void handleSharePublicInvite(),

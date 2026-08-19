@@ -1,4 +1,4 @@
--- Reverse 159: remove the system-Circle marker and its delete guard.
+-- Reverse 160: remove the system-Circle marker and its delete guard.
 --
 -- The SMS Circles themselves are deliberately LEFT IN PLACE, as ordinary
 -- Circles. By the time anyone rolls this back the migration hook has run for
@@ -9,10 +9,10 @@
 -- destroy the contact list SOS reads.
 --
 -- So a rollback returns the SHAPE (no marker, no guard, Circles freely
--- deletable again) and keeps the DATA. The pre-159 world is one where these are
+-- deletable again) and keeps the DATA. The pre-160 world is one where these are
 -- just Circles, which is precisely what they become.
 --
--- `one_location_sms_contacts` is untouched by 159 and by this file. It is still
+-- `one_location_sms_contacts` is untouched by 160 and by this file. It is still
 -- the row-for-row record of who each owner picked, kept deliberately for one
 -- release as the fallback SOS can read if the Circle path has to be backed out.
 

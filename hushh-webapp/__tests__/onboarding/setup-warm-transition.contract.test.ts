@@ -22,18 +22,29 @@ describe("setup warm-transition contract", () => {
   });
 
   it("does not block every route change on a forced onboarding admission check", () => {
+    // The record is now read once, by the provider, and shared. The guard is
+    // enforcement only — if it starts fetching again, every route change pays
+    // for a duplicate read and the guards can disagree with each other, which
+    // is what this contract exists to stop.
+    const provider = read("lib/onboarding/onboarding-entry-context.tsx");
+
+    expect(provider).toContain("getCachedBootstrapState(userId)");
+    // One bounded forced retry covers native auth publishing the account
+    // before the token provider can sign for it. Nothing beyond that.
+    expect(provider).toContain("bootstrapState(userId)");
+    expect(provider).toContain("force: true");
+    expect(provider).toContain("OneSetupCompletionHintService.isResolved(userId)");
+    // A cache write from another surface has to reach the decision, or it holds
+    // a stale answer for the rest of the session.
+    expect(provider).toContain("CacheService.getInstance().subscribe");
+
     const guard = read("components/onboarding/onboarding-journey-guard.tsx");
 
-    expect(guard).toContain("getCachedBootstrapState?.(userId)");
-    // The guard may force one bounded retry when native auth publishes the
-    // user before the token provider/proxy is ready. The cached admission path
-    // above still prevents a forced read on ordinary route changes.
-    expect(guard).toContain("bootstrapState(userId);");
-    expect(guard).toContain("force: true");
-    expect(guard).toContain("cachedAdmissionAllowsCurrentRoute");
-    expect(guard).toContain("OneSetupCompletionHintService.isResolved(userId)");
+    expect(guard).not.toContain("PreVaultUserStateService");
     expect(guard).not.toContain("primeSetupResolved");
-    expect(guard).not.toContain("window.location.assign(redirectTarget)");
+    expect(guard).not.toContain("window.location.assign");
+    // Redirects out of the funnel must never leave it in history.
+    expect(guard).not.toContain("router.push(ROUTES.ONE_SETUP");
   });
 
   it("fails closed instead of mutating an unresolved reviewer setup fixture", () => {

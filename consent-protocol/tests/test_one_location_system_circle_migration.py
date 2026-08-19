@@ -1,4 +1,4 @@
-"""Migration 159 makes a Circle the product depends on undeletable.
+"""Migration 160 makes a Circle the product depends on undeletable.
 
 Issue #5426 turns SMS emergency contacts into a real Circle. A real Circle can
 be deleted, and this one must not be: SOS resolves its recipients from the
@@ -23,8 +23,8 @@ MANIFEST_PATH = REPO_ROOT / "db" / "release_migration_manifest.json"
 CONTRACTS_DIR = REPO_ROOT / "db" / "contracts"
 SERVICE_PATH = REPO_ROOT / "hushh_mcp" / "services" / "one_location_circle_service.py"
 
-MIGRATION = "159_one_location_system_circles.sql"
-ROLLBACK = "159_one_location_system_circles.rollback.sql"
+MIGRATION = "160_one_location_system_circles.sql"
+ROLLBACK = "160_one_location_system_circles.rollback.sql"
 
 
 def _migration() -> str:
@@ -82,7 +82,7 @@ def test_system_circle_migration_is_registered_in_release_order() -> None:
 def test_schema_contracts_require_the_new_column() -> None:
     for name in ("prod_core_schema.json", "uat_integrated_schema.json"):
         contract = json.loads((CONTRACTS_DIR / name).read_text(encoding="utf-8"))
-        assert contract["expected_migration_version"] >= 159, name
+        assert contract["expected_migration_version"] >= 160, name
         # The service selects this column on every Circle read, so a database
         # without it is not one this build can run against.
         assert "is_system" in contract["required_tables"]["one_location_circles"], name

@@ -67,8 +67,20 @@ export default defineConfig({
       // compositing contract (backdrop-blur + a colour-mix background) --
       // exactly the kind of thing that can render differently between
       // engines, and the Feed ships inside the same WKWebView.
+      // `register-phone-title.layout` is opted in because it is a text-metric
+      // and line-break contract (does this string wrap at this font size) --
+      // exactly the kind of thing that can differ between engines, and the
+      // phone-verification screen every new person hits ships inside the same
+      // WKWebView.
+      // `request-card-duration-picker.layout` is opted in for the same reason
+      // as `gemini-endpoint-fields.layout`: it measures a Radix Select
+      // trigger's real height, and a `data-[size=default]:h-9` compound
+      // selector already beat a caller's plain `h-11` override once
+      // (silently, in every engine that pass ran on) -- a Chromium-only pass
+      // proves nothing about the WKWebView people actually approve requests
+      // in.
       testMatch:
-        /(circle-join-responsive-contract|auth-sign-in\.layout|connect-circle-cta\.layout|connect-pagination\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|feed-sticky-header-opaque\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|one-intro-welcome\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|auth-sign-in\.layout|register-phone-title\.layout|connect-circle-cta\.layout|connect-pagination\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|feed-sticky-header-opaque\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|one-intro-welcome\.layout|request-card-duration-picker\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",

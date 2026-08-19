@@ -935,7 +935,7 @@ export function DashboardMasterView({
             description:
               error instanceof Error
                 ? error.message
-                : "Kai could not start the brokerage connection flow. Please try again.",
+                : "Could not start the brokerage connection flow. Please try again.",
           },
         );
       } finally {
@@ -1181,7 +1181,7 @@ export function DashboardMasterView({
 
   const openAddHoldingModal = useCallback(() => {
     if (!canEditStatement) {
-      toast.info("Plaid holdings are read-only in Kai.");
+      toast.info("Plaid holdings are read-only here.");
       return;
     }
     setEditingHolding({
@@ -2015,7 +2015,7 @@ export function DashboardMasterView({
               purpose:
                 activeSource === "plaid"
                   ? "Disconnects the Plaid brokerage portfolio and removes the local mirror."
-                  : "Deletes the imported statement portfolio from Kai.",
+                  : "Deletes the imported statement portfolio.",
               voiceAliases: ["delete portfolio", "delete imported data"],
             },
           ]
@@ -2060,7 +2060,7 @@ export function DashboardMasterView({
               purpose:
                 activeSource === "plaid"
                   ? "Disconnects the Plaid brokerage portfolio and removes the local mirror."
-                  : "Deletes the imported statement portfolio from Kai.",
+                  : "Deletes the imported statement portfolio.",
               actionId: "kai.portfolio.delete_portfolio",
               role: "button",
             },
