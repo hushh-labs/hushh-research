@@ -568,14 +568,14 @@ function KaiOnboardingPageContent({
       <SetupKaiStageRegion>
         <div className="flex w-full max-w-sm flex-col items-center gap-4 text-center">
           <p className="text-sm text-muted-foreground">
-            Open your private vault to continue Finance setup.
+            Unlock to continue Finance setup.
           </p>
           <Button
             variant="blue-gradient"
             effect="fill"
             onClick={() => setVaultOpen(true)}
           >
-            Open private vault
+            Unlock
           </Button>
           {isStaticFinanceSetupRoute ? (
             <SetupCapabilityTerminalFooter
@@ -589,8 +589,8 @@ function KaiOnboardingPageContent({
           user={user}
           open={vaultOpen}
           onOpenChange={setVaultOpen}
-          title="Open your private place"
-          description="Continue Finance setup after you set a lock."
+          title="Unlock One"
+          description="Continue Finance setup once you're unlocked."
           allowVaultCreation={false}
           onSuccess={() => setVaultOpen(false)}
         />

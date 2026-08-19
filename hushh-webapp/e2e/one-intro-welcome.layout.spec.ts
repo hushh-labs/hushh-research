@@ -395,6 +395,34 @@ test.describe("welcome composition", () => {
     expect(colors.supporting).toBe("rgb(29, 29, 31)");
   });
 
+  test("the One glyph mark is never clipped by its own box", async ({
+    page,
+  }) => {
+    await gotoWelcome(page);
+
+    // The "no label wraps past its box or ellipsizes" check above matches on
+    // exact wanted strings and deliberately does not include the bare "One"
+    // text, since it would collide with copy elsewhere on the page. The mark
+    // is the single largest, most visually loaded element on this screen —
+    // a gradient background-clip:text glyph whose own inline box, if sized
+    // too tightly, crops the right edge of the last character — so it gets
+    // its own explicit box-containment check scoped to the .oneMark element.
+    // Only width is asserted: .oneMark carries no `overflow: hidden` of its
+    // own and neither does any ancestor up to `.shell`'s viewport-edge clip,
+    // so a tight `line-height` naturally overflowing the line box top/bottom
+    // by a few px is never actually cropped (verified against a real
+    // Chromium screenshot) — asserting scrollHeight here would fail on that
+    // harmless overflow without catching any real defect.
+    const metrics = await page.evaluate(() => {
+      const el = document.querySelector(".oneMark") as HTMLElement;
+      return { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth };
+    });
+
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(
+      metrics.clientWidth + SLACK_PX,
+    );
+  });
+
   test("One carries a restrained gradient, not a flat fill", async ({
     page,
   }) => {
