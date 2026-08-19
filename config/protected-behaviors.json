@@ -477,7 +477,7 @@
     },
     {
       "name": "one-location-emergency-control-is-labelled-sms",
-      "summary": "The emergency control reads \"SMS\" on every surface a person meets it: the hold button on the Emergency help screen, and the Home hub quick-action tile. The screen description names the same word the button shows.",
+      "summary": "The emergency control reads \"SMS\" on every surface a person meets it: the hold button on the Save my Soul screen, and the Home hub quick-action tile. The screen description names the same word the button shows.",
       "fixed_by": "#5587",
       "why_it_needs_a_lock": [
         "This label flipped twice in two days -- SMS -> SOS on 2026-08-18 across",

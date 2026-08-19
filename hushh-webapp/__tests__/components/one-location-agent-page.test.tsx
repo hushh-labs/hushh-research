@@ -2114,7 +2114,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("resolves a fresh local emergency number as Save My Soul opens", async () => {
-    const { rerender } = render(<OneLocationAgentPage />);
+    render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     mockCaptureCurrentPosition.mockClear();
     const envelopeWritesBeforeOpen = mockStoreEnvelope.mock.calls.length;
@@ -2122,7 +2122,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /^SMS$/i }));
 
     expect(
-      await screen.findByRole("heading", { name: "Emergency help", level: 1 }),
+      await screen.findByRole("heading", { name: "Save my Soul", level: 1 }),
     ).toBeTruthy();
     await waitFor(() =>
       expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1),
@@ -2135,27 +2135,7 @@ describe("OneLocationAgentPage", () => {
     await expectEmergencyAction("112", "India");
     expect(mockStoreEnvelope).toHaveBeenCalledTimes(envelopeWritesBeforeOpen);
 
-    // SOS no longer draws an in-content Cancel — the shell's single back
-    // control is the only way out, same as every other Location screen. In
-    // production it strips `?action=` and the flow-sync effect closes the
-    // flow, the same mechanism the OS/chrome back button drives. This test
-    // simulates that URL change directly rather than clicking a control that
-    // no longer exists.
-    //
-    // Two renders, not one: the flow was opened by clicking the hub tile,
-    // which sets `pendingFlowRef` to guard the flow against the effect
-    // "correcting" it back to "none" before the URL has caught up — the mock
-    // router never actually updates `useSearchParams()`, so that ref is still
-    // armed. Reflecting `action=sos` first lets the effect's own pass-through
-    // clear the guard (see `location-redesign-hub.tsx`'s flow-sync effect);
-    // only then does dropping the action param actually close the flow.
-    const sosParams = new URLSearchParams("action=sos");
-    mockUseSearchParams.mockReturnValue(sosParams);
-    rerender(<OneLocationAgentPage />);
-
-    const hubParams = new URLSearchParams();
-    mockUseSearchParams.mockReturnValue(hubParams);
-    rerender(<OneLocationAgentPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(
       await screen.findByTestId("one-location-status-card"),
     ).toBeTruthy();
@@ -2220,7 +2200,7 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     expect(
-      await screen.findByRole("heading", { name: "Emergency help", level: 1 }),
+      await screen.findByRole("heading", { name: "Save my Soul", level: 1 }),
     ).toBeTruthy();
     await expectEmergencyAction("112", "India");
     expect(
@@ -2266,7 +2246,7 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     expect(
-      await screen.findByRole("heading", { name: "Emergency help", level: 1 }),
+      await screen.findByRole("heading", { name: "Save my Soul", level: 1 }),
     ).toBeTruthy();
     expect(
       await screen.findByRole("button", {
@@ -2309,7 +2289,7 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     expect(
-      await screen.findByRole("heading", { name: "Emergency help", level: 1 }),
+      await screen.findByRole("heading", { name: "Save my Soul", level: 1 }),
     ).toBeTruthy();
     expect(
       await screen.findByRole("button", {
