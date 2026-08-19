@@ -975,6 +975,18 @@ export function SosPanel({
             </div>
           </div>
 
+        </div>
+
+        {/* Stop sharing (while an alert is live) and the dialer share one row:
+            Stop sharing anchors the left edge, the call/lookup control anchors
+            the right, at the same width as the message column above. With no
+            live alert the row has only the dialer, so it stays centered. */}
+        <div
+          className={cn(
+            "mt-10 flex min-h-[52px] w-full max-w-[520px] items-center gap-3 lg:mt-14",
+            active ? "justify-between" : "justify-center",
+          )}
+        >
           {/* While an alert is live the primary action becomes stopping it.
               This revokes the location grants the alert created AND clears the
               incident, so the live state resets here and in Active shares. */}
@@ -985,7 +997,7 @@ export function SosPanel({
               disabled={stopBusy}
               aria-label="Cancel the alert and stop sharing your location"
               data-testid="sos-cancel-alert"
-              className="press-scale mt-1 flex h-[52px] w-full items-center justify-center gap-2 self-center rounded-xl bg-[color:var(--sos-control-surface)] text-[16px] text-[color:var(--sos-control-text)] transition-colors hover:bg-[color:var(--sos-control-surface-hover)] disabled:opacity-60 lg:h-14 lg:w-[220px] lg:text-[17px]"
+              className="press-scale flex h-[52px] items-center justify-center gap-2 rounded-xl bg-[color:var(--sos-control-surface)] px-5 text-[16px] text-[color:var(--sos-control-text)] transition-colors hover:bg-[color:var(--sos-control-surface-hover)] disabled:opacity-60 lg:h-14 lg:text-[17px]"
             >
               {stopBusy ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -993,15 +1005,13 @@ export function SosPanel({
               {stopBusy ? "Stopping…" : "Stop sharing"}
             </button>
           ) : null}
-        </div>
 
-        {/* The dialer. Outlined and tinted, never filled — it needs to read as
-            tappable without becoming a peer of the SOS control.
-            It had no surface at all and measured ~35px tall, under the 44px
-            this product enforces everywhere else, on the one screen where the
-            person is least able to aim. An outline buys the affordance; the
-            filled treatment stays reserved for SOS. */}
-        <div className="mt-10 flex min-h-[52px] items-center justify-center lg:mt-14">
+          {/* The dialer. Outlined and tinted, never filled — it needs to read as
+              tappable without becoming a peer of the SOS control.
+              It had no surface at all and measured ~35px tall, under the 44px
+              this product enforces everywhere else, on the one screen where the
+              person is least able to aim. An outline buys the affordance; the
+              filled treatment stays reserved for SOS. */}
           {emergencyStatus === "resolved" && emergency ? (
             shouldFallbackWindowsEmergencyCall ? (
               <button
