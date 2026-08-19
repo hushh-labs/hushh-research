@@ -480,9 +480,20 @@ export function SosPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ringHold.cancel, sendHold.cancel]);
 
+  // `!active` used to gate this reset -- written only for the bail-out case
+  // (trigger returned without ever going live). On a SUCCESSFUL send, `busy`
+  // goes true -> false at the same moment `active` goes false -> true, so
+  // that guard meant this never ran on the normal path: `sendHold.progress`
+  // (and the ring's own progress) stayed stuck at 1 for as long as the alert
+  // stayed live. Harmless for the ring, whose progress-driven UI is already
+  // unmounted once `active` (swapped for the "SENT" checkmark), but visible
+  // for the send button's floating "Hold to send..." label, which has no such
+  // unmount. Dropping `!active` resets on every busy edge; nothing can
+  // re-arm early from this alone, since `hardDisabled` (and therefore both
+  // holds' own `disabled`) already includes `active`.
   useEffect(() => {
     if (busy) observedBusyRef.current = true;
-    if (!busy && observedBusyRef.current && !active) {
+    if (!busy && observedBusyRef.current) {
       observedBusyRef.current = false;
       firedRef.current = false;
       resetHoldsRef.current();
@@ -844,7 +855,15 @@ export function SosPanel({
                 (#5433): a typed message used to send on a single tap, which
                 made this the one control on the screen where one accidental
                 tap dispatched a real emergency broadcast. */}
-            {sendHold.progress > 0 ? (
+            {/* Gated on `!messageLocked`, not just `progress > 0`: a fired
+                hold snaps `progress` to 1 and it only comes back down once
+                `busy` clears (see the reset effect above), which can be a beat
+                after the button is already locked mid-send, or -- before that
+                effect dropped its own `!active` guard -- indefinitely once the
+                alert went live. Matches the ring's own precedent of hiding its
+                progress UI entirely once locked, rather than trusting the
+                numeric state alone to unwind in time. */}
+            {sendHold.progress > 0 && !messageLocked ? (
               <span
                 role="status"
                 className="pointer-events-none absolute -top-9 right-0 whitespace-nowrap rounded-full bg-[color:var(--sos-control-surface)] px-2.5 py-1 text-[12px] text-[color:var(--sos-label)] shadow-sm"
@@ -861,7 +880,7 @@ export function SosPanel({
               data-testid="sos-send-custom-message"
               disabled={hardDisabled || !selectedMessage}
               aria-label={
-                sendHold.progress > 0
+                sendHold.progress > 0 && !messageLocked
                   ? `Sending in ${(
                       (HOLD_DURATION_MS / 1000) *
                       (1 - sendHold.progress)
