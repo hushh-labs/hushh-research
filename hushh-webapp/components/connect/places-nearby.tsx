@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
@@ -79,6 +80,32 @@ export function PlacesNearby({
 
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkScroll = useCallback(() => {
+    const el = railRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 2);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+  }, []);
+
+  useEffect(() => {
+    const el = railRef.current;
+    if (!el) return;
+    checkScroll();
+    el.addEventListener("scroll", checkScroll, { passive: true });
+    window.addEventListener("resize", checkScroll);
+    return () => {
+      el.removeEventListener("scroll", checkScroll);
+      window.removeEventListener("resize", checkScroll);
+    };
+  }, [checkScroll]);
+
+  const handleScrollBy = (delta: number) => {
+    railRef.current?.scrollBy({ left: delta, behavior: "smooth" });
+  };
 
   useEffect(() => {
     if (!location.snapshot) return;
@@ -267,8 +294,20 @@ export function PlacesNearby({
       {/* A rail rather than a segmented control: eleven segments would each be
           too narrow to read, and the rail is the pattern the check-in picker
           already uses for the same set of ideas. */}
-      <div className="relative w-full">
+      <div className="group relative w-full">
+        {canScrollLeft ? (
+          <button
+            type="button"
+            aria-label="Scroll left"
+            onClick={() => handleScrollBy(-220)}
+            className="absolute left-1 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-border/80 bg-background/90 text-foreground shadow-md backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        ) : null}
+
         <div
+          ref={railRef}
           className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 touch-pan-x overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           role="tablist"
           aria-label="Place categories"
@@ -302,14 +341,30 @@ export function PlacesNearby({
             );
           })}
         </div>
-        <div
-          className="pointer-events-none absolute right-0 top-0 bottom-1 w-8 bg-gradient-to-l from-background via-background/80 to-transparent"
-          aria-hidden="true"
-        />
-        <div
-          className="pointer-events-none absolute left-0 top-0 bottom-1 w-4 bg-gradient-to-r from-background to-transparent opacity-0 transition-opacity"
-          aria-hidden="true"
-        />
+
+        {canScrollRight ? (
+          <button
+            type="button"
+            aria-label="Scroll right"
+            onClick={() => handleScrollBy(220)}
+            className="absolute right-1 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-border/80 bg-background/90 text-foreground shadow-md backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        ) : null}
+
+        {canScrollRight ? (
+          <div
+            className="pointer-events-none absolute right-0 top-0 bottom-1 w-8 bg-gradient-to-l from-background via-background/80 to-transparent"
+            aria-hidden="true"
+          />
+        ) : null}
+        {canScrollLeft ? (
+          <div
+            className="pointer-events-none absolute left-0 top-0 bottom-1 w-8 bg-gradient-to-r from-background via-background/80 to-transparent"
+            aria-hidden="true"
+          />
+        ) : null}
       </div>
 
       {error ? (
