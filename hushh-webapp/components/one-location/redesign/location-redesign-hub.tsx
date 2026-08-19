@@ -21,6 +21,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -38,10 +39,12 @@ import {
   Plus,
   Send,
   Check,
+  ChevronDown,
   ChevronRight,
   Shield,
   ShieldCheck,
   UserPlus,
+  Siren,
   Users,
   UsersRound,
 } from "lucide-react";
@@ -58,6 +61,11 @@ import {
   isSmsTriggeredGrant,
   ONE_LOCATION_GRANT_ID_PARAM,
 } from "@/lib/one-location/notifications";
+import {
+  grantLaneLabel,
+  groupGrantsByCounterpart,
+  type OneLocationGrantLaneGroup,
+} from "@/lib/one-location/grant-lanes";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -1617,6 +1625,180 @@ function NowHub({
 }
 
 /** Focused detail surfaces replace the former mixed inbox tab. */
+/**
+ * One live share inside a per-person row: what kind it is, when it ends, and
+ * its own Stop.
+ *
+ * Per-share-type rather than per-person, because after the two-lane split the
+ * two shares to one person are genuinely different consents with different end
+ * times. Stopping the SMS one here revokes exactly the grant the SOS screen's
+ * "Stop sharing" would revoke -- same grant id, same `revokeGrant` call -- and
+ * leaves the ordinary share running, which is the whole point of #5506.
+ */
+function ShareLaneRow({
+  grant,
+  counterpartName,
+  onStop,
+  stopping,
+  formatEndsAt,
+}: {
+  grant: OneLocationGrant;
+  counterpartName: string;
+  /** Omitted on the receiving side: a recipient cannot revoke an owner's grant. */
+  onStop?: () => void;
+  stopping?: boolean;
+  formatEndsAt?: (value: string) => string;
+}) {
+  const isSms = isSmsTriggeredGrant(grant);
+  return (
+    <div
+      className="flex min-h-[52px] items-center gap-3 py-2"
+      data-testid="one-location-share-lane"
+      data-share-lane={isSms ? "sos" : "ordinary"}
+      data-grant-id={grant.id}
+    >
+      <div className="min-w-0 flex-1">
+        <p className="flex min-w-0 items-center gap-1.5 truncate text-[15px] font-medium text-foreground">
+          {isSms ? (
+            <Siren
+              className="h-3.5 w-3.5 shrink-0 text-[color:var(--app-destructive)]"
+              aria-hidden="true"
+            />
+          ) : null}
+          {grantLaneLabel(grant)}
+        </p>
+        <p className={cn(MUTED_TEXT, "truncate text-[13px]")}>
+          {grant.durationMode === "until_stopped" ? (
+            "Until you stop"
+          ) : formatEndsAt && grant.expiresAt ? (
+            `Access until ${formatEndsAt(grant.expiresAt)}`
+          ) : (
+            <ShareCountdownText expiresAt={grant.expiresAt} />
+          )}
+        </p>
+      </div>
+      {onStop ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-9 shrink-0 text-destructive"
+          onClick={onStop}
+          disabled={stopping}
+          aria-label={
+            isSms
+              ? `Stop the SMS share with ${counterpartName}`
+              : `Stop the location share with ${counterpartName}`
+          }
+        >
+          Stop
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The disclosure body of a per-person row: every live share with that person.
+ *
+ * Rendered only when there is more than one, so the ordinary single-share case
+ * keeps the one-tap Stop it has always had rather than growing a chevron for a
+ * list of one.
+ */
+function PersonShareLanes({
+  group,
+  counterpartName,
+  onStopGrant,
+  revokingGrantId,
+  formatEndsAt,
+}: {
+  group: OneLocationGrantLaneGroup;
+  counterpartName: string;
+  onStopGrant?: (grantId: string) => void;
+  revokingGrantId?: string | null;
+  formatEndsAt?: (value: string) => string;
+}) {
+  return (
+    <div className="divide-y divide-[color:var(--app-separator)]">
+      {group.grants.map((grant) => (
+        <ShareLaneRow
+          key={grant.id}
+          grant={grant}
+          counterpartName={counterpartName}
+          formatEndsAt={formatEndsAt}
+          onStop={onStopGrant ? () => onStopGrant(grant.id) : undefined}
+          stopping={revokingGrantId === grant.id}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A chevron toggle that reads as one control.
+ *
+ * Matches the disclosure treatment `SharedWithMeCard` already uses for its map
+ * preview: a real button, `aria-expanded`, `aria-controls`, and a ChevronDown
+ * that rotates 180 degrees. Reused rather than re-styled so the two kinds of
+ * expandable row on this screen do not diverge.
+ */
+function ShareLanesDisclosure({
+  expanded,
+  onToggle,
+  controlsId,
+  label,
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+  controlsId: string;
+  label: string;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="h-9 shrink-0 gap-1 rounded-full px-3 text-[15px] font-semibold"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      aria-controls={controlsId}
+      aria-label={label}
+    >
+      Manage
+      <ChevronDown
+        className={cn(
+          "h-4 w-4 transition-transform duration-200",
+          expanded && "rotate-180",
+        )}
+        aria-hidden="true"
+      />
+    </Button>
+  );
+}
+
+/**
+ * Which people have their per-share breakdown open, keyed by PERSON.
+ *
+ * Keyed by person rather than by grant so the disclosure stays put while the
+ * grants underneath are replaced wholesale on every live poll. Shared by the
+ * three surfaces that list people -- Active shares, People and Shared with me
+ * -- because an owner who expands a row on one of them and finds it collapsed
+ * on the next has learned that expanding means nothing.
+ */
+function useExpandedShareLanes() {
+  const [expandedLaneUserIds, setExpandedLaneUserIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const toggleLaneExpansion = useCallback((counterpartUserId: string) => {
+    setExpandedLaneUserIds((current) => {
+      const next = new Set(current);
+      if (next.has(counterpartUserId)) next.delete(counterpartUserId);
+      else next.add(counterpartUserId);
+      return next;
+    });
+  }, []);
+  return { expandedLaneUserIds, toggleLaneExpansion };
+}
+
 function LocationDetailFlow({
   kind,
   vm,
@@ -1634,6 +1816,20 @@ function LocationDetailFlow({
   onCollapseGrant: (grantId: string) => void;
   onExpandGrant: (grant: OneLocationGrant) => void;
 }) {
+  // One row/card per PERSON, not per grant. A pair can now hold two live
+  // grants -- an ordinary share and an SMS (SOS) one -- and rendering a grant
+  // list rendered the same person twice, each row offering a Stop that left the
+  // other share running.
+  const ownerGrantGroups = useMemo(
+    () => groupGrantsByCounterpart(vm.activeOwnerGrants, "owner"),
+    [vm.activeOwnerGrants],
+  );
+  const receivedGrantGroups = useMemo(
+    () => groupGrantsByCounterpart(vm.receivedGrants, "recipient"),
+    [vm.receivedGrants],
+  );
+  const { expandedLaneUserIds, toggleLaneExpansion } = useExpandedShareLanes();
+
   const [grantViewportResetKeys, setGrantViewportResetKeys] = useState<
     Record<string, number>
   >({});
@@ -1757,65 +1953,154 @@ function LocationDetailFlow({
         description={copy.description}
       />
       {kind === "active-shares" ? (
-        vm.activeOwnerGrants.length ? (
+        ownerGrantGroups.length ? (
           <SettingsGroup separatorInset>
-            {vm.activeOwnerGrants.map((grant) => (
-              <SettingsRow
-                key={grant.id}
-                icon={UsersRound}
-                // Green, matching the "Active shares" row that opens this
-                // screen. Each row here IS one of those live grants, and
-                // "purple" renders byte-identically to blue in the tone map —
-                // so tapping a green row reporting 3 landed on three blue rows
-                // for the same 3 grants. One object, one colour.
-                iconTone="green"
-                title={vm.grantRecipientLabel(grant)}
-                description={
-                  grant.durationMode === "until_stopped" ? (
-                    "Until you stop"
-                  ) : (
-                    // Was a string computed once per render, so it froze the
-                    // moment the screen stopped re-rendering.
-                    <ShareCountdownText expiresAt={grant.expiresAt} />
-                  )
-                }
-                trailing={
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-9 text-destructive"
-                    onClick={() => vm.onStopGrant(grant.id)}
-                    disabled={vm.revokingGrantId === grant.id}
-                  >
-                    Stop
-                  </Button>
-                }
-              />
-            ))}
+            {ownerGrantGroups.map((group) => {
+              const name = vm.grantRecipientLabel(group.primaryGrant);
+              const expanded = expandedLaneUserIds.has(group.counterpartUserId);
+              const lanesId = `one-location-share-lanes-${group.counterpartUserId}`;
+              // One share is still one tap. The chevron only appears for a
+              // person who genuinely has two, so nothing about the common case
+              // grew a step.
+              const single = group.grants.length === 1 ? group.primaryGrant : null;
+              return (
+                <SettingsRow
+                  key={group.counterpartUserId}
+                  icon={UsersRound}
+                  // Green, matching the "Active shares" row that opens this
+                  // screen. Each row here IS one of those live grants, and
+                  // "purple" renders byte-identically to blue in the tone map —
+                  // so tapping a green row reporting 3 landed on three blue rows
+                  // for the same 3 grants. One object, one colour.
+                  iconTone="green"
+                  title={name}
+                  description={
+                    single ? (
+                      single.durationMode === "until_stopped" ? (
+                        "Until you stop"
+                      ) : (
+                        // Was a string computed once per render, so it froze the
+                        // moment the screen stopped re-rendering.
+                        <ShareCountdownText expiresAt={single.expiresAt} />
+                      )
+                    ) : (
+                      <>
+                        {/* Deliberately not a folded end time. The two shares
+                            end at different moments and each has its own Stop,
+                            so the honest summary is how many there are; the
+                            times live one tap away, beside the control that
+                            ends them.
+
+                            The breakdown lives in the row's own description
+                            slot rather than as a sibling of the row, so the
+                            group keeps its iOS first/last radii and hairline
+                            separators -- those are structural CSS on the row's
+                            position among its siblings, and inserting a panel
+                            between rows would round every row in the list. */}
+                        <span>{`${group.grants.length} live shares`}</span>
+                        <div id={lanesId} hidden={!expanded} className="pt-1">
+                          <PersonShareLanes
+                            group={group}
+                            counterpartName={name}
+                            onStopGrant={vm.onStopGrant}
+                            revokingGrantId={vm.revokingGrantId}
+                          />
+                        </div>
+                      </>
+                    )
+                  }
+                  trailing={
+                    single ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 text-destructive"
+                        onClick={() => vm.onStopGrant(single.id)}
+                        disabled={vm.revokingGrantId === single.id}
+                      >
+                        Stop
+                      </Button>
+                    ) : (
+                      <ShareLanesDisclosure
+                        expanded={expanded}
+                        onToggle={() => toggleLaneExpansion(group.counterpartUserId)}
+                        controlsId={lanesId}
+                        label={`Manage your shares with ${name}`}
+                      />
+                    )
+                  }
+                />
+              );
+            })}
           </SettingsGroup>
         ) : (
           <EmptyState title="No active shares" />
         )
       ) : null}
       {kind === "shared-with-me" ? (
-        vm.receivedGrants.length ? (
+        receivedGrantGroups.length ? (
           <div className="space-y-3">
-            {vm.receivedGrants.map((grant) => {
+            {receivedGrantGroups.map((group) => {
+              // ONE card per OWNER, never one per grant. That person can now
+              // be sharing with you twice at once -- an ordinary share and an
+              // SMS (SOS) one -- and rendering the grant list rendered the
+              // same name twice, two cards deep, each with its own map and its
+              // own countdown and no way to tell which was which.
+              //
+              // `receivedGrants` is already sorted SMS-first, so the leading
+              // grant of a group is the SMS one whenever there is one: the
+              // card's map, its "view" affordance and its badge all follow the
+              // share that matters most.
+              const grant = group.primaryGrant;
+              const multiLane = group.grants.length > 1;
+              const lanesExpanded = expandedLaneUserIds.has(
+                group.counterpartUserId,
+              );
+              const lanesId = `one-location-received-lanes-${group.counterpartUserId}`;
+              const ownerName = vm.grantOwnerLabel(grant);
               const point = vm.decryptedPoints[grant.id];
               const addressEntry = addressByGrant[grant.id];
               const expanded =
                 Boolean(point) && !collapsedGrantIds.has(grant.id);
               return (
-                <div key={grant.id} data-grant-id={grant.id}>
+                <div key={group.counterpartUserId} data-grant-id={grant.id}>
                 <SharedWithMeCard
-                  isSmsTriggered={isSmsTriggeredGrant(grant)}
-                  name={vm.grantOwnerLabel(grant)}
+                  isSmsTriggered={Boolean(group.smsGrant)}
+                  name={ownerName}
                   statusLine={
-                    grant.durationMode === "until_stopped"
-                      ? "Until stopped"
-                      : grant.expiresAt
-                        ? `Access until ${vm.formatDateTime(grant.expiresAt)}`
-                        : "Active"
+                    multiLane
+                      ? `${group.grants.length} live shares`
+                      : grant.durationMode === "until_stopped"
+                        ? "Until stopped"
+                        : grant.expiresAt
+                          ? `Access until ${vm.formatDateTime(grant.expiresAt)}`
+                          : "Active"
+                  }
+                  shareLanes={
+                    multiLane ? (
+                      // Display-only on this side. A recipient cannot revoke
+                      // somebody else's grant server-side, so there is no Stop
+                      // here -- only the honest breakdown of what each of the
+                      // two shares is and when it ends, which a single folded
+                      // status line could only ever be right about one of.
+                      <div data-testid="one-location-received-share-lanes">
+                        <ShareLanesDisclosure
+                          expanded={lanesExpanded}
+                          onToggle={() =>
+                            toggleLaneExpansion(group.counterpartUserId)
+                          }
+                          controlsId={lanesId}
+                          label={`Show the shares ${ownerName} has with you`}
+                        />
+                        <div id={lanesId} hidden={!lanesExpanded}>
+                          <PersonShareLanes
+                            group={group}
+                            counterpartName={ownerName}
+                            formatEndsAt={vm.formatDateTime}
+                          />
+                        </div>
+                      </div>
+                    ) : null
                   }
                   previewExpanded={expanded}
                   mapHref={point ? vm.mapLocationHref(point) : undefined}
@@ -2078,6 +2363,7 @@ function PersonRow({
   active,
   first,
   action,
+  expansion,
 }: {
   name: string;
   subtitle: string;
@@ -2085,12 +2371,24 @@ function PersonRow({
   active: boolean;
   first: boolean;
   action: ReactNode;
+  /**
+   * The row's per-share breakdown, when this person holds more than one live
+   * share. Rendered UNDER the row rather than beside it: it is a list with its
+   * own controls, and the row's own line has one name, one status and one
+   * action's worth of room.
+   */
+  expansion?: ReactNode;
 }) {
   return (
     <div
       className={cn(
-        "flex min-h-[74px] items-center gap-3.5 px-[18px] py-2 transition-colors hover:bg-[color:var(--app-neutral-fill)] motion-reduce:transition-none sm:min-h-[76px] sm:gap-[18px] sm:px-6",
+        "transition-colors hover:bg-[color:var(--app-neutral-fill)] motion-reduce:transition-none",
         !first && "border-t border-[color:var(--app-separator)]",
+      )}
+    >
+    <div
+      className={cn(
+        "flex min-h-[74px] items-center gap-3.5 px-[18px] py-2 sm:min-h-[76px] sm:gap-[18px] sm:px-6",
       )}
     >
       <div className="relative shrink-0">
@@ -2110,6 +2408,10 @@ function PersonRow({
         </p>
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
+    </div>
+      {expansion ? (
+        <div className="px-[18px] pb-2 sm:px-6">{expansion}</div>
+      ) : null}
     </div>
   );
 }
@@ -2138,6 +2440,23 @@ function PeopleHub({
   const hasSearch = vm.recipientSearch.trim().length > 0;
   const filtered = vm.visibleRecipients;
   const hasAnyRecipients = vm.recipients.length > 0;
+  // Your live shares, by the person they point at -- ALL of them, not the
+  // first one found. This list used to read `activeOwnerGrants.find(...)`,
+  // which was correct only while a pair could hold one grant. Once an ordinary
+  // share and an SMS (SOS) share can both be live with the same person, `find`
+  // bound the row's single Stop to whichever happened to come first and left
+  // the other share running with no way to see it, let alone end it.
+  const ownerGroupsByUserId = useMemo(() => {
+    const byUserId = new globalThis.Map<string, OneLocationGrantLaneGroup>();
+    for (const group of groupGrantsByCounterpart(
+      vm.activeOwnerGrants,
+      "owner",
+    )) {
+      byUserId.set(group.counterpartUserId, group);
+    }
+    return byUserId;
+  }, [vm.activeOwnerGrants]);
+  const { expandedLaneUserIds, toggleLaneExpansion } = useExpandedShareLanes();
   const isDesktopPeopleLayout = useMediaQuery("(min-width: 640px)");
   const addPeopleAction = (
     <Button
@@ -2261,10 +2580,17 @@ function PeopleHub({
                   data-testid="one-location-people-list"
                 >
                   {filtered.map((r, i) => {
-                    const grant = vm.activeOwnerGrants.find(
-                      (g) => g.recipientUserId === r.userId,
-                    );
-                    const sharing = Boolean(grant);
+                    const shareGroup = ownerGroupsByUserId.get(r.userId) ?? null;
+                    const sharing = Boolean(shareGroup);
+                    // One share is still one tap: the row keeps its single
+                    // Stop and grows nothing. The breakdown appears only for a
+                    // person who genuinely has two.
+                    const singleGrant =
+                      shareGroup && shareGroup.grants.length === 1
+                        ? shareGroup.primaryGrant
+                        : null;
+                    const lanesExpanded = expandedLaneUserIds.has(r.userId);
+                    const lanesId = `one-location-people-lanes-${r.userId}`;
                     const receiving = vm.receivedGrants.some(
                       (g) => g.ownerUserId === r.userId,
                     );
@@ -2274,6 +2600,25 @@ function PeopleHub({
                       <PersonRow
                         key={r.userId}
                         name={name}
+                        expansion={
+                          shareGroup && !singleGrant ? (
+                            <div id={lanesId} hidden={!lanesExpanded}>
+                              {/* Stopping the SMS share here is exactly the
+                                  same act as stopping it from the Emergency
+                                  help screen: the same grant id through the
+                                  same `revokeGrant`. The normal share keeps
+                                  its original countdown, and stopping the
+                                  normal share never touches the SMS one --
+                                  that is the whole of #5506, made visible. */}
+                              <PersonShareLanes
+                                group={shareGroup}
+                                counterpartName={name}
+                                onStopGrant={vm.onStopGrant}
+                                revokingGrantId={vm.revokingGrantId}
+                              />
+                            </div>
+                          ) : null
+                        }
                         // Someone sharing their location with you right now
                         // used to read "Ready for private location sharing" —
                         // the recommendation line, which describes what COULD
@@ -2289,17 +2634,24 @@ function PeopleHub({
                         active={sharing || receiving}
                         first={i === 0}
                         action={
-                          sharing && grant ? (
+                          singleGrant ? (
                             <Button
                               variant="secondary"
                               size="sm"
-                              onClick={() => vm.onStopGrant(grant.id)}
-                              isLoading={vm.revokingGrantId === grant.id}
+                              onClick={() => vm.onStopGrant(singleGrant.id)}
+                              isLoading={vm.revokingGrantId === singleGrant.id}
                               aria-label={`Stop sharing with ${name}`}
                               className="relative h-9 min-h-9 rounded-full px-4 text-[15px] font-semibold after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] sm:px-5"
                             >
                               Stop
                             </Button>
+                          ) : shareGroup ? (
+                            <ShareLanesDisclosure
+                              expanded={lanesExpanded}
+                              onToggle={() => toggleLaneExpansion(r.userId)}
+                              controlsId={lanesId}
+                              label={`Manage your shares with ${name}`}
+                            />
                           ) : ready ? (
                             <Button
                               size="sm"
@@ -2775,8 +3127,18 @@ function ShareFlow({
    * that was already running. Showing the remaining time on the row is what
    * makes that consequence visible before it is chosen.
    */
+  //
+  // The grant a row reports is the ORDINARY one when the person holds both.
+  // Building this straight from the grant list made it a last-one-wins map, so
+  // while an SMS (SOS) share was live with somebody, their row quoted the SOS
+  // grant's hours -- time that re-picking them would not have restarted, since
+  // replacement is lane-scoped and a plain share only ever supersedes a plain
+  // share. The number on the row has to be the one the tap would reset.
   const activeGrantByRecipientId = new globalThis.Map(
-    vm.activeOwnerGrants.map((grant) => [grant.recipientUserId, grant]),
+    groupGrantsByCounterpart(vm.activeOwnerGrants, "owner").map((group) => [
+      group.counterpartUserId,
+      group.ordinaryGrant ?? group.primaryGrant,
+    ]),
   );
   const alreadySharing = filtered.filter((recipient) =>
     activeGrantByRecipientId.has(recipient.userId),

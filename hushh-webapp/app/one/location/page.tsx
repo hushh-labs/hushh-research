@@ -245,6 +245,7 @@ import {
   loadLiveShareEntries,
   pruneLiveShareEntries,
   reconcileLiveShareEntries,
+  resolveStoppableGrantId,
   saveLiveShareEntries,
   summarizeLiveShareEntries,
   type LiveShareSessionEntry,
@@ -3031,10 +3032,7 @@ export function OneLocationAgentPageContent({
         .filter(Boolean),
       startedAt: shareWindow.startedAt,
       endsAt: shareWindow.endsAt,
-      stoppableGrantId:
-        liveShareEntries.length === 1
-          ? (liveShareEntries[0]?.grantId ?? null)
-          : null,
+      stoppableGrantId: resolveStoppableGrantId(liveShareEntries),
     };
   }, [activeOwnerGrants, liveShareEntries]);
 
