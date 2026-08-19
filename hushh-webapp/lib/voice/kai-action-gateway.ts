@@ -924,7 +924,7 @@ export function evaluateKaiActionAvailability(input: {
     ) {
       return {
         status: "blocked",
-        reason: "Unlock the vault to use this action.",
+        reason: "Unlock to use this action.",
         target_persona: null,
         blocked_guidance: null,
       };

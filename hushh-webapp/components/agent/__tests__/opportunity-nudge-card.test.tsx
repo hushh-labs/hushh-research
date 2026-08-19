@@ -99,7 +99,7 @@ describe("OpportunityNudgeStack", () => {
     );
 
     const trigger = await findOpportunityTrigger();
-    const dismiss = screen.getByLabelText("Hide marketplace opportunities for this vault session");
+    const dismiss = screen.getByLabelText("Hide marketplace opportunities for this session");
 
     fireEvent.click(dismiss);
 

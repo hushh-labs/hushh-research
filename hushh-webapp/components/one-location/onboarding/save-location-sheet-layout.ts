@@ -106,12 +106,30 @@ export const REQUIRED_BADGE_CLASSNAME =
   "shrink-0 rounded-full bg-[color:var(--app-destructive)]/12 px-1.5 py-px text-[11px] font-semibold uppercase leading-[16px] tracking-[0.02em] text-[color:var(--app-destructive)]";
 
 /**
+ * The Optional counterpart of the Required badge above, on House/flat and
+ * PIN. A single sentence once said this for the whole group below it, but a
+ * field styled exactly like the required Address box above it reads as
+ * required regardless of a caption a screen above -- people go by the shape
+ * of the box, not by a sentence they have already scrolled past. Outlined
+ * rather than filled, so it is legible as the calmer sibling of the solid red
+ * Required pill rather than an equally loud claim.
+ */
+export const OPTIONAL_BADGE_CLASSNAME =
+  "shrink-0 rounded-full border border-border/70 px-1.5 py-px text-[11px] font-semibold uppercase leading-[16px] tracking-[0.02em] text-muted-foreground";
+
+/**
  * The row that opens the optional door details. A control, so it owes the
  * platform's 44px minimum -- and `min-h-11` rather than a fixed height,
  * because its label wraps to two lines under a large text setting.
+ *
+ * Deliberately no border or filled background. Bordered and card-shaped is
+ * the same visual language this sheet uses for the Kind-of-place buttons and
+ * every text input on it -- things you select or fill in -- so this row read
+ * as one more of those rather than as a disclosure. Text plus a chevron is
+ * enough; `aria-expanded` and the rotating chevron already carry "opens more".
  */
 export const DOOR_DETAILS_TOGGLE_CLASSNAME =
-  "press-scale flex min-h-11 w-full items-center justify-between gap-2 rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] px-3.5 py-2.5 text-left transition-colors hover:bg-foreground/[0.03] disabled:opacity-45";
+  "press-scale flex min-h-11 w-full items-center justify-between gap-2 rounded-[10px] px-1 text-left transition-colors hover:bg-foreground/[0.03] disabled:opacity-45";
 
 /** Widths the sheet has to hold its shape at, smallest phone upward. */
 export const SHEET_LAYOUT_WIDTHS = [320, 360, 375, 390, 430, 768] as const;

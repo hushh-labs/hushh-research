@@ -310,7 +310,7 @@ function SharedDataPreview({
   useEffect(() => {
     let cancelled = false;
     if (!userId || !vaultKey) {
-      setErr("Unlock your vault to preview the shared summary.");
+      setErr("Unlock to preview the shared summary.");
       return;
     }
     setLoading(true);
@@ -566,7 +566,7 @@ function OneMarketplacePageImpl() {
   const viewDelivery = useCallback(
     async (request: MarketplaceRequest) => {
       if (!vaultOwnerToken || !user?.uid) {
-        toast.error("Unlock your vault to open the delivered slice.");
+        toast.error("Unlock to open the delivered slice.");
         return;
       }
       setDeliveries((current) => ({ ...current, [request.id]: { status: "loading" } }));
@@ -757,7 +757,7 @@ function OneMarketplacePageImpl() {
   const runPosture = useCallback(
     async (section: Section, nextPosture: PkmVisibilityPosture) => {
       if (!user?.uid || !vaultOwnerToken) {
-        toast.error("Unlock your vault to change sharing.");
+        toast.error("Unlock to change sharing.");
         return;
       }
       const previousManifest = section.manifest;
@@ -832,7 +832,7 @@ function OneMarketplacePageImpl() {
   const runPublish = useCallback(
     async (section: Section) => {
       if (!user?.uid || !vaultOwnerToken || !vaultKey) {
-        toast.error("Unlock your vault to publish a public profile.");
+        toast.error("Unlock to publish a public profile.");
         return;
       }
       if (isStructurallyBlockedForPublish(section.permission.topLevelScopePath)) {

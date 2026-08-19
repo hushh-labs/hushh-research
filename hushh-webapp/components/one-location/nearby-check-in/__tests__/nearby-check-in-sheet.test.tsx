@@ -185,7 +185,8 @@ describe("NearbyCheckInSheet", () => {
     expect(
       screen.getByRole("heading", { name: "Check in" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Preview")).toBeInTheDocument();
+    // The "Preview" badge next to the sheet title was removed entirely.
+    expect(screen.queryByText("Preview")).not.toBeInTheDocument();
     expect(
       screen.queryByText("Choose a real place within 500 m of your current location."),
     ).not.toBeInTheDocument();
@@ -195,10 +196,10 @@ describe("NearbyCheckInSheet", () => {
     );
     expect(longName).toHaveClass("truncate");
     expect(
-      screen.getByRole("button", { name: "Show all 4 places" }),
+      screen.getByRole("button", { name: "See all 4 places" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show all 4 places" }));
+    fireEvent.click(screen.getByRole("button", { name: "See all 4 places" }));
     expect(await screen.findByRole("radio", { name: /Place Four/ })).toBeInTheDocument();
   });
 
@@ -236,31 +237,39 @@ describe("NearbyCheckInSheet", () => {
     expect(screen.getByText("University · 450 Jane Stanford Way")).toBeInTheDocument();
     expect(screen.getByText("48 m away")).toBeInTheDocument();
     expect(nearest).toHaveAttribute("aria-checked", "false");
-    expect(
-      screen.getByRole("switch", {
-        name: "Allow nearby connection requests",
-      }),
-    ).toHaveAttribute("data-state", "unchecked");
     expect(screen.queryByText("How sharing works")).not.toBeInTheDocument();
     expect(
       screen.queryByText(/current point is sent to Google/i),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("Off by default.")).not.toBeInTheDocument();
 
-    const submit = screen.getByRole("button", {
-      name: "Check in",
-    });
+    // Duration and the visibility switches stay out of the DOM entirely
+    // until a place is chosen -- there is nothing to submit yet.
+    const submit = screen.getByRole("button", { name: "Choose a place" });
     expect(submit).toBeDisabled();
     expect(
       screen.queryByRole("button", { name: "Choose trusted people" }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: "Allow nearby connection requests" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(nearest);
+    // Selecting the place reveals the switches and flips the label, but
+    // check-in still requires explicit consent.
+    expect(submit).toHaveTextContent("Check in");
+    expect(submit).toBeDisabled();
+    expect(
+      screen.getByRole("switch", {
+        name: "Allow nearby connection requests",
+      }),
+    ).toHaveAttribute("data-state", "unchecked");
+
     fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+      screen.getByRole("switch", {
+        name: "Show me to people nearby",
       }),
     );
-    expect(submit).toBeDisabled();
-    fireEvent.click(nearest);
     expect(submit).toBeEnabled();
     fireEvent.click(submit);
 
@@ -299,8 +308,8 @@ describe("NearbyCheckInSheet", () => {
       await screen.findByRole("radio", { name: /Stanford University/ }),
     );
     fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+      screen.getByRole("switch", {
+        name: "Show me to people nearby",
       }),
     );
     fireEvent.click(
@@ -365,16 +374,19 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    fireEvent.click(
-      await screen.findByRole("radio", { name: /Stanford University/ }),
-    );
+    // The accuracy notice lives in the picker view, not the collapsed
+    // summary, so it has to be read before a place is selected.
+    await screen.findByRole("radio", { name: /Stanford University/ });
     expect(
       await screen.findByText(/accurate to about 1\.2 km/i),
     ).toBeInTheDocument();
 
     fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+      screen.getByRole("radio", { name: /Stanford University/ }),
+    );
+    fireEvent.click(
+      screen.getByRole("switch", {
+        name: "Show me to people nearby",
       }),
     );
     fireEvent.click(
@@ -500,6 +512,9 @@ describe("NearbyCheckInSheet", () => {
 
     expect(await screen.findByText("Maya Chen")).toBeInTheDocument();
     expect(screen.getByTestId("nearby-attendee-roster")).toBeInTheDocument();
+    // The count sits beside the heading it counts, so it reads as part of
+    // "People nearby" rather than as a loose number in the card's corner.
+    expect(screen.getByTestId("nearby-attendee-count")).toHaveTextContent("1");
     expect(
       screen.queryByTestId("nearby-private-share-card"),
     ).not.toBeInTheDocument();
@@ -519,6 +534,48 @@ describe("NearbyCheckInSheet", () => {
     expect(
       await screen.findByRole("button", { name: "Requested with Maya Chen" }),
     ).toBeDisabled();
+  });
+
+  it("prints no roster count when nobody is nearby, and states the pin rule once", async () => {
+    // Reported as "0 on right top of div": with nobody nearby the badge was a
+    // bare zero pushed to the far right of a three-line block, level with the
+    // middle of a paragraph and touching nothing. The empty state right below
+    // it already says the same thing in words, so the badge has no zero to
+    // print -- and the drawer no longer says "never pinned on your map" twice
+    // in one screen, once under the heading and once under Check out.
+    service.getNearbyPresence.mockResolvedValue({
+      presence: {
+        status: "active",
+        audience: "all_opted_in",
+        radiusMeters: 500,
+        allowConnectionRequests: false,
+        consentVersion: "one-location-nearby-presence-v3",
+        checkedInAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        placeLabel: "Stanford University",
+      },
+      attendees: [],
+    });
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText("No one else is checked in nearby yet"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("nearby-attendee-count"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getAllByText(/never as pins on your map|never pinned on your map/i),
+    ).toHaveLength(1);
   });
 
   it("prepares a fresh check-in when an active presence expires while open", async () => {
@@ -765,16 +822,13 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    fireEvent.click(
-      await screen.findByRole("radio", { name: /Stanford University/ }),
-    );
+    // Left unselected on purpose: selecting a place collapses the picker
+    // into a summary, and this test is about the picker itself surviving a
+    // failed refresh.
+    await screen.findByRole("radio", { name: /Stanford University/ });
     service.nearbyPlaces.mockClear();
 
-    fireEvent.click(screen.getByPlaceholderText("Search"));
-    await act(async () => {
-      // A failed refresh must degrade the drawer, not blank it.
-      fireEvent.click(screen.getByRole("button", { name: "All" }));
-    });
+    fireEvent.click(screen.getByPlaceholderText("Search places"));
 
     // Force the failing refresh through the recovery button.
     const active = screen.queryByRole("button", { name: /Try again/ });
@@ -931,6 +985,47 @@ describe("NearbyCheckInSheet", () => {
 
   it("keeps category and typed discovery inside the same 500 m search area", async () => {
     const onSearchAreaChange = vi.fn();
+    // Category chips only appear once the compact 3-place view is expanded,
+    // so this fixture needs more than 3 places within 500 m to reach them.
+    service.nearbyPlaces.mockResolvedValue([
+      {
+        placeId: "stanford-main",
+        text: "Stanford University",
+        name: "Stanford University",
+        address: "450 Jane Stanford Way",
+        category: "University",
+        categories: ["education"],
+        distanceMeters: 48,
+        latitude: 37.4276,
+        longitude: -122.1697,
+      },
+      {
+        placeId: "campus-clinic",
+        text: "Campus Health Centre",
+        name: "Campus Health Centre",
+        category: "Medical Clinic",
+        categories: ["health"],
+        distanceMeters: 130,
+        latitude: 37.4281,
+        longitude: -122.1699,
+      },
+      {
+        placeId: "filler-cafe",
+        text: "Corner Cafe",
+        name: "Corner Cafe",
+        category: "Cafe",
+        categories: ["food_drink"],
+        distanceMeters: 60,
+      },
+      {
+        placeId: "filler-shop",
+        text: "Quick Mart",
+        name: "Quick Mart",
+        category: "Convenience Store",
+        categories: ["shopping_services"],
+        distanceMeters: 90,
+      },
+    ]);
     service.placesAutocomplete.mockResolvedValue([
       {
         placeId: "clinic-1",
@@ -950,9 +1045,9 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    fireEvent.click(
-      await screen.findByRole("radio", { name: /Stanford University/ }),
-    );
+    // Left unselected: selecting a place would replace the picker (search,
+    // chips, list) with the collapsed summary this test never wants.
+    await screen.findByRole("radio", { name: /Stanford University/ });
     expect(onSearchAreaChange).toHaveBeenLastCalledWith(point);
 
     // One merged sweep serves every chip. Re-querying per chip re-applied the
@@ -965,6 +1060,8 @@ describe("NearbyCheckInSheet", () => {
       category: "all",
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "See all 4 places" }));
+
     fireEvent.click(screen.getByRole("button", { name: "Health" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Health" })).toHaveAttribute(
@@ -974,7 +1071,7 @@ describe("NearbyCheckInSheet", () => {
     });
     expect(service.nearbyPlaces).toHaveBeenCalledTimes(1);
 
-    fireEvent.change(screen.getByPlaceholderText("Search"), {
+    fireEvent.change(screen.getByPlaceholderText("Search places"), {
       target: { value: "clinic" },
     });
     await waitFor(() => {
@@ -998,7 +1095,7 @@ describe("NearbyCheckInSheet", () => {
     expect(screen.queryByText(/sorted by distance/)).not.toBeInTheDocument();
     expect(screen.getByText("Google Maps")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText("Search"), {
+    fireEvent.change(screen.getByPlaceholderText("Search places"), {
       target: { value: "" },
     });
     expect(await screen.findByRole("button", { name: "Health" })).toHaveAttribute(
@@ -1032,8 +1129,8 @@ describe("NearbyCheckInSheet", () => {
       await screen.findByRole("radio", { name: /Stanford University/ }),
     );
     fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+      screen.getByRole("switch", {
+        name: "Show me to people nearby",
       }),
     );
     const submit = screen.getByRole("button", {
@@ -1041,7 +1138,13 @@ describe("NearbyCheckInSheet", () => {
     });
     expect(submit).toBeEnabled();
 
-    fireEvent.change(screen.getByPlaceholderText("Search"), {
+    // The search box only lives in the picker view, so reaching it again
+    // means going back through "Change" -- which itself drops the stale
+    // selection immediately, before any typing happens.
+    fireEvent.click(screen.getByRole("button", { name: /Change/ }));
+    expect(submit).toBeDisabled();
+
+    fireEvent.change(screen.getByPlaceholderText("Search places"), {
       target: { value: "clinic" },
     });
     expect(
@@ -1070,6 +1173,47 @@ describe("NearbyCheckInSheet", () => {
       .mockResolvedValueOnce(point)
       .mockResolvedValueOnce({ ...point, accuracyM: 5_001 })
       .mockResolvedValueOnce(point);
+    // More than 3 places within 500 m so the picker can be expanded to reach
+    // the category chips before selecting.
+    service.nearbyPlaces.mockResolvedValue([
+      {
+        placeId: "stanford-main",
+        text: "Stanford University",
+        name: "Stanford University",
+        address: "450 Jane Stanford Way",
+        category: "University",
+        categories: ["education"],
+        distanceMeters: 48,
+        latitude: 37.4276,
+        longitude: -122.1697,
+      },
+      {
+        placeId: "campus-clinic",
+        text: "Campus Health Centre",
+        name: "Campus Health Centre",
+        category: "Medical Clinic",
+        categories: ["health"],
+        distanceMeters: 130,
+        latitude: 37.4281,
+        longitude: -122.1699,
+      },
+      {
+        placeId: "filler-cafe",
+        text: "Corner Cafe",
+        name: "Corner Cafe",
+        category: "Cafe",
+        categories: ["food_drink"],
+        distanceMeters: 60,
+      },
+      {
+        placeId: "filler-shop",
+        text: "Quick Mart",
+        name: "Quick Mart",
+        category: "Convenience Store",
+        categories: ["shopping_services"],
+        distanceMeters: 90,
+      },
+    ]);
 
     render(
       <NearbyCheckInSheet
@@ -1081,9 +1225,8 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    fireEvent.click(
-      await screen.findByRole("radio", { name: /Stanford University/ }),
-    );
+    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(screen.getByRole("button", { name: "See all 4 places" }));
     fireEvent.click(screen.getByRole("button", { name: "Health" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Health" })).toHaveAttribute(
@@ -1095,14 +1238,16 @@ describe("NearbyCheckInSheet", () => {
       await screen.findByRole("radio", { name: /Campus Health Centre/ }),
     );
     fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+      screen.getByRole("switch", {
+        name: "Show me to people nearby",
       }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "Check in" }),
     );
 
+    // The too-approximate confirmation point drops the stale selection back
+    // to the picker, which is the only place "Try again" lives.
     fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
     await waitFor(() => {
       expect(service.nearbyPlaces).toHaveBeenLastCalledWith(
@@ -1199,6 +1344,47 @@ describe("NearbyCheckInSheet", () => {
       openAppSettings: false,
       retryPlaces: true,
     });
+    // More than 3 places within 500 m so the picker can be expanded to reach
+    // the category chips before selecting.
+    service.nearbyPlaces.mockResolvedValue([
+      {
+        placeId: "stanford-main",
+        text: "Stanford University",
+        name: "Stanford University",
+        address: "450 Jane Stanford Way",
+        category: "University",
+        categories: ["education"],
+        distanceMeters: 48,
+        latitude: 37.4276,
+        longitude: -122.1697,
+      },
+      {
+        placeId: "campus-clinic",
+        text: "Campus Health Centre",
+        name: "Campus Health Centre",
+        category: "Medical Clinic",
+        categories: ["health"],
+        distanceMeters: 130,
+        latitude: 37.4281,
+        longitude: -122.1699,
+      },
+      {
+        placeId: "filler-cafe",
+        text: "Corner Cafe",
+        name: "Corner Cafe",
+        category: "Cafe",
+        categories: ["food_drink"],
+        distanceMeters: 60,
+      },
+      {
+        placeId: "filler-shop",
+        text: "Quick Mart",
+        name: "Quick Mart",
+        category: "Convenience Store",
+        categories: ["shopping_services"],
+        distanceMeters: 90,
+      },
+    ]);
 
     render(
       <NearbyCheckInSheet
@@ -1211,6 +1397,7 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(screen.getByRole("button", { name: "See all 4 places" }));
     fireEvent.click(screen.getByRole("button", { name: "Health" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Health" })).toHaveAttribute(
@@ -1222,8 +1409,8 @@ describe("NearbyCheckInSheet", () => {
       await screen.findByRole("radio", { name: /Campus Health Centre/ }),
     );
     fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+      screen.getByRole("switch", {
+        name: "Show me to people nearby",
       }),
     );
     fireEvent.click(
@@ -1277,8 +1464,8 @@ describe("NearbyCheckInSheet", () => {
       await screen.findByRole("radio", { name: /Stanford University/ }),
     );
     fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+      screen.getByRole("switch", {
+        name: "Show me to people nearby",
       }),
     );
     fireEvent.click(
@@ -1364,8 +1551,8 @@ describe("NearbyCheckInSheet", () => {
       await screen.findByRole("radio", { name: /Stanford University/ }),
     );
     fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+      screen.getByRole("switch", {
+        name: "Show me to people nearby",
       }),
     );
     fireEvent.click(
@@ -1410,6 +1597,48 @@ describe("NearbyCheckInSheet", () => {
   });
 
   it("offers a way back when a chip has nothing in it", async () => {
+    // More than 3 places within 500 m so the picker can be expanded to reach
+    // the category chips, and none of them are "transit".
+    service.nearbyPlaces.mockResolvedValue([
+      {
+        placeId: "stanford-main",
+        text: "Stanford University",
+        name: "Stanford University",
+        address: "450 Jane Stanford Way",
+        category: "University",
+        categories: ["education"],
+        distanceMeters: 48,
+        latitude: 37.4276,
+        longitude: -122.1697,
+      },
+      {
+        placeId: "campus-clinic",
+        text: "Campus Health Centre",
+        name: "Campus Health Centre",
+        category: "Medical Clinic",
+        categories: ["health"],
+        distanceMeters: 130,
+        latitude: 37.4281,
+        longitude: -122.1699,
+      },
+      {
+        placeId: "filler-cafe",
+        text: "Corner Cafe",
+        name: "Corner Cafe",
+        category: "Cafe",
+        categories: ["food_drink"],
+        distanceMeters: 60,
+      },
+      {
+        placeId: "filler-shop",
+        text: "Quick Mart",
+        name: "Quick Mart",
+        category: "Convenience Store",
+        categories: ["shopping_services"],
+        distanceMeters: 90,
+      },
+    ]);
+
     render(
       <NearbyCheckInSheet
         open
@@ -1421,14 +1650,15 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(screen.getByRole("button", { name: "See all 4 places" }));
     fireEvent.click(screen.getByRole("button", { name: "Transit" }));
 
     const empty = await screen.findByTestId("nearby-category-empty");
     expect(empty).toHaveTextContent("Nothing in this category within 500 m");
-    // The mall sits at 920 m and is dropped by the 500 m bound before this.
-    expect(empty).toHaveTextContent("2 other places are nearby.");
+    // None of the 4 fixture places are "transit".
+    expect(empty).toHaveTextContent("4 other places are nearby.");
 
-    fireEvent.click(screen.getByRole("button", { name: "Show all 2 places" }));
+    fireEvent.click(screen.getByRole("button", { name: "See all 4 places" }));
     expect(
       await screen.findByRole("radio", { name: /Stanford University/ }),
     ).toBeInTheDocument();

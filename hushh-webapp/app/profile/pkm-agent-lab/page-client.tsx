@@ -759,7 +759,7 @@ export default function PkmAgentLabPageClient() {
     if (!user) return;
     if (!vaultCapability.canMutateSecureData || !vaultKey || !vaultOwnerToken) {
       handleVaultAccessRequired(
-        "Unlock your vault to continue the Personal Knowledge Model upgrade."
+        "Unlock to continue the Personal Knowledge Model upgrade."
       );
       return;
     }
@@ -815,7 +815,7 @@ export default function PkmAgentLabPageClient() {
 
   const handlePreview = useCallback(async () => {
     if (!user || !vaultCapability.canReadSecureData || !vaultOwnerToken) {
-      handleVaultAccessRequired("Unlock your vault before previewing PKM changes.");
+      handleVaultAccessRequired("Unlock before previewing PKM changes.");
       return;
     }
 
@@ -864,7 +864,7 @@ export default function PkmAgentLabPageClient() {
 
   const persistPreview = useCallback(async () => {
     if (!user || !vaultCapability.canMutateSecureData || !vaultKey || !vaultOwnerToken) {
-      handleVaultAccessRequired("Unlock your vault before saving to PKM.");
+      handleVaultAccessRequired("Unlock before saving to PKM.");
       return;
     }
 
@@ -1017,7 +1017,7 @@ export default function PkmAgentLabPageClient() {
       }>
     ) => {
       if (!user || !vaultCapability.canReadSecureData || !vaultOwnerToken) {
-        handleVaultAccessRequired("Unlock your vault before changing PKM permissions.");
+        handleVaultAccessRequired("Unlock before changing PKM permissions.");
         return;
       }
       const manifest = manifests[domainKey];
@@ -1168,14 +1168,14 @@ export default function PkmAgentLabPageClient() {
               />
             ) : vaultAccess.vaultUnknown ? (
               <SettingsRow
-                title="Checking vault access"
-                description="Confirming whether this workspace should unlock your existing vault or help you create one first."
+                title="Checking access"
+                description="Confirming whether this workspace should unlock your existing lock or help you set one up first."
                 leading={<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               />
             ) : vaultAccess.needsVaultCreation ? (
               <SettingsRow
-                title="Set up your vault first"
-                description="PKM Agent Lab only becomes available after you create or import a vault from the Privacy workspace."
+                title="Set a lock first"
+                description="PKM Agent Lab only becomes available after you set a lock from the Privacy workspace."
                 leading={<ShieldAlert className="h-4 w-4 text-amber-500" />}
                 trailing={
                   <Button
@@ -1189,8 +1189,8 @@ export default function PkmAgentLabPageClient() {
               />
             ) : !vaultAccess.canReadSecureData ? (
               <SettingsRow
-                title="Vault unlock required"
-                description="This route now uses the shared signed-in unlock flow. Once your vault is unlocked, PKM permissions will load automatically."
+                title="Unlock required"
+                description="This route now uses the shared signed-in unlock flow. Once it's unlocked, PKM permissions will load automatically."
                 leading={<Lock className="h-4 w-4 text-amber-500" />}
               />
             ) : domains.length === 0 ? (
@@ -1436,7 +1436,7 @@ export default function PkmAgentLabPageClient() {
                   }
                   description={
                     upgradeStatus?.upgradeStatus === "awaiting_local_auth_resume"
-                      ? "Unlocking the vault will automatically resume the Personal Knowledge Model upgrade."
+                      ? "Unlocking will automatically resume the Personal Knowledge Model upgrade."
                       : upgradeStatus?.upgradeStatus === "failed"
                         ? "Automatic retries hit a recovery state. Use the advanced recovery action in the status card if you need to retry."
                         : "Kai is refreshing this domain in the background. Section controls will unlock automatically when it completes."

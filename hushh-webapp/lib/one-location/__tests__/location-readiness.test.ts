@@ -136,8 +136,8 @@ describe("what the UI may claim", () => {
 describe("status label", () => {
   it("never calls a working device blocked just because the preview is off", () => {
     // The header switch is a preview control, so it legitimately starts off.
-    // Reporting that as "Location blocked" is what made a healthy phone look
-    // broken the moment the page loaded.
+    // Reporting that as "Location is blocked" is what made a healthy phone
+    // look broken the moment the page loaded.
     expect(
       locationStatusLabel({
         readiness: "askable",
@@ -145,7 +145,7 @@ describe("status label", () => {
         paused: false,
         accuracyLimited: false,
       }),
-    ).toBe("Location off");
+    ).toBe("Location is off");
   });
 
   it("says blocked when it is, and pause outranks everything", () => {
@@ -156,7 +156,7 @@ describe("status label", () => {
         paused: false,
         accuracyLimited: false,
       }),
-    ).toBe("Location blocked");
+    ).toBe("Location is blocked");
     expect(
       locationStatusLabel({
         readiness: "blocked",
@@ -164,7 +164,7 @@ describe("status label", () => {
         paused: true,
         accuracyLimited: true,
       }),
-    ).toBe("Location paused");
+    ).toBe("Location is paused");
   });
 
   it("reports limited accuracy only while the preview is actually on", () => {
@@ -175,7 +175,7 @@ describe("status label", () => {
         paused: false,
         accuracyLimited: true,
       }),
-    ).toBe("Location limited");
+    ).toBe("Location is limited");
     expect(
       locationStatusLabel({
         readiness: "ready",
@@ -183,7 +183,7 @@ describe("status label", () => {
         paused: false,
         accuracyLimited: false,
       }),
-    ).toBe("Location on");
+    ).toBe("Location is on");
   });
 
   it("names what the switch controls in every state, at every width", () => {
@@ -193,11 +193,11 @@ describe("status label", () => {
     // state, or the same switch would report differently on a phone and a
     // laptop.
     const cases = [
-      [{ readiness: "askable", previewOn: false, paused: false, accuracyLimited: false }, "Location off"],
-      [{ readiness: "blocked", previewOn: false, paused: false, accuracyLimited: false }, "Location blocked"],
-      [{ readiness: "blocked", previewOn: true, paused: true, accuracyLimited: true }, "Location paused"],
-      [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: true }, "Location limited"],
-      [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: false }, "Location on"],
+      [{ readiness: "askable", previewOn: false, paused: false, accuracyLimited: false }, "Location is off"],
+      [{ readiness: "blocked", previewOn: false, paused: false, accuracyLimited: false }, "Location is blocked"],
+      [{ readiness: "blocked", previewOn: true, paused: true, accuracyLimited: true }, "Location is paused"],
+      [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: true }, "Location is limited"],
+      [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: false }, "Location is on"],
     ] as const;
 
     for (const [params, full] of cases) {

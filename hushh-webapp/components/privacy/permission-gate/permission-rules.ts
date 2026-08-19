@@ -11,8 +11,8 @@ export const permissionRules: Record<SensitivePermission, PermissionRule> = {
   portfolio_valuation: {
     permission: "portfolio_valuation",
     eyebrow: "Nav privacy guard",
-    title: "Vault permission required",
+    title: "Lock required",
     description:
-      "Unlock your vault and review consent before Kai uses portfolio information for personalized market context.",
+      "Unlock and review consent before portfolio information is used for personalized market context.",
   },
 };

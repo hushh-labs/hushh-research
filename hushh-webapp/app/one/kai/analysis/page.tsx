@@ -511,7 +511,7 @@ export function KaiAnalysisPageContent() {
       if (summaryLoadingToastIdRef.current === null) {
         summaryLoadingToastIdRef.current = toast.info("Saving to history…", {
           duration: Infinity,
-          description: "Final recommendation is ready. Kai is storing this analysis in your PKM.",
+          description: "Final recommendation is ready. Saving this analysis.",
         });
       }
       setLiveEntry(entry);
@@ -1076,18 +1076,18 @@ export function KaiAnalysisPageContent() {
           authState={user ? "authenticated" : "pending"}
           dataState="unavailable-valid"
           errorCode="vault_locked"
-          errorMessage="Vault locked"
+          errorMessage="Locked"
         />
         <SurfaceCard>
           <SurfaceCardContent className="p-5 text-center">
-          <h2 className="text-lg font-semibold">Unlock your Vault to continue</h2>
+          <h2 className="text-lg font-semibold">Unlock to continue</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Your portfolio and saved analysis stay encrypted in Vault. Unlock it to reopen analysis,
+            Your portfolio and saved analysis stay encrypted in your private place. Unlock it to reopen analysis,
             review history, or start a new debate with your stored holdings context.
           </p>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <MorphyButton onClick={() => router.push(ROUTES.KAI_HOME)}>
-              Return to Kai
+              Return home
             </MorphyButton>
             <MorphyButton
               variant="none"
@@ -1253,7 +1253,7 @@ export function KaiAnalysisPageContent() {
                   <div className="space-y-3">
                     {focusedRunTask?.persistenceState === "pending" ? (
                       <div className="rounded-2xl border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
-                        Kai is saving this debate to your PKM history.
+                        Saving this debate to your history.
                       </div>
                     ) : null}
                     {focusedRunTask?.persistenceState === "failed" ? (

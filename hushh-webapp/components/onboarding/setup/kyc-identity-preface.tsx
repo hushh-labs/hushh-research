@@ -112,7 +112,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
               <Textarea
                 value={aboutMe}
                 onChange={(event) => setAboutMe(event.target.value)}
-                placeholder="Share details about your professional background, interests, residency, or other details. Only you and One can see this, and it stays entirely inside your private vault."
+                placeholder="Share details about your professional background, interests, residency, or other details. Only you and One can see this, and it stays entirely inside your private place."
                 className="min-h-[140px] rounded-2xl p-5 text-[15px] leading-relaxed resize-none bg-background shadow-sm border border-input/60 focus-visible:ring-primary/20 focus-visible:ring-[4px] focus-visible:border-primary/40 transition-all"
                 aria-label="Tell us about yourself"
                 disabled={saving}

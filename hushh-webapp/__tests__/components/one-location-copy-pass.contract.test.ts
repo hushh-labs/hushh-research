@@ -84,9 +84,9 @@ describe("One Location — link durations stay inside the server's ceiling", () 
 describe("One Location — hub tab naming", () => {
   const locationTabs = TOP_SHELL_TAB_REGISTRY.location;
 
-  it("labels the first tab Menu while keeping its `now` query value", () => {
+  it("labels the first tab Home while keeping its `now` query value", () => {
     const first = locationTabs.tabs[0];
-    expect(first.label).toBe("Menu");
+    expect(first.label).toBe("Home");
     // The value is the deep-link contract (`?view=now`, Kai's
     // `location.open_now`). Renaming the label must not move it.
     expect(first.value).toBe("now");
@@ -95,7 +95,7 @@ describe("One Location — hub tab naming", () => {
 });
 
 describe("One Location — the Request location trail agrees with the screen", () => {
-  it("uses one spelling for the crumb, the flow title and the hub row", () => {
+  it("uses one spelling for the crumb and the flow title", () => {
     const params = new URLSearchParams({ action: "ask" });
     const crumbs = resolveTopShellBreadcrumb("/one/location", params);
     const last = crumbs?.items.at(-1)?.label;
@@ -108,9 +108,17 @@ describe("One Location — the Request location trail agrees with the screen", (
     expect(HUB_SOURCE).toMatch(
       new RegExp(`<TaskFlowHeader[^>]*title="${last}"`, "s"),
     );
-    // …and the hub row that opens it names the same thing.
-    expect(HUB_SOURCE).toContain(`title="${last}"`);
     expect(HUB_SOURCE).not.toContain('title="Request Location"');
+
+    // The Home-hub Quick action tile that opens this flow is deliberately
+    // worded differently -- "Ask for location", action-first, matching
+    // "Share location"'s phrasing -- from the destination screen's formal
+    // title above. Both name the SAME flow: same testId, same control id,
+    // same handler (`openFlow("ask")`), so this is one spelling choice per
+    // surface, not a drifted duplicate.
+    expect(HUB_SOURCE).toContain('title="Ask for location"');
+    expect(HUB_SOURCE).toContain('testId="one-location-request-row"');
+    expect(HUB_SOURCE).toContain('controlId="one-location-action-ask"');
   });
 });
 

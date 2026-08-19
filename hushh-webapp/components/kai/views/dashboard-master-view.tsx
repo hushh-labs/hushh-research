@@ -834,7 +834,7 @@ export function DashboardMasterView({
   const openPlaidLinkFlow = useCallback(
     async (itemId?: string, environment?: string | null) => {
       if (!vaultOwnerToken) {
-        toast.error("Please unlock your Vault and try again.");
+        toast.error("Unlock and try again.");
         return;
       }
 
@@ -935,7 +935,7 @@ export function DashboardMasterView({
             description:
               error instanceof Error
                 ? error.message
-                : "Kai could not start the brokerage connection flow. Please try again.",
+                : "Could not start the brokerage connection flow. Please try again.",
           },
         );
       } finally {
@@ -1181,7 +1181,7 @@ export function DashboardMasterView({
 
   const openAddHoldingModal = useCallback(() => {
     if (!canEditStatement) {
-      toast.info("Plaid holdings are read-only in Kai.");
+      toast.info("Plaid holdings are read-only here.");
       return;
     }
     setEditingHolding({
@@ -1199,7 +1199,7 @@ export function DashboardMasterView({
 
   const persistHoldingsChanges = useCallback(async () => {
     if (!userId || !vaultKey || !statementEditablePortfolio) {
-      toast.error("Unlock your Vault to save holdings.");
+      toast.error("Unlock to save holdings.");
       return;
     }
 
@@ -1363,7 +1363,7 @@ export function DashboardMasterView({
 
   const handleDeletePortfolioData = useCallback(async () => {
     if (!userId || !vaultKey || !vaultOwnerToken) {
-      toast.error("Unlock your Vault to delete portfolio data.");
+      toast.error("Unlock to delete portfolio data.");
       return;
     }
 
@@ -2015,7 +2015,7 @@ export function DashboardMasterView({
               purpose:
                 activeSource === "plaid"
                   ? "Disconnects the Plaid brokerage portfolio and removes the local mirror."
-                  : "Deletes the imported statement portfolio from Kai.",
+                  : "Deletes the imported statement portfolio.",
               voiceAliases: ["delete portfolio", "delete imported data"],
             },
           ]
@@ -2060,7 +2060,7 @@ export function DashboardMasterView({
               purpose:
                 activeSource === "plaid"
                   ? "Disconnects the Plaid brokerage portfolio and removes the local mirror."
-                  : "Deletes the imported statement portfolio from Kai.",
+                  : "Deletes the imported statement portfolio.",
               actionId: "kai.portfolio.delete_portfolio",
               role: "button",
             },
@@ -2193,8 +2193,8 @@ export function DashboardMasterView({
           </AlertDialogTitle>
           <AlertDialogDescription>
             {activeSource === "plaid"
-              ? "This disconnects the Plaid brokerage portfolio and removes the local portfolio mirror from your Vault. Profile and consent data are kept."
-              : "This removes imported holdings and statement snapshots from your Vault. Profile and consent data are kept."}
+              ? "This disconnects the Plaid brokerage portfolio and removes the local portfolio mirror. Profile and consent data are kept."
+              : "This removes imported holdings and statement snapshots. Profile and consent data are kept."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

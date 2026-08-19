@@ -209,7 +209,7 @@ describe("ConsentExportRefreshOrchestrator", () => {
       expect(updateTaskMock).toHaveBeenCalledWith(
         expect.stringContaining(BASE_PARAMS.userId),
         expect.objectContaining({
-          description: expect.stringContaining("Unlock your vault"),
+          description: expect.stringContaining("Unlock to resume"),
           metadata: expect.objectContaining({
             pausedForLocalAuth: true,
           }),
@@ -273,7 +273,7 @@ describe("ConsentExportRefreshOrchestrator", () => {
       expect(failTaskMock).toHaveBeenCalledWith(
         expect.stringContaining(BASE_PARAMS.userId),
         "Could not update approved sharing.",
-        expect.stringContaining("retry after Vault unlock"),
+        expect.stringContaining("retry after you unlock"),
         expect.objectContaining({ failureKind: "Error" }),
       );
     });

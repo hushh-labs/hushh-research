@@ -12,6 +12,11 @@
  * - Auth ✅ + Vault ❌ → Show unlock dialog
  * - Auth ✅ + Vault ✅ → Render children
  *
+ * It shows that dialog only when the app-wide entry decision says the lock is
+ * this person's current step. The dialog is a portal over an opaque backdrop,
+ * so nesting it under another guard does not stop it covering that guard's
+ * screen — the step has to be checked, not assumed from where it sits.
+ *
  * SECURITY MODEL (BYOK Compliant):
  * - The vault key is stored ONLY in React state (memory).
  * - On page refresh, React state resets, so the vault key is lost.
@@ -33,6 +38,8 @@ import {
 import { VaultUnlockDialog } from "./vault-unlock-dialog";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
+import { useOnboardingEntry } from "@/lib/onboarding/onboarding-entry-context";
+import { isSurfaceAllowed } from "@/lib/onboarding/user-entry-state";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import {
   hasIncompleteNativeUiFlowSession,
@@ -67,6 +74,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     preferPassphraseUnlockForAutomation(nativeTestConfig);
 
   const { user, loading: authLoading, signOut } = useAuth();
+  const { entry } = useOnboardingEntry();
   useSessionChromeSuppression(authLoading);
   const userId = user?.uid ?? null;
   const { beginTask, completeTaskStep, endTask } = useStepProgress();
@@ -287,6 +295,13 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     return <HushhLoader label="Redirecting to login..." />;
   }
 
+  // The lock surface is a portal painted over the whole screen, so keeping it
+  // out of the wrong step is not something guard nesting can do on its own —
+  // it has to be asked for explicitly. Ask the one decision that knows.
+  if (!entry.resolved || !isSurfaceAllowed(entry, "vault")) {
+    return <HushhLoader label="Checking session..." />;
+  }
+
   if (hasVault === null) {
     return <HushhLoader label="Checking vault..." />;
   }
@@ -315,8 +330,8 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
       dismissible={false}
       surfaceVariant="hard_gate"
       enableGeneratedDefault={!skipGeneratedDefaultUnlock}
-      title="Unlock Vault"
-      description="Unlock your Vault to continue."
+      title="Unlock One"
+      description="Unlock to continue."
       onSuccess={() => undefined}
       // Escape hatch for the HARD gate only: a user who forgot their vault
       // password has no other way out (the focused credential surface

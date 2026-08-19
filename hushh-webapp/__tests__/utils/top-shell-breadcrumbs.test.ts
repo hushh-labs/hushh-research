@@ -446,7 +446,7 @@ describe("top shell breadcrumbs", () => {
       items: [
         { label: "Profile", href: "/one/profile" },
         { label: "Security", href: "/one/profile/security" },
-        { label: "Vault methods" },
+        { label: "Lock methods" },
       ],
     });
 
@@ -543,8 +543,8 @@ describe("top shell breadcrumbs", () => {
     const cases: Array<[string, string]> = [
       ["check-in", "Check-In"],
       ["private-check-in", "Private Check-In"],
-      // The crumb mirrors the screen's own <h1>, which reads "Save my Soul".
-      ["sos", "Save my Soul"],
+      // The crumb mirrors the screen's own <h1>, which reads "Emergency help".
+      ["sos", "Emergency help"],
       // NOTE: sms-contacts is deliberately absent from this table — it is the
       // one flow whose back target is not the hub (it retraces to whoever
       // opened it), so its label and back href are asserted separately below.

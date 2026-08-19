@@ -887,3 +887,80 @@ def test_create_grant_without_share_kind_preserves_existing_classification(monke
     )
     assert resp2.status_code == 200
     assert resp2.json()["grant"]["shareKind"] == "share"
+
+    # Both of those are in the NON-emergency lane -- `check_in` and `share`
+    # are not separate lanes -- so the second still replaces the first, and
+    # the pair is still left holding exactly one live ordinary grant. Two
+    # lanes, not one lane per kind: without this the fix could quietly become
+    # "never replace anything" and grants would pile up with no Stop for them.
+    assert service.grants[grant["id"]]["status"] == "revoked"
+    assert service.grants[resp2.json()["grant"]["id"]]["status"] == "active"
+
+
+def test_sos_grant_and_normal_share_coexist_over_the_api(monkeypatch) -> None:
+    """End to end over HTTP: the pair holds one live grant in each lane (#5506).
+
+    The service-level tests prove the revoke predicate; this proves the whole
+    route stack agrees, right through to what `getState` hands the client. It
+    is the client-visible half of the fix: `shareKind` comes back on every
+    grant, which is what lets the web app tell the two apart and stop treating
+    one grant as one person.
+    """
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+
+    _register_key(client, current_user, "user_b")
+    service._seed_connection("user_a", "user_b")
+    current_user["user_id"] = "user_a"
+
+    share = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "user_b",
+            "recipientKeyId": "key-user_b",
+            "durationHours": 4,
+            "shareKind": "share",
+        },
+    )
+    assert share.status_code == 200
+    share_grant = share.json()["grant"]
+    assert share_grant["shareKind"] == "share"
+
+    # Save My Soul only accepts a recipient the owner has already chosen as an
+    # SMS contact, so this is a precondition of the alert, not part of it.
+    contact = client.post(
+        "/api/one/location/sms-contacts",
+        json={"recipientUserId": "user_b"},
+    )
+    assert contact.status_code == 200
+
+    sos = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "user_b",
+            "recipientKeyId": "key-user_b",
+            "durationHours": 8,
+            "shareKind": "sos",
+        },
+    )
+    assert sos.status_code == 200
+    sos_grant = sos.json()["grant"]
+    assert sos_grant["shareKind"] == "sos"
+    assert sos_grant["id"] != share_grant["id"]
+
+    state = client.get("/api/one/location/state").json()
+    active = [
+        grant
+        for grant in state["ownerGrants"]
+        if grant["status"] == "active" and grant["recipientUserId"] == "user_b"
+    ]
+    # TWO active grants to one person, which used to be impossible: creating
+    # the SOS grant revoked the four-hour share as a matter of course.
+    assert len(active) == 2
+    assert {grant["id"] for grant in active} == {share_grant["id"], sos_grant["id"]}
+    assert sorted(grant["shareKind"] for grant in active) == ["share", "sos"]
+    # The four-hour share kept its own window; the alert did not shorten it or
+    # stretch it to the emergency lane's eight.
+    surviving = next(grant for grant in active if grant["id"] == share_grant["id"])
+    assert surviving["expiresAt"] == share_grant["expiresAt"]

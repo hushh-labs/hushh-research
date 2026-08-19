@@ -263,6 +263,26 @@ export const SETUP_CAPABILITY_ROUTES: Readonly<Record<string, string>> = {
 };
 
 /**
+ * The capability, if any, whose setup workspace owns this exact path. Inverse
+ * of {@link buildOneSetupCapabilityRoute}. Used to land a person who is
+ * already past the funnel — but standing on a stale `/one/setup/<id>` link,
+ * a back-navigation, or a bookmark — on that capability's own workspace
+ * instead of a bare admission fallback that forgets which capability they
+ * were actually after.
+ */
+export function resolveSetupCapabilityIdForPath(
+  pathname: string,
+): string | null {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
+  for (const [capabilityId, route] of Object.entries(
+    SETUP_CAPABILITY_ROUTES,
+  )) {
+    if (route === normalizedPathname) return capabilityId;
+  }
+  return null;
+}
+
+/**
  * Setup-owned routes that configure the root private agent but are not agent
  * capabilities. Keep these out of `SETUP_CAPABILITY_ROUTES`: they must be
  * admitted by the root journey without inventing capability completion or a

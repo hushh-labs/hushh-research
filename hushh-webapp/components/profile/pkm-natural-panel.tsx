@@ -674,7 +674,7 @@ export function PkmNaturalPanel({
           : "Nothing new needs to be saved from that note."
       );
     } catch {
-      setCaptureMessage("That note couldn’t be prepared. Unlock your vault again and retry.");
+      setCaptureMessage("That note couldn’t be prepared. Unlock again and retry.");
     } finally {
       setCaptureLoading(false);
     }
@@ -700,7 +700,7 @@ export function PkmNaturalPanel({
       void morphyToast.promise(operation, {
         loading: "Saving reviewed memory…",
         success: "Reviewed memory saved.",
-        error: "Memory couldn’t be saved. Unlock your vault again and retry.",
+        error: "Memory couldn’t be saved. Unlock again and retry.",
       });
       const result = await operation;
       clearAgentPkmContext(user.uid);
@@ -715,7 +715,7 @@ export function PkmNaturalPanel({
         setRefreshNonce((value) => value + 1);
       }
     } catch {
-      setCaptureMessage("Memory couldn’t be saved. Unlock your vault again and retry.");
+      setCaptureMessage("Memory couldn’t be saved. Unlock again and retry.");
     } finally {
       setCaptureSaving(false);
     }
@@ -846,7 +846,7 @@ export function PkmNaturalPanel({
       <>{nativeBeacon}<SurfaceInset className="space-y-2 px-4 py-4 text-sm text-muted-foreground">
         <div className="flex items-center gap-2 font-semibold text-foreground">
           <Lock className="h-4 w-4" aria-hidden />
-          Unlock your vault to open Memory
+          Unlock to open Memory
         </div>
         <p>Your saved details are decrypted only for this unlocked session.</p>
       </SurfaceInset></>
