@@ -1496,8 +1496,15 @@ export function CircleDetailFlow({
               <SheetHeader className="text-left">
                 <SheetTitle>Add people to {circle.name}</SheetTitle>
                 <SheetDescription>
-                  Choose existing connections. They join only after accepting
-                  the Circle invitation; no second Connect request is needed.
+                  {/* The SMS Circle does not send invitations -- an emergency
+                      contact has never needed the other person's agreement, so
+                      the write is immediate. Telling someone "they join after
+                      accepting" here would be describing a step that does not
+                      happen, on the one list where believing the wrong thing
+                      matters most. */}
+                  {circle.isSystem
+                    ? "Choose existing connections. They are added straight away, so SMS alerts reach them immediately."
+                    : "Choose existing connections. They join only after accepting the Circle invitation; no second Connect request is needed."}
                 </SheetDescription>
               </SheetHeader>
 
@@ -1677,9 +1684,9 @@ export function CircleDetailFlow({
                   )}
                 >
                   {selectedConnectionIds.size
-                    ? `Invite ${selectedConnectionIds.size} ${
-                        selectedConnectionIds.size === 1 ? "person" : "people"
-                      }`
+                    ? `${circle.isSystem ? "Add" : "Invite"} ${
+                        selectedConnectionIds.size
+                      } ${selectedConnectionIds.size === 1 ? "person" : "people"}`
                     : "Select people"}
                 </Button>
               </div>

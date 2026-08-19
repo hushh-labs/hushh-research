@@ -2329,7 +2329,13 @@ class OneLocationCircleService:
                         redact_log_field("user_id", actor_user_id),
                         len(new_user_ids),
                     )
-                    new_user_ids = []
+                    # Done. Everything below this point exists to create and
+                    # describe INVITATIONS, and this path deliberately created
+                    # none -- so falling through would build payloads for people
+                    # who have no invite row, which is a KeyError, not an empty
+                    # list. Members are already active; there is nothing to
+                    # report but the fact that there is nothing to report.
+                    return {"invites": [], "createdInviteIds": []}
 
                 for invitee_user_id in new_user_ids:
                     invite_row = _first(

@@ -1833,3 +1833,52 @@ def test_a_member_cannot_add_people_to_someone_elses_emergency_list() -> None:
     source = inspect.getsource(OneLocationCircleService.create_member_invites)
     assert "LOCATION_CIRCLE_SYSTEM_OWNER_ONLY" in source
     assert "is_system_circle" in source
+
+
+def test_adding_to_the_sms_circle_does_not_walk_into_invitation_code() -> None:
+    """The KeyError that made every SMS-Circle add fail on UAT.
+
+    The direct-add path writes memberships and skips the invitation loop --
+    an emergency contact is added outright, never invited. But that loop is
+    also what fills `existing_by_user_id`, and a few lines below:
+
+        payloads = [
+            self._member_invite_payload(existing_by_user_id[invitee_user_id])
+            for invitee_user_id in cleaned_invitee_user_ids
+        ]
+
+    builds a payload for EVERY requested person from that map. Nothing was ever
+    put there for a system Circle, so it raised KeyError, the request 5xx'd, and
+    the client showed "One is still catching up".
+
+    So the path must RETURN once the memberships are written, not fall through
+    into code whose only job is describing invitations it deliberately did not
+    create.
+    """
+
+    import ast
+    import inspect
+    import textwrap
+
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
+
+    source = textwrap.dedent(inspect.getsource(OneLocationCircleService.create_member_invites))
+
+    # The system-circle branch ends in a return, not a fallthrough.
+    assert (
+        '"invites": [], "createdInviteIds": []' in source.replace("\n", " ").replace("  ", " ")
+        or 'return {"invites": [], "createdInviteIds": []}' in source
+    )
+
+    # And that return sits INSIDE the transaction, so the memberships it just
+    # wrote are committed rather than rolled back. `engine.begin()` commits on a
+    # normal __exit__, and a return is a normal exit.
+    tree = ast.parse(source)
+    inside_transaction = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.With) and "begin()" in ast.unparse(node.items[0].context_expr):
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Return) and isinstance(sub.value, ast.Dict):
+                    if [ast.unparse(v) for v in sub.value.values] == ["[]", "[]"]:
+                        inside_transaction = True
+    assert inside_transaction, "early return must be inside the transaction block"
