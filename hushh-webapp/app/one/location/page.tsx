@@ -2903,58 +2903,6 @@ export function OneLocationAgentPageContent({
       ),
     [contactSignalRecipients, selectedRequestOwnerIds],
   );
-  // Whether this person appears as a pin on the maps of people they already
-  // share with.
-  //
-  // The preference itself is not new -- it is `presence_mode`, and it defaults
-  // to 'ghost'. What was new is being able to find it: it lived only behind a
-  // Ghost toggle on the immersive map screen, so somebody who shared their
-  // location and then wondered why they never appeared on the other person's
-  // map had no way to discover the switch that decided it. Null while loading,
-  // so the control can be shown disabled rather than lying about its state.
-  const [mapPresenceEnabled, setMapPresenceEnabled] = useState<boolean | null>(
-    null,
-  );
-  useEffect(() => {
-    if (!vaultOwnerToken) return;
-    let cancelled = false;
-    void OneLocationService.getMapPreferences(vaultOwnerToken)
-      .then((preferences) => {
-        if (cancelled) return;
-        setMapPresenceEnabled(preferences.presenceMode === "foreground_private");
-      })
-      .catch(() => {
-        // Unknown is not the same as off, but the control has to say something
-        // -- and offering it as "off" is the honest failure: it cannot make a
-        // person more visible than they already are.
-        if (!cancelled) setMapPresenceEnabled(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [vaultOwnerToken]);
-  const handleMapPresenceChange = useCallback(
-    (next: boolean) => {
-      if (!vaultOwnerToken) return;
-      // Optimistic, then corrected by the server's answer. A privacy switch
-      // that lags behind the finger reads as broken, and people toggle it
-      // again -- which is how somebody ends up visible when they meant not to.
-      setMapPresenceEnabled(next);
-      void OneLocationService.updateMapPreferences({
-        vaultOwnerToken,
-        presenceMode: next ? "foreground_private" : "ghost",
-      })
-        .then((preferences) => {
-          setMapPresenceEnabled(preferences.presenceMode === "foreground_private");
-        })
-        .catch(() => {
-          setMapPresenceEnabled(!next);
-          toast.error("Could not change map visibility.");
-        });
-    },
-    [vaultOwnerToken],
-  );
-
   const pendingOwnerRequests = useMemo(
     () =>
       (state?.requests ?? []).filter(
@@ -11373,8 +11321,6 @@ export function OneLocationAgentPageContent({
         observedDenial: locationDenialObserved,
       }) === "blocked",
     autoApproveRequestsEnabled: locationControl.autoApproveRequestsEnabled,
-    mapPresenceEnabled,
-    onMapPresenceChange: handleMapPresenceChange,
     locationPaused: locationControl.paused,
     locationAccuracyLimited,
     // The switch is already on and the device has not found us yet. This is the
