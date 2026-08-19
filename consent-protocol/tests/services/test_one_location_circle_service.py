@@ -59,6 +59,83 @@ def test_circle_member_payload_includes_public_recipient_key_for_group_selection
     assert payload["secureLocationReady"] is True
 
 
+def test_a_person_with_no_profile_name_is_still_named_in_a_circle() -> None:
+    """ "Circle member" and "Connection" were hiding a name the row carried.
+
+    A Google account with no profile name arrives with an empty
+    actor_identity_cache.display_name. Every surface then answered differently
+    -- the roster said "Circle member", the picker said "Connection", the
+    recipients list fell to a masked phone that the client rejects on sight and
+    replaces with "A trusted person". None of them asked the question the
+    notification path had already answered: the account has an email, and its
+    handle is a name.
+
+    Both these lists are scoped to a relationship the viewer already has -- a
+    Circle they share, a connection they made -- so the handle is a name about
+    someone they know rather than a fact about a stranger.
+    """
+
+    member = OneLocationCircleService._member_payload(
+        {
+            "user_id": "member-1",
+            "display_name": "",
+            "email": "damrianeelesh@gmail.com",
+            "role": "member",
+        }
+    )
+    assert member["displayName"] == "damrianeelesh"
+
+    eligible = OneLocationCircleService._eligible_connection_payload(
+        {
+            "connection_id": "connection-1",
+            "user_id": "member-1",
+            "display_name": "",
+            "email": "damrianeelesh@gmail.com",
+        }
+    )
+    assert eligible["displayName"] == "damrianeelesh"
+
+    # A real name is untouched, and an account that resolves to nothing keeps
+    # the generic word each list chose for itself.
+    assert (
+        OneLocationCircleService._member_payload(
+            {"user_id": "m", "display_name": "Neelesh Meena", "email": "n@x.com"}
+        )["displayName"]
+        == "Neelesh Meena"
+    )
+    assert (
+        OneLocationCircleService._member_payload({"user_id": "m", "display_name": ""})[
+            "displayName"
+        ]
+        == "Circle member"
+    )
+    assert (
+        OneLocationCircleService._eligible_connection_payload(
+            {"connection_id": "c", "user_id": "m", "display_name": ""}
+        )["displayName"]
+        == "Connection"
+    )
+
+
+def test_the_roster_and_picker_queries_read_the_email_the_ladder_needs() -> None:
+    """A ladder with no rung to stand on resolves nothing.
+
+    `_member_payload` and `_eligible_connection_payload` fall back to the email
+    handle, which only works if the statement that fed them selected the email.
+    Both projections used to stop at display_name, so dropping the column again
+    would silently restore "Circle member" for exactly the accounts this fixes
+    -- with every test above still green, because they build their rows by hand.
+    """
+
+    import inspect
+
+    source = inspect.getsource(OneLocationCircleService.get_circle)
+    assert "identity.email" in source
+
+    source = inspect.getsource(OneLocationCircleService.list_eligible_direct_connections)
+    assert "identity.email" in source
+
+
 def test_circle_summary_uses_canonical_owner_instead_of_membership_role() -> None:
     owner_summary = OneLocationCircleService._circle_summary(
         {

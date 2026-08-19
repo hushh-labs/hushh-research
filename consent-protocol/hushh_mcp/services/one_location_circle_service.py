@@ -452,7 +452,14 @@ class OneLocationCircleService:
 
     @staticmethod
     def _member_payload(row: dict[str, Any]) -> dict[str, Any]:
-        display_name = str(row.get("display_name") or "").strip()
+        from hushh_mcp.services.requester_identity import label_from_identity_row
+
+        # "Circle member" was standing in for a name the database could have
+        # produced: an account with no Google profile name still has an email,
+        # and everyone in this roster is someone the viewer shares a Circle
+        # with. The generic word is kept for the account that resolves to
+        # nothing at all.
+        display_name = label_from_identity_row(row, fallback="")
         relationship = str(row.get("relationship") or "none")
         key_id = str(row.get("key_id") or "").strip()
         public_key_jwk = _json_object(row.get("public_key_jwk"))
@@ -507,7 +514,12 @@ class OneLocationCircleService:
 
     @staticmethod
     def _eligible_connection_payload(row: dict[str, Any]) -> dict[str, Any]:
-        display_name = str(row.get("display_name") or "").strip()
+        from hushh_mcp.services.requester_identity import label_from_identity_row
+
+        # Everyone in this list is already a connection of the viewer, so the
+        # email handle is a name about someone they chose. "Connection" was
+        # the placeholder that hid it.
+        display_name = label_from_identity_row(row, fallback="")
         return {
             "connectionId": str(row.get("connection_id") or ""),
             "userId": str(row.get("user_id") or ""),
@@ -674,7 +686,7 @@ class OneLocationCircleService:
                 """
                 SELECT
                   membership.user_id, membership.role, membership.joined_at,
-                  identity.display_name, identity.photo_url,
+                  identity.display_name, identity.email, identity.photo_url,
                   identity.custom_photo_url, identity.phone_verified,
                   recipient_key.key_id, recipient_key.public_key_jwk,
                   recipient_key.algorithm,
@@ -1686,7 +1698,7 @@ class OneLocationCircleService:
                     ELSE connection.user_a_id
                   END AS user_id,
                   connection.created_at AS connected_at,
-                  identity.display_name, identity.photo_url,
+                  identity.display_name, identity.email, identity.photo_url,
                   identity.custom_photo_url
                 FROM one_location_circles circle
                 JOIN one_location_circle_memberships actor_membership
