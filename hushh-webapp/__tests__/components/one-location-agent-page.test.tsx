@@ -5276,9 +5276,17 @@ describe("OneLocationAgentPage", () => {
           "one_location_live_share_v1:user_a",
         );
         expect(raw).toBeTruthy();
+        // Still only ids and times. `recipientUserId` joins the record
+        // because the count on the status card is a HEADCOUNT and a headcount
+        // needs the head -- one person holding both an ordinary share and an
+        // SOS share is one person. It is an opaque id the device already
+        // holds, which is exactly the standard `grantId` meets: no name, no
+        // number, no coordinates, no token.
         expect(JSON.parse(raw ?? "[]")).toEqual([
           {
             grantId: "grant_1",
+            recipientUserId: "user_b",
+            shareKind: "share",
             startedAt: expect.any(String),
             expiresAt: "2026-05-20T08:00:00.000Z",
           },
