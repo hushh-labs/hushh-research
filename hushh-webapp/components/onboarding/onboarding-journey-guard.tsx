@@ -9,6 +9,8 @@ import {
   isCapabilityOnboardingRoute,
   isOneSetupSurfaceRoute,
   normalizeStaticExportPathname,
+  resolveCapabilityHandoffTarget,
+  resolveSetupCapabilityIdForPath,
   ROUTES,
 } from "@/lib/navigation/routes";
 import { useOnboardingEntry } from "@/lib/onboarding/onboarding-entry-context";
@@ -176,7 +178,15 @@ function resolveRedirectTarget(params: {
     normalizedPathname === ROUTES.ONE_SETUP_FINANCE_IMPORT;
   if (setupSurface) {
     if (entry.step === "main_app" && !isPostRootFinanceSetup) {
-      return ROUTES.ONE_HOME;
+      // A finished person standing on a stale `/one/setup/<id>` link (an old
+      // tile href, back/forward, a bookmark) still named a capability they
+      // were after. Land them on that capability's own workspace, the exact
+      // destination every roster tile already sends a finished person to
+      // directly — not on the bare hub's home fallback, which drops it.
+      const capabilityId = resolveSetupCapabilityIdForPath(normalizedPathname);
+      return capabilityId
+        ? resolveCapabilityHandoffTarget(capabilityId)
+        : ROUTES.ONE_HOME;
     }
     return null;
   }
@@ -202,5 +212,6 @@ function holdingLabel(step: UserEntryStep, target: string | null): string {
   if (!target) return "Checking setup...";
   if (target === ROUTES.ONE_HOME) return "Opening One...";
   if (step === "phone_auth") return "Opening phone verification...";
-  return "Returning to setup...";
+  if (target.startsWith(`${ROUTES.ONE_SETUP}?`)) return "Returning to setup...";
+  return "Opening...";
 }
