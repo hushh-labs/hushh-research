@@ -452,6 +452,14 @@
             "does not paint the lock over somebody who still has to verify a phone",
             "shows no lock while the decision is still unresolved"
           ]
+        },
+        {
+          "path": "hushh-webapp/__tests__/onboarding/lock-gate-coverage.contract.test.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 2,
+          "required_titles": [
+            "finds the lock gate mount sites at all"
+          ]
         }
       ]
     }
