@@ -109,6 +109,12 @@ import {
 } from "./cards";
 
 export type { GrantViewStatus } from "./cards";
+import {
+  DURATION_CELL_CLASS,
+  DURATION_CELL_OFF_CLASS,
+  DURATION_GRID_CLASS,
+} from "./duration-presets";
+import { grantRemainingHours } from "@/lib/one-location/grant-duration-edit";
 // LocationTypeSelector stays exported from ./selectors, unused for now, so
 // PR #4767 can wire it back to a real precision mode without rebuilding it.
 import {
@@ -359,11 +365,13 @@ export type LocationHubViewModel = {
   onEditGrantCancel: () => void;
   editGrantDurationHours: string;
   setEditGrantDurationHours: (v: string) => void;
-  onEditGrantSave: (params: {
-    ownerUserId: string;
-    grantId: string;
-    ownerLabel: string;
-  }) => void;
+  onEditGrantSave: (
+    params: { ownerUserId: string; grantId: string; ownerLabel: string },
+    /** Bypasses `editGrantDurationHours` state for a same-tick apply (the
+     * compact add-minutes chips compute their own total and can't wait for
+     * a state update to flush before saving it). */
+    durationHoursOverride?: number,
+  ) => void;
   /*
    * The same edit, for the share you are giving rather than the one you are
    * receiving. It is separate state because it is a different consent: the
@@ -3478,51 +3486,63 @@ function AskFlow({
                       : undefined
                   }
                   editActive={isEditingThis}
-                  // Two different acts share this one control, because the row
-                  // is only ever in one of the two states: a live share ends
-                  // access, an unanswered ask ends the ask. A row that is
-                  // neither keeps no X at all.
+                  // A live share is ended from Shared with me now, not here
+                  // (SharedWithMeCard's own X calls the same vm.onStopGrant)
+                  // -- this row keeps X only for taking back an unanswered
+                  // ask. A row that is neither keeps no X at all.
                   onRemove={
-                    activeGrant
-                      ? () => vm.onStopGrant(activeGrant.id)
-                      : pendingRequestId
-                        ? () => vm.onWithdrawRequest(pendingRequestId)
-                        : undefined
+                    pendingRequestId
+                      ? () => vm.onWithdrawRequest(pendingRequestId)
+                      : undefined
                   }
                   removeAriaLabel={
-                    !activeGrant && pendingRequestId
+                    pendingRequestId
                       ? `Take back your request to ${recipientLabel}`
                       : undefined
                   }
                   removeBusy={
-                    activeGrant
-                      ? vm.revokingGrantId === activeGrant.id
-                      : vm.withdrawingRequestId === pendingRequestId
+                    pendingRequestId
+                      ? vm.withdrawingRequestId === pendingRequestId
+                      : undefined
                   }
                   expandedContent={
                     isEditingThis && activeGrant ? (
-                      <>
-                        <DurationSelector
-                          value={vm.editGrantDurationHours}
-                          onChange={vm.setEditGrantDurationHours}
-                          label="New duration"
-                          presentation="select"
-                        />
-                        <Button
-                          size="sm"
-                          className="h-9 w-full rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-                          onClick={() =>
-                            vm.onEditGrantSave({
-                              ownerUserId: r.userId,
-                              grantId: activeGrant.id,
-                              ownerLabel: recipientLabel,
-                            })
-                          }
-                          isLoading={vm.savingGrantId === activeGrant.id}
-                        >
-                          Save
-                        </Button>
-                      </>
+                      <div className={DURATION_GRID_CLASS}>
+                        {(
+                          [
+                            { delta: 15 / 60, label: "+15 min", spoken: "15 minutes" },
+                            { delta: 30 / 60, label: "+30 min", spoken: "30 minutes" },
+                            { delta: 1, label: "+1 hour", spoken: "1 hour" },
+                          ] as const
+                        ).map(({ delta, label, spoken }) => (
+                          <button
+                            key={label}
+                            type="button"
+                            className={cn(DURATION_CELL_CLASS, DURATION_CELL_OFF_CLASS)}
+                            disabled={vm.savingGrantId === activeGrant.id}
+                            aria-label={`Add ${spoken} for ${recipientLabel}`}
+                            onClick={() =>
+                              vm.onEditGrantSave(
+                                {
+                                  ownerUserId: r.userId,
+                                  grantId: activeGrant.id,
+                                  ownerLabel: recipientLabel,
+                                },
+                                // Not vm.editGrantDurationHours: that's seeded to
+                                // the nearest of the old picker's four rungs
+                                // (30m/1h/4h/24h), not the true time left, so
+                                // "+15 min" on a 40-min grant would round to a
+                                // 30-min base first. The chip adds to what the
+                                // row actually has left.
+                                (grantRemainingHours(activeGrant, statusNowMs) ??
+                                  Number(vm.editGrantDurationHours)) + delta,
+                              )
+                            }
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                     ) : undefined
                   }
                 />
