@@ -814,6 +814,37 @@ def bootstrap_named_location_circle(
         raise _handle_error(exc) from exc
 
 
+@router.post("/location/circles/sms-system")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def ensure_sms_system_circle_route(
+    request: Request,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Find-or-create the caller's SMS Circle and fold their contacts into it.
+
+    Called on bootstrap, so it is a find-or-create rather than a create: the
+    second and every later call return the same Circle, and a contact the owner
+    has since removed is not re-added (see `ensure_sms_system_circle`).
+
+    Vault-owner token, unlike the onboarding bootstrap route above, because this
+    one migrates real recipients rather than minting an empty Circle -- it reads
+    who the owner picked for emergency SMS, which is exactly the material the
+    vault gate exists to protect.
+    """
+
+    del request
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "circle": _circle_service().ensure_sms_system_circle(
+                owner_user_id=_user_id(token_data),
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.delete("/location/circles/{circle_id}/invite-code")
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def revoke_named_location_circle_code(

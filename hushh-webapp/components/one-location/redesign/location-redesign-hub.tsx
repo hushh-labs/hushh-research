@@ -21,6 +21,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -425,6 +426,16 @@ export type LocationHubViewModel = {
   /** Share a Circle's invite code from a surface that only knows its id. */
   onShareNamedCircleCodeById: (circleId: string) => Promise<void>;
 
+  /**
+   * Sends a connection request to a co-member of a Circle.
+   *
+   * Being in the same Circle is not being connected, so this is the explicit
+   * ask the roster offers -- answered by the other person, never assumed.
+   */
+  onConnectCircleMember: (
+    circleId: string,
+    memberUserId: string,
+  ) => Promise<void>;
   onRemoveNamedCircleMember: (
     circleId: string,
     memberUserId: string,
@@ -970,6 +981,29 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     [pathname, router, searchParams],
   );
 
+  /**
+   * `?action=sms-contacts` now opens the SMS Circle, not a screen of its own.
+   *
+   * Issue #5426 unifies contact management under Circles, and this is the
+   * legacy entry point: the hub's own "SMS contacts" tile, the SOS flow's
+   * "Edit contacts", voice actions, notifications and anything already shared.
+   * Redirecting rather than 404-ing is the difference between "we moved this"
+   * and "this is gone".
+   *
+   * `replace`, so Back leaves Location instead of bouncing off the old param
+   * and redirecting again. And it waits for the Circle to exist -- provisioning
+   * is a network call, and until it answers the old screen is still a working
+   * answer to the same question rather than a dead end.
+   */
+  const smsSystemCircleId = useMemo(
+    () => vm.circles.find((circle) => circle.isSystem)?.id ?? null,
+    [vm.circles],
+  );
+  useEffect(() => {
+    if (flow !== "sms-contacts" || !smsSystemCircleId) return;
+    openCircleDetail(smsSystemCircleId, "replace");
+  }, [flow, openCircleDetail, smsSystemCircleId]);
+
   const openShareFlow = useCallback(
     (initialRecipientId?: string) => {
       resetShareLocalState();
@@ -1229,6 +1263,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             onGenerateCode={vm.onGenerateNamedCircleCode}
             onCopyCode={vm.onCopyNamedCircleCode}
             onShareCode={vm.onShareNamedCircleCode}
+            onConnectMember={(circleId, memberUserId) =>
+              vm.onConnectCircleMember(circleId, memberUserId)
+            }
             onShareWithMember={(circleId, recipientUserId) => {
               vm.prepareNamedCircleShare(circleId, recipientUserId);
               openFlow("share");
