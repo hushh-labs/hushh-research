@@ -144,25 +144,32 @@ export function useAgentDeploymentFollow(options?: {
           setHealth(res?.health ? String(res.health) : null);
         }
       } catch (error) {
-        // A transient status failure is not a state change. Keep the last known
-        // value and try again on the next tick -- guessing here would make the
-        // UI disagree with the backend, which is the failure this whole surface
-        // exists to avoid.
-        next = previousRef.current;
-        // But a PERSISTENT failure is not transient, and silence made the two
-        // indistinguishable: a status call that 401s on every tick renders exactly
-        // like an agent that has not changed state, so onboarding appears to hang
-        // with nothing in the console to say why. Warn once when the run of failures
-        // is long enough to mean something, not on every tick -- a warning per poll
-        // is noise that trains people to ignore the console.
         consecutiveFailuresRef.current += 1;
-        if (consecutiveFailuresRef.current === FAILURES_BEFORE_WARNING) {
-          console.warn(
-            "[AgentDeployment] status has failed",
-            FAILURES_BEFORE_WARNING,
-            "times in a row; the displayed state is the last known value, not current.",
-            error,
-          );
+        // A few transient failures are not a state change: keep the last known value
+        // and try again -- guessing here would make the UI disagree with the backend.
+        // But a PERSISTENT failure is different, and retaining `active` through it is
+        // the "abandoned pod in the UI" bug: a status that 401s every tick after
+        // LOGOUT, or a row DELETED out from under a stale session, otherwise renders
+        // exactly like a healthy unchanged pod -- so the person keeps attending a pod
+        // that may no longer exist. Past the warning window, stop trusting the stale
+        // value and CLEAR the displayed agent, so the surface falls back to "no pod"
+        // rather than a phantom one.
+        if (consecutiveFailuresRef.current >= FAILURES_BEFORE_WARNING) {
+          next = null;
+          if (!cancelled) {
+            setHushhId(null);
+            setHealth(null);
+          }
+          if (consecutiveFailuresRef.current === FAILURES_BEFORE_WARNING) {
+            console.warn(
+              "[AgentDeployment] status has failed",
+              FAILURES_BEFORE_WARNING,
+              "times in a row; clearing the displayed agent rather than showing a stale pod.",
+              error,
+            );
+          }
+        } else {
+          next = previousRef.current;
         }
       }
       if (cancelled) return;
