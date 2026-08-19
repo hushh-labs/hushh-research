@@ -240,9 +240,11 @@ import {
 import { resolveOnboardingMapPoint } from "@/lib/one-location/onboarding-map-point";
 import {
   OneLocationLockRequiredError,
+  resolveOneLocationLockPrompt,
   resolveOneLocationLockState,
 } from "@/lib/one-location/circle-lock-state";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
+import { useOnboardingEntry } from "@/lib/onboarding/onboarding-entry-context";
 
 import {
   clearLiveShareEntries,
@@ -2238,6 +2240,10 @@ export function OneLocationAgentPageContent({
     isRetryingPushRegistration,
   } = useConsentNotificationState();
   const { vaultOwnerToken, vaultKey } = useVault();
+  // The app-wide lock decision, already resolved once for the whole session.
+  // Reading it here rather than issuing another presence check is what keeps
+  // this route's answer identical to the guard's.
+  const onboardingEntry = useOnboardingEntry();
   // The one lock decision this route makes. Derived rather than assumed:
   // VaultLockGuard admits an account that has no lock at all, so "no token" is a
   // normal state here, and "not settled yet" is not the same thing as "locked".
@@ -2245,6 +2251,17 @@ export function OneLocationAgentPageContent({
     authLoading: auth.loading,
     userId: auth.userId,
     vaultOwnerToken,
+  });
+  // The same question, one level finer: not just "may this run?" but "which
+  // door am I offering?". `entry.lockState` is the app-wide answer, resolved
+  // once by OnboardingEntryProvider from the shared presence record, so this
+  // route does not read the lock a second way and disagree with the guard
+  // above it.
+  const lockPrompt = resolveOneLocationLockPrompt({
+    authLoading: auth.loading,
+    userId: auth.userId,
+    vaultOwnerToken,
+    hasLock: onboardingEntry.hasVault,
   });
   const pendingCircleInviteToken = useMemo(
     () => String(searchParams.get("circleInviteToken") || "").trim(),
@@ -6890,6 +6907,14 @@ export function OneLocationAgentPageContent({
    *
    * It is the same sheet Kai, Gmail, Your Map and the Agent already use; this
    * route is not inventing a second way to ask for a lock.
+   *
+   * The title and description come from `lockPrompt` rather than being fixed
+   * strings. They used to read "Unlock One" / "Circles are private. Unlock to
+   * make one." for everybody — including the account with no lock that this
+   * sheet exists to serve, which is the majority case here. `VaultFlow` picks
+   * the correct screen inside the sheet by checking presence itself, so the
+   * visible copy was right; the accessible name, which is what a screen reader
+   * announces, was not.
    */
   const renderCircleLockPrompt = useCallback(
     ({
@@ -6909,14 +6934,14 @@ export function OneLocationAgentPageContent({
             // the chosen kind and simply goes back to waiting.
             if (!nextOpen) onDone(false);
           }}
-          title="Unlock One"
-          description="Circles are private. Unlock to make one."
+          title={lockPrompt.title}
+          description={lockPrompt.description}
           allowVaultCreation
           onSuccess={() => onDone(true)}
         />
       );
     },
-    [auth.user],
+    [auth.user, lockPrompt.description, lockPrompt.title],
   );
 
   const handleResolveNamedCircleCode = useCallback(
