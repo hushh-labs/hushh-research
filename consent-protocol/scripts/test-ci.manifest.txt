@@ -126,6 +126,7 @@ tests/test_pod_liveness_worker.py
 tests/test_pod_memory_durability.py
 tests/test_pod_memory_boundary.py
 tests/test_pod_memory_is_actually_used.py
+tests/test_pod_agent_evolution_simulation.py
 tests/test_pod_memory_service.py
 tests/test_pod_mode.py
 tests/test_pod_no_trace_reset.py
