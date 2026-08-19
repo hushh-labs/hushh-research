@@ -948,7 +948,7 @@ export function KaiCommandPalette({
           {rankedActionMatches.length === 0 ? (
             <CommandItem className={commandItemClass} disabled>
               <Icon icon={Compass} size="sm" className="mr-2 text-muted-foreground" />
-              No matching Kai actions.
+              No matching actions.
             </CommandItem>
           ) : null}
           {rankedActionMatches.map(({ action, availability }) => {

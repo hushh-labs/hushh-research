@@ -13,10 +13,11 @@ import styles from "./IntroStep.module.css";
 
 /* ────────────────────────────────────────────────────────────
  * Welcome ("/"). Three things in three seconds: this is One, One is a
- * personal assistant, tap Get started. Everything that used to explain the
- * product ahead of that decision — the eyebrow, the quiet mark, the divider,
- * the brand punchline, the four motions, the two privacy lines — is gone,
- * because a person deciding whether to begin does not read any of it.
+ * private agent, tap Get started. The eyebrow, the punchline, and the four
+ * motions are the shortest version of what One actually does — a few words
+ * each, not a privacy section — so they stay ahead of the decision instead
+ * of explaining it away. What is still gone: the divider and the two
+ * privacy/consent lines, which made a person pause rather than decide.
  *
  * The public destinations below the button stay a real navigation group with
  * equal targets, not footer text that happens to be clickable.
@@ -92,11 +93,14 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
           <HushhWordmark className={styles.wordmark} />
         </div>
 
-        {/* ── The single message: the mark, the name, then what it does.
-              The quiet mark leads the hero — "hushh" IS the shush, so it is
-              the brand's own glyph, not decoration. The glow behind it and
-              behind One is one soft accent wash, never a second colour. ── */}
+        {/* ── The single message: what One is, the mark, the name, what it
+              does, how. The quiet mark leads the hero — "hushh" IS the
+              shush, so it is the brand's own glyph, not decoration. The glow
+              behind it and behind One is one soft accent wash, never a
+              second colour. ── */}
         <div className={styles.hero}>
+          <p className={styles.eyebrow}>Your private agent</p>
+
           <div className={styles.markWrap}>
             <span aria-hidden className={styles.markGlow} />
             <span aria-hidden className={styles.quietMark}>
@@ -109,8 +113,10 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
             <span className={styles.oneMark}>One</span>
           </h1>
 
-          <p className={styles.tagline}>
-            Your personal assistant for everyday tasks.
+          <p className={styles.tagline}>Your agents. Yours to own.</p>
+
+          <p className={styles.capabilities}>
+            Listens · Remembers · Decides · Acts
           </p>
         </div>
 

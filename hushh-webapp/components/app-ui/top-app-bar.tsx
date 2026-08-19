@@ -118,7 +118,11 @@ import {
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import {
   resolveInitialTopChromeProgress,
+  resolveTopChromeCollapseProgress,
+  resolveTopChromeOpacityProgress,
   resolveTopChromeScrollProgress,
+  TOP_CHROME_ROW_MAX_HEIGHT_CSS,
+  TOP_CHROME_ROW_OPACITY_CSS,
 } from "@/lib/navigation/top-chrome-scroll-progress";
 
 /* ── Re-exports (backward compat) ─────────────────────────────────── */
@@ -613,12 +617,27 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       }
       const rowHeight = barRow?.getBoundingClientRect().height ?? 0;
       const root = document.documentElement;
-      const nextProgress = String(topChromeProgress);
+      // The row's opacity and its reserved height (`max-height` + `overflow:
+      // hidden`) used to be driven off the SAME raw progress value, so for
+      // most of the gesture the row was still visibly opaque while its
+      // bottom edge was already being cropped by the shrinking box — a hard
+      // clip line through the brand mark and title, not a clean fade.
+      //
+      // Splitting the one gesture into two sequential sub-progresses fixes
+      // that without touching the gesture itself: opacity finishes fading to
+      // zero over the first half, and the box only starts losing height over
+      // the second half — by which point there is nothing left to clip. Both
+      // curves still reach 1 together at the same scroll position, so "fully
+      // collapsed" behavior elsewhere is unchanged; only the path there
+      // stops being visibly broken.
+      const opacityProgress = resolveTopChromeOpacityProgress(topChromeProgress);
+      const collapseProgress = resolveTopChromeCollapseProgress(topChromeProgress);
+      const nextProgress = String(opacityProgress);
       if (nextProgress !== lastWrittenProgress) {
         lastWrittenProgress = nextProgress;
         root.style.setProperty("--top-chrome-progress", nextProgress);
       }
-      const nextCollapsePx = `${Math.max(0, rowHeight * topChromeProgress)}px`;
+      const nextCollapsePx = `${Math.max(0, rowHeight * collapseProgress)}px`;
       if (nextCollapsePx !== lastWrittenCollapsePx) {
         lastWrittenCollapsePx = nextCollapsePx;
         root.style.setProperty("--top-chrome-collapse-px", nextCollapsePx);
@@ -1013,15 +1032,11 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
             data-testid="top-app-bar-header"
             className="pointer-events-none relative w-full shrink-0 overflow-hidden transform-gpu will-change-[max-height,opacity]"
             style={{
-              maxHeight: tabsOnlyChrome
-                ? "0px"
-                : "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) - var(--top-chrome-collapse-px, 0px))",
+              maxHeight: tabsOnlyChrome ? "0px" : TOP_CHROME_ROW_MAX_HEIGHT_CSS,
               paddingTop: tabsOnlyChrome
                 ? "0px"
                 : "calc(var(--top-inset) + var(--top-systembar-row-gap))",
-              opacity: tabsOnlyChrome
-                ? 0
-                : "calc(1 - var(--top-chrome-progress, 0))",
+              opacity: tabsOnlyChrome ? 0 : TOP_CHROME_ROW_OPACITY_CSS,
               transform: tabsOnlyChrome
                 ? "translate3d(0, -0.5rem, 0)"
                 : "translate3d(0, 0, 0)",

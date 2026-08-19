@@ -22,6 +22,7 @@ from hushh_mcp.services.one_location_agent_service import (
     _json_param,
     _notification_safe_data,
     _redact_location_metadata,
+    _share_lane_match_sql,
 )
 
 PUBLIC_LOCATION_SNAPSHOT = {
@@ -148,6 +149,7 @@ class AtomicPrivateShareProbe(OneLocationAgentService):
         self.atomic_sql: list[str] = []
         self.recipient_key_lock_keys: list[str] = []
         self.pair_lock_keys: list[str] = []
+        self.atomic_params: list[dict] = []
         self.notifications: list[dict] = []
         self.expiry_normalizations: list[str | None] = []
 
@@ -187,6 +189,11 @@ class AtomicPrivateShareProbe(OneLocationAgentService):
         self.recipient_key_lock_keys.append(recipient_key_lock_key)
         self.pair_lock_keys.append(pair_lock_key)
         self.atomic_sql.append(mutation_sql)
+        # The atomic path builds its params dict independently of
+        # `create_grant`'s, so a lane predicate in the SQL with no matching
+        # bind would fail OPEN to the old pair-wide revoke. This probe never
+        # executes SQL, so capturing the binds is the only way to catch that.
+        self.atomic_params.append(dict(params))
         if self.fail_write:
             raise RuntimeError("transaction failed")
         if not self.replay and not values["freshness_valid"]:
@@ -416,6 +423,15 @@ def test_atomic_private_share_commits_grant_envelope_and_events_together() -> No
     assert "k.key_id = :recipient_key_id" in sql
     assert "NOW() - CAST(:confirmed_at AS TIMESTAMPTZ)" in sql
     assert "UPDATE one_location_share_grants" in sql
+    # The `revoked_grants` CTE must carry the two-lane predicate, or this path
+    # goes on doing what #5506 was: a `check_in` share tearing down the SOS
+    # grant to the same person (and vice versa). This probe never executes the
+    # mutation, so the SQL substring and the bind are the only guards there are
+    # -- and both are needed, since the predicate without its `:is_sos_lane`
+    # bind fails open rather than loudly.
+    assert _share_lane_match_sql("g") in sql
+    assert "CAST(:is_sos_lane AS BOOLEAN)" in sql
+    assert service.atomic_params[0]["is_sos_lane"] is False
     assert "INSERT INTO one_location_share_grants" in sql
     assert "INSERT INTO one_location_envelopes" in sql
     assert sql.count("INSERT INTO one_location_events") == 2
@@ -997,13 +1013,21 @@ class FourUserMemoryService(OneLocationAgentService):
                 requested_circle_id if requested_circle_id is not None else relationship_circle_id
             ),
         }
+        # Replacement is LANE-SCOPED in production (`_create_enforced_grant_row`),
+        # and this stub stands in for that transaction. The predicate is
+        # imported from the service rather than retyped, so the fake cannot
+        # quietly go on reproducing the kind-blind revoke that #5506 was: a
+        # copy here that drifted from production would make every lane test in
+        # this file pass while the real UPDATE stayed broken.
         self._execute_many(
             """
             UPDATE one_location_share_grants
             SET status = 'revoked'
             WHERE owner_user_id = :owner_user_id
               AND recipient_user_id = :recipient_user_id
-              AND status = 'active'
+              AND status = 'active'"""
+            + _share_lane_match_sql()
+            + """
             """,
             params,
         )
@@ -1038,6 +1062,22 @@ class FourUserMemoryService(OneLocationAgentService):
                 },
             )
         return row
+
+    @staticmethod
+    def _grant_is_sos_lane(grant: dict) -> bool:
+        """Which replacement lane a stored row is in, as `_SHARE_LANE_MATCH_SQL` reads it.
+
+        `share_kind` is not a column -- it lives in the `metadata` JSONB, which
+        is the whole reason the original revoke could not see it. Present and
+        not 'sos' means the ordinary lane; the legacy `reason == 'sos_panic'`
+        arm applies only when `share_kind` is absent entirely, matching the
+        COALESCE/IS NULL structure of the production predicate.
+        """
+        metadata = grant.get("metadata") or {}
+        share_kind = metadata.get("share_kind")
+        if share_kind is not None:
+            return str(share_kind) == "sos"
+        return str(metadata.get("reason") or "") == "sos_panic"
 
     def _add_sms_contact_with_locked_eligibility(
         self,
@@ -1500,7 +1540,47 @@ class FourUserMemoryService(OneLocationAgentService):
                     }
                 )
             return rows[: params.get("limit", 40)]
+        # `list_state` reads the two grant directions as separate parallel
+        # queries. Neither was modelled here, so `ownerGrants`/`receivedGrants`
+        # came back empty from every route test that read state -- the section
+        # simply logged `parallel_query_failed` and fell back to nothing. That
+        # is the only seam through which `_grant_payload` (and so the
+        # `shareKind` the whole client-side lane split depends on) is
+        # observable over HTTP, so the coexistence test needs it to be real.
+        if "FROM one_location_share_grants g" in sql and (
+            "WHERE g.owner_user_id = :user_id" in sql
+            or "WHERE g.recipient_user_id = :user_id" in sql
+        ):
+            as_owner = "WHERE g.owner_user_id = :user_id" in sql
+            column = "owner_user_id" if as_owner else "recipient_user_id"
+            counterpart_column = "recipient_user_id" if as_owner else "owner_user_id"
+            label = "recipient" if as_owner else "owner"
+            rows = []
+            for grant in sorted(
+                self.grants.values(),
+                key=lambda item: item["created_at"],
+                reverse=True,
+            ):
+                if grant[column] != params["user_id"]:
+                    continue
+                identity = self.identities.get(grant[counterpart_column] or "", {})
+                rows.append(
+                    {
+                        **grant,
+                        f"{label}_display_name": identity.get("display_name"),
+                        f"{label}_phone_number": identity.get("phone_number"),
+                    }
+                )
+            return rows[:50]
         if "UPDATE one_location_share_grants" in sql and "status = 'revoked'" in sql:
+            # Lane-scoped exactly when the SQL says so, reading the lane out of
+            # the BOUND PARAMS rather than out of anything the test hands us.
+            # That is what keeps this fake a mirror: a production write path
+            # that appends the predicate but forgets to bind `:is_sos_lane`
+            # raises KeyError right here instead of silently falling back to
+            # the pair-wide revoke that #5506 was.
+            lane_scoped = ":is_sos_lane" in sql
+            is_sos_lane = bool(params["is_sos_lane"]) if lane_scoped else None
             revoked = []
             for grant in self.grants.values():
                 if (
@@ -1508,6 +1588,8 @@ class FourUserMemoryService(OneLocationAgentService):
                     and grant["recipient_user_id"] == params["recipient_user_id"]
                     and grant["status"] == "active"
                 ):
+                    if lane_scoped and self._grant_is_sos_lane(grant) != is_sos_lane:
+                        continue
                     grant["status"] = "revoked"
                     revoked.append({"id": grant["id"]})
             return revoked
@@ -4787,3 +4869,320 @@ def test_sms_grant_fails_closed_until_recipient_is_selected() -> None:
     assert service.notifications[0]["data"]["notification_category"] == (
         "ONE_LOCATION_SMS_EMERGENCY"
     )
+
+
+# ---------------------------------------------------------------------------
+# Two-lane grant replacement (#5506)
+#
+# Replacement of a live share is scoped to a LANE, and there are exactly two:
+# the emergency lane (`share_kind == 'sos'`) and everything else. Before this,
+# every create path opened with a kind-blind revoke of every active grant for
+# the pair, so raising an SMS alert with somebody you were already sharing with
+# silently revoked that share -- at SEND time, not at "I'm safe".
+# ---------------------------------------------------------------------------
+
+
+class _ShareCreatedNotificationSpy(FourUserMemoryService):
+    """Records every `_send_location_share_created_notification` call.
+
+    "Two rows are active" is not on its own enough to prove the fix. An
+    implementation that RE-USED the pair's existing grant instead of inserting
+    a new one would satisfy several of the obvious assertions while quietly
+    reintroducing the bug at stop time -- "I'm safe" would then revoke the
+    normal share, because the normal share would BE the SOS grant. Watching the
+    notification the create path fires is what distinguishes "a new SOS grant
+    was created" from "an old grant was handed back".
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.share_created_calls: list[dict] = []
+
+    def _send_location_share_created_notification(self, **kwargs) -> bool:
+        self.share_created_calls.append(kwargs)
+        return super()._send_location_share_created_notification(**kwargs)
+
+
+def _lane_service() -> _ShareCreatedNotificationSpy:
+    """A connected owner/recipient pair with the recipient's key registered."""
+    service = _ShareCreatedNotificationSpy()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    return service
+
+
+def test_sos_grant_does_not_revoke_an_existing_normal_share() -> None:
+    """The regression #5506 was reported as. Confirmed failing on `main`.
+
+    A shares location with B for four hours, then raises an SMS alert with that
+    same B. Before the lane split the four-hour grant was `status = 'revoked'`
+    the instant the SOS grant was created -- silently, with no
+    `location_share_revoked` event and no push, so B's card went on showing a
+    live share and the loss only surfaced at "I'm safe".
+    """
+    service = _lane_service()
+
+    normal = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=4,
+        share_kind="share",
+        enforce_connection=True,
+    )
+    normal_expires_at = service.grants[normal["id"]]["expires_at"]
+
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        reason="Come get me",
+        enforce_connection=True,
+    )
+
+    # 1. Both grants survive. Two live grants per pair is now legal, and this
+    #    is the pair that has to be able to hold them.
+    assert normal["id"] != sos["id"]
+    assert service.grants[normal["id"]]["status"] == "active"
+    assert service.grants[sos["id"]]["status"] == "active"
+    assert service.grants[normal["id"]]["metadata"]["share_kind"] == "share"
+    assert service.grants[sos["id"]]["metadata"]["share_kind"] == "sos"
+
+    # 2. The normal share keeps its ORIGINAL window. Revoke-and-reinsert under
+    #    a new expiry would leave one active row per lane too, while having
+    #    thrown away the four hours the owner actually consented to.
+    assert service.grants[normal["id"]]["expires_at"] == normal_expires_at
+
+    # 3. A genuinely new SOS grant was created, rather than the existing normal
+    #    grant being handed back relabelled. Save My Soul defers its
+    #    notification until the first envelope is durably stored, so this is
+    #    where the create path's intent becomes observable.
+    service.store_encrypted_envelope(
+        owner_user_id="user_a",
+        grant_id=sos["id"],
+        envelope=encrypted_envelope("key-user_b", "sos-ciphertext"),
+    )
+    sos_notifications = [
+        call for call in service.share_created_calls if call["resolved_kind"] == "sos"
+    ]
+    assert len(sos_notifications) == 1
+    assert sos_notifications[0]["grant"]["id"] == sos["id"]
+    assert service.notifications[-1]["title"] == "Save my Soul"
+
+
+def test_approving_an_access_request_does_not_revoke_an_active_sos_grant() -> None:
+    """The NON-enforced create branch, which `approve_request` is the only way in to.
+
+    `approve_request` calls `create_grant` without `enforce_connection`, so it
+    lands in a completely different revoke statement from the one the SOS test
+    above exercises. Both had the same kind-blind WHERE clause, and approving
+    an ordinary access request while an alert was live would have torn the
+    alert's grant down.
+    """
+    service = _lane_service()
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        enforce_connection=True,
+    )
+    sos_expires_at = service.grants[sos["id"]]["expires_at"]
+
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share where you are?",
+    )
+    approved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        duration_hours=1,
+    )
+    approved_grant = approved["grant"]
+
+    assert approved_grant["id"] != sos["id"]
+    assert service.grants[approved_grant["id"]]["status"] == "active"
+    assert service.grants[sos["id"]]["status"] == "active"
+    assert service.grants[sos["id"]]["expires_at"] == sos_expires_at
+
+
+def test_same_lane_replacement_still_revokes_the_previous_grant() -> None:
+    """The other half of the invariant, and the reason this is TWO lanes.
+
+    Scoping replacement per exact share kind would let one pair accumulate
+    unbounded live grants -- `share`, `check_in`, `drive_to`, `pick_me_up` and
+    anything else a client sends, none of which any surface offers a single
+    Stop for. Within a lane the newest grant must still replace the older one
+    exactly as it always did, or the fix degrades into "never replace
+    anything".
+    """
+    service = _lane_service()
+
+    first_share = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        share_kind="share",
+        enforce_connection=True,
+    )
+    second_share = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=2,
+        share_kind="share",
+        enforce_connection=True,
+    )
+    assert service.grants[first_share["id"]]["status"] == "revoked"
+    assert service.grants[second_share["id"]]["status"] == "active"
+
+    # A different NON-emergency kind shares the same lane and keeps replacing.
+    check_in = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        share_kind="check_in",
+        enforce_connection=True,
+    )
+    assert service.grants[second_share["id"]]["status"] == "revoked"
+    assert service.grants[check_in["id"]]["status"] == "active"
+
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+    first_sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        enforce_connection=True,
+    )
+    second_sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        enforce_connection=True,
+    )
+    assert service.grants[first_sos["id"]]["status"] == "revoked"
+    assert service.grants[second_sos["id"]]["status"] == "active"
+    # ...and the ordinary share sitting in the other lane never noticed any of
+    # it. A pair tops out at exactly two live grants, one per lane.
+    assert service.grants[check_in["id"]]["status"] == "active"
+    assert (
+        sum(
+            1
+            for grant in service.grants.values()
+            if grant["status"] == "active"
+            and grant["owner_user_id"] == "user_a"
+            and grant["recipient_user_id"] == "user_b"
+        )
+        == 2
+    )
+
+
+def test_revoking_an_sms_share_names_the_lane_in_its_copy() -> None:
+    """The recipient is told WHICH share ended, not just that one did.
+
+    Stopping an SMS alert revokes its grant through `revoke_grant`, the same
+    path an ordinary share takes, and the notification never named the lane.
+    Someone who had only ever received an emergency SMS was told "X removed
+    your location access" -- about access they do not know by that name, in a
+    sentence identical to the one an ordinary share produces.
+
+    Since #5552 a person can hold both lanes with the same counterpart at once,
+    so the unnamed wording is ambiguous exactly when someone is checking whether
+    the emergency share is still running.
+    """
+
+    import inspect
+
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    source = inspect.getsource(OneLocationAgentService.revoke_grant)
+
+    # The lane is read from the grant rather than guessed. Both queries in
+    # revoke_grant select `*`, so share_kind is already on the row.
+    assert 'row.get("share_kind")' in source
+    assert 'revoked_share_kind == "sos"' in source or "revoked_via_sms" in source
+
+    # The recipient's word is SMS -- an SMS alert is how it reached them.
+    assert "SMS location sharing stopped" in source
+    assert "over SMS" in source
+
+    # Ordinary shares keep the wording they had.
+    assert "removed your location access." in source
+
+    # And the lane travels with the payload, because the grant is gone by the
+    # time the client renders this and cannot look the kind up itself.
+    assert '"share_kind": revoked_share_kind or "standard"' in source
+
+
+def test_location_notifications_name_the_person_not_a_placeholder() -> None:
+    """A notification says who, on both sides, or degrades honestly.
+
+    `_identity_notification_label` used to read `display_name` and say
+    "A trusted person" whenever it was blank -- so the same account that gets
+    named in a connection-request push went unnamed here. Worse, it took the
+    value verbatim, so a row holding a UUID or a raw user id rendered the
+    identifier AS the name on someone's lock screen.
+
+    #5442 already built the ladder for connections (display name -> reject
+    identifiers -> email handle). This pins that Location uses the same one, so
+    the two cannot drift apart again.
+    """
+
+    from hushh_mcp.services.one_location_agent_service import (
+        _identity_notification_label,
+    )
+
+    # A real name is used as-is, on both sides of any notification.
+    assert _identity_notification_label({"user_id": "u1", "display_name": "Neelesh"}) == ("Neelesh")
+
+    # A blank display name falls through to the email handle rather than
+    # going generic -- this is the case that produced unnamed notifications.
+    assert (
+        _identity_notification_label(
+            {"user_id": "u1", "display_name": "", "email": "neelesh@example.com"}
+        )
+        == "neelesh"
+    )
+
+    # An identifier is NOT a name. Showing it would be worse than being generic.
+    identifier_row = {
+        "user_id": "u1",
+        "display_name": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+    }
+    assert _identity_notification_label(identifier_row) == "A trusted person"
+
+    raw_id_row = {"user_id": "u1", "display_name": "u1"}
+    assert _identity_notification_label(raw_id_row) == "A trusted person"
+
+    # Genuinely unresolvable stays generic, which is the honest answer.
+    assert _identity_notification_label(None) == "A trusted person"
+    assert _identity_notification_label({"user_id": "u1"}) == "A trusted person"
+
+
+def test_identity_lookup_reads_the_column_the_name_ladder_needs() -> None:
+    """The email fallback is only reachable if the query selected email."""
+
+    import inspect
+
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    source = inspect.getsource(OneLocationAgentService._identity_row)
+    assert "email" in source
