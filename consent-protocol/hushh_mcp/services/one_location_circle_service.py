@@ -2360,7 +2360,18 @@ class OneLocationCircleService:
                         "Only the owner can add people to this Circle.",
                         status_code=403,
                     )
-                if new_user_ids and reserved_count + len(new_user_ids) > member_limit:
+                # Anyone being added who still holds an open invitation is
+                # already inside `reserved_count` -- their invitation reserved
+                # a seat. Counting them again would refuse a Circle with room
+                # in it, on the strength of a seat the same person is about to
+                # occupy for real.
+                already_reserved = len(
+                    {str(row.get("invitee_user_id") or "") for row in pending_rows}
+                )
+                if (
+                    new_user_ids
+                    and reserved_count + len(new_user_ids) - already_reserved > member_limit
+                ):
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_INVITE_CAPACITY_REACHED",
                         "This Circle does not have room for everyone you selected.",

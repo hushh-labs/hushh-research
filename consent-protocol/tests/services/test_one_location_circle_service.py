@@ -1635,6 +1635,72 @@ def test_member_invite_batch_capacity_failure_writes_nothing() -> None:
     assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
 
 
+def test_a_seat_an_open_invitation_already_reserved_is_not_charged_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A full-looking Circle that is not actually full.
+
+    Capacity counts active members PLUS open invitations, because an
+    invitation reserves a seat for whoever it was sent to. Adding that same
+    person then charged for the seat a second time -- so a Circle with exactly
+    one seat left, reserved by an invitation to Bob, refused to add Bob.
+
+    Reachable only through invitations written before adding replaced them, and
+    only against a nearly full Circle. Both of which will happen to somebody.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "name": "Family",
+            "kind": "family",
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+        },
+        {"role": "owner", "inviter_display_name": "Owner"},
+        [{"user_id": "friend-one"}],
+        None,
+        [],
+        [{"connection_id": "connection-1", "user_id": "friend-one"}],
+        [{"connection_id": "connection-1"}],
+        [
+            {
+                "id": "550e8400-e29b-41d4-a716-446655440002",
+                "circle_id": circle_id,
+                "inviter_user_id": "owner-user",
+                "invitee_user_id": "friend-one",
+                "status": "pending",
+                "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+            }
+        ],
+        # Nineteen members and one seat, held by friend-one's own invitation.
+        {"active_member_count": 19, "pending_invite_count": 1},
+        {"circle_count": 1},
+        None,
+        [{"user_id": "friend-one"}, {"user_id": "owner-user"}],
+        None,
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(
+        circle_service_module,
+        "ensure_connection_origin",
+        lambda _conn, **kwargs: {},
+    )
+
+    result = service.create_member_invites(
+        actor_user_id="owner-user",
+        circle_id=circle_id,
+        invitee_user_ids=["friend-one"],
+    )
+
+    assert result["addedUserIds"] == ["friend-one"]
+    assert any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
+
+
 def test_member_invite_batch_rechecks_origins_after_connection_locks() -> None:
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
     conn = _CapacityConnection(
