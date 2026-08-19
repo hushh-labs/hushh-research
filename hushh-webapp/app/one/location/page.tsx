@@ -8695,18 +8695,35 @@ export function OneLocationAgentPageContent({
         connection_count: shareRecipientPool.length,
         circle_count: namedCircles.length,
         has_load_error: Boolean(loadError),
+        // Facts for the generated precondition graph, resolved here because
+        // this component already holds the state -- nothing downstream has to
+        // make a call to find out whether an action is blocked.
+        //
+        // A fact is published only when its value is genuinely known. An
+        // omitted key reads as unknown, which is safe; a wrongly published
+        // false makes One state something untrue about the person's setup.
+        share_recipient_selected: shareReadySelectedRecipients.length > 0,
+        location_updates_paused: locationControl.paused,
+        ...(permission
+          ? { location_permission_granted: permission.state === "granted" }
+          : {}),
+        ...(dataState === "loaded"
+          ? { sos_active: Boolean(sosIncident?.grantIds.length) }
+          : {}),
       },
     };
   }, [
     busy,
     dataState,
     loadError,
+    locationControl.paused,
     mode,
     namedCircles.length,
     pendingOwnerRequests.length,
-    permission?.state,
+    permission,
     searchParams,
     shareRecipientPool.length,
+    sosIncident?.grantIds.length,
     // Picking someone clears the dead end, so the metadata has to be rebuilt
     // when the selection changes -- not only when the pool does.
     shareReadySelectedRecipients.length,
