@@ -10,7 +10,7 @@ async function loadDiagnostics(appEnv: string) {
 
 describe("circle create diagnostics", () => {
   beforeEach(() => {
-    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -24,11 +24,11 @@ describe("circle create diagnostics", () => {
       const mod = await loadDiagnostics(env);
       expect(mod.isCircleCreateDiagnosticsEnabled(), env).toBe(true);
       mod.logCircleCreate("Click", { attemptId: "cc_1", circleKind: "family" });
-      expect(console.info, env).toHaveBeenCalledWith("[CircleCreate:Click]", {
+      expect(console.warn, env).toHaveBeenCalledWith("[CircleCreate:Click]", {
         attemptId: "cc_1",
         circleKind: "family",
       });
-      vi.mocked(console.info).mockClear();
+      vi.mocked(console.warn).mockClear();
     }
   });
 
@@ -40,7 +40,7 @@ describe("circle create diagnostics", () => {
     mod.logCircleCreate("Click", { attemptId: "cc_1" });
     mod.logCircleCreateLockCheck("cc_1", "locked");
     mod.logCircleCreateLockGuard("cc_1", "unlock_required", "no_owner_token");
-    expect(console.info).not.toHaveBeenCalled();
+    expect(console.warn).not.toHaveBeenCalled();
   });
 
   it("is silent inside a packaged store app, which is also stamped uat", async () => {
@@ -57,7 +57,7 @@ describe("circle create diagnostics", () => {
     const mod = await loadDiagnostics("uat");
     expect(mod.isCircleCreateDiagnosticsEnabled()).toBe(false);
     mod.logCircleCreate("Click", { attemptId: "cc_1" });
-    expect(console.info).not.toHaveBeenCalled();
+    expect(console.warn).not.toHaveBeenCalled();
     vi.doUnmock("@capacitor/core");
     vi.doUnmock("@/lib/testing/native-test");
   });
@@ -84,7 +84,7 @@ describe("circle create diagnostics", () => {
       stray:
         "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijklmnop qrst@example.com",
     });
-    const [, detail] = vi.mocked(console.info).mock.calls[0] as [
+    const [, detail] = vi.mocked(console.warn).mock.calls[0] as [
       string,
       Record<string, unknown>,
     ];
@@ -119,7 +119,7 @@ describe("circle create diagnostics", () => {
     const mod = await loadDiagnostics("uat");
     const attemptId = mod.createCircleCreateAttemptId();
     mod.logCircleCreateLockCheck(attemptId, "locked");
-    const [, detail] = vi.mocked(console.info).mock.calls[0] as [
+    const [, detail] = vi.mocked(console.warn).mock.calls[0] as [
       string,
       Record<string, unknown>,
     ];
@@ -132,8 +132,42 @@ describe("circle create diagnostics", () => {
   it("drops undefined keys rather than printing them", async () => {
     const mod = await loadDiagnostics("uat");
     mod.logCircleCreate("Success", { attemptId: "cc_1", circleIdPrefix: undefined });
-    expect(console.info).toHaveBeenCalledWith("[CircleCreate:Success]", {
+    expect(console.warn).toHaveBeenCalledWith("[CircleCreate:Success]", {
       attemptId: "cc_1",
     });
+  });
+});
+
+describe("the trace survives the build it is meant to be read in", () => {
+  it("emits only on levels next.config.ts keeps", async () => {
+    // `removeConsole: isCapacitorBuild ? false : { exclude: ["error", "warn"] }`
+    // strips every other console level from a web build at compile time. The
+    // first version of this module used `console.info` -- correct by the repo's
+    // own convention, and verified ABSENT from every chunk served by
+    // uat.one.hushh.ai. A unit test cannot see that, so pin the two facts that
+    // together make the trace readable: the level this module uses, and the
+    // levels the build keeps.
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const root = path.resolve(__dirname, "../../..");
+
+    const nextConfig = fs.readFileSync(path.join(root, "next.config.ts"), "utf8");
+    const match = nextConfig.match(/removeConsole:[^\n]*exclude:\s*\[([^\]]*)\]/);
+    expect(match, "next.config.ts no longer declares removeConsole.exclude").toBeTruthy();
+    const kept = String(match?.[1] ?? "")
+      .split(",")
+      .map((entry) => entry.trim().replace(/["']/g, ""))
+      .filter(Boolean);
+    expect(kept).toContain("warn");
+
+    const source = fs.readFileSync(
+      path.join(root, "lib/one-location/circle-create-diagnostics.ts"),
+      "utf8",
+    );
+    const levels = Array.from(source.matchAll(/console\.(\w+)\(/g)).map((m) => m[1]);
+    expect(levels.length).toBeGreaterThan(0);
+    for (const level of levels) {
+      expect(kept, `console.${level} is stripped from a web build`).toContain(level);
+    }
   });
 });
