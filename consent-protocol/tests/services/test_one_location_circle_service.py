@@ -1735,3 +1735,101 @@ def test_someone_elses_sms_circle_is_labelled_with_its_owner() -> None:
         }
     )
     assert ordinary["name"] == "Family"
+
+
+def test_only_the_owner_controls_who_is_on_their_emergency_list() -> None:
+    """Everything that lets a non-owner change an SMS Circle is closed.
+
+    Storing a private emergency list as a Circle inherited every Circle
+    affordance, and three of them are wrong here:
+
+      * anyone ON the list could invite others TO it -- a stranger added by a
+        member would receive the owner's SOS alerts and the owner never chose
+        them;
+      * the list had a shareable join code any member could read, which is the
+        same hole with a link attached;
+      * being on someone's list consumed one of your own 10 Circle slots.
+
+    Found by auditing from the other member's side -- the check whose absence
+    let the duplicate-name bug reach UAT.
+    """
+
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
+
+    summary = OneLocationCircleService._circle_summary
+
+    theirs = summary(
+        {
+            "id": "c1",
+            "name": "SMS Contacts",
+            "owner_user_id": "neelesh",
+            "owner_display_name": "Neelesh",
+            "viewer_user_id": "me",
+            "is_system": True,
+        }
+    )
+    caps = theirs["viewerCapabilities"]
+    assert caps["canInviteMembers"] is False
+    assert caps["canViewInviteCode"] is False
+    assert caps["canRotateInviteCode"] is False
+
+    mine = summary(
+        {
+            "id": "c2",
+            "name": "SMS Contacts",
+            "owner_user_id": "me",
+            "viewer_user_id": "me",
+            "is_system": True,
+        }
+    )
+    mine_caps = mine["viewerCapabilities"]
+    # The owner still manages their own list...
+    assert mine_caps["canInviteMembers"] is True
+    assert mine_caps["canManageCircle"] is True
+    # ...but an emergency list has no join code at all, for anyone.
+    assert mine_caps["canViewInviteCode"] is False
+    assert mine_caps["canRotateInviteCode"] is False
+    assert mine_caps["canDeleteCircle"] is False
+
+    # An ordinary Circle keeps every affordance it had.
+    ordinary = summary(
+        {
+            "id": "c3",
+            "name": "Family",
+            "owner_user_id": "me",
+            "viewer_user_id": "me",
+            "is_system": False,
+        }
+    )
+    ordinary_caps = ordinary["viewerCapabilities"]
+    assert ordinary_caps["canInviteMembers"] is True
+    assert ordinary_caps["canViewInviteCode"] is True
+    assert ordinary_caps["canRotateInviteCode"] is True
+    assert ordinary_caps["canDeleteCircle"] is True
+
+
+def test_emergency_lists_do_not_consume_the_circle_budget() -> None:
+    """Being on eight people's emergency lists must not block making a Circle.
+
+    The limit is about Circles you belong to. An emergency list is somewhere
+    you were placed, and no screen could have explained the refusal.
+    """
+
+    import inspect
+
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
+
+    source = inspect.getsource(OneLocationCircleService._assert_user_circle_capacity)
+    assert "NOT circle.is_system" in source
+
+
+def test_a_member_cannot_add_people_to_someone_elses_emergency_list() -> None:
+    """The capability flag shapes the UI; this is the rule behind it."""
+
+    import inspect
+
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
+
+    source = inspect.getsource(OneLocationCircleService.create_member_invites)
+    assert "LOCATION_CIRCLE_SYSTEM_OWNER_ONLY" in source
+    assert "is_system_circle" in source

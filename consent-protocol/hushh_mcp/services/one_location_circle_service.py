@@ -309,6 +309,7 @@ class OneLocationCircleService:
                     JOIN one_location_circles circle
                       ON circle.id = membership.circle_id
                      AND circle.status = 'active'
+                     AND NOT circle.is_system
                     WHERE membership.user_id = :user_id
                       AND membership.status = 'active'
                     """
@@ -353,9 +354,17 @@ class OneLocationCircleService:
             "viewerCapabilities": {
                 # Invite authority is intentionally separate from location,
                 # SMS, rename, removal, and deletion authority.
-                "canInviteMembers": True,
-                "canViewInviteCode": True,
-                "canRotateInviteCode": is_owner,
+                #
+                # Except on a system Circle, which is one person's private
+                # emergency list. Anyone on it could otherwise add other people
+                # TO it -- a stranger invited by a member would receive the
+                # owner's SOS alerts, at their address, and the owner never
+                # chose them. Owner-controlled, or it is not an emergency list.
+                "canInviteMembers": is_owner or not is_system,
+                # And it has no shareable join code at all: that is the same
+                # hole with a link attached.
+                "canViewInviteCode": not is_system,
+                "canRotateInviteCode": is_owner and not is_system,
                 "canManageCircle": is_owner,
                 "canModerateInvites": is_owner,
                 # The ONLY thing a system Circle takes away. It is provisioned
@@ -2247,6 +2256,14 @@ class OneLocationCircleService:
                         status_code=409,
                     )
                 is_system_circle = bool(circle_row.get("is_system"))
+                # The capability flag above shapes the UI; this is the rule.
+                # Only the owner may put someone on their emergency list.
+                if is_system_circle and str(circle_row.get("owner_user_id") or "") != actor_user_id:
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_SYSTEM_OWNER_ONLY",
+                        "Only the owner can add people to this Circle.",
+                        status_code=403,
+                    )
                 if new_user_ids and reserved_count + len(new_user_ids) > member_limit:
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_INVITE_CAPACITY_REACHED",
