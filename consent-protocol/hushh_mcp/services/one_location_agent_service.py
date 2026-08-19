@@ -487,10 +487,34 @@ def _identity_notification_label(
     row: dict[str, Any] | None,
     fallback: str = "A trusted person",
 ) -> str:
-    """Return a lock-screen-safe identity label without phone-derived data."""
+    """Return a lock-screen-safe identity label without phone-derived data.
+
+    Delegates the ladder to `resolve_requester_label` -- the resolver #5442
+    added when connection-request pushes were reading "Someone wants to connect
+    with you". It tries the display name, rejects values that are identifiers
+    rather than names (a UUID, the raw user id, an opaque token), and falls back
+    to the handle from the account's email.
+
+    `fallback` survives as the last resort, for an account that genuinely
+    resolves to nothing. That is the one case where a generic phrase is the
+    truthful answer rather than a missing one.
+    """
+
     if not row:
         return fallback
-    return str(row.get("display_name") or "").strip() or fallback
+    # The ladder is run against the row already in hand rather than through
+    # `resolve_requester_label`, which would re-query the same row for its email
+    # rung. Same helpers, same order, one read instead of two.
+    from hushh_mcp.services.requester_identity import (
+        _email_handle,
+        looks_technical_label,
+    )
+
+    user_id = str(row.get("user_id") or "")
+    display_name = str(row.get("display_name") or "").strip()
+    if display_name and not looks_technical_label(display_name, user_id=user_id):
+        return display_name
+    return _email_handle(row.get("email")) or fallback
 
 
 def _notification_safe_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -1339,7 +1363,7 @@ class OneLocationAgentService:
         try:
             return self._execute_one(
                 """
-                SELECT user_id, display_name, phone_number, phone_verified
+                SELECT user_id, display_name, email, phone_number, phone_verified
                 FROM actor_identity_cache
                 WHERE user_id = :user_id
                 LIMIT 1

@@ -5130,3 +5130,59 @@ def test_revoking_an_sms_share_names_the_lane_in_its_copy() -> None:
     # And the lane travels with the payload, because the grant is gone by the
     # time the client renders this and cannot look the kind up itself.
     assert '"share_kind": revoked_share_kind or "standard"' in source
+
+
+def test_location_notifications_name_the_person_not_a_placeholder() -> None:
+    """A notification says who, on both sides, or degrades honestly.
+
+    `_identity_notification_label` used to read `display_name` and say
+    "A trusted person" whenever it was blank -- so the same account that gets
+    named in a connection-request push went unnamed here. Worse, it took the
+    value verbatim, so a row holding a UUID or a raw user id rendered the
+    identifier AS the name on someone's lock screen.
+
+    #5442 already built the ladder for connections (display name -> reject
+    identifiers -> email handle). This pins that Location uses the same one, so
+    the two cannot drift apart again.
+    """
+
+    from hushh_mcp.services.one_location_agent_service import (
+        _identity_notification_label,
+    )
+
+    # A real name is used as-is, on both sides of any notification.
+    assert _identity_notification_label({"user_id": "u1", "display_name": "Neelesh"}) == ("Neelesh")
+
+    # A blank display name falls through to the email handle rather than
+    # going generic -- this is the case that produced unnamed notifications.
+    assert (
+        _identity_notification_label(
+            {"user_id": "u1", "display_name": "", "email": "neelesh@example.com"}
+        )
+        == "neelesh"
+    )
+
+    # An identifier is NOT a name. Showing it would be worse than being generic.
+    identifier_row = {
+        "user_id": "u1",
+        "display_name": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+    }
+    assert _identity_notification_label(identifier_row) == "A trusted person"
+
+    raw_id_row = {"user_id": "u1", "display_name": "u1"}
+    assert _identity_notification_label(raw_id_row) == "A trusted person"
+
+    # Genuinely unresolvable stays generic, which is the honest answer.
+    assert _identity_notification_label(None) == "A trusted person"
+    assert _identity_notification_label({"user_id": "u1"}) == "A trusted person"
+
+
+def test_identity_lookup_reads_the_column_the_name_ladder_needs() -> None:
+    """The email fallback is only reachable if the query selected email."""
+
+    import inspect
+
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    source = inspect.getsource(OneLocationAgentService._identity_row)
+    assert "email" in source
