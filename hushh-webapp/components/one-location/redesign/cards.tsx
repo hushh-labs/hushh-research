@@ -417,6 +417,7 @@ export function SharedWithMeCard({
   onAskReshare,
   askReshareBusy,
   isSmsTriggered,
+  shareLanes,
 }: {
   name: string;
   statusLine: string;
@@ -450,6 +451,17 @@ export function SharedWithMeCard({
   askReshareBusy?: boolean;
   /** Came from the Save My Soul panic flow -- the one this UI calls "SMS". */
   isSmsTriggered?: boolean;
+  /**
+   * Every live share from this person, when there is more than one.
+   *
+   * One owner can now hold two live grants with you at once -- an ordinary
+   * share and an SMS (SOS) one -- and they end at different moments. The card
+   * stays ONE card per person (two cards for one name is the thing this
+   * replaced), so the per-share breakdown hangs here, under the name, rather
+   * than being folded into a single `statusLine` that could only be right
+   * about one of them.
+   */
+  shareLanes?: ReactNode;
 }) {
   const warningRole = roleClasses("warning");
   const dangerRole = roleClasses("danger");
@@ -534,6 +546,7 @@ export function SharedWithMeCard({
           ) : null}
         </div>
       </div>
+      {shareLanes}
       {address || addressLoading || coordinatesFallback ? (
         <div className="flex items-start gap-1.5">
           <MapPin

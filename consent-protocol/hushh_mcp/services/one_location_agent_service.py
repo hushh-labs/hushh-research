@@ -528,6 +528,54 @@ _INTERNAL_SHARE_REASONS = {
 }
 
 
+# Which replacement lane a grant belongs to. Replacement of a live share is
+# scoped to a LANE, and there are exactly TWO of them: the emergency lane
+# (``share_kind == 'sos'``) and everything else. This is deliberately NOT one
+# lane per share kind. `_classify_share_kind` below can return four kinds, the
+# `/api/one/location/grants` route accepts `share_kind` as free text up to 40
+# characters with no enum, and the web client already sends values this module
+# never produces (e.g. `pick_me_up`). Per-exact-kind scoping would therefore let
+# a single owner/recipient pair accumulate an unbounded number of live grants
+# that no surface exposes a Stop for. Two lanes caps a pair at exactly two live
+# grants: one normal share and one SOS.
+#
+# The invariant this enforces: an SOS grant must never supersede a normal share,
+# and a normal share must never supersede an SOS grant. Within a lane, the newest
+# grant still replaces the older one exactly as it always has -- `drive_to`,
+# `check_in`, `pick_me_up` and plain `share` all sit in the non-emergency lane
+# together and keep replacing each other.
+#
+# Bound as ``:is_sos_lane`` (a boolean) by every caller. The second arm reads the
+# legacy `reason` marker for rows written before `share_kind` was persisted in
+# metadata; it is belt-and-braces only and must never be relied on alone, because
+# a user-typed SOS message REPLACES the `sos_panic` reason on the way in.
+#
+# Defined once, on purpose. Three hand-copied divergent versions of the
+# replacement UPDATE are exactly what let an SMS alert silently revoke a normal
+# share (#5506); a fourth write path must not be addable without this predicate.
+_SHARE_LANE_MATCH_SQL = """
+                AND (
+                  COALESCE({alias}metadata->>'share_kind', '') = 'sos'
+                  OR (
+                    {alias}metadata->>'share_kind' IS NULL
+                    AND {alias}metadata->>'reason' = 'sos_panic'
+                  )
+                ) = CAST(:is_sos_lane AS BOOLEAN)"""
+
+
+def _share_lane_match_sql(alias: str = "") -> str:
+    """The lane predicate, optionally qualified for an aliased UPDATE target."""
+    return _SHARE_LANE_MATCH_SQL.format(alias=f"{alias}." if alias else "")
+
+
+def _is_sos_lane(share_kind: str | None) -> bool:
+    """True when a grant belongs to the emergency replacement lane.
+
+    The lane split is `sos` vs everything-else -- NOT one lane per share kind.
+    """
+    return str(share_kind or "").strip() == "sos"
+
+
 def _classify_share_kind(reason: str | None) -> str:
     """Classify a grant's share kind from its stored ``reason`` marker.
 
@@ -4296,6 +4344,16 @@ class OneLocationAgentService:
                     ),
                     "source_circle_id": source_circle_id,
                 }
+                # Replacement is scoped to ONE LANE, and there are exactly two
+                # of them: the emergency lane (`share_kind == 'sos'`) and
+                # everything else. An SOS grant must never supersede a normal
+                # share, and a normal share must never supersede an SOS grant --
+                # a person who shared their location for four hours and then
+                # raised an SMS alert with the same person had the four-hour
+                # share silently revoked at SEND time (#5506). This is two lanes,
+                # NOT one lane per share kind: `drive_to`, `check_in`,
+                # `pick_me_up` and plain `share` all sit in the non-emergency
+                # lane together and go on replacing each other exactly as before.
                 conn.execute(
                     text(
                         """
@@ -4303,7 +4361,12 @@ class OneLocationAgentService:
                         SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                         WHERE owner_user_id = :owner_user_id
                           AND recipient_user_id = :recipient_user_id
-                          AND status = 'active'
+                          AND status = 'active'"""  # nosec B608 - the lane predicate
+                        # below is a module-level constant of static SQL text and the
+                        # lane itself is BOUND as `:is_sos_lane`; nothing
+                        # caller-supplied reaches this statement.
+                        + _share_lane_match_sql()
+                        + """
                         """
                     ),
                     params,
@@ -4484,10 +4547,15 @@ class OneLocationAgentService:
         }
         if capability is not None:
             metadata["capability_token"] = capability["token"]
+        # Which of the two replacement lanes this grant lands in. Bound into
+        # BOTH write paths below -- the enforced transaction reads it out of
+        # `grant_params`, the non-enforced branch binds it on its own revoke.
+        is_sos_lane = _is_sos_lane(resolved_kind)
         grant_params = {
             "owner_user_id": owner_user_id,
             "recipient_user_id": recipient_user_id,
             "recipient_key_id": key_id,
+            "is_sos_lane": is_sos_lane,
             "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
             "duration_hours": duration,
             "expires_at": expires_at,
@@ -4510,18 +4578,30 @@ class OneLocationAgentService:
                 grant_params=grant_params,
             )
         else:
+            # Same two-lane replacement rule as the enforced path above: an
+            # SOS grant never supersedes a normal share and vice versa, and the
+            # split is `sos` vs everything-else rather than one lane per share
+            # kind. This is the branch `approve_request` reaches (it calls
+            # `create_grant` without `enforce_connection`), so approving a
+            # plain access request must not tear down a live SOS share either.
             self._execute_many(
                 """
                 UPDATE one_location_share_grants
                 SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                 WHERE owner_user_id = :owner_user_id
                   AND recipient_user_id = :recipient_user_id
-                  AND status = 'active'
+                  AND status = 'active'"""  # nosec B608 - the lane predicate below
+                # is a module-level constant of static SQL text and the lane itself is
+                # BOUND as `:is_sos_lane`; nothing caller-supplied reaches this
+                # statement.
+                + _share_lane_match_sql()
+                + """
                 RETURNING id
                 """,
                 {
                     "owner_user_id": owner_user_id,
                     "recipient_user_id": recipient_user_id,
+                    "is_sos_lane": is_sos_lane,
                 },
             )
             row = self._execute_one(
@@ -4822,11 +4902,21 @@ class OneLocationAgentService:
               LIMIT 1
             ),
             revoked_grants AS (
+              -- Two-lane replacement, same invariant as the two non-atomic
+              -- create paths: replacement is scoped to the emergency lane, so
+              -- an SOS grant never supersedes a normal share and a normal share
+              -- never supersedes an SOS grant. Two lanes (`sos` vs
+              -- everything-else), NOT one lane per share kind.
               UPDATE one_location_share_grants g
               SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
               WHERE g.owner_user_id = :owner_user_id
                 AND g.recipient_user_id = :recipient_user_id
-                AND g.status = 'active'
+                AND g.status = 'active'"""  # nosec B608 - the lane predicate below
+            # is a module-level constant of static SQL text with a fixed alias
+            # substituted, and the lane itself is BOUND as `:is_sos_lane`; nothing
+            # caller-supplied reaches this statement.
+            + _share_lane_match_sql("g")
+            + """
                 AND EXISTS (SELECT 1 FROM eligible_recipient)
                 AND NOT EXISTS (SELECT 1 FROM replayed_grant)
               RETURNING g.id
@@ -4959,6 +5049,10 @@ class OneLocationAgentService:
                 "enforce_connection": enforce_connection,
                 "source_circle_id": grant_source_circle_id,
                 "require_sms_contact": resolved_kind == "sos",
+                # The `revoked_grants` CTE above is lane-scoped. This dict is
+                # built independently of `create_grant`'s, so a missing bind
+                # here fails OPEN to the old kind-blind replacement.
+                "is_sos_lane": _is_sos_lane(resolved_kind),
                 "envelope_metadata_json": envelope_fields["metadata_json"],
                 **{key: value for key, value in envelope_fields.items() if key != "metadata_json"},
             },
@@ -6707,9 +6801,23 @@ class OneLocationAgentService:
         return self._grant_payload(updated) or {}
 
     def _active_grant_between(
-        self, *, owner_user_id: str, recipient_user_id: str
+        self, *, owner_user_id: str, recipient_user_id: str, is_sos_lane: bool | None
     ) -> dict[str, Any] | None:
-        """The live share from owner to recipient, if there is one right now."""
+        """The live share from owner to recipient IN ONE LANE, if there is one.
+
+        A pair can now hold two live grants at once -- one normal share and one
+        SOS -- so "the live share between these two people" is no longer a
+        single well-defined row and this read must say which one it means.
+        ``is_sos_lane`` is required for exactly that reason: left implicit, the
+        ``ORDER BY created_at DESC`` below silently resolves to whichever grant
+        was created most recently, which during an emergency is the SOS grant.
+
+        Pass ``False`` for the normal-share lane, ``True`` for the emergency
+        lane, or ``None`` to deliberately mean "either lane, newest wins" --
+        which is the pre-#5506 behaviour and is almost never what a caller
+        wants.
+        """
+        lane_predicate = "" if is_sos_lane is None else _share_lane_match_sql()
         return self._execute_one(
             """
             SELECT id, expires_at, duration_mode, duration_hours
@@ -6717,11 +6825,20 @@ class OneLocationAgentService:
             WHERE owner_user_id = :owner_user_id
               AND recipient_user_id = :recipient_user_id
               AND status = 'active'
-              AND (expires_at IS NULL OR expires_at > NOW())
+              AND (expires_at IS NULL OR expires_at > NOW())"""  # nosec B608 -
+            # `lane_predicate` is either empty or a module-level constant of static
+            # SQL text, and the lane itself is BOUND as `:is_sos_lane`; nothing
+            # caller-supplied reaches this statement.
+            + lane_predicate
+            + """
             ORDER BY created_at DESC
             LIMIT 1
             """,
-            {"owner_user_id": owner_user_id, "recipient_user_id": recipient_user_id},
+            {
+                "owner_user_id": owner_user_id,
+                "recipient_user_id": recipient_user_id,
+                "is_sos_lane": bool(is_sos_lane),
+            },
         )
 
     def set_grant_duration(
@@ -6923,8 +7040,18 @@ class OneLocationAgentService:
         # crafted id cannot attach an ask to somebody else's grant. When it does
         # not check out we fall back to the real active grant rather than
         # failing: the person is asking for time either way.
+        # Scoped to the NORMAL-SHARE lane on purpose. An access request is an
+        # ask for ordinary visibility, and the only grant it can sensibly be an
+        # extension of is the ordinary one. Unscoped, this read returns the
+        # newest live grant -- so while the owner has an SOS share running with
+        # this same person, a client correctly naming the share it wants
+        # extended was silently redirected onto the SOS grant by the mismatch
+        # fallback below, and `remaining_label` then quoted the SOS grant's
+        # hours back at them. Nobody may extend an emergency share by asking.
         active_grant = self._active_grant_between(
-            owner_user_id=owner_user_id, recipient_user_id=requester_user_id
+            owner_user_id=owner_user_id,
+            recipient_user_id=requester_user_id,
+            is_sos_lane=False,
         )
         active_grant_id = str(active_grant.get("id") or "") if active_grant else ""
         requested_grant_id = str(extends_grant_id or "").strip()
