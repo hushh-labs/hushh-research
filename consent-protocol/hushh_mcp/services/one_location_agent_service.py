@@ -4361,7 +4361,10 @@ class OneLocationAgentService:
                         SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                         WHERE owner_user_id = :owner_user_id
                           AND recipient_user_id = :recipient_user_id
-                          AND status = 'active'"""
+                          AND status = 'active'"""  # nosec B608 - the lane predicate
+                        # below is a module-level constant of static SQL text and the
+                        # lane itself is BOUND as `:is_sos_lane`; nothing
+                        # caller-supplied reaches this statement.
                         + _share_lane_match_sql()
                         + """
                         """
@@ -4587,7 +4590,10 @@ class OneLocationAgentService:
                 SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                 WHERE owner_user_id = :owner_user_id
                   AND recipient_user_id = :recipient_user_id
-                  AND status = 'active'"""
+                  AND status = 'active'"""  # nosec B608 - the lane predicate below
+                # is a module-level constant of static SQL text and the lane itself is
+                # BOUND as `:is_sos_lane`; nothing caller-supplied reaches this
+                # statement.
                 + _share_lane_match_sql()
                 + """
                 RETURNING id
@@ -4905,7 +4911,10 @@ class OneLocationAgentService:
               SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
               WHERE g.owner_user_id = :owner_user_id
                 AND g.recipient_user_id = :recipient_user_id
-                AND g.status = 'active'"""
+                AND g.status = 'active'"""  # nosec B608 - the lane predicate below
+            # is a module-level constant of static SQL text with a fixed alias
+            # substituted, and the lane itself is BOUND as `:is_sos_lane`; nothing
+            # caller-supplied reaches this statement.
             + _share_lane_match_sql("g")
             + """
                 AND EXISTS (SELECT 1 FROM eligible_recipient)
@@ -6816,7 +6825,10 @@ class OneLocationAgentService:
             WHERE owner_user_id = :owner_user_id
               AND recipient_user_id = :recipient_user_id
               AND status = 'active'
-              AND (expires_at IS NULL OR expires_at > NOW())"""
+              AND (expires_at IS NULL OR expires_at > NOW())"""  # nosec B608 -
+            # `lane_predicate` is either empty or a module-level constant of static
+            # SQL text, and the lane itself is BOUND as `:is_sos_lane`; nothing
+            # caller-supplied reaches this statement.
             + lane_predicate
             + """
             ORDER BY created_at DESC
