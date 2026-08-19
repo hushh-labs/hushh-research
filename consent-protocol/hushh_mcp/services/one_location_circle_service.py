@@ -332,9 +332,17 @@ class OneLocationCircleService:
         is_owner = bool(owner_user_id and viewer_user_id == owner_user_id)
         role = "owner" if is_owner else "member"
         is_system = bool(row.get("is_system") or False)
+        name = str(row.get("name") or "")
+        # A system Circle is one person's private emergency list, but everyone
+        # on it is a member of it, so it appears in THEIR Circles list too --
+        # under the same product-chosen name as their own. Saying whose it is
+        # turns three identical rows back into three distinct ones.
+        if is_system and not is_owner:
+            owner_name = str(row.get("owner_display_name") or "").strip()
+            name = f"{owner_name}'s {name}" if owner_name else f"Shared {name}"
         return {
             "id": str(row.get("id") or ""),
-            "name": str(row.get("name") or ""),
+            "name": name,
             "kind": str(row.get("kind") or "other"),
             "role": role,
             "isSystem": is_system,
@@ -512,17 +520,20 @@ class OneLocationCircleService:
                   c.id, c.name, c.kind, c.member_limit, c.is_system,
                   c.created_at, c.updated_at,
                   c.owner_user_id, :user_id AS viewer_user_id, mine.role,
+                  owner_identity.display_name AS owner_display_name,
                   COUNT(active_members.user_id) AS member_count
                 FROM one_location_circle_memberships mine
                 JOIN one_location_circles c
                   ON c.id = mine.circle_id
                  AND c.status = 'active'
+                LEFT JOIN actor_identity_cache owner_identity
+                  ON owner_identity.user_id = c.owner_user_id
                 LEFT JOIN one_location_circle_memberships active_members
                   ON active_members.circle_id = c.id
                  AND active_members.status = 'active'
                 WHERE mine.user_id = :user_id
                   AND mine.status = 'active'
-                GROUP BY c.id, mine.role
+                GROUP BY c.id, mine.role, owner_identity.display_name
                 ORDER BY c.updated_at DESC, c.created_at DESC
                 """,
                 {"user_id": user_id},
@@ -542,6 +553,7 @@ class OneLocationCircleService:
                   c.id, c.name, c.kind, c.member_limit, c.is_system,
                   c.created_at, c.updated_at,
                   c.owner_user_id, :user_id AS viewer_user_id, mine.role,
+                  owner_identity.display_name AS owner_display_name,
                   active_code.id AS code_id,
                   active_code.circle_id AS code_circle_id,
                   active_code.code_hash,
@@ -549,6 +561,8 @@ class OneLocationCircleService:
                   active_code.metadata AS code_metadata,
                   COUNT(active_members.user_id) AS member_count
                 FROM one_location_circles c
+                LEFT JOIN actor_identity_cache owner_identity
+                  ON owner_identity.user_id = c.owner_user_id
                 JOIN one_location_circle_memberships mine
                   ON mine.circle_id = c.id
                  AND mine.user_id = :user_id

@@ -1662,3 +1662,76 @@ def test_invitable_connections_are_not_narrowed_to_directly_requested_ones() -> 
     assert "origin.status = 'active'" in listing_sql
     # The guard: provenance must not be filtered down to direct requests.
     assert "origin_kind = 'direct_request'" not in listing_sql
+
+
+def test_someone_elses_sms_circle_is_labelled_with_its_owner() -> None:
+    """Three emergency lists must not read as three copies of yours.
+
+    Reported from UAT as "multiple SMS circles, none of them deletable".
+    `list_circles` returns every Circle you are an active MEMBER of, so being on
+    two other people's emergency lists puts three rows in your Circles list --
+    all called "SMS Contacts", because the product chose that name, not the
+    people. The data was correct; the presentation was not.
+
+    The delete half is the same thing wearing a different hat: your own system
+    Circle refuses by design, someone else's refuses because you do not own it.
+    Two correct rules, three identical rows, and it reads as "nothing works".
+    """
+
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
+
+    summary = OneLocationCircleService._circle_summary
+
+    mine = summary(
+        {
+            "id": "c1",
+            "name": "SMS Contacts",
+            "owner_user_id": "me",
+            "viewer_user_id": "me",
+            "is_system": True,
+        }
+    )
+    assert mine["name"] == "SMS Contacts"
+    assert mine["isSystem"] is True
+    # Mine is the one I manage, so every owner power except deletion applies.
+    assert mine["viewerCapabilities"]["canDeleteCircle"] is False
+    assert mine["viewerCapabilities"]["canManageCircle"] is True
+
+    theirs = summary(
+        {
+            "id": "c2",
+            "name": "SMS Contacts",
+            "owner_user_id": "neelesh",
+            "owner_display_name": "Neelesh",
+            "viewer_user_id": "me",
+            "is_system": True,
+        }
+    )
+    assert theirs["name"] == "Neelesh's SMS Contacts"
+    assert theirs["viewerCapabilities"]["canManageCircle"] is False
+
+    # An owner with no resolvable name still must not collide with mine.
+    unnamed = summary(
+        {
+            "id": "c3",
+            "name": "SMS Contacts",
+            "owner_user_id": "ghost",
+            "viewer_user_id": "me",
+            "is_system": True,
+        }
+    )
+    assert unnamed["name"] == "Shared SMS Contacts"
+    assert unnamed["name"] != mine["name"]
+
+    # Ordinary Circles are named by a person and are left exactly alone.
+    ordinary = summary(
+        {
+            "id": "c4",
+            "name": "Family",
+            "owner_user_id": "neelesh",
+            "owner_display_name": "Neelesh",
+            "viewer_user_id": "me",
+            "is_system": False,
+        }
+    )
+    assert ordinary["name"] == "Family"
