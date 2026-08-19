@@ -818,6 +818,71 @@ describe("LocationImmersiveMap demo experience", () => {
     );
   });
 
+  it.each([
+    { platform: "web", native: false },
+    { platform: "native", native: true },
+  ])(
+    "opens the neutral view on a camera derived from the container ($platform)",
+    async ({ native }) => {
+      // Regression, QA "map cut from the top". Distinct from the setPadding
+      // case above: nothing calls setPadding here, the container is correct,
+      // and the band is Google's own out-of-world grey. A Web Mercator world
+      // is a square of 256 * 2^zoom pixels, so the fixed `{ lat: 20, lng: 0 }`
+      // at zoom 2 was a 1024px world inside a 1080px-tall viewport -- and
+      // latitude 20 sits above the world's vertical middle, so the entire 56px
+      // shortfall landed on one edge as 86px of grey at the top. Measured in
+      // Chromium against the live Maps JS projection; the exact figure is
+      // asserted in `map-world-view.test.ts`.
+      //
+      // Both platforms, because both read this one config: the web shim hands
+      // it to `new google.maps.Map`, and the native bridge to
+      // GMSCameraPosition / CameraUpdateFactory, which use the same Web
+      // Mercator projection and the same zoom scale.
+      platformHarness.native = native;
+      experienceHarness.demoMode = false;
+      experienceHarness.query = "";
+
+      // Spied on Element.prototype, matching this file's own
+      // stubPhoneGeometry. Assigning to HTMLElement.prototype instead creates
+      // an own property that permanently shadows that spy for every later case
+      // in this file.
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+        function (this: Element) {
+          const filled = this.tagName === "CAPACITOR-GOOGLE-MAP";
+          const width = filled ? 1920 : 0;
+          const height = filled ? 1080 : 0;
+          return {
+            x: 0,
+            y: 0,
+            top: 0,
+            left: 0,
+            right: width,
+            bottom: height,
+            width,
+            height,
+            toJSON: () => ({}),
+          } as DOMRect;
+        },
+      );
+
+      render(<LocationImmersiveMap />);
+      // Settle the whole create chain before reading it. Leaving the tail of
+      // `withNativeMapLock` in flight lets this instance re-register the shared
+      // camera listeners after the case ends, which the name-pill cases later
+      // in this file drive by hand.
+      await waitFor(() => {
+        expect(mapHarness.map.setOnMarkerClickListener).toHaveBeenCalled();
+      });
+      const config = mapHarness.create.mock.calls.at(-1)?.[0]?.config;
+      // The equator, so the world is symmetric about the viewport centre.
+      expect(config.center).toEqual({ lat: 0, lng: 0 });
+      // 256 * 2^3 = 2048px, which covers both 1920 and 1080.
+      expect(config.zoom).toBe(3);
+      expect(256 * 2 ** config.zoom).toBeGreaterThanOrEqual(1920);
+      expect(256 * 2 ** config.zoom).toBeGreaterThanOrEqual(1080);
+    },
+  );
+
   it("never strands markers when the set changes mid-write", async () => {
     // Regression: a second "Your location" pin sat on the map where the device
     // used to be. `addMarkers` is awaited, and a run superseded during that
