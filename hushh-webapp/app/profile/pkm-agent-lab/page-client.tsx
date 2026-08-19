@@ -328,6 +328,9 @@ export default function PkmAgentLabPageClient() {
   const { user, loading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  // A presence read that threw. Distinct from `hasVault === null`, which only
+  // means "still reading".
+  const [vaultCheckFailed, setVaultCheckFailed] = useState(false);
   const vaultCapability = useMemo(
     () =>
       resolveVaultCapabilityState({
@@ -344,8 +347,17 @@ export default function PkmAgentLabPageClient() {
         isVaultUnlocked,
         vaultKey,
         vaultOwnerToken,
+        authLoading: loading,
+        presenceFailed: vaultCheckFailed,
       }),
-    [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken]
+    [
+      hasVault,
+      isVaultUnlocked,
+      loading,
+      vaultCheckFailed,
+      vaultKey,
+      vaultOwnerToken,
+    ]
   );
   const environment = resolveAppEnvironment();
   const nonProdLabel = environment === "uat" ? "UAT" : "development";
@@ -403,11 +415,15 @@ export default function PkmAgentLabPageClient() {
         const nextHasVault = await VaultService.checkVault(user.uid);
         if (!cancelled) {
           setHasVault(nextHasVault);
+          setVaultCheckFailed(false);
         }
       } catch (nextError) {
         console.warn("[PkmAgentLab] Failed to check vault existence:", nextError);
+        // A failed read is not an absent lock. Setting `false` here drove
+        // `needsVaultCreation` and offered to build a lock to somebody who
+        // already had one.
         if (!cancelled) {
-          setHasVault(false);
+          setVaultCheckFailed(true);
         }
       }
     }

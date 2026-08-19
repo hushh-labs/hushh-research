@@ -70,8 +70,8 @@ export type GeneratedVaultUnlockInput = {
 };
 
 const DEFAULT_VAULT_SECRET_PREFIX = "vault_default_secret";
-const BIOMETRIC_PROMPT_SET = "Authenticate to enable secure default vault";
-const BIOMETRIC_PROMPT_GET = "Authenticate to unlock your secure vault";
+const BIOMETRIC_PROMPT_SET = "Set up quick unlock for One";
+const BIOMETRIC_PROMPT_GET = "Unlock One";
 
 function keychainSecretKey(userId: string): string {
   return `${DEFAULT_VAULT_SECRET_PREFIX}:${userId}`;

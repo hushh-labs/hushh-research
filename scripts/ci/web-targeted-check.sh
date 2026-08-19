@@ -70,7 +70,16 @@ fi
 # without adding it to ONBOARDING_ROUTES all break the contract from outside the
 # guards themselves. HushhIntroGate is here because withholding the guards from
 # the tree while it played is what made the surfaces collide in the first place.
-if has_match '^hushh-webapp/(lib/onboarding/|components/onboarding/|components/auth/|components/vault/|components/app-ui/HushhIntroGate|__tests__/onboarding/|__tests__/components/(onboarding-journey-guard|phone-mandate-guard|vault-lock-guard)|__tests__/app/(one/one-auth-gate|register-phone)|lib/navigation/routes\.ts|lib/services/(pre-vault-user-state-service|one-setup-completion-hint-service|phone-mandate-service|post-auth-route-service)\.ts|app/(providers|page)\.tsx|app/one/(layout|one-auth-gate)\.tsx|app/(login|register-phone|getting-started)/|app/(kai|ria|marketplace|profile|one/consent|profile/pkm-agent-lab)/layout\.tsx)'; then
+#
+# `lib/vault/` and `lib/services/vault-service.ts` were the hole. The pack
+# covered `components/vault/` but not the module the whole funnel reads its lock
+# answer from, so `vault-access-policy.ts` and `vault-context.tsx` — where
+# CONFIGURED, LOCKED, UNLOCKED, LOADING and ERROR are actually told apart —
+# could be changed on a pull request with no funnel test running at all. The
+# `capability-vault-prerequisite` suite is here for the same reason: it is the
+# only suite that asserts the create-vs-unlock distinction, and it sat red on
+# main for days because no pack named it.
+if has_match '^hushh-webapp/(lib/onboarding/|lib/vault/|components/onboarding/|components/auth/|components/vault/|components/app-ui/(HushhIntroGate|vault-status-inline)|__tests__/onboarding/|__tests__/lib/vault/|__tests__/components/(onboarding-journey-guard|phone-mandate-guard|vault-lock-guard|capability-vault-prerequisite)|__tests__/services/pre-vault-user-state-service|__tests__/app/(one/one-auth-gate|register-phone)|lib/navigation/routes\.ts|lib/services/(pre-vault-user-state-service|one-setup-completion-hint-service|phone-mandate-service|post-auth-route-service|vault-service)\.ts|app/(providers|page)\.tsx|app/one/(layout|one-auth-gate)\.tsx|app/(login|register-phone|getting-started)/|app/(kai|ria|marketplace|profile|one/consent|profile/pkm-agent-lab)/layout\.tsx)'; then
   run_check "onboarding funnel" npm run verify:onboarding-funnel
   ran=1
 fi
