@@ -425,8 +425,15 @@ export function AuthStep({
         // So: only claim a funnel phase when this sign-in is actually sending
         // the person into the funnel. Otherwise settle the callback alone and
         // leave the journey exactly as the hub last wrote it.
-        const entersPhoneStep = nextPath === ROUTES.PHONE_MANDATE;
-        const entersSetupFunnel = isOneSetupSurfaceRoute(nextPath);
+        // Compare the path alone. `PostAuthRouteService` hands back
+        // `/one/setup?return_to=…` for somebody who genuinely needs the funnel
+        // with a redirect to resume, and `normalizeStaticExportPathname` strips
+        // a trailing slash and an index document but NOT a query string — so
+        // testing the whole href would classify a real funnel entry as "not the
+        // funnel" and quietly stop recording its phase.
+        const nextPathname = nextPath.split(/[?#]/)[0] ?? nextPath;
+        const entersPhoneStep = nextPathname === ROUTES.PHONE_MANDATE;
+        const entersSetupFunnel = isOneSetupSurfaceRoute(nextPathname);
         const journeyWrite = entersPhoneStep
           ? PreVaultUserStateService.syncOnboardingJourney({
               userId,

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { hasExplicitIncompleteSetup } from "@/lib/onboarding/setup-admission";
+import { isOneSetupSurfaceRoute, ROUTES } from "@/lib/navigation/routes";
 import type { PreVaultUserState } from "@/lib/services/pre-vault-user-state-service";
 
 /**
@@ -106,9 +107,11 @@ describe("AuthStep does not claim a funnel phase it has no evidence for", () => 
   });
 
   it("decides the phase from where the person is actually being sent", () => {
-    expect(source).toContain("const entersPhoneStep = nextPath === ROUTES.PHONE_MANDATE;");
     expect(source).toContain(
-      "const entersSetupFunnel = isOneSetupSurfaceRoute(nextPath);",
+      "const entersPhoneStep = nextPathname === ROUTES.PHONE_MANDATE;",
+    );
+    expect(source).toContain(
+      "const entersSetupFunnel = isOneSetupSurfaceRoute(nextPathname);",
     );
   });
 
@@ -123,5 +126,32 @@ describe("AuthStep does not claim a funnel phase it has no evidence for", () => 
 
   it("still records the setup hub when sign-in genuinely lands there", () => {
     expect(source).toContain('phase: "setup_hub"');
+  });
+
+  it("classifies on the path, not the whole href", () => {
+    // `PostAuthRouteService` hands back `/one/setup?return_to=…` for somebody
+    // who genuinely needs the funnel with a redirect to resume, and
+    // `normalizeStaticExportPathname` strips a trailing slash and an index
+    // document but NOT a query string. Testing the whole href would classify a
+    // real funnel entry as "not the funnel" and quietly stop recording it.
+    expect(source).toContain("const nextPathname = nextPath.split(/[?#]/)[0]");
+    expect(source).toContain("isOneSetupSurfaceRoute(nextPathname)");
+    expect(source).not.toContain("isOneSetupSurfaceRoute(nextPath)");
+  });
+});
+
+describe("the route predicate this contract depends on", () => {
+  it("does not strip a query string, which is why the split above is needed", () => {
+    // Pinned as a fact, not an assumption. If `isOneSetupSurfaceRoute` ever
+    // starts handling query strings itself, this fails and the split can go.
+    expect(isOneSetupSurfaceRoute(ROUTES.ONE_SETUP)).toBe(true);
+    expect(isOneSetupSurfaceRoute(`${ROUTES.ONE_SETUP}?return_to=%2Fone`)).toBe(
+      false,
+    );
+  });
+
+  it("accepts the setup path once the query is removed", () => {
+    const href = `${ROUTES.ONE_SETUP}?return_to=%2Fone%2Flocation`;
+    expect(isOneSetupSurfaceRoute(href.split(/[?#]/)[0] ?? href)).toBe(true);
   });
 });
