@@ -160,6 +160,12 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         // For an approval-born share this is the requester's ONLY row (152
         // writes it; 153 deliberately does not add a second for the approval),
         // so it names the granted amount that the event metadata carries.
+        //
+        // The owner's own row (sharedWithMe false) is only ever inserted for a
+        // direct share, where actor_user_id is always owner_user_id (see
+        // _insert_event call sites in one_location_agent_service.py) -- so this
+        // row always belongs to the person who started sharing. It must say
+        // "You", not name the recipient as if they were the one who acted.
         description: sharedWithMe
           ? shareAmount
             ? `Shared their location with you for ${shareAmount}`
@@ -172,17 +178,26 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     }
     case "location_share_revoked": {
       const hasWho = who !== "Someone";
-      const ownerRevoked = metadataString(item.metadata, "reason") === "owner_revoke";
+      const reason = metadataString(item.metadata, "reason");
+      const ownerRevoked = reason === "owner_revoke";
+      // revoke_grant lets EITHER party end a share (location.py's DELETE
+      // route has no owner-only gate), so `reason` names who actually acted
+      // on this specific row: "recipient_revoke"/"recipient_key_rotated" for
+      // the recipient giving up their own access, "owner_revoke" for the
+      // owner ending it. It has to be read on BOTH sides, not just the
+      // owner's -- the recipient's own row was ignoring it and always
+      // reading "Stopped sharing their location" even when the recipient was
+      // the one who stopped, which reads as the owner having ended it.
+      const recipientRevoked =
+        reason === "recipient_revoke" || reason === "recipient_key_rotated";
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        // `reason` describes what the OWNER did, so on the recipient's row
-        // "owner_revoke" is still true and "You stopped sharing location"
-        // would be shown to the one person who did not stop anything.
-        // Audience decides the sentence; reason only refines the owner's.
         description: sharedWithMe
-          ? "Stopped sharing their location"
+          ? recipientRevoked
+            ? "You stopped viewing their location"
+            : "Stopped sharing their location"
           : ownerRevoked
             ? "You stopped sharing location"
             : "Stopped sharing location",
@@ -245,6 +260,14 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       const hasWho = who !== "Someone";
       const isExtension = metadataBool(item.metadata, "is_extension");
       const amount = metadataDurationLabel(item.metadata, "duration");
+      // Not reachable today: migration 154's requester fan-out deliberately
+      // excludes this event type (the requester's row for an approval is
+      // location_share_created instead, from migration 152 -- fanning this
+      // one out too would give them two rows for one tap). asRequester is
+      // therefore always false here. Left in, rather than deleted, so a
+      // future "complete the symmetry" fan-out doesn't have to re-derive
+      // this wording -- but if you're adding that fan-out, read 154's
+      // comment first, because 152 already covers this person.
       const asRequester = iAskedForThis;
       const description = asRequester
         ? isExtension
@@ -297,6 +320,17 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       const hasWho = who !== "Someone";
       const ownerActor =
         metadataString(item.metadata, "reason") === "owner_shorten";
+      // Not reachable today: no fan-out trigger writes this event type into
+      // feed_events yet (migration 154 deliberately defers that to a later
+      // migration). shorten_grant is caller-agnostic and hardcodes
+      // counterpart_label to the recipient's name regardless of who acted,
+      // which only makes sense for a single, owner-only row -- so every
+      // branch below is written third-person for that one audience, the
+      // same way "Gave back their remaining time early" already is. Keep it
+      // that way (no "you"/"your" naming the viewer) unless the eventual
+      // fan-out adds a real per-audience split like location_share_created
+      // has, with its own sharedWithMe check.
+      //
       // A duration edit that stays within the grant's ceiling can move
       // either way -- shrinking to 15 min and regrowing to 30 emits this
       // same event type, so a real decrease and a within-ceiling regrow
@@ -305,7 +339,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       const description = grew
         ? ownerActor
           ? "You adjusted their location access time"
-          : "Adjusted your viewing time, within what was already approved"
+          : "Adjusted their viewing time, within what was already approved"
         : ownerActor
           ? "You shortened their location access"
           : "Gave back their remaining time early";
