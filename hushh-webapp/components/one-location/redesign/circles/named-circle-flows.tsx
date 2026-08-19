@@ -17,6 +17,7 @@ import {
   Share2,
   ShieldCheck,
   Trash2,
+  Siren,
   UsersRound,
 } from "lucide-react";
 
@@ -406,11 +407,23 @@ export function CirclesSection({
                     circleRole.glyph,
                   )}
                 >
-                  <UsersRound className="h-5 w-5" />
+                  {/* A different glyph, not just a different name. The SMS
+                      Circle is the one row here that does something on its own
+                      -- SOS reads it -- and a person scanning the list should
+                      be able to tell it apart without reading. */}
+                  {circle.isSystem ? (
+                    <Siren className="h-5 w-5" />
+                  ) : (
+                    <UsersRound className="h-5 w-5" />
+                  )}
                 </span>
               }
               title={circle.name}
-              description={circleListMemberCountLabel(circle.memberCount)}
+              description={
+                circle.isSystem
+                  ? `Emergency SMS · ${circleListMemberCountLabel(circle.memberCount)}`
+                  : circleListMemberCountLabel(circle.memberCount)
+              }
               trailing={circle.role === "owner" ? "Owner" : "Member"}
               chevron
               onClick={() => onOpen(circle.id)}

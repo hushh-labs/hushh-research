@@ -43,10 +43,16 @@ CIRCLE_MAX_PER_USER = 10
 # default, which is what makes the higher limit real for accounts that
 # already have Circles rather than only for ones created from here on.
 CIRCLE_DEFAULT_MEMBER_LIMIT = 100
-# The one system Circle this product provisions today. Named for what it
-# does rather than what it is, because it sits in the Circles list beside
-# Circles the person named themselves ("Family", "Climbing").
-SMS_SYSTEM_CIRCLE_NAME = "SMS Contacts"
+# The one system Circle this product provisions today.
+#
+# "Circle", not "Contacts": it sits in the Circles list beside Circles the
+# person named themselves ("Family", "Climbing"), and a row reading like a
+# contact list among Circles is the confusion the UAT report described.
+SMS_SYSTEM_CIRCLE_NAME = "SMS Circle"
+
+# What the product called it before. Rows still carrying this are renamed on
+# the next bootstrap; a name the OWNER chose is never touched.
+SMS_SYSTEM_CIRCLE_LEGACY_NAMES = ("SMS Contacts",)
 CIRCLE_CODE_LENGTH = 12
 CIRCLE_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 _CIRCLE_CODE_DOMAIN = b"one-location-circle-code:v1:"
@@ -790,6 +796,25 @@ class OneLocationCircleService:
                 circle_id = self._find_system_circle_id(conn, owner)
                 if not circle_id:
                     circle_id = self._insert_system_circle(conn, owner)
+                else:
+                    # Only a name this product chose. An owner who renamed
+                    # theirs keeps it -- the rename heals our default, it does
+                    # not overwrite a person's decision.
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE one_location_circles
+                            SET name = :name, updated_at = NOW()
+                            WHERE id = CAST(:circle_id AS UUID)
+                              AND name = ANY(:legacy_names)
+                            """
+                        ),
+                        {
+                            "circle_id": circle_id,
+                            "name": SMS_SYSTEM_CIRCLE_NAME,
+                            "legacy_names": list(SMS_SYSTEM_CIRCLE_LEGACY_NAMES),
+                        },
+                    )
                 migrated = self._migrate_sms_contacts_into_circle(conn, owner, circle_id)
 
                 # The owner invited every one of them, so the pair recorded is
