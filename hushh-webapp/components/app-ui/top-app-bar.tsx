@@ -395,12 +395,20 @@ function TopShellBreadcrumbTrail({
           <span
             key={`${item.label}-${index}`}
             className={cn(
-              "flex min-w-0 items-center gap-1",
-              // The last crumb (current page) keeps its full label; earlier
-              // ancestors are allowed to shrink and truncate so a deep trail
-              // like "Profile > Preferences > Gemini" collapses gracefully on
-              // narrow iOS widths instead of colliding/overflowing the header.
-              isLast ? "shrink-0" : "min-w-0 shrink",
+              "flex items-center gap-1",
+              // The last crumb (current page) keeps its full label. An
+              // ancestor crumb may still shrink under real pressure, but
+              // never below its own unbreakable text width — `min-w-min`
+              // (`min-width: min-content`) pins that floor explicitly rather
+              // than relying on the flex default, because a plain `<button>`
+              // does not get the usual auto-min-content floor a `<span>`
+              // gets: without an explicit `min-w-min` a button-based crumb
+              // still shrinks past its own text width under real pressure,
+              // which is how a short word like "Location" or "Security" used
+              // to get crushed to a couple of characters even though it
+              // would fit. `truncate` stays on as a safety net for a
+              // genuinely long ancestor label.
+              isLast ? "shrink-0" : "min-w-min shrink",
             )}
           >
             {index > 0 ? (
@@ -412,7 +420,7 @@ function TopShellBreadcrumbTrail({
             {item.href && !isLast ? (
               <button
                 type="button"
-                className="min-w-0 max-w-[9rem] shrink truncate text-[color:var(--app-secondary-label)] transition-colors hover:text-current"
+                className="min-w-min shrink truncate text-[color:var(--app-secondary-label)] transition-colors hover:text-current"
                 onClick={() =>
                   requestInternalAppNavigation({
                     href: item.href!,
@@ -430,7 +438,7 @@ function TopShellBreadcrumbTrail({
                   "truncate",
                   isLast
                     ? "min-w-0 shrink-0 font-semibold text-current"
-                    : "min-w-0 shrink text-[color:var(--app-secondary-label)]",
+                    : "min-w-min shrink text-[color:var(--app-secondary-label)]",
                 )}
                 aria-current={isLast ? "page" : undefined}
               >
@@ -841,9 +849,19 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     );
     // Inner/"subagent" routes read as "Kai > Analysis", not
     // "One > Kai > Analysis": drop the app-root crumb from the visible trail.
-    return cleaned.length > 0 && cleaned[0]?.label === "One"
-      ? cleaned.slice(1)
-      : cleaned;
+    const withoutRoot =
+      cleaned.length > 0 && cleaned[0]?.label === "One"
+        ? cleaned.slice(1)
+        : cleaned;
+    // The bar is one line tall on every supported width, so a chain deeper
+    // than "immediate parent > current page" (e.g. "Profile > Security >
+    // Lock methods") has nowhere to go but ellipsis — each dropped ancestor
+    // used to split the shrink budget with its siblings, which is how a
+    // plain word like "Profile" or "Location" ended up as "P..." even though
+    // it would trivially fit on its own. Showing only the last two crumbs
+    // keeps the trail meaningful ("Security > Lock methods") without ever
+    // needing to truncate a short canonical label to get there.
+    return withoutRoot.length > 2 ? withoutRoot.slice(-2) : withoutRoot;
   }, [topShellBreadcrumb]);
   const hasBreadcrumbTrail = !centerTitle && breadcrumbTrailItems.length > 0;
   const canShowPersonaSwitcher = useMemo(

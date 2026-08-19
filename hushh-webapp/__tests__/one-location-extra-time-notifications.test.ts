@@ -169,7 +169,7 @@ describe("the in-app path that never touches FCM", () => {
     expect(payload.notification_revision).toBeUndefined();
   });
 
-  it("tells the requester what was granted, read off the grant itself", () => {
+  it("tells the requester what was granted, read off the grant itself (fresh share)", () => {
     const payloads = buildOneLocationNotificationPayloads(
       state({
         receivedGrants: [
@@ -190,7 +190,51 @@ describe("the in-app path that never touches FCM", () => {
             requesterUserId: "user_b",
             status: "approved",
             approvedGrantId: "grant_2",
-            requestedDurationHours: 4,
+            requestedDurationHours: 6,
+            requestedDurationMode: "timed",
+          },
+        ],
+      } as Partial<OneLocationState>),
+      "user_b",
+    );
+
+    const approved = payloads.find(
+      (payload) => payload.type === "location_access_approved",
+    );
+    // The GRANTED amount, not the requested one: an owner is free to give less
+    // than was asked (here 4, though 6 was requested), and on a fresh share
+    // the grant is the only number that is true.
+    expect(approved?.duration_hours).toBe("4");
+    expect(approved?.is_extension).toBeUndefined();
+  });
+
+  it("tells the requester the extra time added, not the share's new total (extension)", () => {
+    const payloads = buildOneLocationNotificationPayloads(
+      state({
+        receivedGrants: [
+          {
+            id: "grant_2",
+            ownerUserId: "user_a",
+            recipientUserId: "user_b",
+            status: "active",
+            // The replacement grant's total, after adding the 15 minutes just
+            // approved to whatever the share already had left -- NOT the
+            // number this notification should say.
+            durationHours: 4.72,
+            durationMode: "timed",
+            expiresAt: new Date(NOW + 4.72 * 3_600_000).toISOString(),
+          },
+        ],
+        requests: [
+          {
+            id: "req_1",
+            ownerUserId: "user_a",
+            requesterUserId: "user_b",
+            status: "approved",
+            approvedGrantId: "grant_2",
+            // The extra amount actually asked for (and, absent any owner
+            // override control, granted) -- this is what "X more" must show.
+            requestedDurationHours: 0.25,
             requestedDurationMode: "timed",
             extendsGrantId: "grant_1",
             isExtension: true,
@@ -203,9 +247,7 @@ describe("the in-app path that never touches FCM", () => {
     const approved = payloads.find(
       (payload) => payload.type === "location_access_approved",
     );
-    // The GRANTED amount, not the requested one: an owner is free to give less
-    // than was asked, and the grant is the only number that is true.
-    expect(approved?.duration_hours).toBe("4");
+    expect(approved?.duration_hours).toBe("0.25");
     expect(approved?.is_extension).toBe("true");
   });
 });

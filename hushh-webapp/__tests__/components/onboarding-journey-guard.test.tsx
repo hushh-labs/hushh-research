@@ -236,9 +236,41 @@ describe("OnboardingJourneyGuard", () => {
       expect(mocks.replace).not.toHaveBeenCalled();
     });
 
-    it("closes a capability handoff once the funnel is behind the person", () => {
-      renderAt("/one/setup/gmail", "main_app");
+    it.each([
+      ["/one/setup/gmail", "/one/gmail"],
+      ["/one/setup/location", "/one/location"],
+      ["/one/setup/calendar", "/one/calendar"],
+      ["/one/setup/email", "/one/kyc"],
+      ["/one/setup/ria", "/ria/onboarding"],
+      ["/one/setup/connected-systems", "/one/connected-systems"],
+    ])(
+      "sends a capability handoff to that capability's own workspace, not home: %s",
+      (route, workspace) => {
+        renderAt(route, "main_app");
+        expect(mocks.replace).toHaveBeenCalledWith(workspace);
+        expect(screen.queryByText("route content")).toBeNull();
+      },
+    );
+
+    it("catches the trailing-slash shape of a capability handoff too", () => {
+      renderAt("/one/setup/gmail/", "main_app");
+      expect(mocks.replace).toHaveBeenCalledWith("/one/gmail");
+    });
+
+    it("still sends the bare setup hub home — it names no capability to hand off to", () => {
+      renderAt("/one/setup", "main_app");
       expect(mocks.replace).toHaveBeenCalledWith("/one");
+    });
+
+    it("still sends the Connections step home — it configures the account, not a capability", () => {
+      renderAt("/one/setup/connections", "main_app");
+      expect(mocks.replace).toHaveBeenCalledWith("/one");
+    });
+
+    it("labels a capability handoff honestly instead of claiming to return to setup", () => {
+      renderAt("/one/setup/gmail", "main_app");
+      expect(screen.getByText("Opening...")).toBeTruthy();
+      expect(screen.queryByText("Returning to setup...")).toBeNull();
     });
 
     it("stands aside while the hub is committing its own completion", () => {

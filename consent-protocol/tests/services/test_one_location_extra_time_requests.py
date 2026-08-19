@@ -276,9 +276,17 @@ def test_approving_extra_time_replaces_the_live_grant_rather_than_stacking() -> 
     ]
     assert len(live) == 1
     assert live[0]["id"] == resolved["grant"]["id"]
+    # The replacement grant is not just the 4 that was asked for -- it is the
+    # original hour still running PLUS the 4 more, so the recipient never
+    # loses time they already had by asking for more of it. (Some slack for
+    # however long this test itself took to run.)
+    assert resolved["grant"]["durationHours"] == pytest.approx(5.0, abs=0.01)
 
     approved = _notifications(service, "location_access_approved")[-1]
     assert approved["title"] == "More location time approved"
+    # The notification names the 4 hours that were ADDED, not the ~5-hour
+    # total the share now runs to -- that total is not new information to
+    # the person who already knew what they had a second ago.
     assert approved["body"] == "User A gave you 4 hours more of their live location."
 
 

@@ -487,10 +487,34 @@ def _identity_notification_label(
     row: dict[str, Any] | None,
     fallback: str = "A trusted person",
 ) -> str:
-    """Return a lock-screen-safe identity label without phone-derived data."""
+    """Return a lock-screen-safe identity label without phone-derived data.
+
+    Delegates the ladder to `resolve_requester_label` -- the resolver #5442
+    added when connection-request pushes were reading "Someone wants to connect
+    with you". It tries the display name, rejects values that are identifiers
+    rather than names (a UUID, the raw user id, an opaque token), and falls back
+    to the handle from the account's email.
+
+    `fallback` survives as the last resort, for an account that genuinely
+    resolves to nothing. That is the one case where a generic phrase is the
+    truthful answer rather than a missing one.
+    """
+
     if not row:
         return fallback
-    return str(row.get("display_name") or "").strip() or fallback
+    # The ladder is run against the row already in hand rather than through
+    # `resolve_requester_label`, which would re-query the same row for its email
+    # rung. Same helpers, same order, one read instead of two.
+    from hushh_mcp.services.requester_identity import (
+        _email_handle,
+        looks_technical_label,
+    )
+
+    user_id = str(row.get("user_id") or "")
+    display_name = str(row.get("display_name") or "").strip()
+    if display_name and not looks_technical_label(display_name, user_id=user_id):
+        return display_name
+    return _email_handle(row.get("email")) or fallback
 
 
 def _notification_safe_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -1339,7 +1363,7 @@ class OneLocationAgentService:
         try:
             return self._execute_one(
                 """
-                SELECT user_id, display_name, phone_number, phone_verified
+                SELECT user_id, display_name, email, phone_number, phone_verified
                 FROM actor_identity_cache
                 WHERE user_id = :user_id
                 LIMIT 1
@@ -2620,11 +2644,27 @@ class OneLocationAgentService:
                 else f"You viewed {owner_label}'s update"
             )
         elif event_type == "location_share_revoked":
-            title = (
-                f"Sharing stopped with {recipient_label}"
-                if owner_user_id == user_id
-                else f"{owner_label} stopped sharing"
+            # The feed lists both lanes together, so an entry that does not say
+            # which one ended reads as ambiguous next to a still-live share
+            # with the same person.
+            revoked_via_sms = (
+                str((_loads_json(row.get("metadata")) or {}).get("share_kind") or "")
+                .strip()
+                .lower()
+                == "sos"
             )
+            if revoked_via_sms:
+                title = (
+                    f"SMS sharing stopped with {recipient_label}"
+                    if owner_user_id == user_id
+                    else f"{owner_label} stopped SMS location sharing"
+                )
+            else:
+                title = (
+                    f"Sharing stopped with {recipient_label}"
+                    if owner_user_id == user_id
+                    else f"{owner_label} stopped sharing"
+                )
         elif event_type == "location_share_expired":
             title = (
                 f"Share expired for {recipient_label}"
@@ -6596,6 +6636,12 @@ class OneLocationAgentService:
         owner_label = _identity_notification_label(owner_identity)
         recipient_identity = self._identity_row(recipient_user_id or "")
         recipient_label = _identity_notification_label(recipient_identity)
+        # Which lane ended. #5552 made `share_kind` the discriminator between
+        # the emergency (SMS / Save My Soul) lane and every other share, and a
+        # person can hold one of each at the same time -- so "a share ended"
+        # without naming the lane is genuinely ambiguous to the recipient.
+        revoked_share_kind = str(row.get("share_kind") or "").strip().lower()
+        revoked_via_sms = revoked_share_kind == "sos"
         self._insert_event(
             owner_user_id=str(row.get("owner_user_id") or owner_user_id),
             actor_user_id=owner_user_id,
@@ -6605,6 +6651,7 @@ class OneLocationAgentService:
             metadata={
                 "reason": "owner_revoke" if actor_is_owner else "recipient_revoke",
                 "counterpart_label": recipient_label,
+                "share_kind": revoked_share_kind or "standard",
             },
         )
         notification_user_id = (
@@ -6613,11 +6660,24 @@ class OneLocationAgentService:
         self._send_metadata_notification(
             user_id=notification_user_id,
             notification_type="location_share_revoked",
-            title="Location access revoked",
+            # "SMS location sharing" is the recipient's name for this, not
+            # "SOS" -- an SMS alert is how it reached them, and the phrase has
+            # to match what they remember receiving.
+            title=(
+                "SMS location sharing stopped" if revoked_via_sms else "Location access revoked"
+            ),
             body=(
-                f"{owner_label} removed your location access."
+                (
+                    f"{owner_label} stopped sharing their location with you over SMS."
+                    if revoked_via_sms
+                    else f"{owner_label} removed your location access."
+                )
                 if actor_is_owner
-                else f"{recipient_label} stopped receiving your location share."
+                else (
+                    f"{recipient_label} stopped receiving your SMS location sharing."
+                    if revoked_via_sms
+                    else f"{recipient_label} stopped receiving your location share."
+                )
             ),
             notification_tag=f"one-location-revoked:{grant_id}",
             request_url=_one_location_url(
@@ -6629,6 +6689,10 @@ class OneLocationAgentService:
                 "owner_display_label": owner_label,
                 "recipient_user_id": recipient_user_id,
                 "recipient_display_label": recipient_label,
+                # Carried so the client's own fallback copy can name the same
+                # lane instead of re-deriving it from a grant it may no longer
+                # be holding -- the grant is revoked by the time this arrives.
+                "share_kind": revoked_share_kind or "standard",
             },
         )
         return self._grant_payload(row) or {}
@@ -7267,7 +7331,7 @@ class OneLocationAgentService:
         was_extension = bool(str(request_row.get("extends_grant_id") or "").strip())
         if duration_hours is None and duration_mode is None:
             resolved_mode = requested_mode or TIMED_LOCATION_SHARE_DURATION_MODE
-            resolved_hours = (
+            delta_hours = (
                 None
                 if _is_until_stopped_share(resolved_mode)
                 else (
@@ -7278,7 +7342,29 @@ class OneLocationAgentService:
             )
         else:
             resolved_mode = duration_mode or TIMED_LOCATION_SHARE_DURATION_MODE
-            resolved_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
+            delta_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
+        # For an extension, `delta_hours` is the extra amount being granted --
+        # what the requester asked for (or the owner's override), not the
+        # share's new total. The actual grant still needs the total (it
+        # replaces the live grant wholesale), so add the delta to however much
+        # time that grant has left right now -- read fresh here rather than
+        # trusting a total computed back when the ask was made, so a slow
+        # approval does not silently drift the result.
+        resolved_hours = delta_hours
+        if was_extension and delta_hours is not None:
+            existing_grant = self._active_grant_between(
+                owner_user_id=owner_user_id,
+                recipient_user_id=requester_user_id,
+                is_sos_lane=False,
+            )
+            existing_expires_at = existing_grant.get("expires_at") if existing_grant else None
+            if existing_expires_at is not None:
+                remaining_hours = max(
+                    0.0, (existing_expires_at - _utcnow()).total_seconds() / 3600.0
+                )
+                resolved_hours = remaining_hours + delta_hours
+            # else: nothing live to extend (expired/revoked since the ask) --
+            # grant exactly the delta, same as a fresh share.
         grant = self.create_grant(
             owner_user_id=owner_user_id,
             recipient_user_id=requester_user_id,
@@ -7304,10 +7390,15 @@ class OneLocationAgentService:
         owner_label = _identity_notification_label(owner_identity)
         granted_hours = _duration_metadata_value(grant.get("durationHours"))
         granted_mode = grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE
+        # The recipient does not need the share's new total repeated back at
+        # them -- they already knew that a second ago. What is new is how much
+        # MORE they just got, so an extension's notification and feed row name
+        # the delta actually applied, not the resulting total.
+        display_hours = delta_hours if was_extension else granted_hours
         granted_label = (
             "for as long as you need"
             if _is_until_stopped_share(str(granted_mode))
-            else format_duration_label(granted_hours)
+            else format_duration_label(display_hours)
         )
         self._insert_event(
             owner_user_id=owner_user_id,
@@ -7317,7 +7408,7 @@ class OneLocationAgentService:
             request_id=request_id,
             event_type="location_access_approved",
             metadata={
-                "duration_hours": granted_hours,
+                "duration_hours": display_hours,
                 "duration_mode": granted_mode,
                 "counterpart_label": requester_label,
                 # Swapped in for the requester's copy of this feed row, so they
@@ -7353,7 +7444,7 @@ class OneLocationAgentService:
                 "grant_id": grant["id"],
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
-                "duration_hours": granted_hours,
+                "duration_hours": display_hours,
                 "duration_mode": granted_mode,
                 "expires_at": grant.get("expiresAt"),
                 "is_extension": "true" if was_extension else None,

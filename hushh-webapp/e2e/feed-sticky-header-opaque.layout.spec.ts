@@ -7,28 +7,35 @@ import path from "node:path";
  * The Feed's sticky section header ("Live" / "Needs you" / a day divider),
  * measured in a real browser.
  *
- * Reported bug: while scrolling, the row that had been sitting above a
- * section (e.g. an earlier "Emergency SMS - Sent" row) stayed faintly
- * visible behind the "Live" / "Needs you" label as it scrolled underneath.
- * Root cause: `SectionLabel` in feed-page.tsx painted its sticky background
- * as `bg-background/85 backdrop-blur-md` -- 85% opaque, not 100% -- so the
- * row scrolling beneath it always showed through by design. Every OTHER
- * sticky header in this app (data-table.tsx, settings-ui.tsx,
- * ria/picks/page.tsx) uses a fully opaque, theme-aware solid token instead;
- * the Feed header was the one outlier.
+ * Bug 1 (fixed, issue #5522 / PR #5523): while scrolling, the row that had
+ * been sitting above a section stayed faintly visible behind the sticky
+ * label, because `SectionLabel` painted `bg-background/85 backdrop-blur-md`
+ * -- 85% opaque, not 100%. Fixed by switching to a fully opaque token.
+ *
+ * Bug 2 (this file, issue #5576): the opaque token chosen for that fix,
+ * `--app-card-surface-sticky-header-solid`, is a CARD-elevation color
+ * (meant for headers sitting on top of an actual card/table surface, e.g.
+ * data-table.tsx, RIA picks) -- not the Feed page's own background. Feed
+ * has no card wrapper; it sits directly on the app's foundation canvas,
+ * painted with `--app-grouped-background`. In dark mode the mismatch is
+ * severe (#2f2f31 header vs #000000 page), so the header reads as a
+ * lighter grey rectangle pasted over the page instead of one continuous
+ * surface. Fixed by painting the header with `--app-grouped-background`
+ * instead, so it matches the real page background it sits on.
  *
  * A JSDOM test can prove the class string changed; it cannot prove a pixel
- * is actually opaque, because JSDOM performs no compositing. This measures
- * the computed background through a canvas rather than pattern-matching the
- * computed string -- Tailwind resolves `bg-…/85` to `color-mix(in oklab, …)`,
- * not to an `rgba(…)`, so a regex looking for `rgba` would pass the very
- * translucent value it was written to reject.
+ * is actually opaque or actually matches its surroundings, because JSDOM
+ * performs no compositing. This measures the computed background through a
+ * canvas rather than pattern-matching the computed string -- Tailwind
+ * resolves `bg-…/85` to `color-mix(in oklab, …)`, not to an `rgba(…)`, so a
+ * regex looking for `rgba` would pass the very translucent value it was
+ * written to reject.
  *
  * Run with: npm run test:layout-contracts
  */
 
 /** Compile just the utilities this fixture uses, with the real Tailwind. */
-async function buildFixture(surfaceToken: string): Promise<string> {
+async function buildFixture(pageBackgroundToken: string): Promise<string> {
   const webappRoot = process.cwd();
   const { compile } = (await import(
     path.join(webappRoot, "node_modules/tailwindcss/dist/lib.mjs")
@@ -57,12 +64,23 @@ async function buildFixture(surfaceToken: string): Promise<string> {
 
   // The exact class string SectionLabel ships in feed-page.tsx.
   const sectionHeader =
-    "sticky top-[var(--top-shell-live-height)] z-10 bg-[color:var(--app-card-surface-sticky-header-solid)] px-[6px] pb-2 pt-7 backdrop-blur";
+    "sticky top-[var(--top-shell-live-height)] z-10 bg-[color:var(--app-grouped-background)] px-[6px] pb-2 pt-7 backdrop-blur";
+  // The app-wide foundation canvas (.foundation-public-ambient) that Feed's
+  // own ancestors set no background over -- the real surface the sticky
+  // header must match.
+  const pageBackground = "bg-[color:var(--app-grouped-background)]";
   const peekRow = "flex h-[60px] items-center px-[6px] text-white";
   const scroller = "h-[300px] overflow-y-auto";
 
   const css = compiler.build(
-    [sectionHeader, peekRow, scroller, "h-[60px]", "flex items-center px-[6px]"]
+    [
+      sectionHeader,
+      pageBackground,
+      peekRow,
+      scroller,
+      "h-[60px]",
+      "flex items-center px-[6px]",
+    ]
       .join(" ")
       .split(/\s+/)
       .filter(Boolean),
@@ -74,8 +92,9 @@ async function buildFixture(surfaceToken: string): Promise<string> {
     path.join(dir, "fixture.html"),
     `<!doctype html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="fixture.css">
-<style>:root{--top-shell-live-height:0px;--app-card-surface-sticky-header-solid:${surfaceToken}}</style>
+<style>:root{--top-shell-live-height:0px;--app-grouped-background:${pageBackgroundToken}}</style>
 </head><body style="margin:0">
+<div class="${pageBackground}" data-testid="page-background">
 <div class="${scroller}" data-testid="scroller">
   <div class="${peekRow}" style="background:#ff0000" data-testid="peek-row">Emergency SMS - Sent</div>
   <h2 class="${sectionHeader}" data-testid="section-header">Needs you</h2>
@@ -84,18 +103,19 @@ async function buildFixture(surfaceToken: string): Promise<string> {
   <div class="${peekRow}" style="background:#7d0a5e">Another row</div>
   <div class="${peekRow}" style="background:#7d5e0a">Yet another row</div>
 </div>
+</div>
 </body></html>`,
   );
   return `file://${path.join(dir, "fixture.html")}`;
 }
 
-const SURFACE_TOKENS = [
-  { theme: "light", token: "#f6f7fb" },
-  { theme: "dark", token: "#2f2f31" },
+const PAGE_BACKGROUND_TOKENS = [
+  { theme: "light", token: "#f2f2f7" },
+  { theme: "dark", token: "#000000" },
 ] as const;
 
 test.describe("Feed sticky section header stays opaque while scrolling", () => {
-  for (const { theme, token } of SURFACE_TOKENS) {
+  for (const { theme, token } of PAGE_BACKGROUND_TOKENS) {
     test(`paints over the row scrolled beneath it (${theme})`, async ({
       page,
     }) => {
@@ -127,6 +147,34 @@ test.describe("Feed sticky section header stays opaque while scrolling", () => {
         .getByTestId("section-header")
         .evaluate((el) => getComputedStyle(el).position);
       expect(position).toBe("sticky");
+    });
+  }
+
+  for (const { theme, token } of PAGE_BACKGROUND_TOKENS) {
+    test(`blends with the Feed page background instead of reading as a patch (${theme})`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(await buildFixture(token));
+
+      await page.getByTestId("scroller").evaluate((el) => {
+        el.scrollTop = 60;
+      });
+
+      const [headerColor, pageColor] = await Promise.all([
+        page
+          .getByTestId("section-header")
+          .evaluate((el) => getComputedStyle(el).backgroundColor),
+        page
+          .getByTestId("page-background")
+          .evaluate((el) => getComputedStyle(el).backgroundColor),
+      ]);
+
+      // The sticky header's own composited pixel must be indistinguishable
+      // from the page it sits on -- not merely "some opaque color" (that
+      // regression already happened once: an opaque but mismatched
+      // card-elevation token still reads as a pasted rectangle).
+      expect(headerColor).toBe(pageColor);
     });
   }
 });

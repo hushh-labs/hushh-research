@@ -1187,6 +1187,56 @@ describe("OneLocationOnboardingFlow", () => {
       );
     });
 
+    it("searches matched contacts once the address book match is large enough to need it", async () => {
+      // A synced address book can match well past a screenful (issue #5564).
+      // Below the shared reveal threshold (10) a search box is noise; above
+      // it, one is required — same rule the contact picker itself uses.
+      const bigMatches = Array.from({ length: 25 }, (_, index) => ({
+        userId: `user_${index}`,
+        displayName: `Synced Contact ${index}`,
+      }));
+      const onSyncOnboardingContacts = vi
+        .fn()
+        .mockResolvedValue({ status: "matched", matches: bigMatches });
+      renderFlow({ onSyncOnboardingContacts });
+      openContactsScreen();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Check my contacts" }),
+      );
+
+      expect(await screen.findByText("Synced Contact 0")).toBeTruthy();
+      const search = screen.getByTestId("onboarding-contact-matches-search");
+
+      fireEvent.change(search, { target: { value: "contact 7" } });
+      expect(screen.getByText("Synced Contact 7")).toBeTruthy();
+      expect(screen.queryByText("Synced Contact 0")).toBeNull();
+
+      fireEvent.change(search, { target: { value: "zzz-nobody" } });
+      expect(
+        await screen.findByText(/No contacts match/),
+      ).toBeTruthy();
+
+      fireEvent.change(search, { target: { value: "" } });
+      expect(await screen.findByText("Synced Contact 0")).toBeTruthy();
+      expect(screen.getByText("Synced Contact 24")).toBeTruthy();
+    });
+
+    it("hides the contact-matches search below the reveal threshold", async () => {
+      const onSyncOnboardingContacts = vi
+        .fn()
+        .mockResolvedValue({ status: "matched", matches });
+      renderFlow({ onSyncOnboardingContacts });
+      openContactsScreen();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Check my contacts" }),
+      );
+
+      expect(await screen.findByText("Trusted B")).toBeTruthy();
+      expect(
+        screen.queryByTestId("onboarding-contact-matches-search"),
+      ).toBeNull();
+    });
+
     it("says so plainly when nobody matched, and still moves on", async () => {
       const onSyncOnboardingContacts = vi
         .fn()

@@ -437,11 +437,14 @@
         {
           "path": "hushh-webapp/__tests__/components/onboarding-journey-guard.test.tsx",
           "assertion_pattern": "expect\\(",
-          "min_assertions": 30,
+          "min_assertions": 40,
           "required_titles": [
             "holds every private route while the decision is unresolved",
             "never leaves a funnel screen in history when it moves somebody",
-            "stands aside while the hub is committing its own completion"
+            "stands aside while the hub is committing its own completion",
+            "sends a capability handoff to that capability's own workspace, not home: %s",
+            "still sends the bare setup hub home — it names no capability to hand off to",
+            "labels a capability handoff honestly instead of claiming to return to setup"
           ]
         },
         {
