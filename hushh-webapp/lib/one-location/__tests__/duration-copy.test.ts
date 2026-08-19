@@ -60,11 +60,11 @@ describe("formatLocationDurationLabel", () => {
 
 describe("formatLocationRemaining", () => {
   it("never overstates what is left", () => {
-    expect(formatLocationRemaining(NOW + 45 * 60_000, NOW)).toBe("45 more min");
-    expect(formatLocationRemaining(NOW + 60 * 60_000, NOW)).toBe("1 more hour");
-    expect(formatLocationRemaining(NOW + 90 * 60_000, NOW)).toBe("1h 30m more");
+    expect(formatLocationRemaining(NOW + 45 * 60_000, NOW)).toBe("45 min");
+    expect(formatLocationRemaining(NOW + 60 * 60_000, NOW)).toBe("1 hour");
+    expect(formatLocationRemaining(NOW + 90 * 60_000, NOW)).toBe("1h 30m");
     expect(formatLocationRemaining(NOW + 4 * 3_600_000, NOW)).toBe(
-      "4 more hours",
+      "4 hours",
     );
   });
 
@@ -88,7 +88,7 @@ describe("locationAskFacts", () => {
     expect(facts).toEqual({
       isExtension: true,
       amountLabel: "3 hours",
-      remainingLabel: "45 more min",
+      remainingLabel: "45 min",
     });
   });
 
@@ -120,7 +120,7 @@ describe("describeLocationAsk", () => {
       ),
     );
     expect(extension).toBe(
-      "is asking for 3 hours more of your live location. They have 45 more min left.",
+      "is asking for 3 hours more of your live location. They have 45 min left.",
     );
 
     const fresh = describeLocationAsk(
@@ -158,7 +158,7 @@ describe("locationAskPromptLine", () => {
         }),
         NOW,
       ),
-    ).toBe("Asks for 4 hours more · 45 more min left");
+    ).toBe("Asks for 4 hours more · 45 min left");
   });
 
   it("names the amount on a fresh ask too", () => {

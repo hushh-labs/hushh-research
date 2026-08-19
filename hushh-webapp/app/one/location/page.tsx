@@ -11422,8 +11422,11 @@ export function OneLocationAgentPageContent({
     onSaveLiveShareDuration: () => void handleSaveLiveShareDuration(),
     editGrantDurationHours,
     setEditGrantDurationHours,
-    onEditGrantSave: (params) =>
-      void handleEditGrantDuration(params, Number(editGrantDurationHours)),
+    onEditGrantSave: (params, durationHoursOverride) =>
+      void handleEditGrantDuration(
+        params,
+        Number(durationHoursOverride ?? editGrantDurationHours),
+      ),
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
     onCopyPublicInvite: () => void handleCopyPublicInvite(),
     onSharePublicInvite: () => void handleSharePublicInvite(),
