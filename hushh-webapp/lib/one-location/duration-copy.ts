@@ -161,3 +161,27 @@ export function locationApproveActionLabel(
   }
   return isExtension ? `Approve ${amountLabel} more` : `Approve ${amountLabel}`;
 }
+
+/**
+ * The picker options for amending a request's duration at approval time:
+ * the standard presets plus the exact amount asked for, so the picker can
+ * open showing the true current selection instead of silently snapping to
+ * whichever preset happens to be closest and disagreeing with the Approve
+ * button's own number one line below it. `null` for an open-ended
+ * ("until I stop") ask, which this picker does not offer a timed override
+ * for.
+ */
+export function approvalDurationOptions(
+  request: Pick<OneLocationAccessRequest, "requestedDurationHours" | "requestedDurationMode">,
+  presets: { value: string; label: string }[],
+): { value: string; label: string }[] | null {
+  if (request.requestedDurationMode === "until_stopped") return null;
+  const hours = Number(request.requestedDurationHours);
+  if (!Number.isFinite(hours) || hours <= 0) return null;
+  if (presets.some((option) => Number(option.value) === hours)) return presets;
+  const label = formatLocationDurationLabel(hours);
+  if (!label) return presets;
+  return [...presets, { value: String(hours), label }].sort(
+    (a, b) => Number(a.value) - Number(b.value),
+  );
+}
