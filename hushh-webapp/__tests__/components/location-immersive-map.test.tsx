@@ -138,11 +138,28 @@ vi.mock("@/lib/morphy-ux/hooks/use-route-transition", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useRequireAuth: () => ({ userId: "test-user" }),
+  useRequireAuth: () => ({ userId: "test-user", user: { uid: "test-user" } }),
+}));
+
+// Mutable. The token was previously hardcoded truthy, which made the one state
+// the screen actually breaks in -- an account with no lock, where VaultLockGuard
+// renders /one children with a null token on purpose -- impossible to express in
+// this file. Every existing case still runs against the truthy default.
+const vaultHarness = vi.hoisted(() => ({
+  vaultOwnerToken: "in-memory-owner-token" as string | null,
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({ vaultOwnerToken: "in-memory-owner-token" }),
+  useVault: () => ({ vaultOwnerToken: vaultHarness.vaultOwnerToken }),
+}));
+
+// The real sheet is a credential surface with its own portal, focus trap and
+// Firebase dependencies. What these cases need to know is only whether the map
+// ASKED for a lock, so stand in for it with something assertable.
+vi.mock("@/components/vault/vault-unlock-dialog", () => ({
+  VaultUnlockDialog: ({ title }: { title: string }) => (
+    <div data-testid="vault-unlock-dialog">{title}</div>
+  ),
 }));
 
 // Mutable so a case can assert the NATIVE branch. `setPadding` is a real
@@ -335,7 +352,10 @@ import {
   readOneLocationControlState,
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
-import { forgetCachedRendererConsent } from "@/lib/one-location/map-renderer-consent";
+import {
+  forgetCachedRendererConsent,
+  GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+} from "@/lib/one-location/map-renderer-consent";
 import { __resetNativeMapLifecycleForTests } from "@/lib/one-location/native-map-lifecycle";
 
 const DEFAULT_PLACE_FOCUS = { ...experienceHarness.placeFocus };
@@ -428,6 +448,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vaultHarness.vaultOwnerToken = "in-memory-owner-token";
   forgetOneLocationControlPreference("test-user");
   forgetCachedRendererConsent("test-user");
   cleanup();
@@ -2443,5 +2464,144 @@ describe("LocationImmersiveMap reported map defects", () => {
     // The camera settling is what ends the blackout.
     await reportCamera();
     expect(layer).toHaveClass("opacity-100");
+  });
+});
+
+/**
+ * The renderer-consent card is the first thing anyone sees on Your Map, and its
+ * button was silently inert for a whole class of account.
+ *
+ * `VaultLockGuard` renders /one children with NO owner token on purpose when the
+ * account has never created a lock (`if (hasVault === false) return children`),
+ * so the map mounts, draws, and shows this card with `vaultOwnerToken === null`.
+ * `acceptRenderer` opened with `if (!vaultOwnerToken) return`, so every tap did
+ * nothing: no request, no state change, no message. Confirmed against UAT server
+ * logs on 2026-08-19 — a session opened /one/location/map at 18:15:50Z and
+ * produced neither the token-gated map-state read nor a map-preferences PATCH.
+ *
+ * These cases lock the three ways that button can lie about what it is doing.
+ */
+describe("Your Map renderer consent is never a silent no-op", () => {
+  beforeEach(() => {
+    // The default harness opens in demo mode, and `rendererReady` is
+    // `acceptedRenderer || demoMode` — so the card these cases are about is not
+    // even on screen unless the demo fixture is off.
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "source=map";
+  });
+
+  it("writes the current consent version and dismisses the card", async () => {
+    render(<LocationImmersiveMap />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() => {
+      expect(serviceHarness.updateMapPreferences).toHaveBeenCalledWith({
+        vaultOwnerToken: "in-memory-owner-token",
+        rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+      });
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
+    });
+  });
+
+  it("asks for the missing lock instead of doing nothing when there is no owner token", async () => {
+    vaultHarness.vaultOwnerToken = null;
+
+    render(<LocationImmersiveMap />);
+
+    // The label is the first half of the fix: a button that cannot store
+    // consent must not say the word that promises it will.
+    const cta = screen.getByTestId("one-location-map-disclosure-accept");
+    expect(cta).toHaveTextContent("Set a lock");
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+
+    fireEvent.click(cta);
+
+    // The second half: SOMETHING has to happen. This is the exact assertion
+    // that fails against the old handler, which returned here.
+    await waitFor(() => {
+      expect(screen.getByTestId("vault-unlock-dialog")).toHaveTextContent(
+        "Set a lock",
+      );
+    });
+    expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();
+  });
+
+  it("sends one write for a double tap", async () => {
+    let release: (value: {
+      presenceMode: "ghost";
+      rendererConsentVersion: string;
+    }) => void = () => {};
+    serviceHarness.updateMapPreferences.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    render(<LocationImmersiveMap />);
+
+    const cta = screen.getByRole("button", { name: "Continue" });
+    fireEvent.click(cta);
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-map-disclosure-accept"),
+      ).toBeDisabled();
+    });
+    fireEvent.click(screen.getByTestId("one-location-map-disclosure-accept"));
+
+    await act(async () => {
+      release({
+        presenceMode: "ghost",
+        rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+      });
+      await Promise.resolve();
+    });
+
+    expect(serviceHarness.updateMapPreferences).toHaveBeenCalledTimes(1);
+  });
+
+  it("never lets a map-state read that started earlier revive the dismissed card", async () => {
+    // The bootstrap read is already in flight while the card is on screen, and
+    // it answers with the state from BEFORE the write. Applying that answer put
+    // the card back up with nothing said — the same symptom, one step later.
+    // Every getMapState resolver, in call order. Accepting turns on the marker
+    // refresh, which calls getMapState again — so the resolver that matters is
+    // the FIRST one, the read that was already in flight when the card was
+    // tapped. Capturing only the latest would answer the wrong request and
+    // quietly prove nothing.
+    const bootstrapReads: ((value: {
+      markers: never[];
+      preferences: { presenceMode: "ghost" };
+    }) => void)[] = [];
+    serviceHarness.getMapState.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          bootstrapReads.push(resolve);
+        }),
+    );
+
+    render(<LocationImmersiveMap />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => {
+      expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
+    });
+
+    expect(bootstrapReads.length).toBeGreaterThan(0);
+
+    await act(async () => {
+      // No rendererConsentVersion: the state as it was before the accept.
+      bootstrapReads[0]({
+        markers: [],
+        preferences: { presenceMode: "ghost" },
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
   });
 });
