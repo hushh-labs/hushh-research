@@ -9,19 +9,27 @@ import styles from "./HushhIntroGate.module.css";
  *
  * The app's real first screen for the `/one` section, and the ONLY splash
  * trigger in the app — mounted in `app/one/layout.tsx`, one level ABOVE
- * `OneAuthGate` (and therefore above `VaultLockGuard` and every other
- * auth/vault guard). While the intro is playing, `VaultLockGuard` and the
- * rest of the protected app are not rendered at all — not hidden
- * underneath, not mounted in the background, simply not in the tree —
- * so nothing they do (an auth-loading flicker, a vault re-check re-render)
- * can restart, extend, or remove the intro: its own phase timers live here,
- * one level up, entirely untouched by whatever mounts below it once it's
- * done. `VaultLockGuard` only mounts, for the first time, the instant this
- * component's own animation finishes — there is no second trigger anywhere
- * else in the app, and `VaultLockGuard`'s unlock success handler
- * intentionally does nothing: a successful unlock simply lets the guard's
- * own render fall through to `{children}` (the home page), with no splash
- * of any kind.
+ * `OneAuthGate`.
+ *
+ * It plays OVER the app, not instead of it. `{children}` — `OneAuthGate`,
+ * `VaultLockGuard`, `PhoneMandateGuard`, the page — mount immediately and
+ * settle underneath while the animation runs, and the overlay (z-index 9990,
+ * above every dialog layer) is what the person sees until it fades.
+ *
+ * It used to withhold `{children}` from the tree entirely for the full 3.08
+ * seconds, on the reasoning that nothing below could then interrupt the
+ * animation. That reasoning held; the cost did not. No guard existed during
+ * those three seconds, so every one of them mounted and started resolving in
+ * the same frame the intro cleared — which is exactly when people reported the
+ * lock screen and the phone screen arriving on top of each other. Meanwhile
+ * the app-wide onboarding guard, which sits above this layout, kept running
+ * and redirecting the whole time, with no gate below to agree with it.
+ *
+ * Playing over a mounted tree costs the intro nothing: the phase timers live
+ * in this component's own mount effect, so a re-render below cannot restart,
+ * extend, or cut them. And it buys the thing the withholding approach could
+ * never give — by the time the overlay fades, the screen underneath has
+ * already resolved, so there is nothing left to flicker.
  *
  * Sequence — a soft splash, not a cinematic logo reveal: a slow mist of
  * blurred purple/pink/blue drifts up from below the screen through the
@@ -184,6 +192,26 @@ export function HushhIntroGate({ children }: { children: ReactNode }) {
 
   const firstName = resolveFirstName(user?.displayName, user?.email);
 
+  return (
+    <>
+      {children}
+      <IntroOverlay firstName={firstName} phase={phase} />
+    </>
+  );
+}
+
+/**
+ * Purely decorative, and covering: it takes pointer events so nothing
+ * underneath can be tapped while it plays, and it is hidden from assistive
+ * technology because the screen it covers is the one being described.
+ */
+function IntroOverlay({
+  firstName,
+  phase,
+}: {
+  firstName: string | null;
+  phase: Phase;
+}) {
   return (
     <div aria-hidden="true" className={styles.root} data-phase={phase}>
       <div className={styles.mist}>
