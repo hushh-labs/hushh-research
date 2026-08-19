@@ -56,7 +56,13 @@ def test_max_uses_migration_is_registered_in_release_order() -> None:
 
     assert (MIGRATIONS_DIR / MIGRATION).exists()
     assert (MIGRATIONS_DIR / "rollback" / ROLLBACK).exists()
-    assert manifest["ordered_migrations"][-1] == MIGRATION
+    # Registered and ordered, NOT "is the last entry". Being the release head
+    # is a fact with a shelf life of exactly one migration -- 160 displaced this
+    # the day it landed, exactly as this migration displaced 158's identical
+    # assertion. Both of those were corrected the same way.
+    ordered = manifest["ordered_migrations"]
+    assert MIGRATION in ordered
+    assert ordered.index("158_one_location_circle_member_limit_100.sql") < ordered.index(MIGRATION)
     # Structural One Location migrations belong to the iam group, as 158 does.
     assert MIGRATION in manifest["groups"]["iam"]
 
