@@ -2086,7 +2086,15 @@ class OneLocationCircleService:
                     conn.execute(
                         text(
                             """
-                            SELECT user_id, status
+                            SELECT
+                              user_id, status,
+                              (
+                                status = 'left'
+                                AND ended_at IS NOT NULL
+                                AND ended_at > NOW() - make_interval(
+                                  hours => :reinvite_cooldown_hours
+                                )
+                              ) AS left_recently
                             FROM one_location_circle_memberships
                             WHERE circle_id = CAST(:circle_id AS UUID)
                               AND user_id = ANY(CAST(:invitee_user_ids AS TEXT[]))
@@ -2097,6 +2105,7 @@ class OneLocationCircleService:
                         {
                             "circle_id": cleaned_circle_id,
                             "invitee_user_ids": cleaned_invitee_user_ids,
+                            "reinvite_cooldown_hours": (CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS),
                         },
                     )
                 )
@@ -2113,6 +2122,23 @@ class OneLocationCircleService:
                         "LOCATION_CIRCLE_MEMBERSHIP_REMOVED",
                         "Only the Circle owner can invite someone they previously removed.",
                         status_code=403,
+                    )
+                # Leaving is that person saying no to this Circle specifically,
+                # and it now costs a cooldown the way declining an invitation
+                # does. Before adding was immediate, putting them back only
+                # produced an invitation they could ignore, so add-leave-add
+                # went nowhere. Now it completes -- so without this, leaving
+                # could be undone the moment it happened, over and over, by
+                # anyone still holding a connection.
+                #
+                # It binds the OWNER too. Every other rule here protects the
+                # Circle from its members; this one protects a person from the
+                # Circle, and the owner is who they are leaving.
+                if any(bool(row.get("left_recently")) for row in target_membership_rows):
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_MEMBER_LEFT_RECENTLY",
+                        "Someone you selected recently left this Circle. Try again later.",
+                        status_code=429,
                     )
                 connection_rows = _all(
                     conn.execute(

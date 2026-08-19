@@ -1314,7 +1314,9 @@ def test_adding_connections_writes_memberships_and_tells_each_person(
     target_membership_lock_index = next(
         index
         for index, sql in enumerate(conn.sql)
-        if "SELECT user_id, status" in sql
+        # The same statement also decides whether anyone here left recently,
+        # so it is matched on that rather than on its column list.
+        if "AS left_recently" in sql
         and "FROM one_location_circle_memberships" in sql
         and "FOR UPDATE" in sql
     )
@@ -1633,6 +1635,108 @@ def test_member_invite_batch_capacity_failure_writes_nothing() -> None:
     # Batch capacity is all-or-nothing: one person over the limit adds nobody,
     # rather than filling the last seat and failing on the rest.
     assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
+
+
+def test_leaving_a_circle_cannot_be_undone_the_moment_it_happens() -> None:
+    """Leaving has to survive the person who is adding you.
+
+    While adding meant inviting, add-leave-add went nowhere: putting someone
+    back produced an invitation they could simply ignore, so the loop never
+    closed. Adding immediately closes it -- someone still holding a connection
+    could put you back the instant you left, as many times as they liked, and
+    each round is a push notification.
+
+    So leaving now costs the same twelve hours a decline does. It binds the
+    OWNER too: every other rule here protects a Circle from its members, and
+    this one protects a person from the Circle.
+
+    The permanent remedy is one level up and always was -- a connection is
+    what makes adding possible at all, so disconnecting ends it outright.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "name": "Family",
+            "kind": "family",
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+        },
+        {"role": "owner", "inviter_display_name": "Owner"},
+        [{"user_id": "friend-one"}],
+        None,
+        [{"user_id": "friend-one", "status": "left", "left_recently": True}],
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.create_member_invites(
+            actor_user_id="owner-user",
+            circle_id=circle_id,
+            invitee_user_ids=["friend-one"],
+        )
+
+    assert raised.value.code == "LOCATION_CIRCLE_MEMBER_LEFT_RECENTLY"
+    assert raised.value.status_code == 429
+    # Unnamed, like every other refusal that is about somebody else's history.
+    assert "friend-one" not in raised.value.args[0]
+    # Refused before anything is read about the pair, and nobody is written.
+    assert not any("FROM connections connection" in sql for sql in conn.sql)
+    assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
+
+
+def test_an_old_departure_does_not_block_being_added_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cooldown is a cooldown, not a ban.
+
+    Someone who left months ago and asked to come back is not being overruled;
+    they are being let back in. Only a departure inside the window refuses.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "name": "Family",
+            "kind": "family",
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+        },
+        {"role": "owner", "inviter_display_name": "Owner"},
+        [{"user_id": "friend-one"}],
+        None,
+        [{"user_id": "friend-one", "status": "left", "left_recently": False}],
+        [{"connection_id": "connection-1", "user_id": "friend-one"}],
+        [{"connection_id": "connection-1"}],
+        [],
+        {"active_member_count": 1, "pending_invite_count": 0},
+        {"circle_count": 1},
+        None,
+        [{"user_id": "friend-one"}, {"user_id": "owner-user"}],
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    monkeypatch.setattr(
+        circle_service_module,
+        "ensure_connection_origin",
+        lambda _conn, **kwargs: {},
+    )
+
+    result = service.create_member_invites(
+        actor_user_id="owner-user",
+        circle_id=circle_id,
+        invitee_user_ids=["friend-one"],
+    )
+
+    assert result["addedUserIds"] == ["friend-one"]
 
 
 def test_a_seat_an_open_invitation_already_reserved_is_not_charged_twice(
