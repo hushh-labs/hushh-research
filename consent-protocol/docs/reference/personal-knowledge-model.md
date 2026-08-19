@@ -251,9 +251,25 @@ shared-memory changes remain review-first. Each automatic write carries an
 `owner_auto_save_policy` receipt that records the enabled policy version rather
 than claiming that the owner reviewed that individual memory.
 
+KYC onboarding has a separate first-party owner-confirmed path. It requires an
+unlocked private vault before the identity form is shown; an account without a
+vault is first sent through the vault-create flow. The person's `Save &
+Continue` action may then advance the UI immediately while the client organizes
+the submitted free-form narrative into private encrypted PKM facts in the
+background. It does not persist the raw narrative as an `about_me` value, and
+it never auto-writes a card with active sharing recipients. The action is
+recorded as an individual owner confirmation, not as the per-vault automatic
+memory policy above. The submitted KYC step remains complete even if background
+fact organization needs a retry; a transient PKM failure must never reopen KYC
+and make an owner repeat onboarding.
+
 ## Storage rules
 
 - New writes are PKM-only.
+- A scope-exposure update is one atomic metadata commit: the manifest, scope
+  registry, index projection, event, and encrypted blob manifest revision move
+  together. Coherent reads fail closed rather than treating mismatched revisions
+  as an empty profile.
 - Encrypted payloads are segmented by top-level domain and segment id.
 - Payload ciphertext remains opaque:
   - `ciphertext`

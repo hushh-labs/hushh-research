@@ -6,16 +6,6 @@ vi.mock("@/lib/services/kai-profile-sync-service", () => ({
   },
 }));
 
-const kycDraftMocks = vi.hoisted(() => ({
-  flushIdentityDraft: vi.fn(async () => false),
-}));
-
-vi.mock("@/lib/services/kyc-identity-profile-pkm-service", () => ({
-  KycIdentityProfileDraftService: {
-    flushToVault: kycDraftMocks.flushIdentityDraft,
-  },
-}));
-
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 
 const params = { userId: "u1", vaultKey: "vk", vaultOwnerToken: "tok" };
@@ -30,18 +20,7 @@ describe("PostUnlockSyncService", () => {
 
   it("does not seed trusted contacts or connections and reports only setup synchronization", async () => {
     const result = await PostUnlockSyncService.run(params);
-    expect(Object.keys(result).sort()).toEqual([
-      "kycIdentitySynced",
-      "onboardingSynced",
-    ]);
-  });
-
-  it("flushes a staged KYC profile only after vault authority exists", async () => {
-    kycDraftMocks.flushIdentityDraft.mockResolvedValueOnce(true);
-    await expect(PostUnlockSyncService.run(params)).resolves.toMatchObject({
-      kycIdentitySynced: true,
-    });
-    expect(kycDraftMocks.flushIdentityDraft).toHaveBeenCalledWith(params);
+    expect(Object.keys(result)).toEqual(["onboardingSynced"]);
   });
 
   it("propagates a vault sync failure instead of swallowing it", async () => {

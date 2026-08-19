@@ -60,11 +60,16 @@ export class KycIdentityProfilePkmService {
   static saveProfile(
     params: KycIdentityProfilePkmWriteParams,
   ): Promise<PkmWriteCoordinatorResult> {
-    if (params.profile.dateOfBirth && !isValidDateOfBirth(params.profile.dateOfBirth)) {
-      return Promise.reject(new Error("Date of birth must be a real past date."));
+    if (
+      params.profile.dateOfBirth &&
+      !isValidDateOfBirth(params.profile.dateOfBirth)
+    ) {
+      return Promise.reject(
+        new Error("Date of birth must be a real past date."),
+      );
     }
 
-    const savedAt = new Date().toISOString();
+    const completedAt = new Date().toISOString();
 
     return PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
@@ -84,12 +89,22 @@ export class KycIdentityProfilePkmService {
             full_name: params.profile.legalName ?? "",
             legal_name: params.profile.legalName ?? "",
             date_of_birth: params.profile.dateOfBirth ?? "",
-            citizenship_country_code: params.profile.citizenshipCountryCode ?? "",
+            citizenship_country_code:
+              params.profile.citizenshipCountryCode ?? "",
             country_of_citizenship: params.profile.citizenshipCountryName ?? "",
-            employment_status: params.profile.employmentStatus ?? "not_currently_employed",
-            about_me: params.profile.aboutMe ?? "",
-            updated_at: savedAt,
-            schema_version: 2,
+            employment_status:
+              params.profile.employmentStatus ?? "not_currently_employed",
+            // Free-form onboarding input is organized into typed PKM facts by
+            // the background intake service. It must not become a monolithic
+            // identity_profile.about_me value.
+            // Completing KYC and extracting additional facts are separate
+            // operations. The extraction runs in the background and must not
+            // make a completed KYC flow appear again if it needs a retry.
+            about_me: undefined,
+            identity_intake_status: "completed",
+            identity_intake_completed_at: completedAt,
+            updated_at: completedAt,
+            schema_version: 3,
           },
         },
         // Keep sensitive identity values out of the readable PKM projection.
@@ -101,44 +116,12 @@ export class KycIdentityProfilePkmService {
   }
 }
 
-/**
- * Holds a completed KYC preface only in this JavaScript process until the
- * person chooses the master setup action and unlocks their vault. It never
- * writes sensitive identity information to browser or server pre-vault state.
- * A refresh before vault setup deliberately asks for the details again.
- */
-const pendingProfiles = new Map<string, KycIdentityProfile>();
-
-export class KycIdentityProfileDraftService {
-  static stage(userId: string, profile: KycIdentityProfile): void {
-    if (profile.dateOfBirth && !isValidDateOfBirth(profile.dateOfBirth)) return;
-    pendingProfiles.set(userId, profile);
-  }
-
-  static clear(userId: string): void {
-    pendingProfiles.delete(userId);
-  }
-
-  static hasPending(userId: string): boolean {
-    return pendingProfiles.has(userId);
-  }
-
-  static async flushToVault(params: {
-    userId: string;
-    vaultKey: string;
-    vaultOwnerToken: string;
-  }): Promise<boolean> {
-    const profile = pendingProfiles.get(params.userId);
-    if (!profile) return false;
-
-    const result = await KycIdentityProfilePkmService.saveProfile({
-      ...params,
-      profile,
-    });
-    if (!result.success) {
-      throw new Error(result.message || "KYC details could not be saved.");
-    }
-    pendingProfiles.delete(params.userId);
-    return true;
-  }
+export function hasCompletedKycIdentityIntake(profile: unknown): boolean {
+  const identityProfile = asRecord(profile);
+  return (
+    identityProfile.identity_intake_status === "completed" ||
+    typeof identityProfile.identity_intake_completed_at === "string" ||
+    (typeof identityProfile.about_me === "string" &&
+      identityProfile.about_me.trim().length > 0)
+  );
 }

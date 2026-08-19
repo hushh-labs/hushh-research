@@ -1647,6 +1647,17 @@ async def test_generate_structure_preview_splits_multi_intent_into_cards(monkeyp
     assert result["context_plan"]["candidate_domains"] == ["health", "food"]
 
 
+def test_fallback_segmentation_supports_eight_distinct_memory_candidates():
+    service = PKMAgentLabService()
+
+    segments = service._fallback_segmented_messages(
+        "I prefer tea and I prefer coffee and I enjoy hiking and I enjoy cycling "
+        "and I like museums and I like beaches and I prefer aisle seats and I read nonfiction"
+    )
+
+    assert len(segments) == 8
+
+
 @pytest.mark.asyncio
 async def test_generate_structure_preview_dedupes_inflight_requests(monkeypatch):
     service = PKMAgentLabService()

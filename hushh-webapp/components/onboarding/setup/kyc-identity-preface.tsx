@@ -8,14 +8,12 @@ import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capa
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
-import {
-  KycIdentityProfileDraftService,
-  type KycIdentityProfile,
-} from "@/lib/services/kyc-identity-profile-pkm-service";
+import { type KycIdentityProfile } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { cn } from "@/lib/utils";
 
 import { useVault } from "@/lib/vault/vault-context";
 import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
+import { saveKycIdentityNarrativeInBackground } from "@/lib/services/kyc-identity-memory-ingestion-service";
 
 export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
   const { user } = useAuth();
@@ -37,8 +35,16 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
       aboutMe: aboutMe.trim(),
     };
 
-    if (isVaultUnlocked && vaultKey && vaultOwnerToken) {
-      setSaving(true);
+    if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+      // Both KYC entry points mount behind a vault boundary. This guard
+      // prevents a future caller from silently reintroducing a volatile
+      // pre-vault identity draft.
+      toast.error("Set up your private vault before continuing with KYC.");
+      return;
+    }
+
+    setSaving(true);
+    void (async () => {
       try {
         const result = await KycIdentityProfilePkmService.saveProfile({
           userId: user.uid,
@@ -49,19 +55,29 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
         if (!result.success) {
           throw new Error(result.message || "Failed to save profile");
         }
-        onComplete();
+        const ingestion = await saveKycIdentityNarrativeInBackground({
+          userId: user.uid,
+          narrative: profile.aboutMe || "",
+          vaultKey,
+          vaultOwnerToken,
+        });
+        if (ingestion && ingestion.failed > 0) {
+          toast.error("Some details could not be organized into Memory.");
+          return;
+        }
+        if (!ingestion || ingestion.saved === 0) {
+          toast.error(
+            "Your identity details could not be organized into Memory.",
+          );
+          return;
+        }
       } catch (_err) {
-        toast.error("Failed to save identity profile");
+        toast.error("Your identity details could not be saved to Memory.");
       } finally {
         setSaving(false);
       }
-    } else {
-      // Capability setup is deliberately vault-free. Keep the sensitive draft
-      // only in process memory; the root Finish setup action is the one place
-      // that introduces the vault and flushes this profile after unlock.
-      KycIdentityProfileDraftService.stage(user.uid, profile);
-      onComplete();
-    }
+    })();
+    onComplete();
   };
 
   const handleSkip = () => {
@@ -133,13 +149,17 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                     Import from ChatGPT or Claude
                   </h3>
                   <p className="text-[13px] leading-relaxed text-muted-foreground max-w-[95%]">
-                    Already have an active profile with another AI? Copy the prompt below to ask them to export your data, then paste it above.
+                    Already have an active profile with another AI? Copy the
+                    prompt below to ask them to export your data, then paste it
+                    above.
                   </p>
                 </div>
               </div>
 
               <div className="relative rounded-2xl border border-border/50 bg-background/80 backdrop-blur-sm p-4 pr-12 text-[13px] leading-relaxed text-foreground select-all shadow-sm transition-colors hover:border-border/80">
-                "I want to transfer all my personal information about myself to another ai agent, can you tell in detail all the data you have stored within me."
+                "I want to transfer all my personal information about myself to
+                another ai agent, can you tell in detail all the data you have
+                stored within me."
                 <button
                   type="button"
                   onClick={copyPrompt}
