@@ -928,6 +928,39 @@ describe("NearbyCheckInSheet", () => {
     expect(screen.getByText("Not accepting requests")).toBeInTheDocument();
   });
 
+  it("rounds the live countdown to the nearest minute instead of always up", async () => {
+    service.getNearbyPresence.mockResolvedValue({
+      presence: {
+        status: "active",
+        audience: "all_opted_in",
+        radiusMeters: 500,
+        allowConnectionRequests: false,
+        consentVersion: "one-location-nearby-presence-v3",
+        checkedInAt: new Date().toISOString(),
+        // A 30-minute check-in rendered a beat after the server stamped
+        // `expiresAt` -- realistic request latency, not clock skew. Ceiling
+        // rounding turned any such overage into "31 min left"; nearest-minute
+        // rounding must not.
+        expiresAt: new Date(Date.now() + 30 * 60_000 + 500).toISOString(),
+        placeLabel: "Stanford University",
+      },
+      attendees: [],
+    });
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText(/30 min left/)).toBeInTheDocument();
+    expect(screen.queryByText(/31 min left/)).not.toBeInTheDocument();
+  });
+
   it("clears the previous owner's roster before loading a new owner", async () => {
     service.getNearbyPresence
       .mockResolvedValueOnce({
