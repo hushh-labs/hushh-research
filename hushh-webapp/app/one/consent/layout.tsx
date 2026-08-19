@@ -5,8 +5,8 @@ import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 
 export default function OneConsentLayout({ children }: { children: ReactNode }) {
   return (
-    <VaultLockGuard>
-      <PhoneMandateGuard>{children}</PhoneMandateGuard>
-    </VaultLockGuard>
+    <PhoneMandateGuard>
+      <VaultLockGuard>{children}</VaultLockGuard>
+    </PhoneMandateGuard>
   );
 }

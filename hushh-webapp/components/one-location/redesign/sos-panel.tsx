@@ -480,9 +480,20 @@ export function SosPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ringHold.cancel, sendHold.cancel]);
 
+  // `!active` used to gate this reset -- written only for the bail-out case
+  // (trigger returned without ever going live). On a SUCCESSFUL send, `busy`
+  // goes true -> false at the same moment `active` goes false -> true, so
+  // that guard meant this never ran on the normal path: `sendHold.progress`
+  // (and the ring's own progress) stayed stuck at 1 for as long as the alert
+  // stayed live. Harmless for the ring, whose progress-driven UI is already
+  // unmounted once `active` (swapped for the "SENT" checkmark), but visible
+  // for the send button's floating "Hold to send..." label, which has no such
+  // unmount. Dropping `!active` resets on every busy edge; nothing can
+  // re-arm early from this alone, since `hardDisabled` (and therefore both
+  // holds' own `disabled`) already includes `active`.
   useEffect(() => {
     if (busy) observedBusyRef.current = true;
-    if (!busy && observedBusyRef.current && !active) {
+    if (!busy && observedBusyRef.current) {
       observedBusyRef.current = false;
       firedRef.current = false;
       resetHoldsRef.current();
@@ -844,7 +855,15 @@ export function SosPanel({
                 (#5433): a typed message used to send on a single tap, which
                 made this the one control on the screen where one accidental
                 tap dispatched a real emergency broadcast. */}
-            {sendHold.progress > 0 ? (
+            {/* Gated on `!messageLocked`, not just `progress > 0`: a fired
+                hold snaps `progress` to 1 and it only comes back down once
+                `busy` clears (see the reset effect above), which can be a beat
+                after the button is already locked mid-send, or -- before that
+                effect dropped its own `!active` guard -- indefinitely once the
+                alert went live. Matches the ring's own precedent of hiding its
+                progress UI entirely once locked, rather than trusting the
+                numeric state alone to unwind in time. */}
+            {sendHold.progress > 0 && !messageLocked ? (
               <span
                 role="status"
                 className="pointer-events-none absolute -top-9 right-0 whitespace-nowrap rounded-full bg-[color:var(--sos-control-surface)] px-2.5 py-1 text-[12px] text-[color:var(--sos-label)] shadow-sm"
@@ -861,7 +880,7 @@ export function SosPanel({
               data-testid="sos-send-custom-message"
               disabled={hardDisabled || !selectedMessage}
               aria-label={
-                sendHold.progress > 0
+                sendHold.progress > 0 && !messageLocked
                   ? `Sending in ${(
                       (HOLD_DURATION_MS / 1000) *
                       (1 - sendHold.progress)
@@ -956,24 +975,6 @@ export function SosPanel({
             </div>
           </div>
 
-          {/* While an alert is live the primary action becomes stopping it.
-              This revokes the location grants the alert created AND clears the
-              incident, so the live state resets here and in Active shares. */}
-          {active ? (
-            <button
-              type="button"
-              onClick={onStopSos}
-              disabled={stopBusy}
-              aria-label="Cancel the alert and stop sharing your location"
-              data-testid="sos-cancel-alert"
-              className="press-scale mt-1 flex h-[52px] w-full items-center justify-center gap-2 self-center rounded-xl bg-[color:var(--sos-control-surface)] text-[16px] text-[color:var(--sos-control-text)] transition-colors hover:bg-[color:var(--sos-control-surface-hover)] disabled:opacity-60 lg:h-14 lg:w-[220px] lg:text-[17px]"
-            >
-              {stopBusy ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : null}
-              {stopBusy ? "Stopping…" : "Stop sharing"}
-            </button>
-          ) : null}
         </div>
 
         {/* The dialer. Outlined and tinted, never filled — it needs to read as
@@ -982,90 +983,131 @@ export function SosPanel({
             this product enforces everywhere else, on the one screen where the
             person is least able to aim. An outline buys the affordance; the
             filled treatment stays reserved for SOS. */}
-        <div className="mt-10 flex min-h-[52px] items-center justify-center lg:mt-14">
-          {emergencyStatus === "resolved" && emergency ? (
-            shouldFallbackWindowsEmergencyCall ? (
+        {/* One row, two ends: the local emergency number on the LEFT, "Stop
+            sharing" on the RIGHT. They used to be stacked, which put two
+            unrelated decisions on the vertical axis the eye reads as a
+            sequence.
+
+            `flex-wrap` is the narrow-screen escape hatch rather than a
+            breakpoint: at 360px the pair fits comfortably, but a long country
+            name ("Copied 112 / Dial it from your phone") plus a spinner can
+            push past the line, and wrapping keeps BOTH controls at full size
+            and fully tappable instead of squashing the dialer's two-line
+            label. Neither control ever shrinks. */}
+        <div
+          data-testid="sos-emergency-actions"
+          className={cn(
+            "mt-10 flex min-h-[52px] w-full max-w-[520px] flex-wrap items-center gap-x-3 gap-y-3 lg:mt-14",
+            // Nothing to sit opposite when no alert is live, so the dialer
+            // keeps the centred placement it has always had.
+            active ? "justify-between" : "justify-center",
+          )}
+        >
+          <div className="flex shrink-0 items-center">
+            {emergencyStatus === "resolved" && emergency ? (
+              shouldFallbackWindowsEmergencyCall ? (
+                <button
+                  type="button"
+                  onClick={handleWindowsEmergencyCopy}
+                  aria-label={`Copy ${emergency.number} emergency services (${emergency.countryName})`}
+                  className="press-scale flex min-h-11 items-center gap-2.5 rounded-full border border-[color:var(--app-destructive)]/25 bg-[color:var(--app-destructive)]/8 px-4 py-2 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/14"
+                >
+                  <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
+                  <span className="text-left leading-tight">
+                    <span className="block text-[16px] font-medium tracking-[-0.3px] lg:text-[17px] lg:tracking-[-0.37px]">
+                      {windowsCopyStatus === "copied"
+                        ? `Copied ${emergency.number}`
+                        : `Copy ${emergency.number}`}
+                    </span>
+                    <span className="block text-[12px] text-[color:var(--sos-label)]">
+                      {windowsCopyStatus === "copied"
+                        ? "Dial it from your phone"
+                        : emergency.countryName}
+                    </span>
+                  </span>
+                </button>
+              ) : (
+                <a
+                  href={`tel:${emergency.number}`}
+                  aria-label={`Call ${emergency.number} emergency services (${emergency.countryName})`}
+                  className="press-scale flex min-h-11 items-center gap-2.5 rounded-full border border-[color:var(--app-destructive)]/25 bg-[color:var(--app-destructive)]/8 px-4 py-2 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/14"
+                >
+                  <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
+                  <span className="text-left leading-tight">
+                    <span className="block text-[16px] font-medium tracking-[-0.3px] lg:text-[17px] lg:tracking-[-0.37px]">
+                      Call {emergency.number}
+                    </span>
+                    <span className="block text-[12px] text-[color:var(--sos-label)]">
+                      {emergency.countryName}
+                    </span>
+                  </span>
+                </a>
+              )
+            ) : (
               <button
                 type="button"
-                onClick={handleWindowsEmergencyCopy}
-                aria-label={`Copy ${emergency.number} emergency services (${emergency.countryName})`}
-                className="press-scale flex min-h-11 items-center gap-2.5 rounded-full border border-[color:var(--app-destructive)]/25 bg-[color:var(--app-destructive)]/8 px-4 py-2 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/14"
+                onClick={onResolveEmergencyNumber}
+                // "resolving" is the only state that must stay inert -- it means
+                // a lookup is already in flight. "idle" (nothing looked up yet)
+                // and "unavailable" (a lookup failed) both stay tappable, since
+                // each needs the tap to be the thing that starts the next lookup.
+                disabled={emergencyStatus === "resolving"}
+                aria-label={
+                  emergencyStatus === "unavailable"
+                    ? "Retry local emergency number"
+                    : emergencyStatus === "resolving"
+                      ? "Finding local emergency number"
+                      : "Find local emergency number"
+                }
+                className="press-scale flex items-center gap-2.5 text-[color:var(--app-destructive)] transition-opacity hover:opacity-70 disabled:cursor-wait disabled:opacity-75"
               >
-                <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
+                {emergencyStatus === "resolving" ? (
+                  <Loader2
+                    className="h-[17px] w-[17px] animate-spin"
+                    aria-hidden
+                  />
+                ) : (
+                  <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
+                )}
                 <span className="text-left leading-tight">
                   <span className="block text-[16px] font-medium tracking-[-0.3px] lg:text-[17px] lg:tracking-[-0.37px]">
-                    {windowsCopyStatus === "copied"
-                      ? `Copied ${emergency.number}`
-                      : `Copy ${emergency.number}`}
+                    {emergencyStatus === "unavailable"
+                      ? "Retry local number"
+                      : emergencyStatus === "resolving"
+                        ? "Finding local number"
+                        : "Find local number"}
                   </span>
                   <span className="block text-[12px] text-[color:var(--sos-label)]">
-                    {windowsCopyStatus === "copied"
-                      ? "Dial it from your phone"
-                      : emergency.countryName}
+                    {emergencyStatus === "unavailable"
+                      ? "Location unavailable"
+                      : emergencyStatus === "resolving"
+                        ? "Using current location"
+                        : "Tap to look up"}
                   </span>
                 </span>
               </button>
-            ) : (
-              <a
-                href={`tel:${emergency.number}`}
-                aria-label={`Call ${emergency.number} emergency services (${emergency.countryName})`}
-                className="press-scale flex min-h-11 items-center gap-2.5 rounded-full border border-[color:var(--app-destructive)]/25 bg-[color:var(--app-destructive)]/8 px-4 py-2 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/14"
-              >
-                <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
-                <span className="text-left leading-tight">
-                  <span className="block text-[16px] font-medium tracking-[-0.3px] lg:text-[17px] lg:tracking-[-0.37px]">
-                    Call {emergency.number}
-                  </span>
-                  <span className="block text-[12px] text-[color:var(--sos-label)]">
-                    {emergency.countryName}
-                  </span>
-                </span>
-              </a>
-            )
-          ) : (
+            )}
+          </div>
+
+          {/* Ending the alert revokes the location grants the alert created AND
+              clears the incident, so the live state resets here and in Active
+              shares. Post-#5506 that teardown is lane-scoped: it ends the SMS
+              share only, and a normal share to the same person keeps running. */}
+          {active ? (
             <button
               type="button"
-              onClick={onResolveEmergencyNumber}
-              // "resolving" is the only state that must stay inert -- it means
-              // a lookup is already in flight. "idle" (nothing looked up yet)
-              // and "unavailable" (a lookup failed) both stay tappable, since
-              // each needs the tap to be the thing that starts the next lookup.
-              disabled={emergencyStatus === "resolving"}
-              aria-label={
-                emergencyStatus === "unavailable"
-                  ? "Retry local emergency number"
-                  : emergencyStatus === "resolving"
-                    ? "Finding local emergency number"
-                    : "Find local emergency number"
-              }
-              className="press-scale flex items-center gap-2.5 text-[color:var(--app-destructive)] transition-opacity hover:opacity-70 disabled:cursor-wait disabled:opacity-75"
+              onClick={onStopSos}
+              disabled={stopBusy}
+              aria-label="Cancel the alert and stop sharing your location"
+              data-testid="sos-cancel-alert"
+              className="press-scale flex h-[52px] shrink-0 items-center justify-center gap-2 rounded-xl bg-[color:var(--sos-control-surface)] px-5 text-[16px] text-[color:var(--sos-control-text)] transition-colors hover:bg-[color:var(--sos-control-surface-hover)] disabled:opacity-60 lg:h-14 lg:min-w-[200px] lg:px-6 lg:text-[17px]"
             >
-              {emergencyStatus === "resolving" ? (
-                <Loader2
-                  className="h-[17px] w-[17px] animate-spin"
-                  aria-hidden
-                />
-              ) : (
-                <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
-              )}
-              <span className="text-left leading-tight">
-                <span className="block text-[16px] font-medium tracking-[-0.3px] lg:text-[17px] lg:tracking-[-0.37px]">
-                  {emergencyStatus === "unavailable"
-                    ? "Retry local number"
-                    : emergencyStatus === "resolving"
-                      ? "Finding local number"
-                      : "Find local number"}
-                </span>
-                <span className="block text-[12px] text-[color:var(--sos-label)]">
-                  {emergencyStatus === "unavailable"
-                    ? "Location unavailable"
-                    : emergencyStatus === "resolving"
-                      ? "Using current location"
-                      : "Tap to look up"}
-                </span>
-              </span>
+              {stopBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : null}
+              {stopBusy ? "Stopping…" : "Stop sharing"}
             </button>
-          )}
+          ) : null}
         </div>
       </div>
     </section>

@@ -27,7 +27,7 @@ const PERSONA_CONFIG: Record<
     pill: "Stability first",
     title: "Your plan should feel steady.",
     headline: "You prefer dependable progress with fewer surprises.",
-    support: "Kai will keep risk visible, pacing calm, and every move easy to understand.",
+    support: "We'll keep risk visible, pacing calm, and every move easy to understand.",
     footerTagline: "Smart growth. Less stress.",
     accent: "text-emerald-600 bg-emerald-500/10 dark:text-emerald-300 dark:bg-emerald-400/12",
     icon: Shield,
@@ -36,7 +36,7 @@ const PERSONA_CONFIG: Record<
     pill: "Balanced growth",
     title: "You like progress with discipline.",
     headline: "You can accept some movement when the long-term path is clear.",
-    support: "Kai will balance opportunity, concentration, and timing before suggesting action.",
+    support: "We'll balance opportunity, concentration, and timing before suggesting action.",
     footerTagline: "Progress without overexposure.",
     accent: "text-primary bg-primary/10 dark:text-primary dark:bg-primary/12",
     icon: Target,
@@ -45,7 +45,7 @@ const PERSONA_CONFIG: Record<
     pill: "Growth focused",
     title: "You are comfortable leaning in.",
     headline: "You can handle larger swings when the upside is worth the risk.",
-    support: "Kai will help you pursue momentum while keeping downside and concentration in view.",
+    support: "We'll help you pursue momentum while keeping downside and concentration in view.",
     footerTagline: "Build momentum with guardrails.",
     accent: "text-orange-600 bg-orange-500/10 dark:text-orange-300 dark:bg-orange-400/12",
     icon: TrendingUp,
@@ -89,7 +89,7 @@ export function KaiPersonaScreen(props: {
 
             <div className="mt-8 w-full border-y border-[color:var(--foundation-hairline)] py-5 text-left">
               <p className="type-caption text-muted-foreground">
-                Kai profile
+                Your profile
               </p>
               <p className="mt-2 type-title3 text-foreground">
                 {cfg.headline}

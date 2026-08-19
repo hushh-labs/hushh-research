@@ -524,6 +524,64 @@ jobs:
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: sh scripts/git/check-main-sync.sh
 
+  # Advisory, not required: Base Freshness Gate proves a PR CONTAINS main's
+  # commits as ancestors; it says nothing about whether resolving those
+  # commits' conflicts kept their content, and says nothing at all about a
+  # clean revert commit that never touched main's history. This runs two
+  # passes — every real "synced main in and resolved conflicts" merge the PR
+  # introduces, plus the PR's own whole diff against its base — checking both
+  # for silently dropped or resurrected content (2026-08-19 incident). It is
+  # a text heuristic with a real false-positive rate on large files with
+  # repeated boilerplate and on a branch's own early, later-corrected sync
+  # commits — read the output, don't just watch the check mark. A PR that is
+  # deliberately reverting something declares it with the "intentional-revert"
+  # label plus a "Merge-Regression-Ack: <reason>" line in the PR body, then
+  # re-runs this job (both are read live, no new push needed). Deliberately
+  # kept out of ci-status's `needs` and run with continue-on-error so it can
+  # never block a merge during the burn-in period.
+  merge-fidelity-gate:
+    name: "Merge Fidelity Gate (advisory)"
+    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Scan for content this PR silently dropped from its base
+        env:
+          MERGE_REGRESSION_MODE: warn
+          BASE_REF: ${{ github.base_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/ci/check-merge-fidelity.sh
+
+      # A separate, wider pass: diffs against the last commit actually
+      # deployed healthy to production (deploy-production.yml tags it via
+      # scripts/ci/tag-last-known-good.sh), not just this PR's own base.
+      # Catches a revert that landed clean upstream of this PR entirely.
+      # Kept advisory for LONGER than the pass above — its window is wider,
+      # so its false-positive surface is bigger, and it has no track record
+      # yet. Promote it separately, on its own evidence, not bundled with
+      # the PR-scoped pass's own eventual promotion to a required check.
+      - name: Fetch last-known-good deploy tags
+        continue-on-error: true
+        run: git fetch origin 'refs/tags/deployed/*:refs/tags/deployed/*' 2>&1 || true
+
+      - name: Scan for content missing since the last known-good production deploy (advisory, wider window)
+        continue-on-error: true
+        env:
+          MERGE_REGRESSION_MODE: warn
+        run: |
+          if git rev-parse -q --verify refs/tags/deployed/production-latest >/dev/null; then
+            bash scripts/git/check-merge-regression.sh refs/tags/deployed/production-latest "origin/${{ github.base_ref }}" HEAD
+          else
+            echo "[merge-fidelity] No deployed/production-latest tag yet (first tagged deploy hasn't happened) — skipping this pass."
+          fi
+
   ci-status:
     name: "CI Status Gate"
     needs:

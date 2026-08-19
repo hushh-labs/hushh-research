@@ -43,6 +43,10 @@ CIRCLE_MAX_PER_USER = 10
 # default, which is what makes the higher limit real for accounts that
 # already have Circles rather than only for ones created from here on.
 CIRCLE_DEFAULT_MEMBER_LIMIT = 100
+# The one system Circle this product provisions today. Named for what it
+# does rather than what it is, because it sits in the Circles list beside
+# Circles the person named themselves ("Family", "Climbing").
+SMS_SYSTEM_CIRCLE_NAME = "SMS Contacts"
 CIRCLE_CODE_LENGTH = 12
 CIRCLE_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 _CIRCLE_CODE_DOMAIN = b"one-location-circle-code:v1:"
@@ -327,11 +331,13 @@ class OneLocationCircleService:
         # of truth. Owner-only capabilities follow the canonical Circle owner.
         is_owner = bool(owner_user_id and viewer_user_id == owner_user_id)
         role = "owner" if is_owner else "member"
+        is_system = bool(row.get("is_system") or False)
         return {
             "id": str(row.get("id") or ""),
             "name": str(row.get("name") or ""),
             "kind": str(row.get("kind") or "other"),
             "role": role,
+            "isSystem": is_system,
             "memberCount": int(row.get("member_count") or 0),
             "memberLimit": int(row.get("member_limit") or CIRCLE_DEFAULT_MEMBER_LIMIT),
             "createdAt": _iso(row.get("created_at")),
@@ -344,12 +350,30 @@ class OneLocationCircleService:
                 "canRotateInviteCode": is_owner,
                 "canManageCircle": is_owner,
                 "canModerateInvites": is_owner,
+                # The ONLY thing a system Circle takes away. It is provisioned
+                # by the product and depended on by SOS, so it is not the
+                # owner's to delete -- every other owner power still applies:
+                # rename, add members, remove members.
+                #
+                # Deliberately no roster restriction. An emergency Circle is a
+                # group that should know it is a group: if something happens to
+                # the owner, the people on that list are the ones who may need
+                # to reach each other, and a roster only the owner can read is
+                # useless at exactly the moment it is needed. So membership is
+                # visible here on the same terms as any other Circle.
+                #
+                # Note this is visibility, not connection: seeing a name in a
+                # roster is not a connection edge. `_connect_member_to_circle`
+                # still only ever pairs a joiner with whoever invited them, so
+                # members are listed together without being introduced.
+                "canDeleteCircle": is_owner and not is_system,
             },
         }
 
     @staticmethod
     def _member_payload(row: dict[str, Any]) -> dict[str, Any]:
         display_name = str(row.get("display_name") or "").strip()
+        relationship = str(row.get("relationship") or "none")
         key_id = str(row.get("key_id") or "").strip()
         public_key_jwk = _json_object(row.get("public_key_jwk"))
         can_receive_location = bool(key_id and public_key_jwk)
@@ -370,6 +394,16 @@ class OneLocationCircleService:
             "keyAlgorithm": str(row.get("algorithm") or "ECDH-P256-AES256-GCM"),
             "keyRegisteredAt": _iso(row.get("key_created_at")),
             "canReceiveLocation": can_receive_location,
+            # Being in the same Circle is not being connected -- a joiner is
+            # paired with whoever invited them and nobody else. Surfacing the
+            # relationship here is what lets the roster offer the introduction
+            # the Circle deliberately does not make by itself.
+            "relationship": relationship,
+            # 'self' and 'connected' have nothing to request; the two pending
+            # states already have a request in flight. Phone verification is
+            # required for the same reason it is everywhere else a connection
+            # can start.
+            "canConnect": (relationship == "none" and bool(row.get("phone_verified"))),
         }
 
     @staticmethod
@@ -475,7 +509,8 @@ class OneLocationCircleService:
             result = self._db.execute_raw(
                 """
                 SELECT
-                  c.id, c.name, c.kind, c.member_limit, c.created_at, c.updated_at,
+                  c.id, c.name, c.kind, c.member_limit, c.is_system,
+                  c.created_at, c.updated_at,
                   c.owner_user_id, :user_id AS viewer_user_id, mine.role,
                   COUNT(active_members.user_id) AS member_count
                 FROM one_location_circle_memberships mine
@@ -504,7 +539,8 @@ class OneLocationCircleService:
             summary_result = self._db.execute_raw(
                 """
                 SELECT
-                  c.id, c.name, c.kind, c.member_limit, c.created_at, c.updated_at,
+                  c.id, c.name, c.kind, c.member_limit, c.is_system,
+                  c.created_at, c.updated_at,
                   c.owner_user_id, :user_id AS viewer_user_id, mine.role,
                   active_code.id AS code_id,
                   active_code.circle_id AS code_circle_id,
@@ -555,7 +591,32 @@ class OneLocationCircleService:
                   identity.custom_photo_url, identity.phone_verified,
                   recipient_key.key_id, recipient_key.public_key_jwk,
                   recipient_key.algorithm,
-                  recipient_key.created_at AS key_created_at
+                  recipient_key.created_at AS key_created_at,
+                  CASE
+                    WHEN membership.user_id = :viewer_user_id THEN 'self'
+                    WHEN EXISTS (
+                      SELECT 1
+                      FROM connections c
+                      WHERE c.status = 'active'
+                        AND c.user_a_id = LEAST(:viewer_user_id, membership.user_id)
+                        AND c.user_b_id = GREATEST(:viewer_user_id, membership.user_id)
+                    ) THEN 'connected'
+                    WHEN EXISTS (
+                      SELECT 1
+                      FROM connection_requests cr
+                      WHERE cr.status = 'pending'
+                        AND cr.requester_user_id = :viewer_user_id
+                        AND cr.addressee_user_id = membership.user_id
+                    ) THEN 'pending_outgoing'
+                    WHEN EXISTS (
+                      SELECT 1
+                      FROM connection_requests cr
+                      WHERE cr.status = 'pending'
+                        AND cr.requester_user_id = membership.user_id
+                        AND cr.addressee_user_id = :viewer_user_id
+                    ) THEN 'pending_incoming'
+                    ELSE 'none'
+                  END AS relationship
                 FROM one_location_circle_memberships membership
                 LEFT JOIN actor_identity_cache identity
                   ON identity.user_id = membership.user_id
@@ -575,7 +636,7 @@ class OneLocationCircleService:
                   CASE membership.role WHEN 'owner' THEN 0 ELSE 1 END,
                   COALESCE(identity.display_name, membership.user_id)
                 """,
-                {"circle_id": cleaned_circle_id},
+                {"circle_id": cleaned_circle_id, "viewer_user_id": user_id},
             )
             circle = self._circle_summary(dict(summary_row))
             circle["members"] = [self._member_payload(row) for row in (members_result.data or [])]
@@ -668,6 +729,178 @@ class OneLocationCircleService:
             raise
         except Exception as exc:
             raise self._safe_db_failure("create", exc) from exc
+
+    def ensure_sms_system_circle(self, *, owner_user_id: str) -> dict[str, Any]:
+        """Find-or-create this owner's SMS Circle and fold their contacts into it.
+
+        Issue #5426: emergency SMS contacts stop being a private table
+        (`one_location_sms_contacts`, migration 116) and become a real Circle on
+        the Circles surface -- one the owner manages like any other, except it
+        cannot be deleted, because SOS reads its roster.
+
+        Idempotent by construction, because this runs on every bootstrap and
+        potentially from more than one device at once:
+
+          * The Circle is found before it is created, and migration 159's
+            partial unique index makes "two system Circles for one owner"
+            unrepresentable if two calls race.
+          * Only contacts with NO membership row are inserted. A contact who was
+            migrated and then deliberately removed carries a 'removed' row, so
+            removing someone sticks instead of being undone on next login.
+
+        `one_location_sms_contacts` is read, never emptied. It stays for one
+        release as the record of who each owner picked, so backing this change
+        out cannot lose anybody's emergency contacts.
+        """
+
+        owner = str(owner_user_id or "").strip()
+        if not owner:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_OWNER_REQUIRED",
+                "A signed-in owner is required.",
+                status_code=403,
+            )
+
+        migrated: list[dict[str, Any]] = []
+        try:
+            with self._db.engine.begin() as conn:
+                circle_id = self._find_system_circle_id(conn, owner)
+                if not circle_id:
+                    circle_id = self._insert_system_circle(conn, owner)
+                migrated = self._migrate_sms_contacts_into_circle(conn, owner, circle_id)
+
+                # The owner invited every one of them, so the pair recorded is
+                # owner <-> contact and nothing else. Contacts are never
+                # introduced to each other -- see `_connect_member_to_circle`,
+                # which pairs a joiner with their inviter only.
+                for row in migrated:
+                    contact_id = str(row.get("user_id") or "").strip()
+                    if not contact_id or contact_id == owner:
+                        continue
+                    for kind, source_circle in (
+                        ("circle_member", None),
+                        ("named_circle", circle_id),
+                    ):
+                        ensure_connection_origin(
+                            conn,
+                            user_a_id=owner,
+                            user_b_id=contact_id,
+                            kind=kind,
+                            source_circle_id=source_circle,
+                        )
+
+            if migrated:
+                logger.info(
+                    "one_location.sms_system_circle_migrated owner=%s count=%d",
+                    redact_log_field("user_id", owner),
+                    len(migrated),
+                )
+            return self.get_circle(user_id=owner, circle_id=circle_id)
+        except OneLocationCircleError:
+            raise
+        except Exception as exc:
+            raise self._safe_db_failure("ensure_system", exc) from exc
+
+    @staticmethod
+    def _find_system_circle_id(conn: Any, owner_user_id: str) -> str:
+        row = _first(
+            conn.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM one_location_circles
+                    WHERE owner_user_id = :owner_user_id
+                      AND is_system
+                      AND status = 'active'
+                    LIMIT 1
+                    """
+                ),
+                {"owner_user_id": owner_user_id},
+            )
+        )
+        return str((row or {}).get("id") or "")
+
+    def _insert_system_circle(self, conn: Any, owner_user_id: str) -> str:
+        created = _first(
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO one_location_circles (
+                      owner_user_id, name, kind, status, member_limit,
+                      is_system, created_at, updated_at, metadata
+                    )
+                    VALUES (
+                      :owner_user_id, :name, 'other', 'active',
+                      :member_limit, true, NOW(), NOW(), '{}'::jsonb
+                    )
+                    ON CONFLICT DO NOTHING
+                    RETURNING id
+                    """
+                ),
+                {
+                    "owner_user_id": owner_user_id,
+                    "name": SMS_SYSTEM_CIRCLE_NAME,
+                    "member_limit": CIRCLE_DEFAULT_MEMBER_LIMIT,
+                },
+            )
+        )
+        circle_id = str((created or {}).get("id") or "")
+        if not circle_id:
+            # Lost the race with a concurrent bootstrap; the winner's Circle is
+            # the one both callers should use.
+            circle_id = self._find_system_circle_id(conn, owner_user_id)
+        if not circle_id:
+            raise RuntimeError("system circle insert returned no id")
+
+        conn.execute(
+            text(
+                """
+                INSERT INTO one_location_circle_memberships (
+                  circle_id, user_id, role, status, joined_at, updated_at,
+                  metadata
+                )
+                VALUES (
+                  CAST(:circle_id AS UUID), :user_id, 'owner', 'active',
+                  NOW(), NOW(), '{}'::jsonb
+                )
+                ON CONFLICT (circle_id, user_id) DO NOTHING
+                """
+            ),
+            {"circle_id": circle_id, "user_id": owner_user_id},
+        )
+        return circle_id
+
+    @staticmethod
+    def _migrate_sms_contacts_into_circle(
+        conn: Any, owner_user_id: str, circle_id: str
+    ) -> list[dict[str, Any]]:
+        return _all(
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO one_location_circle_memberships (
+                      circle_id, user_id, role, status, joined_at, updated_at,
+                      metadata
+                    )
+                    SELECT
+                      CAST(:circle_id AS UUID), sms.contact_user_id,
+                      'member', 'active', NOW(), NOW(),
+                      jsonb_build_object('migratedFrom', 'sms_contacts')
+                    FROM one_location_sms_contacts sms
+                    WHERE sms.owner_user_id = :owner_user_id
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM one_location_circle_memberships m
+                        WHERE m.circle_id = CAST(:circle_id AS UUID)
+                          AND m.user_id = sms.contact_user_id
+                      )
+                    ON CONFLICT (circle_id, user_id) DO NOTHING
+                    RETURNING user_id
+                    """
+                ),
+                {"circle_id": circle_id, "owner_user_id": owner_user_id},
+            )
+        )
 
     def update_circle(
         self,
@@ -1681,7 +1914,8 @@ class OneLocationCircleService:
                             """
                             SELECT
                               circle.id, circle.name, circle.kind,
-                              circle.owner_user_id, circle.member_limit
+                              circle.owner_user_id, circle.member_limit,
+                              circle.is_system
                             FROM one_location_circles circle
                             WHERE circle.id = CAST(:circle_id AS UUID)
                               AND circle.status = 'active'
@@ -1998,12 +2232,49 @@ class OneLocationCircleService:
                         ),
                         status_code=409,
                     )
+                is_system_circle = bool(circle_row.get("is_system"))
                 if new_user_ids and reserved_count + len(new_user_ids) > member_limit:
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_INVITE_CAPACITY_REACHED",
                         "This Circle does not have room for all selected invitations.",
                         status_code=409,
                     )
+                if is_system_circle and new_user_ids:
+                    # Straight to active membership, exactly as add_sms_contact
+                    # did. `_connect_member_to_circle` is deliberately NOT called:
+                    # these people are the owner's existing contacts, and being on
+                    # an emergency list is not an introduction to the rest of it.
+                    for invitee_user_id in new_user_ids:
+                        conn.execute(
+                            text(
+                                """
+                                INSERT INTO one_location_circle_memberships (
+                                  circle_id, user_id, role, status, joined_at,
+                                  updated_at, metadata
+                                )
+                                VALUES (
+                                  CAST(:circle_id AS UUID), :user_id, 'member',
+                                  'active', NOW(), NOW(),
+                                  jsonb_build_object('addedVia', 'sms_system_circle')
+                                )
+                                ON CONFLICT (circle_id, user_id) DO UPDATE
+                                SET status = 'active',
+                                    ended_at = NULL,
+                                    updated_at = NOW()
+                                """
+                            ),
+                            {
+                                "circle_id": cleaned_circle_id,
+                                "user_id": invitee_user_id,
+                            },
+                        )
+                    logger.info(
+                        "one_location.sms_system_circle_members_added actor=%s count=%d",
+                        redact_log_field("user_id", actor_user_id),
+                        len(new_user_ids),
+                    )
+                    new_user_ids = []
+
                 for invitee_user_id in new_user_ids:
                     invite_row = _first(
                         conn.execute(
@@ -2897,8 +3168,49 @@ class OneLocationCircleService:
             status="left",
         )
 
+    def _reject_system_circle_delete(self, circle_id: str) -> None:
+        """Refuse deletion of a product-provisioned Circle.
+
+        Deleting the SMS Circle is indistinguishable from silently switching
+        emergency alerts off: nothing looks different until the moment it is
+        needed. Members stay fully manageable -- only the container is fixed.
+        """
+        try:
+            row = _first(
+                self._db.execute_raw(
+                    """
+                    SELECT is_system
+                    FROM one_location_circles
+                    WHERE id = CAST(:circle_id AS UUID)
+                      AND status = 'active'
+                    """,
+                    {"circle_id": circle_id},
+                ).data
+                or []
+            )
+        except Exception:
+            # A read failure here must not become a way to delete: fall through
+            # to the statement below, which the trigger still refuses.
+            return
+        if row and bool(row.get("is_system")):
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_SYSTEM_PROTECTED",
+                "This Circle is used for emergency SMS alerts and cannot be deleted. "
+                "You can still add or remove its members.",
+                status_code=409,
+            )
+
     def delete_circle(self, *, owner_user_id: str, circle_id: str) -> None:
+        """Soft-delete an owned Circle. System Circles are refused.
+
+        The database refuses this too (migration 159's trigger), and that is
+        the guarantee -- "who may delete this row" is a property of the row, not
+        of whichever code path reached it. This check exists so the API answers
+        with a 409 and a sentence a person can act on, rather than surfacing a
+        raw `restrict_violation` from a trigger as a 500.
+        """
         cleaned_circle_id = _clean_circle_id(circle_id)
+        self._reject_system_circle_delete(cleaned_circle_id)
         try:
             with self._db.engine.begin() as conn:
                 circle_row = _first(

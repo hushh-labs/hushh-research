@@ -1932,7 +1932,7 @@ function ProfilePageContent() {
     "Clears saved details. Keeps sign-in.";
   const resetDialogTitle = "Reset account?";
   const resetDialogDescription =
-    "Clears connected services, finance, Gmail, and memory. Keeps your account, sign-in, and lock. You'll onboard again.";
+    "This clears your connected services, consents, and saved data. Your sign-in and lock remain safe.";
 
   const handleVaultUnlockOpenChange = (open: boolean) => {
     setShowVaultUnlock(open);
@@ -3885,7 +3885,7 @@ function ProfilePageContent() {
     if (activeDetail === "kai-preferences") {
       profileStackEntries.push({
         key: "detail:kai-preferences",
-        title: "Kai preferences",
+        title: "Investing preferences",
         description: "Investing preferences.",
         content: (
           <ProfileKaiPreferencesPanel
@@ -4364,7 +4364,7 @@ function ProfilePageContent() {
               }}
               disabled={isResetting}
             >
-              {isResetting ? "Resetting..." : "Yes, reset my account"}
+              {isResetting ? "Resetting..." : "Reset account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
