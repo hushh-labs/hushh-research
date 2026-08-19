@@ -85,7 +85,7 @@ export default defineConfig({
       // screen renders -- exactly the kind of thing that differs between
       // engines, and the app ships inside a WKWebView.
       testMatch:
-        /(circle-join-responsive-contract|auth-sign-in\.layout|register-phone-title\.layout|connect-circle-cta\.layout|connect-pagination\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|feed-sticky-header-opaque\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|one-intro-welcome\.layout|request-card-duration-picker\.layout|top-shell-breadcrumb-trail\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|auth-sign-in\.layout|register-phone-title\.layout|connect-circle-cta\.layout|connect-pagination\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|feed-sticky-header-opaque\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|one-intro-welcome\.layout|request-card-duration-picker\.layout|top-shell-breadcrumb-trail\.layout|one-location-map-consent\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",

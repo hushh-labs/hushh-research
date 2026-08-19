@@ -516,7 +516,7 @@
     },
     {
       "name": "your-map-consent-button-is-never-a-silent-no-op",
-      "summary": "The renderer-consent card on Your Map (and on the check-in route, which mounts the same component) always answers a tap. With a lock it writes the current consent version and the card goes; with no lock it asks for the lock instead of offering a Continue it cannot complete; while the write is in flight it is busy, so one decision sends one request; and a map-state read that started before the write can never revive the card the owner already dismissed.",
+      "summary": "The renderer-consent card on Your Map (and on the check-in route, which mounts the same component) always answers a tap. With a lock it writes the current consent version and the card goes; with no lock it asks for the lock instead of offering a Continue it cannot complete; while the write is in flight it is busy, so one decision sends one request; and a map-state read that started before the write can never revive the card the owner already dismissed. The card is also the LAST of the two z-20 layers in the DOM, which is the only thing keeping the full-screen loading overlay from swallowing the tap.",
       "fixed_by": "fix/location-map-continue-noop",
       "why_it_needs_a_lock": [
         "The bug WAS `if (!vaultOwnerToken) return;` as the first line of",
@@ -548,6 +548,14 @@
             "asks for the missing lock instead of doing nothing when there is no owner token",
             "sends one write for a double tap",
             "never lets a map-state read that started earlier revive the dismissed card"
+          ]
+        },
+        {
+          "path": "hushh-webapp/e2e/one-location-map-consent.layout.spec.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 8,
+          "required_titles": [
+            "the card is painted after the full-screen loading overlay, not before"
           ]
         }
       ]
