@@ -238,6 +238,11 @@ import {
   ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
 } from "@/lib/one-location/nearby-check-in-availability";
 import { resolveOnboardingMapPoint } from "@/lib/one-location/onboarding-map-point";
+import {
+  OneLocationLockRequiredError,
+  resolveOneLocationLockState,
+} from "@/lib/one-location/circle-lock-state";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 
 import {
   clearLiveShareEntries,
@@ -2233,6 +2238,14 @@ export function OneLocationAgentPageContent({
     isRetryingPushRegistration,
   } = useConsentNotificationState();
   const { vaultOwnerToken, vaultKey } = useVault();
+  // The one lock decision this route makes. Derived rather than assumed:
+  // VaultLockGuard admits an account that has no lock at all, so "no token" is a
+  // normal state here, and "not settled yet" is not the same thing as "locked".
+  const lockState = resolveOneLocationLockState({
+    authLoading: auth.loading,
+    userId: auth.userId,
+    vaultOwnerToken,
+  });
   const pendingCircleInviteToken = useMemo(
     () => String(searchParams.get("circleInviteToken") || "").trim(),
     [searchParams],
@@ -6832,7 +6845,12 @@ export function OneLocationAgentPageContent({
       name: string,
       kind: OneLocationCircleKind,
     ): Promise<OneLocationCircleDetail> => {
-      if (!vaultOwnerToken) throw new Error("Unlock One before creating a Circle.");
+      // Backstop, not the gate. The screen decides the lock question up front
+      // and opens the unlock sheet, so a person never reaches this line. It
+      // stays for callers that have no UI to prompt with — One Voice reads the
+      // message out — and it is typed so a caller can tell "unlock first" apart
+      // from a server rejection without matching on a sentence.
+      if (!vaultOwnerToken) throw new OneLocationLockRequiredError();
       setBusy("namedCircle");
       try {
         const circle = await OneLocationService.createNamedCircle({
@@ -6860,6 +6878,45 @@ export function OneLocationAgentPageContent({
       }
     },
     [scheduleNamedCircleStateRefresh, vaultOwnerToken],
+  );
+
+  /**
+   * The unlock sheet a Circle flow opens when it finds no owner token.
+   *
+   * `allowVaultCreation` is on because the common case here is not a locked
+   * lock — it is an account that never made one. VaultLockGuard admits such an
+   * account to `/one/*`, so the sheet has to be able to create as well as open,
+   * or the person is offered a door with no key behind it.
+   *
+   * It is the same sheet Kai, Gmail, Your Map and the Agent already use; this
+   * route is not inventing a second way to ask for a lock.
+   */
+  const renderCircleLockPrompt = useCallback(
+    ({
+      open,
+      onDone,
+    }: {
+      open: boolean;
+      onDone: (unlocked: boolean) => void;
+    }) => {
+      if (!auth.user) return null;
+      return (
+        <VaultUnlockDialog
+          user={auth.user}
+          open={open}
+          onOpenChange={(nextOpen) => {
+            // Dismissed without unlocking. The flow keeps the typed name and
+            // the chosen kind and simply goes back to waiting.
+            if (!nextOpen) onDone(false);
+          }}
+          title="Unlock One"
+          description="Circles are private. Unlock to make one."
+          allowVaultCreation
+          onSuccess={() => onDone(true)}
+        />
+      );
+    },
+    [auth.user],
   );
 
   const handleResolveNamedCircleCode = useCallback(
@@ -11555,6 +11612,8 @@ export function OneLocationAgentPageContent({
     onCopyCircleInvite: () => void handleCopyCircleInvite(),
     onShareCircleInvite: () => void handleShareCircleInvite(),
     onRevokeCircleInvite: (invite) => void handleRevokeCircleInvite(invite),
+    lockState,
+    renderLockPrompt: renderCircleLockPrompt,
     onLoadNamedCircle: handleLoadNamedCircle,
     onCreateNamedCircle: handleCreateNamedCircle,
     onRenameNamedCircle: handleRenameNamedCircle,

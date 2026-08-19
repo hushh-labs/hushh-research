@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 
@@ -17,6 +18,10 @@ import {
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { CIRCLE_NAME_ACTION_CLASSNAME } from "@/components/one-location/redesign/circles/circle-name-row-layout";
+import {
+  OneLocationLockRequiredError,
+  type OneLocationLockState,
+} from "@/lib/one-location/circle-lock-state";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleInvitePreview,
@@ -96,7 +101,7 @@ describe("named Circle flows", () => {
       .mockRejectedValueOnce(new Error("Circle limit reached."))
       .mockResolvedValueOnce(undefined);
 
-    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
+    render(<CreateCircleFlow busy={false} lockState="ready" onSubmit={onSubmit} />);
 
     fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
       target: { value: "Meena Family" },
@@ -114,7 +119,7 @@ describe("named Circle flows", () => {
 
   it("blocks Create only while the name is empty, and says so visibly", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
-    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
+    render(<CreateCircleFlow busy={false} lockState="ready" onSubmit={onSubmit} />);
 
     const create = screen.getByRole("button", { name: "Create circle" });
     const input = screen.getByPlaceholderText("e.g. Family");
@@ -135,6 +140,306 @@ describe("named Circle flows", () => {
 
     fireEvent.click(create);
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("A", "family"));
+  });
+
+  // ==========================================================================
+  // The lock lifecycle.
+  //
+  // `/one/location` renders for an account that holds no lock at all --
+  // VaultLockGuard admits it on its `hasVault === false` branch -- so this
+  // screen has to answer the lock question itself. It used to discover the
+  // answer only in the failure path of the last tap and dead-end on a toast.
+  // ==========================================================================
+
+  /**
+   * Stands in for the page's `renderLockPrompt`: a button that resolves the
+   * unlock either way, so a test drives the same two outcomes the real sheet
+   * produces without mounting the vault stack.
+   */
+  function lockPrompt() {
+    function LockPromptStub({
+      open,
+      onDone,
+    }: {
+      open: boolean;
+      onDone: (unlocked: boolean) => void;
+    }) {
+      if (!open) return null;
+      return (
+        <div data-testid="lock-prompt">
+          <button type="button" onClick={() => onDone(true)}>
+            Unlock now
+          </button>
+          <button type="button" onClick={() => onDone(false)}>
+            Dismiss lock
+          </button>
+        </div>
+      );
+    }
+    // Returned as the render prop itself — `renderUnlock` invokes it directly.
+    return LockPromptStub;
+  }
+
+  /**
+   * The screen wired the way production wires it.
+   *
+   * This models the timing that a naive stub hides. `VaultFlow` calls
+   * `unlockVault()` and then `onSuccess()` in the SAME tick
+   * (components/vault/vault-flow.tsx:341-342), and `unlockVault` is plain state
+   * setters — so at the moment the flow is told "unlocked", the component still
+   * holds the render whose submit handler closed over a null token. Here
+   * `onSubmit` is recreated on every render capturing the CURRENT lock state and
+   * rejects when it is not "ready", exactly as `handleCreateNamedCircle` does.
+   *
+   * A stub whose `onSubmit` ignores the lock would pass whether the resume is
+   * correct or not, which is how this class of bug shipped on Your Map.
+   */
+  function CreateCircleHarness({
+    initialLockState,
+    onCreated,
+  }: {
+    initialLockState: OneLocationLockState;
+    onCreated: (name: string, kind: string) => void;
+  }) {
+    const [lockState, setLockState] =
+      React.useState<OneLocationLockState>(initialLockState);
+    const LockPrompt = lockPrompt();
+
+    return (
+      <CreateCircleFlow
+        busy={false}
+        lockState={lockState}
+        renderUnlock={({ open, onDone }) => (
+          <LockPrompt
+            open={open}
+            onDone={(unlocked) => {
+              // Both in one tick, like the real unlock.
+              if (unlocked) setLockState("ready");
+              onDone(unlocked);
+            }}
+          />
+        )}
+        onSubmit={async (name, kind) => {
+          if (lockState !== "ready") {
+            throw new OneLocationLockRequiredError();
+          }
+          onCreated(name, kind);
+        }}
+      />
+    );
+  }
+
+  it("creates straight away when the lock is already open", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CreateCircleFlow
+        busy={false}
+        lockState="ready"
+        renderUnlock={lockPrompt()}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
+      target: { value: "Meena Family" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
+
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith("Meena Family", "family"),
+    );
+    // No lock interruption for someone who is already unlocked.
+    expect(screen.queryByTestId("lock-prompt")).toBeNull();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("waits while the lock state is still settling instead of calling it locked", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CreateCircleFlow
+        busy={false}
+        lockState="resolving"
+        renderUnlock={lockPrompt()}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
+      target: { value: "Meena Family" },
+    });
+    const create = screen.getByRole("button", { name: "Create circle" });
+
+    // An unsettled state is not a verdict: the screen neither creates nor
+    // accuses the person of being locked. It waits, visibly.
+    expect(create).toBeDisabled();
+    fireEvent.click(create);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("lock-prompt")).toBeNull();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("opens the lock, then finishes the create the person already asked for", async () => {
+    const onCreated = vi.fn();
+    render(
+      <CreateCircleHarness initialLockState="locked" onCreated={onCreated} />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
+      target: { value: "Meena Family" },
+    });
+    // The row's test id sits on its wrapper; the control is the button inside.
+    fireEvent.click(
+      within(screen.getByTestId("one-location-circle-kind-friends")).getByRole(
+        "button",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
+
+    // The lock is asked for, not reported as a failure.
+    await screen.findByTestId("lock-prompt");
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Unlock now" }));
+
+    // The pending create resumes with exactly what was typed and chosen. The
+    // person does not fill the form in again.
+    //
+    // This is the assertion that catches resuming too early: the unlock lands
+    // in the same tick as the state change, so a resume that runs inside the
+    // unlock callback still sees the old lock state, throws, and toasts.
+    await waitFor(() =>
+      expect(onCreated).toHaveBeenCalledWith("Meena Family", "friends"),
+    );
+    expect(onCreated).toHaveBeenCalledTimes(1);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("leaves the form intact and creates nothing when the lock is dismissed", async () => {
+    const onCreated = vi.fn();
+    render(
+      <CreateCircleHarness initialLockState="locked" onCreated={onCreated} />,
+    );
+
+    const input = screen.getByPlaceholderText("e.g. Family");
+    fireEvent.change(input, { target: { value: "Meena Family" } });
+    fireEvent.click(
+      within(screen.getByTestId("one-location-circle-kind-other")).getByRole(
+        "button",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
+    await screen.findByTestId("lock-prompt");
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss lock" }));
+
+    await waitFor(() => expect(screen.queryByTestId("lock-prompt")).toBeNull());
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+    // Nothing was lost by asking.
+    expect((input as HTMLInputElement).value).toBe("Meena Family");
+
+    // And the screen is not wedged by the abandoned attempt: a second try asks
+    // again, and completing it proves the chosen kind survived the dismissal
+    // too -- which asserting on a tick mark's markup would not.
+    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
+    await screen.findByTestId("lock-prompt");
+    fireEvent.click(screen.getByRole("button", { name: "Unlock now" }));
+    await waitFor(() =>
+      expect(onCreated).toHaveBeenCalledWith("Meena Family", "other"),
+    );
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("releases the form when the sheet reports success but no lock arrives", async () => {
+    // The sheet can close successfully without a token reaching this component
+    // (a token issue that fails after the key decrypts). The screen must not
+    // sit spinning on a create that can never run.
+    const onCreated = vi.fn();
+    render(
+      <CreateCircleFlow
+        busy={false}
+        lockState="locked"
+        renderUnlock={lockPrompt()}
+        onSubmit={async (name, kind) => onCreated(name, kind)}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
+      target: { value: "Meena Family" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
+    await screen.findByTestId("lock-prompt");
+    // `lockState` stays "locked" here — the sheet says yes, the token never came.
+    fireEvent.click(screen.getByRole("button", { name: "Unlock now" }));
+
+    await waitFor(() => expect(screen.queryByTestId("lock-prompt")).toBeNull());
+    expect(onCreated).not.toHaveBeenCalled();
+
+    // Still usable: the next tap asks again rather than being wedged.
+    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
+    await screen.findByTestId("lock-prompt");
+  });
+
+  it("never creates twice from a double tap", async () => {
+    let release: (() => void) | undefined;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = () => resolve();
+        }),
+    );
+    render(
+      <CreateCircleFlow
+        busy={false}
+        lockState="ready"
+        renderUnlock={lockPrompt()}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
+      target: { value: "Meena Family" },
+    });
+    const create = screen.getByRole("button", { name: "Create circle" });
+
+    // Two taps in the same tick, before the page has raised `busy`. The
+    // in-flight guard is what stops the second one -- `busy` arrives too late.
+    fireEvent.click(create);
+    fireEvent.click(create);
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      release?.();
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not blame the lock when the server refuses the create", async () => {
+    const onSubmit = vi
+      .fn()
+      .mockRejectedValue(new Error("You can belong to up to 10 Circles."));
+    render(
+      <CreateCircleFlow
+        busy={false}
+        lockState="ready"
+        renderUnlock={lockPrompt()}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. Family"), {
+      target: { value: "Meena Family" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "You can belong to up to 10 Circles.",
+      ),
+    );
+    // A server rejection keeps its own reason and never opens the lock sheet.
+    expect(screen.queryByTestId("lock-prompt")).toBeNull();
   });
 
   it("finds a connection from the first letter of any of their names", async () => {
