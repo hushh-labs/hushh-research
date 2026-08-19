@@ -332,6 +332,7 @@ vi.mock("@/lib/one-location/service", () => ({
     // member-visible invite code before the people step opens.
     listCircles: vi.fn().mockResolvedValue([]),
     getCircle: vi.fn(),
+    ensureSmsSystemCircle: vi.fn().mockResolvedValue({ members: [] }),
     createNamedCircle: vi.fn().mockResolvedValue({
       id: "circle_onboarding",
       name: "Test's Circle",
