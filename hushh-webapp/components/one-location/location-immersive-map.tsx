@@ -97,6 +97,7 @@ import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition
 import { motionDurations, motionEasings } from "@/lib/morphy-ux/motion";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   claimNativeMap,
@@ -527,6 +528,18 @@ export function LocationImmersiveMap({
   const [acceptedRenderer, setAcceptedRenderer] = useState(() =>
     readCachedRendererConsentAccepted(auth.userId),
   );
+  // Once this owner has accepted in this session, nothing older may take it
+  // back. The bootstrap map-state read below is already in flight while the
+  // card is on screen, and it answers with the state from BEFORE the write --
+  // applying that answer put the dismissed card back up with nothing said.
+  const rendererConsentAcceptedRef = useRef(false);
+  // Accepting is a write. Without a busy state a second tap sends a second
+  // write, and the button spends the whole round trip looking untouched.
+  const [acceptingRenderer, setAcceptingRenderer] = useState(false);
+  // Shown when this account has no lock yet. There is then no owner token to
+  // write consent with, so the card asks for the lock instead of offering an
+  // action that cannot finish -- which is what it did: nothing, silently.
+  const [lockPromptOpen, setLockPromptOpen] = useState(false);
   const [markers, setMarkers] = useState<RenderMarker[]>([]);
   // The server's own definition of live, rather than a second copy of 90 in
   // the client that could drift away from it.
@@ -1064,6 +1077,10 @@ export function LocationImmersiveMap({
         const accepted =
           state.preferences.rendererConsentVersion ===
           GOOGLE_MAPS_RENDERER_CONSENT_VERSION;
+        // This read started before the accept write, so it cannot answer for
+        // it. Consent may only move forward here: an older snapshot never
+        // revives a card the owner has already dismissed.
+        if (!accepted && rendererConsentAcceptedRef.current) return;
         setAcceptedRenderer(accepted);
         writeCachedRendererConsentAccepted(auth.userId, accepted);
       })
@@ -1968,18 +1985,34 @@ export function LocationImmersiveMap({
   ]);
 
   const acceptRenderer = useCallback(async () => {
-    if (!vaultOwnerToken) return;
+    // A write already in flight. Answering the second tap with a second write
+    // would create a second request for one decision.
+    if (acceptingRenderer) return;
+    // No lock on this account, so there is no owner token to store consent
+    // against. Every route under /one is normally held behind the lock, but an
+    // account that never created one is let through on purpose -- and arrives
+    // here with a null token. This used to `return` on that, which is why the
+    // button did nothing at all: no request, no state change, no message, on
+    // every tap, forever. Ask for the missing lock instead.
+    if (!vaultOwnerToken) {
+      setLockPromptOpen(true);
+      return;
+    }
+    setAcceptingRenderer(true);
     try {
       await OneLocationService.updateMapPreferences({
         vaultOwnerToken,
         rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
       });
+      rendererConsentAcceptedRef.current = true;
       setAcceptedRenderer(true);
       writeCachedRendererConsentAccepted(auth.userId, true);
     } catch {
       toast.error("Your Map could not be prepared.");
+    } finally {
+      setAcceptingRenderer(false);
     }
-  }, [auth.userId, vaultOwnerToken]);
+  }, [acceptingRenderer, auth.userId, vaultOwnerToken]);
 
   const focusMarker = useCallback(async (marker: RenderMarker) => {
     setSelected(marker);
@@ -2815,11 +2848,24 @@ export function LocationImmersiveMap({
             it needs to draw them. Nearby Check-In is separate — it starts only
             when you do.
           </p>
+          {/*
+            One button, two honest states. With a lock this writes the consent
+            version and the card goes; without one there is nothing to write it
+            against, so it says what is actually missing rather than offering a
+            "Continue" that cannot finish. The busy state is not decoration: it
+            is what stops the round trip from reading as a dead tap.
+          */}
           <Button
             className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
+            data-testid="one-location-map-disclosure-accept"
+            disabled={acceptingRenderer}
+            aria-busy={acceptingRenderer || undefined}
             onClick={() => void acceptRenderer()}
           >
-            Continue
+            {acceptingRenderer ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : null}
+            {vaultOwnerToken ? "Continue" : "Set a lock"}
           </Button>
           {demoAvailable ? (
             <Button
@@ -2836,6 +2882,24 @@ export function LocationImmersiveMap({
             </Button>
           ) : null}
         </section>
+      ) : null}
+      {/*
+        Kept out of the card's own branch on purpose: the sheet has to survive
+        the moment consent lands and the card unmounts. Creating the lock here
+        does not also accept the disclosure -- they are two different decisions
+        by two different owners of the screen, and the map has no business
+        agreeing to the second one on somebody's behalf.
+      */}
+      {lockPromptOpen && auth.user ? (
+        <VaultUnlockDialog
+          user={auth.user}
+          open
+          onOpenChange={setLockPromptOpen}
+          title="Set a lock"
+          description="Your Map opens private shares on this device. Set a lock to turn it on."
+          allowVaultCreation
+          onSuccess={() => setLockPromptOpen(false)}
+        />
       ) : null}
       {rendererReady && status === "unavailable" ? (
         // Full-bleed styled fallback. Previously only a small bottom card sat
