@@ -5093,3 +5093,40 @@ def test_same_lane_replacement_still_revokes_the_previous_grant() -> None:
         )
         == 2
     )
+
+
+def test_revoking_an_sms_share_names_the_lane_in_its_copy() -> None:
+    """The recipient is told WHICH share ended, not just that one did.
+
+    Stopping an SMS alert revokes its grant through `revoke_grant`, the same
+    path an ordinary share takes, and the notification never named the lane.
+    Someone who had only ever received an emergency SMS was told "X removed
+    your location access" -- about access they do not know by that name, in a
+    sentence identical to the one an ordinary share produces.
+
+    Since #5552 a person can hold both lanes with the same counterpart at once,
+    so the unnamed wording is ambiguous exactly when someone is checking whether
+    the emergency share is still running.
+    """
+
+    import inspect
+
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    source = inspect.getsource(OneLocationAgentService.revoke_grant)
+
+    # The lane is read from the grant rather than guessed. Both queries in
+    # revoke_grant select `*`, so share_kind is already on the row.
+    assert 'row.get("share_kind")' in source
+    assert 'revoked_share_kind == "sos"' in source or "revoked_via_sms" in source
+
+    # The recipient's word is SMS -- an SMS alert is how it reached them.
+    assert "SMS location sharing stopped" in source
+    assert "over SMS" in source
+
+    # Ordinary shares keep the wording they had.
+    assert "removed your location access." in source
+
+    # And the lane travels with the payload, because the grant is gone by the
+    # time the client renders this and cannot look the kind up itself.
+    assert '"share_kind": revoked_share_kind or "standard"' in source
