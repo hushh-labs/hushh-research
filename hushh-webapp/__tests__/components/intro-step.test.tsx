@@ -96,15 +96,26 @@ describe("IntroStep welcome clarity", () => {
     const { container } = render(<IntroStep onLogin={vi.fn()} />);
 
     const wordmark = screen.getByText("hussh");
+    const eyebrow = screen.getByText("Your private agent");
     const one = screen.getByRole("heading", { name: "One" });
-    const supporting = screen.getByText(
-      "Your personal assistant for everyday tasks.",
+    const supporting = screen.getByText("Your agents. Yours to own.");
+    const capabilities = screen.getByText(
+      "Listens · Remembers · Decides · Acts",
     );
     const cta = screen.getByRole("button", { name: /get started/i });
     const privacy = screen.getByText(/You control what you share\./);
     const nav = screen.getByRole("navigation", { name: "Explore Hussh" });
 
-    const order = [wordmark, one, supporting, cta, privacy, nav];
+    const order = [
+      wordmark,
+      eyebrow,
+      one,
+      supporting,
+      capabilities,
+      cta,
+      privacy,
+      nav,
+    ];
     for (let i = 0; i < order.length - 1; i += 1) {
       expect(order[i].compareDocumentPosition(order[i + 1])).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -136,18 +147,28 @@ describe("IntroStep welcome clarity", () => {
     expect(quietMark).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("carries no marketing text ahead of the decision", () => {
+  it("restores the production positioning copy ahead of the decision", () => {
     render(<IntroStep onLogin={vi.fn()} />);
 
+    expect(screen.getByText("Your private agent")).toBeInTheDocument();
+    expect(
+      screen.getByText("Your agents. Yours to own."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Listens · Remembers · Decides · Acts"),
+    ).toBeInTheDocument();
+  });
+
+  it("still carries no privacy/consent paragraph ahead of the decision", () => {
+    render(<IntroStep onLogin={vi.fn()} />);
+
+    // The one line under the button ("You control what you share.") already
+    // says the thing that changes a person's decision — a second privacy
+    // section is what this test guards against reappearing.
     for (const removed of [
-      /Your private agent/i,
-      /Yours to own/i,
-      /Listens/i,
-      /Remembers/i,
-      /Decides/i,
-      /Acts/i,
+      /stays encrypted in your vault/i,
+      /Nothing moves without your consent/i,
       /stays locked/i,
-      /Nothing moves without/i,
     ]) {
       expect(screen.queryByText(removed)).toBeNull();
     }

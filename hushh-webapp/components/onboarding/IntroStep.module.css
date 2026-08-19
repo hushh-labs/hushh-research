@@ -99,6 +99,18 @@
   align-items: center;
 }
 
+/* What One is, in four words, before the mark. Small, tracked, and quiet —
+   this sets up the mark rather than competing with it. */
+.eyebrow {
+  margin: 0 0 12px;
+  color: var(--intro-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both;
+}
+
 /* The mark and its wash. `closest-side` keeps the gradient a circle inside
    the square box no matter how the emoji font measures, and the accent is
    read from the glyph token so Molten Gold repaints the wash with it. */
@@ -160,12 +172,26 @@
   filter: blur(8px);
 }
 
-/* The one bold element on the screen. Solid accent, no foil gradient, no
-   background-clip: at 80px the old three-stop sheen read as a logo effect and
-   competed with the button for the eye. */
+/* The one bold element on the screen. A single restrained pass of the app's
+   own hero-gradient stops (iOS Blue default, Molten Gold under
+   html[data-accent="gold"] — the same tokens the top bar's brand dot already
+   uses), not the old three-stop mirrored sheen: no repeated background-size
+   trick, one direction, so at this size it reads as warmth on the glyph
+   rather than a logo effect competing with the button. `color` stays set as
+   a same-family fallback for anything that does not support
+   background-clip: text. */
 .oneMark {
   display: inline-block;
   color: var(--intro-blue-text);
+  background-image: linear-gradient(
+    100deg,
+    var(--app-accent-hero-from) 0%,
+    var(--app-accent-hero-mid) 48%,
+    var(--app-accent-hero-to) 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
   font-family: var(--font-app-display);
   font-size: clamp(76px, 26vw, 104px);
   font-weight: 700;
@@ -182,10 +208,24 @@
   margin: 16px auto 0;
   color: var(--foundation-ink);
   font-size: 20px;
-  font-weight: 400;
+  font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.36;
   animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 320ms both;
+}
+
+/* The four motions, in one quiet line beneath the statement — subtle enough
+   that One and the statement above it stay the loudest things on screen. */
+.capabilities {
+  margin: 10px auto 0;
+  max-width: 20rem;
+  color: var(--intro-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.5;
+  animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 360ms both;
 }
 
 .footer {
@@ -290,8 +330,10 @@
   }
 
   .brand,
+  .eyebrow,
   .title,
   .tagline,
+  .capabilities,
   .footer {
     animation: none;
   }
@@ -301,6 +343,11 @@
    from the gaps first, exactly as the master rules require, before anything
    touches type size or the 56px button. */
 @media (max-height: 780px) {
+  .eyebrow {
+    margin-bottom: 6px;
+    font-size: 11px;
+  }
+
   .markWrap {
     width: 116px;
     height: 116px;
@@ -326,6 +373,12 @@
   .tagline {
     margin-top: 12px;
     font-size: 18px;
+  }
+
+  .capabilities {
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 1.4;
   }
 
   .privacy {
