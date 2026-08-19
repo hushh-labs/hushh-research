@@ -48,6 +48,7 @@ import {
 
 import { requestRecipientStatus } from "@/lib/one-location/request-recipient-status";
 import {
+  approvalDurationOptions,
   locationApproveActionLabel,
   locationAskPromptLine,
   locationTimestampMs,
@@ -119,6 +120,7 @@ import { grantRemainingHours } from "@/lib/one-location/grant-duration-edit";
 import {
   DurationSelector,
   PersonSearchInput,
+  REDESIGN_DURATION_OPTIONS,
   ReasonChips,
   type ReasonValue,
 } from "./selectors";
@@ -342,7 +344,7 @@ export type LocationHubViewModel = {
   /** Resolves true when at least one request actually reached the server. */
   onSendRequest: (reason?: string | null) => Promise<boolean>;
   onAskReshare: (grant: OneLocationGrant) => void;
-  onApprove: (request: OneLocationAccessRequest) => void;
+  onApprove: (request: OneLocationAccessRequest, durationOverrideHours?: number) => void;
   onDeny: (requestId: string) => void;
   /**
    * Take back a request YOU sent. Not `onDeny`, which is the owner refusing an
@@ -1892,20 +1894,38 @@ function LocationDetailFlow({
       {kind === "needs-review" ? (
         vm.pendingOwnerRequests.length ? (
           <div className="space-y-3">
-            {vm.pendingOwnerRequests.map((request) => (
-              <RequestCard
-                key={request.id}
-                name={vm.requesterLabel(request)}
-                // The amount, and whether it is extra time on a share already
-                // running. Every card used to read "Asks to see your location"
-                // whether the person wanted fifteen minutes or another day.
-                promptLine={locationAskPromptLine(request, vm.nowMs)}
-                reason={request.message ?? undefined}
-                approveLabel={locationApproveActionLabel(request, vm.nowMs)}
-                onApprove={() => vm.onApprove(request)}
-                onDecline={() => vm.onDeny(request.id)}
-              />
-            ))}
+            {vm.pendingOwnerRequests.map((request) => {
+              // Present (non-null) only for a timed ask — an "until I stop"
+              // request keeps its single-button approval, no picker. Always
+              // includes the exact amount asked for, so the picker never
+              // opens showing a different number than the button beside it.
+              const durationOptions = approvalDurationOptions(
+                request,
+                REDESIGN_DURATION_OPTIONS,
+              );
+              return (
+                <RequestCard
+                  key={request.id}
+                  name={vm.requesterLabel(request)}
+                  // The amount, and whether it is extra time on a share already
+                  // running. Every card used to read "Asks to see your location"
+                  // whether the person wanted fifteen minutes or another day.
+                  promptLine={locationAskPromptLine(request, vm.nowMs)}
+                  reason={request.message ?? undefined}
+                  approveLabel={locationApproveActionLabel(request, vm.nowMs)}
+                  onApprove={(durationOverrideHours) =>
+                    vm.onApprove(request, durationOverrideHours)
+                  }
+                  onDecline={() => vm.onDeny(request.id)}
+                  durationOptions={durationOptions ?? undefined}
+                  durationSeed={
+                    durationOptions
+                      ? String(Number(request.requestedDurationHours))
+                      : undefined
+                  }
+                />
+              );
+            })}
           </div>
         ) : (
           <EmptyState

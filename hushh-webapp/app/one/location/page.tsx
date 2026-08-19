@@ -7401,7 +7401,7 @@ export function OneLocationAgentPageContent({
   const approveAccessRequest = useCallback(
     async (
       request: OneLocationAccessRequest,
-      options?: { automatic?: boolean },
+      options?: { automatic?: boolean; overrideDurationHours?: number },
     ): Promise<boolean> => {
       if (!vaultOwnerToken) return false;
       const automatic = options?.automatic === true;
@@ -7418,24 +7418,34 @@ export function OneLocationAgentPageContent({
       }
       if (!automatic) setBusy("approve");
       try {
-        // Grant what they asked for. The owner is answering a request that
-        // named an amount -- their own duration control belongs to shares
-        // THEY start, and reading it here is how a person who asked for four
-        // hours silently got one. Fall back to the owner's control only when
-        // the ask carried no amount (older clients, referral requests).
+        // The owner's own explicit choice on the review card wins outright --
+        // that is the whole point of showing it a duration picker. Absent
+        // that, grant what they asked for: the owner's own duration control
+        // belongs to shares THEY start, and reading it here by default is how
+        // a person who asked for four hours silently got one. Fall back to
+        // the owner's control only when the ask carried no amount (older
+        // clients, referral requests).
         const requestedHours = Number(request.requestedDurationHours);
         const approvedHours =
-          Number.isFinite(requestedHours) && requestedHours > 0
-            ? requestedHours
-            : Number(durationHours);
+          typeof options?.overrideDurationHours === "number" &&
+          options.overrideDurationHours > 0
+            ? options.overrideDurationHours
+            : Number.isFinite(requestedHours) && requestedHours > 0
+              ? requestedHours
+              : Number(durationHours);
         const response = await OneLocationService.approveRequest({
           vaultOwnerToken,
           requestId: request.id,
           durationHours: approvedHours,
+          // The picker never offers "until I stop" as an option (it only
+          // appears at all for a timed ask), so an explicit override is
+          // always a timed grant.
           durationMode:
-            request.requestedDurationMode === "until_stopped"
-              ? "until_stopped"
-              : "timed",
+            typeof options?.overrideDurationHours === "number"
+              ? "timed"
+              : request.requestedDurationMode === "until_stopped"
+                ? "until_stopped"
+                : "timed",
         });
         await publishEnvelopeWithRetry(response.grant, requester, "manual");
         // Name the person. An automatic approval is still a share starting
@@ -7474,8 +7484,8 @@ export function OneLocationAgentPageContent({
   );
 
   const handleApprove = useCallback(
-    async (request: OneLocationAccessRequest) => {
-      await approveAccessRequest(request);
+    async (request: OneLocationAccessRequest, overrideDurationHours?: number) => {
+      await approveAccessRequest(request, { overrideDurationHours });
     },
     [approveAccessRequest],
   );
@@ -11391,7 +11401,8 @@ export function OneLocationAgentPageContent({
     onEnterShareConfirm: announceShareReviewOpened,
     onConfirmShare: () => void handleShare(),
     onSendRequest: (reason) => handleRequestAccess(reason),
-    onApprove: (request) => void handleApprove(request),
+    onApprove: (request, durationOverrideHours) =>
+      void handleApprove(request, durationOverrideHours),
     onDeny: (requestId) => void handleDeny(requestId),
     onWithdrawRequest: (requestId) => void handleWithdrawRequest(requestId),
     onViewGrant: (grant) => void handleView(grant),

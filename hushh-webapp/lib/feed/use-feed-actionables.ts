@@ -50,6 +50,7 @@ import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import {
+  isCircleMemberInviteConsent,
   isLocationConsent,
   locationConsentSummary,
 } from "@/lib/consent/location-consent";
@@ -484,6 +485,14 @@ export function useFeedActionables(): UseFeedActionablesResult {
         // the real one). The connections lane owns them: it carries the inline
         // Confirm/Decline and the scoped Review route.
         if (entry.kind === "connection_request") continue;
+        // Circle member invites reach this lane too, from the same
+        // OneLocationCenterContributor fold as the connection-request case
+        // above — and the circle-invite lane further down (kind:'invite',
+        // circleMemberInvites) already renders the same invite with its own
+        // inline Accept/Decline. Without this skip one invitation shows here
+        // twice: a chevron-only "Invitation waiting for your approval." row
+        // and the real actionable one.
+        if (entry.kind === "invite" && isCircleMemberInviteConsent(entry.metadata)) continue;
         items.push({
           id: `consent:${entry.id}`,
           icon: ShieldCheck,
@@ -654,6 +663,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                 inviteId: invite.id,
               });
               if (userId) OneLocationStateResource.invalidate(userId);
+              notifyFeedActionResolved();
               await locationRefresh({ force: true });
             },
           },
@@ -669,6 +679,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                 inviteId: invite.id,
               });
               if (userId) OneLocationStateResource.invalidate(userId);
+              notifyFeedActionResolved();
               await locationRefresh({ force: true });
             },
           },
