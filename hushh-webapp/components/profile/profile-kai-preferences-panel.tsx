@@ -67,7 +67,7 @@ export function ProfileKaiPreferencesPanel({
         <SurfaceCardHeader>
           <SurfaceCardTitle>Unlock to edit your preferences</SurfaceCardTitle>
           <SurfaceCardDescription>
-            Risk profile and horizon preferences are stored securely in your vault.
+            Your risk profile and horizon are stored privately.
           </SurfaceCardDescription>
         </SurfaceCardHeader>
         <SurfaceCardContent>

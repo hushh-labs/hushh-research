@@ -263,13 +263,13 @@ export function PkmDataManagerPanel({
             Set up saved details
           </SurfaceCardTitle>
           <SurfaceCardDescription>
-            Create your vault first so One can save your details and sharing
-            controls here.
+            Set a lock so One can save your details and sharing controls
+            here.
           </SurfaceCardDescription>
         </SurfaceCardHeader>
         <SurfaceCardContent>
           <Button type="button" onClick={onOpenImport}>
-            Create vault
+            Set a lock
           </Button>
         </SurfaceCardContent>
       </SurfaceCard>
