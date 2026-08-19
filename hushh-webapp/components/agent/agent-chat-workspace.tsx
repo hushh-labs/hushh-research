@@ -1484,7 +1484,7 @@ export function AgentChatWorkspace({
     () => {
       if (authLoading) return "Checking access";
       if (!user?.uid) return "Sign in required";
-      if (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh) return "Vault locked";
+      if (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh) return "Locked";
       if (activeActionRun) return activeActionRun.message;
       if (!agentVoiceEnabled && voiceActive) return "Voice disabled";
       if (voiceState === "connecting") return "Voice connecting";
@@ -2901,7 +2901,7 @@ export function AgentChatWorkspace({
 
     const loadTurnPkmContext = async (): Promise<AgentPkmContext> => {
       if (!vaultKey) {
-        throw new Error("Your vault must remain unlocked while One prepares your private memory.");
+        throw new Error("Stay unlocked while One reads your private memory.");
       }
 
       const cachedContext = peekAgentPkmContext({

@@ -2368,7 +2368,7 @@ export function ConsentCenterPage() {
     load: async () => {
       const vaultOwnerToken = getVaultOwnerToken();
       if (!user?.uid || !vaultOwnerToken) {
-        throw new Error("Unlock your vault to open this consent request.");
+        throw new Error("Unlock One to open this request.");
       }
       return ConsentCenterService.lookupPendingRequests({
         vaultOwnerToken,

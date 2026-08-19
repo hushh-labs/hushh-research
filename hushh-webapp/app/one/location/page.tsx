@@ -4041,7 +4041,7 @@ export function OneLocationAgentPageContent({
       recipient: OneLocationRecipient,
       pointOverride?: PlainLocationPoint,
     ) => {
-      if (!vaultOwnerToken) throw new Error("Vault owner token required.");
+      if (!vaultOwnerToken) throw new OneLocationLockRequiredError();
       if (!recipient.publicKeyJwk || !recipient.keyId) {
         throw new Error(
           "They need to open Location once before private sharing can start.",
@@ -10983,7 +10983,7 @@ export function OneLocationAgentPageContent({
   const searchOnboardingSavedPlaces = useCallback(
     async (input: string) => {
       if (!vaultOwnerToken) {
-        throw new Error("Vault owner token required.");
+        throw new OneLocationLockRequiredError();
       }
       return OneLocationService.placesAutocomplete({
         vaultOwnerToken,
