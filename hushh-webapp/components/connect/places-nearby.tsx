@@ -81,14 +81,26 @@ export function PlacesNearby({
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const railRef = useRef<HTMLDivElement | null>(null);
+  const trackRef = useRef<HTMLDivElement | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const [hasOverflow, setHasOverflow] = useState(false);
+  const [thumbLeft, setThumbLeft] = useState(0);
+  const [thumbWidth, setThumbWidth] = useState(100);
 
   const checkScroll = useCallback(() => {
     const el = railRef.current;
     if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 2);
-    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+    const { scrollLeft, clientWidth, scrollWidth } = el;
+    setCanScrollLeft(scrollLeft > 2);
+    setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 2);
+    setHasOverflow(scrollWidth > clientWidth + 2);
+    if (scrollWidth > 0) {
+      const wPercent = Math.max(10, Math.min(100, (clientWidth / scrollWidth) * 100));
+      const lPercent = Math.max(0, Math.min(100 - wPercent, (scrollLeft / scrollWidth) * 100));
+      setThumbWidth(wPercent);
+      setThumbLeft(lPercent);
+    }
   }, []);
 
   useEffect(() => {
@@ -105,6 +117,17 @@ export function PlacesNearby({
 
   const handleScrollBy = (delta: number) => {
     railRef.current?.scrollBy({ left: delta, behavior: "smooth" });
+  };
+
+  const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const trackEl = trackRef.current;
+    const railEl = railRef.current;
+    if (!trackEl || !railEl) return;
+    const rect = trackEl.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickRatio = clickX / rect.width;
+    const targetScroll = clickRatio * railEl.scrollWidth - railEl.clientWidth / 2;
+    railEl.scrollTo({ left: targetScroll, behavior: "smooth" });
   };
 
   useEffect(() => {
@@ -294,18 +317,7 @@ export function PlacesNearby({
       {/* A rail rather than a segmented control: eleven segments would each be
           too narrow to read, and the rail is the pattern the check-in picker
           already uses for the same set of ideas. */}
-      <div className="group relative w-full">
-        {canScrollLeft ? (
-          <button
-            type="button"
-            aria-label="Scroll left"
-            onClick={() => handleScrollBy(-220)}
-            className="absolute left-1 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-border/80 bg-background/90 text-foreground shadow-md backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-        ) : null}
-
+      <div className="space-y-1.5 w-full">
         <div
           ref={railRef}
           className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 touch-pan-x overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -342,28 +354,42 @@ export function PlacesNearby({
           })}
         </div>
 
-        {canScrollRight ? (
-          <button
-            type="button"
-            aria-label="Scroll right"
-            onClick={() => handleScrollBy(220)}
-            className="absolute right-1 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-border/80 bg-background/90 text-foreground shadow-md backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        ) : null}
+        {hasOverflow ? (
+          <div className="flex items-center gap-2 px-1 pt-0.5" data-testid="places-category-scrollbar">
+            <button
+              type="button"
+              aria-label="Scroll left"
+              disabled={!canScrollLeft}
+              onClick={() => handleScrollBy(-220)}
+              className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground/70 transition-colors hover:text-foreground disabled:opacity-25"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
 
-        {canScrollRight ? (
-          <div
-            className="pointer-events-none absolute right-0 top-0 bottom-1 w-8 bg-gradient-to-l from-background via-background/80 to-transparent"
-            aria-hidden="true"
-          />
-        ) : null}
-        {canScrollLeft ? (
-          <div
-            className="pointer-events-none absolute left-0 top-0 bottom-1 w-8 bg-gradient-to-r from-background via-background/80 to-transparent"
-            aria-hidden="true"
-          />
+            <div
+              ref={trackRef}
+              onClick={handleTrackClick}
+              className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-muted/60 cursor-pointer"
+            >
+              <div
+                className="absolute top-0 bottom-0 rounded-full bg-muted-foreground/60 transition-all duration-100"
+                style={{
+                  left: `${thumbLeft}%`,
+                  width: `${thumbWidth}%`,
+                }}
+              />
+            </div>
+
+            <button
+              type="button"
+              aria-label="Scroll right"
+              disabled={!canScrollRight}
+              onClick={() => handleScrollBy(220)}
+              className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground/70 transition-colors hover:text-foreground disabled:opacity-25"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
         ) : null}
       </div>
 
