@@ -17,8 +17,6 @@ import {
 import { App as CapacitorApp } from "@capacitor/app";
 import {
   ChevronDown,
-  Eye,
-  EyeOff,
   LocateFixed,
   Loader2,
   MapPin,
@@ -66,6 +64,7 @@ import {
   getBrowserMapsApiKey,
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
+import { neutralWorldCamera } from "@/lib/one-location/map-world-view";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import {
   filterPeopleByQuery,
@@ -82,7 +81,6 @@ import {
 import { OneLocationService } from "@/lib/one-location/service";
 import type {
   OneLocationMapMarker,
-  OneLocationMapPreferences,
   OneLocationGrant,
   OneLocationNearbyAttendee,
   OneLocationNearbyPresenceState,
@@ -508,6 +506,13 @@ export function LocationImmersiveMap({
   // undone on the next render.
   const checkInSheetDismissedRef = useRef(false);
   const entryLocationRequestedRef = useRef(false);
+  /**
+   * Whether this map instance is still showing the derived world view rather
+   * than a real position. Only a neutral camera may be re-framed by the resize
+   * pass below; once a coordinate has been applied the camera belongs to the
+   * entry-location, Locate and marker-tap paths.
+   */
+  const onNeutralWorldViewRef = useRef(false);
   const locationCaptureRef = useRef<Promise<PlainLocationPoint> | null>(null);
   const nearbyConnectInFlightRef = useRef(false);
   const nearbyConnectGenerationRef = useRef(0);
@@ -522,9 +527,6 @@ export function LocationImmersiveMap({
   const [acceptedRenderer, setAcceptedRenderer] = useState(() =>
     readCachedRendererConsentAccepted(auth.userId),
   );
-  const [preferences, setPreferences] = useState<OneLocationMapPreferences>({
-    presenceMode: "ghost",
-  });
   const [markers, setMarkers] = useState<RenderMarker[]>([]);
   // The server's own definition of live, rather than a second copy of 90 in
   // the client that could drift away from it.
@@ -591,7 +593,7 @@ export function LocationImmersiveMap({
   const [unavailableReason, setUnavailableReason] = useState<
     "maps-key" | "renderer"
   >("maps-key");
-  const [busy, setBusy] = useState<"presence" | "locate" | null>(null);
+  const [busy, setBusy] = useState<"locate" | null>(null);
   const [nearbyConnectionBusyAlias, setNearbyConnectionBusyAlias] = useState<
     string | null
   >(null);
@@ -881,6 +883,8 @@ export function LocationImmersiveMap({
       };
       setSelfMarker(currentLocation);
       if (options.select) setSelected(currentLocation);
+      // A coordinate is on screen now, so the resize pass must stop re-framing.
+      onNeutralWorldViewRef.current = false;
       if (auth.userId) {
         const workspace = readLocationWorkspaceMemory(auth.userId);
         writeLocationWorkspaceMemory(auth.userId, {
@@ -967,7 +971,6 @@ export function LocationImmersiveMap({
       const nextMarkers = resolved.filter(
         (item): item is RenderMarker => item !== null,
       );
-      setPreferences(state.preferences);
       if (Number.isFinite(state.freshnessSeconds) && state.freshnessSeconds > 0) {
         setFreshnessSeconds(state.freshnessSeconds);
       }
@@ -1046,7 +1049,6 @@ export function LocationImmersiveMap({
   useEffect(() => {
     if (!vaultOwnerToken || !auth.userId) return;
     if (demoMode) {
-      setPreferences({ presenceMode: "ghost" });
       return;
     }
     // Re-apply the cache on every userId change (covers the case where the
@@ -1059,7 +1061,6 @@ export function LocationImmersiveMap({
     void OneLocationService.getMapState(vaultOwnerToken)
       .then((state) => {
         if (cancelled) return;
-        setPreferences(state.preferences);
         const accepted =
           state.preferences.rendererConsentVersion ===
           GOOGLE_MAPS_RENDERER_CONSENT_VERSION;
@@ -1164,6 +1165,13 @@ export function LocationImmersiveMap({
       if (superseded()) return;
       await waitForLaidOutBox(element);
       if (superseded()) return;
+      // Derived from the element that has to be filled, not guessed. See
+      // `map-world-view` for why a fixed zoom cannot fill every container.
+      const neutralWorld = neutralWorldCamera(element.getBoundingClientRect());
+      // Only a neutral view may be re-framed on resize. A camera that is
+      // already showing a real position belongs to the entry-location and
+      // Locate effects, and must never be pulled back out to the world.
+      onNeutralWorldViewRef.current = !cachedPoint && !initialDemoModeRef.current;
       const map = await GoogleMap.create({
         id: MAP_ID,
         element,
@@ -1174,12 +1182,12 @@ export function LocationImmersiveMap({
             ? { lat: cachedPoint.latitude, lng: cachedPoint.longitude }
             : initialDemoModeRef.current
               ? { lat: 37.7749, lng: -122.4194 }
-              : { lat: 20, lng: 0 },
+              : neutralWorld.center,
           zoom: cachedPoint
             ? zoomForAccuracy(cachedPoint.accuracyM)
             : initialDemoModeRef.current
               ? 11
-              : 2,
+              : neutralWorld.zoom,
           disableDefaultUI: true,
           // `styles` is deliberately NOT passed.
           //
@@ -1248,6 +1256,7 @@ export function LocationImmersiveMap({
         const marker = markerByMapIdRef.current.get(event.markerId);
         if (!marker) return;
         setSelected(marker);
+        onNeutralWorldViewRef.current = false;
         void map.setCamera({
           coordinate: {
             lat: marker.point.latitude,
@@ -1297,6 +1306,61 @@ export function LocationImmersiveMap({
     // consent and a real position both land.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.userId]);
+
+  /**
+   * Keep the neutral world view filling its container when the container
+   * changes size.
+   *
+   * The zoom that covers a box is derived from that box, so a box that grows
+   * past a power-of-two boundary needs a new one -- otherwise a person who
+   * maximises the window, rotates the device, or opens the screen on an
+   * external display gets the out-of-world grey band back, on a camera that
+   * was correct when it was created.
+   *
+   * Deliberately limited to the pre-consent view. That is the only state in
+   * which the world camera is unambiguously decorative: there are no markers,
+   * nothing to explore, and the person is reading the disclosure over it. Once
+   * consent is given the camera means something, and re-framing it would fight
+   * whoever moved it -- including the person's own pan. `setCamera` is issued
+   * only when the derived zoom actually changes, so the constant small resizes
+   * a mobile browser emits (URL bar, safe-area settle) cost nothing.
+   */
+  useEffect(() => {
+    const element = mapElement.current;
+    if (!element || !mapReady || rendererReady) return;
+    if (!onNeutralWorldViewRef.current) return;
+    let frame: number | null = null;
+    let lastZoom = neutralWorldCamera(element.getBoundingClientRect()).zoom;
+    const reframe = () => {
+      frame = null;
+      const map = mapRef.current;
+      if (!map || !onNeutralWorldViewRef.current) return;
+      const next = neutralWorldCamera(element.getBoundingClientRect());
+      if (next.zoom === lastZoom) return;
+      lastZoom = next.zoom;
+      void map
+        .setCamera({
+          coordinate: next.center,
+          zoom: next.zoom,
+          animate: false,
+        })
+        .catch(() => undefined);
+    };
+    const schedule = () => {
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(reframe);
+    };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(element);
+    window.addEventListener("resize", schedule);
+    window.addEventListener("orientationchange", schedule);
+    return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("orientationchange", schedule);
+    };
+  }, [mapReady, rendererReady]);
 
   useEffect(() => {
     if (
@@ -1906,56 +1970,16 @@ export function LocationImmersiveMap({
   const acceptRenderer = useCallback(async () => {
     if (!vaultOwnerToken) return;
     try {
-      const next = await OneLocationService.updateMapPreferences({
+      await OneLocationService.updateMapPreferences({
         vaultOwnerToken,
         rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
       });
-      setPreferences(next);
       setAcceptedRenderer(true);
       writeCachedRendererConsentAccepted(auth.userId, true);
     } catch {
       toast.error("Your Map could not be prepared.");
     }
   }, [auth.userId, vaultOwnerToken]);
-
-  const setPresence = useCallback(async () => {
-    if (!vaultOwnerToken) return;
-    setBusy("presence");
-    try {
-      const nextMode =
-        preferences.presenceMode === "ghost" ? "foreground_private" : "ghost";
-      if (demoMode) {
-        setPreferences((current) => ({
-          ...current,
-          presenceMode: nextMode,
-        }));
-        toast.success(
-          nextMode === "ghost"
-            ? "Demo Ghost Mode is on."
-            : "Demo visibility is on.",
-        );
-        return;
-      }
-      const next = await OneLocationService.updateMapPreferences({
-        vaultOwnerToken,
-        presenceMode: nextMode,
-      });
-      setPreferences(next);
-      toast.success(
-        nextMode === "ghost"
-          ? "Ghost Mode is on. Nobody sees you on their map."
-          // "Tap Locate me to appear" was true while the locate button was the
-          // only thing that ever published a map-visible position. Sharing does
-          // it now, so telling somebody to go and tap something else would send
-          // them looking for a step that no longer exists.
-          : "You will appear on the map of anyone you share with.",
-      );
-    } catch {
-      toast.error("Map visibility could not be updated.");
-    } finally {
-      setBusy(null);
-    }
-  }, [demoMode, preferences.presenceMode, vaultOwnerToken]);
 
   const focusMarker = useCallback(async (marker: RenderMarker) => {
     setSelected(marker);
@@ -1997,12 +2021,6 @@ export function LocationImmersiveMap({
       await focusSelfPoint(point, { animate: true, select: true });
       if (demoMode) {
         toast.success("Centered on your device location.");
-        return;
-      }
-      if (preferences.presenceMode !== "foreground_private") {
-        toast.message(
-          "Ghost Mode is on. Only you can see this.",
-        );
         return;
       }
       const state = await OneLocationService.getState(vaultOwnerToken);
@@ -2050,13 +2068,7 @@ export function LocationImmersiveMap({
     } finally {
       setBusy(null);
     }
-  }, [
-    captureCurrentLocation,
-    demoMode,
-    focusSelfPoint,
-    preferences.presenceMode,
-    vaultOwnerToken,
-  ]);
+  }, [captureCurrentLocation, demoMode, focusSelfPoint, vaultOwnerToken]);
 
   // A–Z before the query, so the tray has somewhere to start looking; the
   // filter then keeps that order inside each of its relevance groups. Applied
@@ -3245,7 +3257,7 @@ export function LocationImmersiveMap({
 
               <div
                 className={`mt-3 grid gap-2 ${
-                  demoAvailable ? "grid-cols-3" : "grid-cols-2"
+                  demoAvailable ? "grid-cols-2" : "grid-cols-1"
                 }`}
               >
                 {demoAvailable ? (
@@ -3264,28 +3276,6 @@ export function LocationImmersiveMap({
                     <span className="truncate">Demo</span>
                   </Button>
                 ) : null}
-                <Button
-                  className={`h-11 min-w-0 justify-between rounded-2xl px-2.5 ${
-                    preferences.presenceMode === "foreground_private"
-                      ? MAP_ACCENT_ACTIVE_CLASSNAME
-                      : ""
-                  }`}
-                  variant="secondary"
-                  aria-pressed={
-                    preferences.presenceMode === "foreground_private"
-                  }
-                  disabled={busy === "presence"}
-                  onClick={() => void setPresence()}
-                >
-                  <span className="truncate">
-                    {preferences.presenceMode === "ghost" ? "Ghost" : "Visible"}
-                  </span>
-                  {preferences.presenceMode === "ghost" ? (
-                    <EyeOff className="h-4 w-4 shrink-0" />
-                  ) : (
-                    <Eye className="h-4 w-4 shrink-0" />
-                  )}
-                </Button>
                 <Button
                   className="h-11 min-w-0 rounded-2xl px-2"
                   variant="secondary"
