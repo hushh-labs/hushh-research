@@ -267,39 +267,49 @@ export function PlacesNearby({
       {/* A rail rather than a segmented control: eleven segments would each be
           too narrow to read, and the rail is the pattern the check-in picker
           already uses for the same set of ideas. */}
-      <div
-        className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 touch-pan-x overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        role="tablist"
-        aria-label="Place categories"
-        data-swipe-views-horizontal-scroll="true"
-        data-testid="places-category-rail"
-      >
-        {[{ slug: ALL_CHIP, label: "All" }, ...PLACES_CATEGORIES].map((entry) => {
-          const active = chip === entry.slug;
-          const count =
-            entry.slug === ALL_CHIP ? undefined : byCategory[entry.slug]?.length;
-          return (
-            <button
-              key={entry.slug}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setChip(entry.slug)}
-              data-testid={`places-chip-${entry.slug}`}
-              className={cn(
-                "type-footnote shrink-0 rounded-full border px-3 py-1.5 transition-colors",
-                active
-                  ? "border-transparent bg-foreground text-background"
-                  : "border-border text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {entry.label}
-              {typeof count === "number" && count > 0 ? (
-                <span className="ml-1.5 tabular-nums opacity-60">{count}</span>
-              ) : null}
-            </button>
-          );
-        })}
+      <div className="relative w-full">
+        <div
+          className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 touch-pan-x overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          role="tablist"
+          aria-label="Place categories"
+          data-swipe-views-horizontal-scroll="true"
+          data-testid="places-category-rail"
+        >
+          {[{ slug: ALL_CHIP, label: "All" }, ...PLACES_CATEGORIES].map((entry) => {
+            const active = chip === entry.slug;
+            const count =
+              entry.slug === ALL_CHIP ? undefined : byCategory[entry.slug]?.length;
+            return (
+              <button
+                key={entry.slug}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setChip(entry.slug)}
+                data-testid={`places-chip-${entry.slug}`}
+                className={cn(
+                  "type-footnote shrink-0 rounded-full border px-3 py-1.5 transition-colors",
+                  active
+                    ? "border-transparent bg-foreground text-background"
+                    : "border-border text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {entry.label}
+                {typeof count === "number" && count > 0 ? (
+                  <span className="ml-1.5 tabular-nums opacity-60">{count}</span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+        <div
+          className="pointer-events-none absolute right-0 top-0 bottom-1 w-8 bg-gradient-to-l from-background via-background/80 to-transparent"
+          aria-hidden="true"
+        />
+        <div
+          className="pointer-events-none absolute left-0 top-0 bottom-1 w-4 bg-gradient-to-r from-background to-transparent opacity-0 transition-opacity"
+          aria-hidden="true"
+        />
       </div>
 
       {error ? (
