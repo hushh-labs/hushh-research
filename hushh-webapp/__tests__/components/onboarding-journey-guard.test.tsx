@@ -60,6 +60,8 @@ vi.mock("@/lib/navigation/routes", () => ({
   ROUTES: {
     ONE_SETUP: "/one/setup",
     ONE_SETUP_FINANCE: "/one/setup/finance",
+    ONE_SETUP_CLOUD: "/one/setup/cloud",
+    ONE_SETUP_CONNECTIONS: "/one/setup/connections",
     ONE_HOME: "/one",
     PROFILE: "/one/profile",
   },
@@ -75,8 +77,13 @@ vi.mock("@/lib/navigation/routes", () => ({
     "/one/setup",
   isOneSetupSurfaceRoute: (pathname: string) =>
     pathname === "/one/setup" ||
+    pathname === "/one/setup/cloud" ||
     pathname === "/one/setup/connections" ||
     pathname === "/one/setup/finance",
+  // The pod-provisioning pair (SETUP_NAVIGATION_ROUTES): cloud + AI access.
+  isOneSetupNavigationRoute: (pathname: string) =>
+    pathname === "/one/setup/cloud" ||
+    pathname === "/one/setup/connections",
 }));
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
@@ -227,6 +234,51 @@ describe("OnboardingJourneyGuard", () => {
       await Promise.resolve();
     });
     expect(screen.getByText("finance setup")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
+  });
+
+  it("admits the pod cloud-provisioning step after root onboarding resolves", async () => {
+    // A setup-complete owner whose private agent is still reserved must be able to
+    // reach /one/setup/cloud to provision their pod. Ejecting them to home was the
+    // 0-to-1 blocker; the cloud step is a bounded post-root entry, exactly like
+    // Finance, and must be admitted rather than sent home.
+    pathnameValue = "/one/setup/cloud";
+    window.history.replaceState(null, "", pathnameValue);
+    isPersistentSetupResolvedMock.mockReturnValue(true); // dismissed
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>cloud setup</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText("cloud setup")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
+  });
+
+  it("admits the AI-access step after root onboarding resolves", async () => {
+    // The AI-access step is the cloud step's required pair (SETUP_NAVIGATION_ROUTES):
+    // after provisioning, a resolved owner must still be able to choose how the agent
+    // reaches a model, so it is admitted rather than ejected too.
+    pathnameValue = "/one/setup/connections";
+    window.history.replaceState(null, "", pathnameValue);
+    isPersistentSetupResolvedMock.mockReturnValue(true); // dismissed
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>ai access</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText("ai access")).toBeTruthy();
     expect(replace).not.toHaveBeenCalled();
     expect(bootstrapStateMock).not.toHaveBeenCalled();
   });

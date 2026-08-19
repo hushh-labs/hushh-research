@@ -11,6 +11,7 @@ import {
   buildOneSetupRoute,
   isCapabilityOnboardingRoute,
   isOnboardingAdmissionExemptRoute,
+  isOneSetupNavigationRoute,
   isOneSetupRoute,
   isOneSetupSurfaceRoute,
   normalizeStaticExportPathname,
@@ -135,8 +136,19 @@ export function OnboardingJourneyGuard({
   const isPostRootFinanceSetup =
     normalizedGuardPathname === ROUTES.ONE_SETUP_FINANCE ||
     normalizedGuardPathname === ROUTES.ONE_SETUP_FINANCE_IMPORT;
+  // The pod-provisioning surfaces (the cloud step and the AI-access step, i.e.
+  // SETUP_NAVIGATION_ROUTES) configure the root private agent but are not one-time
+  // onboarding capabilities: their own definition is that they "must be admitted by
+  // the root journey." A setup-complete owner whose private agent is still reserved
+  // must be able to reach /one/setup/cloud to provision their pod, exactly as Finance
+  // stays a valid bounded entry after root completion. Without this a root-resolved
+  // owner is ejected to ONE_HOME and can never provision — the 0-to-1 blocker.
+  const isPodProvisioningSurface = isOneSetupNavigationRoute(pathname);
   const shouldEjectSetupSurface = Boolean(
-    setupSurface && setupDismissed && !isPostRootFinanceSetup,
+    setupSurface &&
+      setupDismissed &&
+      !isPostRootFinanceSetup &&
+      !isPodProvisioningSurface,
   );
 
   useEffect(() => {
