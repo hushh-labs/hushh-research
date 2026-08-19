@@ -145,6 +145,45 @@ describe("the requester's side of the same exchange", () => {
   });
 });
 
+describe("the sharer's own side of a location share", () => {
+  it("names the sharer as the one who acted, not the other person", () => {
+    // Read as a headline ("Neelesh: Started sharing location"), the old bare
+    // copy implied Neelesh was the one who acted, when the current user is the
+    // one who shared. The row's title is always the OTHER person's name, so the
+    // description needs its own subject to read correctly.
+    const presented = presentFeedItem(
+      item({
+        event_type: "location_share_created",
+        metadata: { counterpart_label: "Neelesh" },
+      }),
+    );
+    expect(presented.label).toBe("Neelesh");
+    expect(presented.description).toBe("You shared your location");
+  });
+
+  it("keeps the duration suffix on the sharer's own row", () => {
+    const presented = presentFeedItem(
+      item({
+        event_type: "location_share_created",
+        metadata: { counterpart_label: "Neelesh", duration_hours: 1 },
+      }),
+    );
+    expect(presented.description).toBe("You shared your location for 1 hour");
+  });
+
+  it("still reads the recipient's own row as something done to them", () => {
+    // The mirror case: unchanged by this fix, kept here so the two sides of
+    // the same event stay pinned together in one place.
+    const presented = presentFeedItem(
+      item({
+        event_type: "location_share_created",
+        metadata: { counterpart_label: "Neelesh", feed_audience: "recipient" },
+      }),
+    );
+    expect(presented.description).toBe("Shared their location with you");
+  });
+});
+
 describe("rows written before any of this existed", () => {
   it("keeps the owner wording they were written for", () => {
     // No feed_audience marker and no duration: the old copy is still the true copy.
