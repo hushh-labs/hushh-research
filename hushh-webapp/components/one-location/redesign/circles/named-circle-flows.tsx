@@ -1548,8 +1548,8 @@ export function CircleDetailFlow({
                           title="Your connections"
                           description={
                             remainingCapacity === 1
-                              ? "You can invite 1 more person right now."
-                              : `You can invite ${remainingCapacity} more people right now.`
+                              ? "You can add 1 more person right now."
+                              : `You can add ${remainingCapacity} more people right now.`
                           }
                           testId="one-location-circle-eligible-connections"
                         >
@@ -1615,7 +1615,7 @@ export function CircleDetailFlow({
                         <EmptyState
                           title={
                             remainingCapacity === 0
-                              ? "No invitation slots available"
+                              ? "No room left in this Circle"
                               : peopleSearch.trim()
                                 ? "No matching connections"
                                 : "No connections to add"
