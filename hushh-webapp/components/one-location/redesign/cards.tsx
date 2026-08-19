@@ -18,7 +18,6 @@ import {
   ExternalLink,
   Loader2,
   MapPin,
-  Pencil,
   RefreshCw,
   ShieldCheck,
   Siren,
@@ -77,9 +76,9 @@ export function TrustedPersonCard({
   actionBusy?: boolean;
   actionDisabled?: boolean;
   selected?: boolean;
-  /** Edit this person's live grant duration (shorten now / ask for more). */
+  /** Open/close the compact "add minutes" control for this person's live grant. */
   onEdit?: () => void;
-  /** True while `expandedContent` is the open duration editor for this row. */
+  /** True while `expandedContent` is the open add-time control for this row. */
   editActive?: boolean;
   /** Revoke this person's live grant. */
   onRemove?: () => void;
@@ -139,11 +138,11 @@ export function TrustedPersonCard({
           <ShellActionSurface
             variant="icon"
             className="h-9 w-9 shrink-0"
-            aria-label={`${editActive ? "Cancel editing" : "Edit"} access for ${name}`}
+            aria-label={`${editActive ? "Close add time for" : "Add time for"} ${name}`}
             aria-pressed={editActive}
             onClick={onEdit}
           >
-            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+            <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
           </ShellActionSurface>
         ) : null}
         {onRemove ? (
