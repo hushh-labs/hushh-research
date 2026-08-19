@@ -23,7 +23,8 @@
  * Local development, the UAT website, and an injected native UI-test session.
  * Never a production build, and never a packaged store build.
  *
- * Two traps decide that gate, and both are documented elsewhere in this repo:
+ * Three traps decide how this is written. The third was found by reading the
+ * deployed bundle rather than trusting the gate.
  *
  * 1. `isObservabilityDebugEnabled()` is unusable. `deploy/frontend.cloudbuild.yaml`
  *    hardcodes `--build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false`, and
@@ -32,12 +33,26 @@
  *    could never be read where it is needed.
  * 2. An environment check alone is not enough either. The App Store and Play
  *    Store lanes stamp `NEXT_PUBLIC_APP_ENV=uat` because they ship against the
- *    UAT backend (`.github/workflows/release-ios-appstore.yml:234`,
- *    `ship-android-playstore-v1.yml:145`), so `!== "production"` reads every
- *    store install as non-production. Distribution and backend environment are
+ *    UAT backend (`.github/workflows/release-ios-appstore.yml`,
+ *    `ship-android-playstore-v1.yml`), so `!== "production"` reads every store
+ *    install as non-production. Distribution and backend environment are
  *    separate facts — the same reasoning `lib/testing/location-map-demo.ts`
  *    spells out. A packaged app is therefore excluded unless it is running an
  *    injected UI-test session.
+ * 3. **`console.info` does not exist on the UAT website.** `next.config.ts` sets
+ *    `removeConsole: isCapacitorBuild ? false : { exclude: ["error", "warn"] }`,
+ *    so every `console.*` call except `error` and `warn` is stripped from the
+ *    bundle at compile time. The first version of this file used
+ *    `console.info`, matching `lib/cache/request-audit-log.ts` and
+ *    `lib/observability/client.ts` — and the tags were verified absent from
+ *    every chunk served by uat.one.hushh.ai. Both of those existing helpers are
+ *    dead on the deployed website for the same reason; they only survive in the
+ *    Capacitor build, where `removeConsole` is off.
+ *
+ *    So these lines go out on `console.warn`, the only channel that survives a
+ *    web build. The gate above is what keeps them off a real person's phone —
+ *    on iOS nothing strips them, which makes that check load-bearing rather
+ *    than defence in depth.
  *
  * ## What never goes in
  *
@@ -125,10 +140,12 @@ export function logCircleCreate(
   detail: Record<string, unknown>,
 ): void {
   if (!isCircleCreateDiagnosticsEnabled()) return;
-  // console.info, not console.log: matches `[RequestAudit:…]` and
-  // `[observability]`, and keeps these out of the default error/warn channels
-  // an operator scans for real faults.
-  console.info(`[CircleCreate:${stage}]`, redactDetail(detail));
+  // console.warn, not console.info: `removeConsole` in next.config.ts strips
+  // every level except error and warn from a web build, so info never reaches
+  // UAT at all. Verified against the served bundle, not assumed. Not `error` —
+  // these are a trace, and an operator scanning for real faults should not have
+  // to wade through them.
+  console.warn(`[CircleCreate:${stage}]`, redactDetail(detail));
 }
 
 export function logCircleCreateLockCheck(
