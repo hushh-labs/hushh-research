@@ -3614,7 +3614,11 @@ export class ApiService {
    * server's honest estimate for a determinate warming bar; presence truth then
    * arrives through the lifecycle surface, never invented here.
    */
-  static async wakePod(): Promise<{ state: "awake" | "waking"; etaMs: number }> {
+  static async wakePod(): Promise<{
+    state: "awake" | "waking" | "gone";
+    etaMs: number;
+    needsFreshSetup?: boolean;
+  }> {
     const firebaseIdToken = await this.getFirebaseToken();
     const response = await ApiService.apiFetch("/api/one/pod/wake", {
       method: "POST",
@@ -3624,6 +3628,33 @@ export class ApiService {
     });
     if (!response.ok) {
       throw new Error(`pod wake failed: HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
+   * Owner-authorized reachability probe of the caller's OWN pod, for login/resume.
+   * Round-trips through the hub relay to the pod's /pod/info (the only door to a
+   * pod). Returns the relay envelope { hushhId, podStatus, pod }: a podStatus of
+   * 200 means the pod is reachable and can be reconnected; a non-200 (or a thrown
+   * error) means it is cold or gone, and the caller should wake or offer a fresh
+   * setup rather than assume the pod is serving.
+   */
+  static async getPodInfo(
+    hushhId: string,
+  ): Promise<{ hushhId: string; podStatus: number; pod: unknown }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/u/${encodeURIComponent(hushhId)}/info`,
+      {
+        method: "GET",
+        headers: {
+          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+        },
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`pod info failed: HTTP ${response.status}`);
     }
     return response.json();
   }

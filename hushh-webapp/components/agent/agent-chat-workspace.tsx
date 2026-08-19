@@ -135,6 +135,7 @@ import { cn } from "@/lib/utils";
 import { useConsentActions, type PendingConsent } from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
 import { useVault } from "@/lib/vault/vault-context";
+import { ApiService } from "@/lib/services/api-service";
 import {
   appInteractionCoordinator,
   useActiveActionRun,
@@ -1182,6 +1183,38 @@ export function AgentChatWorkspace({
   // which is why every turn went to the shared hub even for someone whose pod was live.
   const { hushhId: podHushhId, state: podState } = useAgentDeploymentFollow();
   const podAddress = { hushhId: podHushhId, state: podState as string | null };
+  // The private agent could not be reached on a turn (deprovisioned, or its host
+  // is gone). Surfaced as a banner with a rebuild action rather than a bare error,
+  // so a person whose pod vanished can recover instead of hitting a wall.
+  const [agentUnreachable, setAgentUnreachable] = useState(false);
+  const [rebuildingAgent, setRebuildingAgent] = useState(false);
+  const handleRebuildAgent = useCallback(async () => {
+    setRebuildingAgent(true);
+    try {
+      // A cold pod is reachable and only needs a moment; only a truly GONE pod
+      // warrants a rebuild -- a fresh pod is a NEW identity, so a healthy agent
+      // must never be rebuilt. getPodInfo distinguishes the two before we act.
+      if (podHushhId) {
+        try {
+          const info = await ApiService.getPodInfo(podHushhId);
+          if (info.podStatus === 200) {
+            setAgentUnreachable(false);
+            return;
+          }
+        } catch {
+          // unreachable -> fall through to a rebuild
+        }
+      }
+      const token = getVaultOwnerToken();
+      if (!token) return; // rebuilding writes the registry; the vault must be unlocked first
+      await ApiService.provisionPersonalAgent({ vaultOwnerToken: token });
+      setAgentUnreachable(false);
+    } catch {
+      // keep the banner up so the person can retry
+    } finally {
+      setRebuildingAgent(false);
+    }
+  }, [podHushhId, getVaultOwnerToken]);
   const [conversations, setConversations] = useState<AgentChatConversation[]>([]);
   const [messages, setMessages] = useState<AgentMessage[]>(() => [createGreetingMessage()]);
   const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(null);
@@ -3098,6 +3131,7 @@ export function AgentChatWorkspace({
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
+            if (/AGENT_(UNREACHABLE|NOT_READY)/.test(message)) setAgentUnreachable(true);
             updateMessage(assistantMessageId, (current) => ({
               ...current,
               text: current.text || message,
@@ -3323,6 +3357,7 @@ export function AgentChatWorkspace({
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
+            if (/AGENT_(UNREACHABLE|NOT_READY)/.test(message)) setAgentUnreachable(true);
             updateMessage(assistantMessageId, (current) => ({
               ...current,
               text: current.text || message,
@@ -3544,6 +3579,7 @@ export function AgentChatWorkspace({
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
+            if (/AGENT_(UNREACHABLE|NOT_READY)/.test(message)) setAgentUnreachable(true);
             updateMessage(assistantMessageId, (current) => ({
               ...current,
               text: current.text || message,
@@ -3956,6 +3992,21 @@ export function AgentChatWorkspace({
       )}
       data-agent-chat-workspace={variant}
     >
+      {agentUnreachable ? (
+        <div className="flex items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm">
+          <span className="text-amber-700 dark:text-amber-300">
+            Your private agent is unreachable right now.
+          </span>
+          <button
+            type="button"
+            onClick={handleRebuildAgent}
+            disabled={rebuildingAgent}
+            className="shrink-0 rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+          >
+            {rebuildingAgent ? "Rebuilding…" : "Rebuild your agent"}
+          </button>
+        </div>
+      ) : null}
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
