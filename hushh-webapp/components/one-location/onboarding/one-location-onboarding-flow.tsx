@@ -670,7 +670,7 @@ function ShareLocationFeatureCard() {
 /**
  * Renders in the first compact slot (data-one-feature-card="checkin"), kept
  * for the same responsive tuning this key already carries. Share's content
- * moved here so it sits beside SOS as an equal compact card, now that
+ * moved here so it sits beside SMS as an equal compact card, now that
  * Check-In occupies the hero slot above.
  */
 function CheckInFeatureCard() {
@@ -739,8 +739,9 @@ function CheckInFeatureCard() {
 }
 
 /**
- * Visible label is "SOS", not "SMS" — "SMS" reads as text messaging to a
- * first-time user. Internal `data-one-sms-*` hooks keep their name; they are
+ * Visible label is "SMS", matching the Home hub tile and the emergency
+ * screen's own button. It read "SOS" for one day (fd73a42b1, reverted here).
+ * Internal `data-one-sms-*` hooks keep their name either way; they are
  * structural, not shown, and renaming them buys nothing.
  */
 function SaveMySoulFeatureCard() {
@@ -756,7 +757,7 @@ function SaveMySoulFeatureCard() {
           className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[#55252a] dark:text-[#ff9a98]"
           data-one-use-case-tag
         >
-          SOS
+          SMS
         </span>
         <TwoLineFeatureTitle
           lines={["Can\u2019t call", "for help?"]}
@@ -802,7 +803,7 @@ function SaveMySoulFeatureCard() {
                 className="absolute inset-0 rounded-full bg-[#ef302f] shadow-[0_12px_22px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
               />
               <span className="relative z-10" data-one-sms-label>
-                SOS
+                SMS
               </span>
             </span>
           </span>
@@ -1743,7 +1744,7 @@ function ContactsScreen({
  * the map is the finale: your own pin lands, an empty seat appears beside it,
  * and the circle code sits underneath as the way to fill that seat.
  *
- * It deliberately does not re-list Share / Check in / SOS. The features screen
+ * It deliberately does not re-list Share / Check in / SMS. The features screen
  * already introduces those; saying them twice in a four-screen flow turns the
  * payoff into a summary slide. What is new here is the map, and the one thing
  * the map cannot show on its own -- that it is empty until someone joins.

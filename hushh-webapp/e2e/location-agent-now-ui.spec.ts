@@ -114,7 +114,7 @@ test.describe("Location Agent Now visual contract", () => {
       lineHeight: "22px",
       color: "rgb(29, 29, 31)",
     });
-    await expectTypography(cardTitles.filter({ hasText: "SOS" }), {
+    await expectTypography(cardTitles.filter({ hasText: "SMS" }), {
       fontSize: "17px",
       fontWeight: "600",
       lineHeight: "22px",

@@ -1526,7 +1526,7 @@ function NowHub({
           happened. Share and Ask stay Apple blue -- the same "my action"
           colour -- and Check-In moved from its own green into that same
           family so the grid reads as one calm accent plus the single red
-          exception for SOS, not four unrelated tile colours. */}
+          exception for SMS, not four unrelated tile colours. */}
       <QuickActionsSection title="Quick actions" columns={2}>
         <QuickActionCard
           tone="blue"
@@ -1559,14 +1559,14 @@ function NowHub({
           controlId="one-location-action-check-in"
         />
         {/* "Live now" is the one subtitle this grid still shows, and only
-            while an SOS is actually broadcasting -- a safety-critical state
-            that colour alone must not carry (accessibility requires a visible
-            label, not just a red tile). Every other moment the tile is calm:
+            while an SMS alert is actually broadcasting -- a safety-critical
+            state that colour alone must not carry (accessibility requires a
+            visible label, not just a red tile). Every other moment it is calm:
             title only, no subtitle. */}
         <QuickActionCard
           tone="red"
           icon={<Shield />}
-          title="SOS"
+          title="SMS"
           subtitle={vm.sosActive ? "Live now" : undefined}
           onClick={onSos}
           controlId="one-location-action-sos"
