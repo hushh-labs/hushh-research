@@ -4584,12 +4584,15 @@ describe("OneLocationAgentPage", () => {
       screen.getByRole("button", { name: "Add 15 minutes for Trusted B" }),
     );
 
+    // 12 minutes left, a 15-minute chip tapped -- the ask names the 15
+    // minutes actually being added, not the ~27-minute total the share
+    // would run to once approved.
     await waitFor(() =>
       expect(mockRequestAccess).toHaveBeenCalledWith({
         vaultOwnerToken: "vault-token",
         ownerUserId: "user_b",
-        message: "Requesting 27 min more of your live location.",
-        requestedDurationHours: expect.closeTo(0.45, 2),
+        message: "Requesting 15 min more of your live location.",
+        requestedDurationHours: expect.closeTo(0.25, 2),
         requestedDurationMode: "timed",
         extendsGrantId: "grant_live_ask",
       }),

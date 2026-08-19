@@ -7331,7 +7331,7 @@ class OneLocationAgentService:
         was_extension = bool(str(request_row.get("extends_grant_id") or "").strip())
         if duration_hours is None and duration_mode is None:
             resolved_mode = requested_mode or TIMED_LOCATION_SHARE_DURATION_MODE
-            resolved_hours = (
+            delta_hours = (
                 None
                 if _is_until_stopped_share(resolved_mode)
                 else (
@@ -7342,7 +7342,29 @@ class OneLocationAgentService:
             )
         else:
             resolved_mode = duration_mode or TIMED_LOCATION_SHARE_DURATION_MODE
-            resolved_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
+            delta_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
+        # For an extension, `delta_hours` is the extra amount being granted --
+        # what the requester asked for (or the owner's override), not the
+        # share's new total. The actual grant still needs the total (it
+        # replaces the live grant wholesale), so add the delta to however much
+        # time that grant has left right now -- read fresh here rather than
+        # trusting a total computed back when the ask was made, so a slow
+        # approval does not silently drift the result.
+        resolved_hours = delta_hours
+        if was_extension and delta_hours is not None:
+            existing_grant = self._active_grant_between(
+                owner_user_id=owner_user_id,
+                recipient_user_id=requester_user_id,
+                is_sos_lane=False,
+            )
+            existing_expires_at = existing_grant.get("expires_at") if existing_grant else None
+            if existing_expires_at is not None:
+                remaining_hours = max(
+                    0.0, (existing_expires_at - _utcnow()).total_seconds() / 3600.0
+                )
+                resolved_hours = remaining_hours + delta_hours
+            # else: nothing live to extend (expired/revoked since the ask) --
+            # grant exactly the delta, same as a fresh share.
         grant = self.create_grant(
             owner_user_id=owner_user_id,
             recipient_user_id=requester_user_id,
@@ -7368,10 +7390,15 @@ class OneLocationAgentService:
         owner_label = _identity_notification_label(owner_identity)
         granted_hours = _duration_metadata_value(grant.get("durationHours"))
         granted_mode = grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE
+        # The recipient does not need the share's new total repeated back at
+        # them -- they already knew that a second ago. What is new is how much
+        # MORE they just got, so an extension's notification and feed row name
+        # the delta actually applied, not the resulting total.
+        display_hours = delta_hours if was_extension else granted_hours
         granted_label = (
             "for as long as you need"
             if _is_until_stopped_share(str(granted_mode))
-            else format_duration_label(granted_hours)
+            else format_duration_label(display_hours)
         )
         self._insert_event(
             owner_user_id=owner_user_id,
@@ -7381,7 +7408,7 @@ class OneLocationAgentService:
             request_id=request_id,
             event_type="location_access_approved",
             metadata={
-                "duration_hours": granted_hours,
+                "duration_hours": display_hours,
                 "duration_mode": granted_mode,
                 "counterpart_label": requester_label,
                 # Swapped in for the requester's copy of this feed row, so they
@@ -7417,7 +7444,7 @@ class OneLocationAgentService:
                 "grant_id": grant["id"],
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
-                "duration_hours": granted_hours,
+                "duration_hours": display_hours,
                 "duration_mode": granted_mode,
                 "expires_at": grant.get("expiresAt"),
                 "is_extension": "true" if was_extension else None,
