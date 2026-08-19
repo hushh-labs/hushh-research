@@ -143,3 +143,69 @@ def test_replace_refuses_to_stand_in_for_a_create():
 
     with pytest.raises(RuntimeError, match="no such Cloud Run service"):
         client.replace_service("one-pod-missing", _desired())
+
+
+# --- Idempotent host creation: adopt an existing service on 409 -------------------
+# A retry of a stuck 'provisioning' row targets the same DETERMINISTIC service name
+# (one-pod-{slug(hushh_id)}) and gets 409 AlreadyExists. Adopting the existing
+# service instead of raising forever is what stops a row and its host from
+# permanently disagreeing -- the single most likely pod orphan.
+
+
+class _Resp409:
+    status_code = 409
+
+    def json(self):
+        return {}
+
+    def raise_for_status(self):
+        raise RuntimeError("409 should have been adopted, not raised")
+
+
+def _client_no_net():
+    client = GcpRunClient.__new__(GcpRunClient)
+    client._base = "https://example.invalid"  # type: ignore[attr-defined]
+    client._headers = lambda: {}  # type: ignore[method-assign,attr-defined]
+    return client
+
+
+def test_create_service_adopts_existing_on_409(monkeypatch):
+    import requests
+
+    adopted = {"metadata": {"name": "one-pod-x"}, "status": {"url": "https://x.run.app"}}
+    client = _client_no_net()
+    client.get_service = lambda name: adopted if name == "one-pod-x" else None  # type: ignore[method-assign]
+    monkeypatch.setattr(requests, "post", lambda *a, **k: _Resp409())
+
+    result = client.create_service({"metadata": {"name": "one-pod-x"}})
+    assert result == adopted  # the existing host is adopted, no raise
+
+
+def test_create_service_409_but_service_gone_still_raises(monkeypatch):
+    import requests
+
+    client = _client_no_net()
+    client.get_service = lambda name: None  # type: ignore[method-assign]
+    monkeypatch.setattr(requests, "post", lambda *a, **k: _Resp409())
+
+    # 409 but the service truly is not there (a race) -> fall through and raise.
+    with pytest.raises(RuntimeError):
+        client.create_service({"metadata": {"name": "one-pod-x"}})
+
+
+def test_create_service_happy_path_returns_created(monkeypatch):
+    import requests
+
+    class _Ok:
+        status_code = 200
+
+        def json(self):
+            return {"metadata": {"name": "one-pod-new"}}
+
+        def raise_for_status(self):
+            return None
+
+    client = _client_no_net()
+    monkeypatch.setattr(requests, "post", lambda *a, **k: _Ok())
+    result = client.create_service({"metadata": {"name": "one-pod-new"}})
+    assert result["metadata"]["name"] == "one-pod-new"

@@ -139,6 +139,18 @@ class GcpRunClient:
         import requests  # type: ignore[import-untyped]
 
         r = requests.post(f"{self._base}/services", headers=self._headers(), json=body, timeout=60)
+        if r.status_code == 409:
+            # AlreadyExists: a prior create for this DETERMINISTIC name already made
+            # the service (a retry of a stuck 'provisioning' row hits the same
+            # one-pod-{slug(hushh_id)} name). Adopt the existing service instead of
+            # raising 409 forever -- the create is convergent, so a registry row and
+            # its host can never permanently disagree. That permanent-409 retry loop
+            # is otherwise the single most likely way a pod orphans.
+            name = str(((body.get("metadata") or {}).get("name")) or "")
+            if name:
+                existing = self.get_service(name)
+                if existing is not None:
+                    return existing
         r.raise_for_status()
         return dict(r.json())
 
