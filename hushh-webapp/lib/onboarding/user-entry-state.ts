@@ -24,6 +24,10 @@ import {
   normalizeStaticExportPathname,
   ROUTES,
 } from "@/lib/navigation/routes";
+import {
+  resolveLockState,
+  type LockState,
+} from "@/lib/vault/vault-access-policy";
 
 /**
  * The mutually exclusive states of the first-run journey. At most one is ever
@@ -78,6 +82,20 @@ export type UserEntryState = {
   destination: string;
   /** The only credential surface allowed to mount in this step. */
   surface: EntrySurface;
+  /**
+   * Which lock question this person is actually facing.
+   *
+   * The `vault_setup` step deliberately covers two different people — one who
+   * has never made a lock and one whose lock is simply shut — because both wait
+   * at the same place, `/one/setup`. They are NOT owed the same words. "Set a
+   * lock" told to somebody who already has one is the reported regression;
+   * "Unlock One" told to somebody who has none is a door with no key behind it.
+   *
+   * The step decides WHERE. This decides WHAT TO SAY. Read it instead of
+   * re-deriving the answer from `!isVaultUnlocked`, which is also `false` on
+   * the first render of every mount and so cannot tell locked from unread.
+   */
+  lockState: LockState;
 };
 
 /**
@@ -92,8 +110,16 @@ export type UserEntryState = {
 export function resolveUserEntryState(
   inputs: UserEntryInputs,
 ): UserEntryState {
+  // The lock question, answered once, from the shared policy so that this
+  // resolver and every screen downstream cannot disagree about it.
+  const lockState = resolveLockState({
+    hasVault: inputs.hasVault,
+    isVaultUnlocked: inputs.vaultUnlocked,
+    authLoading: !inputs.authResolved,
+  });
+
   if (!inputs.environmentResolved || !inputs.authResolved) {
-    return booting();
+    return booting(lockState);
   }
 
   if (!inputs.userId) {
@@ -103,12 +129,13 @@ export function resolveUserEntryState(
       signedIn: false,
       destination: ROUTES.LOGIN,
       surface: "auth",
+      lockState,
     };
   }
 
   if (!inputs.phoneMandateWaived) {
     if (inputs.phoneVerified === null) {
-      return booting();
+      return booting(lockState);
     }
     if (inputs.phoneVerified === false) {
       return {
@@ -117,6 +144,7 @@ export function resolveUserEntryState(
         signedIn: true,
         destination: ROUTES.PHONE_MANDATE,
         surface: "phone",
+        lockState,
       };
     }
   }
@@ -126,7 +154,7 @@ export function resolveUserEntryState(
   // in THIS session is a session question, not an onboarding one, and is
   // answered by the lock gate on the routes that need a key.
   if (inputs.setupCompleted === null) {
-    return booting();
+    return booting(lockState);
   }
   if (inputs.setupCompleted === true) {
     return {
@@ -135,17 +163,24 @@ export function resolveUserEntryState(
       signedIn: true,
       destination: ROUTES.ONE_HOME,
       surface: "none",
+      lockState,
     };
   }
 
   if (inputs.hasVault === null) {
-    return booting();
+    return booting(lockState);
   }
 
   // The lock step is the terminal step of the setup hub rather than a route of
   // its own, so both unfinished states share `/one/setup`. They stay distinct
   // steps because they permit different surfaces: only `vault_setup` may show
   // the lock.
+  //
+  // WHERE is the same for both; WHAT TO SAY is not. A person who never made a
+  // lock is owed "Set a lock"; a person whose lock is merely shut is owed
+  // "Unlock One". `lockState` carries that apart so no screen has to re-derive
+  // it from `!vaultUnlocked` — which is also false on the first render of every
+  // mount, and so reports "locked" before anything has been read.
   if (inputs.hasVault === false || !inputs.vaultUnlocked) {
     return {
       step: "vault_setup",
@@ -153,6 +188,7 @@ export function resolveUserEntryState(
       signedIn: true,
       destination: ROUTES.ONE_SETUP,
       surface: "setup",
+      lockState,
     };
   }
 
@@ -162,16 +198,18 @@ export function resolveUserEntryState(
     signedIn: true,
     destination: ROUTES.ONE_SETUP,
     surface: "setup",
+    lockState,
   };
 }
 
-function booting(): UserEntryState {
+function booting(lockState: LockState = "loading"): UserEntryState {
   return {
     step: "booting",
     resolved: false,
     signedIn: false,
     destination: ROUTES.ONE_HOME,
     surface: "none",
+    lockState,
   };
 }
 

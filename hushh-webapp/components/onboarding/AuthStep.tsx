@@ -25,7 +25,11 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
-import { buildWelcomeRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildWelcomeRoute,
+  isOneSetupSurfaceRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { type KaiLegalDocumentType } from "@/lib/legal/kai-legal-content";
 import { trackEvent } from "@/lib/observability/client";
 import {
@@ -402,13 +406,54 @@ export function AuthStep({
         // user. The provider launch itself remains a `started` settlement;
         // the durable journey is never advanced merely because a redirect was
         // opened or a popup was requested.
-        await PreVaultUserStateService.syncOnboardingJourney({
-          userId,
-          phase:
-            nextPath === ROUTES.PHONE_MANDATE ? "phone_required" : "setup_hub",
-          callbackState: "succeeded",
-          idToken: resolvedIdToken,
-        }).catch((journeyError) => {
+        //
+        // Signing in settles the CALLBACK. It says nothing about whether root
+        // setup is finished, and it must not be written as though it did.
+        //
+        // This used to record `phase: "setup_hub"` for every destination that
+        // was not phone verification — including `/one`. `hasExplicitIncompleteSetup`
+        // then reads `version === 1 && phase !== "root_completion"` as the record
+        // stating, in so many words, that the funnel is unfinished. For an
+        // established account whose `setup_completed` column is NULL (029 renamed
+        // the columns and backfilled no value; `_ensure_user_entry_sync` never
+        // sets one), signing in therefore MANUFACTURED the evidence that the
+        // person had not finished — durably, on every device — and the entry
+        // resolver sent them to `/one/setup`, whose terminal step is the lock.
+        // That is the "asked to set up a lock again" report, and the account had
+        // to re-finish the funnel to clear it.
+        //
+        // So: only claim a funnel phase when this sign-in is actually sending
+        // the person into the funnel. Otherwise settle the callback alone and
+        // leave the journey exactly as the hub last wrote it.
+        // Compare the path alone. `PostAuthRouteService` hands back
+        // `/one/setup?return_to=…` for somebody who genuinely needs the funnel
+        // with a redirect to resume, and `normalizeStaticExportPathname` strips
+        // a trailing slash and an index document but NOT a query string — so
+        // testing the whole href would classify a real funnel entry as "not the
+        // funnel" and quietly stop recording its phase.
+        const nextPathname = nextPath.split(/[?#]/)[0] ?? nextPath;
+        const entersPhoneStep = nextPathname === ROUTES.PHONE_MANDATE;
+        const entersSetupFunnel = isOneSetupSurfaceRoute(nextPathname);
+        const journeyWrite = entersPhoneStep
+          ? PreVaultUserStateService.syncOnboardingJourney({
+              userId,
+              phase: "phone_required",
+              callbackState: "succeeded",
+              idToken: resolvedIdToken,
+            })
+          : entersSetupFunnel
+            ? PreVaultUserStateService.syncOnboardingJourney({
+                userId,
+                phase: "setup_hub",
+                callbackState: "succeeded",
+                idToken: resolvedIdToken,
+              })
+            : PreVaultUserStateService.updatePreVaultState(
+                userId,
+                { onboardingCallbackState: "succeeded" },
+                { idToken: resolvedIdToken },
+              );
+        await journeyWrite.catch((journeyError) => {
           // The existing post-auth route remains the rollback path while the
           // additive journey migration rolls out.
           console.warn(

@@ -573,6 +573,9 @@ function ProfilePageContent() {
     mode: "push" | "replace";
   } | null>(null);
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  // A presence read that threw. Distinct from `hasVault === null`, which only
+  // means "still reading" — see the catch block in loadVaultState below.
+  const [vaultCheckFailed, setVaultCheckFailed] = useState(false);
   const [showVaultCreation, setShowVaultCreation] = useState(false);
   const [pkmMetadata, setPkmMetadata] =
     useState<PersonalKnowledgeModelMetadata | null>(null);
@@ -732,8 +735,17 @@ function ProfilePageContent() {
         isVaultUnlocked,
         vaultKey,
         vaultOwnerToken,
+        authLoading,
+        presenceFailed: vaultCheckFailed,
       }),
-    [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken],
+    [
+      authLoading,
+      hasVault,
+      isVaultUnlocked,
+      vaultCheckFailed,
+      vaultKey,
+      vaultOwnerToken,
+    ],
   );
   const routeBlockedByVault =
     hasVault === true &&
@@ -940,10 +952,18 @@ function ProfilePageContent() {
       if (!user?.uid) return;
       try {
         const next = await VaultService.checkVault(user.uid);
-        if (!cancelled) setHasVault(next);
+        if (!cancelled) {
+          setHasVault(next);
+          setVaultCheckFailed(false);
+        }
       } catch (error) {
         console.warn("[ProfilePage] Failed to check vault existence:", error);
-        if (!cancelled) setHasVault(false);
+        // A read that threw is NOT an account without a lock. This used to set
+        // `false`, which drives `needsVaultCreation`, which opens the lock
+        // CREATION sheet — so one failed request offered to build a second lock
+        // to somebody who already had one. Two other reads in this same file
+        // already fail closed to `true`; this one contradicted them.
+        if (!cancelled) setVaultCheckFailed(true);
       }
     }
 

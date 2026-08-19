@@ -77,6 +77,7 @@ const BOOTING: UserEntryState = {
   signedIn: false,
   destination: "/one",
   surface: "none",
+  lockState: "loading",
 };
 
 const OnboardingEntryContext = createContext<OnboardingEntryValue>({

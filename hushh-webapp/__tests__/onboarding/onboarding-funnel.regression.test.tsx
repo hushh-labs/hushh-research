@@ -19,7 +19,7 @@ import type { ReactNode } from "react";
 
 const harness = vi.hoisted(() => {
   type Record = {
-    hasVault: boolean;
+    hasVault: boolean | null;
     phoneVerified: boolean | null;
     setupCompleted: boolean | null;
     onboardingJourneyVersion: number | null;
@@ -39,6 +39,17 @@ const harness = vi.hoisted(() => {
     phoneNumber: null as string | null,
     vaultUnlocked: false,
     vaultPresence: null as boolean | null,
+    // The presence read can fail. Without this the mock returned a promise
+    // that could never reject, so ERROR was unreachable in the one harness
+    // that drives the real guards — and a failed read silently read as "no
+    // lock" everywhere it happened for real.
+    vaultCheckThrows: false,
+    // A presence read that has not come back yet. `hasVault: null` in the
+    // record is not enough to model this — the mock resolved it to `false`,
+    // which is a settled answer, and a settled `false` is a state the guard
+    // deliberately admits. An unresolved read is the one that must render
+    // nothing at all.
+    vaultCheckPending: false,
     bootstrapCalls: 0,
     cacheWarm: false,
     cacheSubscribers: new Set<(event: { type: string; key: string }) => void>(),
@@ -167,8 +178,16 @@ vi.mock("@/lib/services/vault-service", () => ({
   VaultAuthSessionNotReadyError: class extends Error {},
   VaultService: {
     peekVaultPresence: () => harness.vaultPresence,
-    checkVault: async () => harness.record?.hasVault ?? false,
-    refreshVaultPresence: async () => harness.record?.hasVault ?? false,
+    checkVault: async () => {
+      if (harness.vaultCheckPending) return new Promise<boolean>(() => {});
+      if (harness.vaultCheckThrows) throw new Error("presence check failed");
+      return harness.record?.hasVault ?? false;
+    },
+    refreshVaultPresence: async () => {
+      if (harness.vaultCheckPending) return new Promise<boolean>(() => {});
+      if (harness.vaultCheckThrows) throw new Error("presence check failed");
+      return harness.record?.hasVault ?? false;
+    },
   },
 }));
 
@@ -359,6 +378,8 @@ describe("the first-run funnel", () => {
     harness.phoneNumber = null;
     harness.vaultUnlocked = false;
     harness.vaultPresence = null;
+    harness.vaultCheckThrows = false;
+    harness.vaultCheckPending = false;
     harness.bootstrapCalls = 0;
     harness.cacheWarm = false;
     harness.cacheSubscribers.clear();
@@ -654,6 +675,152 @@ describe("the first-run funnel", () => {
 
       expect(currentPath()).toContain("/register-phone");
       expect(surfacesShown()).not.toContain("lock");
+    });
+  });
+
+  // Test 8 ------------------------------------------------------------------
+  /**
+   * The four states, told apart, through the real guards.
+   *
+   * This block exists because the harness above already ran the exact reported
+   * state — onboarded, signed in, lock shut — and asserted only that two
+   * surfaces never painted together. "No collision" is true of the bug as well
+   * as of the fix: showing SETUP alone to a locked person is a perfectly
+   * uncollided wrong answer. What follows names the outcome.
+   */
+  describe("configured, locked, unlocked, loading and error are told apart", () => {
+    function signedIn(uid = "state-user") {
+      harness.authLoading = false;
+      harness.user = { uid };
+      harness.phoneNumber = "+15555550123";
+      harness.latch = true;
+    }
+
+    it("asks a locked returning person to unlock, and never to set up", async () => {
+      signedIn();
+      harness.vaultUnlocked = false;
+      harness.vaultPresence = true;
+      harness.record = { ...completedRecord(), hasVault: true };
+      goTo("/one");
+      const view = render(<App />);
+      await settle();
+
+      // The lock surface is the unlock challenge, not the funnel.
+      expect(view.queryByTestId("lock-screen")).not.toBeNull();
+      // And it is emphatically NOT the first-run setup screen.
+      expect(surfacesShown()).not.toContain("setup");
+      expect(pathname()).toBe("/one");
+      view.unmount();
+    });
+
+    it("lets an unlocked returning person straight through, with no lock surface", async () => {
+      signedIn();
+      harness.vaultUnlocked = true;
+      harness.vaultPresence = true;
+      harness.record = { ...completedRecord(), hasVault: true };
+      goTo("/one");
+      const view = render(<App />);
+      await settle();
+
+      expect(view.queryByTestId("app-screen")).not.toBeNull();
+      expect(surfacesShown()).not.toContain("lock");
+      expect(surfacesShown()).not.toContain("setup");
+      view.unmount();
+    });
+
+    it("shows neither the lock nor setup while the answer is still unread", async () => {
+      // `hasVault: null` is "not read yet". Painting either surface here is
+      // the flash: a verdict rendered before anything was known.
+      signedIn();
+      harness.vaultUnlocked = false;
+      harness.vaultPresence = null;
+      harness.vaultCheckPending = true;
+      harness.record = { ...completedRecord(), hasVault: null };
+      goTo("/one");
+      const view = render(<App />);
+      await settle();
+
+      // Nothing is decided, so nothing is painted: not the lock, not the
+      // funnel, and not the protected route either.
+      expect(surfacesShown()).not.toContain("setup");
+      expect(view.queryByTestId("lock-screen")).toBeNull();
+      expect(view.queryByTestId("app-screen")).toBeNull();
+      view.unmount();
+    });
+
+    it("does not read a failed presence check as an account with no lock", async () => {
+      signedIn();
+      harness.vaultUnlocked = false;
+      harness.vaultPresence = null;
+      harness.vaultCheckThrows = true;
+      harness.record = { ...completedRecord(), hasVault: true };
+      goTo("/one");
+      const view = render(<App />);
+      await settle();
+
+      // The guard fails CLOSED: a read it could not complete keeps the
+      // credential challenge in front of the route. Two things must not
+      // happen, and asserting only the second one lets the real defect
+      // through — a mutation that reads the failure as "no lock" also shows
+      // no setup screen, it just hands over the protected route instead.
+      expect(view.queryByTestId("lock-screen")).not.toBeNull();
+      expect(view.queryByTestId("app-screen")).toBeNull();
+      expect(surfacesShown()).not.toContain("setup");
+      view.unmount();
+    });
+
+    it("keeps an established legacy account out of the funnel entirely", async () => {
+      // The account this regression was reported on: created before the
+      // journey mirror existed, so every journey column is null and
+      // `setup_completed` was never backfilled. It is established, not
+      // unfinished, and must land in the app.
+      harness.authLoading = false;
+      harness.user = { uid: "legacy-user" };
+      harness.phoneNumber = "+15555550123";
+      harness.latch = false;
+      harness.vaultUnlocked = false;
+      harness.vaultPresence = true;
+      harness.record = {
+        hasVault: true,
+        phoneVerified: true,
+        setupCompleted: null,
+        onboardingJourneyVersion: null,
+        onboardingPhase: null,
+        onboardingActiveCapability: null,
+        setupCapabilityIds: [],
+      };
+      goTo("/one");
+      const view = render(<App />);
+      await settle();
+
+      expect(pathname()).toBe("/one");
+      expect(surfacesShown()).not.toContain("setup");
+      view.unmount();
+    });
+
+    it("still sends a genuinely unfinished person to setup", async () => {
+      // The control. The fixes above must not wave everybody through.
+      harness.authLoading = false;
+      harness.user = { uid: "unfinished-user" };
+      harness.phoneNumber = "+15555550123";
+      harness.latch = false;
+      harness.vaultUnlocked = false;
+      harness.vaultPresence = false;
+      harness.record = {
+        hasVault: false,
+        phoneVerified: true,
+        setupCompleted: false,
+        onboardingJourneyVersion: 1,
+        onboardingPhase: "setup_hub",
+        onboardingActiveCapability: null,
+        setupCapabilityIds: [],
+      };
+      goTo("/one");
+      const view = render(<App />);
+      await settle();
+
+      expect(pathname()).toBe("/one/setup");
+      view.unmount();
     });
   });
 });

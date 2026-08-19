@@ -1,3 +1,9 @@
+import {
+  lockActionLabel,
+  resolveLockState,
+  type LockState,
+} from "@/lib/vault/vault-access-policy";
+
 /**
  * The lock decision for a One Location action that needs the owner token.
  * ======================================================================
@@ -38,6 +44,15 @@ export interface OneLocationLockStateInput {
   userId: string | null | undefined;
   /** `useVault().vaultOwnerToken` — memory-only, null when locked or absent. */
   vaultOwnerToken: string | null | undefined;
+  /**
+   * Whether this account owns a lock at all. `null` means not read yet.
+   *
+   * Optional so the original three-valued callers keep working unchanged. Pass
+   * it and `locked` splits into two: somebody whose lock is shut, and somebody
+   * who never made one. They wait in the same place and are owed different
+   * words — see `resolveOneLocationLockPrompt`.
+   */
+  hasLock?: boolean | null;
 }
 
 export function resolveOneLocationLockState({
@@ -52,6 +67,43 @@ export function resolveOneLocationLockState({
   // reading null here proves nothing yet.
   if (authLoading || !userId) return "resolving";
   return "locked";
+}
+
+/**
+ * The words this screen owes the person, derived from the app-wide policy.
+ *
+ * `resolveOneLocationLockState` answers "may this action run?", which is a
+ * three-valued question and stays one. It cannot answer "what do I call the
+ * button?", because `locked` covers two different people:
+ *
+ *   - a lock exists and is shut  -> "Unlock One"
+ *   - no lock was ever made      -> "Set a lock"
+ *
+ * The Circle sheet opened with `allowVaultCreation` precisely because the
+ * common case here is the second one — `VaultLockGuard` admits an account with
+ * no lock to `/one/*` — yet it still announced itself as "Unlock One", a door
+ * with no key behind it. The visible copy inside the sheet was saved by
+ * `VaultFlow` checking presence for itself; the accessible name was not, and
+ * neither was any caller that wanted to label its own control.
+ */
+export function resolveOneLocationLockPrompt(
+  input: OneLocationLockStateInput,
+): { state: LockState; title: string; description: string } {
+  const state = resolveLockState({
+    hasVault: input.hasLock ?? null,
+    isVaultUnlocked: Boolean(input.vaultOwnerToken),
+    vaultOwnerToken: input.vaultOwnerToken,
+    authLoading: input.authLoading || !input.userId,
+  });
+
+  return {
+    state,
+    title: lockActionLabel(state),
+    description:
+      state === "unconfigured"
+        ? "Circles are private. Set a lock to make one."
+        : "Circles are private. Unlock to make one.",
+  };
 }
 
 /**

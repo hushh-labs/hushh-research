@@ -138,6 +138,7 @@ import { cn } from "@/lib/utils";
 import { useConsentActions, type PendingConsent } from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
 import { useVault } from "@/lib/vault/vault-context";
+import { useOnboardingEntry } from "@/lib/onboarding/onboarding-entry-context";
 import {
   appInteractionCoordinator,
   useActiveActionRun,
@@ -1136,6 +1137,7 @@ export function AgentChatWorkspace({
   const searchParams = useSearchParams();
   const isPopover = variant === "popover";
   const { user, loading: authLoading, phoneNumber } = useAuth();
+  const { entry } = useOnboardingEntry();
   const {
     isVaultUnlocked,
     vaultKey,
@@ -3766,13 +3768,20 @@ export function AgentChatWorkspace({
   const needsVaultUnlock = Boolean(
     user?.uid && (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh)
   );
+  // "Not unlocked" is true of somebody who has never made a lock as well as
+  // somebody whose lock is shut, and the two are owed different words. The
+  // app-wide decision already knows which; asking it is cheaper and cannot
+  // disagree with the guard above this screen.
+  const lockNeedsCreating = needsVaultUnlock && entry.lockState === "unconfigured";
   const accessMessage = authLoading
     ? null
     : !user?.uid
       ? "You're chatting with One. Sign in and unlock for personalized help."
-      : needsVaultUnlock
-        ? "You're chatting with One. Unlock to work with your private information."
-        : null;
+      : lockNeedsCreating
+        ? "You're chatting with One. Set a lock to work with your private information."
+        : needsVaultUnlock
+          ? "You're chatting with One. Unlock to work with your private information."
+          : null;
   const accessAction = authLoading
     ? null
     : !user?.uid
@@ -3783,7 +3792,7 @@ export function AgentChatWorkspace({
         }
       : needsVaultUnlock
         ? {
-            label: "Unlock",
+            label: lockNeedsCreating ? "Set a lock" : "Unlock",
             icon: KeyRound,
             // Just-in-time unlock in place via the shared dialog, instead of
             // navigating away to /one/profile and losing the agent context.
@@ -4891,8 +4900,12 @@ export function AgentChatWorkspace({
           user={user}
           open={vaultDialogOpen}
           onOpenChange={setVaultDialogOpen}
-          title="Unlock to use Agent"
-          description="Unlock so the agent can work with your private information."
+          title={lockNeedsCreating ? "Set a lock" : "Unlock One"}
+          description={
+            lockNeedsCreating
+              ? "Set a lock so the agent can work with your private information."
+              : "Unlock so the agent can work with your private information."
+          }
           onSuccess={() => setVaultDialogOpen(false)}
         />
       ) : null}
