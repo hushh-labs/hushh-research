@@ -236,7 +236,7 @@ describe("shortening", () => {
           },
         }),
       ).description,
-    ).toBe("Adjusted your viewing time, within what was already approved");
+    ).toBe("Adjusted their viewing time, within what was already approved");
     expect(
       presentFeedItem(
         item({
