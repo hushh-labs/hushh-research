@@ -74,7 +74,7 @@ describe("One Location SMS emergency actions", () => {
 
   it("uses the shared TaskFlowHeader, titled with its own crumb", () => {
     expect(SMS_PANEL_SOURCE).toContain("TaskFlowHeader");
-    expect(SMS_PANEL_SOURCE).toContain('title="Emergency help"');
+    expect(SMS_PANEL_SOURCE).toContain('title="Save my Soul"');
     // No route-local <h1>: the header primitive owns the title element.
     expect(SMS_PANEL_SOURCE).not.toContain("<h1");
   });
