@@ -1,10 +1,43 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assessActionPredicates,
   KAI_ACTION_GATEWAY_ACTIONS,
   KAI_PREDICATE_INDEX,
 } from "@/lib/voice/kai-action-gateway";
 import type { KaiActionDefinition } from "@/lib/voice/kai-action-gateway";
+import type { AppRuntimeState, VoiceSurfaceMetadata } from "@/lib/voice/voice-types";
+
+function runtimeState(): AppRuntimeState {
+  return {
+    auth: { signed_in: true, user_id: "user_1" },
+    vault: { unlocked: true, token_available: true, token_valid: true },
+    route: { pathname: "/one/location", screen: "one_location", subview: null },
+    runtime: {
+      analysis_active: false,
+      analysis_ticker: null,
+      analysis_run_id: null,
+      import_active: false,
+      import_run_id: null,
+      busy_operations: [],
+    },
+    portfolio: { has_portfolio_data: true },
+    persona: {
+      active: "investor",
+      primary_nav: "investor",
+      available: ["investor"],
+      transition_target: null,
+      ria_switch_available: false,
+      ria_setup_available: false,
+    },
+  } as AppRuntimeState;
+}
+
+function surfaceWith(
+  screenMetadata: Record<string, unknown>,
+): VoiceSurfaceMetadata {
+  return { screenMetadata } as VoiceSurfaceMetadata;
+}
 
 const RELATIONS = ["requires", "establishes", "advances"] as const;
 
@@ -143,5 +176,85 @@ describe("the connection edge", () => {
       predicate: "share_recipient_selected",
       entity_slot: null,
     });
+  });
+});
+
+describe("assessActionPredicates", () => {
+  const shareSelected = () => actionById("location.share_selected");
+
+  // The rule that matters most. An unpublished fact must never be reported as
+  // a missing one, or One ends up stating something false about a person.
+  it("treats an unpublished fact as unknown, never as missing", () => {
+    const assessment = assessActionPredicates({
+      action: shareSelected(),
+      appRuntimeState: runtimeState(),
+      surfaceMetadata: surfaceWith({}),
+    });
+    expect(assessment.unknown).toContainEqual({
+      predicate: "share_recipient_selected",
+      entity_slot: null,
+    });
+    expect(assessment.unmet).toEqual([]);
+  });
+
+  it("reports a fact the surface published as false", () => {
+    const assessment = assessActionPredicates({
+      action: shareSelected(),
+      appRuntimeState: runtimeState(),
+      surfaceMetadata: surfaceWith({ share_recipient_selected: false }),
+    });
+    expect(assessment.unmet).toContainEqual({
+      predicate: "share_recipient_selected",
+      entity_slot: null,
+    });
+    expect(assessment.unknown).toEqual([]);
+  });
+
+  it("reports nothing missing once the fact is true", () => {
+    const assessment = assessActionPredicates({
+      action: shareSelected(),
+      appRuntimeState: runtimeState(),
+      surfaceMetadata: surfaceWith({ share_recipient_selected: true }),
+    });
+    expect(assessment.unmet).toEqual([]);
+    expect(assessment.unknown).toEqual([]);
+    expect(assessment.remedy_action_ids).toEqual([]);
+  });
+
+  it("offers the action that would satisfy a missing fact", () => {
+    const assessment = assessActionPredicates({
+      action: shareSelected(),
+      appRuntimeState: runtimeState(),
+      surfaceMetadata: surfaceWith({ share_recipient_selected: false }),
+    });
+    expect(assessment.remedy_action_ids).toContain(
+      "location.select_share_recipient",
+    );
+  });
+
+  it("holds a fact about a person until it knows which person", () => {
+    const assessment = assessActionPredicates({
+      action: actionById("location.select_share_recipient"),
+      appRuntimeState: runtimeState(),
+      surfaceMetadata: surfaceWith({}),
+    });
+    expect(assessment.ungrounded).toContainEqual({
+      predicate: "connected_to",
+      entity_slot: "person",
+    });
+    expect(assessment.unmet).toEqual([]);
+    // Even ungrounded, the way forward is known.
+    expect(assessment.remedy_action_ids).toContain("connect.send_request");
+  });
+
+  it("never offers the action being assessed as its own remedy", () => {
+    for (const action of KAI_ACTION_GATEWAY_ACTIONS) {
+      const assessment = assessActionPredicates({
+        action,
+        appRuntimeState: runtimeState(),
+        surfaceMetadata: surfaceWith({}),
+      });
+      expect(assessment.remedy_action_ids).not.toContain(action.action_id);
+    }
   });
 });

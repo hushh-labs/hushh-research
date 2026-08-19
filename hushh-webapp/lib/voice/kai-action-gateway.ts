@@ -264,6 +264,26 @@ export type KaiActionAvailability =
       blocked_guidance: string | null;
     };
 
+/**
+ * What stands between the current surface and an action.
+ *
+ * `unmet` is only ever a fact we positively observed to be false. A fact whose
+ * value was never published lands in `unknown`, never in `unmet` — telling
+ * someone they are not connected to a person they are in fact connected to is
+ * worse than saying nothing, and an unpublished fact looks exactly like a
+ * false one if you let it.
+ *
+ * `ungrounded` holds facts about an entity we cannot check yet because no slot
+ * value is known at availability time. Whether Sam is a connection is
+ * unanswerable until we know the action is about Sam.
+ */
+export type KaiPredicateAssessment = {
+  unmet: KaiPredicateRef[];
+  ungrounded: KaiPredicateRef[];
+  unknown: KaiPredicateRef[];
+  remedy_action_ids: string[];
+};
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -1128,6 +1148,135 @@ function availabilitySearchRank(availability: KaiActionAvailability): number {
     return 0;
   }
   return 1;
+}
+
+type PredicateContext = {
+  appRuntimeState?: AppRuntimeState;
+  surfaceMetadata?: VoiceSurfaceMetadata | null;
+};
+
+/**
+ * Resolvers for entity-free facts only, and every one of them is synchronous
+ * by construction. Anything needing a round trip is published by the surface
+ * that already holds the data, so assessing an action never puts a query on
+ * the path of someone mid-sentence.
+ *
+ * Returning `undefined` means "not published", which is different from false
+ * and must stay different all the way to the caller.
+ */
+const PREDICATE_RESOLVERS: Record<
+  string,
+  (ctx: PredicateContext) => boolean | undefined
+> = {
+  signed_in: (ctx) => ctx.appRuntimeState?.auth.signed_in,
+  vault_unlocked: (ctx) => ctx.appRuntimeState?.vault.unlocked,
+  vault_token: (ctx) => ctx.appRuntimeState?.vault.token_available,
+  analysis_active: (ctx) => ctx.appRuntimeState?.runtime.analysis_active,
+  analysis_idle: (ctx) => {
+    const active = ctx.appRuntimeState?.runtime.analysis_active;
+    return active === undefined ? undefined : !active;
+  },
+  ria_ready: (ctx) => ctx.appRuntimeState?.persona?.ria_setup_available,
+  ria_available: (ctx) => ctx.appRuntimeState?.persona?.available?.includes("ria"),
+  persona_investor: (ctx) => {
+    const active = ctx.appRuntimeState?.persona?.active;
+    return active === undefined ? undefined : active === "investor";
+  },
+  persona_ria: (ctx) => {
+    const active = ctx.appRuntimeState?.persona?.active;
+    return active === undefined ? undefined : active === "ria";
+  },
+  gmail_connected: (ctx) =>
+    boolFromSurfaceMetadata(ctx.surfaceMetadata || undefined, "gmail_connected"),
+  gmail_configured: (ctx) =>
+    boolFromSurfaceMetadata(ctx.surfaceMetadata || undefined, "gmail_configured"),
+  consent_center_visible: (ctx) =>
+    boolFromSurfaceMetadata(
+      ctx.surfaceMetadata || undefined,
+      "consent_center_visible",
+    ),
+  location_permission_granted: (ctx) =>
+    boolFromSurfaceMetadata(
+      ctx.surfaceMetadata || undefined,
+      "location_permission_granted",
+    ),
+  location_updates_paused: (ctx) =>
+    boolFromSurfaceMetadata(
+      ctx.surfaceMetadata || undefined,
+      "location_updates_paused",
+    ),
+  sos_active: (ctx) =>
+    boolFromSurfaceMetadata(ctx.surfaceMetadata || undefined, "sos_active"),
+  share_recipient_selected: (ctx) =>
+    boolFromSurfaceMetadata(
+      ctx.surfaceMetadata || undefined,
+      "share_recipient_selected",
+    ),
+  ask_recipient_selected: (ctx) =>
+    boolFromSurfaceMetadata(
+      ctx.surfaceMetadata || undefined,
+      "ask_recipient_selected",
+    ),
+  check_in_recipient_selected: (ctx) =>
+    boolFromSurfaceMetadata(
+      ctx.surfaceMetadata || undefined,
+      "check_in_recipient_selected",
+    ),
+  has_emergency_contact: (ctx) =>
+    boolFromSurfaceMetadata(
+      ctx.surfaceMetadata || undefined,
+      "has_emergency_contact",
+    ),
+};
+
+/**
+ * Which of an action's required facts are known to be missing, and what could
+ * be offered about it. Read-only: this decides nothing and blocks nothing, it
+ * just reports what the surface can currently see.
+ */
+export function assessActionPredicates(input: {
+  action: KaiActionDefinition;
+  appRuntimeState?: AppRuntimeState;
+  surfaceMetadata?: VoiceSurfaceMetadata | null;
+}): KaiPredicateAssessment {
+  const ctx: PredicateContext = {
+    appRuntimeState: input.appRuntimeState,
+    surfaceMetadata: input.surfaceMetadata,
+  };
+  const unmet: KaiPredicateRef[] = [];
+  const ungrounded: KaiPredicateRef[] = [];
+  const unknown: KaiPredicateRef[] = [];
+
+  for (const ref of input.action.requires) {
+    const spec = KAI_PREDICATE_INDEX[ref.predicate];
+    if (!spec) {
+      unknown.push(ref);
+      continue;
+    }
+    // A fact about a person or a circle cannot be checked until we know which
+    // one, and at availability time no slot has been filled yet.
+    if (spec.arity === 1) {
+      ungrounded.push(ref);
+      continue;
+    }
+    const resolver = PREDICATE_RESOLVERS[ref.predicate];
+    const value = resolver ? resolver(ctx) : undefined;
+    if (value === undefined) unknown.push(ref);
+    else if (!value) unmet.push(ref);
+  }
+
+  const remedies: string[] = [];
+  for (const ref of [...unmet, ...ungrounded]) {
+    const spec = KAI_PREDICATE_INDEX[ref.predicate];
+    if (!spec) continue;
+    for (const actionId of [...spec.established_by, ...spec.advanced_by]) {
+      if (actionId !== input.action.action_id && !remedies.includes(actionId)) {
+        remedies.push(actionId);
+      }
+    }
+  }
+
+  return { unmet, ungrounded, unknown, remedy_action_ids: remedies };
 }
 
 export function searchKaiActions(input: {
