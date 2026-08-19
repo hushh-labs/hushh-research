@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import hushh_mcp.services.feed_service as feed_service_module
 import hushh_mcp.services.one_location_circle_service as circle_service_module
 import hushh_mcp.services.push_notifications as push_notifications_module
 from hushh_mcp.services.one_location_circle_service import (
@@ -15,7 +16,10 @@ from hushh_mcp.services.one_location_circle_service import (
     format_circle_code,
     normalize_circle_code,
 )
-from hushh_mcp.services.push_notifications import send_circle_member_invite_push
+from hushh_mcp.services.push_notifications import (
+    send_circle_member_added_push,
+    send_circle_member_invite_push,
+)
 
 
 def test_circle_name_accepts_one_character_and_still_bounds_the_column() -> None:
@@ -1141,12 +1145,26 @@ def test_accepted_invite_replay_after_leave_does_not_recreate_circle_origins(
     assert origin_calls == []
 
 
-def test_member_invite_batch_is_atomic_idempotent_and_pushes_only_new_rows(
+def test_adding_connections_writes_memberships_and_tells_each_person(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Picking a connection puts them in the Circle. Nothing is left pending.
+
+    This used to write an invitation and wait up to 72 hours for the other
+    person to agree to something they had already agreed to: only ACTIVE DIRECT
+    CONNECTIONS can be picked here, so both people had chosen each other before
+    the sheet ever opened. The membership is written now, and the work
+    acceptance used to do -- the Circle-scoped origin for the pair -- is done
+    in the same transaction.
+
+    An invitation that was already open for one of them is retired rather than
+    left standing: the membership it was asking for now exists, so offering
+    that person a decision about it would be offering a choice about something
+    already settled.
+    """
+
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
     existing_id = "550e8400-e29b-41d4-a716-446655440002"
-    new_id = "550e8400-e29b-41d4-a716-446655440003"
     now = datetime.now(timezone.utc)
     conn = _CapacityConnection(
         {
@@ -1158,6 +1176,8 @@ def test_member_invite_batch_is_atomic_idempotent_and_pushes_only_new_rows(
             "inviter_display_name": "Owner",
         },
         {"role": "owner", "inviter_display_name": "Owner"},
+        # Everyone named in the request, locked before the connection rows.
+        [{"user_id": "friend-one"}, {"user_id": "friend-two"}],
         None,
         [{"user_id": "friend-two", "status": "removed"}],
         [
@@ -1192,25 +1212,47 @@ def test_member_invite_batch_is_atomic_idempotent_and_pushes_only_new_rows(
             }
         ],
         {"active_member_count": 1, "pending_invite_count": 1},
-        {
-            "id": new_id,
-            "circle_id": circle_id,
-            "inviter_user_id": "owner-user",
-            "invitee_user_id": "friend-two",
-            "status": "pending",
-            "expires_at": now + timedelta(hours=72),
-            "created_at": now,
-        },
+        # friend-one: own Circle budget, membership insert, co-member lock.
+        {"circle_count": 1},
+        None,
+        [{"user_id": "friend-one"}, {"user_id": "owner-user"}],
+        # friend-two: the same three.
+        {"circle_count": 1},
+        None,
+        [
+            {"user_id": "friend-one"},
+            {"user_id": "friend-two"},
+            {"user_id": "owner-user"},
+        ],
+        # Retiring the invitation that was already open for friend-one.
+        None,
     )
     service = OneLocationCircleService(
         db=_TransactionDb(conn),  # type: ignore[arg-type]
         hmac_key="a" * 32,
     )
+    origin_calls: list[dict] = []
+    monkeypatch.setattr(
+        circle_service_module,
+        "ensure_connection_origin",
+        lambda _conn, **kwargs: origin_calls.append(kwargs) or {},
+    )
     push_calls: list[dict] = []
     monkeypatch.setattr(
         push_notifications_module,
-        "send_circle_member_invite_push",
+        "send_circle_member_added_push",
         lambda **kwargs: push_calls.append(kwargs) or 1,
+    )
+    monkeypatch.setattr(
+        push_notifications_module,
+        "_lookup_display_name",
+        lambda user_id: "Owner" if user_id == "owner-user" else "",
+    )
+    feed_calls: list[dict] = []
+    monkeypatch.setattr(
+        feed_service_module,
+        "FeedService",
+        lambda: SimpleNamespace(record_event=lambda **kwargs: feed_calls.append(kwargs)),
     )
 
     result = service.create_member_invites(
@@ -1219,25 +1261,40 @@ def test_member_invite_batch_is_atomic_idempotent_and_pushes_only_new_rows(
         invitee_user_ids=["friend-one", "friend-two", "friend-one"],
     )
 
-    assert [invite["inviteeUserId"] for invite in result["invites"]] == [
-        "friend-one",
-        "friend-two",
+    # Nobody is invited any more, and both people are in.
+    assert result["invites"] == []
+    assert result["createdInviteIds"] == []
+    assert result["addedUserIds"] == ["friend-one", "friend-two"]
+    assert not any("INSERT INTO one_location_circle_member_invites" in sql for sql in conn.sql)
+    assert sum("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql) == 2
+
+    # Each new member is paired with whoever added them, and with nobody else.
+    assert {(call["user_a_id"], call["user_b_id"], call["kind"]) for call in origin_calls} == {
+        ("friend-one", "owner-user", "circle_member"),
+        ("friend-one", "owner-user", "named_circle"),
+        ("friend-two", "owner-user", "circle_member"),
+        ("friend-two", "owner-user", "named_circle"),
+    }
+
+    # And each is told, by name. "Someone added you to a Circle" is the one
+    # thing this notification must never be able to say.
+    assert [call["member_user_id"] for call in push_calls] == ["friend-one", "friend-two"]
+    assert all(call["added_by_display_name"] == "Owner" for call in push_calls)
+    assert all(call["circle_name"] == "Family" for call in push_calls)
+    assert [call["event_type"] for call in feed_calls] == [
+        "circle_member_added",
+        "circle_member_added",
     ]
-    assert result["createdInviteIds"] == [new_id]
-    assert push_calls == [
-        {
-            "invitee_user_id": "friend-two",
-            "inviter_user_id": "owner-user",
-            "circle_id": circle_id,
-            "invite_id": new_id,
-        }
-    ]
+    assert all(call["actor_label"] == "Owner" for call in feed_calls)
+
+    # The invitation friend-one already had is resolved, not left dangling.
     assert any(
-        "ORDER BY connection.user_a_id, connection.user_b_id" in sql
-        and "FOR UPDATE OF connection" in sql
+        "UPDATE one_location_circle_member_invites" in sql and "'accepted'" in sql
         for sql in conn.sql
     )
-    assert sum("INSERT INTO one_location_circle_member_invites" in sql for sql in conn.sql) == 1
+
+    # Lock order: Circle, the actor's membership, the people being added, then
+    # their memberships in this Circle.
     circle_lock_index = next(
         index
         for index, sql in enumerate(conn.sql)
@@ -1249,6 +1306,11 @@ def test_member_invite_batch_is_atomic_idempotent_and_pushes_only_new_rows(
         if "FROM one_location_circle_memberships actor_membership" in sql
         and "FOR UPDATE OF actor_membership" in sql
     )
+    invitee_lock_index = next(
+        index
+        for index, sql in enumerate(conn.sql)
+        if "FROM actor_profiles" in sql and "ORDER BY user_id" in sql
+    )
     target_membership_lock_index = next(
         index
         for index, sql in enumerate(conn.sql)
@@ -1256,7 +1318,62 @@ def test_member_invite_batch_is_atomic_idempotent_and_pushes_only_new_rows(
         and "FROM one_location_circle_memberships" in sql
         and "FOR UPDATE" in sql
     )
-    assert circle_lock_index < actor_membership_lock_index < target_membership_lock_index
+    assert (
+        circle_lock_index
+        < actor_membership_lock_index
+        < invitee_lock_index
+        < target_membership_lock_index
+    )
+
+
+def test_the_people_being_added_are_locked_before_the_connection_rows() -> None:
+    """The deadlock this ordering exists to prevent.
+
+    `accept_member_invite` locks a profile and THEN the connection. If adding
+    took them the other way round, A adding B to one Circle while B accepts A's
+    older invitation to another would be a cycle on that exact pair: one
+    transaction holding the connection and waiting for the profile, the other
+    holding the profile and waiting for the connection. Postgres would break
+    the tie by aborting one of them with a 500 the person did nothing to earn.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "name": "Family",
+            "kind": "family",
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+        },
+        {"role": "owner", "inviter_display_name": "Owner"},
+        # One row short: friend-two has no actor profile.
+        [{"user_id": "friend-one"}],
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.create_member_invites(
+            actor_user_id="owner-user",
+            circle_id=circle_id,
+            invitee_user_ids=["friend-one", "friend-two"],
+        )
+
+    assert raised.value.code == "LOCATION_CIRCLE_INVITEE_NOT_READY"
+    # Not named. Which of your connections has finished onboarding is their
+    # business, not the business of whoever is adding them.
+    assert "friend-two" not in raised.value.args[0]
+    # The lock is taken before anything is read about the pair.
+    assert not any("FROM connections connection" in sql for sql in conn.sql)
+    profile_lock_index = next(
+        index
+        for index, sql in enumerate(conn.sql)
+        if "FROM actor_profiles" in sql and "FOR UPDATE" in sql
+    )
+    assert "ORDER BY user_id" in conn.sql[profile_lock_index]
 
 
 def test_member_cannot_invite_a_user_removed_by_the_circle_owner() -> None:
@@ -1271,6 +1388,7 @@ def test_member_cannot_invite_a_user_removed_by_the_circle_owner() -> None:
             "role": "member",
         },
         {"role": "member", "inviter_display_name": "Member"},
+        [{"user_id": "removed-user"}],
         None,
         [{"user_id": "removed-user", "status": "removed"}],
     )
@@ -1303,6 +1421,7 @@ def test_recent_terminal_invite_enforces_a_circle_wide_reinvite_cooldown() -> No
             "role": "member",
         },
         {"role": "member", "inviter_display_name": "Member"},
+        [{"user_id": "friend-one"}],
         None,
         [],
         [
@@ -1339,10 +1458,21 @@ def test_recent_terminal_invite_enforces_a_circle_wide_reinvite_cooldown() -> No
 
     assert raised.value.code == "LOCATION_CIRCLE_INVITE_COOLDOWN"
     assert raised.value.status_code == 429
-    assert not any("INSERT INTO one_location_circle_member_invites" in sql for sql in conn.sql)
+    # The cooldown outlived the invitation flow on purpose. A declined
+    # invitation is that person saying no; without this, adding them directly
+    # would be a way to overrule it twelve hours early.
+    assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
 
 
-def test_non_owner_pending_invite_quota_cannot_reserve_every_circle_slot() -> None:
+def test_a_non_owner_cannot_fill_someone_elses_circle_in_one_tap() -> None:
+    """The ceiling that had to be replaced rather than kept.
+
+    It used to count a member's PENDING invitations, which bounded nothing once
+    nothing is pending: a member could have filled the owner's Circle to its
+    limit in a single tap. It now counts the people that member actually put
+    there and who are still there -- same number, same purpose.
+    """
+
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
     conn = _CapacityConnection(
         {
@@ -1354,6 +1484,7 @@ def test_non_owner_pending_invite_quota_cannot_reserve_every_circle_slot() -> No
             "role": "member",
         },
         {"role": "member", "inviter_display_name": "Member"},
+        [{"user_id": "friend-one"}],
         None,
         [],
         [{"connection_id": "connection-1", "user_id": "friend-one"}],
@@ -1361,8 +1492,10 @@ def test_non_owner_pending_invite_quota_cannot_reserve_every_circle_slot() -> No
         [],
         {
             "active_member_count": 5,
-            "pending_invite_count": 5,
-            "actor_pending_invite_count": 5,
+            "pending_invite_count": 0,
+            "actor_pending_invite_count": 0,
+            # Five people this member already put in someone else's Circle.
+            "actor_added_member_count": 5,
         },
     )
     service = OneLocationCircleService(
@@ -1378,10 +1511,23 @@ def test_non_owner_pending_invite_quota_cannot_reserve_every_circle_slot() -> No
         )
 
     assert raised.value.code == "LOCATION_CIRCLE_MEMBER_INVITE_LIMIT_REACHED"
-    assert not any("INSERT INTO one_location_circle_member_invites" in sql for sql in conn.sql)
+    assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
+    assert any("membership.metadata->>'addedBy'" in sql for sql in conn.sql)
 
 
-def test_member_invite_does_not_reassign_another_members_pending_invite() -> None:
+def test_adding_someone_who_already_has_an_open_invitation_retires_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """This used to 409. Refusing here now refuses the outcome it asked for.
+
+    Two members picking the same person was a conflict when picking meant
+    reserving an invitation: the second tap had nothing to add and would have
+    reassigned the first member's invitation to itself. Now the second tap
+    makes that person a MEMBER, which is exactly what accepting the pending
+    invitation would have produced -- so the invitation is marked accepted
+    instead of standing in the way of its own result.
+    """
+
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
     conn = _CapacityConnection(
         {
@@ -1392,6 +1538,7 @@ def test_member_invite_does_not_reassign_another_members_pending_invite() -> Non
             "role": "member",
         },
         {"role": "member", "inviter_display_name": "Member"},
+        [{"user_id": "friend-one"}],
         None,
         [],
         [
@@ -1412,21 +1559,37 @@ def test_member_invite_does_not_reassign_another_members_pending_invite() -> Non
                 "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
             }
         ],
+        {"active_member_count": 2, "pending_invite_count": 1},
+        {"circle_count": 1},
+        None,
+        [{"user_id": "friend-one"}, {"user_id": "member-user"}],
+        None,
     )
     service = OneLocationCircleService(
         db=_TransactionDb(conn),  # type: ignore[arg-type]
         hmac_key="a" * 32,
     )
 
-    with pytest.raises(OneLocationCircleError) as raised:
-        service.create_member_invites(
-            actor_user_id="member-user",
-            circle_id=circle_id,
-            invitee_user_ids=["friend-one"],
-        )
+    monkeypatch.setattr(
+        circle_service_module,
+        "ensure_connection_origin",
+        lambda _conn, **kwargs: {},
+    )
 
-    assert raised.value.code == "LOCATION_CIRCLE_INVITE_ALREADY_PENDING"
-    assert not any("INSERT INTO one_location_circle_member_invites" in sql for sql in conn.sql)
+    result = service.create_member_invites(
+        actor_user_id="member-user",
+        circle_id=circle_id,
+        invitee_user_ids=["friend-one"],
+    )
+
+    assert result["addedUserIds"] == ["friend-one"]
+    assert any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
+    assert any(
+        "UPDATE one_location_circle_member_invites" in sql
+        and "'accepted'" in sql
+        and "'direct_add'" in sql
+        for sql in conn.sql
+    )
 
 
 def test_member_invite_batch_capacity_failure_writes_nothing() -> None:
@@ -1440,6 +1603,7 @@ def test_member_invite_batch_capacity_failure_writes_nothing() -> None:
             "member_limit": 20,
         },
         {"role": "owner", "inviter_display_name": "Owner"},
+        [{"user_id": "friend-one"}, {"user_id": "friend-two"}],
         None,
         [],
         [
@@ -1466,7 +1630,9 @@ def test_member_invite_batch_capacity_failure_writes_nothing() -> None:
         )
 
     assert raised.value.code == "LOCATION_CIRCLE_INVITE_CAPACITY_REACHED"
-    assert not any("INSERT INTO one_location_circle_member_invites" in sql for sql in conn.sql)
+    # Batch capacity is all-or-nothing: one person over the limit adds nobody,
+    # rather than filling the last seat and failing on the rest.
+    assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
 
 
 def test_member_invite_batch_rechecks_origins_after_connection_locks() -> None:
@@ -1480,6 +1646,7 @@ def test_member_invite_batch_rechecks_origins_after_connection_locks() -> None:
             "member_limit": 20,
         },
         {"role": "owner", "inviter_display_name": "Owner"},
+        [{"user_id": "friend-one"}, {"user_id": "friend-two"}],
         None,
         [],
         [
@@ -1510,7 +1677,7 @@ def test_member_invite_batch_rechecks_origins_after_connection_locks() -> None:
     assert connection_lock_index < origin_lock_index
     assert "FOR UPDATE OF connection" in conn.sql[connection_lock_index]
     assert "FOR UPDATE" in conn.sql[origin_lock_index]
-    assert not any("INSERT INTO one_location_circle_member_invites" in sql for sql in conn.sql)
+    assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
 
 
 def test_circle_grant_reconciliation_preserves_other_relationship_origins() -> None:
@@ -1573,6 +1740,223 @@ def test_member_exit_revokes_shared_code_and_authored_pending_invites(
         for sql in conn.sql
     )
     assert origin_revocations == [{"circle_id": circle_id, "member_user_id": "member-user"}]
+
+
+def test_being_added_to_a_circle_always_names_who_added_you(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The one notification that cannot be allowed to say "Someone".
+
+    Every other Circle notification follows something the person did: they were
+    invited and tapped, or they redeemed a code. This one follows nothing they
+    did at all, so it is the only moment they learn about it -- and a banner
+    reading "You were added to a Circle" is a stranger's hand on the shoulder.
+
+    The name is in `data` as well as `body` because the in-app toast reads only
+    the data map. That gap is exactly how #5422 ended up showing "Someone" on a
+    toast while the OS banner two inches above it had the name right.
+    """
+
+    captured: dict = {}
+
+    def _capture(user_id: str, **kwargs):
+        captured["user_id"] = user_id
+        captured.update(kwargs)
+        return 1
+
+    monkeypatch.setattr(push_notifications_module, "send_user_data_push", _capture)
+
+    sent = send_circle_member_added_push(
+        member_user_id="member-user",
+        added_by_user_id="owner-user",
+        added_by_display_name="Neelesh",
+        circle_id="550e8400-e29b-41d4-a716-446655440000",
+        circle_name="Family",
+    )
+
+    assert sent == 1
+    assert captured["notification_type"] == "location_circle_member_added"
+    assert captured["notification_category"] == "ONE_LOCATION"
+    assert captured["body"] == 'Neelesh added you to "Family".'
+    assert captured["deep_link"].endswith(
+        "?tab=people&circleId=550e8400-e29b-41d4-a716-446655440000"
+    )
+    assert captured["data"]["added_by_label"] == "Neelesh"
+    assert captured["data"]["circle_name"] == "Family"
+
+
+def test_an_unresolvable_name_degrades_to_the_circle_not_to_nobody(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the identity cache has nothing, say what it does know.
+
+    `_lookup_display_name` returns "" rather than a raw uid when the cached
+    display name is technical. Reaching for "Someone" at that point throws away
+    the Circle name, which is still real and still tells the person where they
+    landed.
+    """
+
+    captured: dict = {}
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_user_data_push",
+        lambda user_id, **kwargs: captured.update(kwargs) or 1,
+    )
+
+    send_circle_member_added_push(
+        member_user_id="member-user",
+        added_by_user_id="owner-user",
+        added_by_display_name="",
+        circle_id="550e8400-e29b-41d4-a716-446655440000",
+        circle_name="SMS Circle",
+    )
+
+    assert captured["body"] == 'You were added to "SMS Circle".'
+    assert "Someone" not in captured["body"]
+
+
+def test_the_sms_circle_still_introduces_nobody_and_costs_nobody_a_circle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two exemptions that would be easy to lose in the merge.
+
+    A system Circle is one person's private emergency list. The people on it
+    can see each other -- that is the point -- but being on it is not an
+    introduction, so no connection origin is written between them and the
+    owner. And it does not count against anyone's ten-Circle budget: being
+    somebody's emergency contact should never cost you a Circle of your own.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "name": "SMS Circle",
+            "kind": "other",
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+            "is_system": True,
+        },
+        {"role": "owner", "inviter_display_name": "Owner"},
+        [{"user_id": "friend-one"}],
+        None,
+        [],
+        [
+            {
+                "connection_id": "connection-1",
+                "user_id": "friend-one",
+                "invitee_display_name": "Friend One",
+            }
+        ],
+        [{"connection_id": "connection-1"}],
+        [],
+        {"active_member_count": 1, "pending_invite_count": 0},
+        # One row only: the membership insert. No Circle-budget check and no
+        # co-member lock, because neither happens on a system Circle.
+        None,
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    origin_calls: list[dict] = []
+    monkeypatch.setattr(
+        circle_service_module,
+        "ensure_connection_origin",
+        lambda _conn, **kwargs: origin_calls.append(kwargs) or {},
+    )
+    push_calls: list[dict] = []
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_member_added_push",
+        lambda **kwargs: push_calls.append(kwargs) or 1,
+    )
+    monkeypatch.setattr(push_notifications_module, "_lookup_display_name", lambda _u: "Owner")
+    monkeypatch.setattr(
+        feed_service_module,
+        "FeedService",
+        lambda: SimpleNamespace(record_event=lambda **kwargs: None),
+    )
+
+    result = service.create_member_invites(
+        actor_user_id="owner-user",
+        circle_id=circle_id,
+        invitee_user_ids=["friend-one"],
+    )
+
+    assert result["addedUserIds"] == ["friend-one"]
+    # No introductions.
+    assert origin_calls == []
+    # No Circle-budget check ran against the person being added.
+    assert not any("SELECT COUNT(*) AS circle_count" in sql for sql in conn.sql)
+    # They are still told, and still told by name.
+    assert [call["member_user_id"] for call in push_calls] == ["friend-one"]
+    assert push_calls[0]["added_by_display_name"] == "Owner"
+    assert push_calls[0]["circle_name"] == "SMS Circle"
+    # The membership records who put them there, which is what the non-owner
+    # ceiling counts.
+    insert_params = next(
+        params
+        for sql, params in zip(conn.sql, conn.params, strict=True)
+        if "INSERT INTO one_location_circle_memberships" in sql
+    )
+    assert insert_params["added_via"] == "sms_system_circle"
+    assert insert_params["actor_user_id"] == "owner-user"
+
+
+def test_someone_at_their_circle_limit_cannot_be_added_and_is_not_named(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Their Circle budget is still theirs, and still nobody else's business.
+
+    Acceptance used to be where this was checked, against the person's own
+    account, with a message written for them to read. Adding moved the check to
+    someone else's transaction -- so the message had to stop reading as if it
+    were about the person tapping, and had to stop naming which of their
+    connections is full. Otherwise anyone with a connection and a full Circle
+    to test against could count somebody else's Circles.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "name": "Family",
+            "kind": "family",
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+        },
+        {"role": "owner", "inviter_display_name": "Owner"},
+        [{"user_id": "friend-one"}],
+        None,
+        [],
+        [{"connection_id": "connection-1", "user_id": "friend-one"}],
+        [{"connection_id": "connection-1"}],
+        [],
+        {"active_member_count": 1, "pending_invite_count": 0},
+        {"circle_count": CIRCLE_MAX_PER_USER},
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(
+        circle_service_module,
+        "ensure_connection_origin",
+        lambda _conn, **kwargs: {},
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.create_member_invites(
+            actor_user_id="owner-user",
+            circle_id=circle_id,
+            invitee_user_ids=["friend-one"],
+        )
+
+    assert raised.value.code == "LOCATION_CIRCLE_LIMIT_REACHED"
+    assert "friend-one" not in raised.value.args[0]
+    assert "You can belong to" not in raised.value.args[0]
+    assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
 
 
 def test_targeted_circle_invite_push_is_metadata_only_and_deep_links_to_people(
@@ -1835,25 +2219,24 @@ def test_a_member_cannot_add_people_to_someone_elses_emergency_list() -> None:
     assert "is_system_circle" in source
 
 
-def test_adding_to_the_sms_circle_does_not_walk_into_invitation_code() -> None:
-    """The KeyError that made every SMS-Circle add fail on UAT.
+def test_no_add_path_can_walk_into_invitation_payload_code() -> None:
+    """The KeyError that made every SMS-Circle add fail on UAT, made impossible.
 
-    The direct-add path writes memberships and skips the invitation loop --
-    an emergency contact is added outright, never invited. But that loop is
-    also what fills `existing_by_user_id`, and a few lines below:
+    The direct-add path wrote memberships and then skipped the invitation loop
+    -- but that loop was also what filled `existing_by_user_id`, and further
+    down the function built a payload for EVERY requested person by looking
+    each one up in that map:
 
         payloads = [
             self._member_invite_payload(existing_by_user_id[invitee_user_id])
             for invitee_user_id in cleaned_invitee_user_ids
         ]
 
-    builds a payload for EVERY requested person from that map. Nothing was ever
-    put there for a system Circle, so it raised KeyError, the request 5xx'd, and
-    the client showed "One is still catching up".
-
-    So the path must RETURN once the memberships are written, not fall through
-    into code whose only job is describing invitations it deliberately did not
-    create.
+    Nothing had ever been put there for a system Circle, so it raised KeyError,
+    the request 5xx'd, and the client showed "One is still catching up". The
+    first fix was an early return before that code. This is the second: adding
+    is now the only path, so the invitation-payload code is not there to be
+    walked into -- there is no lookup left to miss.
     """
 
     import ast
@@ -1864,21 +2247,29 @@ def test_adding_to_the_sms_circle_does_not_walk_into_invitation_code() -> None:
 
     source = textwrap.dedent(inspect.getsource(OneLocationCircleService.create_member_invites))
 
-    # The system-circle branch ends in a return, not a fallthrough.
-    assert (
-        '"invites": [], "createdInviteIds": []' in source.replace("\n", " ").replace("  ", " ")
-        or 'return {"invites": [], "createdInviteIds": []}' in source
-    )
+    # The map that could be missing a key, and the comprehension that indexed
+    # it, are both gone.
+    assert "existing_by_user_id" not in source
+    assert "_member_invite_payload" not in source
+    assert "INSERT INTO one_location_circle_member_invites" not in source
 
-    # And that return sits INSIDE the transaction, so the memberships it just
-    # wrote are committed rather than rolled back. `engine.begin()` commits on a
-    # normal __exit__, and a return is a normal exit.
+    # What replaces them: one membership write, and a return that reports the
+    # people who got one.
+    assert "INSERT INTO one_location_circle_memberships" in source
+
+    # That write is inside the transaction, so a failure part-way through a
+    # batch adds nobody rather than some. `engine.begin()` rolls back on an
+    # exception and commits on a normal exit.
     tree = ast.parse(source)
-    inside_transaction = False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.With) and "begin()" in ast.unparse(node.items[0].context_expr):
-            for sub in ast.walk(node):
-                if isinstance(sub, ast.Return) and isinstance(sub.value, ast.Dict):
-                    if [ast.unparse(v) for v in sub.value.values] == ["[]", "[]"]:
-                        inside_transaction = True
-    assert inside_transaction, "early return must be inside the transaction block"
+    transaction = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.With) and "begin()" in ast.unparse(node.items[0].context_expr)
+    )
+    assert "INSERT INTO one_location_circle_memberships" in ast.unparse(transaction)
+    # And the return is OUTSIDE it, because the push and feed writes it reports
+    # on must not run until the memberships are actually committed.
+    assert not any(
+        isinstance(node, ast.Return) and isinstance(node.value, ast.Dict)
+        for node in ast.walk(transaction)
+    )

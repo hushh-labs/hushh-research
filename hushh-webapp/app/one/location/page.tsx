@@ -7282,7 +7282,7 @@ export function OneLocationAgentPageContent({
         throw new Error(
           oneLocationErrorMessage(
             error,
-            "Could not send the Circle invitation.",
+            "Could not add them to the Circle.",
           ),
         );
       } finally {

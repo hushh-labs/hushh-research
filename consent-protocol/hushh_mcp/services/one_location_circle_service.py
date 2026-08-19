@@ -33,8 +33,15 @@ from mcp_modules.log_redaction import redact_log_field
 logger = logging.getLogger(__name__)
 
 CIRCLE_CODE_TTL_HOURS = 72
+# Nothing sets this any more -- connections are added outright rather than
+# invited. It stays because the invitations written before that change are
+# still readable, and accept/decline still refuse the ones that ran out.
 CIRCLE_MEMBER_INVITE_TTL_HOURS = 72
 CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS = 12
+# How many people a member who does not own the Circle may put into it.
+# Named for the pending invitations it used to count; adding is immediate now,
+# so it counts the members they added who are still active. Same ceiling, same
+# purpose -- one member cannot fill somebody else's Circle.
 CIRCLE_NON_OWNER_PENDING_INVITE_LIMIT = 5
 CIRCLE_MAX_PER_USER = 10
 # Raised from 20 in migration 158. This constant is stamped onto a Circle at
@@ -305,7 +312,48 @@ class OneLocationCircleService:
             )
 
     @staticmethod
-    def _assert_user_circle_capacity(conn: Any, *, user_id: str) -> None:
+    def _lock_invitees(conn: Any, *, user_ids: list[str]) -> None:
+        """Lock every person about to be added, in a fixed order.
+
+        One statement rather than a call per person, so the order is the
+        statement's and not the caller's; and taken before the connection rows
+        because `accept_member_invite` locks a profile before a connection, and
+        two paths that disagree about that order deadlock on the one pair they
+        have in common.
+
+        A missing profile is someone who has not finished setting up One. They
+        are not named: which of your connections has finished onboarding is
+        their business, not the business of whoever is adding them.
+        """
+
+        if not user_ids:
+            return
+        rows = _all(
+            conn.execute(
+                text(
+                    """
+                    SELECT user_id
+                    FROM actor_profiles
+                    WHERE user_id = ANY(CAST(:user_ids AS TEXT[]))
+                    ORDER BY user_id
+                    FOR UPDATE
+                    """
+                ),
+                {"user_ids": sorted(user_ids)},
+            )
+        )
+        ready = {str(row.get("user_id") or "") for row in rows}
+        if any(user_id not in ready for user_id in user_ids):
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_INVITEE_NOT_READY",
+                "Someone you selected has not finished setting up One.",
+                status_code=409,
+            )
+
+    @staticmethod
+    def _assert_user_circle_capacity(
+        conn: Any, *, user_id: str, adding_other: bool = False
+    ) -> None:
         count_row = _first(
             conn.execute(
                 text(
@@ -326,7 +374,16 @@ class OneLocationCircleService:
         if int((count_row or {}).get("circle_count") or 0) >= CIRCLE_MAX_PER_USER:
             raise OneLocationCircleError(
                 "LOCATION_CIRCLE_LIMIT_REACHED",
-                f"You can belong to up to {CIRCLE_MAX_PER_USER} Circles.",
+                (
+                    # Deliberately unnamed. Adding people is now immediate, so
+                    # this check runs against someone else's account, and how
+                    # many Circles a person belongs to is their business --
+                    # naming them would answer that question for anyone with a
+                    # connection and a full Circle to test against.
+                    "Someone you selected is already in as many Circles as One allows."
+                    if adding_other
+                    else f"You can belong to up to {CIRCLE_MAX_PER_USER} Circles."
+                ),
                 status_code=409,
             )
 
@@ -1951,9 +2008,8 @@ class OneLocationCircleService:
                 "You are already in this Circle.",
                 status_code=422,
             )
-        expires_at = datetime.now(timezone.utc) + timedelta(hours=CIRCLE_MEMBER_INVITE_TTL_HOURS)
-        created_invite_ids: list[str] = []
-        payloads: list[dict[str, Any]] = []
+        added_user_ids: list[str] = []
+        circle_name = ""
         try:
             with self._db.engine.begin() as conn:
                 circle_row = _first(
@@ -2009,6 +2065,11 @@ class OneLocationCircleService:
                 circle_row["inviter_display_name"] = actor_membership_row.get(
                     "inviter_display_name"
                 )
+                # Before the connection rows below, not after: see
+                # `_lock_invitees`. Everyone named in the request is locked,
+                # including anyone who turns out to be ineligible further
+                # down -- eligibility is decided after the lock, never by it.
+                self._lock_invitees(conn, user_ids=cleaned_invitee_user_ids)
                 conn.execute(
                     text(
                         """
@@ -2190,22 +2251,16 @@ class OneLocationCircleService:
                 pending_rows = [
                     row for row in existing_rows if str(row.get("status") or "") == "pending"
                 ]
-                existing_by_user_id = {
-                    str(row.get("invitee_user_id") or ""): row for row in pending_rows
-                }
-                if any(
-                    str(row.get("inviter_user_id") or "") != actor_user_id for row in pending_rows
-                ):
-                    raise OneLocationCircleError(
-                        "LOCATION_CIRCLE_INVITE_ALREADY_PENDING",
-                        "One or more people already have a pending Circle invitation.",
-                        status_code=409,
-                    )
-                new_user_ids = [
-                    user_id
-                    for user_id in cleaned_invitee_user_ids
-                    if user_id not in existing_by_user_id
-                ]
+                # An open invitation used to be a reason to refuse: a second
+                # person tapping invite had nothing to add, so it 409'd. Now
+                # that tap makes them a member -- exactly the outcome accepting
+                # that invitation would have produced -- so the invitation is
+                # retired below instead of standing in the way of itself.
+                pending_invite_ids = [str(row.get("id") or "") for row in pending_rows]
+                # Everyone named here is an active direct connection of the
+                # actor; the check above requires it. So everyone named here is
+                # added, and nobody is left waiting.
+                new_user_ids = list(cleaned_invitee_user_ids)
                 if any(
                     str(row.get("invitee_user_id") or "") in new_user_ids
                     and str(row.get("status") or "") in {"declined", "cancelled", "expired"}
@@ -2253,6 +2308,21 @@ class OneLocationCircleService:
                                   AND invite.status = 'pending'
                                   AND invite.expires_at > NOW()
                               ) AS actor_pending_invite_count
+                              ,
+                              -- Adding is immediate, so counting a member's
+                              -- open invitations bounds nothing: they could
+                              -- fill someone else's Circle in one tap. What
+                              -- replaces it counts the people they actually
+                              -- put there who are still there.
+                              (
+                                SELECT COUNT(*)
+                                FROM one_location_circle_memberships membership
+                                WHERE membership.circle_id =
+                                      CAST(:circle_id AS UUID)
+                                  AND membership.status = 'active'
+                                  AND membership.metadata->>'addedBy' =
+                                      :actor_user_id
+                              ) AS actor_added_member_count
                             """
                         ),
                         {
@@ -2268,15 +2338,16 @@ class OneLocationCircleService:
                 if (
                     str(circle_row.get("owner_user_id") or "") != actor_user_id
                     and int((capacity_row or {}).get("actor_pending_invite_count") or 0)
+                    + int((capacity_row or {}).get("actor_added_member_count") or 0)
                     + len(new_user_ids)
                     > CIRCLE_NON_OWNER_PENDING_INVITE_LIMIT
                 ):
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_MEMBER_INVITE_LIMIT_REACHED",
                         (
-                            "You can have up to "
-                            f"{CIRCLE_NON_OWNER_PENDING_INVITE_LIMIT} pending "
-                            "Circle invitations at a time."
+                            "You can add up to "
+                            f"{CIRCLE_NON_OWNER_PENDING_INVITE_LIMIT} people to a "
+                            "Circle you do not own."
                         ),
                         status_code=409,
                     )
@@ -2292,140 +2363,151 @@ class OneLocationCircleService:
                 if new_user_ids and reserved_count + len(new_user_ids) > member_limit:
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_INVITE_CAPACITY_REACHED",
-                        "This Circle does not have room for all selected invitations.",
+                        "This Circle does not have room for everyone you selected.",
                         status_code=409,
                     )
-                if is_system_circle and new_user_ids:
-                    # Straight to active membership, exactly as add_sms_contact
-                    # did. `_connect_member_to_circle` is deliberately NOT called:
-                    # these people are the owner's existing contacts, and being on
-                    # an emergency list is not an introduction to the rest of it.
-                    for invitee_user_id in new_user_ids:
-                        conn.execute(
-                            text(
-                                """
-                                INSERT INTO one_location_circle_memberships (
-                                  circle_id, user_id, role, status, joined_at,
-                                  updated_at, metadata
-                                )
-                                VALUES (
-                                  CAST(:circle_id AS UUID), :user_id, 'member',
-                                  'active', NOW(), NOW(),
-                                  jsonb_build_object('addedVia', 'sms_system_circle')
-                                )
-                                ON CONFLICT (circle_id, user_id) DO UPDATE
-                                SET status = 'active',
-                                    ended_at = NULL,
-                                    updated_at = NOW()
-                                """
-                            ),
-                            {
-                                "circle_id": cleaned_circle_id,
-                                "user_id": invitee_user_id,
-                            },
+                circle_name = str(circle_row.get("name") or "")
+                # Everyone here is already an active connection of the actor,
+                # so nobody here needs to be asked a second time: an invitation
+                # would put a 72-hour wait in front of a membership two people
+                # had already earned the right to. The membership is written
+                # now, and what acceptance used to do happens with it.
+                for invitee_user_id in sorted(new_user_ids):
+                    # Sorted to match the order `_lock_invitees` already took
+                    # these people in, so the membership writes cannot reorder
+                    # what the locks settled.
+                    if not is_system_circle:
+                        # A system Circle is exempt from the per-person Circle
+                        # budget (`_assert_user_circle_capacity` excludes it),
+                        # so being on somebody's emergency list never costs
+                        # anyone a Circle of their own.
+                        self._assert_user_circle_capacity(
+                            conn, user_id=invitee_user_id, adding_other=True
                         )
-                    logger.info(
-                        "one_location.sms_system_circle_members_added actor=%s count=%d",
-                        redact_log_field("user_id", actor_user_id),
-                        len(new_user_ids),
-                    )
-                    # Done. Everything below this point exists to create and
-                    # describe INVITATIONS, and this path deliberately created
-                    # none -- so falling through would build payloads for people
-                    # who have no invite row, which is a KeyError, not an empty
-                    # list. Members are already active; there is nothing to
-                    # report but the fact that there is nothing to report.
-                    return {"invites": [], "createdInviteIds": []}
-
-                for invitee_user_id in new_user_ids:
-                    invite_row = _first(
-                        conn.execute(
-                            text(
-                                """
-                                INSERT INTO one_location_circle_member_invites (
-                                  circle_id, inviter_user_id, invitee_user_id,
-                                  status, expires_at, created_at, updated_at,
-                                  metadata
-                                )
-                                VALUES (
-                                  CAST(:circle_id AS UUID), :actor_user_id,
-                                  :invitee_user_id, 'pending', :expires_at,
-                                  NOW(), NOW(), '{}'::jsonb
-                                )
-                                RETURNING
-                                  id, circle_id, inviter_user_id,
-                                  invitee_user_id, status, expires_at,
-                                  created_at, responded_at
-                                """
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO one_location_circle_memberships (
+                              circle_id, user_id, role, status, joined_at,
+                              updated_at, ended_at, metadata
+                            )
+                            VALUES (
+                              CAST(:circle_id AS UUID), :user_id, 'member',
+                              'active', NOW(), NOW(), NULL,
+                              jsonb_build_object(
+                                'addedVia', :added_via,
+                                'addedBy', :actor_user_id
+                              )
+                            )
+                            ON CONFLICT (circle_id, user_id) DO UPDATE
+                            SET role = 'member',
+                                status = 'active',
+                                joined_at = NOW(),
+                                ended_at = NULL,
+                                updated_at = NOW(),
+                                metadata =
+                                  one_location_circle_memberships.metadata
+                                  || jsonb_build_object(
+                                    'addedVia', :added_via,
+                                    'addedBy', :actor_user_id
+                                  )
+                            """
+                        ),
+                        {
+                            "circle_id": cleaned_circle_id,
+                            "user_id": invitee_user_id,
+                            "actor_user_id": actor_user_id,
+                            "added_via": (
+                                "sms_system_circle" if is_system_circle else "direct_add"
                             ),
-                            {
-                                "circle_id": cleaned_circle_id,
-                                "actor_user_id": actor_user_id,
-                                "invitee_user_id": invitee_user_id,
-                                "expires_at": expires_at,
-                            },
+                        },
+                    )
+                    if not is_system_circle:
+                        # Skipped on a system Circle on purpose: those people
+                        # are the owner's existing contacts, and being on an
+                        # emergency list is not an introduction to the rest of
+                        # it. Everywhere else this is what acceptance wrote --
+                        # the Circle-scoped provenance that lets removal revoke
+                        # exactly what the Circle authorized, and nothing more.
+                        self._connect_member_to_circle(
+                            conn,
+                            circle_id=cleaned_circle_id,
+                            user_id=invitee_user_id,
+                            inviter_user_id=actor_user_id,
                         )
+                    added_user_ids.append(invitee_user_id)
+                if pending_invite_ids:
+                    # Whatever invitation was open for these people, the
+                    # membership it asked for now exists. Marking it accepted
+                    # retires their card truthfully; leaving it pending would
+                    # offer them a decision about something already settled.
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE one_location_circle_member_invites
+                            SET status = 'accepted',
+                                responded_at = NOW(),
+                                updated_at = NOW(),
+                                metadata = COALESCE(metadata, '{}'::jsonb)
+                                  || jsonb_build_object('resolvedBy', 'direct_add')
+                            WHERE id = ANY(CAST(:invite_ids AS UUID[]))
+                              AND status = 'pending'
+                            """
+                        ),
+                        {"invite_ids": pending_invite_ids},
                     )
-                    if not invite_row:
-                        raise RuntimeError("Circle member invitation insert returned no row.")
-                    invite_row["circle_name"] = str(circle_row.get("name") or "")
-                    invite_row["circle_kind"] = str(circle_row.get("kind") or "other")
-                    invite_row["inviter_display_name"] = str(
-                        circle_row.get("inviter_display_name") or ""
-                    )
-                    invite_row["invitee_display_name"] = str(
-                        direct_by_user_id[invitee_user_id].get("invitee_display_name") or ""
-                    )
-                    existing_by_user_id[invitee_user_id] = invite_row
-                    created_invite_ids.append(str(invite_row.get("id") or ""))
-                payloads = [
-                    self._member_invite_payload(existing_by_user_id[invitee_user_id])
-                    for invitee_user_id in cleaned_invitee_user_ids
-                ]
-            if created_invite_ids:
+                logger.info(
+                    "one_location.circle_members_added actor=%s circle_system=%s count=%d",
+                    redact_log_field("user_id", actor_user_id),
+                    is_system_circle,
+                    len(added_user_ids),
+                )
+            if added_user_ids:
                 from hushh_mcp.services.feed_service import FeedService
                 from hushh_mcp.services.push_notifications import (
-                    send_circle_member_invite_push,
+                    _lookup_display_name,
+                    send_circle_member_added_push,
                 )
 
-                created_ids = set(created_invite_ids)
-                for payload in payloads:
-                    if str(payload.get("id") or "") not in created_ids:
-                        continue
-                    send_circle_member_invite_push(
-                        invitee_user_id=str(payload.get("inviteeUserId") or ""),
-                        inviter_user_id=actor_user_id,
+                # Resolved once, and through the same ladder every other One
+                # notification uses -- a raw uid sitting in display_name is
+                # rejected in favour of an email handle. Being added to a
+                # Circle without being asked is exactly the notification that
+                # must never read "Someone".
+                adder_label = _lookup_display_name(actor_user_id)
+                for member_user_id in added_user_ids:
+                    send_circle_member_added_push(
+                        member_user_id=member_user_id,
+                        added_by_user_id=actor_user_id,
+                        added_by_display_name=adder_label,
                         circle_id=cleaned_circle_id,
-                        invite_id=str(payload.get("id") or ""),
+                        circle_name=circle_name,
                     )
                     # Feed is a best-effort, post-commit projection: the
-                    # invitation itself is already durable in
-                    # one_location_circle_member_invites, so a feed-write
-                    # failure must never fail the invite that produced it.
+                    # membership is already durable, so a feed-write failure
+                    # must never fail the add that produced it.
                     try:
                         FeedService().record_event(
-                            user_id=str(payload.get("inviteeUserId") or ""),
+                            user_id=member_user_id,
                             source_domain="location",
-                            event_type="circle_member_invited",
-                            actor_label=str(payload.get("inviterDisplayName") or "") or None,
+                            event_type="circle_member_added",
+                            actor_label=adder_label or None,
                             metadata={
-                                "invite_id": str(payload.get("id") or ""),
                                 "circle_id": cleaned_circle_id,
-                                "circle_name": str(payload.get("circleName") or ""),
-                                "inviter_user_id": actor_user_id,
+                                "circle_name": circle_name,
+                                "added_by_user_id": actor_user_id,
+                                "added_by_label": adder_label,
                             },
                         )
-                    except Exception:  # noqa: BLE001 - projection cannot roll back the invite
-                        logger.exception("one_location.circle_member_invite_feed_projection_failed")
-            logger.info(
-                "one_location.circle_members_invited actor=%s requested=%s created=%s",
-                redact_log_field("user_id", actor_user_id),
-                len(cleaned_invitee_user_ids),
-                len(created_invite_ids),
-            )
+                    except Exception:  # noqa: BLE001 - projection cannot roll back the add
+                        logger.exception("one_location.circle_member_added_feed_projection_failed")
             return {
-                "invites": payloads,
-                "createdInviteIds": created_invite_ids,
+                # This endpoint no longer creates invitations. Both keys stay,
+                # always empty, so every caller and client that reads them
+                # keeps parsing the same shape it always did.
+                "invites": [],
+                "createdInviteIds": [],
+                "addedUserIds": added_user_ids,
             }
         except OneLocationCircleError:
             raise
@@ -2439,17 +2521,23 @@ class OneLocationCircleService:
         circle_id: str,
         invitee_user_id: str,
     ) -> dict[str, Any]:
-        """Compatibility wrapper around the atomic batch invitation contract."""
+        """Compatibility wrapper around the atomic batch add contract.
+
+        Kept for callers that still speak in one person at a time. There is no
+        invitation to hand back any more, so `invite` is None and `added` says
+        what actually happened.
+        """
 
         result = self.create_member_invites(
             actor_user_id=actor_user_id,
             circle_id=circle_id,
             invitee_user_ids=[invitee_user_id],
         )
-        invite = result["invites"][0]
+        added = list(result.get("addedUserIds") or [])
         return {
-            "invite": invite,
-            "created": str(invite.get("id") or "") in set(result.get("createdInviteIds") or []),
+            "invite": None,
+            "created": False,
+            "added": invitee_user_id in added,
         }
 
     def accept_member_invite(

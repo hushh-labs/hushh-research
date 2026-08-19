@@ -369,6 +369,27 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           : ROUTES.ONE_LOCATION,
       };
     }
+    case "circle_member_added": {
+      const circleName = metadataString(item.metadata, "circle_name");
+      const circleId = metadataString(item.metadata, "circle_id");
+      const addedBy =
+        metadataString(item.metadata, "added_by_label") || item.actor_label;
+      return {
+        icon,
+        domainLabel,
+        label: "Added to a Circle",
+        description: addedBy
+          ? circleName
+            ? `${addedBy} added you to ${circleName}.`
+            : `${addedBy} added you to their Circle.`
+          : circleName
+            ? `You were added to ${circleName}.`
+            : "You were added to a Circle.",
+        href: circleId
+          ? buildOneLocationWorkflowHref({ circleId, section: "people" })
+          : ROUTES.ONE_LOCATION,
+      };
+    }
     case "kai_analysis_completed": {
       const ticker = metadataString(item.metadata, "ticker");
       return {

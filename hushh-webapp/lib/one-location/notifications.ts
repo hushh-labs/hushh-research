@@ -51,6 +51,7 @@ export type OneLocationWorkflowNotificationType =
   | "location_public_invite_submitted"
   | "location_one_network_joined"
   | "location_circle_member_invite"
+  | "location_circle_member_added"
   | "location_circle_code_joined";
 
 export type OneLocationNotificationSection =
@@ -120,6 +121,13 @@ const WORKFLOW_COPY: Record<
   location_circle_member_invite: {
     title: "Circle invitation",
     fallbackDescription: "A connection invited you to join their Circle.",
+  },
+  location_circle_member_added: {
+    // There was no card to tap and no decision to make, so this is the only
+    // moment the person learns about it. The fallback still says a human did
+    // it -- "You were added to a Circle" reads as an intrusion by nobody.
+    title: "Added to a Circle",
+    fallbackDescription: "A connection added you to their Circle.",
   },
   location_circle_code_joined: {
     title: "Someone joined your Circle",
@@ -412,6 +420,7 @@ export function buildOneLocationWorkflowHref(params: {
   referralId?: string | null;
   submissionId?: string | null;
   circleInviteId?: string | null;
+  circleId?: string | null;
   section?: OneLocationNotificationSection | null;
   openGrant?: boolean;
 }): string {
@@ -421,12 +430,16 @@ export function buildOneLocationWorkflowHref(params: {
   const referralId = String(params.referralId || "").trim();
   const submissionId = String(params.submissionId || "").trim();
   const circleInviteId = String(params.circleInviteId || "").trim();
+  const circleId = String(params.circleId || "").trim();
   const section = String(params.section || "").trim();
   if (grantId) query.set(ONE_LOCATION_GRANT_ID_PARAM, grantId);
   if (requestId) query.set(ONE_LOCATION_REQUEST_ID_PARAM, requestId);
   if (referralId) query.set(ONE_LOCATION_REFERRAL_ID_PARAM, referralId);
   if (submissionId) query.set(ONE_LOCATION_SUBMISSION_ID_PARAM, submissionId);
   if (circleInviteId) query.set("circleInviteId", circleInviteId);
+  // Same param the hub writes when you open a Circle yourself, so a tap from
+  // a notification or the feed lands on the Circle rather than the list.
+  if (circleId) query.set("circleId", circleId);
   if (section) query.set(ONE_LOCATION_SECTION_PARAM, section);
   if (grantId && params.openGrant) {
     query.set(
@@ -462,6 +475,7 @@ export function oneLocationSectionForWorkflowNotificationType(
       return "my_requests";
     case "location_one_network_joined":
     case "location_circle_member_invite":
+    case "location_circle_member_added":
     case "location_circle_code_joined":
       return "people";
     default:
@@ -606,6 +620,7 @@ export function locationWorkflowNotificationCopy(params: {
   referringLabel?: string | null;
   visitorLabel?: string | null;
   networkLabel?: string | null;
+  circleName?: string | null;
   /**
    * The ask, when this notification is about one. Without these an access
    * request reads "Someone is asking to view your location" whether they want
@@ -774,6 +789,19 @@ export function locationWorkflowNotificationCopy(params: {
         title: copy.title,
         description: `${networkLabel} invited you to join a Circle.`,
       };
+    case "location_circle_member_added": {
+      // Named, always. Nobody accepted anything here, so the only thing that
+      // turns this from an intrusion into an ordinary social act is knowing
+      // whose Circle you are now in -- and, when the payload carries it, which
+      // one.
+      const circleName = String(params.circleName || "").trim();
+      return {
+        title: copy.title,
+        description: circleName
+          ? `${networkLabel} added you to ${circleName}.`
+          : `${networkLabel} added you to their Circle.`,
+      };
+    }
     case "location_circle_code_joined":
       // The one signal that a shared code worked. Named rather than generic,
       // because "someone" is exactly what the sender already knew.

@@ -1128,22 +1128,20 @@ export function CircleDetailFlow({
       await onInviteConnections(circle.id, inviteeUserIds);
       toast.success(
         inviteeUserIds.length === 1
-          ? "Circle invitation sent."
-          : `${inviteeUserIds.length} Circle invitations sent.`,
+          ? "Added to the Circle."
+          : `${inviteeUserIds.length} people added to the Circle.`,
       );
-      // Sending is the sheet's terminal action for any selection size, so close
+      // Adding is the sheet's terminal action for any selection size, so close
       // it and let the toast confirm. Bump the request ref first so a slower
       // in-flight eligibility load cannot repopulate a dismissed sheet, and
-      // reload the detail behind it to pick up the new pending invitations.
+      // reload the detail behind it to pick up the new members.
       peopleRequestRef.current += 1;
       setSelectedConnectionIds(new Set());
       setPeopleSearch("");
       setPeopleSheetOpen(false);
       await reload();
     } catch (error) {
-      toast.error(
-        circleFlowErrorMessage(error, "Could not send the invitation."),
-      );
+      toast.error(circleFlowErrorMessage(error, "Could not add them."));
       // Capacity or eligibility may have changed while the sheet was open.
       // Reconcile against the server before another tap so stale selections
       // are trimmed rather than repeatedly submitting a known conflict.
@@ -1496,15 +1494,17 @@ export function CircleDetailFlow({
               <SheetHeader className="text-left">
                 <SheetTitle>Add people to {circle.name}</SheetTitle>
                 <SheetDescription>
-                  {/* The SMS Circle does not send invitations -- an emergency
-                      contact has never needed the other person's agreement, so
-                      the write is immediate. Telling someone "they join after
-                      accepting" here would be describing a step that does not
-                      happen, on the one list where believing the wrong thing
-                      matters most. */}
+                  {/* No Circle sends invitations any more. Only existing
+                      connections can be picked here, and two people who are
+                      already connected have already agreed to know each other
+                      -- so the membership is written on tap and the person is
+                      notified. Saying "they join after accepting" would
+                      describe a step that no longer happens, on the screen
+                      where believing it means thinking you still have time to
+                      change your mind. */}
                   {circle.isSystem
                     ? "Choose existing connections. They are added straight away, so SMS alerts reach them immediately."
-                    : "Choose existing connections. They join only after accepting the Circle invitation; no second Connect request is needed."}
+                    : "Choose existing connections. They are added straight away and told you added them."}
                 </SheetDescription>
               </SheetHeader>
 
@@ -1684,9 +1684,9 @@ export function CircleDetailFlow({
                   )}
                 >
                   {selectedConnectionIds.size
-                    ? `${circle.isSystem ? "Add" : "Invite"} ${
-                        selectedConnectionIds.size
-                      } ${selectedConnectionIds.size === 1 ? "person" : "people"}`
+                    ? `Add ${selectedConnectionIds.size} ${
+                        selectedConnectionIds.size === 1 ? "person" : "people"
+                      }`
                     : "Select people"}
                 </Button>
               </div>

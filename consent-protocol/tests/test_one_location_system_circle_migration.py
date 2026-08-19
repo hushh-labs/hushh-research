@@ -182,10 +182,25 @@ def test_system_circle_adds_take_effect_without_an_invitation() -> None:
     # direction: the owner sees someone on their emergency list, believes SOS
     # will reach them, and it will not until an invitation nobody mentioned is
     # accepted.
-    assert "if is_system_circle and new_user_ids:" in service
-    assert "'sms_system_circle'" in service
+    # The membership records HOW someone got there, so a system-Circle add
+    # stays distinguishable from an ordinary one long after the fact.
+    assert '"sms_system_circle" if is_system_circle else "direct_add"' in service
+    assert "INSERT INTO one_location_circle_memberships" in service
 
-    # Every other Circle still requires acceptance -- joining someone's Family
-    # Circle IS a relationship, and consent belongs there.
-    assert "INSERT INTO one_location_circle_member_invites" in service
-    assert "'pending'" in service
+    # Every OTHER Circle used to require acceptance, and this test used to
+    # assert that the two paths stayed apart. They no longer do, and the reason
+    # is that the wall was in the wrong place: only ACTIVE DIRECT CONNECTIONS
+    # can be added to any Circle, so both people had already chosen each other
+    # before the sheet opened. The invitation asked a question that had been
+    # answered, and made the asker wait 72 hours for the echo.
+    #
+    # What used to be the invitation's job is now split between two things that
+    # already existed: connecting is where the consent is, and leaving is where
+    # the exit is.
+    assert "INSERT INTO one_location_circle_member_invites" not in service
+    assert "LOCATION_CIRCLE_DIRECT_CONNECTION_REQUIRED" in service
+
+    # And the exemption that makes a system Circle different survives the
+    # merge: nobody on an emergency list is introduced to anybody else on it.
+    assert "if not is_system_circle:" in service
+    assert "_connect_member_to_circle" in service

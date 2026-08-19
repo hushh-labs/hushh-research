@@ -949,12 +949,17 @@ def create_named_circle_member_invites(
         actor_user_id = _user_id(token_data)
         service = _circle_service()
         invitee_user_ids = list(dict.fromkeys(payload.invitee_user_ids))
+        result = service.create_member_invites(
+            actor_user_id=actor_user_id,
+            circle_id=str(payload.circle_id),
+            invitee_user_ids=invitee_user_ids,
+        )
+        # `invites` is always empty now -- connections are added outright
+        # rather than invited -- and is kept so older clients parse the same
+        # shape. `added` is what actually happened.
         return {
-            "invites": service.create_member_invites(
-                actor_user_id=actor_user_id,
-                circle_id=str(payload.circle_id),
-                invitee_user_ids=invitee_user_ids,
-            )["invites"]
+            "invites": result.get("invites") or [],
+            "added": list(result.get("addedUserIds") or []),
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
