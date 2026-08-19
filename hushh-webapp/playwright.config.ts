@@ -90,8 +90,14 @@ export default defineConfig({
       // resizing under the thumb. Whether a zero-opacity span still reserves
       // its full text width is an engine question, and Circles are created
       // inside the same WKWebView.
+      // `circle-member-row.layout` is opted in because it is a flex-and-
+      // truncation contract on a list every Circle member opens: whether a
+      // `min-w-0 flex-1` column really yields to a fixed trailing cluster, and
+      // whether `truncate` holds a long name to one line, are both engine
+      // questions -- and the roster this measures was reported from a phone,
+      // which is a WKWebView.
       testMatch:
-        /(circle-join-responsive-contract|auth-sign-in\.layout|register-phone-title\.layout|connect-circle-cta\.layout|connect-pagination\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|feed-sticky-header-opaque\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|one-intro-welcome\.layout|request-card-duration-picker\.layout|top-shell-breadcrumb-trail\.layout|one-location-map-consent\.layout|one-location-create-circle\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|auth-sign-in\.layout|register-phone-title\.layout|connect-circle-cta\.layout|connect-pagination\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|feed-sticky-header-opaque\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|one-intro-welcome\.layout|request-card-duration-picker\.layout|top-shell-breadcrumb-trail\.layout|one-location-map-consent\.layout|one-location-create-circle\.layout|circle-member-row\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",
