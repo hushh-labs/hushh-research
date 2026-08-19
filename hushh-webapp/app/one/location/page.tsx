@@ -5897,14 +5897,22 @@ export function OneLocationAgentPageContent({
           // literal string "Requesting more time." and nothing else, so the
           // number the person had just chosen from the picker directly above
           // this button was the one fact the owner never received.
-          const durationLabel = formatLocationDurationLabel(durationHours);
+          //
+          // `durationHours` is the picker's absolute total (what the share
+          // will run to, seeded on what it already had left) -- but the ask
+          // itself, and everything that renders it ("Asks for X more",
+          // "gave you X more"), means the extra amount. Subtract what this
+          // share already has left so the request carries that, not the total.
+          const remainingHoursNow = grantRemainingHours(grant, Date.now()) ?? 0;
+          const extraHours = Math.max(durationHours - remainingHoursNow, 0);
+          const durationLabel = formatLocationDurationLabel(extraHours);
           await OneLocationService.requestAccess({
             vaultOwnerToken,
             ownerUserId,
             message: durationLabel
               ? `Requesting ${durationLabel} more of your live location.`
               : "Requesting more time.",
-            requestedDurationHours: durationHours,
+            requestedDurationHours: extraHours,
             requestedDurationMode: "timed",
             extendsGrantId: grantId,
           });
