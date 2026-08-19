@@ -147,6 +147,36 @@ export type KaiActionExternalCallback = {
   return_to: string;
 };
 
+/**
+ * A fact an action needs, completes, or moves toward. `entity_slot` names a
+ * slot on the same action's goal, so a grounded fact always traces back to an
+ * input the action can actually resolve.
+ */
+export type KaiPredicateRef = {
+  predicate: string;
+  entity_slot: string | null;
+};
+
+/** How a fact is read. Never how it is achieved — see settlement. */
+export type KaiPredicateResolution = "projection" | "server_only";
+
+/**
+ * Who can make a fact true. `external` is the one that matters: an action may
+ * advance such a fact but never establish it, so a plan that depends on one
+ * has to defer rather than promise completion.
+ */
+export type KaiPredicateSettlement = "agent" | "external" | "ambient";
+
+export type KaiPredicateIndexEntry = {
+  arity: 0 | 1;
+  entity_type: string | null;
+  resolution: KaiPredicateResolution;
+  settlement: KaiPredicateSettlement;
+  established_by: string[];
+  advanced_by: string[];
+  required_by: string[];
+};
+
 export type KaiActionDefinition = {
   action_id: string;
   surface_id: string;
@@ -182,6 +212,9 @@ export type KaiActionDefinition = {
       effect: string;
     }>;
   };
+  requires: KaiPredicateRef[];
+  establishes: KaiPredicateRef[];
+  advances: KaiPredicateRef[];
   trigger: {
     primary: "voice" | "tap" | "keyboard" | "programmatic";
     supported: Array<"voice" | "tap" | "keyboard" | "programmatic">;
@@ -207,6 +240,7 @@ export type KaiActionGateway = {
   generated_at?: string;
   source_contracts?: string[];
   surfaces: KaiActionSurfaceDefinition[];
+  predicate_index: Record<string, KaiPredicateIndexEntry>;
   actions: KaiActionDefinition[];
 };
 
@@ -611,6 +645,9 @@ function validateAction(value: unknown): KaiActionDefinition | null {
               )
           : [],
     },
+    requires: validatePredicateRefs(value.requires),
+    establishes: validatePredicateRefs(value.establishes),
+    advances: validatePredicateRefs(value.advances),
     trigger:
       isPlainObject(value.trigger) &&
       cleanString(value.trigger.primary) &&
@@ -626,6 +663,51 @@ function validateAction(value: unknown): KaiActionDefinition | null {
             supported: ["voice", "tap", "keyboard", "programmatic"],
           },
   };
+}
+
+function validatePredicateRefs(value: unknown): KaiPredicateRef[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (!isPlainObject(entry)) return null;
+      const predicate = cleanString(entry.predicate);
+      if (!predicate) return null;
+      return {
+        predicate,
+        entity_slot: cleanString(entry.entity_slot) || null,
+      };
+    })
+    .filter((entry): entry is KaiPredicateRef => Boolean(entry));
+}
+
+function validatePredicateIndex(
+  value: unknown,
+): Record<string, KaiPredicateIndexEntry> {
+  if (!isPlainObject(value)) return {};
+  const index: Record<string, KaiPredicateIndexEntry> = {};
+  for (const [name, raw] of Object.entries(value)) {
+    if (!isPlainObject(raw)) continue;
+    const resolution = cleanString(raw.resolution);
+    const settlement = cleanString(raw.settlement);
+    if (resolution !== "projection" && resolution !== "server_only") continue;
+    if (
+      settlement !== "agent" &&
+      settlement !== "external" &&
+      settlement !== "ambient"
+    ) {
+      continue;
+    }
+    index[name] = {
+      arity: raw.arity === 1 ? 1 : 0,
+      entity_type: cleanString(raw.entity_type) || null,
+      resolution,
+      settlement,
+      established_by: isStringArray(raw.established_by) ? raw.established_by : [],
+      advanced_by: isStringArray(raw.advanced_by) ? raw.advanced_by : [],
+      required_by: isStringArray(raw.required_by) ? raw.required_by : [],
+    };
+  }
+  return index;
 }
 
 function validateSurface(value: unknown): KaiActionSurfaceDefinition | null {
@@ -674,11 +756,13 @@ function validateGateway(value: unknown): KaiActionGateway {
       ? value.source_contracts
       : undefined,
     surfaces,
+    predicate_index: validatePredicateIndex(value.predicate_index),
     actions,
   };
 }
 
 export const KAI_ACTION_GATEWAY = validateGateway(gatewayJson);
+export const KAI_PREDICATE_INDEX = KAI_ACTION_GATEWAY.predicate_index;
 export const KAI_ACTION_GATEWAY_ACTIONS = KAI_ACTION_GATEWAY.actions;
 
 const KAI_ACTION_BY_ID = new Map(

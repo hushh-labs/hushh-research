@@ -11,9 +11,14 @@
     "server_only": "Requires a scoped backend call. Never resolved inside the synchronous availability path; a surface publishes it or a planner resolves it out of band."
   },
   "settlement": {
-    "agent": "Some generated action establishes it. The planner may chain backward through it.",
-    "external": "Only another person, another device, or an external system can make it true. The planner must defer and say so; it must never chain through it as though it could act.",
+    "agent": "Some generated action establishes it. The planner may chain backward through it and treat the chain as completable.",
+    "external": "Only another person, another device, or an external system can make it true. An action may advance such a fact but never establish it, so the planner offers the advancing action and then defers rather than promising completion.",
     "ambient": "Observed state that nothing in the app sets directly, such as an entitlement or the absence of another state. Never a planning target."
+  },
+  "relations": {
+    "requires": "Must hold before the action can run.",
+    "establishes": "Becomes true when the action settles. Only valid for agent-settled facts.",
+    "advances": "Moves toward the fact without completing it. Only valid for externally-settled facts. This is what lets One offer 'want me to send Sam a request?' while staying honest that sending it does not make them a connection."
   },
   "predicates": {
     "signed_in": {
@@ -124,12 +129,6 @@
       "resolution": "projection",
       "settlement": "agent",
       "description": "At least one recipient is selected for a check-in."
-    },
-    "has_any_connection": {
-      "arity": 0,
-      "resolution": "projection",
-      "settlement": "external",
-      "description": "The signed-in person has at least one accepted connection. Settlement is external because a request only becomes a connection when the other person accepts."
     },
     "has_emergency_contact": {
       "arity": 0,

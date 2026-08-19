@@ -692,6 +692,7 @@ function normalizeAction(surface, action) {
       actionId,
       "establishes",
     ),
+    advances: normalizePredicateRefs(action.advances, actionId, "advances"),
     trigger: DEFAULT_TRIGGER,
   };
 
@@ -944,7 +945,7 @@ function validatePredicateUsage(contracts, vocabulary) {
       ? action.goal.slot_schema
       : {};
 
-    for (const field of ["requires", "establishes"]) {
+    for (const field of ["requires", "establishes", "advances"]) {
       for (const ref of action[field]) {
         const spec = vocabulary.get(ref.predicate);
         if (!spec) {
@@ -978,7 +979,19 @@ function validatePredicateUsage(contracts, vocabulary) {
       const spec = vocabulary.get(ref.predicate);
       if (spec.settlement !== "agent") {
         throw new Error(
-          `${action.action_id}: cannot establish "${ref.predicate}" because its settlement is "${spec.settlement}". Only an action can settle an agent-settled fact; declare what this action actually makes true instead.`,
+          `${action.action_id}: cannot establish "${ref.predicate}" because its settlement is "${spec.settlement}". Only an action can settle an agent-settled fact; declare what this action actually makes true instead. If this action moves toward the fact without completing it, use advances.`,
+        );
+      }
+    }
+
+    // advances is the honest remedy edge. connect.send_request cannot establish
+    // connected_to, but it is still the thing to offer someone blocked on it,
+    // so the planner needs a way to reach it that never claims completion.
+    for (const ref of action.advances) {
+      const spec = vocabulary.get(ref.predicate);
+      if (spec.settlement !== "external") {
+        throw new Error(
+          `${action.action_id}: cannot advance "${ref.predicate}" because its settlement is "${spec.settlement}". advances is only for facts another party settles; use establishes for facts this action completes.`,
         );
       }
     }
@@ -994,6 +1007,7 @@ function buildPredicateIndex(contracts, vocabulary) {
       resolution: spec.resolution,
       settlement: spec.settlement,
       established_by: [],
+      advanced_by: [],
       required_by: [],
     };
   }
@@ -1001,12 +1015,16 @@ function buildPredicateIndex(contracts, vocabulary) {
     for (const ref of action.establishes) {
       index[ref.predicate].established_by.push(action.action_id);
     }
+    for (const ref of action.advances) {
+      index[ref.predicate].advanced_by.push(action.action_id);
+    }
     for (const ref of action.requires) {
       index[ref.predicate].required_by.push(action.action_id);
     }
   }
   for (const entry of Object.values(index)) {
     entry.established_by.sort();
+    entry.advanced_by.sort();
     entry.required_by.sort();
   }
   return index;

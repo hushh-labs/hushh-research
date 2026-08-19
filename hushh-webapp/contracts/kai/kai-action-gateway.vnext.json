@@ -1011,6 +1011,7 @@
       "resolution": "projection",
       "settlement": "agent",
       "established_by": [],
+      "advanced_by": [],
       "required_by": []
     },
     "vault_unlocked": {
@@ -1019,6 +1020,7 @@
       "resolution": "projection",
       "settlement": "agent",
       "established_by": [],
+      "advanced_by": [],
       "required_by": []
     },
     "vault_token": {
@@ -1027,6 +1029,7 @@
       "resolution": "projection",
       "settlement": "agent",
       "established_by": [],
+      "advanced_by": [],
       "required_by": []
     },
     "analysis_active": {
@@ -1035,6 +1038,7 @@
       "resolution": "projection",
       "settlement": "agent",
       "established_by": [],
+      "advanced_by": [],
       "required_by": []
     },
     "analysis_idle": {
@@ -1043,6 +1047,7 @@
       "resolution": "projection",
       "settlement": "ambient",
       "established_by": [],
+      "advanced_by": [],
       "required_by": []
     },
     "gmail_connected": {
@@ -1051,6 +1056,7 @@
       "resolution": "projection",
       "settlement": "agent",
       "established_by": [],
+      "advanced_by": [],
       "required_by": []
     },
     "gmail_configured": {
@@ -1059,6 +1065,7 @@
       "resolution": "projection",
       "settlement": "agent",
       "established_by": [],
+      "advanced_by": [],
       "required_by": []
     },
     "consent_center_visible": {
@@ -1067,6 +1074,7 @@
       "resolution": "projection",
       "settlement": "ambient",
       "established_by": [],
+      "advanced_by": [],
       "required_by": []
     },
     "ria_ready": {
@@ -1075,6 +1083,7 @@
       "resolution": "projection",
       "settlement": "agent",
       "established_by": [],
+      "advanced_by": [],
       "required_by": []
     },
     "ria_available": {
@@ -1083,6 +1092,7 @@
       "resolution": "projection",
       "settlement": "ambient",
       "established_by": [],
+      "advanced_by": [],
       "required_by": []
     },
     "persona_investor": {
@@ -1091,6 +1101,7 @@
       "resolution": "projection",
       "settlement": "ambient",
       "established_by": [],
+      "advanced_by": [],
       "required_by": []
     },
     "persona_ria": {
@@ -1099,6 +1110,7 @@
       "resolution": "projection",
       "settlement": "ambient",
       "established_by": [],
+      "advanced_by": [],
       "required_by": []
     },
     "location_permission_granted": {
@@ -1107,39 +1119,64 @@
       "resolution": "projection",
       "settlement": "external",
       "established_by": [],
-      "required_by": []
+      "advanced_by": [],
+      "required_by": [
+        "connect.open_nearby",
+        "location.save_current_location",
+        "location.trigger_sos"
+      ]
     },
     "location_updates_paused": {
       "arity": 0,
       "entity_type": null,
       "resolution": "projection",
       "settlement": "agent",
-      "established_by": [],
-      "required_by": []
+      "established_by": [
+        "location.pause_updates"
+      ],
+      "advanced_by": [],
+      "required_by": [
+        "location.resume_updates"
+      ]
     },
     "sos_active": {
       "arity": 0,
       "entity_type": null,
       "resolution": "projection",
       "settlement": "agent",
-      "established_by": [],
-      "required_by": []
+      "established_by": [
+        "location.trigger_sos"
+      ],
+      "advanced_by": [],
+      "required_by": [
+        "location.stop_sos"
+      ]
     },
     "share_recipient_selected": {
       "arity": 0,
       "entity_type": null,
       "resolution": "projection",
       "settlement": "agent",
-      "established_by": [],
-      "required_by": []
+      "established_by": [
+        "location.select_share_recipient"
+      ],
+      "advanced_by": [],
+      "required_by": [
+        "location.share_selected"
+      ]
     },
     "ask_recipient_selected": {
       "arity": 0,
       "entity_type": null,
       "resolution": "projection",
       "settlement": "agent",
-      "established_by": [],
-      "required_by": []
+      "established_by": [
+        "location.select_ask_recipient"
+      ],
+      "advanced_by": [],
+      "required_by": [
+        "location.send_request"
+      ]
     },
     "check_in_recipient_selected": {
       "arity": 0,
@@ -1147,23 +1184,23 @@
       "resolution": "projection",
       "settlement": "agent",
       "established_by": [],
-      "required_by": []
-    },
-    "has_any_connection": {
-      "arity": 0,
-      "entity_type": null,
-      "resolution": "projection",
-      "settlement": "external",
-      "established_by": [],
-      "required_by": []
+      "advanced_by": [],
+      "required_by": [
+        "location.send_check_in"
+      ]
     },
     "has_emergency_contact": {
       "arity": 0,
       "entity_type": null,
       "resolution": "projection",
       "settlement": "agent",
-      "established_by": [],
-      "required_by": []
+      "established_by": [
+        "location.add_emergency_contact"
+      ],
+      "advanced_by": [],
+      "required_by": [
+        "location.trigger_sos"
+      ]
     },
     "connected_to": {
       "arity": 1,
@@ -1171,23 +1208,43 @@
       "resolution": "projection",
       "settlement": "external",
       "established_by": [],
-      "required_by": []
+      "advanced_by": [
+        "connect.send_request"
+      ],
+      "required_by": [
+        "connect.remove_connection",
+        "location.add_emergency_contact",
+        "location.add_to_circle",
+        "location.select_ask_recipient",
+        "location.select_share_recipient"
+      ]
     },
     "connection_pending": {
       "arity": 1,
       "entity_type": "person",
       "resolution": "projection",
       "settlement": "agent",
-      "established_by": [],
-      "required_by": []
+      "established_by": [
+        "connect.send_request"
+      ],
+      "advanced_by": [],
+      "required_by": [
+        "connect.cancel_request"
+      ]
     },
     "share_active_with": {
       "arity": 1,
       "entity_type": "person",
       "resolution": "projection",
       "settlement": "agent",
-      "established_by": [],
-      "required_by": []
+      "established_by": [
+        "location.approve_request"
+      ],
+      "advanced_by": [],
+      "required_by": [
+        "location.change_share_duration",
+        "location.stop_share"
+      ]
     },
     "request_pending_from": {
       "arity": 1,
@@ -1195,15 +1252,24 @@
       "resolution": "projection",
       "settlement": "external",
       "established_by": [],
-      "required_by": []
+      "advanced_by": [],
+      "required_by": [
+        "location.approve_request",
+        "location.decline_request"
+      ]
     },
     "emergency_contact": {
       "arity": 1,
       "entity_type": "person",
       "resolution": "projection",
       "settlement": "agent",
-      "established_by": [],
-      "required_by": []
+      "established_by": [
+        "location.add_emergency_contact"
+      ],
+      "advanced_by": [],
+      "required_by": [
+        "location.remove_emergency_contact"
+      ]
     },
     "location_setup_complete": {
       "arity": 1,
@@ -1211,15 +1277,27 @@
       "resolution": "server_only",
       "settlement": "external",
       "established_by": [],
-      "required_by": []
+      "advanced_by": [],
+      "required_by": [
+        "location.add_emergency_contact"
+      ]
     },
     "circle_exists": {
       "arity": 1,
       "entity_type": "circle",
       "resolution": "projection",
       "settlement": "agent",
-      "established_by": [],
-      "required_by": []
+      "established_by": [
+        "location.create_circle"
+      ],
+      "advanced_by": [],
+      "required_by": [
+        "location.add_to_circle",
+        "location.delete_circle",
+        "location.leave_circle",
+        "location.remove_from_circle",
+        "location.rename_circle"
+      ]
     },
     "circle_invite_pending": {
       "arity": 1,
@@ -1227,15 +1305,24 @@
       "resolution": "projection",
       "settlement": "external",
       "established_by": [],
-      "required_by": []
+      "advanced_by": [],
+      "required_by": [
+        "location.accept_circle_invite",
+        "location.decline_circle_invite"
+      ]
     },
     "saved_location_exists": {
       "arity": 1,
       "entity_type": "label",
       "resolution": "projection",
       "settlement": "agent",
-      "established_by": [],
-      "required_by": []
+      "established_by": [
+        "location.save_current_location"
+      ],
+      "advanced_by": [],
+      "required_by": [
+        "location.delete_saved_location"
+      ]
     }
   },
   "actions": [
@@ -1303,6 +1390,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1410,6 +1498,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1518,6 +1607,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1631,6 +1721,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1736,6 +1827,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1837,6 +1929,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1937,6 +2030,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2037,6 +2131,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2138,6 +2233,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2241,6 +2337,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2353,6 +2450,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2461,6 +2559,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2570,8 +2669,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "location_permission_granted",
+          "entity_slot": null
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2683,6 +2788,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2801,7 +2907,18 @@
         "backend_effects": []
       },
       "requires": [],
-      "establishes": [],
+      "establishes": [
+        {
+          "predicate": "connection_pending",
+          "entity_slot": "person"
+        }
+      ],
+      "advances": [
+        {
+          "predicate": "connected_to",
+          "entity_slot": "person"
+        }
+      ],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2919,8 +3036,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "connection_pending",
+          "entity_slot": "person"
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3038,8 +3161,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "connected_to",
+          "entity_slot": "person"
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3165,6 +3294,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3275,6 +3405,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3385,6 +3516,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3491,6 +3623,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3587,6 +3720,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3688,6 +3822,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3791,6 +3926,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3928,6 +4064,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4032,6 +4169,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4143,6 +4281,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4255,6 +4394,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4360,6 +4500,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4465,6 +4606,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4573,6 +4715,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4687,6 +4830,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4792,6 +4936,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4900,6 +5045,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5009,6 +5155,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5116,6 +5263,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5227,6 +5375,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5337,6 +5486,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5447,8 +5597,19 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
-      "establishes": [],
+      "requires": [
+        {
+          "predicate": "connected_to",
+          "entity_slot": "person"
+        }
+      ],
+      "establishes": [
+        {
+          "predicate": "ask_recipient_selected",
+          "entity_slot": null
+        }
+      ],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5568,8 +5729,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "ask_recipient_selected",
+          "entity_slot": null
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5679,6 +5846,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5790,6 +5958,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5900,6 +6069,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6011,6 +6181,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6125,6 +6296,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6238,6 +6410,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6351,6 +6524,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6463,6 +6637,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6575,6 +6750,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6686,6 +6862,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6799,6 +6976,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6913,6 +7091,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7021,6 +7200,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7129,6 +7309,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7238,7 +7419,13 @@
         "backend_effects": []
       },
       "requires": [],
-      "establishes": [],
+      "establishes": [
+        {
+          "predicate": "location_updates_paused",
+          "entity_slot": null
+        }
+      ],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7350,8 +7537,19 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
-      "establishes": [],
+      "requires": [
+        {
+          "predicate": "connected_to",
+          "entity_slot": "person"
+        }
+      ],
+      "establishes": [
+        {
+          "predicate": "share_recipient_selected",
+          "entity_slot": null
+        }
+      ],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7474,8 +7672,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "share_recipient_selected",
+          "entity_slot": null
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7596,8 +7800,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "share_active_with",
+          "entity_slot": "person"
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7715,8 +7925,19 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
-      "establishes": [],
+      "requires": [
+        {
+          "predicate": "request_pending_from",
+          "entity_slot": "person"
+        }
+      ],
+      "establishes": [
+        {
+          "predicate": "share_active_with",
+          "entity_slot": "person"
+        }
+      ],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7834,8 +8055,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "request_pending_from",
+          "entity_slot": "person"
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7954,8 +8181,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "share_active_with",
+          "entity_slot": "person"
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8088,8 +8321,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "sos_active",
+          "entity_slot": null
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8201,6 +8440,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8321,8 +8561,27 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
-      "establishes": [],
+      "requires": [
+        {
+          "predicate": "connected_to",
+          "entity_slot": "person"
+        },
+        {
+          "predicate": "location_setup_complete",
+          "entity_slot": "person"
+        }
+      ],
+      "establishes": [
+        {
+          "predicate": "emergency_contact",
+          "entity_slot": "person"
+        },
+        {
+          "predicate": "has_emergency_contact",
+          "entity_slot": null
+        }
+      ],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8439,8 +8698,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "emergency_contact",
+          "entity_slot": "person"
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8561,8 +8826,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "location_updates_paused",
+          "entity_slot": null
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8672,7 +8943,13 @@
         "backend_effects": []
       },
       "requires": [],
-      "establishes": [],
+      "establishes": [
+        {
+          "predicate": "circle_exists",
+          "entity_slot": "name"
+        }
+      ],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8792,8 +9069,18 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "connected_to",
+          "entity_slot": "person"
+        },
+        {
+          "predicate": "circle_exists",
+          "entity_slot": "circle"
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8921,8 +9208,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "circle_exists",
+          "entity_slot": "circle"
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9048,8 +9341,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "circle_exists",
+          "entity_slot": "circle"
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9176,8 +9475,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "circle_exists",
+          "entity_slot": "circle"
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9296,8 +9601,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "circle_exists",
+          "entity_slot": "circle"
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9416,8 +9727,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "circle_invite_pending",
+          "entity_slot": "circle"
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9535,8 +9852,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "circle_invite_pending",
+          "entity_slot": "circle"
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9655,8 +9978,19 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
-      "establishes": [],
+      "requires": [
+        {
+          "predicate": "location_permission_granted",
+          "entity_slot": null
+        }
+      ],
+      "establishes": [
+        {
+          "predicate": "saved_location_exists",
+          "entity_slot": "label"
+        }
+      ],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9774,8 +10108,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "saved_location_exists",
+          "entity_slot": "label"
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9892,8 +10232,14 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
+      "requires": [
+        {
+          "predicate": "check_in_recipient_selected",
+          "entity_slot": null
+        }
+      ],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9998,8 +10344,23 @@
         ],
         "backend_effects": []
       },
-      "requires": [],
-      "establishes": [],
+      "requires": [
+        {
+          "predicate": "has_emergency_contact",
+          "entity_slot": null
+        },
+        {
+          "predicate": "location_permission_granted",
+          "entity_slot": null
+        }
+      ],
+      "establishes": [
+        {
+          "predicate": "sos_active",
+          "entity_slot": null
+        }
+      ],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10119,6 +10480,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10224,6 +10586,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10331,6 +10694,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10434,6 +10798,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10539,6 +10904,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10642,6 +11008,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10748,6 +11115,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10853,6 +11221,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10961,6 +11330,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11060,6 +11430,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11159,6 +11530,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11260,6 +11632,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11368,6 +11741,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11477,6 +11851,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11590,6 +11965,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11701,6 +12077,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11809,6 +12186,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11921,6 +12299,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12032,6 +12411,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12140,6 +12520,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12248,6 +12629,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12356,6 +12738,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12469,6 +12852,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12583,6 +12967,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12696,6 +13081,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12805,6 +13191,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12924,6 +13311,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13043,6 +13431,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13164,6 +13553,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13269,6 +13659,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13376,6 +13767,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13485,6 +13877,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13591,6 +13984,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13701,6 +14095,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13833,6 +14228,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13947,6 +14343,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14056,6 +14453,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14175,6 +14573,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14324,6 +14723,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14437,6 +14837,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14551,6 +14952,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14660,6 +15062,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14770,6 +15173,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14907,6 +15311,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15025,6 +15430,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15140,6 +15546,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15253,6 +15660,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15392,6 +15800,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15505,6 +15914,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15612,6 +16022,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15719,6 +16130,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15828,6 +16240,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15935,6 +16348,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16042,6 +16456,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16149,6 +16564,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16257,6 +16673,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16371,6 +16788,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16484,6 +16902,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16598,6 +17017,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16710,6 +17130,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16818,6 +17239,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16939,6 +17361,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17042,6 +17465,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17153,6 +17577,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17263,6 +17688,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17370,6 +17796,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17480,6 +17907,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17599,6 +18027,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17718,6 +18147,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17865,6 +18295,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18032,6 +18463,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18175,6 +18607,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18313,6 +18746,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18434,6 +18868,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18533,6 +18968,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18632,6 +19068,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18731,6 +19168,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18830,6 +19268,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18933,6 +19372,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19036,6 +19476,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19134,6 +19575,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19237,6 +19679,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19337,6 +19780,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19450,6 +19894,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19559,6 +20004,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19669,6 +20115,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19777,6 +20224,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19890,6 +20338,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20000,6 +20449,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20110,6 +20560,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20224,6 +20675,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20338,6 +20790,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20451,6 +20904,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20566,6 +21020,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20684,6 +21139,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20799,6 +21255,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20915,6 +21372,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -21034,6 +21492,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -21155,6 +21614,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -21278,6 +21738,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -21401,6 +21862,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -21524,6 +21986,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -21634,6 +22097,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -21769,6 +22233,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -21890,6 +22355,7 @@
       },
       "requires": [],
       "establishes": [],
+      "advances": [],
       "trigger": {
         "primary": "voice",
         "supported": [
