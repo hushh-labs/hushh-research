@@ -119,12 +119,14 @@ function welcomeMarkup(): string {
             <div class="brand"><span class="wordmark" data-wordmark>hussh</span></div>
 
             <div class="hero">
+              <p class="eyebrow" data-eyebrow>Your private agent</p>
               <div class="markWrap">
                 <span aria-hidden class="markGlow"></span>
                 <span aria-hidden class="quietMark" data-quiet-mark>&#129323;</span>
               </div>
-              <h1 class="title"><span aria-hidden class="titleGlow"></span><span class="oneMark">One</span></h1>
-              <p class="tagline">Your personal assistant for everyday tasks.</p>
+              <h1 class="title"><span aria-hidden class="titleGlow"></span><span class="oneMark" data-one-mark>One</span></h1>
+              <p class="tagline">Your agents. Yours to own.</p>
+              <p class="capabilities" data-capabilities>Listens &middot; Remembers &middot; Decides &middot; Acts</p>
             </div>
 
             <div class="footer">
@@ -241,11 +243,11 @@ for (const phone of PHONES) {
 
       const parts = {
         wordmark: page.locator("[data-wordmark]"),
+        eyebrow: page.locator("[data-eyebrow]"),
         quietMark: page.locator("[data-quiet-mark]"),
         one: page.getByRole("heading", { name: "One" }),
-        supporting: page.getByText(
-          "Your personal assistant for everyday tasks.",
-        ),
+        supporting: page.getByText("Your agents. Yours to own."),
+        capabilities: page.locator("[data-capabilities]"),
         cta: page.getByRole("button", { name: /get started/i }),
         privacy: page.getByText("You control what you share."),
         research: page.getByRole("link", { name: "Research" }),
@@ -305,7 +307,9 @@ for (const phone of PHONES) {
 
       const clipped = await page.evaluate(() => {
         const wanted = [
-          "Your personal assistant for everyday tasks.",
+          "Your private agent",
+          "Your agents. Yours to own.",
+          "Listens · Remembers · Decides · Acts",
           "You control what you share.",
           "Get started",
           "Research",
@@ -373,7 +377,7 @@ test.describe("welcome composition", () => {
     await expect(page.locator("main button")).toHaveCount(1);
   });
 
-  test("One is the single accent, and the accent is Apple blue", async ({
+  test("the CTA and the supporting line stay on the single accent, near-black", async ({
     page,
   }) => {
     await gotoWelcome(page);
@@ -381,15 +385,106 @@ test.describe("welcome composition", () => {
     const colors = await page.evaluate(() => {
       const get = (sel: string) => getComputedStyle(document.querySelector(sel)!);
       return {
-        one: get(".oneMark").color,
         cta: get(".cta").backgroundColor,
         supporting: get(".tagline").color,
       };
     });
 
-    expect(colors.one).toBe("rgb(0, 113, 227)");
     expect(colors.cta).toBe("rgb(0, 113, 227)");
     // The supporting line is near-black, not a second accent.
     expect(colors.supporting).toBe("rgb(29, 29, 31)");
+  });
+
+  test("One carries a restrained gradient, not a flat fill", async ({
+    page,
+  }) => {
+    await gotoWelcome(page);
+
+    const style = await page.evaluate(() => {
+      const el = document.querySelector(".oneMark")!;
+      const computed = getComputedStyle(el);
+      return {
+        backgroundImage: computed.backgroundImage,
+        webkitBackgroundClip: computed.getPropertyValue(
+          "-webkit-background-clip",
+        ),
+        webkitTextFillColor: computed.getPropertyValue(
+          "-webkit-text-fill-color",
+        ),
+      };
+    });
+
+    // The old flat fill (`color: rgb(0, 113, 227)`, no background-image) is
+    // exactly the regression this guards: "too flat" per the restore brief.
+    expect(style.backgroundImage).toContain("linear-gradient");
+    expect(style.webkitBackgroundClip).toBe("text");
+    // Chromium serializes `transparent` as `rgba(0, 0, 0, 0)` in computed
+    // style; both spellings mean the same fully-transparent fill.
+    expect(["transparent", "rgba(0, 0, 0, 0)"]).toContain(
+      style.webkitTextFillColor,
+    );
+
+    // Prove it actually renders as a gradient, not just a CSS property that
+    // happens to be set — jsdom can't prove pixels, so sample real ones via a
+    // screenshot decoded through an in-page canvas. An element screenshot has
+    // no alpha channel to tell glyph ink from the page's own background
+    // behind it, so ink is identified by brightness instead (the near-white
+    // background vs. the gradient's much darker/more saturated stops), and
+    // colors are averaged over a zone rather than a single pixel so one
+    // anti-aliased edge pixel can't swing the result either way.
+    const shot = await page.locator(".oneMark").screenshot();
+    const samples = await page.evaluate(async (base64) => {
+      const img = new Image();
+      const loaded = new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("gradient screenshot failed to decode"));
+      });
+      img.src = `data:image/png;base64,${base64}`;
+      await loaded;
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0);
+      const { data } = ctx.getImageData(0, 0, img.width, img.height);
+
+      const ink: { x: number; r: number; g: number; b: number }[] = [];
+      for (let y = 0; y < img.height; y += 1) {
+        for (let x = 0; x < img.width; x += 1) {
+          const i = (y * img.width + x) * 4;
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          const a = data[i + 3];
+          if (a < 200) continue;
+          if ((r + g + b) / 3 > 180) continue; // background / faint edge
+          ink.push({ x, r, g, b });
+        }
+      }
+      if (ink.length === 0) return null;
+
+      const minX = Math.min(...ink.map((p) => p.x));
+      const maxX = Math.max(...ink.map((p) => p.x));
+      const span = maxX - minX;
+      const average = (points: typeof ink) => ({
+        r: points.reduce((sum, p) => sum + p.r, 0) / points.length,
+        g: points.reduce((sum, p) => sum + p.g, 0) / points.length,
+        b: points.reduce((sum, p) => sum + p.b, 0) / points.length,
+      });
+
+      return {
+        left: average(ink.filter((p) => p.x <= minX + span * 0.2)),
+        right: average(ink.filter((p) => p.x >= maxX - span * 0.2)),
+      };
+    }, shot.toString("base64"));
+
+    expect(samples, "found glyph ink to sample").not.toBeNull();
+    const { left, right } = samples!;
+
+    const delta = Math.sqrt(
+      (left.r - right.r) ** 2 + (left.g - right.g) ** 2 + (left.b - right.b) ** 2,
+    );
+    // A flat fill samples ~0 here; a real (even subtle) gradient does not.
+    expect(delta).toBeGreaterThan(20);
   });
 });
