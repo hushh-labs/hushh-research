@@ -9,8 +9,8 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
 
 import {
   KYC_IDENTITY_PKM_DOMAIN,
-  KycIdentityProfileDraftService,
   KycIdentityProfilePkmService,
+  hasCompletedKycIdentityIntake,
   isValidDateOfBirth,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
@@ -30,23 +30,25 @@ describe("KycIdentityProfilePkmService", () => {
     let writtenDomainData: Record<string, unknown> | null = null;
     let writtenSummary: Record<string, unknown> | null = null;
 
-    (PkmWriteCoordinator.saveMergedDomain as Mock).mockImplementationOnce(async (params) => {
-      const plan = await params.build({
-        currentDomainData: {
-          existing_identity_fact: "preserved",
-          identity_profile: {
-            existing_field: "preserved",
+    (PkmWriteCoordinator.saveMergedDomain as Mock).mockImplementationOnce(
+      async (params) => {
+        const plan = await params.build({
+          currentDomainData: {
+            existing_identity_fact: "preserved",
+            identity_profile: {
+              existing_field: "preserved",
+            },
           },
-        },
-      });
-      writtenDomainData = plan.domainData;
-      writtenSummary = plan.summary;
-      return {
-        saveState: "saved",
-        success: true,
-        fullBlob: {},
-      };
-    });
+        });
+        writtenDomainData = plan.domainData;
+        writtenSummary = plan.summary;
+        return {
+          saveState: "saved",
+          success: true,
+          fullBlob: {},
+        };
+      },
+    );
 
     await KycIdentityProfilePkmService.saveProfile({
       userId: "user_1",
@@ -84,39 +86,35 @@ describe("KycIdentityProfilePkmService", () => {
         citizenship_country_code: "IN",
         country_of_citizenship: "India",
         employment_status: "employed",
-        schema_version: 2,
+        identity_intake_status: "completed",
+        identity_intake_completed_at: expect.any(String),
+        schema_version: 3,
       },
     });
+    expect(writtenDomainData?.identity_profile).not.toHaveProperty("about_me");
     expect(writtenSummary).toEqual({ identity_profile_updated: true });
   });
 
-  it("keeps a pre-vault identity draft only in process memory until its encrypted save settles", async () => {
-    KycIdentityProfileDraftService.stage("user_draft", {
-      legalName: "Avery Example",
-      dateOfBirth: "1994-04-15",
-      citizenshipCountryCode: "IN",
-      citizenshipCountryName: "India",
-      employmentStatus: "employed",
-    });
-
-    (PkmWriteCoordinator.saveMergedDomain as Mock).mockResolvedValueOnce({
-      saveState: "saved",
-      success: true,
-      fullBlob: {},
-    });
-
-    await expect(
-      KycIdentityProfileDraftService.flushToVault({
-        userId: "user_draft",
-        vaultKey: "vault-key",
-        vaultOwnerToken: "owner-token",
+  it("recognizes current and legacy completed KYC profiles", () => {
+    expect(
+      hasCompletedKycIdentityIntake({ identity_intake_status: "completed" }),
+    ).toBe(true);
+    expect(
+      hasCompletedKycIdentityIntake({
+        identity_intake_completed_at: "2026-08-15T00:00:00Z",
       }),
-    ).resolves.toBe(true);
-    expect(KycIdentityProfileDraftService.hasPending("user_draft")).toBe(false);
+    ).toBe(true);
+    expect(hasCompletedKycIdentityIntake({ about_me: "Legacy profile" })).toBe(
+      true,
+    );
+    expect(
+      hasCompletedKycIdentityIntake({ identity_intake_status: "pending" }),
+    ).toBe(false);
   });
 
   it("rejects an invalid date before writing the encrypted identity profile", async () => {
-    const callsBefore = (PkmWriteCoordinator.saveMergedDomain as Mock).mock.calls.length;
+    const callsBefore = (PkmWriteCoordinator.saveMergedDomain as Mock).mock
+      .calls.length;
 
     await expect(
       KycIdentityProfilePkmService.saveProfile({
@@ -133,43 +131,8 @@ describe("KycIdentityProfilePkmService", () => {
       }),
     ).rejects.toThrow("Date of birth must be a real past date.");
 
-    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(callsBefore);
-  });
-
-  it("does not retain an invalid pre-vault identity draft", () => {
-    KycIdentityProfileDraftService.stage("user_invalid", {
-      legalName: "Avery Example",
-      dateOfBirth: "2099-01-01",
-      citizenshipCountryCode: "IN",
-      citizenshipCountryName: "India",
-      employmentStatus: "employed",
-    });
-
-    expect(KycIdentityProfileDraftService.hasPending("user_invalid")).toBe(false);
-  });
-
-  it("retains an in-memory draft when its encrypted save fails", async () => {
-    KycIdentityProfileDraftService.stage("user_retry", {
-      legalName: "Avery Example",
-      dateOfBirth: "1994-04-15",
-      citizenshipCountryCode: "IN",
-      citizenshipCountryName: "India",
-      employmentStatus: "employed",
-    });
-    (PkmWriteCoordinator.saveMergedDomain as Mock).mockResolvedValueOnce({
-      saveState: "failed",
-      success: false,
-      message: "retry",
-    });
-
-    await expect(
-      KycIdentityProfileDraftService.flushToVault({
-        userId: "user_retry",
-        vaultKey: "vault-key",
-        vaultOwnerToken: "owner-token",
-      }),
-    ).rejects.toThrow("retry");
-    expect(KycIdentityProfileDraftService.hasPending("user_retry")).toBe(true);
-    KycIdentityProfileDraftService.clear("user_retry");
+    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(
+      callsBefore,
+    );
   });
 });

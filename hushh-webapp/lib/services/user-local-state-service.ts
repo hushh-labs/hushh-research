@@ -6,7 +6,6 @@ import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completi
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
-import { KycIdentityProfileDraftService } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { RiaOnboardingDraftLocalService } from "@/lib/services/ria-onboarding-draft-local-service";
 import { VaultMethodPromptLocalService } from "@/lib/services/vault-method-prompt-local-service";
 
@@ -24,7 +23,7 @@ export class UserLocalStateService {
 
     OneSetupCompletionHintService.clear(userId);
     PreVaultSensitiveDraftService.clearForUser(userId);
-    KycIdentityProfileDraftService.clear(userId);
+ 
     // The sealed last-known coordinate (24h retention) and the remembered
     // grant (90d) are the only user-scoped records here that describe where a
     // person physically was, so they are the ones that most need to leave with
@@ -32,6 +31,8 @@ export class UserLocalStateService {
     // is two `removeItem` calls that already swallow their own failures, and an
     // unrelated rejection must not be able to skip it.
     forgetLocationMemory(userId);
+ 
+ 
 
     const tasks: Array<Promise<unknown>> = [
       PreVaultOnboardingService.clear(userId),

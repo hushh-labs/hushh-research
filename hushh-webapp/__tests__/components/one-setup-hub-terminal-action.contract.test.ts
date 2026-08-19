@@ -451,9 +451,8 @@ describe("One setup hub terminal action contract", () => {
     );
   });
 
-  it("does not allow a setup route to create a first vault before Finish setup", () => {
+  it("requires a vault before collecting KYC identity information", () => {
     const vaultFreeSetupSurfaces = [
-      "app/one/setup/email/email-onboarding-setup-client.tsx",
       "components/onboarding/setup/kyc-identity-preface.tsx",
       "app/one/setup/location/location-onboarding-setup-client.tsx",
     ];
@@ -463,6 +462,17 @@ describe("One setup hub terminal action contract", () => {
       expect(source).not.toContain("VaultUnlockDialog");
       expect(source).not.toContain("CapabilityVaultPrerequisite");
     }
+
+    const emailSetupSource = readFileSync(
+      join(process.cwd(), "app/one/setup/email/email-onboarding-setup-client.tsx"),
+      "utf8",
+    );
+    const kycRouteSource = readFileSync(
+      join(process.cwd(), "app/one/kyc/page.tsx"),
+      "utf8",
+    );
+    expect(emailSetupSource).toContain("CapabilityVaultPrerequisite");
+    expect(kycRouteSource).toContain("CapabilityVaultPrerequisite");
 
     const existingVaultOnlySurfaces = [
       "app/one/setup/kai/page.tsx",

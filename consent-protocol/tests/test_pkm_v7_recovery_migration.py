@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "db/migrations/098_pkm_v7_recovery_foundation.sql"
+SCOPE_EXPOSURE_MIGRATION = ROOT / "db/migrations/150_atomic_pkm_scope_exposure.sql"
 
 
 def test_recovery_migration_is_registered_and_additive():
@@ -25,6 +26,19 @@ def test_recovery_migration_is_registered_and_additive():
     assert "ALTER TABLE pkm_manifests" in sql
     assert "pkm_contract_version TEXT NOT NULL DEFAULT '0.0.0'" in sql
     assert "readable_projection_version TEXT NOT NULL DEFAULT '0.0.0'" in sql
+
+
+def test_scope_exposure_commit_updates_blob_and_manifest_revisions_together():
+    sql = SCOPE_EXPOSURE_MIGRATION.read_text()
+    release = json.loads((ROOT / "db/release_migration_manifest.json").read_text())
+
+    assert SCOPE_EXPOSURE_MIGRATION.name in release["ordered_migrations"]
+    assert SCOPE_EXPOSURE_MIGRATION.name in release["groups"]["pkm"]
+    assert "commit_pkm_scope_exposure_v1" in sql
+    assert "repair_pkm_scope_exposure_revision_v1" in sql
+    assert "SET manifest_revision = p_next_manifest_revision" in sql
+    assert "archive_pkm_domain_revision_v1" in sql
+    assert "scope_exposure_update" in sql
 
 
 def test_recovery_migration_enforces_zero_loss_boundaries():

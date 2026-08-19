@@ -4,7 +4,6 @@ const mocks = vi.hoisted(() => ({
   clearPreVault: vi.fn(),
   clearPreVaultSensitive: vi.fn(),
   clearFinanceSetupDraft: vi.fn(),
-  clearKycIdentityDraft: vi.fn(),
   clearKaiNavTour: vi.fn(),
   clearRiaOnboardingDraft: vi.fn(),
   clearVaultMethodPrompt: vi.fn(),
@@ -29,10 +28,6 @@ vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({
 
 vi.mock("@/lib/services/finance-setup-draft-service", () => ({
   FinanceSetupDraftService: { clear: mocks.clearFinanceSetupDraft },
-}));
-
-vi.mock("@/lib/services/kyc-identity-profile-pkm-service", () => ({
-  KycIdentityProfileDraftService: { clear: mocks.clearKycIdentityDraft },
 }));
 
 vi.mock("@/lib/services/kai-nav-tour-local-service", () => ({
@@ -61,7 +56,6 @@ describe("UserLocalStateService", () => {
     mocks.clearPreVault.mockResolvedValue(undefined);
     mocks.clearPreVaultSensitive.mockReturnValue(undefined);
     mocks.clearFinanceSetupDraft.mockResolvedValue(undefined);
-    mocks.clearKycIdentityDraft.mockReturnValue(undefined);
     mocks.clearKaiNavTour.mockResolvedValue(undefined);
     mocks.clearRiaOnboardingDraft.mockResolvedValue(undefined);
     mocks.clearVaultMethodPrompt.mockResolvedValue(undefined);
@@ -73,7 +67,6 @@ describe("UserLocalStateService", () => {
     expect(mocks.clearPreVault).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearPreVaultSensitive).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearFinanceSetupDraft).toHaveBeenCalledWith("uid-1");
-    expect(mocks.clearKycIdentityDraft).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearKaiNavTour).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearRiaOnboardingDraft).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearVaultMethodPrompt).toHaveBeenCalledWith("uid-1");
