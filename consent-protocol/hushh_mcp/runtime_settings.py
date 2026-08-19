@@ -1114,3 +1114,18 @@ def pod_data_door_enabled() -> bool:
     so this flag can never widen a pod's authority to MUTATE anything. Flipping
     it off is an instant, total rollback to the DB-wall behaviour."""
     return _bool_from_value(_clean_env("POD_DATA_DOOR_ENABLED"), default=False)
+
+
+def personal_agent_delete_order_v2() -> bool:
+    """Delete an account by deprovisioning the POD FIRST, then the data cascade,
+    then the registry-row delete LAST.
+
+    OFF by default. The legacy order runs the data cascade first and tears the pod
+    down last -- which means a delete that 500s mid-cascade can leave a live,
+    billing pod, and it forced ``revoke=False`` (the cascade had already wiped
+    consent_audit). V2 inverts it: revoke the standing read and tear the host down
+    while the row still names WHERE the pod lives, then run the cascade, then delete
+    the recovery-anchor row last (so a mid-delete failure leaves a row that can
+    still be recovered or re-deleted, not a half-deleted account). Flag-gated so the
+    legacy path stays the instant fallback."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_DELETE_ORDER_V2"), default=False)

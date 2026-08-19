@@ -877,7 +877,12 @@ class PersonalAgentProvisioningService:
         return {"hushhId": hushh_id, "status": "pending"}
 
     async def deprovision(
-        self, *, user_id: str, ledger: Any = None, revoke: bool = True
+        self,
+        *,
+        user_id: str,
+        ledger: Any = None,
+        revoke: bool = True,
+        defer_row_delete: bool = False,
     ) -> dict[str, Any]:
         """Tear down the user's agent: revoke the standing read, tombstone, delete.
 
@@ -969,13 +974,36 @@ class PersonalAgentProvisioningService:
             external_agent_id=external_agent_id,
             status="deprovision_requested",
         )
-        await self._registry.delete(user_id)
+        # ``defer_row_delete`` (delete-order V2) keeps the recovery-anchor row in
+        # place through the data cascade: the host is already torn down and the
+        # tombstone written, but the row -- the only thing that still names WHERE
+        # the pod was -- survives until the caller finalizes it AFTER the cascade,
+        # so a mid-delete failure leaves a recoverable/re-deletable row, never a
+        # half-deleted account with an unnameable orphan.
+        if not defer_row_delete:
+            await self._registry.delete(user_id)
         logger.info(
-            "personal_agent.deprovisioned had_row=%s standing_read_revoked=%s",
+            "personal_agent.deprovisioned had_row=%s standing_read_revoked=%s row_delete_deferred=%s",
             row is not None,
             revoked,
+            defer_row_delete,
         )
-        return {"status": "deprovisioned", "hushhId": hushh_id, "standingReadRevoked": revoked}
+        return {
+            "status": "deprovisioned",
+            "hushhId": hushh_id,
+            "standingReadRevoked": revoked,
+            "teardownReachedHost": teardown_reached_the_host,
+            "unreclaimed": unreclaimed,
+            "rowDeleteDeferred": defer_row_delete,
+        }
+
+    async def finalize_row_delete(self, *, user_id: str) -> None:
+        """Delete the registry row that ``deprovision(defer_row_delete=True)`` left
+        in place. Called AFTER the data cascade so the recovery anchor survives a
+        mid-delete failure. Idempotent -- a missing row is a safe no-op."""
+        if not user_id:
+            return
+        await self._registry.delete(user_id)
 
     async def _fleet_cap_reached(self, *, user_id: str) -> bool:
         """Whether the pod fleet already sits at ``PERSONAL_AGENT_MAX_PODS``.

@@ -870,21 +870,25 @@ async def _delete_firebase_auth_user(user_id: str) -> str:
         return "failed"
 
 
-async def _deprovision_personal_agent(user_id: str) -> str:
+async def _deprovision_personal_agent(
+    user_id: str, *, revoke: bool = False, defer_row_delete: bool = False
+) -> dict[str, Any]:
     """Best-effort teardown of the user's personal agent on account deletion.
 
     Not flag-gated: it must clean up any existing registry row even if the feature
     was later turned off. A missing row is a safe no-op (nothing to tombstone or
-    delete). ``revoke=False`` because the deletion cascade has ALREADY wiped this
-    user's consent_audit rows (which fail-closes the standing read) -- writing a
-    REVOKED event here would re-create a row for a just-deleted user and break the
-    erasure guarantee. The retained tombstone (needed for recycled-phone rotation)
-    and the registry-row delete (the row is outside the cascade) still happen.
-    Never raises; account deletion must complete regardless.
-    """
+    delete). Never raises; account deletion must complete regardless.
+
+    Legacy order (``revoke=False``, ``defer_row_delete=False``) runs LAST, after the
+    deletion cascade has ALREADY wiped consent_audit (which fail-closes the standing
+    read) -- so a REVOKED event there would re-create a row for a just-deleted user
+    and break erasure. Delete-order V2 runs this FIRST with ``revoke=True`` (the
+    cascade has not run yet, so the grant must be revoked explicitly) and
+    ``defer_row_delete=True`` (keep the recovery-anchor row through the cascade;
+    finalize it afterwards)."""
     normalized_user_id = str(user_id or "").strip()
     if not normalized_user_id:
-        return "skipped"
+        return {"status": "skipped"}
 
     try:
         from hushh_mcp.services.compute_backend import resolve_compute_backend
@@ -900,15 +904,44 @@ async def _deprovision_personal_agent(user_id: str) -> str:
         service = PersonalAgentProvisioningService(
             registry=PersonalAgentRegistryRepo(), backend=resolve_compute_backend()
         )
-        result = await service.deprovision(user_id=normalized_user_id, revoke=False)
-        return str(result.get("status") or "deprovisioned")
+        result = await service.deprovision(
+            user_id=normalized_user_id, revoke=revoke, defer_row_delete=defer_row_delete
+        )
+        return result if isinstance(result, dict) else {"status": str(result or "deprovisioned")}
     except Exception as exc:
         logger.warning(
             "Personal-agent deprovision failed for deleted account user=%s error=%s",
             normalized_user_id,
             type(exc).__name__,
         )
-        return "failed"
+        return {"status": "failed"}
+
+
+async def _finalize_personal_agent_row_delete(user_id: str) -> None:
+    """Delete-order V2: delete the registry recovery-anchor row AFTER the cascade.
+    Never raises; a missing row is a safe no-op."""
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        return
+    try:
+        from hushh_mcp.services.compute_backend import resolve_compute_backend
+        from hushh_mcp.services.personal_agent_provisioning_service import (
+            PersonalAgentProvisioningService,
+        )
+        from hushh_mcp.services.personal_agent_registry_repo import (
+            PersonalAgentRegistryRepo,
+        )
+
+        service = PersonalAgentProvisioningService(
+            registry=PersonalAgentRegistryRepo(), backend=resolve_compute_backend()
+        )
+        await service.finalize_row_delete(user_id=normalized_user_id)
+    except Exception as exc:
+        logger.warning(
+            "Personal-agent row-delete finalize failed user=%s error=%s",
+            normalized_user_id,
+            type(exc).__name__,
+        )
 
 
 def _firebase_user_provider_ids(user_record: Any) -> set[str]:
@@ -1205,6 +1238,18 @@ async def delete_account(
             )
 
     service = AccountService()
+
+    # Delete-order V2 (directive: delete deprovisions the pod FIRST). Revoke the
+    # standing read and tear the host down while the row still names WHERE the pod
+    # lives -- BEFORE the data cascade -- and keep the recovery-anchor row through
+    # the cascade, finalizing its delete afterwards. Flag-gated; legacy order is the
+    # fallback. A missing pod is a safe no-op, so this never blocks deletion.
+    from hushh_mcp.runtime_settings import personal_agent_delete_order_v2  # noqa: PLC0415
+
+    pa_first: dict[str, Any] | None = None
+    if target == "both" and personal_agent_delete_order_v2():
+        pa_first = await _deprovision_personal_agent(user_id, revoke=True, defer_row_delete=True)
+
     result = await service.delete_account(user_id, target=target)
 
     if not result["success"]:
@@ -1225,9 +1270,25 @@ async def delete_account(
             phone_number=verified_phone_number,
             protected_uid=user_id,
         )
-        # Best-effort teardown of the user's personal agent (registry row + retained
-        # tombstone). revoke=False: the cascade already wiped consent_audit.
-        details["personal_agent"] = await _deprovision_personal_agent(user_id)
+        if pa_first is not None:
+            # V2: the host was torn down FIRST; record it and finalize the recovery
+            # row LAST (after the cascade). Surface an unreclaimed orphan loudly --
+            # the account still completes, but the billing host stays nameable via
+            # the retained tombstone rather than silently swallowed.
+            details["personal_agent"] = pa_first.get("status")
+            if pa_first.get("unreclaimed") is True:
+                details["personal_agent_teardown_incomplete"] = True
+                logger.error(
+                    "Account deletion completed but the personal-agent host could not be "
+                    "torn down; a billing orphan may remain for user=%s (retained in the "
+                    "deletion tombstone, nameable for reclaim)",
+                    user_id,
+                )
+            await _finalize_personal_agent_row_delete(user_id)
+        else:
+            # Legacy order: deprovision LAST, revoke=False (cascade already wiped audit).
+            legacy_pa = await _deprovision_personal_agent(user_id)
+            details["personal_agent"] = legacy_pa.get("status")
         # Fail-loud on Firebase identity orphan: the encrypted account is already
         # gone, so we keep the 200, but surface the incomplete cleanup so callers can
         # alert/retry instead of silently treating the identity as removed.

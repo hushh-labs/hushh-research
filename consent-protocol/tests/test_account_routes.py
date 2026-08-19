@@ -828,3 +828,95 @@ def test_reset_account_maps_failure_to_500(monkeypatch):
 
     assert response.status_code == 500
     assert response.json()["detail"] == "Account reset failed"
+
+
+# --- Delete-order V2: the pod is deprovisioned FIRST, the row deleted LAST --------
+# Directive: "delete account also first deprovisions the pod." The guard is call
+# ORDER: host teardown must precede the data cascade, and the recovery-anchor row
+# delete must follow it, so a mid-delete failure never leaves a billing orphan the
+# system cannot name.
+
+
+def _delete_order_app(monkeypatch, order, *, deprov_result):
+    async def _mock_delete(self, user_id: str, target: str = "both"):
+        order.append("cascade")
+        return {"success": True, "deleted_target": "both", "account_deleted": True}
+
+    async def _mock_deprov(user_id, *, revoke=False, defer_row_delete=False):
+        order.append(("deprovision", revoke, defer_row_delete))
+        return dict(deprov_result)
+
+    async def _mock_finalize(user_id):
+        order.append("finalize_row_delete")
+
+    async def _mock_get_many(self, user_ids):
+        return {"user_123": {"phone_number": "+16505550101", "phone_verified": True}}
+
+    async def _mock_fb(user_id):
+        order.append("firebase")
+        return "deleted"
+
+    async def _mock_orphan(*, phone_number=None, protected_uid=None):
+        return "deleted"
+
+    app = _build_app()
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    monkeypatch.setattr(AccountService, "delete_account", _mock_delete)
+    monkeypatch.setattr(ActorIdentityService, "get_many", _mock_get_many)
+    monkeypatch.setattr(account, "_delete_firebase_auth_user", _mock_fb)
+    monkeypatch.setattr(account, "_delete_safe_phone_only_firebase_user_by_phone", _mock_orphan)
+    monkeypatch.setattr(account, "_deprovision_personal_agent", _mock_deprov)
+    monkeypatch.setattr(account, "_finalize_personal_agent_row_delete", _mock_finalize)
+    return app
+
+
+def test_delete_account_v2_deprovisions_pod_before_cascade_and_deletes_row_last(monkeypatch):
+    monkeypatch.setenv("PERSONAL_AGENT_DELETE_ORDER_V2", "1")
+    order: list = []
+    app = _delete_order_app(
+        monkeypatch,
+        order,
+        deprov_result={
+            "status": "deprovisioned",
+            "teardownReachedHost": True,
+            "unreclaimed": False,
+        },
+    )
+    resp = TestClient(app).delete("/api/account/delete")
+    assert resp.status_code == 200
+    # host teardown is FIRST, with an explicit revoke and a deferred row-delete
+    assert order[0] == ("deprovision", True, True)
+    # ... and it precedes the data cascade
+    assert order.index(("deprovision", True, True)) < order.index("cascade")
+    # the recovery-anchor row delete is finalized AFTER the cascade, and it is last
+    assert order.index("cascade") < order.index("finalize_row_delete")
+    assert order[-1] == "finalize_row_delete"
+
+
+def test_delete_account_v1_legacy_deprovisions_after_cascade(monkeypatch):
+    monkeypatch.delenv("PERSONAL_AGENT_DELETE_ORDER_V2", raising=False)
+    order: list = []
+    app = _delete_order_app(monkeypatch, order, deprov_result={"status": "deprovisioned"})
+    resp = TestClient(app).delete("/api/account/delete")
+    assert resp.status_code == 200
+    # legacy order: cascade FIRST, then deprovision last with revoke=False, no finalize
+    assert order.index("cascade") < order.index(("deprovision", False, False))
+    assert "finalize_row_delete" not in order
+
+
+def test_delete_account_v2_surfaces_unreclaimed_orphan_loudly(monkeypatch):
+    monkeypatch.setenv("PERSONAL_AGENT_DELETE_ORDER_V2", "1")
+    order: list = []
+    app = _delete_order_app(
+        monkeypatch,
+        order,
+        deprov_result={
+            "status": "deprovisioned",
+            "teardownReachedHost": False,
+            "unreclaimed": True,
+        },
+    )
+    resp = TestClient(app).delete("/api/account/delete")
+    assert resp.status_code == 200
+    # a host that could not be torn down is surfaced, never silently swallowed
+    assert resp.json()["details"]["personal_agent_teardown_incomplete"] is True
