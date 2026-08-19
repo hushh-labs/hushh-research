@@ -33,6 +33,10 @@ const CAPABILITY_GUARD_COVERAGE_PATH = path.resolve(
   WEBAPP_ROOT,
   "contracts/kai/capability-guard-coverage.v1.json",
 );
+const PREDICATE_VOCABULARY_PATH = path.resolve(
+  WEBAPP_ROOT,
+  "contracts/kai/predicate-vocabulary.v1.json",
+);
 
 const SPEAKER_PERSONAS = new Set(["one", "kai", "nav", "kyc"]);
 const AGENT_PERSONAS = new Set([
@@ -508,6 +512,36 @@ function normalizeExpectedEffects(raw) {
   };
 }
 
+// Authored form is terse because contract entries are one line each:
+//   "requires": ["signed_in", "connected_to(person)"]
+// The parenthesised name is a slot on the same action's goal, so a grounded
+// fact can always be traced back to an input the action can actually resolve.
+const PREDICATE_REF_PATTERN = /^([a-z][a-z0-9_]*)(?:\(([a-z][a-z0-9_]*)\))?$/;
+
+function normalizePredicateRefs(raw, actionId, field) {
+  const seen = new Set();
+  return ensureArray(raw)
+    .map((entry) => {
+      const text = cleanString(entry);
+      if (!text) {
+        throw new Error(`${actionId}: ${field} entries must be non-empty strings`);
+      }
+      const match = PREDICATE_REF_PATTERN.exec(text);
+      if (!match) {
+        throw new Error(
+          `${actionId}: ${field} entry "${text}" must be predicate or predicate(slot_name)`,
+        );
+      }
+      const [, predicate, entitySlot] = match;
+      const key = `${predicate}(${entitySlot || ""})`;
+      if (seen.has(key)) {
+        throw new Error(`${actionId}: ${field} lists "${text}" more than once`);
+      }
+      seen.add(key);
+      return { predicate, entity_slot: entitySlot || null };
+    });
+}
+
 function normalizeExternalCallback(raw, actionId) {
   if (!isPlainObject(raw)) return null;
   const provider = cleanString(raw.provider);
@@ -652,6 +686,12 @@ function normalizeAction(surface, action) {
       actionId,
     ),
     expected_effects: normalizeExpectedEffects(action.expected_effects),
+    requires: normalizePredicateRefs(action.requires, actionId, "requires"),
+    establishes: normalizePredicateRefs(
+      action.establishes,
+      actionId,
+      "establishes",
+    ),
     trigger: DEFAULT_TRIGGER,
   };
 
@@ -801,7 +841,7 @@ async function readContracts() {
   };
 }
 
-async function validateCapabilityGuardCoverage(contracts) {
+async function validateCapabilityGuardCoverage(contracts, vocabulary) {
   const raw = JSON.parse(
     await fs.readFile(CAPABILITY_GUARD_COVERAGE_PATH, "utf8"),
   );
@@ -809,6 +849,20 @@ async function validateCapabilityGuardCoverage(contracts) {
     throw new Error(
       "capability guard coverage must contain a guards object",
     );
+  }
+
+  // Guards and predicate refs are keyed differently but must draw on one closed
+  // set of facts, or the app ends up with two unenforced vocabularies again.
+  for (const [guardId, coverage] of Object.entries(raw.guards)) {
+    if (!isPlainObject(coverage) || cleanString(coverage.kind) !== "projection") {
+      continue;
+    }
+    const predicate = cleanString(coverage.predicate);
+    if (!vocabulary.has(predicate)) {
+      throw new Error(
+        `guard "${guardId}": projection predicate "${predicate}" is not declared in contracts/kai/predicate-vocabulary.v1.json`,
+      );
+    }
   }
 
   for (const action of contracts.actions) {
@@ -835,7 +889,130 @@ async function validateCapabilityGuardCoverage(contracts) {
   }
 }
 
-function createGatewayPayload(contracts) {
+const PREDICATE_RESOLUTIONS = new Set(["projection", "server_only"]);
+const PREDICATE_SETTLEMENTS = new Set(["agent", "external", "ambient"]);
+
+async function readPredicateVocabulary() {
+  const raw = JSON.parse(await fs.readFile(PREDICATE_VOCABULARY_PATH, "utf8"));
+  if (!isPlainObject(raw) || !isPlainObject(raw.predicates)) {
+    throw new Error("predicate vocabulary must contain a predicates object");
+  }
+  const entityTypes = new Set(Object.keys(raw.entity_types || {}));
+  const predicates = new Map();
+
+  for (const [name, spec] of Object.entries(raw.predicates)) {
+    if (!isPlainObject(spec)) {
+      throw new Error(`predicate "${name}": declaration must be an object`);
+    }
+    const arity = spec.arity;
+    if (arity !== 0 && arity !== 1) {
+      throw new Error(`predicate "${name}": arity must be 0 or 1`);
+    }
+    const resolution = cleanString(spec.resolution);
+    const settlement = cleanString(spec.settlement);
+    if (!PREDICATE_RESOLUTIONS.has(resolution)) {
+      throw new Error(
+        `predicate "${name}": resolution must be one of ${Array.from(PREDICATE_RESOLUTIONS).join(", ")}`,
+      );
+    }
+    if (!PREDICATE_SETTLEMENTS.has(settlement)) {
+      throw new Error(
+        `predicate "${name}": settlement must be one of ${Array.from(PREDICATE_SETTLEMENTS).join(", ")}`,
+      );
+    }
+    const entityType = cleanString(spec.entity_type);
+    if (arity === 1 && !entityTypes.has(entityType)) {
+      throw new Error(
+        `predicate "${name}": arity 1 requires a declared entity_type`,
+      );
+    }
+    if (arity === 0 && entityType) {
+      throw new Error(`predicate "${name}": arity 0 must not declare an entity_type`);
+    }
+    if (!cleanString(spec.description)) {
+      throw new Error(`predicate "${name}": description is required`);
+    }
+    predicates.set(name, { name, arity, resolution, settlement, entityType });
+  }
+
+  return predicates;
+}
+
+function validatePredicateUsage(contracts, vocabulary) {
+  for (const action of contracts.actions) {
+    const slotSchema = isPlainObject(action.goal?.slot_schema)
+      ? action.goal.slot_schema
+      : {};
+
+    for (const field of ["requires", "establishes"]) {
+      for (const ref of action[field]) {
+        const spec = vocabulary.get(ref.predicate);
+        if (!spec) {
+          throw new Error(
+            `${action.action_id}: ${field} names undeclared predicate "${ref.predicate}". Add it to contracts/kai/predicate-vocabulary.v1.json or use an existing one.`,
+          );
+        }
+        if (spec.arity === 0 && ref.entity_slot) {
+          throw new Error(
+            `${action.action_id}: predicate "${ref.predicate}" takes no entity but ${field} passes "${ref.entity_slot}"`,
+          );
+        }
+        if (spec.arity === 1 && !ref.entity_slot) {
+          throw new Error(
+            `${action.action_id}: predicate "${ref.predicate}" needs a ${spec.entityType} entity, e.g. ${ref.predicate}(person)`,
+          );
+        }
+        if (ref.entity_slot && !(ref.entity_slot in slotSchema)) {
+          throw new Error(
+            `${action.action_id}: ${field} grounds "${ref.predicate}" on slot "${ref.entity_slot}", which is not in goal.slot_schema. A fact can only be grounded on an input this action can resolve.`,
+          );
+        }
+      }
+    }
+
+    // The rule that keeps the graph honest. connect.send_request must not be
+    // allowed to claim it establishes connected_to: only the other person can
+    // settle that, and a planner that believes otherwise will promise a share
+    // it can never deliver.
+    for (const ref of action.establishes) {
+      const spec = vocabulary.get(ref.predicate);
+      if (spec.settlement !== "agent") {
+        throw new Error(
+          `${action.action_id}: cannot establish "${ref.predicate}" because its settlement is "${spec.settlement}". Only an action can settle an agent-settled fact; declare what this action actually makes true instead.`,
+        );
+      }
+    }
+  }
+}
+
+function buildPredicateIndex(contracts, vocabulary) {
+  const index = {};
+  for (const [name, spec] of vocabulary) {
+    index[name] = {
+      arity: spec.arity,
+      entity_type: spec.entityType || null,
+      resolution: spec.resolution,
+      settlement: spec.settlement,
+      established_by: [],
+      required_by: [],
+    };
+  }
+  for (const action of contracts.actions) {
+    for (const ref of action.establishes) {
+      index[ref.predicate].established_by.push(action.action_id);
+    }
+    for (const ref of action.requires) {
+      index[ref.predicate].required_by.push(action.action_id);
+    }
+  }
+  for (const entry of Object.values(index)) {
+    entry.established_by.sort();
+    entry.required_by.sort();
+  }
+  return index;
+}
+
+function createGatewayPayload(contracts, predicateIndex) {
   return {
     schema_version: "kai.action_gateway.vnext",
     generator: "hushh-webapp/scripts/voice/generate-kai-action-gateway.mjs",
@@ -843,6 +1020,7 @@ function createGatewayPayload(contracts) {
       toRelativeRepoPath(file),
     ),
     surfaces: contracts.surfaces,
+    predicate_index: predicateIndex,
     actions: contracts.actions,
   };
 }
@@ -873,8 +1051,11 @@ async function main() {
   const checkOnly = args.has("--check");
 
   const contracts = await readContracts();
-  await validateCapabilityGuardCoverage(contracts);
-  const gatewayPayload = createGatewayPayload(contracts);
+  const vocabulary = await readPredicateVocabulary();
+  await validateCapabilityGuardCoverage(contracts, vocabulary);
+  validatePredicateUsage(contracts, vocabulary);
+  const predicateIndex = buildPredicateIndex(contracts, vocabulary);
+  const gatewayPayload = createGatewayPayload(contracts, predicateIndex);
   const gatewayText = `${JSON.stringify(gatewayPayload, null, 2)}\n`;
 
   const outputResults = await Promise.all([

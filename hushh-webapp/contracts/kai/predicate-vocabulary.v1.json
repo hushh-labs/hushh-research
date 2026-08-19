@@ -1,0 +1,207 @@
+{
+  "schema_version": "one.predicate_vocabulary.v1",
+  "doc": "Closed vocabulary of typed facts that generated actions may require or establish. Keyed by predicate name, unlike capability-guard-coverage.v1.json which is keyed by guard id and whose projection entries must resolve to a predicate declared here. Two orthogonal axes: resolution says how a fact is READ, settlement says who can MAKE IT TRUE. connected_to is the case that needs both: the browser can read it for free from an already-loaded connection list, but only the other person can ever make it true.",
+  "entity_types": {
+    "person": "A human identified by a spoken name and resolved to exactly one directory match.",
+    "circle": "A named location circle owned by or shared with the signed-in person.",
+    "label": "A user-chosen name for a saved place."
+  },
+  "resolution": {
+    "projection": "Readable from redacted client state already on the wire: app runtime state or published voice surface metadata. Costs nothing and must never trigger I/O, because evaluateKaiActionAvailability is synchronous.",
+    "server_only": "Requires a scoped backend call. Never resolved inside the synchronous availability path; a surface publishes it or a planner resolves it out of band."
+  },
+  "settlement": {
+    "agent": "Some generated action establishes it. The planner may chain backward through it.",
+    "external": "Only another person, another device, or an external system can make it true. The planner must defer and say so; it must never chain through it as though it could act.",
+    "ambient": "Observed state that nothing in the app sets directly, such as an entitlement or the absence of another state. Never a planning target."
+  },
+  "predicates": {
+    "signed_in": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "An authenticated session exists."
+    },
+    "vault_unlocked": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "The vault is unlocked for this session."
+    },
+    "vault_token": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "A vault owner token is present for this session."
+    },
+    "analysis_active": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "An analysis run is currently in flight."
+    },
+    "analysis_idle": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "ambient",
+      "description": "No analysis run is in flight. The absence of analysis_active, not a thing any action sets."
+    },
+    "gmail_connected": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "The Gmail connector holds a live authorization."
+    },
+    "gmail_configured": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "Gmail connector configuration is complete enough to use."
+    },
+    "consent_center_visible": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "ambient",
+      "description": "The consent centre surface is available to this account."
+    },
+    "ria_ready": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "RIA onboarding is complete."
+    },
+    "ria_available": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "ambient",
+      "description": "The RIA workspace is entitled for this account."
+    },
+    "persona_investor": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "ambient",
+      "description": "The investor persona is the active workspace."
+    },
+    "persona_ria": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "ambient",
+      "description": "The RIA persona is the active workspace."
+    },
+
+    "location_permission_granted": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "external",
+      "description": "The device has granted location permission. Only the operating system prompt can make this true, so the planner names it and stops rather than trying to satisfy it."
+    },
+    "location_updates_paused": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "This device has stopped sending location updates."
+    },
+    "sos_active": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "An emergency SOS incident is currently running."
+    },
+    "share_recipient_selected": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "At least one recipient is selected in the share composer."
+    },
+    "ask_recipient_selected": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "At least one person is selected in the location request composer."
+    },
+    "check_in_recipient_selected": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "At least one recipient is selected for a check-in."
+    },
+    "has_any_connection": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "external",
+      "description": "The signed-in person has at least one accepted connection. Settlement is external because a request only becomes a connection when the other person accepts."
+    },
+    "has_emergency_contact": {
+      "arity": 0,
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "At least one emergency contact is configured."
+    },
+
+    "connected_to": {
+      "arity": 1,
+      "entity_type": "person",
+      "resolution": "projection",
+      "settlement": "external",
+      "description": "The named person is an accepted connection. Read for free from the connection list the surface has already loaded; made true only when that person accepts. connect.send_request establishes connection_pending, never this."
+    },
+    "connection_pending": {
+      "arity": 1,
+      "entity_type": "person",
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "A connection request to the named person has been sent and not yet answered."
+    },
+    "share_active_with": {
+      "arity": 1,
+      "entity_type": "person",
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "A live location share to the named person exists right now."
+    },
+    "request_pending_from": {
+      "arity": 1,
+      "entity_type": "person",
+      "resolution": "projection",
+      "settlement": "external",
+      "description": "The named person has asked to see this person's location and is waiting on an answer. Only they can create it."
+    },
+    "emergency_contact": {
+      "arity": 1,
+      "entity_type": "person",
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "The named person is on the emergency contact list."
+    },
+    "location_setup_complete": {
+      "arity": 1,
+      "entity_type": "person",
+      "resolution": "server_only",
+      "settlement": "external",
+      "description": "The named person has finished their own Location setup. A fact about somebody else's account, so it is never resolved from this browser's state and only they can make it true."
+    },
+
+    "circle_exists": {
+      "arity": 1,
+      "entity_type": "circle",
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "A circle with the named name exists for this person."
+    },
+    "circle_invite_pending": {
+      "arity": 1,
+      "entity_type": "circle",
+      "resolution": "projection",
+      "settlement": "external",
+      "description": "An unanswered invitation to the named circle is waiting. Someone else has to send it."
+    },
+
+    "saved_location_exists": {
+      "arity": 1,
+      "entity_type": "label",
+      "resolution": "projection",
+      "settlement": "agent",
+      "description": "A saved place with the named label exists."
+    }
+  }
+}

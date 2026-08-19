@@ -1004,6 +1004,240 @@
       }
     }
   ],
+  "predicate_index": {
+    "signed_in": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "vault_unlocked": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "vault_token": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "analysis_active": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "analysis_idle": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "ambient",
+      "established_by": [],
+      "required_by": []
+    },
+    "gmail_connected": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "gmail_configured": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "consent_center_visible": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "ambient",
+      "established_by": [],
+      "required_by": []
+    },
+    "ria_ready": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "ria_available": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "ambient",
+      "established_by": [],
+      "required_by": []
+    },
+    "persona_investor": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "ambient",
+      "established_by": [],
+      "required_by": []
+    },
+    "persona_ria": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "ambient",
+      "established_by": [],
+      "required_by": []
+    },
+    "location_permission_granted": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "external",
+      "established_by": [],
+      "required_by": []
+    },
+    "location_updates_paused": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "sos_active": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "share_recipient_selected": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "ask_recipient_selected": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "check_in_recipient_selected": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "has_any_connection": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "external",
+      "established_by": [],
+      "required_by": []
+    },
+    "has_emergency_contact": {
+      "arity": 0,
+      "entity_type": null,
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "connected_to": {
+      "arity": 1,
+      "entity_type": "person",
+      "resolution": "projection",
+      "settlement": "external",
+      "established_by": [],
+      "required_by": []
+    },
+    "connection_pending": {
+      "arity": 1,
+      "entity_type": "person",
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "share_active_with": {
+      "arity": 1,
+      "entity_type": "person",
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "request_pending_from": {
+      "arity": 1,
+      "entity_type": "person",
+      "resolution": "projection",
+      "settlement": "external",
+      "established_by": [],
+      "required_by": []
+    },
+    "emergency_contact": {
+      "arity": 1,
+      "entity_type": "person",
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "location_setup_complete": {
+      "arity": 1,
+      "entity_type": "person",
+      "resolution": "server_only",
+      "settlement": "external",
+      "established_by": [],
+      "required_by": []
+    },
+    "circle_exists": {
+      "arity": 1,
+      "entity_type": "circle",
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    },
+    "circle_invite_pending": {
+      "arity": 1,
+      "entity_type": "circle",
+      "resolution": "projection",
+      "settlement": "external",
+      "established_by": [],
+      "required_by": []
+    },
+    "saved_location_exists": {
+      "arity": 1,
+      "entity_type": "label",
+      "resolution": "projection",
+      "settlement": "agent",
+      "established_by": [],
+      "required_by": []
+    }
+  },
   "actions": [
     {
       "action_id": "route.getting_started",
@@ -1067,6 +1301,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1172,6 +1408,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1278,6 +1516,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1389,6 +1629,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1492,6 +1734,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1591,6 +1835,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1689,6 +1935,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1787,6 +2035,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1886,6 +2136,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -1987,6 +2239,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2097,6 +2351,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2203,6 +2459,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2312,6 +2570,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2421,6 +2681,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2538,6 +2800,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2655,6 +2919,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2772,6 +3038,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -2895,6 +3163,8 @@
           }
         ]
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3003,6 +3273,8 @@
           }
         ]
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3111,6 +3383,8 @@
           }
         ]
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3215,6 +3489,8 @@
           }
         ]
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3309,6 +3585,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3408,6 +3686,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3509,6 +3789,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3644,6 +3926,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3746,6 +4030,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3855,6 +4141,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -3965,6 +4253,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4068,6 +4358,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4171,6 +4463,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4277,6 +4571,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4389,6 +4685,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4492,6 +4790,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4598,6 +4898,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4705,6 +5007,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4810,6 +5114,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -4919,6 +5225,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5027,6 +5335,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5137,6 +5447,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5256,6 +5568,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5363,6 +5677,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5472,6 +5788,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5580,6 +5898,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5689,6 +6009,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5801,6 +6123,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -5912,6 +6236,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6023,6 +6349,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6133,6 +6461,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6243,6 +6573,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6352,6 +6684,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6463,6 +6797,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6575,6 +6911,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6681,6 +7019,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6787,6 +7127,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -6895,6 +7237,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7006,6 +7350,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7128,6 +7474,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7248,6 +7596,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7365,6 +7715,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7482,6 +7834,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7600,6 +7954,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7732,6 +8088,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7841,6 +8199,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -7961,6 +8321,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8077,6 +8439,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8197,6 +8561,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8305,6 +8671,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8424,6 +8792,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8551,6 +8921,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8676,6 +9048,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8802,6 +9176,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -8920,6 +9296,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9038,6 +9416,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9155,6 +9535,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9273,6 +9655,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9390,6 +9774,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9506,6 +9892,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9610,6 +9998,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9727,6 +10117,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9830,6 +10222,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -9935,6 +10329,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10036,6 +10432,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10139,6 +10537,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10240,6 +10640,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10344,6 +10746,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10447,6 +10851,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10553,6 +10959,8 @@
           }
         ]
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10650,6 +11058,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10747,6 +11157,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10846,6 +11258,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -10952,6 +11366,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11059,6 +11475,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11170,6 +11588,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11279,6 +11699,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11385,6 +11807,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11495,6 +11919,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11604,6 +12030,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11710,6 +12138,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11816,6 +12246,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -11922,6 +12354,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12033,6 +12467,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12145,6 +12581,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12256,6 +12694,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12363,6 +12803,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12480,6 +12922,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12597,6 +13041,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12716,6 +13162,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12819,6 +13267,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -12924,6 +13374,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13031,6 +13483,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13135,6 +13589,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13243,6 +13699,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13373,6 +13831,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13485,6 +13945,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13592,6 +14054,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13709,6 +14173,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13856,6 +14322,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -13967,6 +14435,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14079,6 +14549,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14186,6 +14658,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14294,6 +14768,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14429,6 +14905,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14545,6 +15023,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14658,6 +15138,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14769,6 +15251,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -14906,6 +15390,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15017,6 +15503,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15122,6 +15610,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15227,6 +15717,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15334,6 +15826,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15439,6 +15933,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15544,6 +16040,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15649,6 +16147,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15755,6 +16255,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15867,6 +16369,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -15978,6 +16482,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16090,6 +16596,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16200,6 +16708,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16306,6 +16816,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16425,6 +16937,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16526,6 +17040,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16635,6 +17151,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16743,6 +17261,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16848,6 +17368,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -16956,6 +17478,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17073,6 +17597,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17190,6 +17716,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17335,6 +17863,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17500,6 +18030,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17641,6 +18173,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17777,6 +18311,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17896,6 +18432,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -17993,6 +18531,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18090,6 +18630,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18187,6 +18729,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18284,6 +18828,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18385,6 +18931,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18486,6 +19034,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18582,6 +19132,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18683,6 +19235,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18781,6 +19335,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18892,6 +19448,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -18999,6 +19557,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19107,6 +19667,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19213,6 +19775,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19324,6 +19888,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19432,6 +19998,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19540,6 +20108,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19652,6 +20222,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19764,6 +20336,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19875,6 +20449,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -19988,6 +20564,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20104,6 +20682,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20217,6 +20797,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20331,6 +20913,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20448,6 +21032,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20567,6 +21153,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20688,6 +21276,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20809,6 +21399,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -20930,6 +21522,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -21038,6 +21632,8 @@
         ],
         "backend_effects": []
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -21171,6 +21767,8 @@
           }
         ]
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
@@ -21290,6 +21888,8 @@
           }
         ]
       },
+      "requires": [],
+      "establishes": [],
       "trigger": {
         "primary": "voice",
         "supported": [
