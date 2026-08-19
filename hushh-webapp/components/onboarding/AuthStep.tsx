@@ -386,7 +386,11 @@ export function AuthStep({
           redirectPath: targetPath,
           idToken: resolvedIdToken,
           phoneNumber,
-          enableFirstRunSetupGate: true,
+        // The one-time nudge into the setup hub is deliberately not requested
+        // any more. It only ever fired for somebody whose setup was ALREADY
+        // resolved, which is the exact thing the funnel is now closed to — the
+        // guard would send them straight back out, so the nudge could only ever
+        // be seen as a flash of the setup screen on the way to the app.
         });
 
         const resumeImportFlow =

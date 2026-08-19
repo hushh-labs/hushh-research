@@ -22,6 +22,7 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
+import { useOnboardingEntry } from "@/lib/onboarding/onboarding-entry-context";
 import {
   isOneSetupSurfaceRoute,
   normalizeInternalRouteHref,
@@ -73,6 +74,7 @@ export function OneSetupHub() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const { beginFunnelExit } = useOnboardingEntry();
   const { byId, isLoading, isEnriching } = useCapabilitySetupStates({
     enrichVault: true,
     enrichOauth: true,
@@ -240,6 +242,13 @@ export function OneSetupHub() {
       });
       notifyGeminiRuntimeConfigurationChanged(user.uid);
 
+      // Completion is written durably below, and the app-wide decision follows
+      // it within the same frame. Claim the move first so the guard does not
+      // eject this hub before the navigation two blocks down can run — that
+      // destination is sometimes the portfolio-import step, which only this
+      // component knows about.
+      beginFunnelExit();
+
       try {
         await acknowledgeOneSetupExit({
           userId: user.uid,
@@ -294,7 +303,7 @@ export function OneSetupHub() {
         finalizationInFlightRef.current = null;
       }
     }
-  }, [completionTarget, router, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [beginFunnelExit, completionTarget, router, user?.uid, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     if (
