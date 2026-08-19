@@ -2119,7 +2119,7 @@ describe("OneLocationAgentPage", () => {
     mockCaptureCurrentPosition.mockClear();
     const envelopeWritesBeforeOpen = mockStoreEnvelope.mock.calls.length;
 
-    fireEvent.click(screen.getByRole("button", { name: /^SOS$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^SMS$/i }));
 
     expect(
       await screen.findByRole("heading", { name: "Emergency help", level: 1 }),
@@ -2181,7 +2181,7 @@ describe("OneLocationAgentPage", () => {
         }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /^SOS$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^SMS$/i }));
 
     expect(
       await screen.findByRole("button", {

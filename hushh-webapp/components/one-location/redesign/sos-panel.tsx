@@ -563,7 +563,7 @@ export function SosPanel({
         // creates a location grant and fires one push over the network rather
         // than an offline text message, and someone may hold this instead of
         // calling for help.
-        description="Hold SOS to alert your people and share your location."
+        description="Hold SMS to alert your people and share your location."
       />
 
       {/* Emergency contacts live above the button that uses them: who gets
@@ -733,14 +733,16 @@ export function SosPanel({
                     : "0 0 64px 4px rgb(var(--sos-glow-rgb) / 0.2), inset 0 1px 0 rgba(255,255,255,0.24)",
               }}
             >
-              {/* "SOS" is a user-facing label only. Every identifier
-                  (data-testid, event name, scope handle, backend enum) still
-                  says sos/SMS, because those are contracts, not copy — the
-                  Location menu tile still reads "SMS / Save my soul" too,
-                  since renaming an entry point elsewhere is out of scope for
-                  this screen. */}
+              {/* "SMS" is the name this feature carries everywhere a person
+                  meets it — the Home hub quick action, the onboarding card,
+                  the contacts screen it sends to, and the message that
+                  actually goes out. It read "SOS" for one day (bc3dd4694,
+                  reverted here); the glyph is back in step with the rest.
+                  Identifiers are untouched either way: data-testid, event
+                  name, scope handle and backend enum all still say sos,
+                  because those are contracts, not copy. */}
               <span className="text-[44px] font-semibold tracking-[1.5px] lg:text-[64px] lg:tracking-[2px]">
-                SOS
+                SMS
               </span>
             </button>
           )}
