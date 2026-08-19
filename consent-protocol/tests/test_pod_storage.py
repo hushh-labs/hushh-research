@@ -29,7 +29,9 @@ _HUSHH = "e2eowner01"
 def test_sync_plan_three_replicas_zero_knowledge():
     plan = NullPodStorage().render_sync_plan(_HUSHH, pod_key_id="podkey-1").as_dict()
     assert plan["replicas"] == [ROLE_CLOUD_BACKUP, ROLE_POD_CACHE, ROLE_DEVICE]
-    assert plan["backupOfRecord"] == ROLE_CLOUD_BACKUP  # the vault is the durable backup
+    assert (
+        plan["backupOfRecord"] == ROLE_CLOUD_BACKUP
+    )  # the user's own cloud copy is the durable backup-of-record
     assert plan["tunnel"] == TUNNEL_RELAY_TICKET
     assert plan["zeroKnowledge"] is True
     assert "pod isolated process" in plan["notes"]["plaintextLocations"]

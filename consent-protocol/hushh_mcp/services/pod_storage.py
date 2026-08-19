@@ -1,4 +1,4 @@
-"""Pod storage & sync seam — PKM cloud-backup ⇄ pod cache ⇄ device (private tunnel).
+"""Pod storage & sync seam: PKM cloud backup ⇄ pod cache ⇄ device (private tunnel).
 
 **Default backend is the inert Null one.** The real backend (``commit_log``) is
 wired: an encrypted, hash-chained commit log in object storage
@@ -8,22 +8,24 @@ pod's SQLite working store rebuilt from it
 ``POD_STORAGE_BACKEND=commit_log`` is set with its full configuration.
 
 The intent (founder directive): the per-user pod is not only *shared compute* for
-the user's agents — it is also a *storage node* for their PKM. Today the canonical
-PKM lives encrypted in Hushh's **zero-knowledge vault**; that stays the durable
-**cloud backup-of-record**. The pod additionally holds a **per-pod-key-encrypted
-working copy** so the user's agents read/write locally at compute speed, and the
-**device** keeps its own BYOK copy. The three replicas stay consistent by syncing
-**encrypted deltas** over a **private, single-use tunnel** (the relay ticket), so
-plaintext exists only inside the pod's isolated process and on the device — Hushh
-and the transit see ciphertext only. **Zero-knowledge is preserved end to end.**
+the user's agents, it is also a *storage node* for their PKM. Hussh is the control
+plane, not the custodian of the holdings. The durable **backup-of-record is the
+user's own**: an encrypted commit log in the user's own cloud (on BYOC, a bucket
+plus a KMS key in the user's own GCP project), reached keylessly with the pod's
+identity token. The pod additionally holds a **per-pod-key-encrypted working copy**
+so the user's agents read/write locally at compute speed, and the **device** keeps
+its own BYOK copy. The three replicas stay consistent by syncing **encrypted
+deltas** over a **private, single-use tunnel** (the relay ticket), so plaintext
+exists only inside the pod's isolated process and on the device. Hussh and the
+transit see ciphertext only. **Zero-knowledge is preserved end to end.**
 
 This module defines the *contract* (the three roles, a Protocol, an inert Null
-implementation, and a plan descriptor). The concrete pod-side cache + a per-user
-encrypted-object backend (e.g. GCS/S3 + per-user KMS) are a later milestone; the
-zero-knowledge vault already provides the cloud backup today.
+implementation, and a plan descriptor). The concrete pod-side cache plus a per-user
+encrypted-object backend (the user's own bucket plus per-user KMS) are a later
+milestone; the commit-log backend already provides the user-owned cloud backup.
 
 Legibility-by-design: the only data structure that crosses a boundary here is an
-``EncryptedBlobRef`` — a *pointer to ciphertext* plus crypto metadata. There is
+``EncryptedBlobRef``, a *pointer to ciphertext* plus crypto metadata. There is
 **no plaintext field anywhere in this contract**, so a reviewer can see that this
 seam cannot leak PKM.
 """
@@ -35,7 +37,9 @@ from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
 
 # The three storage roles that hold a replica of the user's PKM.
-ROLE_CLOUD_BACKUP = "cloud_vault"  # Hushh zero-knowledge vault — durable backup-of-record.
+ROLE_CLOUD_BACKUP = (
+    "cloud_vault"  # the user's own encrypted cloud backup-of-record (BYOC bucket + KMS).
+)
 ROLE_POD_CACHE = "pod"  # per-pod-key-encrypted working copy next to the agents.
 ROLE_DEVICE = "device"  # on-device BYOK copy (mobile / Puppy One).
 
@@ -133,7 +137,7 @@ class NullPodStorage:
         return SyncPlan(
             hushh_id=hushh_id,
             notes={
-                "cloudBackup": "Hushh zero-knowledge vault (canonical, durable).",
+                "cloudBackup": "the user's own encrypted cloud backup-of-record (canonical, durable).",
                 "podCache": f"per-pod-key-encrypted working copy (wrap key {pod_key_id}).",
                 "device": "on-device BYOK copy; native sync over the private tunnel.",
                 "tunnel": "single-use signed relay ticket (replay-checked).",
