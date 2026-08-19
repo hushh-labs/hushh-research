@@ -904,6 +904,11 @@ jobs:
       - name: Tag this release as last known good
         id: tag-last-known-good
         if: always()
+        # Advisory annotation, not a release-health signal: the deploy above
+        # already succeeded and classified healthy by this point. A tagging
+        # failure (e.g. a transient push conflict) must never turn a healthy
+        # release red or trigger the rollback investigation that implies.
+        continue-on-error: true
         shell: bash
         env:
           ENVIRONMENT: production

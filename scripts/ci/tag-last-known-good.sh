@@ -69,6 +69,16 @@ tagged_at: ${TIMESTAMP}
 EOF
 )"
 
+# A fresh actions/checkout has no committer identity configured, and an
+# annotated tag needs one (2026-08-19: first real run failed here with
+# "empty ident name"). Scoped to this repo checkout only, never --global.
+if [ -z "$(git config user.email || true)" ]; then
+  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+fi
+if [ -z "$(git config user.name || true)" ]; then
+  git config user.name "github-actions[bot]"
+fi
+
 git tag -a "$TAG" "$SHA" -m "$MESSAGE"
 git push origin "refs/tags/${TAG}"
 
