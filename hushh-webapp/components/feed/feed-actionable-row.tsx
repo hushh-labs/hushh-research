@@ -122,23 +122,20 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
       <span className="min-w-0">{item.description}</span>
     );
 
-  const description = timeLabel ? (
-    <span className="flex items-center gap-2">
-      {/* `line-clamp-1` HERE, on the flex item — not on the inline span inside
-          it. `truncate` was on that inner span, where overflow and
-          text-overflow do not apply at all (it is a non-replaced inline box),
-          so the only half of the class that survived was `white-space: nowrap`
-          — which is precisely what made the description one unbreakable line
-          that ran straight over the timestamp. The history row two files away
-          (feed-row.tsx:63) has always clamped the flex item; this is the same
-          shape, one class different. */}
-      <span className="min-w-0 flex-1 truncate">{descriptionBody}</span>
+  // The timestamp lives beside the NAME, not the description. A row's action
+  // column only ever affects the description's own track width, so a
+  // timestamp riding inside the description line still shifts depending on
+  // whether actions render. Anchoring it to the title line instead makes its
+  // position independent of `trailing` entirely.
+  const title = timeLabel ? (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="min-w-0 flex-1 truncate">{item.title}</span>
       <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
         {timeLabel}
       </span>
     </span>
   ) : (
-    descriptionBody
+    item.title
   );
 
   const hasActions = item.actions.length > 0;
@@ -146,8 +143,13 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
   const shared = {
     icon: item.icon,
     iconTone: item.iconTone,
-    title: item.title,
-    description,
+    title,
+    // `title`/`description` become composed nodes once a timestamp is
+    // present, so the voice-control fallbacks (which only read a plain
+    // string) need the real values passed explicitly here.
+    voiceLabel: item.title,
+    voicePurpose: item.description,
+    description: descriptionBody,
     trailing: <ActionButtons actions={item.actions} />,
     // Actions are sized to their content and carry three separate `shrink-0`s,
     // so on a phone they take the row's width first and leave the text column
