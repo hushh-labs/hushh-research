@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS personal_agent_deletion_tombstones (
 CREATE INDEX IF NOT EXISTS idx_personal_agent_tombstones_status
     ON personal_agent_deletion_tombstones(status);
 
+-- Orphan address: WHERE an unreclaimed pod lives (project/region/target) so a
+-- billing host stays reclaimable after the registry row is gone. Additive +
+-- idempotent so the dev parked lane can re-apply it onto an existing table.
+ALTER TABLE personal_agent_deletion_tombstones
+    ADD COLUMN IF NOT EXISTS metadata JSONB;
+
 COMMENT ON TABLE personal_agent_registry IS
     'Per-user personal-information agent: phone(hashed) -> HusshID -> pod route + pod PUBLIC key + version pins. Feature-flagged (PERSONAL_AGENT_ENABLED). Phase 0.';
 COMMENT ON COLUMN personal_agent_registry.phone_e164_hash IS

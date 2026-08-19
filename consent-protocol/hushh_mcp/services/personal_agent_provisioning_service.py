@@ -973,6 +973,17 @@ class PersonalAgentProvisioningService:
             hushh_id=hushh_id,
             external_agent_id=external_agent_id,
             status="deprovision_requested",
+            # The orphan address: only meaningful when a host could not be reached,
+            # so the reclaim sweep can find and delete a billing service after the
+            # registry row is gone. A clean teardown records unreclaimed=False.
+            metadata={
+                "unreclaimed": unreclaimed,
+                "user_cloud_project": (row or {}).get("user_cloud_project"),
+                "user_cloud_region": (row or {}).get("user_cloud_region"),
+                "deployment_target": (row or {}).get("deployment_target"),
+            }
+            if unreclaimed
+            else {"unreclaimed": False},
         )
         # ``defer_row_delete`` (delete-order V2) keeps the recovery-anchor row in
         # place through the data cascade: the host is already torn down and the

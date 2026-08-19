@@ -424,20 +424,37 @@ class PersonalAgentRegistryRepo:
         return int(count) if count is not None else len(response.data or [])
 
     async def tombstone(
-        self, *, hushh_id: Optional[str], external_agent_id: Optional[str], status: str
+        self,
+        *,
+        hushh_id: Optional[str],
+        external_agent_id: Optional[str],
+        status: str,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         # Nothing to tombstone without an identity: deprovision reads the row
         # first, so an empty hushh_id means the row was already gone. Skipping
         # avoids empty-hushh_id audit noise on a missing-row / retried teardown.
         if not (hushh_id or "").strip():
             return
-        data = {
+        data: dict[str, Any] = {
             "hushh_id": hushh_id,
             "external_agent_id": external_agent_id,
             "status": status,
         }
-        data = {k: v for k, v in data.items() if v is not None}
-        self._db().table(_TOMBSTONES).insert(data).execute()
+        # ``metadata`` names WHERE an unreclaimed orphan lives (project/region/target)
+        # so a billing host stays reclaimable after the registry row is gone. Written
+        # resiliently: if the column has not been applied yet (dev parked lane), the
+        # insert degrades to the base row rather than failing the best-effort teardown.
+        clean_meta = {k: v for k, v in (metadata or {}).items() if v is not None}
+        base = {k: v for k, v in data.items() if v is not None}
+        try:
+            payload = {**base, "metadata": clean_meta} if clean_meta else base
+            self._db().table(_TOMBSTONES).insert(payload).execute()
+        except Exception:  # noqa: BLE001 - a missing metadata column must not block teardown
+            if clean_meta:
+                self._db().table(_TOMBSTONES).insert(base).execute()
+            else:
+                raise
 
     async def delete(self, user_id: str) -> None:
         self._db().table(_REGISTRY).delete().eq("user_id", user_id).execute()

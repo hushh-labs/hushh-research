@@ -410,3 +410,60 @@ async def test_provision_threads_backend_handle_into_registry():
     assert final["external_agent_id"] == "one-pod-x"
     assert final["backend"] == "gcp"
     assert final["backend_metadata"] == {"project": "p", "tier": "logical"}
+
+
+# --- Orphan-address persistence (delete-order V2 hardening) ----------------------
+# A host that could not be torn down must stay NAMEABLE after the registry row is
+# gone, so a later reclaim sweep can find and delete the billing service. The
+# tombstone carries the address only when there is a real orphan.
+
+
+class _RaisingBackend:
+    backend_id = "gcp"
+
+    async def deprovision(self, external_agent_id):
+        raise RuntimeError("cannot reach the host's project")
+
+    async def get(self, external_agent_id):
+        return None
+
+    def render_deploy_config(self, spec):
+        return {}
+
+    async def health(self):
+        return True
+
+
+async def test_deprovision_unreclaimed_orphan_tombstones_the_address():
+    registry, grant = FakeRegistry(), FakeGrant()
+    registry.rows[_UID] = {
+        "hushh_id": "ha1_orphan",
+        "external_agent_id": "one-pod-orphan",
+        "user_cloud_project": "cust-proj-1",
+        "user_cloud_region": "us-central1",
+    }
+    svc = PersonalAgentProvisioningService(
+        registry=registry, grant=grant, backend=_RaisingBackend()
+    )
+
+    result = await svc.deprovision(user_id=_UID)
+
+    assert result["status"] == "deprovisioned"
+    assert result["teardownReachedHost"] is False
+    assert result["unreclaimed"] is True
+    meta = registry.tombstones[0]["metadata"]
+    assert meta["unreclaimed"] is True
+    assert meta["user_cloud_project"] == "cust-proj-1"
+    assert meta["user_cloud_region"] == "us-central1"
+
+
+async def test_deprovision_clean_teardown_records_unreclaimed_false():
+    registry, grant = FakeRegistry(), FakeGrant()
+    # No external_agent_id -> nothing to tear down -> a clean, reclaimed teardown.
+    registry.rows[_UID] = {"hushh_id": "ha1_clean", "external_agent_id": None}
+    svc = PersonalAgentProvisioningService(registry=registry, grant=grant)
+
+    result = await svc.deprovision(user_id=_UID)
+
+    assert result["unreclaimed"] is False
+    assert registry.tombstones[0]["metadata"] == {"unreclaimed": False}
