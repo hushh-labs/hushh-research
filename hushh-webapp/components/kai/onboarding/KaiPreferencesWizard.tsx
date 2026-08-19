@@ -329,7 +329,7 @@ export function KaiPreferencesWizard(props: {
                   isPageLayout ? "type-subhead" : "type-footnote"
                 )}
               >
-                No right or wrong answers. We’ll tune Kai to your investing style.
+                No right or wrong answers. We’ll tune this to your investing style.
               </p>
 
               <div

@@ -462,7 +462,7 @@ export function AnalysisSummaryView({
           <div className="border-l-2 border-primary pl-3">
             <p className="text-sm font-medium leading-relaxed">{shortRecommendation}</p>
             <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              Kai Insight
+              Insight
             </p>
           </div>
           {!embedded && onOpenDebate ? (

@@ -15,9 +15,12 @@ import type { FeedItem } from "@/lib/services/feed-service";
  * read as the recipient having started the share, when the owner (the
  * viewer of that row) is always the actor for a direct share (see
  * one_location_agent_service.py's _insert_event call sites: actor_user_id is
- * always owner_user_id for this event type). This file is the direction
- * contract for every event type the Feed renders, so a future change can't
- * silently reintroduce the same class of bug on this or any other event.
+ * always owner_user_id for this event type). Fixed independently on main in
+ * parallel (commit c84aa24eb, "You shared your location"); this file keeps
+ * that wording rather than reintroducing a second one. This file is the
+ * direction contract for every event type the Feed renders, so a future
+ * change can't silently reintroduce the same class of bug on this or any
+ * other event.
  */
 
 function item(overrides: Partial<FeedItem> = {}): FeedItem {
@@ -42,7 +45,7 @@ describe("location_share_created", () => {
       item({ metadata: { counterpart_label: "Jhumma Kumari" } }),
     );
     expect(presented.label).toBe("Jhumma Kumari");
-    expect(presented.description).toBe("You started sharing location");
+    expect(presented.description).toBe("You shared your location");
   });
 
   it("names the duration when I started it with one", () => {
@@ -55,7 +58,7 @@ describe("location_share_created", () => {
       }),
     );
     expect(presented.description).toBe(
-      "You started sharing location for 4 hours",
+      "You shared your location for 4 hours",
     );
   });
 

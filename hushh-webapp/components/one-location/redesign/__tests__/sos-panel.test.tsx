@@ -540,6 +540,55 @@ describe("SosPanel", () => {
     expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
   });
 
+  it("puts the emergency number and Stop sharing in ONE row, number left", () => {
+    // They used to be stacked, which put two unrelated decisions on the axis
+    // the eye reads as a sequence and buried the dialer under a control that
+    // only exists once an alert is already running.
+    // jsdom's default UA trips the Windows copy fallback, which swaps the
+    // <a tel:> for a copy button. The row is the same either way; pin the
+    // real dialer so this is testing the layout and not the fallback.
+    const navigatorUserAgent = vi
+      .spyOn(window.navigator, "userAgent", "get")
+      .mockReturnValue("Mozilla/5.0 (X11; Linux x86_64)");
+    const navigatorPlatform = vi
+      .spyOn(window.navigator, "platform", "get")
+      .mockReturnValue("Linux x86_64");
+    try {
+    render(<SosPanel {...baseProps} active onStopSos={vi.fn()} />);
+
+    const row = screen.getByTestId("sos-emergency-actions");
+    const dialer = screen.getByRole("link", {
+      name: "Call 112 emergency services (India)",
+    });
+    const stop = screen.getByTestId("sos-cancel-alert");
+
+    // One row: both controls are inside it, and nothing else claims them.
+    expect(row).toContainElement(dialer);
+    expect(row).toContainElement(stop);
+    expect(row.className).toContain("justify-between");
+    // Number LEFT, Stop sharing RIGHT.
+    expect(
+      dialer.compareDocumentPosition(stop) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // `flex-wrap` is the narrow-screen escape hatch rather than a breakpoint,
+    // and neither control may shrink when it fires.
+    expect(row.className).toContain("flex-wrap");
+    expect(stop.className).toContain("shrink-0");
+    } finally {
+      navigatorUserAgent.mockRestore();
+      navigatorPlatform.mockRestore();
+    }
+  });
+
+  it("centres the dialer when there is no alert to sit opposite", () => {
+    render(<SosPanel {...baseProps} active={false} />);
+    const row = screen.getByTestId("sos-emergency-actions");
+    expect(row.className).toContain("justify-center");
+    expect(row.className).not.toContain("justify-between");
+    expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
+  });
+
   it("keeps the SOS action in one centered stack on large screens", () => {
     const { container } = render(<SosPanel {...baseProps} />);
     // The press ring + controls must not split into a desktop grid. Width is

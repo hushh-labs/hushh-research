@@ -13,6 +13,6 @@ export const permissionRules: Record<SensitivePermission, PermissionRule> = {
     eyebrow: "Nav privacy guard",
     title: "Lock required",
     description:
-      "Unlock and review consent before Kai uses portfolio information for personalized market context.",
+      "Unlock and review consent before portfolio information is used for personalized market context.",
   },
 };

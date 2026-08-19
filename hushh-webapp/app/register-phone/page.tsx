@@ -9,7 +9,6 @@ import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
-import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,11 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/firebase/auth-context";
-import {
-  buildOneSetupRoute,
-  KAI_MARKET_PATH,
-  ROUTES,
-} from "@/lib/navigation/routes";
+import { buildOneSetupRoute, ROUTES } from "@/lib/navigation/routes";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import {
   setOnboardingFlowActiveCookie,
@@ -39,23 +34,15 @@ import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-manda
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { resolvePostPhoneOnboardingPhase } from "@/lib/onboarding/onboarding-journey-phase";
 
-function requiresVaultUnlockForRedirect(path?: string | null): boolean {
-  const normalizedPath = String(path ?? "").trim();
-  if (!normalizedPath) {
-    return false;
-  }
-
-  return (
-    normalizedPath === KAI_MARKET_PATH ||
-    normalizedPath.startsWith(`${KAI_MARKET_PATH}/`) ||
-    normalizedPath === ROUTES.RIA_HOME ||
-    normalizedPath.startsWith(`${ROUTES.RIA_HOME}/`) ||
-    normalizedPath === ROUTES.CONSENTS ||
-    normalizedPath.startsWith(`${ROUTES.CONSENTS}/`) ||
-    normalizedPath === ROUTES.PROFILE_PKM_AGENT_LAB ||
-    normalizedPath.startsWith(`${ROUTES.PROFILE_PKM_AGENT_LAB}/`)
-  );
-}
+/**
+ * Verifying a phone is an identity step, and it comes BEFORE the lock. This
+ * screen used to wrap itself in VaultLockGuard whenever the destination
+ * happened to need a key — which put the lock dialog, a portal painted over
+ * everything, on top of the phone form on the same URL, and gave one route two
+ * effects racing to send a signed-out visitor to sign-in with different
+ * payloads. The destination applies its own lock gate when the person gets
+ * there; nothing here needs to.
+ */
 
 export function PhoneMandatePageContent() {
   const router = useRouter();
@@ -407,10 +394,6 @@ export function PhoneMandatePageContent() {
       </div>
     </main>
   );
-
-  if (requiresVaultUnlockForRedirect(redirectPath)) {
-    return <VaultLockGuard>{shell}</VaultLockGuard>;
-  }
 
   return shell;
 }

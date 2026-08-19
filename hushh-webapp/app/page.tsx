@@ -16,6 +16,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { AuthService } from "@/lib/services/auth-service";
+import { useOnboardingEntry } from "@/lib/onboarding/onboarding-entry-context";
 import { Button } from "@/lib/morphy-ux/button";
 
 type HomeStep = "intro";
@@ -29,10 +30,12 @@ function HomeContent() {
     : ROUTES.LOGIN;
 
   const { user, loading, phoneNumber } = useAuth();
+  const { entry } = useOnboardingEntry();
   const [step, setStep] = useState<HomeStep | null>(null);
   const [routingError, setRoutingError] = useState<string | null>(null);
   const [routingAttempt, setRoutingAttempt] = useState(0);
   const activeResolutionRef = useRef<string | null>(null);
+  const entryRedirectRef = useRef<string | null>(null);
 
   const forceOnboardingInDev = resolveAppEnvironment() === "development";
   // Debug helper (browser console): resets Steps 1-2 visibility flag.
@@ -69,6 +72,29 @@ function HomeContent() {
       return;
     }
 
+    // Landing here signed in means somebody backed onto the one entry that
+    // outlives the funnel. Without a deep link to honour there is nothing to
+    // work out: the app-wide decision already knows where they belong, and it
+    // knows it from the same durable record every guard reads.
+    //
+    // Re-deriving it here is what produced the phone screen at the end of three
+    // back presses. This page passed only `phoneNumber`, which Firebase leaves
+    // null for a Google sign-in, so whenever the backend's own phone claim came
+    // back unknown the resolver failed closed and forward-replaced a fully
+    // verified person onto phone verification.
+    if (!redirectPath) {
+      if (!entry.resolved) return;
+      // Idempotent: the same destination is never sent twice, so a re-render
+      // for any other reason cannot stack a second navigation on the first.
+      if (entryRedirectRef.current === entry.destination) return;
+      entryRedirectRef.current = entry.destination;
+      activeResolutionRef.current = null;
+      setStep(null);
+      setRoutingError(null);
+      router.replace(entry.destination);
+      return;
+    }
+
     const userId = user.uid;
     const resolutionKey = `${userId}:${phoneNumber ?? ""}:${routingAttempt}`;
     if (activeResolutionRef.current === resolutionKey) return;
@@ -84,10 +110,18 @@ function HomeContent() {
       }
       const nextPath = await PostAuthRouteService.resolveAfterLogin({
         userId,
-        redirectPath: redirectPath || undefined,
+        redirectPath,
         idToken,
         phoneNumber,
-        enableFirstRunSetupGate: true,
+        // The authoritative claim, folded from Firebase, the durable record and
+        // the identity read. Without it this call falls back to `phoneNumber`
+        // alone and asks a verified person to verify again.
+        phoneVerified: entry.step !== "phone_auth",
+      // The one-time nudge into the setup hub is deliberately not requested
+      // any more. It only ever fired for somebody whose setup was ALREADY
+      // resolved, which is the exact thing the funnel is now closed to — the
+      // guard would send them straight back out, so the nudge could only ever
+      // be seen as a flash of the setup screen on the way to the app.
       });
       if (cancelled || activeResolutionRef.current !== resolutionKey) return;
       router.replace(nextPath);
@@ -100,7 +134,17 @@ function HomeContent() {
     return () => {
       cancelled = true;
     };
-  }, [loading, phoneNumber, redirectPath, router, routingAttempt, user?.uid]);
+  }, [
+    entry.destination,
+    entry.resolved,
+    entry.step,
+    loading,
+    phoneNumber,
+    redirectPath,
+    router,
+    routingAttempt,
+    user?.uid,
+  ]);
 
   if (loading || (!user && step === null)) {
     return <HushhLoader variant="fullscreen" label="Preparing welcome…" />;
@@ -135,7 +179,11 @@ function HomeContent() {
           authState={user ? "authenticated" : "anonymous"}
           dataState="loaded"
         />
-        <IntroStep onLogin={() => router.push(loginUrl)} />
+        {/* Replace, not push. This is the only entry that used to survive the
+            whole funnel — everything after it replaces forward over the same
+            slot — so pushing left one live doorway back into onboarding under
+            every signed-in session. */}
+        <IntroStep onLogin={() => router.replace(loginUrl)} />
       </>
     );
   }
