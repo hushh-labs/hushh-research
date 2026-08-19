@@ -1129,3 +1129,16 @@ def personal_agent_delete_order_v2() -> bool:
     still be recovered or re-deleted, not a half-deleted account). Flag-gated so the
     legacy path stays the instant fallback."""
     return _bool_from_value(_clean_env("PERSONAL_AGENT_DELETE_ORDER_V2"), default=False)
+
+
+def personal_agent_reachability_gate() -> bool:
+    """Let the wake path distinguish a GONE pod (service deleted) from a COLD one.
+
+    OFF by default. When off, any non-200 health probe reports ``waking`` -- correct
+    for a scaled-to-zero economy pod, but a pod whose Cloud Run service was DELETED
+    then reports ``waking`` forever and the returning user hangs. When on, a non-200
+    probe triggers one bounded backend check: only a confirmed ``gone`` (the service
+    is truly absent) returns a fresh-setup signal; a transient probe error defaults
+    to ``waking``, never a spurious fresh setup that would change the user's agent
+    identity. Flag-gated so the extra backend call is opt-in."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_REACHABILITY_GATE"), default=False)

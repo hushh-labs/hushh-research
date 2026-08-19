@@ -68,9 +68,51 @@ async def wake_pod(
     status, _body = await _proxy_get(url, "/health")
     if status == 200:
         return {"state": "awake", "etaMs": 0}
-    # Any non-200 -- including the 503 the relay helper returns for an
-    # unreachable (scaled-to-zero) pod -- means the GET has just triggered a
-    # cold start. Not an error: sleeping is the economy tier's healthy steady
-    # state, and this is the moment it stops being asleep.
+
+    # A non-200 is ambiguous: a scaled-to-zero pod that is booting (COLD) looks the
+    # same as a pod whose Cloud Run service was DELETED (GONE). Reporting `waking`
+    # for a gone pod hangs a returning user forever. When the reachability gate is
+    # on, one bounded backend check resolves the ambiguity -- and ONLY a confirmed
+    # `gone` returns the fresh-setup signal; any uncertainty stays `waking`, so a
+    # transient probe error never spuriously changes the user's agent identity. This
+    # endpoint still writes nothing: re-provision (which the client triggers on
+    # `gone`) is the single writer of the row.
+    from hushh_mcp.runtime_settings import personal_agent_reachability_gate  # noqa: PLC0415
+
+    if personal_agent_reachability_gate() and await _host_is_gone(row or {}):
+        logger.info("pod_wake.host_gone user_id_prefix=%s", user_id[:8])
+        return {"state": "gone", "needsFreshSetup": True, "etaMs": 0}
+
     logger.info("pod_wake.waking user_id_prefix=%s probe_status=%s", user_id[:8], status)
     return {"state": "waking", "etaMs": WAKE_ETA_MS}
+
+
+async def _host_is_gone(row: dict) -> bool:
+    """Whether the recorded host's Cloud Run service is truly GONE (deleted), vs
+    merely cold/scaled-to-zero. Only a confirmed absence counts. A probe error is
+    NOT proof of gone -- it defaults to False (cold/waking), because a spurious
+    fresh setup would change the user's agent identity and A2A address, which must
+    never happen on a transient blip."""
+    external_agent_id = str((row or {}).get("external_agent_id") or "").strip()
+    if not external_agent_id:
+        return False
+    try:
+        from hushh_mcp.services.compute_backend import (  # noqa: PLC0415
+            PodSpec,
+            resolve_compute_backend_for_spec,
+        )
+
+        spec = PodSpec(
+            hushh_id=str((row or {}).get("hushh_id") or ""),
+            phone_e164_hash="",
+            pod_pubkey="",
+            deployment_target=(row or {}).get("deployment_target"),
+            user_cloud_project=(row or {}).get("user_cloud_project"),
+            user_cloud_region=(row or {}).get("user_cloud_region"),
+            user_cloud_bootstrap_sa=(row or {}).get("user_cloud_bootstrap_sa"),
+        )
+        result = await resolve_compute_backend_for_spec(spec).get(external_agent_id)
+        return str(getattr(result, "status", "") or "") == "gone"
+    except Exception as exc:  # noqa: BLE001 - uncertainty is NOT gone; stay cold/waking
+        logger.info("pod_wake.gone_check_failed err=%s", type(exc).__name__)
+        return False
