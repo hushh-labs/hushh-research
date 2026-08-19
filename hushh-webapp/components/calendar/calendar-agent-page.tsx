@@ -16,7 +16,6 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { cn } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -177,7 +176,6 @@ export function CalendarAgentPage({
     ? "Reconnect Calendar"
     : "Connect Calendar";
   const shouldShowSetup = !connected && status?.status !== "needs_reauth";
-  const isDisconnected = !connected;
 
   const openChat = (prompt?: string) => {
     if (!agentPopover) return;
