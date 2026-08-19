@@ -1159,6 +1159,47 @@ describe("named Circle flows", () => {
     expect(screen.queryByText("No members found")).not.toBeInTheDocument();
   });
 
+  it("bounds the Members list to a scrollable region instead of growing the page indefinitely", async () => {
+    const rosterCircle = {
+      ...circle("circle-1", "Meena Family"),
+      memberLimit: 100,
+      members: [
+        ...circle("circle-1", "Meena Family").members,
+        ...Array.from({ length: 80 }, (_, index) => ({
+          userId: `member-${index}`,
+          displayName: `Synced Contact ${index}`,
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+        })),
+      ],
+    };
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => rosterCircle)}
+      />,
+    );
+
+    await screen.findByText("Synced Contact 0");
+
+    // "Delete circle" sits after the roster in source order; it must still
+    // mount even with 81 rows above it, because the roster scrolls inside
+    // its own bounded region instead of pushing the rest of the page down.
+    expect(
+      screen.getByRole("button", { name: "Delete circle" }),
+    ).toBeInTheDocument();
+
+    const membersGroup = screen.getByTestId("one-location-circle-members");
+    const shell = membersGroup.querySelector(
+      '[data-slot="settings-group-shell"]',
+    );
+    expect(shell?.className).toContain("max-h-[60vh]");
+    const scrollRegion = shell?.firstElementChild as HTMLElement | null;
+    expect(scrollRegion?.className).toContain("overflow-y-auto");
+  });
+
   it("shows the member search bar even for a single-member Circle", async () => {
     const onLoad = vi.fn(async () => circle("circle-1", "Meena Family"));
     render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);

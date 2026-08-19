@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -14,10 +15,13 @@ import {
   Copy,
   Loader2,
   MapPin,
+  Search,
   Share2,
   UserPlus,
 } from "lucide-react";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { filterPeopleByQuery } from "@/lib/one-location/people-search";
+import { shouldRevealListControls } from "@/lib/one-location/contact-picker-controls";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
 import {
   READY_MAP_CLASSNAME,
@@ -1553,6 +1557,21 @@ function ContactsScreen({
 }) {
   const primed = state.kind === "idle" || state.kind === "busy";
 
+  // A synced address book can match well past a screenful (issue #5564), so
+  // matches get the same word-beginning search every other people list on
+  // Location already uses. The body above already owns the screen's one
+  // scroll surface (`overflow-y-auto` on the flex-1 wrapper below), so this
+  // list stays a plain `<ul>` rather than nesting a second scroller inside it.
+  const [matchesQuery, setMatchesQuery] = useState("");
+  const filteredMatches = useMemo(
+    () => filterPeopleByQuery(matches, matchesQuery, (match) => match.displayName),
+    [matches, matchesQuery],
+  );
+  const showMatchesSearch = shouldRevealListControls(
+    matches.length,
+    matchesQuery.trim().length > 0,
+  );
+
   return (
     <div
       className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]"
@@ -1615,8 +1634,29 @@ function ContactsScreen({
         ) : null}
 
         {state.kind === "matched" ? (
+          <>
+            {showMatchesSearch ? (
+              <label className="relative mt-6 block">
+                <span className="sr-only">Search contacts</span>
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#96999e] dark:text-[#8d99a8]" />
+                <input
+                  value={matchesQuery}
+                  onChange={(event) => setMatchesQuery(event.target.value)}
+                  placeholder="Search contacts"
+                  autoComplete="off"
+                  className="h-11 w-full rounded-full border border-[#e4e6e9] bg-white pl-11 pr-4 text-[15px] text-[#151b26] outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:border-white/[0.08] dark:bg-[#1c212a] dark:text-[#f5f7fb]"
+                  data-testid="onboarding-contact-matches-search"
+                />
+              </label>
+            ) : null}
+
+            {filteredMatches.length === 0 ? (
+              <p className="mt-6 text-center text-[14px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
+                No contacts match “{matchesQuery.trim()}”.
+              </p>
+            ) : (
           <ul className="mt-6 space-y-2" data-testid="onboarding-contact-matches">
-            {matches.map((match) => {
+            {filteredMatches.map((match) => {
               const added = addedUserIds.includes(match.userId);
               const adding = addingUserIds.includes(match.userId);
               return (
@@ -1644,6 +1684,8 @@ function ContactsScreen({
               );
             })}
           </ul>
+            )}
+          </>
         ) : null}
 
         {state.kind === "none" ? (

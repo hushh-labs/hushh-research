@@ -1645,6 +1645,12 @@ export function CircleDetailFlow({
                 title="Members"
                 description="Members connect through this Circle."
                 testId="one-location-circle-members"
+                // A synced Circle can hold up to 100 members (migration 158).
+                // Capping the card's own height and scrolling inside it keeps
+                // "Delete circle" and everything below reachable without
+                // paging through the whole roster first.
+                shellClassName="flex max-h-[60vh] flex-col"
+                contentClassName="min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
               >
                 {filteredMembers.map((member) => (
                   <CircleMemberRow
