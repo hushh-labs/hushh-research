@@ -44,6 +44,8 @@ from hushh_mcp.services.pod_memory_service import (  # noqa: E402
 
 pytest.importorskip("google.adk.memory.base_memory_service")
 
+from google.adk.tools import load_memory  # noqa: E402
+
 OWNER = "HA1EVOLVE00001"
 KEY = b"\x37" * 32
 
@@ -180,5 +182,65 @@ def test_a_fact_never_stored_is_not_recalled(tmp_path: Path) -> None:
         # not a dead index.
         real_kw, real_fact = HORIZON[0]
         assert real_fact in await _recall(gen, real_kw)
+
+    asyncio.run(run())
+
+
+class _ObservedToolContext:
+    """A minimal stand-in for ADK's ToolContext.
+
+    ``load_memory`` calls exactly one method on its context, ``search_memory(query)``,
+    and Python does not enforce the type hint, so this records each call (that is the
+    observation) and forwards to the pod memory service. Using the real
+    ``load_memory`` tool, rather than reimplementing it, is the point: the recall the
+    north star wants proven is the one the agent actually makes.
+    """
+
+    def __init__(self, service: object) -> None:
+        self._service = service
+        self.calls: list[str] = []
+
+    async def search_memory(self, query: str) -> object:
+        self.calls.append(query)
+        return await self._service.search_memory(  # type: ignore[attr-defined]
+            app_name="one", user_id=OWNER, query=query
+        )
+
+
+async def _recall_via_load_memory_tool(service: object, keyword: str) -> list[str]:
+    ctx = _ObservedToolContext(service)
+    # ``load_memory.func`` is the real ADK tool implementation, not a copy of it.
+    response = await load_memory.func(keyword, ctx)  # type: ignore[attr-defined]
+    assert ctx.calls == [keyword], "load_memory did not invoke the recall path"
+    return [m.content.parts[0].text for m in response.memories]
+
+
+def test_the_recall_runs_through_an_observed_load_memory_tool_call(
+    tmp_path: Path,
+) -> None:
+    """The north star's exact requirement: only the tool call proves it remembered.
+
+    The evolution metric above recalls through ``search_memory`` (the method the tool
+    invokes). This case closes the loop by driving the real ``load_memory`` ADK tool
+    after a restart and observing it: the tool must invoke the recall path and its
+    LoadMemoryResponse must carry the fact. A model guessing a plausible answer would
+    never produce that observed call, which is exactly why the north star asks for it.
+    """
+
+    async def run() -> None:
+        gen = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+        for _kw, fact in HORIZON:
+            await _store(gen, fact)
+        del gen  # restart: the tool must recall from the rebuilt store, not memory.
+
+        gen = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+        for keyword, fact in HORIZON:
+            assert fact in await _recall_via_load_memory_tool(gen, keyword), (
+                f"the load_memory tool did not recall {keyword!r} after the restart"
+            )
+
+        # The tool discriminates too: a never-stored keyword comes back empty through
+        # the tool, so the observed recall is memory, not a tool that returns anything.
+        assert await _recall_via_load_memory_tool(gen, "peridot") == []
 
     asyncio.run(run())
