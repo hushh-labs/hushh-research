@@ -48,7 +48,14 @@ TARGET="${3:-HEAD}"
 
 MODE="${MERGE_REGRESSION_MODE:-warn}"
 MIN_LEN="${MERGE_REGRESSION_MIN_LINE_LEN:-12}"
-THRESHOLD="${MERGE_REGRESSION_THRESHOLD_PCT:-40}"
+# 30, not 40: re-running the actual 2026-08-19 incident through this script
+# after fixing the hook-wiring bugs scored 33% -- just under a 40% default,
+# a real miss on the textbook case this tool exists for. 30 catches it while
+# staying clean on every confirmed-benign case tested (a shared test-list
+# line, a repeated boilerplate signature). Still just a threshold on a text
+# heuristic -- see the skill for the false-negative classes no threshold
+# value can fix (MIN_LEN, the exclude list, reformatting, cross-file breaks).
+THRESHOLD="${MERGE_REGRESSION_THRESHOLD_PCT:-30}"
 
 # Generated/derived files churn on every regen and are covered by their own
 # generation-check gates elsewhere in CI; they are pure noise here.
