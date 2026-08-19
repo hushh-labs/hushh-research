@@ -975,24 +975,6 @@ export function SosPanel({
             </div>
           </div>
 
-          {/* While an alert is live the primary action becomes stopping it.
-              This revokes the location grants the alert created AND clears the
-              incident, so the live state resets here and in Active shares. */}
-          {active ? (
-            <button
-              type="button"
-              onClick={onStopSos}
-              disabled={stopBusy}
-              aria-label="Cancel the alert and stop sharing your location"
-              data-testid="sos-cancel-alert"
-              className="press-scale mt-1 flex h-[52px] w-full items-center justify-center gap-2 self-center rounded-xl bg-[color:var(--sos-control-surface)] text-[16px] text-[color:var(--sos-control-text)] transition-colors hover:bg-[color:var(--sos-control-surface-hover)] disabled:opacity-60 lg:h-14 lg:w-[220px] lg:text-[17px]"
-            >
-              {stopBusy ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : null}
-              {stopBusy ? "Stopping…" : "Stop sharing"}
-            </button>
-          ) : null}
         </div>
 
         {/* The dialer. Outlined and tinted, never filled — it needs to read as
@@ -1001,7 +983,27 @@ export function SosPanel({
             this product enforces everywhere else, on the one screen where the
             person is least able to aim. An outline buys the affordance; the
             filled treatment stays reserved for SOS. */}
-        <div className="mt-10 flex min-h-[52px] items-center justify-center lg:mt-14">
+        {/* One row, two ends: the local emergency number on the LEFT, "Stop
+            sharing" on the RIGHT. They used to be stacked, which put two
+            unrelated decisions on the vertical axis the eye reads as a
+            sequence.
+
+            `flex-wrap` is the narrow-screen escape hatch rather than a
+            breakpoint: at 360px the pair fits comfortably, but a long country
+            name ("Copied 112 / Dial it from your phone") plus a spinner can
+            push past the line, and wrapping keeps BOTH controls at full size
+            and fully tappable instead of squashing the dialer's two-line
+            label. Neither control ever shrinks. */}
+        <div
+          data-testid="sos-emergency-actions"
+          className={cn(
+            "mt-10 flex min-h-[52px] w-full max-w-[520px] flex-wrap items-center gap-x-3 gap-y-3 lg:mt-14",
+            // Nothing to sit opposite when no alert is live, so the dialer
+            // keeps the centred placement it has always had.
+            active ? "justify-between" : "justify-center",
+          )}
+        >
+          <div className="flex shrink-0 items-center">
           {emergencyStatus === "resolved" && emergency ? (
             shouldFallbackWindowsEmergencyCall ? (
               <button
@@ -1085,6 +1087,27 @@ export function SosPanel({
               </span>
             </button>
           )}
+          </div>
+
+          {/* Ending the alert revokes the location grants the alert created AND
+              clears the incident, so the live state resets here and in Active
+              shares. Post-#5506 that teardown is lane-scoped: it ends the SMS
+              share only, and a normal share to the same person keeps running. */}
+          {active ? (
+            <button
+              type="button"
+              onClick={onStopSos}
+              disabled={stopBusy}
+              aria-label="Cancel the alert and stop sharing your location"
+              data-testid="sos-cancel-alert"
+              className="press-scale flex h-[52px] shrink-0 items-center justify-center gap-2 rounded-xl bg-[color:var(--sos-control-surface)] px-5 text-[16px] text-[color:var(--sos-control-text)] transition-colors hover:bg-[color:var(--sos-control-surface-hover)] disabled:opacity-60 lg:h-14 lg:min-w-[200px] lg:px-6 lg:text-[17px]"
+            >
+              {stopBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : null}
+              {stopBusy ? "Stopping…" : "Stop sharing"}
+            </button>
+          ) : null}
         </div>
       </div>
     </section>
