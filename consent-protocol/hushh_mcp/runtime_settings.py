@@ -1155,3 +1155,17 @@ def personal_agent_fleet_reclaim_enabled() -> bool:
     orphans, deletes nothing. The classification core does not even consult this;
     only the reclaim call does, so a report run can never destroy anything."""
     return _bool_from_value(_clean_env("PERSONAL_AGENT_FLEET_RECLAIM_ENABLED"), default=False)
+
+
+def personal_agent_substrate_teardown_enabled() -> bool:
+    """Let deprovision DELETE the BYOC substrate (KMS key, bucket, SA, Pub/Sub,
+    scheduler) in the user's own project.
+
+    OFF by default, and the default is an absolute safety boundary: this destroys
+    the user's SEALED HOLDINGS (the CMEK bucket + KMS key) in a customer-owned
+    project, and that is irreversible -- a KMS key cannot be un-destroyed. It is a
+    founder decision, never an automated default. With this off, deprovision plans
+    the teardown and logs what it WOULD delete, and deletes nothing. Even when on,
+    the executor still requires an explicit dry_run=False -- two independent guards
+    before a single resource is destroyed."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED"), default=False)
