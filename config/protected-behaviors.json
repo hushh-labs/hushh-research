@@ -460,6 +460,15 @@
           "required_titles": [
             "finds the lock gate mount sites at all"
           ]
+        },
+        {
+          "path": "hushh-webapp/__tests__/onboarding/intro-gate.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 8,
+          "required_titles": [
+            "mounts the app underneath instead of withholding it while the greeting plays",
+            "does not replay on a native cold start that emptied local storage"
+          ]
         }
       ]
     }

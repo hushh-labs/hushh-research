@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Capacitor } from "@capacitor/core";
+import { Preferences } from "@capacitor/preferences";
 import { useAuth } from "@/hooks/use-auth";
 import styles from "./HushhIntroGate.module.css";
 
@@ -128,14 +130,45 @@ function prefersReducedMotion(): boolean {
 // Fails open toward "play it" on any storage error (private browsing,
 // storage disabled) once a uid is known — worst case there is a replay,
 // never a silent permanent skip for a real signed-in user.
-function shouldPlayIntro(uid: string | null): boolean {
+function readLatch(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(LAST_UID_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the greeting is owed to this person.
+ *
+ * On native the answer cannot be read synchronously. WKWebView runs under a
+ * custom scheme and empties localStorage between launches, so the latch is cold
+ * on every cold start there and the intro replayed every single time somebody
+ * opened the app. The durable mirror lives in Preferences, the same place the
+ * setup completion latch keeps its own copy and for the same reason.
+ */
+async function shouldPlayIntro(uid: string | null): Promise<boolean> {
   if (!uid) return false;
   if (typeof window === "undefined") return true;
+  if (readLatch() === uid) return false;
+  if (!Capacitor.isNativePlatform()) return true;
   try {
-    return window.localStorage.getItem(LAST_UID_KEY) !== uid;
+    const { value } = await Preferences.get({ key: LAST_UID_KEY });
+    if (value === uid) {
+      // Warm the synchronous copy so the rest of this launch is a local read.
+      try {
+        window.localStorage.setItem(LAST_UID_KEY, uid);
+      } catch {
+        // Nothing to fall back to; the next launch reads Preferences again.
+      }
+      return false;
+    }
   } catch {
-    return true;
+    // Fail open toward playing it: a replay is a far smaller problem than a
+    // greeting somebody never gets.
   }
+  return true;
 }
 
 function markIntroShown(uid: string | null): void {
@@ -145,46 +178,70 @@ function markIntroShown(uid: string | null): void {
   } catch {
     // Nothing to fall back to; the next mount will just decide fresh.
   }
+  if (!Capacitor.isNativePlatform()) return;
+  void Preferences.set({ key: LAST_UID_KEY, value: uid }).catch(() => {
+    // Best-effort durable mirror.
+  });
 }
 
 export function HushhIntroGate({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [introComplete, setIntroComplete] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const firedRef = useRef(false);
+  const decidedRef = useRef(false);
 
   useEffect(() => {
+    // Wait for the session to settle before deciding. Reading `uid` while
+    // Firebase was still restoring returned null, and a null uid means "skip",
+    // so whether anybody saw the greeting at all came down to whether the
+    // session happened to restore before this component mounted.
+    if (authLoading || decidedRef.current) return;
+    decidedRef.current = true;
+
     const uid = user?.uid ?? null;
-    if (prefersReducedMotion() || !shouldPlayIntro(uid)) {
+    let cancelled = false;
+    const timers: number[] = [];
+
+    if (prefersReducedMotion()) {
       setIntroComplete(true);
       return;
     }
 
-    markIntroShown(uid);
-
-    const timers: number[] = [];
-    timers.push(window.setTimeout(() => setPhase("sweep"), SWEEP_DELAY_MS));
-    timers.push(window.setTimeout(() => setPhase("greet"), GREET_AT_MS));
-    timers.push(window.setTimeout(() => setPhase("exit"), EXIT_AT_MS));
-    timers.push(
-      window.setTimeout(() => {
-        if (firedRef.current) return;
-        firedRef.current = true;
+    void shouldPlayIntro(uid).then((play) => {
+      if (cancelled) return;
+      if (!play) {
         setIntroComplete(true);
-      }, TOTAL_DURATION_MS),
-    );
+        return;
+      }
+      markIntroShown(uid);
+      startTimers();
+    });
+
+    function startTimers() {
+      timers.push(window.setTimeout(() => setPhase("sweep"), SWEEP_DELAY_MS));
+      timers.push(window.setTimeout(() => setPhase("greet"), GREET_AT_MS));
+      timers.push(window.setTimeout(() => setPhase("exit"), EXIT_AT_MS));
+      timers.push(
+        window.setTimeout(() => {
+          if (firedRef.current) return;
+          firedRef.current = true;
+          setIntroComplete(true);
+        }, TOTAL_DURATION_MS),
+      );
+    }
 
     return () => {
+      cancelled = true;
       timers.forEach((t) => window.clearTimeout(t));
     };
-    // Runs once on mount only — this is the single source of truth for the
-    // whole sequence. Deliberately NOT depending on `user`: `uid` above is
-    // read once, at the moment this decides whether to play at all; the
-    // greeting text reads `user` fresh at render time below instead, but
-    // the timers themselves must never restart just because auth/setup
-    // state changes underneath after this has already started playing.
+    // Decides exactly once, guarded by `decidedRef`. `user` is deliberately not
+    // a dependency: the uid is read at the moment of the decision, and the
+    // timers must never restart because auth or setup state moved underneath
+    // after the sequence had already started. The greeting text reads `user`
+    // fresh at render time instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authLoading]);
 
   if (introComplete) {
     return <>{children}</>;
