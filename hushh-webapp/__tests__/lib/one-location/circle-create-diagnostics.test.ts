@@ -110,6 +110,25 @@ describe("circle create diagnostics", () => {
     expect(a.startsWith("cc_")).toBe(true);
   });
 
+  it("prints the correlation id and the source instead of redacting them", async () => {
+    // The redactor runs over every payload, and it is aggressive: a full UUID
+    // matches its long-secret rule and a `vault_…` word matches its key rule.
+    // A trace whose correlation id reads `[REDACTED_SECRET]` on every line
+    // correlates nothing, which is the whole point of having one. This is
+    // measured off the real output rather than assumed.
+    const mod = await loadDiagnostics("uat");
+    const attemptId = mod.createCircleCreateAttemptId();
+    mod.logCircleCreateLockCheck(attemptId, "locked");
+    const [, detail] = vi.mocked(console.info).mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(detail.attemptId).toBe(attemptId);
+    expect(String(detail.attemptId)).not.toContain("REDACTED");
+    expect(String(detail.source)).not.toContain("REDACTED");
+    expect(detail.lockState).toBe("locked");
+  });
+
   it("drops undefined keys rather than printing them", async () => {
     const mod = await loadDiagnostics("uat");
     mod.logCircleCreate("Success", { attemptId: "cc_1", circleIdPrefix: undefined });

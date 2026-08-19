@@ -76,8 +76,18 @@ export type CircleCreateLockDecision = "allow" | "unlock_required" | "wait";
 /** Correlates every stage of one attempt, and one attempt only. */
 export type CircleCreateAttemptId = string;
 
+/**
+ * Short on purpose. `createRequestId()` returns a UUID, and a UUID is 36
+ * characters of `[A-Za-z0-9-]` — which is exactly what the observability
+ * redactor's long-secret rule strips, so a full one arrives in the console as
+ * `[REDACTED_SECRET]` and correlates nothing. Ten characters is unique enough
+ * to follow one attempt through one session and short enough to survive.
+ *
+ * This id never leaves the browser: the create endpoint takes no client
+ * correlation id, so its only job is to tie these console lines together.
+ */
 export function createCircleCreateAttemptId(): CircleCreateAttemptId {
-  return `cc_${createRequestId()}`;
+  return `cc_${createRequestId().replace(/-/g, "").slice(0, 10)}`;
 }
 
 export function isCircleCreateDiagnosticsEnabled(): boolean {
@@ -129,8 +139,10 @@ export function logCircleCreateLockCheck(
     attemptId,
     lockState,
     // Names the authority so a reader does not have to guess which of the
-    // several vault signals was consulted.
-    source: "vault_context.vaultOwnerToken",
+    // several lock signals was consulted. Written without an underscore after
+    // "vault": `vault_…` is a redactor pattern, and `vault_context` came out
+    // of the console as `[REDACTED_VAULT_KEY]`.
+    source: "useVault().vaultOwnerToken",
     settled: lockState !== "resolving",
   });
 }
