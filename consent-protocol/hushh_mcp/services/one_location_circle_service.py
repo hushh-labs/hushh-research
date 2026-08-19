@@ -656,7 +656,8 @@ class OneLocationCircleService:
                 WHERE c.id = CAST(:circle_id AS UUID)
                   AND c.status = 'active'
                 GROUP BY
-                  c.id, mine.role, active_code.id, active_code.circle_id,
+                  c.id, mine.role, owner_identity.display_name,
+                  active_code.id, active_code.circle_id,
                   active_code.code_hash, active_code.expires_at,
                   active_code.metadata
                 """,

@@ -2321,6 +2321,51 @@ def test_invitable_connections_are_not_narrowed_to_directly_requested_ones() -> 
     assert "origin_kind = 'direct_request'" not in listing_sql
 
 
+def test_every_aggregating_circle_query_groups_by_the_owner_name_it_selects() -> None:
+    """A GROUP BY that lost a column, and a test suite that could not see it.
+
+    The owner-name label was added to two queries: the Circles LIST and the
+    Circle DETAIL. Both aggregate a member count, so both need the new column
+    in their GROUP BY. Only the list got it. Postgres rejects the other one
+    outright -- "column owner_identity.display_name must appear in the GROUP BY
+    clause" -- so `get_circle` 503'd on every call.
+
+    Nothing in this file caught it, and nothing in this file could: the fake
+    connection these tests drive records SQL strings and replays canned rows.
+    It never parses anything, so a query the database refuses to plan passes
+    every assertion here. This test reads the SQL instead of running it, which
+    is the cheapest thing that can tell the two apart.
+    """
+
+    import inspect
+    import re
+
+    from hushh_mcp.services import one_location_circle_service
+
+    source = inspect.getsource(one_location_circle_service)
+    selects = [
+        block
+        for block in re.findall(r'"""(.*?)"""', source, re.S)
+        if "owner_identity.display_name AS owner_display_name" in block
+    ]
+    assert selects, "the owner-name label is gone; delete this test with it"
+
+    for block in selects:
+        if "GROUP BY" not in block:
+            # A query that aggregates nothing needs no GROUP BY at all.
+            continue
+        group_by = block[block.index("GROUP BY") :]
+        # Stop at the next clause so ORDER BY/HAVING text cannot satisfy this.
+        for terminator in ("ORDER BY", "HAVING", "LIMIT"):
+            if terminator in group_by:
+                group_by = group_by[: group_by.index(terminator)]
+        assert "owner_identity.display_name" in group_by, (
+            "a query selects owner_identity.display_name and aggregates, but "
+            "does not group by it. Postgres refuses to plan this. "
+            f"{block.strip()[:400]}"
+        )
+
+
 def test_someone_elses_sms_circle_is_labelled_with_its_owner() -> None:
     """Three emergency lists must not read as three copies of yours.
 
