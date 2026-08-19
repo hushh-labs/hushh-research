@@ -606,6 +606,15 @@ export function locationWorkflowNotificationCopy(params: {
   /** The duration actually granted, for approval copy. */
   grantedDurationHours?: number | string | null;
   grantedDurationMode?: string | null;
+  /**
+   * Which lane the notification is about.
+   *
+   * A person can hold an ordinary share and an SMS/Save-My-Soul share with the
+   * same counterpart at once (see grant-lanes), so "your share ended" without
+   * naming the lane is ambiguous exactly when it matters most. `"sos"` is the
+   * emergency lane; anything else is an ordinary share.
+   */
+  shareKind?: string | null;
   /** Clock injected so a list of notifications agrees on "now". */
   nowMs?: number;
 }): { title: string; description: string } {
@@ -644,6 +653,9 @@ export function locationWorkflowNotificationCopy(params: {
       ? "for as long as you need"
       : formatLocationDurationLabel(params.grantedDurationHours);
 
+  const revokedViaSms =
+    normalizeOneLocationShareKind(params.shareKind) === "sos";
+
   switch (params.type) {
     case "location_share_created":
       return {
@@ -670,6 +682,16 @@ export function locationWorkflowNotificationCopy(params: {
         description: locationShareNotificationDescription(ownerLabel),
       };
     case "location_share_revoked":
+      // "SMS location sharing" is what the recipient calls this -- an SMS alert
+      // is how it reached them. Told only that "location access" was removed,
+      // someone who has never opened an ordinary share is being informed about
+      // something they do not know by that name.
+      if (revokedViaSms) {
+        return {
+          title: "SMS location sharing stopped",
+          description: `${ownerLabel} stopped sharing their location with you over SMS.`,
+        };
+      }
       return {
         title: copy.title,
         description: `${ownerLabel} removed your location access.`,

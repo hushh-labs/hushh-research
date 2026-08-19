@@ -4994,3 +4994,96 @@ def test_same_lane_replacement_still_revokes_the_previous_grant() -> None:
         )
         == 2
     )
+
+
+def test_revoking_an_sms_share_names_the_lane_in_its_copy() -> None:
+    """The recipient is told WHICH share ended, not just that one did.
+
+    Stopping an SMS alert revokes its grant through `revoke_grant`, the same
+    path an ordinary share takes, and the notification never named the lane.
+    Someone who had only ever received an emergency SMS was told "X removed
+    your location access" -- about access they do not know by that name, in a
+    sentence identical to the one an ordinary share produces.
+
+    Since #5552 a person can hold both lanes with the same counterpart at once,
+    so the unnamed wording is ambiguous exactly when someone is checking whether
+    the emergency share is still running.
+    """
+
+    import inspect
+
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    source = inspect.getsource(OneLocationAgentService.revoke_grant)
+
+    # The lane is read from the grant rather than guessed. Both queries in
+    # revoke_grant select `*`, so share_kind is already on the row.
+    assert 'row.get("share_kind")' in source
+    assert 'revoked_share_kind == "sos"' in source or "revoked_via_sms" in source
+
+    # The recipient's word is SMS -- an SMS alert is how it reached them.
+    assert "SMS location sharing stopped" in source
+    assert "over SMS" in source
+
+    # Ordinary shares keep the wording they had.
+    assert "removed your location access." in source
+
+    # And the lane travels with the payload, because the grant is gone by the
+    # time the client renders this and cannot look the kind up itself.
+    assert '"share_kind": revoked_share_kind or "standard"' in source
+
+
+def test_location_notifications_name_the_person_not_a_placeholder() -> None:
+    """A notification says who, on both sides, or degrades honestly.
+
+    `_identity_notification_label` used to read `display_name` and say
+    "A trusted person" whenever it was blank -- so the same account that gets
+    named in a connection-request push went unnamed here. Worse, it took the
+    value verbatim, so a row holding a UUID or a raw user id rendered the
+    identifier AS the name on someone's lock screen.
+
+    #5442 already built the ladder for connections (display name -> reject
+    identifiers -> email handle). This pins that Location uses the same one, so
+    the two cannot drift apart again.
+    """
+
+    from hushh_mcp.services.one_location_agent_service import (
+        _identity_notification_label,
+    )
+
+    # A real name is used as-is, on both sides of any notification.
+    assert _identity_notification_label({"user_id": "u1", "display_name": "Neelesh"}) == ("Neelesh")
+
+    # A blank display name falls through to the email handle rather than
+    # going generic -- this is the case that produced unnamed notifications.
+    assert (
+        _identity_notification_label(
+            {"user_id": "u1", "display_name": "", "email": "neelesh@example.com"}
+        )
+        == "neelesh"
+    )
+
+    # An identifier is NOT a name. Showing it would be worse than being generic.
+    identifier_row = {
+        "user_id": "u1",
+        "display_name": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+    }
+    assert _identity_notification_label(identifier_row) == "A trusted person"
+
+    raw_id_row = {"user_id": "u1", "display_name": "u1"}
+    assert _identity_notification_label(raw_id_row) == "A trusted person"
+
+    # Genuinely unresolvable stays generic, which is the honest answer.
+    assert _identity_notification_label(None) == "A trusted person"
+    assert _identity_notification_label({"user_id": "u1"}) == "A trusted person"
+
+
+def test_identity_lookup_reads_the_column_the_name_ladder_needs() -> None:
+    """The email fallback is only reachable if the query selected email."""
+
+    import inspect
+
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    source = inspect.getsource(OneLocationAgentService._identity_row)
+    assert "email" in source
