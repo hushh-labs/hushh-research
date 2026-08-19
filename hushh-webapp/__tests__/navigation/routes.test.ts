@@ -22,6 +22,7 @@ import {
   isRiaRoute,
   resolveCapabilityHandoffTarget,
   resolveCompletedSetupCapabilityEntry,
+  resolveSetupCapabilityIdForPath,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
@@ -328,6 +329,30 @@ describe("navigation routes", () => {
       ROUTES.ONE_SETUP,
     );
     expect(resolveCapabilityHandoffTarget("nope")).toBe(ROUTES.ONE_SETUP);
+  });
+
+  it("resolves the capability a setup-workspace path belongs to, the inverse of buildOneSetupCapabilityRoute", () => {
+    expect(resolveSetupCapabilityIdForPath("/one/setup/gmail")).toBe("gmail");
+    expect(resolveSetupCapabilityIdForPath("/one/setup/location")).toBe(
+      "location",
+    );
+    expect(resolveSetupCapabilityIdForPath("/one/setup/ria")).toBe("ria");
+    expect(
+      resolveSetupCapabilityIdForPath("/one/setup/connected-systems"),
+    ).toBe("connected-systems");
+    // Trailing-slash/index-document shapes the native shell serves normalize
+    // the same as everywhere else in this module.
+    expect(resolveSetupCapabilityIdForPath("/one/setup/gmail/")).toBe("gmail");
+    expect(
+      resolveSetupCapabilityIdForPath("/one/setup/gmail/index.html"),
+    ).toBe("gmail");
+    // The bare hub and account-level setup navigation name no capability.
+    expect(resolveSetupCapabilityIdForPath("/one/setup")).toBeNull();
+    expect(resolveSetupCapabilityIdForPath("/one/setup/connections")).toBeNull();
+    expect(resolveSetupCapabilityIdForPath("/one/setup/finance")).toBe(
+      "finance",
+    );
+    expect(resolveSetupCapabilityIdForPath("/one/location")).toBeNull();
   });
 
   it("does not admit normal product routes while root setup is unresolved", () => {
