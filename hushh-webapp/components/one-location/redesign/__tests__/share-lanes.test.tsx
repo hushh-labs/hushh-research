@@ -172,9 +172,40 @@ describe("per-share Stop inside a person's row", () => {
     ).not.toBeDisabled();
   });
 
-  it("offers no Stop at all on the receiving side", () => {
-    // A recipient cannot revoke somebody else's grant server-side, so the
-    // breakdown they see is the honest list and nothing more.
+  it("says Remove, not Stop, on the receiving side -- and still one per share", () => {
+    // `revoke_grant` accepts the recipient as well as the owner and records
+    // the difference as `recipient_revoke`, so this side really can act. The
+    // card's own single Remove could only ever drop one of two shares, and
+    // silently, which is why each share carries its own.
+    const onStopGrant = vi.fn();
+    const [group] = groupGrantsByCounterpart([sos, ordinary], "recipient");
+    render(
+      <PersonShareLanes
+        group={group!}
+        counterpartName="Rohan Mehta"
+        formatEndsAt={() => "6:00 PM"}
+        action="remove"
+        onStopGrant={onStopGrant}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /^Stop/ })).toBeNull();
+    expect(screen.getAllByText("Access until 6:00 PM")).toHaveLength(2);
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Remove the SMS share from Rohan Mehta",
+      }),
+    );
+    expect(onStopGrant).toHaveBeenCalledWith("grant_sos");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Remove the location share from Rohan Mehta",
+      }),
+    );
+    expect(onStopGrant).toHaveBeenLastCalledWith("grant_ordinary");
+  });
+
+  it("renders no control at all when this side is given none", () => {
     const [group] = groupGrantsByCounterpart([sos, ordinary], "recipient");
     render(
       <PersonShareLanes
@@ -183,8 +214,7 @@ describe("per-share Stop inside a person's row", () => {
         formatEndsAt={() => "6:00 PM"}
       />,
     );
-    expect(screen.queryByRole("button", { name: /^Stop/ })).toBeNull();
-    expect(screen.getAllByText("Access until 6:00 PM")).toHaveLength(2);
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });
 
@@ -202,6 +232,8 @@ describe("one card per owner in Shared with me", () => {
             <PersonShareLanes
               group={group!}
               counterpartName="Rohan Mehta"
+              action="remove"
+              onStopGrant={vi.fn()}
               formatEndsAt={(value) =>
                 value === sos.expiresAt ? "6:00 PM" : "1:30 PM"
               }
@@ -223,6 +255,14 @@ describe("one card per owner in Shared with me", () => {
     expect(screen.getAllByTestId("one-location-share-lane")).toHaveLength(2);
     expect(screen.getByText("Access until 6:00 PM")).toBeTruthy();
     expect(screen.getByText("Access until 1:30 PM")).toBeTruthy();
+    // One Remove per share, and none at the card level -- a single card-level
+    // Remove standing for two consents could only ever drop one of them.
+    expect(screen.getAllByRole("button", { name: /^Remove the/ })).toHaveLength(
+      2,
+    );
+    expect(
+      screen.queryByRole("button", { name: /Remove Rohan Mehta from/ }),
+    ).toBeNull();
   });
 
   it("renders no breakdown at all for a single share", () => {
@@ -271,6 +311,12 @@ describe("hub wiring", () => {
     expect(source).toContain("{receivedGrantGroups.map((group) => {");
     expect(source).not.toContain("{vm.receivedGrants.map((grant) => {");
     expect(source).not.toContain("{vm.activeOwnerGrants.map((grant) => (");
+  });
+
+  it("suppresses the card-level Remove when one owner holds two shares", () => {
+    expect(source).toContain(
+      "multiLane ? undefined : () => vm.onStopGrant(grant.id)",
+    );
   });
 
   it("keeps the one-tap Stop for a person with a single share", () => {

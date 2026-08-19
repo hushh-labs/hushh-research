@@ -1903,11 +1903,13 @@ function LocationDetailFlow({
                   }
                   shareLanes={
                     multiLane ? (
-                      // Display-only on this side. A recipient cannot revoke
-                      // somebody else's grant server-side, so there is no Stop
-                      // here -- only the honest breakdown of what each of the
-                      // two shares is and when it ends, which a single folded
-                      // status line could only ever be right about one of.
+                      // One control per SHARE. The card's own Remove is a
+                      // single button, and with two shares behind one card it
+                      // could only ever drop one of them -- silently, since
+                      // nothing on screen would say which. `revoke_grant`
+                      // accepts the recipient as well as the owner (it records
+                      // the difference as `recipient_revoke`), so these are
+                      // real controls, not decoration.
                       <div data-testid="one-location-received-share-lanes">
                         <ShareLanesDisclosure
                           expanded={lanesExpanded}
@@ -1922,6 +1924,9 @@ function LocationDetailFlow({
                             group={group}
                             counterpartName={ownerName}
                             formatEndsAt={vm.formatDateTime}
+                            action="remove"
+                            onStopGrant={vm.onStopGrant}
+                            revokingGrantId={vm.revokingGrantId}
                           />
                         </div>
                       </div>
@@ -1934,7 +1939,12 @@ function LocationDetailFlow({
                   onRecenter={
                     point ? () => recenterGrantViewport(grant.id) : undefined
                   }
-                  onRemove={() => vm.onStopGrant(grant.id)}
+                  // Suppressed for a person holding two shares: the card's
+                  // single Remove would silently act on only one of them, and
+                  // the breakdown above already carries one per share.
+                  onRemove={
+                    multiLane ? undefined : () => vm.onStopGrant(grant.id)
+                  }
                   removeBusy={vm.revokingGrantId === grant.id}
                   viewBusy={vm.busy === "view"}
                   message={

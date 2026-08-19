@@ -44,15 +44,26 @@ export function ShareLaneRow({
   onStop,
   stopping,
   formatEndsAt,
+  action = "stop",
 }: {
   grant: OneLocationGrant;
   counterpartName: string;
-  /** Omitted on the receiving side: a recipient cannot revoke an owner's grant. */
+  /** Omitted when there is nothing this side may do about the share. */
   onStop?: () => void;
   stopping?: boolean;
   formatEndsAt?: (value: string) => string;
+  /**
+   * Whose share this is, in the only way that changes the words.
+   *
+   * `"stop"` is the owner ending their own share. `"remove"` is the recipient
+   * dropping one they were given -- `revoke_grant` accepts either party and
+   * records the difference as `owner_revoke` vs `recipient_revoke`, so both are
+   * real, and the copy has to say which one the tap is.
+   */
+  action?: "stop" | "remove";
 }) {
   const isSms = isSmsTriggeredGrant(grant);
+  const removing = action === "remove";
   return (
     <div
       className="flex min-h-[52px] items-center gap-3 py-2"
@@ -88,12 +99,16 @@ export function ShareLaneRow({
           onClick={onStop}
           disabled={stopping}
           aria-label={
-            isSms
-              ? `Stop the SMS share with ${counterpartName}`
-              : `Stop the location share with ${counterpartName}`
+            removing
+              ? isSms
+                ? `Remove the SMS share from ${counterpartName}`
+                : `Remove the location share from ${counterpartName}`
+              : isSms
+                ? `Stop the SMS share with ${counterpartName}`
+                : `Stop the location share with ${counterpartName}`
           }
         >
-          Stop
+          {removing ? "Remove" : "Stop"}
         </Button>
       ) : null}
     </div>
@@ -106,6 +121,12 @@ export function ShareLaneRow({
  * Rendered only when there is more than one, so the ordinary single-share case
  * keeps the one-tap Stop it has always had rather than growing a chevron for a
  * list of one.
+ *
+ * Every share gets its OWN control, on both sides. The recipient's card carries
+ * a single Remove, and with two shares behind one card that button could only
+ * ever drop one of them -- silently, since nothing on screen would say which.
+ * One control per share is the only honest arrangement once one card can stand
+ * for two consents.
  */
 export function PersonShareLanes({
   group,
@@ -113,12 +134,15 @@ export function PersonShareLanes({
   onStopGrant,
   revokingGrantId,
   formatEndsAt,
+  action,
 }: {
   group: OneLocationGrantLaneGroup;
   counterpartName: string;
   onStopGrant?: (grantId: string) => void;
   revokingGrantId?: string | null;
   formatEndsAt?: (value: string) => string;
+  /** See {@link ShareLaneRow}. Defaults to the owner's "stop". */
+  action?: "stop" | "remove";
 }) {
   return (
     <div className="divide-y divide-[color:var(--app-separator)]">
@@ -128,6 +152,7 @@ export function PersonShareLanes({
           grant={grant}
           counterpartName={counterpartName}
           formatEndsAt={formatEndsAt}
+          action={action}
           onStop={onStopGrant ? () => onStopGrant(grant.id) : undefined}
           stopping={revokingGrantId === grant.id}
         />
