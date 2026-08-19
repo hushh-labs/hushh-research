@@ -80,6 +80,17 @@ if has_match '^hushh-webapp/(app/|components/app-ui/|lib/(navigation|routes|surf
   ran=1
 fi
 
+# `top-app-bar.tsx` had two unit-test files sitting next to it
+# (top-app-bar.contract.test.ts, top-shell-breadcrumbs.test.ts) that no pack
+# above actually ran -- an edit to the shared top bar or the breadcrumb
+# resolver it reads from could pass CI green with either suite silently
+# skipped. This is what caught the ancestor-crumb ellipsis regression
+# (P... > S. > Lock methods) staying invisible to a PR.
+if has_match '^hushh-webapp/(components/app-ui/top-app-bar\.tsx|lib/navigation/top-shell-breadcrumbs\.ts|lib/navigation/top-shell-back\.ts|__tests__/components/top-app-bar\.contract\.test\.ts|__tests__/utils/top-shell-breadcrumbs\.test\.ts)'; then
+  run_check "top shell navigation" npm run verify:top-shell-navigation
+  ran=1
+fi
+
 if has_match '^(hushh-webapp/(ios/|android/|capacitor\.config|scripts/native/|public/manifest|public/.*icon|app/manifest)|GoogleService-Info\.plist)'; then
   run_check "Capacitor static parity" npm run verify:capacitor:static
   ran=1
