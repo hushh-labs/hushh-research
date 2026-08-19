@@ -54,6 +54,8 @@ import {
 } from "@/lib/voice/voice-action-card";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { getDirectoryPersonDescription } from "./directory-person-label";
+import { filterPeopleByQuery } from "@/lib/one-location/people-search";
+import { shouldRevealListControls } from "@/lib/one-location/contact-picker-controls";
 import {
   CONNECT_SEARCH_INPUT_CLASSNAME,
   CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME,
@@ -320,6 +322,7 @@ export default function ConnectPageClient() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
+  const [connectionsQuery, setConnectionsQuery] = useState("");
   const [scopeDraft, setScopeDraft] = useState<{
     person: DirectoryPerson;
     catalog: ConnectionScopeCatalog;
@@ -982,6 +985,30 @@ export default function ConnectPageClient() {
     [connections, isAdvisorTab],
   );
 
+  // A synced roster can run to the low hundreds, so "My connections" gets the
+  // same word-beginning search every other people list on Location already
+  // uses (@/lib/one-location/people-search) rather than a third, one-off
+  // `includes()` filter. Filtered from the already-sorted list, never the
+  // reverse: `filterPeopleByQuery` preserves input order within each
+  // relevance tier, so the A-Z ordering survives inside "starts with" and
+  // "contains" alike.
+  const filteredConnections = useMemo(
+    () =>
+      filterPeopleByQuery(
+        sortedConnections,
+        connectionsQuery,
+        (connection) => connection.displayName || connection.userId,
+      ),
+    [sortedConnections, connectionsQuery],
+  );
+
+  // Same threshold the contact picker reveals its own search field at: below
+  // it the whole roster is one glance, and a search box is pure noise.
+  const showConnectionsSearch = shouldRevealListControls(
+    sortedConnections.length,
+    connectionsQuery.trim().length > 0,
+  );
+
   // Voice surface for Connect. Until this existed the route derived the
   // generic "app" screen, so One knew a person was somewhere in the app and
   // nothing more -- and Connect could not be named as a destination, which is
@@ -1427,7 +1454,13 @@ export default function ConnectPageClient() {
           <div className="space-y-4 sm:space-y-5">
             <SegmentedTabs
               value={tab}
-              onValueChange={(value) => setTab(value as ConnectTab)}
+              onValueChange={(value) => {
+                setTab(value as ConnectTab);
+                // People and RIAs are two different underlying lists; a query
+                // that narrowed one to a name would silently zero out the
+                // other's tab instead of showing its full, unfiltered roster.
+                setConnectionsQuery("");
+              }}
               options={CONNECT_TABS}
               // A third tab takes a third of the strip, and the option's own
               // 16px side padding then costs more than the widest label has
@@ -1454,7 +1487,37 @@ export default function ConnectPageClient() {
                   : `My connections (${sortedConnections.length})`
               }
               separatorInset
+              // A synced roster caps this list's height instead of letting it
+              // push the directory search section below off the first
+              // screenful. Same "bounded manager" extension point the Circle
+              // Members list and the Consent Center connections tab already
+              // use on SettingsGroup.
+              shellClassName="flex max-h-[60vh] flex-col"
+              contentClassName="min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
             >
+              {showConnectionsSearch ? (
+                <div className="border-b border-border/60 px-3 py-2.5">
+                  <label className="relative block">
+                    <span className="sr-only">
+                      {isAdvisorTab ? "Search my RIAs" : "Search my connections"}
+                    </span>
+                    <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      value={connectionsQuery}
+                      onChange={(event) =>
+                        setConnectionsQuery(event.target.value)
+                      }
+                      placeholder={
+                        isAdvisorTab ? "Search my RIAs" : "Search my connections"
+                      }
+                      autoComplete="off"
+                      className="h-11 w-full rounded-full border border-border bg-[color:var(--app-card-surface-default-solid)] pl-9 pr-4 text-sm outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+                      data-testid="one-connect-my-connections-search"
+                    />
+                  </label>
+                </div>
+              ) : null}
+
               {sortedConnections.length === 0 ? (
                 <SettingsRow
                   // No description. "Connections appear here." explained what
@@ -1467,8 +1530,15 @@ export default function ConnectPageClient() {
                   density="compact"
                   disabled
                 />
+              ) : filteredConnections.length === 0 ? (
+                <SettingsRow
+                  title="No matches"
+                  description="Try a different name."
+                  density="compact"
+                  disabled
+                />
               ) : (
-                sortedConnections.map((connection) => (
+                filteredConnections.map((connection) => (
                   <SettingsRow
                     key={connection.connectionId}
                     // Same mark, same tone, same meaning as the results list

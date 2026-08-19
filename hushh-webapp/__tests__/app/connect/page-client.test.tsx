@@ -963,6 +963,66 @@ describe("Connect — People", () => {
     expect(screen.queryByText("Unannotated Person")).toBeNull();
     expect(screen.getByText("No RIAs yet")).toBeTruthy();
   });
+
+  it("bounds and searches My connections once the roster is large enough to need it", async () => {
+    // A synced roster can run to the low hundreds (issue #5564). Below the
+    // shared reveal threshold (10) a search box is noise; above it, one is
+    // required — same rule the contact picker uses for its own search field.
+    const roster = Array.from({ length: 40 }, (_, index) => ({
+      connectionId: `c${index}`,
+      userId: `u${index}`,
+      displayName: `Synced Contact ${index}`,
+      photoUrl: null,
+      createdAt: null,
+      isRia: false,
+    }));
+    mocks.listConnections.mockResolvedValue(roster);
+
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("My connections (40)")).toBeTruthy();
+
+    const search = screen.getByTestId("one-connect-my-connections-search");
+    expect(screen.getByText("Synced Contact 0")).toBeTruthy();
+
+    // Partial, case-insensitive — same contract as every other people search
+    // on the app (@/lib/one-location/people-search).
+    fireEvent.change(search, { target: { value: "contact 7" } });
+    expect(screen.getByText("Synced Contact 7")).toBeTruthy();
+    expect(screen.queryByText("Synced Contact 0")).toBeNull();
+
+    fireEvent.change(search, { target: { value: "zzz-no-such-person" } });
+    expect(await screen.findByText("No matches")).toBeTruthy();
+
+    fireEvent.change(search, { target: { value: "" } });
+    expect(await screen.findByText("Synced Contact 0")).toBeTruthy();
+    expect(screen.getByText("Synced Contact 39")).toBeTruthy();
+    expect(screen.queryByText("No matches")).toBeNull();
+
+    // The roster scrolls inside a capped card instead of growing the page.
+    const shell = search.closest('[data-slot="settings-group-shell"]');
+    expect(shell?.className).toContain("max-h-[60vh]");
+  });
+
+  it("hides the connections search below the reveal threshold", async () => {
+    mocks.listConnections.mockResolvedValue([
+      {
+        connectionId: "c0",
+        userId: "u0",
+        displayName: "Solo Connection",
+        photoUrl: null,
+        createdAt: null,
+        isRia: false,
+      },
+    ]);
+
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("My connections (1)")).toBeTruthy();
+    expect(
+      screen.queryByTestId("one-connect-my-connections-search"),
+    ).toBeNull();
+  });
 });
 
 describe("Connect — removing a connection", () => {
