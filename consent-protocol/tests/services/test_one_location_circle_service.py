@@ -1637,6 +1637,109 @@ def test_member_invite_batch_capacity_failure_writes_nothing() -> None:
     assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
 
 
+def test_disconnecting_takes_each_person_out_of_the_others_circles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The membership was the second arm of an OR, not a leftover row.
+
+    `remove_connection` revoked the connection, the trusted edge and every
+    proposal-bound grant, and left Circle memberships alone. But One Location
+    permits a delivery when there is an active non-Circle connection origin OR
+    the two share an active Circle -- so the membership kept the permission
+    alive on its own. Someone who removed you as a connection went on
+    receiving your live location, and, because SOS reads the system Circle's
+    roster, your address in an emergency SMS.
+    """
+
+    conn = _CapacityConnection(
+        [
+            {"circle_id": "circle-owned-by-a", "user_id": "user-b"},
+            {"circle_id": "circle-sms-of-b", "user_id": "user-a"},
+        ],
+        # Per ended membership: code revoke, invite cancel, then the grant
+        # reconciliation's three statements and the SMS-contact cleanup.
+        *([None] * 12),
+    )
+    origin_revocations: list[dict] = []
+    monkeypatch.setattr(
+        circle_service_module,
+        "revoke_circle_origins",
+        lambda _conn, **kwargs: origin_revocations.append(kwargs),
+    )
+
+    ended = OneLocationCircleService.end_memberships_for_disconnected_pair(
+        conn,
+        user_a_id="user-a",
+        user_b_id="user-b",
+    )
+
+    assert ended == [
+        {"circleId": "circle-owned-by-a", "userId": "user-b"},
+        {"circleId": "circle-sms-of-b", "userId": "user-a"},
+    ]
+    update = conn.sql[0]
+    assert "UPDATE one_location_circle_memberships" in update
+    assert "status = 'removed'" in update
+    # Both directions: your Circles and theirs.
+    assert "circle.owner_user_id = :user_a" in update
+    assert "circle.owner_user_id = :user_b" in update
+    # Never the owner's own row -- falling out with a member does not evict
+    # you from the Circle you own.
+    assert "membership.role = 'member'" in update
+    # A system Circle has no exemption here. It is the one where a stale
+    # membership costs the most.
+    assert "is_system" not in update
+    # And each departure drags the same tail a leave does.
+    assert origin_revocations == [
+        {"circle_id": "circle-owned-by-a", "member_user_id": "user-b"},
+        {"circle_id": "circle-sms-of-b", "member_user_id": "user-a"},
+    ]
+    assert sum("UPDATE one_location_circle_invite_codes" in sql for sql in conn.sql) == 2
+    assert sum("SET status = 'revoked', revoked_at = NOW()" in sql for sql in conn.sql) >= 2
+
+
+def test_a_third_persons_circle_is_not_theirs_to_break_up() -> None:
+    """Two members falling out is not the owner's decision to act on.
+
+    A and B are both in C's Family Circle because C put them there. If they
+    disconnect from each other, neither has been rejected by C, and evicting
+    either would be C's Circle answering for a relationship it is not part of.
+    Either of them can leave it; nothing here does it for them.
+    """
+
+    import inspect
+
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
+
+    source = inspect.getsource(OneLocationCircleService.end_memberships_for_disconnected_pair)
+
+    # Every branch of the match is anchored on one of the two OWNING the
+    # Circle. There is no clause that matches on co-membership alone.
+    assert "circle.owner_user_id = :user_a" in source
+    assert "circle.owner_user_id = :user_b" in source
+    assert source.count("circle.owner_user_id") == 2
+
+
+def test_disconnecting_from_yourself_is_not_an_eviction() -> None:
+    """A malformed pair must not match every membership either user has."""
+
+    conn = _CapacityConnection()
+
+    assert (
+        OneLocationCircleService.end_memberships_for_disconnected_pair(
+            conn, user_a_id="user-a", user_b_id="user-a"
+        )
+        == []
+    )
+    assert (
+        OneLocationCircleService.end_memberships_for_disconnected_pair(
+            conn, user_a_id="", user_b_id="user-b"
+        )
+        == []
+    )
+    assert conn.sql == []
+
+
 def test_leaving_a_circle_cannot_be_undone_the_moment_it_happens() -> None:
     """Leaving has to survive the person who is adding you.
 

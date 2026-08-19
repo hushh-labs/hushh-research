@@ -161,6 +161,49 @@ def test_service_migration_never_resurrects_a_removed_contact() -> None:
     assert "TRUNCATE" not in hook
 
 
+def test_deleting_your_whole_account_can_still_delete_your_system_circle() -> None:
+    """The trigger and the escape from it are one decision, not two.
+
+    Migration 160's `one_location_circles_block_system_delete` refuses to hard-
+    or soft-delete any is_system Circle, so no ordinary product path can
+    silently switch off somebody's SOS roster. It was written thinking about
+    the Circles surface and broke a screen nobody was looking at: account
+    deletion and account reset both issue an unconditional
+    DELETE FROM one_location_circles for the owner, so every user who had
+    logged in since -- ensure_sms_system_circle provisions on bootstrap -- got
+    a RestrictViolation and a 500 from /api/account/delete (#5574).
+
+    "You cannot delete your emergency list" and "you cannot delete your
+    account" are not the same sentence. The first protects a live account from
+    a careless tap; it has nothing left to protect once the identity it served
+    is being wiped. account_service demotes is_system in the same transaction
+    immediately before the delete.
+
+    This test exists so the two halves cannot be changed independently again.
+    Tighten the trigger and this fails; drop the demotion and this fails.
+    """
+
+    from pathlib import Path
+
+    migration = Path(__file__).resolve().parents[1] / "db" / "migrations"
+    trigger_sql = (migration / "160_one_location_system_circles.sql").read_text(encoding="utf-8")
+
+    # Half one: the trigger still refuses both delete shapes.
+    assert "one_location_circles_block_system_delete" in trigger_sql
+    assert "BEFORE DELETE OR UPDATE ON one_location_circles" in trigger_sql
+
+    # Half two: account deletion still has its way past it.
+    account_service = (
+        Path(__file__).resolve().parents[1] / "hushh_mcp" / "services" / "account_service.py"
+    ).read_text(encoding="utf-8")
+    assert "SET is_system = FALSE" in account_service
+    demote_index = account_service.index("SET is_system = FALSE")
+    delete_index = account_service.index("DELETE FROM one_location_circles")
+    assert demote_index < delete_index, (
+        "the demotion must run BEFORE the delete it exists to unblock"
+    )
+
+
 def test_deletion_is_the_only_power_a_system_circle_removes() -> None:
     service = _service()
 

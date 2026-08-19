@@ -1055,6 +1055,108 @@ def test_remove_connection_revokes_connection_and_trusted_edges():
     )
 
 
+def test_disconnecting_ends_the_pairs_one_location_circle_memberships():
+    """Revoking the connection is not enough to stop the location.
+
+    One Location permits a delivery when there is an active non-Circle
+    connection origin OR the two share an active Circle. Leaving the
+    memberships behind keeps the second arm of that OR true, so the person who
+    disconnected keeps receiving live location -- and, because SOS reads the
+    system Circle's roster, an address in an emergency SMS.
+    """
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "conn-1",
+                    "user_a_id": "user-a",
+                    "user_b_id": "user-b",
+                    "status": "active",
+                }
+            ],  # SELECT
+            [],  # explicit scope proposals -> none
+            [],  # explicit share grants -> none
+            [],  # RIA relation projection -> none
+            [{"id": "tc-1"}],  # UPDATE trusted_connections
+            [{"id": "conn-1"}],  # UPDATE connections
+        ]
+    )
+    calls: list[dict] = []
+    with (
+        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
+        patch.object(
+            svc,
+            "_end_one_location_circle_memberships",
+            lambda **kwargs: calls.append(kwargs),
+        ),
+    ):
+        out = svc.remove_connection("user-a", "conn-1")
+
+    assert out == {"removed": 1}
+    assert calls == [{"user_a_id": "user-a", "user_b_id": "user-b"}]
+
+
+def test_a_disconnect_that_changed_nothing_evicts_nobody():
+    """An already-revoked connection is not a fresh disconnect.
+
+    remove_connection is idempotent -- a second call finds the row already
+    revoked and reports removed: 0. Treating that as a disconnect would evict
+    people from Circles on a no-op retry.
+    """
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "conn-1",
+                    "user_a_id": "user-a",
+                    "user_b_id": "user-b",
+                    "status": "active",
+                }
+            ],  # SELECT
+            [],
+            [],
+            [],
+            [],  # trusted edges already revoked
+            [],  # UPDATE connections matched nothing
+        ]
+    )
+    calls: list[dict] = []
+    with (
+        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
+        patch.object(
+            svc,
+            "_end_one_location_circle_memberships",
+            lambda **kwargs: calls.append(kwargs),
+        ),
+    ):
+        out = svc.remove_connection("user-a", "conn-1")
+
+    assert out == {"removed": 0}
+    assert calls == []
+
+
+def test_circle_cleanup_runs_after_the_connection_is_revoked():
+    """Order is load-bearing, not stylistic.
+
+    The cleanup reconciles grants the Circle authorized, and that
+    reconciliation asks whether an INDEPENDENT relationship still supports each
+    share. Run before the connection row is revoked, it would find the
+    connection this very statement is in the middle of ending and answer yes --
+    preserving a share as a connection-scoped one, moments before that
+    connection stops existing.
+    """
+    import inspect
+
+    from hushh_mcp.services.connections_service import ConnectionsService
+
+    source = inspect.getsource(ConnectionsService.remove_connection)
+    revoke_index = source.index("UPDATE connections")
+    cleanup_index = source.index("_end_one_location_circle_memberships")
+    assert revoke_index < cleanup_index
+
+
 def test_remove_connection_returns_zero_when_not_member_or_missing():
     svc = _svc()
     # SELECT returns no row — caller is not a member or id is unknown.

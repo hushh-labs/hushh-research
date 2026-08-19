@@ -3200,6 +3200,134 @@ class OneLocationCircleService:
             params,
         )
 
+    @staticmethod
+    def end_memberships_for_disconnected_pair(
+        conn: Any,
+        *,
+        user_a_id: str,
+        user_b_id: str,
+    ) -> list[dict[str, str]]:
+        """Take two people out of each other's Circles when they disconnect.
+
+        Runs on the CALLER's connection so it commits or rolls back with the
+        disconnect itself. A membership that outlives the connection is not a
+        stale row: `_lock_share_delivery` permits a delivery when there is an
+        active non-Circle connection origin OR a shared active Circle, so the
+        membership keeps the second arm of that OR true. Someone who removed
+        you as a connection would keep receiving your live location, and -- SOS
+        reads the system Circle's roster -- your address in an emergency.
+
+        Only Circles OWNED by one of the two are touched. A third person's
+        Circle that both happen to be in is left alone: they are both in it
+        because that person put them there, and two members falling out is not
+        the owner's decision to make. Either can leave it themselves.
+
+        `removed`, not `left`: neither of them chose to go. It also means the
+        owner is the only one who can put them back, which is right -- if they
+        reconnect, it is the owner's Circle to re-offer.
+        """
+
+        user_a = str(user_a_id or "").strip()
+        user_b = str(user_b_id or "").strip()
+        if not user_a or not user_b or user_a == user_b:
+            return []
+        ended = _all(
+            conn.execute(
+                text(
+                    """
+                    UPDATE one_location_circle_memberships membership
+                    SET status = 'removed',
+                        ended_at = NOW(),
+                        updated_at = NOW(),
+                        metadata = COALESCE(membership.metadata, '{}'::jsonb)
+                          || jsonb_build_object('endedBy', 'connection_removed')
+                    FROM one_location_circles circle
+                    WHERE circle.id = membership.circle_id
+                      AND circle.status = 'active'
+                      AND membership.status = 'active'
+                      -- Never the owner's own row. The owner does not leave
+                      -- their Circle by falling out with somebody in it.
+                      AND membership.role = 'member'
+                      AND (
+                        (
+                          circle.owner_user_id = :user_a
+                          AND membership.user_id = :user_b
+                        )
+                        OR (
+                          circle.owner_user_id = :user_b
+                          AND membership.user_id = :user_a
+                        )
+                      )
+                    RETURNING
+                      membership.circle_id::text AS circle_id,
+                      membership.user_id AS user_id
+                    """
+                ),
+                {"user_a": user_a, "user_b": user_b},
+            )
+        )
+        if not ended:
+            return []
+        for row in ended:
+            circle_id = str(row.get("circle_id") or "")
+            member_user_id = str(row.get("user_id") or "")
+            if not circle_id or not member_user_id:
+                continue
+            # The same tail `_end_membership` runs, for the same reasons: a
+            # shared bearer code the departing member may already know, the
+            # invitations they authored, the Circle-scoped provenance, and the
+            # grants the Circle authorized.
+            conn.execute(
+                text(
+                    """
+                    UPDATE one_location_circle_invite_codes
+                    SET status = 'revoked', revoked_at = NOW(),
+                        updated_at = NOW()
+                    WHERE circle_id = CAST(:circle_id AS UUID)
+                      AND status = 'active'
+                    """
+                ),
+                {"circle_id": circle_id},
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE one_location_circle_member_invites
+                    SET status = 'cancelled', cancelled_at = NOW(),
+                        updated_at = NOW()
+                    WHERE circle_id = CAST(:circle_id AS UUID)
+                      AND inviter_user_id = :member_user_id
+                      AND status = 'pending'
+                    """
+                ),
+                {"circle_id": circle_id, "member_user_id": member_user_id},
+            )
+            revoke_circle_origins(
+                conn,
+                circle_id=circle_id,
+                member_user_id=member_user_id,
+            )
+            OneLocationCircleService._reconcile_circle_sourced_grants(
+                conn,
+                circle_id=circle_id,
+                member_user_id=member_user_id,
+            )
+            OneLocationCircleService._cleanup_ineligible_sms_contacts(
+                conn,
+                user_id=member_user_id,
+            )
+        logger.info(
+            "one_location.circle_memberships_ended_on_disconnect count=%d",
+            len(ended),
+        )
+        return [
+            {
+                "circleId": str(row.get("circle_id") or ""),
+                "userId": str(row.get("user_id") or ""),
+            }
+            for row in ended
+        ]
+
     def _end_membership(
         self,
         *,

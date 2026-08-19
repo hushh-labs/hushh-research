@@ -389,6 +389,7 @@ RIA relationship bundle note:
 - investor private information -> RIA stays on explicit scope consent
 - RIA active picks feed -> investor is the reserved bilateral capability (`ria_active_picks_feed_v1`)
 - connection acceptance is social only; it grants no information access
+- disconnecting ends BOTH people's One Location Circle memberships in Circles the other OWNS, in the same transaction and after the connection row is revoked. One Location authorizes a delivery on an active non-Circle connection origin OR a shared active Circle, so a membership left behind keeps that permission alive on its own -- including the system Circle SOS reads. A third party's Circle both happen to be in is untouched; either can leave it
 - advisor picks require a current proposal, active relationship-share grant, and active share artifact with matching lineage
 - legacy RIA Picks uploads were product-authorized clean-start retirement; they have no read, migration, fallback, or access route
 
