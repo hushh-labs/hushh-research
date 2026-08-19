@@ -30,17 +30,24 @@
 # Env (all required except RUN_URL/ACTOR):
 #   ENVIRONMENT        uat | production
 #   SHA                the commit that was deployed
-#   BACKEND_REVISION, BACKEND_URL, FRONTEND_REVISION, FRONTEND_URL
+#   BACKEND_REVISION, BACKEND_SERVICE_URL, FRONTEND_REVISION, FRONTEND_SERVICE_URL
 #   RUN_URL            the GitHub Actions run URL, for the annotation
 #   ACTOR              who dispatched the deploy
+#
+# Named *_SERVICE_URL, not *_URL — this repo's runtime config contract
+# (scripts/ci/verify-runtime-config-contract.py) retired one specific bare
+# frontend-URL env-var name repo-wide (its canonical replacement is
+# APP_FRONTEND_ORIGIN). These are unrelated Cloud Run service URLs, but the
+# check matches on the literal name anywhere, so a different name avoids a
+# false collision.
 set -euo pipefail
 
 ENVIRONMENT="${ENVIRONMENT:?ENVIRONMENT is required (uat|production)}"
 SHA="${SHA:?SHA is required}"
 BACKEND_REVISION="${BACKEND_REVISION:-}"
-BACKEND_URL="${BACKEND_URL:-}"
+BACKEND_SERVICE_URL="${BACKEND_SERVICE_URL:-}"
 FRONTEND_REVISION="${FRONTEND_REVISION:-}"
-FRONTEND_URL="${FRONTEND_URL:-}"
+FRONTEND_SERVICE_URL="${FRONTEND_SERVICE_URL:-}"
 RUN_URL="${RUN_URL:-}"
 ACTOR="${ACTOR:-unknown}"
 
@@ -53,9 +60,9 @@ MESSAGE="$(cat <<EOF
 Last known good — ${ENVIRONMENT}
 sha: ${SHA}
 backend_revision: ${BACKEND_REVISION}
-backend_url: ${BACKEND_URL}
+backend_url: ${BACKEND_SERVICE_URL}
 frontend_revision: ${FRONTEND_REVISION}
-frontend_url: ${FRONTEND_URL}
+frontend_url: ${FRONTEND_SERVICE_URL}
 run: ${RUN_URL}
 actor: ${ACTOR}
 tagged_at: ${TIMESTAMP}

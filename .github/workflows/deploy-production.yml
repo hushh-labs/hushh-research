@@ -909,9 +909,9 @@ jobs:
           ENVIRONMENT: production
           SHA: ${{ github.event.inputs.sha }}
           BACKEND_REVISION: ${{ steps.final-state.outputs.backend_serving }}
-          BACKEND_URL: ${{ steps.backend-url.outputs.url }}
+          BACKEND_SERVICE_URL: ${{ steps.backend-url.outputs.url }}
           FRONTEND_REVISION: ${{ steps.final-state.outputs.frontend_serving }}
-          FRONTEND_URL: ${{ steps.frontend-url.outputs.url }}
+          FRONTEND_SERVICE_URL: ${{ steps.frontend-url.outputs.url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ACTOR: ${{ github.triggering_actor }}
         run: |

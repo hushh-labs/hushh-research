@@ -1259,9 +1259,9 @@ jobs:
           ENVIRONMENT: uat
           SHA: ${{ steps.resolve-sha.outputs.sha }}
           BACKEND_REVISION: ${{ steps.final-state.outputs.backend_revision }}
-          BACKEND_URL: ${{ steps.final-state.outputs.backend_url }}
+          BACKEND_SERVICE_URL: ${{ steps.final-state.outputs.backend_url }}
           FRONTEND_REVISION: ${{ steps.final-state.outputs.frontend_revision }}
-          FRONTEND_URL: ${{ steps.final-state.outputs.frontend_url }}
+          FRONTEND_SERVICE_URL: ${{ steps.final-state.outputs.frontend_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ACTOR: ${{ github.triggering_actor }}
         run: |
