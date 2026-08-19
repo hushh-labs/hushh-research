@@ -513,6 +513,44 @@
           ]
         }
       ]
+    },
+    {
+      "name": "your-map-consent-button-is-never-a-silent-no-op",
+      "summary": "The renderer-consent card on Your Map (and on the check-in route, which mounts the same component) always answers a tap. With a lock it writes the current consent version and the card goes; with no lock it asks for the lock instead of offering a Continue it cannot complete; while the write is in flight it is busy, so one decision sends one request; and a map-state read that started before the write can never revive the card the owner already dismissed.",
+      "fixed_by": "fix/location-map-continue-noop",
+      "why_it_needs_a_lock": [
+        "The bug WAS `if (!vaultOwnerToken) return;` as the first line of",
+        "acceptRenderer, and it shipped from the day the handler was written",
+        "(84d0b1000, 2026-07-23, PR #4650) to 2026-08-19 without one test ever",
+        "reaching it -- because the suite's vault mock was a hardcoded truthy",
+        "token with no way for a case to vary it. VaultLockGuard renders /one",
+        "children with a NULL token on purpose when the account has no lock",
+        "(`if (hasVault === false) return children`), so that state is not",
+        "theoretical: a UAT session opened /one/location/map at 18:15:50Z on",
+        "2026-08-19 and produced neither the token-gated map-state read nor a",
+        "map-preferences PATCH. The whole screen -- markers, people tray, the",
+        "Sharing count and every part of Nearby Check-In -- sits behind that one",
+        "button, so a silent return there takes the entire surface down while",
+        "leaving it looking completely alive.",
+        "",
+        "Delete the falsy-token case and the screen can go back to doing nothing",
+        "with nothing said, and no other test in the repository would notice: the",
+        "map suite and the vault-guard suite live in different targeted packs, so",
+        "the seam this bug lives in is covered by neither."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/__tests__/components/location-immersive-map.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 200,
+          "required_titles": [
+            "writes the current consent version and dismisses the card",
+            "asks for the missing lock instead of doing nothing when there is no owner token",
+            "sends one write for a double tap",
+            "never lets a map-state read that started earlier revive the dismissed card"
+          ]
+        }
+      ]
     }
   ]
 }

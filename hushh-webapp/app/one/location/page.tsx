@@ -7884,7 +7884,15 @@ export function OneLocationAgentPageContent({
             ? selected.map((recipient) => recipient.userId)
             : recipientIds,
       };
-      if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
+      // Two different blockers, and they were answered with one sentence. An
+      // account with no lock has no owner token to encrypt a check-in with,
+      // and telling that person to grant location permission sends them to
+      // change a setting that was never the problem.
+      if (!vaultOwnerToken) {
+        toast.error("Set a lock first.");
+        return failedSelection;
+      }
+      if (locationPermissionBlocksSharing(permission)) {
         toast.error("Location permission is required to check in.");
         return failedSelection;
       }
