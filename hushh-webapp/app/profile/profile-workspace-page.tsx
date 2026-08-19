@@ -3885,7 +3885,7 @@ function ProfilePageContent() {
     if (activeDetail === "kai-preferences") {
       profileStackEntries.push({
         key: "detail:kai-preferences",
-        title: "Kai preferences",
+        title: "Investing preferences",
         description: "Investing preferences.",
         content: (
           <ProfileKaiPreferencesPanel
