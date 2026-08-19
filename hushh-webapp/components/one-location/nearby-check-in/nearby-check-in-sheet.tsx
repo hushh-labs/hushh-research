@@ -31,11 +31,11 @@ import {
 } from "@/components/one-location/redesign/duration-presets";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Sheet,
   SheetContent,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -73,7 +73,6 @@ import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
 
 const SUCCESS_ROLE = SEMANTIC_ROLE_CLASSES.success;
-const NEUTRAL_ROLE = SEMANTIC_ROLE_CLASSES.neutral;
 
 const DURATIONS = [
   { value: 30 as const, label: "30 min" },
@@ -1359,6 +1358,10 @@ export function NearbyCheckInSheet({
       }
       if (!hasCheckInAccuracy(freshPoint)) {
         setPoint(null);
+        // The recovery panel this powers only renders in the picker view, so
+        // a stale selection here would strand the owner on the collapsed
+        // summary with a silently-disabled button and no visible way back.
+        setSelectedPlaceId("");
         setLocationRecovery(isNative() ? "app-settings" : null);
         setLocationError(
           "We couldn't confirm where you are at the moment you checked in. Nothing was shared — try again in a second.",
@@ -1404,6 +1407,9 @@ export function NearbyCheckInSheet({
       const details = OneLocationService.nearbyCheckInErrorDetails(error);
       if (details.retryLocation) {
         setPoint(null);
+        // Same reasoning as the accuracy gate above: this error only has a
+        // visible home in the picker view.
+        setSelectedPlaceId("");
         setLocationError(details.message);
         setLocationRecovery(
           details.openAppSettings && isNative() ? "app-settings" : null,
@@ -1686,21 +1692,6 @@ export function NearbyCheckInSheet({
         <SheetHeader className="gap-0 border-b border-border/60 px-5 py-4 text-left">
           <div className="flex min-h-9 items-center gap-2 pr-10">
             <SheetTitle className="text-[17px] leading-6">Check in</SheetTitle>
-            {/* Preview reports how finished the FEATURE is, not a state the
-                person is in, so it is secondary utility and takes the resting
-                neutral. Orange is spent elsewhere on Location for "awaiting
-                acceptance" and "needs my review"; spending it on a build label
-                too would dilute the one attention signal. The word keeps the
-                label tone so a 10px uppercase badge stays readable. */}
-            <span
-              className={cn(
-                "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                NEUTRAL_ROLE.tile,
-                "text-[color:var(--app-label)]",
-              )}
-            >
-              Preview
-            </span>
           </div>
         </SheetHeader>
 
@@ -1839,21 +1830,41 @@ export function NearbyCheckInSheet({
               </section>
 
               <section aria-labelledby="nearby-people-title">
-                <div className="flex items-end justify-between gap-3">
-                  <div>
-                    <h2 id="nearby-people-title" className="font-semibold">
-                      People nearby
-                    </h2>
-                    <p className="text-sm text-muted-foreground">
-                      Nearby check-ins appear in this list, not as map pins. A
-                      pin appears only after that person explicitly shares
-                      their location with you.
-                    </p>
-                  </div>
-                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold">
-                    {state.attendees.length}
-                  </span>
+                {/*
+                  The count belongs to the heading it counts.
+
+                  `items-end justify-between` pushed it to the far right of a
+                  three-line block, so it floated level with the middle of a
+                  paragraph with nothing beside it -- a bare "0" adrift in the
+                  corner of the card, which is exactly how it was reported. And
+                  a zero is not a count worth printing at all: the empty state
+                  immediately below says "No one else is checked in nearby yet"
+                  in words, so the badge only appears once there is somebody.
+                */}
+                <div className="flex items-center gap-2">
+                  <h2 id="nearby-people-title" className="font-semibold">
+                    People nearby
+                  </h2>
+                  {state.attendees.length ? (
+                    <span
+                      className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums"
+                      data-testid="nearby-attendee-count"
+                    >
+                      {state.attendees.length}
+                    </span>
+                  ) : null}
                 </div>
+                {/*
+                  One statement of the privacy rule, not two. This sentence and
+                  the footnote that used to close the drawer said the same thing
+                  -- nearby people are a list, never a pin -- one under the
+                  heading and one under the Check out button, so a person reading
+                  top to bottom met the same reassurance twice in a single
+                  screen. Kept here, where the list it describes actually is.
+                */}
+                <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
+                  They appear here as a list, never as pins on your map.
+                </p>
                 {state.attendees.length ? (
                   <ul className="mt-2" data-testid="nearby-attendee-roster">
                     {state.attendees.map((attendee) => (
@@ -1909,17 +1920,84 @@ export function NearbyCheckInSheet({
                 ) : null}
                 Check out now
               </Button>
-              <p className="text-center text-xs text-muted-foreground">
-                Nearby people appear as a list. Their precise locations are
-                never pinned on your map.
-              </p>
             </div>
           ) : (
             <div className="space-y-5" data-testid="nearby-presence-setup">
+              {!selectedPlace ? (
+                <p className="-mt-2 text-sm leading-5 text-muted-foreground">
+                  Choose a nearby place.
+                </p>
+              ) : null}
+
+              {selectedPlace ? (
+                <section>
+                  {(() => {
+                    const name = selectedPlace.name?.trim() || selectedPlace.text;
+                    const metadata = Array.from(
+                      new Set(
+                        [
+                          selectedPlace.category?.trim(),
+                          selectedPlace.address?.trim(),
+                        ].filter((value): value is string => Boolean(value)),
+                      ),
+                    );
+                    const secondaryLine =
+                      metadata.join(" · ") ||
+                      distanceLabel(selectedPlace.distanceMeters);
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPlaceId("")}
+                        className="flex w-full min-h-[68px] items-center gap-3 rounded-2xl border border-border/60 bg-muted/50 px-4 py-3 text-left"
+                      >
+                        <MapPin className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-1.5">
+                            <span
+                              title={name}
+                              className="truncate text-[15px] font-semibold leading-5"
+                            >
+                              {name}
+                            </span>
+                            <Check
+                              className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
+                              aria-hidden
+                            />
+                            <span className="sr-only">Selected</span>
+                          </span>
+                          {secondaryLine ? (
+                            <span
+                              title={secondaryLine}
+                              className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground"
+                            >
+                              {secondaryLine}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="shrink-0 text-[13px] font-semibold text-[var(--app-accent)]">
+                          Change
+                        </span>
+                      </button>
+                    );
+                  })()}
+                  {offsetNotice(selectedPlaceOffsetMeters) ? (
+                    <p
+                      className="mt-2 flex items-start gap-1.5 text-xs leading-4 text-muted-foreground"
+                      data-testid="nearby-selected-place-offset"
+                    >
+                      <LocateFixed
+                        className="mt-px h-3.5 w-3.5 shrink-0"
+                        aria-hidden="true"
+                      />
+                      <span>{offsetNotice(selectedPlaceOffsetMeters)}</span>
+                    </p>
+                  ) : null}
+                </section>
+              ) : (
               <section>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="font-semibold">Places within 500 m</h2>
+                    <h2 className="font-semibold">Nearby places</h2>
                   </div>
                   {capturing ? (
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -2022,7 +2100,7 @@ export function NearbyCheckInSheet({
                     ) : null}
                     <label className="relative mt-3 block">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <span className="sr-only">Search</span>
+                      <span className="sr-only">Search places</span>
                       <Input
                         value={search}
                         onChange={(event) => {
@@ -2038,7 +2116,7 @@ export function NearbyCheckInSheet({
                           }
                         }}
                         disabled={!point || capturing}
-                        placeholder="Search"
+                        placeholder="Search places"
                         className="h-11 rounded-full pl-9"
                       />
                       {searching ? (
@@ -2046,6 +2124,11 @@ export function NearbyCheckInSheet({
                       ) : null}
                     </label>
 
+                    {/* Category filters stay out of the initial compact list —
+                        three nearest places need no filter chrome. They appear
+                        once "See all" expands the picker (visiblePlacesCount is
+                        the single source of truth for "expanded"). */}
+                    {visiblePlacesCount > 3 ? (
                     <div
                       className={cn(
                         "mt-3 flex gap-2 overflow-x-auto pb-1",
@@ -2083,6 +2166,7 @@ export function NearbyCheckInSheet({
                         </Button>
                       ))}
                     </div>
+                    ) : null}
 
                     <div
                       className={cn(
@@ -2152,28 +2236,11 @@ export function NearbyCheckInSheet({
                             className="w-full text-muted-foreground"
                             onClick={() => setVisiblePlacesCount(places.length)}
                           >
-                            Show all {places.length} places
+                            See all {places.length} places
                           </Button>
                         </div>
                       ) : null}
                     </div>
-                    {/*
-                      The owner's point and their venue are two different places
-                      and can be a street apart. Naming the gap is what lets
-                      them tell the hotel they are in from the one behind it.
-                    */}
-                    {selectedPlace && offsetNotice(selectedPlaceOffsetMeters) ? (
-                      <p
-                        className="mt-2 flex items-start gap-1.5 text-xs leading-4 text-muted-foreground"
-                        data-testid="nearby-selected-place-offset"
-                      >
-                        <LocateFixed
-                          className="mt-px h-3.5 w-3.5 shrink-0"
-                          aria-hidden="true"
-                        />
-                        <span>{offsetNotice(selectedPlaceOffsetMeters)}</span>
-                      </p>
-                    ) : null}
                     {!places.length &&
                     !capturing &&
                     !searching &&
@@ -2196,7 +2263,7 @@ export function NearbyCheckInSheet({
                           className="mt-3"
                           onClick={() => selectCategory("all")}
                         >
-                          Show all {automaticPlaces.length} places
+                          See all {automaticPlaces.length} places
                         </Button>
                       </div>
                     ) : null}
@@ -2220,99 +2287,107 @@ export function NearbyCheckInSheet({
                   </>
                 )}
               </section>
+              )}
 
-              <section>
-                <div className="flex items-center gap-2">
-                  <Clock3 className="h-4 w-4 text-muted-foreground" />
-                  <h2 className="font-semibold">Stay visible for</h2>
-                </div>
-                {/* Raw <button>, not the morphy <Button>: at `size="default"`
-                    that component carries min-h-[50px] in a different
-                    tailwind-merge group from h-*, and `.ui-text-button-label`
-                    forces 17px !important — so it cannot be made compact from
-                    the outside. These are the same class strings the share
-                    duration ladder uses for the identical role (44px, 15px),
-                    so the two duration controls in this product can no longer
-                    disagree about how big a duration choice is. */}
-                <div className={cn("mt-3", DURATION_GRID_CLASS)}>
-                  {DURATIONS.map((duration) => (
-                    <button
-                      key={duration.value}
-                      type="button"
-                      aria-pressed={durationMinutes === duration.value}
-                      onClick={() => setDurationMinutes(duration.value)}
-                      className={cn(
-                        DURATION_CELL_CLASS,
-                        durationMinutes === duration.value
-                          ? DURATION_CELL_ON_CLASS
-                          : DURATION_CELL_OFF_CLASS,
-                      )}
-                    >
-                      {duration.label}
-                    </button>
-                  ))}
-                </div>
-              </section>
+              {/* Duration and visibility settings stay hidden until a place is
+                  chosen — presenting every setting before there is anything to
+                  apply them to is exactly the "homework" density this screen
+                  used to read as. */}
+              {selectedPlace ? (
+                <>
+                  <section>
+                    <div className="flex items-center gap-2">
+                      <Clock3 className="h-4 w-4 text-muted-foreground" />
+                      <h2 className="font-semibold">Visible for</h2>
+                    </div>
+                    {/* Raw <button>, not the morphy <Button>: at `size="default"`
+                        that component carries min-h-[50px] in a different
+                        tailwind-merge group from h-*, and `.ui-text-button-label`
+                        forces 17px !important — so it cannot be made compact from
+                        the outside. These are the same class strings the share
+                        duration ladder uses for the identical role (44px, 15px),
+                        so the two duration controls in this product can no longer
+                        disagree about how big a duration choice is. */}
+                    <div className={cn("mt-3", DURATION_GRID_CLASS)}>
+                      {DURATIONS.map((duration) => (
+                        <button
+                          key={duration.value}
+                          type="button"
+                          aria-pressed={durationMinutes === duration.value}
+                          onClick={() => setDurationMinutes(duration.value)}
+                          className={cn(
+                            DURATION_CELL_CLASS,
+                            durationMinutes === duration.value
+                              ? DURATION_CELL_ON_CLASS
+                              : DURATION_CELL_OFF_CLASS,
+                          )}
+                        >
+                          {duration.label}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
 
-              <section className="space-y-3 rounded-2xl border border-border/60 p-4">
-                <label className="flex cursor-pointer items-start gap-3">
-                  <Checkbox
-                    className="mt-0.5"
-                    checked={consentAccepted}
-                    onCheckedChange={(checked) =>
-                      setConsentAccepted(checked === true)
-                    }
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-semibold">
-                      Appear nearby
-                    </span>
-                    <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
-                      People see your name only.
-                    </span>
-                  </span>
-                </label>
+                  <section className="space-y-3 rounded-2xl border border-border/60 p-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold">Show me nearby</p>
+                        <p className="mt-0.5 text-xs leading-4 text-muted-foreground">
+                          People nearby can see your name.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={consentAccepted}
+                        onCheckedChange={setConsentAccepted}
+                        aria-label="Show me to people nearby"
+                      />
+                    </div>
 
-                <div className="flex items-center justify-between gap-4 border-t border-border/60 pt-3">
-                  <div>
-                    <p className="text-sm font-semibold">
-                      Connection requests
-                    </p>
-                  </div>
-                  <Switch
-                    checked={allowConnectionRequests}
-                    onCheckedChange={setAllowConnectionRequests}
-                    aria-label="Allow nearby connection requests"
-                  />
-                </div>
-              </section>
-
-              <Button
-                type="button"
-                // Both halves, or neither lands: `h-12` alone loses to the
-                // size variant's own min-h-[50px], which is why this button has
-                // been 50px the whole time its class said 48.
-                className="h-12 min-h-12 w-full disabled:!bg-muted disabled:!text-muted-foreground disabled:!opacity-100"
-                disabled={
-                  busy !== null ||
-                  capturing ||
-                  searching ||
-                  !point ||
-                  !selectedPlace ||
-                  !consentAccepted
-                }
-                onClick={() => void checkIn()}
-              >
-                {busy === "check-in" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <UsersRound className="h-4 w-4" />
-                )}
-                Check in
-              </Button>
+                    <div className="flex items-center justify-between gap-4 border-t border-border/60 pt-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold">
+                          Allow people to connect
+                        </p>
+                      </div>
+                      <Switch
+                        checked={allowConnectionRequests}
+                        onCheckedChange={setAllowConnectionRequests}
+                        aria-label="Allow nearby connection requests"
+                      />
+                    </div>
+                  </section>
+                </>
+              ) : null}
             </div>
           )}
         </div>
+        {!loadingPresence && !state.presence ? (
+          <SheetFooter className="border-t border-border/60 px-5 pt-3">
+            <Button
+              type="button"
+              // Both halves, or neither lands: `h-12` alone loses to the
+              // size variant's own min-h-[50px], which is why this button has
+              // been 50px the whole time its class said 48.
+              className="h-12 min-h-12 w-full disabled:!bg-muted disabled:!text-muted-foreground disabled:!opacity-100"
+              disabled={
+                busy !== null ||
+                capturing ||
+                searching ||
+                !point ||
+                !selectedPlace ||
+                !consentAccepted
+              }
+              onClick={() => void checkIn()}
+            >
+              {busy === "check-in" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <UsersRound className="h-4 w-4" />
+              )}
+              {selectedPlace ? "Check in" : "Choose a place"}
+            </Button>
+          </SheetFooter>
+        ) : null}
       </SheetContent>
     </Sheet>
   );

@@ -112,7 +112,7 @@ export async function buildTrustedDevicePasskeyHandoff(params: {
     wrapper.iv,
   );
   if (!vaultKey) {
-    throw new Error("The selected One passkey could not unlock this vault.");
+    throw new Error("The selected One passkey could not unlock this.");
   }
   await VaultService.assertVaultKeyMatchesState(vaultState, vaultKey);
 

@@ -29,12 +29,17 @@ export function formatLocationDurationLabel(
 }
 
 /**
- * "45 more min", "1h 30m more", "3 more hours" — what is actually left.
+ * "45 min", "1h 30m", "3 hours" — what is actually left.
  *
- * Truthful over tidy. The previous rounding turned 90 minutes into "2 more
- * hours", so a share said it had more time left than it did; a countdown that
- * overstates itself is worse than no countdown, because it is the number people
- * decide when to leave on.
+ * No "more": a fresh share that was never extended read "37 more min" as if
+ * time had been added to it, when nothing had. This is a plain remaining-time
+ * countdown, not a record of an extension -- that distinction belongs to the
+ * "${amount} more" wording used elsewhere for an actual add-time request.
+ *
+ * Truthful over tidy on the rounding, still: the previous version turned 90
+ * minutes into "2 hours", so a share said it had more time left than it did;
+ * a countdown that overstates itself is worse than no countdown, because it
+ * is the number people decide when to leave on.
  */
 export function formatLocationRemaining(
   untilMs: number,
@@ -43,11 +48,11 @@ export function formatLocationRemaining(
   const remainingMs = untilMs - nowMs;
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) return null;
   const totalMinutes = Math.ceil(remainingMs / 60_000);
-  if (totalMinutes < 60) return `${totalMinutes} more min`;
+  if (totalMinutes < 60) return `${totalMinutes} min`;
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  if (minutes) return `${hours}h ${minutes}m more`;
-  return hours === 1 ? "1 more hour" : `${hours} more hours`;
+  if (minutes) return `${hours}h ${minutes}m`;
+  return hours === 1 ? "1 hour" : `${hours} hours`;
 }
 
 /** Milliseconds for an ISO timestamp, or null when missing/unparseable. */
@@ -64,7 +69,7 @@ export type LocationAskFacts = {
   isExtension: boolean;
   /** "3 hours", "as long as they need", or "" when no amount was named. */
   amountLabel: string;
-  /** "45 more min" left on the share being extended, when known. */
+  /** "45 min" left on the share being extended, when known. */
   remainingLabel: string;
 };
 
@@ -160,4 +165,28 @@ export function locationApproveActionLabel(
     return "Approve until you stop";
   }
   return isExtension ? `Approve ${amountLabel} more` : `Approve ${amountLabel}`;
+}
+
+/**
+ * The picker options for amending a request's duration at approval time:
+ * the standard presets plus the exact amount asked for, so the picker can
+ * open showing the true current selection instead of silently snapping to
+ * whichever preset happens to be closest and disagreeing with the Approve
+ * button's own number one line below it. `null` for an open-ended
+ * ("until I stop") ask, which this picker does not offer a timed override
+ * for.
+ */
+export function approvalDurationOptions(
+  request: Pick<OneLocationAccessRequest, "requestedDurationHours" | "requestedDurationMode">,
+  presets: { value: string; label: string }[],
+): { value: string; label: string }[] | null {
+  if (request.requestedDurationMode === "until_stopped") return null;
+  const hours = Number(request.requestedDurationHours);
+  if (!Number.isFinite(hours) || hours <= 0) return null;
+  if (presets.some((option) => Number(option.value) === hours)) return presets;
+  const label = formatLocationDurationLabel(hours);
+  if (!label) return presets;
+  return [...presets, { value: String(hours), label }].sort(
+    (a, b) => Number(a.value) - Number(b.value),
+  );
 }

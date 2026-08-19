@@ -1,17 +1,28 @@
 .shell {
   position: relative;
   display: flex;
+  /* Apple blue, scoped to this screen only. It is a local token rather than a
+     bare hex so the Molten Gold accent preference still repaints the screen
+     instead of stranding one blue surface inside a gold app. */
+  /* Three roles, three tokens. Under the default blue all three resolve to
+     the same pair of values, but they are NOT interchangeable under the
+     Molten Gold preference: globals.css documents the flat token as a FILL
+     that must never paint a glyph, `-deep` as the text-legible tone on light,
+     and `-fg` as the only correct colour for text sitting ON the fill. One
+     token driving all three is how a button label lands at 2.2:1. */
+  --intro-blue: #0071e3; /* fill: the button */
+  --intro-blue-hover: #0064ca; /* fill: pressed */
+  --intro-blue-text: #0071e3; /* glyph: the word One */
+  --intro-blue-fg: #ffffff; /* text sitting ON the fill */
+  --intro-secondary: #6e6e73; /* secondary text, 4.91:1 on the canvas */
   /* The outer app scroll root already reserves --app-scroll-bottom-pad of
      clearance below this element for the fixed onboarding Agent Bar (see
      app/providers.tsx), then adds it back as its own padding-bottom. Sizing
      this element to a full 100dvh on top of that reservation made the total
      scrollable content one full screen PLUS the bar clearance, forcing
-     scroll on every device and leaving a background seam in the reserved
-     strip (this element's own background stops at its own box, one dvh
-     tall, so the extra strip below showed the plain page background
-     instead). Subtracting the reservation here makes shell + reserved
-     padding equal exactly one viewport, so the page always fits without
-     scrolling and the background never runs out early. */
+     scroll on every device. Subtracting the reservation here makes shell +
+     reserved padding equal exactly one viewport, so the page always fits
+     without scrolling. */
   /* `dvh` can grow and shrink while mobile browser controls animate. The
      welcome is a single-screen composition, so use the small viewport as its
      stable upper bound. This prevents Safari's expanded browser chrome from
@@ -20,14 +31,35 @@
   min-block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
   width: 100%;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
+}
+
+:global(html[data-accent="gold"]) .shell {
+  --intro-blue: var(--app-accent);
+  --intro-blue-hover: var(--app-accent-hover);
+  --intro-blue-text: var(--app-accent-deep);
+  --intro-blue-fg: var(--app-accent-fg);
+}
+
+:global(.dark) .shell {
+  --intro-secondary: var(--foundation-dim);
 }
 
 .stage {
   position: relative;
   z-index: 10;
   display: grid;
-  block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
+  /* A phone is ~844px tall; a laptop is not. Without a ceiling the `1fr`
+     middle row turned every extra pixel of a desktop viewport into empty
+     space above and below One, which read as a broken page rather than a
+     calm one. 760px is exactly what a 390x844 phone already gives this
+     screen (844 minus the 84px the scroll root reserves), so the cap is a
+     no-op on a phone and only stops a laptop from stretching it. */
+  max-block-size: 760px;
+  align-self: center;
+  block-size: 100%;
   min-height: 0;
   width: 100%;
   max-width: 34rem;
@@ -46,136 +78,154 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
+  animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
 }
 
 .wordmark {
-  height: 34px;
+  height: 33px;
   width: auto;
 }
 
+/* The hero owns the whole middle row and centres inside it, so the empty
+   space above and below One is real breathing room rather than padding
+   guessed per device height. */
 .hero {
   align-self: center;
   display: flex;
   width: 100%;
   max-width: 30rem;
   margin: 0 auto;
-  transform: translateY(-8px);
   flex-direction: column;
   align-items: center;
 }
 
+/* What One is, in four words, before the mark. Small, tracked, and quiet —
+   this sets up the mark rather than competing with it. */
 .eyebrow {
-  margin: 0;
-  color: var(--foundation-dim);
+  margin: 0 0 12px;
+  color: var(--intro-secondary);
   font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.26em;
-  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 220ms both;
+  animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both;
 }
 
-.emoji {
-  margin-top: 32px;
-  font-size: 48px;
+/* The mark and its wash. `closest-side` keeps the gradient a circle inside
+   the square box no matter how the emoji font measures, and the accent is
+   read from the glyph token so Molten Gold repaints the wash with it. */
+.markWrap {
+  position: relative;
+  display: flex;
+  width: 168px;
+  height: 168px;
+  align-items: center;
+  justify-content: center;
+  animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 160ms both;
+}
+
+.markGlow {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in oklab, var(--intro-blue-text) 28%, transparent),
+    color-mix(in oklab, var(--intro-blue-text) 7%, transparent) 56%,
+    transparent 74%
+  );
+  filter: blur(5px);
+}
+
+/* Apple Color Emoji first: the mark is the brand's glyph and must render as
+   the colour emoji, not a monochrome fallback glyph. */
+.quietMark {
+  position: relative;
+  font-family:
+    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 80px;
   line-height: 1;
-  filter: drop-shadow(0 8px 18px rgba(109, 67, 26, 0.16));
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 280ms both;
 }
 
 .title {
-  margin: 12px 0 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  margin-top: 22px;
   font-family: var(--font-app-display);
   line-height: 1;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 340ms both;
+  animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 240ms both;
 }
 
-.molten {
-  display: inline-block;
-  margin: -0.05em -0.04em;
-  padding: 0.06em 0.08em;
-  /* Hero foil gradient follows the app accent (iOS Blue default, Molten
-     Gold under html[data-accent="gold"]) via the shared hero stops. */
-  background-image: linear-gradient(
-    98deg,
-    var(--app-accent-hero-from) 0%,
-    var(--app-accent-hero-mid) 40%,
-    var(--app-accent-hero-to) 50%,
-    var(--app-accent-hero-mid) 60%,
-    var(--app-accent-hero-from) 100%
+.titleGlow {
+  position: absolute;
+  width: 280px;
+  height: 150px;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in oklab, var(--intro-blue-text) 16%, transparent),
+    transparent 72%
   );
-  background-size: 300% 100%;
-  background-position: 30% 50%;
+  filter: blur(8px);
+}
+
+/* The one bold element on the screen. A single restrained pass of the app's
+   own hero-gradient stops (iOS Blue default, Molten Gold under
+   html[data-accent="gold"] — the same tokens the top bar's brand dot already
+   uses), not the old three-stop mirrored sheen: no repeated background-size
+   trick, one direction, so at this size it reads as warmth on the glyph
+   rather than a logo effect competing with the button. `color` stays set as
+   a same-family fallback for anything that does not support
+   background-clip: text. */
+.oneMark {
+  display: inline-block;
+  color: var(--intro-blue-text);
+  background-image: linear-gradient(
+    100deg,
+    var(--app-accent-hero-from) 0%,
+    var(--app-accent-hero-mid) 48%,
+    var(--app-accent-hero-to) 100%
+  );
   background-clip: text;
-  color: transparent;
-  font-family: var(--font-app-display);
-  font-size: clamp(88px, 29vw, 118px);
-  font-weight: 800;
-  letter-spacing: -4px;
-  line-height: 1.04;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-}
-
-.divider {
-  width: 100%;
-  height: 1px;
-  margin-top: 36px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in oklab, var(--foundation-gold-deep) 34%, transparent),
-    transparent
-  );
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 370ms both;
+  font-family: var(--font-app-display);
+  font-size: clamp(76px, 26vw, 104px);
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
 }
 
 .tagline {
-  max-width: 22rem;
-  margin: 36px auto 0;
+  /* `balance` splits the sentence at its natural phrase break instead of
+     wherever the box happens to run out, which is what keeps a centred
+     two-line supporting line from looking accidental. */
+  text-wrap: balance;
+  max-width: 19rem;
+  margin: 16px auto 0;
   color: var(--foundation-ink);
   font-size: 20px;
   font-weight: 600;
-  letter-spacing: -0.2px;
-  line-height: 1.35;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 420ms both;
+  letter-spacing: -0.02em;
+  line-height: 1.36;
+  animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 320ms both;
 }
 
-.motions {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  margin-top: 26px;
-  color: var(--foundation-dim);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  line-height: 1.2;
+/* The four motions, in one quiet line beneath the statement — subtle enough
+   that One and the statement above it stay the loudest things on screen. */
+.capabilities {
+  margin: 10px auto 0;
+  max-width: 20rem;
+  color: var(--intro-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  white-space: nowrap;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 500ms both;
-}
-
-.motionItem {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.motionDot {
-  opacity: 0.42;
-}
-
-.description {
-  max-width: 23rem;
-  margin: 30px auto 0;
-  color: var(--foundation-dim);
-  font-size: 16px;
-  line-height: 1.45;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 580ms both;
+  line-height: 1.5;
+  animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 360ms both;
 }
 
 .footer {
@@ -183,50 +233,75 @@
   width: 100%;
   max-width: 30rem;
   margin: 0 auto;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 680ms both;
+  animation: reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) 400ms both;
 }
 
 .cta {
   position: relative;
   overflow: hidden;
   display: inline-flex;
-  min-height: 56px;
+  min-height: 58px;
   width: 100%;
   align-items: center;
   justify-content: center;
   gap: 10px;
   border: 0;
-  border-radius: 999px;
-  /* Accent morphy: flat accent fill that follows the accent preference
-     (iOS Blue default, Molten Gold opt-in). No gradient, no shadow. */
-  background: var(--app-accent);
-  color: var(--app-accent-fg);
+  border-radius: 980px;
+  background: var(--intro-blue);
+  /* A wash of the accent, not a drop shadow: it lifts the only action on the
+     screen without putting a grey edge under it. */
+  box-shadow: 0 12px 30px
+    color-mix(in oklab, var(--intro-blue) 32%, transparent);
+  color: var(--intro-blue-fg);
   font-family: var(--font-app-body);
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  /* Not `1`. The arrow glyph's box is taller than a 19px line box, and this
+     button sets `overflow: hidden` for the ripple, so a line-height of 1
+     genuinely clips the label's descender rather than merely looking tight.
+     Chromium reports it; WebKit does not — which is why the contract runs on
+     both. */
+  line-height: 1.2;
   transition:
     background-color var(--motion-duration-sm) var(--motion-ease-standard);
 }
 
 .cta:hover {
-  background: var(--app-accent-hover);
+  background: var(--intro-blue-hover);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .cta {
-    transition: none;
-  }
+/* Apple's secondary label tone. `--foundation-dim` (#86868b) measures 3.51:1
+   on this ground — under the 4.5:1 floor for text this size, and this screen
+   has to be readable by a 10-year-old and an 80-year-old. #6e6e73 is 4.91:1
+   and still reads as quiet secondary. */
+.privacy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 18px 0 0;
+  color: var(--intro-secondary);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+.privacyIcon {
+  height: 13px;
+  width: 13px;
+  flex-shrink: 0;
+  stroke-width: 2;
 }
 
 .links {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 16px;
+  margin-top: 18px;
   border-top: 1px solid var(--foundation-hairline);
-  color: var(--foundation-dim);
-  font-size: 12px;
-  font-weight: 600;
+  color: var(--intro-secondary);
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .link {
@@ -234,56 +309,87 @@
   min-height: 46px;
   align-items: center;
   justify-content: center;
-  border-left: 1px solid var(--foundation-hairline);
   text-align: center;
   line-height: 1.1;
-}
-
-.link:first-child {
-  border-left: 0;
 }
 
 @keyframes reveal {
   from {
     opacity: 0;
-    transform: translate3d(0, 14px, 0);
-    filter: blur(6px);
+    transform: translate3d(0, 12px, 0);
   }
   to {
     opacity: 1;
     transform: translate3d(0, 0, 0);
-    filter: blur(0);
   }
 }
 
-@media (max-height: 740px) {
-  .hero {
-    transform: translateY(-4px);
+@media (prefers-reduced-motion: reduce) {
+  .cta {
+    transition: none;
   }
 
-  .emoji {
-    margin-top: 22px;
-    font-size: 42px;
+  .brand,
+  .eyebrow,
+  .title,
+  .tagline,
+  .capabilities,
+  .footer {
+    animation: none;
+  }
+}
+
+/* Short screens (iPhone SE and the landscape/keyboard cases) give back space
+   from the gaps first, exactly as the master rules require, before anything
+   touches type size or the 56px button. */
+@media (max-height: 780px) {
+  .eyebrow {
+    margin-bottom: 6px;
+    font-size: 11px;
   }
 
-  .molten {
-    font-size: clamp(76px, 26vw, 104px);
+  .markWrap {
+    width: 116px;
+    height: 116px;
   }
 
-  .divider {
-    margin-top: 24px;
+  .quietMark {
+    font-size: 58px;
+  }
+
+  .title {
+    margin-top: 14px;
+  }
+
+  .titleGlow {
+    width: 220px;
+    height: 112px;
+  }
+
+  .oneMark {
+    font-size: clamp(64px, 20vw, 84px);
   }
 
   .tagline {
-    margin-top: 24px;
+    margin-top: 12px;
+    font-size: 18px;
   }
 
-  .motions {
-    margin-top: 18px;
+  .capabilities {
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 1.4;
   }
 
-  .description {
-    margin-top: 20px;
-    font-size: 14px;
+  .privacy {
+    margin-top: 12px;
+  }
+
+  .links {
+    margin-top: 12px;
+  }
+
+  .link {
+    min-height: 44px;
   }
 }

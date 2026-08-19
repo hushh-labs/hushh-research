@@ -138,7 +138,7 @@ function describeGuard(guardId: string): string {
     case "auth_signed_in":
       return "User must be signed in.";
     case "vault_unlocked":
-      return "Vault must be unlocked.";
+      return "Unlock first.";
     case "portfolio_required":
       return "Portfolio information must already exist.";
     case "analysis_idle_required":

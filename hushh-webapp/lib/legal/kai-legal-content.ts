@@ -67,7 +67,7 @@ export const KAI_LEGAL_DOCUMENTS: Record<KaiLegalDocumentType, KaiLegalDocument>
         title: "Consent-First Access",
         points: [
           "All protected information access requires a consent token; signed-in identity alone is not sufficient.",
-          "Vault-owner flows are consent-gated and all consent operations are auditable.",
+          "Access to a client's data is consent-gated end to end, and every consent operation is auditable.",
         ],
       },
       {

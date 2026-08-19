@@ -3791,7 +3791,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/profile/preferences/voice",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fvoice",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -3807,9 +3807,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/one/profile/preferences/voice/changelog",
@@ -3836,7 +3834,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/profile/preferences/voice/changelog",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fvoice%2Fchangelog",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -3852,9 +3850,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/one/profile/receipts",
@@ -5724,5 +5720,5 @@
       ]
     }
   ],
-  "content_sha256": "8f1950a9bd48f30546784996619bbf1b7087a3999d274b27aa663ee131b4810a"
+  "content_sha256": "36b7b0673c3274c730350fb2fd465e4e56d5eff562823d7ce1d0c4270e157ee5"
 }

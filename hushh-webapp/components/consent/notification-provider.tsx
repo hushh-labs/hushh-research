@@ -917,6 +917,10 @@ export function ConsentNotificationProvider({
         extendsGrantExpiresAt: data.extends_grant_expires_at || null,
         grantedDurationHours: data.duration_hours || null,
         grantedDurationMode: data.duration_mode || null,
+        // Which lane ended. Stamped by the service on the revoke payload,
+        // because the grant is gone by the time this arrives -- the client
+        // cannot look the kind up from a share that no longer exists.
+        shareKind: data.share_kind || null,
       });
       const copy = {
         title:

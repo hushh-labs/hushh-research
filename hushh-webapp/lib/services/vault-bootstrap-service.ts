@@ -122,7 +122,7 @@ function resolveRpId(): string {
   });
 }
 
-function resolveWebPasskeyDeviceLabel(): string {
+export function resolveWebPasskeyDeviceLabel(): string {
   if (typeof navigator === "undefined") return "Browser passkey";
 
   const nav = navigator as Navigator & {
@@ -134,8 +134,14 @@ function resolveWebPasskeyDeviceLabel(): string {
   const brands = nav.userAgentData?.brands || [];
   const brand =
     brands.find(
-      (item) =>
-        item.brand && !/chromium|not.a\/brand|not a brand/i.test(item.brand),
+      // Chrome's GREASE placeholder brand ("Not;A Brand", "Not.A/Brand",
+      // "Not-A?Brand", ...) randomizes its punctuation every session so sites
+      // can't key off one literal string — matching only "not.a/brand" let
+      // every other variant through as if it were a real browser name, which
+      // is how a passkey label ended up reading "Not-A?Brand passkey on
+      // Windows". `.?` treats each separator slot as optional-any-char so it
+      // catches all of them.
+      (item) => item.brand && !/chromium|not.?a.?brand/i.test(item.brand),
     )?.brand || "";
   const platform = nav.userAgentData?.platform || "";
   const ua = navigator.userAgent || "";

@@ -316,7 +316,7 @@ export function ManagePortfolioView() {
   // Handle save
   const handleSave = useCallback(async () => {
     if (!user?.uid || !vaultKey) {
-      toast.error("Please unlock your vault first");
+      toast.error("Unlock first");
       return;
     }
 

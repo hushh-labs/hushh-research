@@ -19,7 +19,11 @@ on:
         type: string
 
 permissions:
-  contents: read
+  # write: this workflow tags a healthy release as "last known good"
+  # (scripts/ci/tag-last-known-good.sh) so a future revert check and a
+  # future rollback both have a durable anchor. Scoped to pushing tags only
+  # — the workflow never touches a branch.
+  contents: write
   checks: read
   id-token: write
 
@@ -280,7 +284,7 @@ jobs:
             --plaid-redirect-path "/kai/plaid/oauth/return" \
             --plaid-tx-history-days "730" \
             --one-location-read-only-state-enabled "${{ vars.ONE_LOCATION_READ_ONLY_STATE_ENABLED || 'false' }}" \
-            --consent-center-summary-v2-enabled "${{ vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'false' }}" \
+            --consent-center-summary-v2-enabled "${{ vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'true' }}" \
             --db-bulk-batching-enabled "${{ vars.DB_BULK_BATCHING_ENABLED || 'false' }}" \
             --hushh-trusted-device-enabled "${{ vars.HUSSH_TRUSTED_DEVICE_ENABLED || 'false' }}" \
             --one-location-nearby-presence-mode "${{ vars.ONE_LOCATION_NEARBY_PRESENCE_MODE_UAT || '' }}" \
@@ -925,12 +929,16 @@ jobs:
               append_unique(blocking, ["db_contract_drift"])
               backend_failure = True
 
-          if not reviewer_byok_success:
-              append_unique(blocking, ["reviewer_byok_continuity_failed"])
-              if os.environ.get("DEPLOY_BACKEND") == "true":
-                  backend_failure = True
-              if os.environ.get("DEPLOY_FRONTEND") == "true":
-                  frontend_failure = True
+          # Advisory, like candidate_pkm_evaluator. This lane arms on ANY path
+          # under lib/vault, components/vault or lib/testing changed since the
+          # last successful deploy -- including one-line copy edits -- and it
+          # then waits for a passphrase prompt the reviewer account cannot
+          # raise, because that account has no vault on UAT. On 2026-08-18 a
+          # six-line copy change armed it and blocked three consecutive
+          # releases from three different branches. A reviewer-fixture gap must
+          # not roll back a verified release; it is still reported, and the
+          # harness reports an un-provisioned reviewer separately from a real
+          # regression, so a broken prompt is still visible here as a warning.
 
           if not passkey_associations_success:
               append_unique(blocking, ["passkey_domain_association_failed"])
@@ -981,6 +989,8 @@ jobs:
                   "skipped_reason": "" if browser_authority_ready or not reviewer_byok_required else "upstream_authority_failed",
                   "outcome": os.environ.get("REVIEWER_BYOK_OUTCOME", ""),
                   "success": reviewer_byok_success,
+                  "advisory": True,
+                  "warning": not reviewer_byok_success,
               },
               "passkey_domain_associations": {
                   "required": passkey_associations_required,
@@ -1240,6 +1250,33 @@ jobs:
             echo "- Shared changed files: \`${{ steps.scope.outputs.shared_changed_files || 'none' }}\`"
             echo "- Neutral changed files: \`${{ steps.scope.outputs.neutral_changed_files || 'none' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tag this release as last known good
+        id: tag-last-known-good
+        if: always()
+        # Advisory annotation, not a release-health signal: the deploy above
+        # already succeeded and classified healthy by this point. A tagging
+        # failure (e.g. a transient push conflict) must never turn a healthy
+        # release red or trigger the rollback investigation that implies.
+        continue-on-error: true
+        shell: bash
+        env:
+          ENVIRONMENT: uat
+          SHA: ${{ steps.resolve-sha.outputs.sha }}
+          BACKEND_REVISION: ${{ steps.final-state.outputs.backend_revision }}
+          BACKEND_SERVICE_URL: ${{ steps.final-state.outputs.backend_url }}
+          FRONTEND_REVISION: ${{ steps.final-state.outputs.frontend_revision }}
+          FRONTEND_SERVICE_URL: ${{ steps.final-state.outputs.frontend_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          STATUS="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")"
+          if [ "$STATUS" != "healthy" ]; then
+            echo "[tag-last-known-good] Release status is '$STATUS', not 'healthy' — not tagging."
+            exit 0
+          fi
+          bash scripts/ci/tag-last-known-good.sh
 
       - name: Fail workflow when UAT release did not end healthy
         if: always()

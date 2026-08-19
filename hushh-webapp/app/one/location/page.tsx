@@ -245,6 +245,7 @@ import {
   loadLiveShareEntries,
   pruneLiveShareEntries,
   reconcileLiveShareEntries,
+  resolveStoppableGrantId,
   saveLiveShareEntries,
   summarizeLiveShareEntries,
   type LiveShareSessionEntry,
@@ -532,7 +533,7 @@ const LOCATION_HUB_TAB_LABELS: Readonly<Record<string, string>> = {
 
 const LOCATION_TAB_MODULES: Readonly<Record<string, string[]>> = {
   now: ["Sharing status", "Active shares", "Shared with me", "Quick actions"],
-  people: ["Circles", "Connections"],
+  people: ["Your circles", "Trusted people"],
   links: ["Temporary links"],
 };
 
@@ -656,7 +657,7 @@ type BusyState =
   | "circleRevoke"
   | "namedCircle"
   | "circleMemberInvite"
-  | "shareCircle"
+  | `shareCircle:${string}`
   | `sms-contact:${string}`
   | `sms-circle:${string}`
   | null;
@@ -1526,7 +1527,17 @@ function LocalMapPreview({
   return (
     <div className="w-full min-w-0 max-w-full overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
       <div className="relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]">
-        <LiveMap point={point} viewportResetKey={viewportResetKey} />
+        <LiveMap
+          point={point}
+          viewportResetKey={viewportResetKey}
+          // The map's own tiles (JS canvas) or the iframe fallback are each
+          // GPU-composited, and Safari/WebKit doesn't reliably clip a
+          // composited layer to an ancestor two levels up — the square top
+          // corners bled past this card's rounded frame. Rounding the map's
+          // own element (LiveMap forwards className onto whichever DOM node
+          // actually holds the map) clips it where the compositing happens.
+          className="rounded-t-[var(--app-card-radius-standard)]"
+        />
         <div className="pointer-events-none absolute left-3 top-3">
           <span
             className={cn(
@@ -2162,7 +2173,7 @@ function OneLocationInitialSkeleton() {
       </section>
 
       <section className="space-y-2 px-1">
-        {sectionLabel("Shared with me")}
+        {sectionLabel("Shared with you")}
         <div className={cn(onePanelClassName, "flex items-center gap-3 p-3.5")}>
           <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
           <div className="flex-1 space-y-2">
@@ -2893,58 +2904,6 @@ export function OneLocationAgentPageContent({
       ),
     [contactSignalRecipients, selectedRequestOwnerIds],
   );
-  // Whether this person appears as a pin on the maps of people they already
-  // share with.
-  //
-  // The preference itself is not new -- it is `presence_mode`, and it defaults
-  // to 'ghost'. What was new is being able to find it: it lived only behind a
-  // Ghost toggle on the immersive map screen, so somebody who shared their
-  // location and then wondered why they never appeared on the other person's
-  // map had no way to discover the switch that decided it. Null while loading,
-  // so the control can be shown disabled rather than lying about its state.
-  const [mapPresenceEnabled, setMapPresenceEnabled] = useState<boolean | null>(
-    null,
-  );
-  useEffect(() => {
-    if (!vaultOwnerToken) return;
-    let cancelled = false;
-    void OneLocationService.getMapPreferences(vaultOwnerToken)
-      .then((preferences) => {
-        if (cancelled) return;
-        setMapPresenceEnabled(preferences.presenceMode === "foreground_private");
-      })
-      .catch(() => {
-        // Unknown is not the same as off, but the control has to say something
-        // -- and offering it as "off" is the honest failure: it cannot make a
-        // person more visible than they already are.
-        if (!cancelled) setMapPresenceEnabled(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [vaultOwnerToken]);
-  const handleMapPresenceChange = useCallback(
-    (next: boolean) => {
-      if (!vaultOwnerToken) return;
-      // Optimistic, then corrected by the server's answer. A privacy switch
-      // that lags behind the finger reads as broken, and people toggle it
-      // again -- which is how somebody ends up visible when they meant not to.
-      setMapPresenceEnabled(next);
-      void OneLocationService.updateMapPreferences({
-        vaultOwnerToken,
-        presenceMode: next ? "foreground_private" : "ghost",
-      })
-        .then((preferences) => {
-          setMapPresenceEnabled(preferences.presenceMode === "foreground_private");
-        })
-        .catch(() => {
-          setMapPresenceEnabled(!next);
-          toast.error("Could not change map visibility.");
-        });
-    },
-    [vaultOwnerToken],
-  );
-
   const pendingOwnerRequests = useMemo(
     () =>
       (state?.requests ?? []).filter(
@@ -3067,16 +3026,25 @@ export function OneLocationAgentPageContent({
       // Names come from the server state only. The device record stays
       // coordinate- and identity-free, so a cold start shows "2 people" rather
       // than inventing who they are.
-      names: activeOwnerGrants
-        .filter((grant) => liveGrantIds.has(grant.id))
-        .map((grant) => grantCounterpartyLabel(grant))
-        .filter(Boolean),
+      //
+      // One name per PERSON, matching the count beside it. A pair can hold two
+      // live grants at once, and mapping the grant list straight to labels put
+      // the same friend in here twice -- which the card turns into "Sharing
+      // with 2 people" via `Math.max(names.length, count)`, a headline that
+      // names one person and counts two.
+      names: Array.from(
+        new Map(
+          activeOwnerGrants
+            .filter((grant) => liveGrantIds.has(grant.id))
+            .map((grant) => [
+              grant.recipientUserId || grant.id,
+              grantCounterpartyLabel(grant),
+            ]),
+        ).values(),
+      ).filter(Boolean),
       startedAt: shareWindow.startedAt,
       endsAt: shareWindow.endsAt,
-      stoppableGrantId:
-        liveShareEntries.length === 1
-          ? (liveShareEntries[0]?.grantId ?? null)
-          : null,
+      stoppableGrantId: resolveStoppableGrantId(liveShareEntries),
     };
   }, [activeOwnerGrants, liveShareEntries]);
 
@@ -3155,14 +3123,66 @@ export function OneLocationAgentPageContent({
     () => selectShareReadyRecipients(rankedRecipients),
     [rankedRecipients],
   );
-  const smsContactUserIds = useMemo(
+  const legacySmsContactUserIds = useMemo(
     () => state?.smsContactUserIds ?? [],
     [state?.smsContactUserIds],
+  );
+  /**
+   * The SMS Circle's roster, provisioned and kept by `ensureSmsSystemCircle`.
+   *
+   * Issue #5426 makes this Circle the source of truth for who receives an
+   * emergency SMS. The owner is excluded -- they are a member of their own
+   * Circle and are not one of their own emergency contacts.
+   */
+  const [smsSystemCircleMemberIds, setSmsSystemCircleMemberIds] = useState<
+    string[] | null
+  >(null);
+
+  /**
+   * Circle first, legacy list as the fallback.
+   *
+   * Not belt-and-braces -- an ordering guarantee. Provisioning is a network
+   * call that can be slow, fail, or not have run yet on this device, and SOS
+   * must never resolve to an empty recipient list because a migration had not
+   * finished. `null` means "the Circle has not answered yet", which is exactly
+   * when the pre-#5426 source is still the honest one. Once it answers, it
+   * wins outright, including when it is deliberately empty.
+   */
+  const smsContactUserIds = useMemo(
+    () => smsSystemCircleMemberIds ?? legacySmsContactUserIds,
+    [legacySmsContactUserIds, smsSystemCircleMemberIds],
   );
   const smsActionRecipients = useMemo(
     () => selectSmsRecipients(sosActionRecipients, smsContactUserIds),
     [smsContactUserIds, sosActionRecipients],
   );
+
+  // Provision on bootstrap, once the vault token exists. Idempotent server-side,
+  // so a re-run costs one request and changes nothing.
+  useEffect(() => {
+    if (!auth.userId || !vaultOwnerToken) return;
+    let cancelled = false;
+    // Wrapped so a synchronous throw becomes a rejection the catch below can
+    // absorb. Provisioning is an enhancement to where SOS reads its recipients
+    // from; it must never be able to take the Location screen down with it.
+    void Promise.resolve()
+      .then(() => OneLocationService.ensureSmsSystemCircle({ vaultOwnerToken }))
+      .then((circle) => {
+        if (cancelled) return;
+        setSmsSystemCircleMemberIds(
+          (circle.members ?? [])
+            .map((member) => member.userId)
+            .filter((userId) => userId && userId !== auth.userId),
+        );
+      })
+      .catch(() => {
+        // Leave it null: SOS keeps reading the legacy list rather than
+        // resolving to nobody because provisioning failed.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.userId, vaultOwnerToken]);
 
   // Ref kept in sync with the latest sosIncident value so the reconcile effect
   // can read it without adding it as a dependency (preventing infinite loops).
@@ -4804,8 +4824,17 @@ export function OneLocationAgentPageContent({
     [auth.userId, busy, refresh, vaultOwnerToken],
   );
 
+  /**
+   * Add some or all of a Circle's SMS-ready members in one pass.
+   *
+   * `memberUserIds` is the picker's hand-picked subset; omitting it keeps the
+   * original whole-Circle behaviour for any caller that still wants it (voice
+   * actions, deep links). Either way the roster is re-resolved here rather than
+   * trusted from the client, so a stale picker cannot smuggle in someone who
+   * has since left the Circle or lost phone verification.
+   */
   const handleAddSmsCircle = useCallback(
-    async (circleId: string) => {
+    async (circleId: string, memberUserIds?: readonly string[]) => {
       if (!auth.userId || !vaultOwnerToken || busy) return;
       setBusy(`sms-circle:${circleId}`);
       try {
@@ -4819,14 +4848,19 @@ export function OneLocationAgentPageContent({
           requirePhoneVerified: true,
         });
         const alreadySelected = new Set(smsContactUserIds);
+        const requested = memberUserIds ? new Set(memberUserIds) : null;
         const targets = selection.ready.filter(
-          (target) => !alreadySelected.has(target.recipient.userId),
+          (target) =>
+            !alreadySelected.has(target.recipient.userId) &&
+            (!requested || requested.has(target.recipient.userId)),
         );
         if (!targets.length) {
           toast.message(
-            selection.ready.length
-              ? `${selection.circle.name} is already in your SMS contacts.`
-              : `${selection.circle.name} has no members ready for SMS yet.`,
+            !selection.ready.length
+              ? `${selection.circle.name} has no members ready for SMS yet.`
+              : requested
+                ? "Those people are already in your SMS contacts."
+                : `${selection.circle.name} is already in your SMS contacts.`,
           );
           return;
         }
@@ -5863,14 +5897,22 @@ export function OneLocationAgentPageContent({
           // literal string "Requesting more time." and nothing else, so the
           // number the person had just chosen from the picker directly above
           // this button was the one fact the owner never received.
-          const durationLabel = formatLocationDurationLabel(durationHours);
+          //
+          // `durationHours` is the picker's absolute total (what the share
+          // will run to, seeded on what it already had left) -- but the ask
+          // itself, and everything that renders it ("Asks for X more",
+          // "gave you X more"), means the extra amount. Subtract what this
+          // share already has left so the request carries that, not the total.
+          const remainingHoursNow = grantRemainingHours(grant, Date.now()) ?? 0;
+          const extraHours = Math.max(durationHours - remainingHoursNow, 0);
+          const durationLabel = formatLocationDurationLabel(extraHours);
           await OneLocationService.requestAccess({
             vaultOwnerToken,
             ownerUserId,
             message: durationLabel
               ? `Requesting ${durationLabel} more of your live location.`
               : "Requesting more time.",
-            requestedDurationHours: durationHours,
+            requestedDurationHours: extraHours,
             requestedDurationMode: "timed",
             extendsGrantId: grantId,
           });
@@ -6679,6 +6721,37 @@ export function OneLocationAgentPageContent({
     [vaultOwnerToken],
   );
 
+  const handleConnectCircleMember = useCallback(
+    async (circleId: string, memberUserId: string) => {
+      // Sharing a Circle does not connect two people -- a joiner is paired with
+      // whoever invited them and nobody else -- so this is a real request the
+      // other person answers, exactly like one sent from anywhere else.
+      const idToken = await auth.user?.getIdToken();
+      if (!idToken) {
+        toast.error("Sign in again to send a connection request.");
+        return;
+      }
+      try {
+        await ConnectionsService.sendRequest({
+          idToken,
+          addresseeUserId: memberUserId,
+        });
+        toast.success("Connection request sent.");
+        // Re-read the Circle so the row moves to "Requested" from the server's
+        // answer rather than from an optimistic guess this screen made.
+        await handleLoadNamedCircle(circleId).catch(() => null);
+      } catch (error) {
+        toast.error(
+          oneLocationErrorMessage(
+            error,
+            "Could not send the connection request.",
+          ),
+        );
+      }
+    },
+    [auth.user, handleLoadNamedCircle],
+  );
+
   const handleResolveNamedCircleRecipients = useCallback(
     async (
       circleId: string,
@@ -6714,7 +6787,7 @@ export function OneLocationAgentPageContent({
         return;
       }
 
-      setBusy("shareCircle");
+      setBusy(`shareCircle:${circleId}`);
       try {
         const selection =
           await handleResolveNamedCircleRecipients(circleId, "location");
@@ -7429,7 +7502,7 @@ export function OneLocationAgentPageContent({
   const approveAccessRequest = useCallback(
     async (
       request: OneLocationAccessRequest,
-      options?: { automatic?: boolean },
+      options?: { automatic?: boolean; overrideDurationHours?: number },
     ): Promise<boolean> => {
       if (!vaultOwnerToken) return false;
       const automatic = options?.automatic === true;
@@ -7446,24 +7519,34 @@ export function OneLocationAgentPageContent({
       }
       if (!automatic) setBusy("approve");
       try {
-        // Grant what they asked for. The owner is answering a request that
-        // named an amount -- their own duration control belongs to shares
-        // THEY start, and reading it here is how a person who asked for four
-        // hours silently got one. Fall back to the owner's control only when
-        // the ask carried no amount (older clients, referral requests).
+        // The owner's own explicit choice on the review card wins outright --
+        // that is the whole point of showing it a duration picker. Absent
+        // that, grant what they asked for: the owner's own duration control
+        // belongs to shares THEY start, and reading it here by default is how
+        // a person who asked for four hours silently got one. Fall back to
+        // the owner's control only when the ask carried no amount (older
+        // clients, referral requests).
         const requestedHours = Number(request.requestedDurationHours);
         const approvedHours =
-          Number.isFinite(requestedHours) && requestedHours > 0
-            ? requestedHours
-            : Number(durationHours);
+          typeof options?.overrideDurationHours === "number" &&
+          options.overrideDurationHours > 0
+            ? options.overrideDurationHours
+            : Number.isFinite(requestedHours) && requestedHours > 0
+              ? requestedHours
+              : Number(durationHours);
         const response = await OneLocationService.approveRequest({
           vaultOwnerToken,
           requestId: request.id,
           durationHours: approvedHours,
+          // The picker never offers "until I stop" as an option (it only
+          // appears at all for a timed ask), so an explicit override is
+          // always a timed grant.
           durationMode:
-            request.requestedDurationMode === "until_stopped"
-              ? "until_stopped"
-              : "timed",
+            typeof options?.overrideDurationHours === "number"
+              ? "timed"
+              : request.requestedDurationMode === "until_stopped"
+                ? "until_stopped"
+                : "timed",
         });
         await publishEnvelopeWithRetry(response.grant, requester, "manual");
         // Name the person. An automatic approval is still a share starting
@@ -7502,8 +7585,8 @@ export function OneLocationAgentPageContent({
   );
 
   const handleApprove = useCallback(
-    async (request: OneLocationAccessRequest) => {
-      await approveAccessRequest(request);
+    async (request: OneLocationAccessRequest, overrideDurationHours?: number) => {
+      await approveAccessRequest(request, { overrideDurationHours });
     },
     [approveAccessRequest],
   );
@@ -8930,7 +9013,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see who you are connected to while the vault is locked, so I cannot tell whether they are there.",
+          "Unlock One first -- I cannot see who you are connected to while it's locked, so I cannot tell whether they are there.",
       };
     }
     // A navigation journey can arrive before the full Location workspace
@@ -9251,7 +9334,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see who you are connected to while the vault is locked, so I cannot tell whether they are there.",
+          "Unlock One first -- I cannot see who you are connected to while it's locked, so I cannot tell whether they are there.",
       };
     }
     if (resolved.kind === "none" && vaultOwnerToken) {
@@ -9428,7 +9511,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see who you are connected to while the vault is locked.",
+          "Unlock One first -- I cannot see who you are connected to while it's locked.",
       };
     }
     // Resolved against the people who are ELIGIBLE to receive an SOS, not the
@@ -9492,7 +9575,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see your emergency contacts while the vault is locked.",
+          "Unlock One first -- I cannot see your emergency contacts while it's locked.",
       };
     }
     // Only the people actually ON the list. Matching the wider connection list
@@ -9685,7 +9768,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot create a circle while the vault is locked.",
+          "Unlock One first -- I cannot create a circle while it's locked.",
       };
     }
     const spokenKind = String(slots?.kind ?? "")
@@ -9736,7 +9819,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see your circles while the vault is locked.",
+          "Unlock One first -- I cannot see your circles while it's locked.",
       };
     }
     const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
@@ -9844,7 +9927,7 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked" as const,
           summary:
-            "Unlock One first -- I cannot see your circles while the vault is locked.",
+            "Unlock One first -- I cannot see your circles while it's locked.",
         };
       }
       const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
@@ -9959,7 +10042,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see your circles while the vault is locked.",
+          "Unlock One first -- I cannot see your circles while it's locked.",
       };
     }
     const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
@@ -10011,7 +10094,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see your circles while the vault is locked.",
+          "Unlock One first -- I cannot see your circles while it's locked.",
       };
     }
     const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
@@ -10063,7 +10146,7 @@ export function OneLocationAgentPageContent({
       return {
         status: "blocked" as const,
         summary:
-          "Unlock One first -- I cannot see your circles while the vault is locked.",
+          "Unlock One first -- I cannot see your circles while it's locked.",
       };
     }
     const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
@@ -10118,7 +10201,7 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked" as const,
           summary:
-            "Unlock One first -- I cannot see your circle invitations while the vault is locked.",
+            "Unlock One first -- I cannot see your circle invitations while it's locked.",
         };
       }
       const resolved = resolveVoiceCircleInvite(
@@ -10149,7 +10232,7 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked" as const,
           summary:
-            "Unlock One first -- I cannot see your circle invitations while the vault is locked.",
+            "Unlock One first -- I cannot see your circle invitations while it's locked.",
         };
       }
       const resolved = resolveVoiceCircleInvite(
@@ -10190,7 +10273,7 @@ export function OneLocationAgentPageContent({
       if (!vaultKey || !vaultOwnerToken || !auth.userId) {
         return {
           status: "blocked" as const,
-          summary: "Unlock One first -- I cannot save a place while the vault is locked.",
+          summary: "Unlock One first -- I cannot save a place while it's locked.",
         };
       }
       const normalized = normalizeSpokenName(spokenLabel);
@@ -10247,7 +10330,7 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked" as const,
           summary:
-            "Unlock One first -- I cannot see your saved places while the vault is locked.",
+            "Unlock One first -- I cannot see your saved places while it's locked.",
         };
       }
       let saved: SavedLocation[];
@@ -10740,7 +10823,7 @@ export function OneLocationAgentPageContent({
         toast.success(
           canPersistNow
             ? "Location saved securely."
-            : "Location ready. One will save it after your private vault is set up.",
+            : "Location ready. One will save it after you set a lock.",
         );
       } catch (error) {
         if (
@@ -11349,8 +11432,6 @@ export function OneLocationAgentPageContent({
         observedDenial: locationDenialObserved,
       }) === "blocked",
     autoApproveRequestsEnabled: locationControl.autoApproveRequestsEnabled,
-    mapPresenceEnabled,
-    onMapPresenceChange: handleMapPresenceChange,
     locationPaused: locationControl.paused,
     locationAccuracyLimited,
     // The switch is already on and the device has not found us yet. This is the
@@ -11421,7 +11502,8 @@ export function OneLocationAgentPageContent({
     onEnterShareConfirm: announceShareReviewOpened,
     onConfirmShare: () => void handleShare(),
     onSendRequest: (reason) => handleRequestAccess(reason),
-    onApprove: (request) => void handleApprove(request),
+    onApprove: (request, durationOverrideHours) =>
+      void handleApprove(request, durationOverrideHours),
     onDeny: (requestId) => void handleDeny(requestId),
     onWithdrawRequest: (requestId) => void handleWithdrawRequest(requestId),
     onViewGrant: (grant) => void handleView(grant),
@@ -11452,8 +11534,11 @@ export function OneLocationAgentPageContent({
     onSaveLiveShareDuration: () => void handleSaveLiveShareDuration(),
     editGrantDurationHours,
     setEditGrantDurationHours,
-    onEditGrantSave: (params) =>
-      void handleEditGrantDuration(params, Number(editGrantDurationHours)),
+    onEditGrantSave: (params, durationHoursOverride) =>
+      void handleEditGrantDuration(
+        params,
+        Number(durationHoursOverride ?? editGrantDurationHours),
+      ),
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
     onCopyPublicInvite: () => void handleCopyPublicInvite(),
     onSharePublicInvite: () => void handleSharePublicInvite(),
@@ -11471,6 +11556,7 @@ export function OneLocationAgentPageContent({
     onCopyNamedCircleCode: handleCopyNamedCircleCode,
     onShareNamedCircleCode: handleShareNamedCircleCode,
     onShareNamedCircleCodeById: handleShareNamedCircleCodeById,
+    onConnectCircleMember: handleConnectCircleMember,
     onRemoveNamedCircleMember: handleRemoveNamedCircleMember,
 
     onLoadNamedCircleEligibleConnections:

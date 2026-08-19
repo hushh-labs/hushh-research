@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Capacitor } from "@capacitor/core";
+import { Preferences } from "@capacitor/preferences";
 import { useAuth } from "@/hooks/use-auth";
 import styles from "./HushhIntroGate.module.css";
 
@@ -9,42 +11,47 @@ import styles from "./HushhIntroGate.module.css";
  *
  * The app's real first screen for the `/one` section, and the ONLY splash
  * trigger in the app — mounted in `app/one/layout.tsx`, one level ABOVE
- * `OneAuthGate` (and therefore above `VaultLockGuard` and every other
- * auth/vault guard).
+ * `OneAuthGate`.
  *
- * AN OVERLAY, NOT A GATE (this is the load-bearing property).
+ * It plays OVER the app, not instead of it. `{children}` — `OneAuthGate`,
+ * `VaultLockGuard`, `PhoneMandateGuard`, the page — mount immediately and
+ * settle underneath while the animation runs, and the overlay (z-index 9990,
+ * above every dialog layer) is what the person sees until it fades.
  *
- * `{children}` render from the very first frame and the intro paints on
- * top of them. It used to be the other way round: children were withheld
- * from the tree until the animation finished, so `VaultLockGuard` did not
- * mount — and the vault-presence network check did not even START — until
- * 4,770 ms in. Every millisecond of animation was ADDED to real boot cost
- * instead of overlapping it, on top of the six gates that already run
- * before this one (auth restore, post-auth route resolve, the setup
- * admission check). That is what made launch feel sluggish (#5394).
+ * It used to withhold `{children}` from the tree entirely for the full 3.08
+ * seconds, on the reasoning that nothing below could then interrupt the
+ * animation. That reasoning held; the cost did not. No guard existed during
+ * those three seconds, so every one of them mounted and started resolving in
+ * the same frame the intro cleared — which is exactly when people reported the
+ * lock screen and the phone screen arriving on top of each other. Meanwhile
+ * the app-wide onboarding guard, which sits above this layout, kept running
+ * and redirecting the whole time, with no gate below to agree with it.
  *
- * Now the animation and the boot run at the same time, so the wait is
- * whichever of the two is slower rather than their sum. Two consequences
- * to preserve when editing this:
+ * Playing over a mounted tree costs the intro nothing: the phase timers live
+ * in this component's own mount effect, so a re-render below cannot restart,
+ * extend, or cut them. And it buys the thing the withholding approach could
+ * never give — by the time the overlay fades, the screen underneath has
+ * already resolved, so there is nothing left to flicker.
  *
- * - The overlay must swallow taps while it is opaque, because a live app
- *   is now mounted underneath it. `.root` therefore takes pointer events
- *   and only releases them once the exit fade begins.
- * - The whole script is 1,000 ms, and every duration in the companion
- *   CSS module is tuned to fit inside its own phase. Lengthening one
- *   without the other desynchronises the fade from the unmount.
- *
- * Sequence — a soft splash, not a cinematic logo reveal: a mist of
+ * Sequence — a soft splash, not a cinematic logo reveal: a slow mist of
  * blurred purple/pink/blue drifts up from below the screen through the
- * centre and out past the top; the 🤫 mark and "Hussh One." reveal
- * through the still-moving mist and hold; that cross-dissolves — with a
- * soft blur and a light upward drift, never an instant swap — into
- * "Hi, {first name}" / "Welcome to One." (the real signed-in user's first
- * name — already available here via Firebase auth, which resolves before
- * the vault ever does; "Hi there" is only a fallback for the rare case
- * neither a display name nor an email local-part exists); the whole
- * screen then fades to reveal the app that has been booting underneath
- * it the entire time.
+ * centre and out past the top (~2.5s, Zomato-referenced motion, an
+ * original organic-cloud treatment); the 🤫 mark and the greeting —
+ * "Hi, {first name}" and "Welcome to One." shown together, as one group,
+ * not staggered — reveal through the still-moving mist; that holds for
+ * `GREET_HOLD_MS`; the whole screen then fades gently to reveal whatever's
+ * already mounted underneath — and only THEN does `VaultLockGuard` mount
+ * for the first time and reveal the vault screen. There is deliberately no
+ * separate "Hushh One." beat and no cross-dissolve between two text
+ * groups: the greeting is the only text this shows, so it only ever needs
+ * one clean reveal. The real signed-in user's first name is already
+ * available here via Firebase auth, which resolves before the vault ever
+ * does; "Hi there" is only a fallback for the rare case neither a display
+ * name nor an email local-part exists. `TOTAL_DURATION_MS` is the sum of
+ * every phase below; every CSS transition/animation duration in the
+ * stylesheet is paced to match (see that file's own header) so nothing is
+ * ever cut off mid-transition by a phase change firing before its
+ * predecessor's motion has finished.
  *
  * Plays only for a signed-in user who hasn't unlocked their vault yet this
  * login — never for a logged-out visitor, and never again on refresh,
@@ -77,42 +84,23 @@ import styles from "./HushhIntroGate.module.css";
  *   admits the route once auth is settled — so the uid read here is not a
  *   race against auth still loading.
  *
- * Fully skipped under prefers-reduced-motion too — no overlay at all.
+ * Fully skipped under prefers-reduced-motion too — `VaultLockGuard` and
+ * `{children}` mount immediately with no overlay at all.
  * ──────────────────────────────────────────────────────────── */
 
 const LAST_UID_KEY = "hushh.one.intro.lastUid.v1";
 
-type Phase = "idle" | "sweep" | "greet1" | "greet2" | "exit";
+type Phase = "idle" | "sweep" | "greet" | "exit";
 
-/*
- * The whole script, in milliseconds. It was 4,770; #5440 took it to 3,280 by
- * shortening the holds. That helped, but the dominant cost was never the
- * animation's length — it was that this component WITHHELD its children, so
- * boot could not begin until the animation ended (see the header). As an
- * overlay the two run together, which is what lets the script itself come
- * down to the 500–1,000 ms launch benchmark rather than to 3.3 s.
- *
- * SWEEP_DELAY_MS is 0, from #5440: there is no reason to wait a frame before
- * the mist starts. The mark no longer waits for the mist to finish rising
- * either — it reveals over it, which is why MIST_TO_MARK_MS is 80 rather
- * than 900. That buys both held moments a real 420 ms / 340 ms instead of
- * smearing two long holds into a blur, and the mist keeps drifting behind
- * both of them.
- *
- * Every value here has a partner in HushhIntroGate.module.css sized to fit
- * inside its phase. Change one, change both.
- */
 const SWEEP_DELAY_MS = 0;
-const MIST_TO_MARK_MS = 80;
-const GREET1_HOLD_MS = 420;
-const GREET2_HOLD_MS = 340;
-const EXIT_DURATION_MS = 140;
-const EXIT_BUFFER_MS = 20;
+const MIST_TO_GREET_MS = 1000;
+const GREET_HOLD_MS = 1500;
+const EXIT_DURATION_MS = 500;
+const EXIT_BUFFER_MS = 80;
 
-const GREET1_AT_MS = SWEEP_DELAY_MS + MIST_TO_MARK_MS; // 80
-const GREET2_AT_MS = GREET1_AT_MS + GREET1_HOLD_MS; // 500
-const EXIT_AT_MS = GREET2_AT_MS + GREET2_HOLD_MS; // 840
-const TOTAL_DURATION_MS = EXIT_AT_MS + EXIT_DURATION_MS + EXIT_BUFFER_MS; // 1000
+const GREET_AT_MS = SWEEP_DELAY_MS + MIST_TO_GREET_MS;
+const EXIT_AT_MS = GREET_AT_MS + GREET_HOLD_MS;
+const TOTAL_DURATION_MS = EXIT_AT_MS + EXIT_DURATION_MS + EXIT_BUFFER_MS;
 
 function resolveFirstName(
   displayName?: string | null,
@@ -142,14 +130,45 @@ function prefersReducedMotion(): boolean {
 // Fails open toward "play it" on any storage error (private browsing,
 // storage disabled) once a uid is known — worst case there is a replay,
 // never a silent permanent skip for a real signed-in user.
-function shouldPlayIntro(uid: string | null): boolean {
+function readLatch(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(LAST_UID_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the greeting is owed to this person.
+ *
+ * On native the answer cannot be read synchronously. WKWebView runs under a
+ * custom scheme and empties localStorage between launches, so the latch is cold
+ * on every cold start there and the intro replayed every single time somebody
+ * opened the app. The durable mirror lives in Preferences, the same place the
+ * setup completion latch keeps its own copy and for the same reason.
+ */
+async function shouldPlayIntro(uid: string | null): Promise<boolean> {
   if (!uid) return false;
   if (typeof window === "undefined") return true;
+  if (readLatch() === uid) return false;
+  if (!Capacitor.isNativePlatform()) return true;
   try {
-    return window.localStorage.getItem(LAST_UID_KEY) !== uid;
+    const { value } = await Preferences.get({ key: LAST_UID_KEY });
+    if (value === uid) {
+      // Warm the synchronous copy so the rest of this launch is a local read.
+      try {
+        window.localStorage.setItem(LAST_UID_KEY, uid);
+      } catch {
+        // Nothing to fall back to; the next launch reads Preferences again.
+      }
+      return false;
+    }
   } catch {
-    return true;
+    // Fail open toward playing it: a replay is a far smaller problem than a
+    // greeting somebody never gets.
   }
+  return true;
 }
 
 function markIntroShown(uid: string | null): void {
@@ -159,92 +178,119 @@ function markIntroShown(uid: string | null): void {
   } catch {
     // Nothing to fall back to; the next mount will just decide fresh.
   }
+  if (!Capacitor.isNativePlatform()) return;
+  void Preferences.set({ key: LAST_UID_KEY, value: uid }).catch(() => {
+    // Best-effort durable mirror.
+  });
 }
 
 export function HushhIntroGate({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [introComplete, setIntroComplete] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const firedRef = useRef(false);
+  const decidedRef = useRef(false);
 
   useEffect(() => {
+    // Wait for the session to settle before deciding. Reading `uid` while
+    // Firebase was still restoring returned null, and a null uid means "skip",
+    // so whether anybody saw the greeting at all came down to whether the
+    // session happened to restore before this component mounted.
+    if (authLoading || decidedRef.current) return;
+    decidedRef.current = true;
+
     const uid = user?.uid ?? null;
-    if (prefersReducedMotion() || !shouldPlayIntro(uid)) {
+    let cancelled = false;
+    const timers: number[] = [];
+
+    if (prefersReducedMotion()) {
       setIntroComplete(true);
       return;
     }
 
-    markIntroShown(uid);
-
-    const timers: number[] = [];
-    timers.push(window.setTimeout(() => setPhase("sweep"), SWEEP_DELAY_MS));
-    timers.push(window.setTimeout(() => setPhase("greet1"), GREET1_AT_MS));
-    timers.push(window.setTimeout(() => setPhase("greet2"), GREET2_AT_MS));
-    timers.push(window.setTimeout(() => setPhase("exit"), EXIT_AT_MS));
-    timers.push(
-      window.setTimeout(() => {
-        if (firedRef.current) return;
-        firedRef.current = true;
+    void shouldPlayIntro(uid).then((play) => {
+      if (cancelled) return;
+      if (!play) {
         setIntroComplete(true);
-      }, TOTAL_DURATION_MS),
-    );
+        return;
+      }
+      markIntroShown(uid);
+      startTimers();
+    });
+
+    function startTimers() {
+      timers.push(window.setTimeout(() => setPhase("sweep"), SWEEP_DELAY_MS));
+      timers.push(window.setTimeout(() => setPhase("greet"), GREET_AT_MS));
+      timers.push(window.setTimeout(() => setPhase("exit"), EXIT_AT_MS));
+      timers.push(
+        window.setTimeout(() => {
+          if (firedRef.current) return;
+          firedRef.current = true;
+          setIntroComplete(true);
+        }, TOTAL_DURATION_MS),
+      );
+    }
 
     return () => {
+      cancelled = true;
       timers.forEach((t) => window.clearTimeout(t));
     };
-    // Runs once on mount only — this is the single source of truth for the
-    // whole sequence. Deliberately NOT depending on `user`: `uid` above is
-    // read once, at the moment this decides whether to play at all; the
-    // greeting text reads `user` fresh at render time below instead, but
-    // the timers themselves must never restart just because auth/setup
-    // state changes underneath after this has already started playing.
+    // Decides exactly once, guarded by `decidedRef`. `user` is deliberately not
+    // a dependency: the uid is read at the moment of the decision, and the
+    // timers must never restart because auth or setup state moved underneath
+    // after the sequence had already started. The greeting text reads `user`
+    // fresh at render time instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authLoading]);
+
+  if (introComplete) {
+    return <>{children}</>;
+  }
 
   const firstName = resolveFirstName(user?.displayName, user?.email);
 
-  // `{children}` are ALWAYS in the tree. Auth, the vault-presence check and
-  // every first-screen fetch below run while the intro plays, instead of
-  // queueing behind it — the single change that fixes #5394. The overlay is
-  // painted over the top and removed when its own clock runs out.
   return (
     <>
       {children}
-      {introComplete ? null : (
-        <div
-          aria-hidden="true"
-          className={styles.root}
-          data-phase={phase}
-          data-testid="hushh-intro-gate"
-        >
-          <div className={styles.mist}>
-            <div className={`${styles.blob} ${styles.blobPurple}`} />
-            <div className={`${styles.blob} ${styles.blobPink}`} />
-            <div className={`${styles.blob} ${styles.blobBlue}`} />
-          </div>
-          <div className={styles.halo} />
-          <div className={styles.iconWrap}>
-            <span className={styles.icon}>🤫</span>
-          </div>
-          <div className={styles.textStack}>
-            <p className={styles.label1}>
-              Hussh <span className={styles.label1Accent}>One.</span>
-            </p>
-            <div className={styles.label2}>
-              <p
-                className={`${styles.greetingLine} ${styles.greetingLineFirst}`}
-              >
-                {firstName ? `Hi, ${firstName}` : "Hi there"}
-              </p>
-              <p
-                className={`${styles.greetingLine} ${styles.greetingLineSecond}`}
-              >
-                Welcome to <span className={styles.greetingAccent}>One.</span>
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      <IntroOverlay firstName={firstName} phase={phase} />
     </>
+  );
+}
+
+/**
+ * Purely decorative, and covering: it takes pointer events so nothing
+ * underneath can be tapped while it plays, and it is hidden from assistive
+ * technology because the screen it covers is the one being described.
+ */
+function IntroOverlay({
+  firstName,
+  phase,
+}: {
+  firstName: string | null;
+  phase: Phase;
+}) {
+  return (
+    <div aria-hidden="true" className={styles.root} data-phase={phase}>
+      <div className={styles.mist}>
+        <div className={`${styles.blob} ${styles.blobPurple}`} />
+        <div className={`${styles.blob} ${styles.blobPink}`} />
+        <div className={`${styles.blob} ${styles.blobBlue}`} />
+      </div>
+      <div className={styles.halo} />
+      <div className={styles.iconWrap}>
+        <span className={styles.icon}>🤫</span>
+      </div>
+      {/* One text group only — both lines share the same reveal, at the
+          same time, no stagger between them (see .module.css: both use
+          the identical transition, same delay). */}
+      <div className={styles.greeting}>
+        <p className={styles.greetingLine}>
+          {firstName ? `Hi, ${firstName}` : "Hi there"}
+        </p>
+        <p className={styles.greetingLine}>
+          Welcome to <span className={styles.greetingAccent}>One.</span>
+        </p>
+      </div>
+    </div>
   );
 }

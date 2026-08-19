@@ -15,9 +15,9 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.intro",
-        "purpose": "Welcome a new person and help them claim their private agent.",
+        "purpose": "Welcome a new person and help them get started with One.",
         "screen": "one_intro",
-        "entry_cue": "Say ‘Claim your One’ whenever you are ready.",
+        "entry_cue": "Say ‘Get started’ whenever you are ready.",
         "proactivity": "on_entry",
         "primary_action_id": "onboarding.claim_one",
         "happy_path_action_ids": [
@@ -4057,7 +4057,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": null
+      "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/preferences/voice/changelog",
@@ -4100,7 +4100,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": null
+      "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/receipts",

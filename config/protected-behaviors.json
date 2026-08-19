@@ -315,7 +315,7 @@
           "assertion_pattern": "expect\\(",
           "min_assertions": 400,
           "required_titles": [
-            "keeps the heading and location toggle inline as the only header action"
+            "keeps the status card and location toggle grouped as one control"
           ]
         },
         {
@@ -379,6 +379,98 @@
           "min_assertions": 20,
           "required_titles": [
             "Check-in duration pills reuse the ladder cell"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "onboarding-is-a-one-way-funnel",
+      "summary": "One resolver decides which onboarding step somebody is on, and nothing renders an onboarding surface until every input it needs is known. A person who finished the funnel can never reach sign-in, phone verification or the setup hub again by any arrival path, and the lock screen and the phone screen can never be on screen at the same time.",
+      "fixed_by": "fix/onboarding-single-resolver",
+      "why_it_needs_a_lock": [
+        "The bug WAS three guards each resolving their own copy of the same",
+        "state and each redirecting on its own schedule. That shape produced",
+        "three separate user-visible defects, and every one of them comes back",
+        "the moment a guard starts fetching for itself again: a screen rendered",
+        "from a default value and replaced a tick later, two guards deciding at",
+        "once, and an onboarding route no guard claimed.",
+        "",
+        "The lock surface is a portal painted at z-712 over an opaque backdrop.",
+        "It does not need to share a subtree with the phone screen to cover it,",
+        "so no amount of guard nesting keeps the two apart on its own -- only an",
+        "explicit check against the winning step does. Someone re-nesting a",
+        "guard, or mounting the lock dialog from a new route, reintroduces the",
+        "collision with nothing in review to notice.",
+        "",
+        "The Back defect had no guard at all: /register-phone is exempt from the",
+        "setup gate and outside /one, so nothing ejected an already-verified",
+        "person who arrived there. Adding a route to the funnel without adding",
+        "it to ONBOARDING_ROUTES silently opens that door again."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/__tests__/onboarding/user-entry-state.test.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 40,
+          "required_titles": [
+            "boots while the phone claim is unknown, instead of assuming unverified",
+            "boots while setup completion is unknown, instead of assuming incomplete",
+            "no unresolved state ever names a credential surface",
+            "never allows the lock surface and the phone surface at the same time",
+            "allows no credential surface at all while booting",
+            "names every screen of the funnel"
+          ]
+        },
+        {
+          "path": "hushh-webapp/__tests__/onboarding/onboarding-funnel.regression.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 25,
+          "required_titles": [
+            "walks a brand new person through every step, once, in order",
+            "shows no lock screen anywhere between the code and the app",
+            "cannot be re-entered by pressing Back",
+            "does not send a finished person back through it on a refresh",
+            "opens straight into the app on a cold start, with nothing flashing first",
+            "never renders both in the same pass, in any of these states"
+          ]
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/onboarding-journey-guard.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 40,
+          "required_titles": [
+            "holds every private route while the decision is unresolved",
+            "never leaves a funnel screen in history when it moves somebody",
+            "stands aside while the hub is committing its own completion",
+            "sends a capability handoff to that capability's own workspace, not home: %s",
+            "still sends the bare setup hub home — it names no capability to hand off to",
+            "labels a capability handoff honestly instead of claiming to return to setup"
+          ]
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/vault-lock-guard.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 15,
+          "required_titles": [
+            "does not paint the lock over somebody who still has to verify a phone",
+            "shows no lock while the decision is still unresolved"
+          ]
+        },
+        {
+          "path": "hushh-webapp/__tests__/onboarding/lock-gate-coverage.contract.test.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 2,
+          "required_titles": [
+            "finds the lock gate mount sites at all"
+          ]
+        },
+        {
+          "path": "hushh-webapp/__tests__/onboarding/intro-gate.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 8,
+          "required_titles": [
+            "mounts the app underneath instead of withholding it while the greeting plays",
+            "does not replay on a native cold start that emptied local storage"
           ]
         }
       ]

@@ -11,8 +11,8 @@ export default function RiaLayout({
   children: React.ReactNode;
 }) {
   return (
-    <VaultLockGuard>
-      <PhoneMandateGuard>
+    <PhoneMandateGuard>
+      <VaultLockGuard>
         <RouteErrorBoundary fallbackRoute="/ria">
           {/* The onboarding wrapper owns only its five local wizard steps.
               Profile, Clients, and Picks use the shared route-tab gesture in
@@ -20,7 +20,7 @@ export default function RiaLayout({
               parity with every other top-shell workspace. */}
           <RiaSwipePager>{children}</RiaSwipePager>
         </RouteErrorBoundary>
-      </PhoneMandateGuard>
-    </VaultLockGuard>
+      </VaultLockGuard>
+    </PhoneMandateGuard>
   );
 }

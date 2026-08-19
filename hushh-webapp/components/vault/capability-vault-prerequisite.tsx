@@ -155,15 +155,13 @@ export function CapabilityVaultPrerequisite({
 
   const failed = state === "failed";
   const actionLabel =
-    state === "unlock_required"
-      ? "Open your private vault"
-      : "Set up your private vault";
+    state === "unlock_required" ? "Unlock One" : "Set a lock";
 
   if (failed) {
     return (
       <section className="mx-auto flex min-h-[18rem] w-full max-w-[32rem] flex-col items-center justify-center gap-3 px-4 text-center sm:px-6">
         <p className="text-sm leading-6 text-muted-foreground">
-          We could not confirm your vault yet.
+          We couldn't confirm your lock yet.
         </p>
         <Button
           type="button"
@@ -189,7 +187,7 @@ export function CapabilityVaultPrerequisite({
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           title={actionLabel}
-          description={`Continue ${capabilityLabel} setup after your private vault is ready.`}
+          description={`Continue ${capabilityLabel} setup once you're unlocked.`}
           enableGeneratedDefault={
             !preferPassphraseUnlockForAutomation(nativeTestConfig)
           }

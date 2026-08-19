@@ -227,7 +227,7 @@ export function SavedLocationsSection() {
   const handleAdd = useCallback(async () => {
     if (!userId || !vaultKey || !vaultOwnerToken || capturing) {
       if (!hasVaultAccess) {
-        toast.error("Unlock your vault before adding a saved location.");
+        toast.error("Unlock before adding a saved location.");
       }
       return;
     }
@@ -331,7 +331,7 @@ export function SavedLocationsSection() {
       addressLine?: string | null,
     ) => {
       if (!userId || !vaultKey || !vaultOwnerToken || !saveLocationPoint) {
-        toast.error("Unlock your vault and capture the location again.");
+        toast.error("Unlock and capture the location again.");
         return;
       }
 
@@ -420,7 +420,7 @@ export function SavedLocationsSection() {
   const handleEditSavedLocation = useCallback(
     (location: SavedLocation) => {
       if (!hasVaultAccess) {
-        toast.error("Unlock your vault before editing a saved location.");
+        toast.error("Unlock before editing a saved location.");
         return;
       }
       addressResolutionIdRef.current += 1;
@@ -553,7 +553,7 @@ export function SavedLocationsSection() {
 
   const acceptSavedLocationMapRenderer = useCallback(async () => {
     if (!vaultOwnerToken) {
-      throw new Error("Unlock your vault before opening Google Maps.");
+      throw new Error("Unlock before opening Google Maps.");
     }
     const next = await OneLocationService.updateMapPreferences({
       vaultOwnerToken,
@@ -598,11 +598,11 @@ export function SavedLocationsSection() {
               </span>
               <div className="min-w-0">
                 <p className="text-[17px] font-normal leading-[22px] text-foreground">
-                  Unlock your vault to view saved places
+                  Unlock to view saved places
                 </p>
                 <p className="mt-0.5 text-[15px] leading-5 text-muted-foreground">
                   Exact locations stay encrypted and are available only while
-                  your vault is unlocked.
+                  it's unlocked.
                 </p>
               </div>
             </div>
@@ -746,7 +746,7 @@ export function SavedLocationsSection() {
             <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
             {locationControl.paused
               ? "Resume Location to save another place."
-              : "Encrypted in your vault."}
+              : "Encrypted and private."}
           </p>
         ) : null}
       </section>
