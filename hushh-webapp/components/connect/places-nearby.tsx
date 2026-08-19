@@ -268,9 +268,10 @@ export function PlacesNearby({
           too narrow to read, and the rail is the pattern the check-in picker
           already uses for the same set of ideas. */}
       <div
-        className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 touch-pan-x overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         role="tablist"
         aria-label="Place categories"
+        data-swipe-views-horizontal-scroll="true"
         data-testid="places-category-rail"
       >
         {[{ slug: ALL_CHIP, label: "All" }, ...PLACES_CATEGORIES].map((entry) => {
