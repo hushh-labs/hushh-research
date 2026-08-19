@@ -271,7 +271,7 @@
     },
     {
       "name": "gemini-endpoint-select-matches-the-key-field-on-webkit",
-      "summary": "The API endpoint picker and the key field under it share a radius, height and text inset \u2014 including under WebKit, where a native <select> ignores author border-radius unless appearance is removed.",
+      "summary": "The API endpoint picker and the key field under it share a radius, height and text inset — including under WebKit, where a native <select> ignores author border-radius unless appearance is removed.",
       "fixed_by": "#5363",
       "why_it_needs_a_lock": [
         "`appearance-none` looks like a cosmetic class and is the entire fix. Under",
@@ -339,7 +339,7 @@
         "nearby presence, so all three disjuncts behind `locationEnabled` are false.",
         "",
         "It shipped because every hub test reaches the hub through",
-        "`skipLocationEntryFlow`, which presses \"Skip for now\" on the save modal \u2014",
+        "`skipLocationEntryFlow`, which presses \"Skip for now\" on the save modal —",
         "so the save path never once reached an assertion about the header. The",
         "guard has to be a test that SAVES.",
         "",
@@ -471,6 +471,45 @@
           "required_titles": [
             "mounts the app underneath instead of withholding it while the greeting plays",
             "does not replay on a native cold start that emptied local storage"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "one-location-emergency-control-is-labelled-sms",
+      "summary": "The emergency control reads \"SMS\" on every surface a person meets it: the hold button on the Emergency help screen, and the Home hub quick-action tile. The screen description names the same word the button shows.",
+      "fixed_by": "#5587",
+      "why_it_needs_a_lock": [
+        "This label flipped twice in two days -- SMS -> SOS on 2026-08-18 across",
+        "three commits (bc3dd4694, fd73a42b1, 9644f1926), then back to SMS on",
+        "2026-08-19 -- and neither direction was caught by anything.",
+        "",
+        "The reason it was free to drift is that sos-panel.test.tsx, the one suite",
+        "that asserts the glyph, was in NO pack in web-targeted-check.sh. The",
+        "directory regex on line 133 matches components/one-location/, so a PR",
+        "touching this file looked covered and the lane went green, while the npm",
+        "script that lane fires enumerated 8 files and never included this one.",
+        "",
+        "Every identifier underneath still says sos (data-testid, event name,",
+        "voice control id one-location-action-sos, backend enum), so a grep for",
+        "'sos' does not tell you what the screen says. Only these assertions do."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 90,
+          "required_titles": [
+            "shows 'Stop sharing' only while a session is active and calls onStopSos",
+            "returns the core to SMS once the session is no longer active (external revoke sync)"
+          ]
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 560,
+          "required_titles": [
+            "resolves a fresh local emergency number as Save My Soul opens"
           ]
         }
       ]

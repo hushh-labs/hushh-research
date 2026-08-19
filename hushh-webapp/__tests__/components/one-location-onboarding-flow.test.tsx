@@ -354,11 +354,11 @@ describe("OneLocationOnboardingFlow", () => {
     expect(
       shareCard.querySelector("[data-one-use-case-tag]")?.textContent,
     ).toBe("Share");
-    // "SOS" also labels the radar core below, so this must stay scoped to
-    // the tag pill or it collides with that second "SOS" text node.
+    // "SMS" also labels the radar core below, so this must stay scoped to
+    // the tag pill or it collides with that second "SMS" text node.
     expect(
       sosCard.querySelector("[data-one-use-case-tag]")?.textContent,
-    ).toBe("SOS");
+    ).toBe("SMS");
     expect(screen.getByText("Checked in")).toBeTruthy();
     expect(screen.getByText("Sharing")).toBeTruthy();
     expect(screen.getByText("Help sent")).toBeTruthy();
@@ -373,7 +373,7 @@ describe("OneLocationOnboardingFlow", () => {
       "[data-one-sms-radar-clearance]",
     );
     const smsRadar = smsCard.querySelector("[data-one-sms-radar]");
-    expect(smsLabel?.textContent).toBe("SOS");
+    expect(smsLabel?.textContent).toBe("SMS");
     expect(smsArtRegion?.className).toContain("flex-1");
     expect(smsRadarClearance?.className).toContain("h-[108px]");
     expect(smsRadarClearance?.className).toContain("w-[108px]");

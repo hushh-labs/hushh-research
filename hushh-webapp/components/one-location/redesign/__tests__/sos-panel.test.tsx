@@ -171,7 +171,7 @@ describe("SosPanel", () => {
       ).toBeInTheDocument();
       expect(
         screen.getByText(
-          "Hold SOS to alert your people and share your location.",
+          "Hold SMS to alert your people and share your location.",
         ),
       ).toBeInTheDocument();
       expect(screen.getByText("1 person will be alerted")).toBeInTheDocument();
@@ -496,9 +496,9 @@ describe("SosPanel", () => {
     const { rerender } = render(
       <SosPanel {...baseProps} active={false} onStopSos={onStopSos} />,
     );
-    // Idle: no stop affordance, the core is the pressable SOS control.
+    // Idle: no stop affordance, the core is the pressable SMS control.
     expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
-    expect(screen.getByText("SOS")).toBeInTheDocument();
+    expect(screen.getByText("SMS")).toBeInTheDocument();
     expect(screen.queryByTestId("sos-sent-face")).toBeNull();
 
     // Live: the core becomes a receipt and the stop button appears.
@@ -526,13 +526,13 @@ describe("SosPanel", () => {
     expect(onStopSos).not.toHaveBeenCalled();
   });
 
-  it("returns the core to SOS once the session is no longer active (external revoke sync)", () => {
+  it("returns the core to SMS once the session is no longer active (external revoke sync)", () => {
     const { rerender } = render(<SosPanel {...baseProps} active />);
     expect(screen.getByTestId("sos-sent-face")).toBeInTheDocument();
     // Simulate the incident being cleared elsewhere (e.g. Active shares → Stop),
     // which flips `active` back to false and must reset the SMS screen.
     rerender(<SosPanel {...baseProps} active={false} />);
-    expect(screen.getByText("SOS")).toBeInTheDocument();
+    expect(screen.getByText("SMS")).toBeInTheDocument();
     expect(screen.queryByTestId("sos-sent-face")).toBeNull();
     expect(screen.getByTestId("sos-status-label")).toHaveTextContent(
       "Hold to send location",

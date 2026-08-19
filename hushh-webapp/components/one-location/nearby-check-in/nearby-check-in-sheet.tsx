@@ -310,7 +310,7 @@ function coarseAccuracyNotice(point: PlainLocationPoint): string {
 function timeLeftLabel(expiresAt: string): string {
   const remainingMs = Date.parse(expiresAt) - Date.now();
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) return "Ending now";
-  const minutes = Math.max(1, Math.ceil(remainingMs / 60_000));
+  const minutes = Math.max(1, Math.round(remainingMs / 60_000));
   if (minutes < 60) return `${minutes} min left`;
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
