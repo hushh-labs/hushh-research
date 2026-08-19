@@ -46,20 +46,22 @@ async def test_account_teardown_calls_deprovision_revoke_false(monkeypatch):
         def __init__(self, **kwargs):
             pass
 
-        async def deprovision(self, *, user_id, revoke=True):
+        async def deprovision(self, *, user_id, revoke=True, defer_row_delete=False):
             calls["user_id"] = user_id
             calls["revoke"] = revoke
+            calls["defer_row_delete"] = defer_row_delete
             return {"status": "deprovisioned", "hushhId": "ha1_x"}
 
     monkeypatch.setattr(_SVC_PATH, FakeService)
     monkeypatch.setattr(_REPO_PATH, lambda: object())
 
-    status = await account._deprovision_personal_agent(_UID)
+    result = await account._deprovision_personal_agent(_UID)
 
-    assert status == "deprovisioned"
+    assert result["status"] == "deprovisioned"
     assert calls["user_id"] == _UID
-    # revoke MUST be suppressed: the deletion cascade already wiped consent_audit.
+    # Legacy order (default): revoke suppressed (cascade wipes audit), row-delete not deferred.
     assert calls["revoke"] is False
+    assert calls["defer_row_delete"] is False
 
 
 async def test_account_teardown_is_best_effort_on_failure(monkeypatch):
@@ -69,20 +71,20 @@ async def test_account_teardown_is_best_effort_on_failure(monkeypatch):
         def __init__(self, **kwargs):
             pass
 
-        async def deprovision(self, *, user_id, revoke=True):
+        async def deprovision(self, *, user_id, revoke=True, defer_row_delete=False):
             raise RuntimeError("registry down")
 
     monkeypatch.setattr(_SVC_PATH, BoomService)
     monkeypatch.setattr(_REPO_PATH, lambda: object())
 
     # Never raises -- account deletion must complete regardless.
-    assert await account._deprovision_personal_agent(_UID) == "failed"
+    assert (await account._deprovision_personal_agent(_UID))["status"] == "failed"
 
 
 async def test_account_teardown_skips_empty_user():
     from api.routes import account
 
-    assert await account._deprovision_personal_agent("") == "skipped"
+    assert (await account._deprovision_personal_agent(""))["status"] == "skipped"
 
 
 # ---- phone-verify kickoff scheduler ----------------------------------------
