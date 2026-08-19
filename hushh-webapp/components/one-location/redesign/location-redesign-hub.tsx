@@ -55,18 +55,11 @@ import {
   locationTimestampMs,
 } from "@/lib/one-location/duration-copy";
 import { formatShareEndsAt } from "@/lib/one-location/share-countdown";
-import {
-  ONE_LOCATION_GRANT_ID_PARAM,
-} from "@/lib/one-location/notifications";
+import { ONE_LOCATION_GRANT_ID_PARAM } from "@/lib/one-location/notifications";
 import {
   groupGrantsByCounterpart,
   type OneLocationGrantLaneGroup,
 } from "@/lib/one-location/grant-lanes";
-import {
-  PersonShareLanes,
-  ShareLanesDisclosure,
-  useExpandedShareLanes,
-} from "./share-lanes";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -123,6 +116,11 @@ import {
   DURATION_CELL_OFF_CLASS,
   DURATION_GRID_CLASS,
 } from "./duration-presets";
+import {
+  PersonShareLanes,
+  ShareLanesDisclosure,
+  useExpandedShareLanes,
+} from "./share-lanes";
 import { grantRemainingHours } from "@/lib/one-location/grant-duration-edit";
 // LocationTypeSelector stays exported from ./selectors, unused for now, so
 // PR #4767 can wire it back to a real precision mode without rebuilding it.
@@ -2207,35 +2205,34 @@ function PersonRow({
   expansion?: ReactNode;
 }) {
   return (
+    // The separator and the hover wash belong to the whole row INCLUDING its
+    // breakdown: a person's two shares are one row, and a hairline cutting
+    // between the name and the shares underneath it would read as two people.
     <div
       className={cn(
         "transition-colors hover:bg-[color:var(--app-neutral-fill)] motion-reduce:transition-none",
         !first && "border-t border-[color:var(--app-separator)]",
       )}
     >
-    <div
-      className={cn(
-        "flex min-h-[74px] items-center gap-3.5 px-[18px] py-2 sm:min-h-[76px] sm:gap-[18px] sm:px-6",
-      )}
-    >
-      <div className="relative shrink-0">
-        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[color:var(--app-accent-surface)] text-[14px] font-semibold text-[color:var(--app-accent-deep)]">
-          {personInitials(name)}
-        </span>
-        {active ? (
-          <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-success)]" />
-        ) : null}
+      <div className="flex min-h-[74px] items-center gap-3.5 px-[18px] py-2 sm:min-h-[76px] sm:gap-[18px] sm:px-6">
+        <div className="relative shrink-0">
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[color:var(--app-accent-surface)] text-[14px] font-semibold text-[color:var(--app-accent-deep)]">
+            {personInitials(name)}
+          </span>
+          {active ? (
+            <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-success)]" />
+          ) : null}
+        </div>
+        <div className="min-w-0 flex-1 sm:flex sm:items-baseline sm:gap-3">
+          <p className="truncate text-[17px] font-normal leading-[22px] tracking-[-0.37px] text-foreground">
+            {name}
+          </p>
+          <p className="truncate text-[14px] leading-[18px] tracking-[-0.22px] text-[color:var(--app-tertiary-label)]">
+            {subtitle}
+          </p>
+        </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      <div className="min-w-0 flex-1 sm:flex sm:items-baseline sm:gap-3">
-        <p className="truncate text-[17px] font-normal leading-[22px] tracking-[-0.37px] text-foreground">
-          {name}
-        </p>
-        <p className="truncate text-[14px] leading-[18px] tracking-[-0.22px] text-[color:var(--app-tertiary-label)]">
-          {subtitle}
-        </p>
-      </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
-    </div>
       {expansion ? (
         <div className="px-[18px] pb-2 sm:px-6">{expansion}</div>
       ) : null}
