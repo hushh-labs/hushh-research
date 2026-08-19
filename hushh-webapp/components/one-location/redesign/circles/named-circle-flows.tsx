@@ -23,6 +23,19 @@ import {
 
 import { Button } from "@/components/ui/button";
 import {
+  CREATE_CIRCLE_CTA_CLASSNAME,
+  CREATE_CIRCLE_NAME_INPUT_CLASSNAME,
+  CREATE_CIRCLE_NAME_PLACEHOLDER,
+} from "@/components/one-location/redesign/circles/create-circle-layout";
+import {
+  createCircleCreateAttemptId,
+  logCircleCreate,
+  logCircleCreateLockCheck,
+  logCircleCreateLockGuard,
+  type CircleCreateAttemptId,
+} from "@/lib/one-location/circle-create-diagnostics";
+import type { OneLocationLockState } from "@/lib/one-location/circle-lock-state";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -474,26 +487,194 @@ const CIRCLE_KIND_OPTIONS: {
 
 export function CreateCircleFlow({
   busy,
+  lockState,
   onSubmit,
+  renderUnlock,
 }: {
   busy: boolean;
+  /**
+   * Whether this account currently holds a lock token. Circles are reachable
+   * without one (VaultLockGuard admits a no-lock account), so the screen has to
+   * know, rather than discovering it in the failure path of the last tap.
+   */
+  lockState: OneLocationLockState;
   onSubmit: (name: string, kind: OneLocationCircleKind) => Promise<void>;
+  /**
+   * Renders the unlock sheet. Owned by the caller so this file keeps no vault
+   * dependency and the sheet stays the same one the rest of the app uses.
+   * `onDone(true)` on a successful unlock, `onDone(false)` when dismissed.
+   */
+  renderUnlock?: (props: {
+    open: boolean;
+    onDone: (unlocked: boolean) => void;
+  }) => React.ReactNode;
 }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<OneLocationCircleKind>("family");
+  const [unlockOpen, setUnlockOpen] = useState(false);
+  // An attempt that unlocked and is waiting for the token to actually reach
+  // this component. See `handleUnlockDone` for why it cannot resume inline.
+  const [pendingResume, setPendingResume] = useState<CircleCreateAttemptId | null>(
+    null,
+  );
+  // A submit already in flight. `busy` cannot carry this on its own: the page
+  // only raises it once the request starts, so a second tap during the lock
+  // decision — or during the unlock sheet — would otherwise start a second
+  // create. Held in a ref because it must be readable in the same tick as the
+  // tap that sets it.
+  const submittingRef = useRef(false);
+  // The attempt the unlock sheet was opened for. Kept so a successful unlock
+  // resumes THAT create, and a stale sheet cannot resurrect an abandoned one.
+  const pendingAttemptRef = useRef<CircleCreateAttemptId | null>(null);
+  const trimmedName = name.trim();
+  // "Not known yet" is not "locked". While identity settles the CTA waits
+  // rather than accusing an unlocked person of being locked.
+  const lockResolving = lockState === "resolving";
   // One typed character is a name. Requiring two silently withheld the button
   // from anyone naming a circle "A", with nothing on screen saying why.
-  const canSubmit = name.trim().length >= 1 && !busy;
+  const canSubmit = trimmedName.length >= 1 && !busy && !lockResolving;
 
-  const submit = async () => {
+  const runCreate = async (attemptId: CircleCreateAttemptId, resumed: boolean) => {
+    const startedAt = Date.now();
+    logCircleCreate("API", {
+      attemptId,
+      endpoint: "POST /api/one/location/circles",
+      started: true,
+      resumed,
+    });
     try {
-      await onSubmit(name.trim(), kind);
+      await onSubmit(trimmedName, kind);
+      logCircleCreate("Success", {
+        attemptId,
+        durationMs: Date.now() - startedAt,
+        resumed,
+        circleKind: kind,
+      });
     } catch (error) {
+      // A server rejection is a server rejection. It keeps its own message and
+      // is never relabelled as a lock problem.
+      logCircleCreate("Failure", {
+        attemptId,
+        stage: "api",
+        reason: error instanceof Error ? error.name : "unknown",
+        durationMs: Date.now() - startedAt,
+        resumed,
+      });
       toast.error(
         circleFlowErrorMessage(error, "Could not create this Circle."),
       );
     }
   };
+
+  const submit = async () => {
+    if (submittingRef.current) return;
+    const attemptId = createCircleCreateAttemptId();
+    logCircleCreate("Click", {
+      attemptId,
+      route: "/one/location?action=create-circle",
+      circleKind: kind,
+      hasName: trimmedName.length > 0,
+    });
+    logCircleCreateLockCheck(attemptId, lockState);
+
+    if (lockResolving) {
+      // Unreachable from the CTA (it is disabled), kept so a programmatic
+      // caller cannot turn an unsettled state into a refusal.
+      logCircleCreateLockGuard(attemptId, "wait", "lock_state_unsettled");
+      return;
+    }
+
+    if (lockState === "locked") {
+      logCircleCreateLockGuard(attemptId, "unlock_required", "no_owner_token");
+      if (!renderUnlock) {
+        // No sheet available (a caller that did not wire one). Fall through to
+        // the handler so its own typed error surfaces rather than nothing
+        // happening at all.
+        submittingRef.current = true;
+        try {
+          await runCreate(attemptId, false);
+        } finally {
+          submittingRef.current = false;
+        }
+        return;
+      }
+      submittingRef.current = true;
+      pendingAttemptRef.current = attemptId;
+      logCircleCreate("Unlock", { attemptId, phase: "opened" });
+      setUnlockOpen(true);
+      return;
+    }
+
+    logCircleCreateLockGuard(attemptId, "allow", "owner_token_present");
+    submittingRef.current = true;
+    try {
+      await runCreate(attemptId, false);
+    } finally {
+      submittingRef.current = false;
+    }
+  };
+
+  const handleUnlockDone = (unlocked: boolean) => {
+    const attemptId = pendingAttemptRef.current;
+    pendingAttemptRef.current = null;
+    setUnlockOpen(false);
+    if (!attemptId) {
+      submittingRef.current = false;
+      return;
+    }
+    if (!unlocked) {
+      // Cancelled. Nothing was created, the typed name and the chosen kind are
+      // untouched, and the screen is exactly where it was.
+      logCircleCreate("Unlock", { attemptId, phase: "cancelled" });
+      logCircleCreate("Resume", { attemptId, resumed: false, reason: "unlock_cancelled" });
+      submittingRef.current = false;
+      return;
+    }
+    logCircleCreate("Unlock", { attemptId, phase: "succeeded" });
+    // Park it. Do NOT create here: VaultFlow calls unlockVault() and onSuccess()
+    // in the SAME tick (components/vault/vault-flow.tsx:341-342), and
+    // unlockVault is plain state setters, so React has not re-rendered yet.
+    // Creating now would run the submit handler this render closed over — the
+    // one holding the null token — and throw the very error the unlock just
+    // cleared. The effect below runs it once the token has actually arrived.
+    setPendingResume(attemptId);
+  };
+
+  useEffect(() => {
+    if (!pendingResume) return;
+    // Still settling: keep waiting rather than deciding on an unknown.
+    if (lockState === "resolving") return;
+    const attemptId = pendingResume;
+    setPendingResume(null);
+    if (lockState === "locked") {
+      // The sheet reported success but no token reached us. Release the form
+      // instead of leaving it spinning on a create that can never run.
+      logCircleCreate("Resume", {
+        attemptId,
+        resumed: false,
+        reason: "lock_not_ready",
+      });
+      submittingRef.current = false;
+      return;
+    }
+    logCircleCreate("Resume", {
+      attemptId,
+      resumed: true,
+      preservedName: trimmedName.length > 0,
+      preservedKind: kind,
+    });
+    void (async () => {
+      try {
+        await runCreate(attemptId, true);
+      } finally {
+        submittingRef.current = false;
+      }
+    })();
+    // `runCreate` is recreated every render and re-running this effect for that
+    // alone would double-submit. The parked attempt id is the trigger; the
+    // lock state is the condition.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingResume, lockState]);
 
   return (
     <div className="space-y-6" data-testid="one-location-create-circle-flow">
@@ -513,8 +694,8 @@ export function CreateCircleFlow({
           maxLength={80}
           autoComplete="off"
           spellCheck
-          placeholder="e.g. Family"
-          className="h-14 w-full rounded-2xl border border-border bg-[color:var(--app-card-surface-default-solid)] px-4 text-base outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+          placeholder={CREATE_CIRCLE_NAME_PLACEHOLDER}
+          className={CREATE_CIRCLE_NAME_INPUT_CLASSNAME}
         />
       </label>
 
@@ -554,15 +735,22 @@ export function CreateCircleFlow({
       <Button
         type="button"
         disabled={!canSubmit}
-        isLoading={busy}
+        // Spins while the request runs AND while identity is still settling, so
+        // an unsettled lock reads as "one moment" rather than as a dead button.
+        isLoading={busy || lockResolving}
         onClick={() => void submit()}
-        className={cn(
-          "h-[54px] w-full rounded-full text-base font-semibold",
-          BLOCKED_CTA,
-        )}
+        className={cn(CREATE_CIRCLE_CTA_CLASSNAME, BLOCKED_CTA)}
+        data-lock-state={lockState}
       >
         Create circle
       </Button>
+
+      {renderUnlock
+        ? renderUnlock({
+            open: unlockOpen,
+            onDone: (unlocked) => void handleUnlockDone(unlocked),
+          })
+        : null}
     </div>
   );
 }

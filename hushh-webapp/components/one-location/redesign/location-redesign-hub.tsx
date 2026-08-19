@@ -158,6 +158,7 @@ import {
   CreateCircleFlow,
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
+import type { OneLocationLockState } from "@/lib/one-location/circle-lock-state";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import {
   buildNearbyCheckInResumeHref,
@@ -229,6 +230,20 @@ export type LocationHubViewModel = {
   userId: string | null;
   canShare: boolean;
   busy: string | null;
+  /**
+   * Whether this account currently holds a lock token. Circles are reachable
+   * without one, so a flow that needs the token asks up front instead of
+   * failing on the final tap.
+   */
+  lockState: OneLocationLockState;
+  /**
+   * Renders the shared unlock sheet for a flow that needs the lock. Supplied by
+   * the page so the hub carries no vault dependency of its own.
+   */
+  renderLockPrompt?: (props: {
+    open: boolean;
+    onDone: (unlocked: boolean) => void;
+  }) => React.ReactNode;
   /** Id of the grant currently being revoked (per-grant Stop sharing spinner). */
   revokingGrantId: string | null;
   /** Id of the sent request currently being taken back, or null. */
@@ -1241,6 +1256,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "create-circle" ? (
           <CreateCircleFlow
             busy={vm.busy === "namedCircle"}
+            lockState={vm.lockState}
+            renderUnlock={vm.renderLockPrompt}
             onSubmit={async (name, kind) => {
               const circle = await vm.onCreateNamedCircle(name, kind);
               openCircleDetail(circle.id, "replace");
