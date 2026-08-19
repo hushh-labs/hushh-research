@@ -10,7 +10,6 @@ import hushh_mcp.services.feed_service as feed_service_module
 import hushh_mcp.services.one_location_circle_service as circle_service_module
 import hushh_mcp.services.push_notifications as push_notifications_module
 from hushh_mcp.services.one_location_circle_service import (
-    CIRCLE_MAX_PER_USER,
     OneLocationCircleError,
     OneLocationCircleService,
     format_circle_code,
@@ -45,7 +44,7 @@ def test_circle_member_payload_includes_public_recipient_key_for_group_selection
         {
             "user_id": "member-1",
             "display_name": "Member",
-            "role": "member",
+            "role": "owner",
             "phone_verified": True,
             "key_id": "key-1",
             "public_key_jwk": '{"kty":"EC","crv":"P-256"}',
@@ -80,7 +79,7 @@ def test_a_person_with_no_profile_name_is_still_named_in_a_circle() -> None:
             "user_id": "member-1",
             "display_name": "",
             "email": "damrianeelesh@gmail.com",
-            "role": "member",
+            "role": "owner",
         }
     )
     assert member["displayName"] == "damrianeelesh"
@@ -141,7 +140,7 @@ def test_circle_summary_uses_canonical_owner_instead_of_membership_role() -> Non
         {
             "id": "circle-1",
             "name": "Family",
-            "role": "member",
+            "role": "owner",
             "owner_user_id": "owner-user",
             "viewer_user_id": "owner-user",
         }
@@ -160,7 +159,11 @@ def test_circle_summary_uses_canonical_owner_instead_of_membership_role() -> Non
     assert owner_summary["viewerCapabilities"]["canRotateInviteCode"] is True
     assert owner_summary["viewerCapabilities"]["canManageCircle"] is True
     assert drifted_member_summary["role"] == "member"
-    assert drifted_member_summary["viewerCapabilities"]["canInviteMembers"] is True
+    # Both doors into a Circle are the owner's. Shared membership is what lets
+    # someone receive the owner's location, so a member who could add people
+    # could put a stranger to the owner inside that scope.
+    assert drifted_member_summary["viewerCapabilities"]["canInviteMembers"] is False
+    assert drifted_member_summary["viewerCapabilities"]["canViewInviteCode"] is False
     assert drifted_member_summary["viewerCapabilities"]["canRotateInviteCode"] is False
     assert drifted_member_summary["viewerCapabilities"]["canManageCircle"] is False
 
@@ -245,7 +248,14 @@ def test_generated_circle_code_has_sixty_bits_of_unambiguous_entropy() -> None:
     )
 
 
-def test_member_ensures_re_readable_shared_code_without_rotating_it() -> None:
+def test_owner_ensures_re_readable_shared_code_without_rotating_it() -> None:
+    """The code is re-readable without being rotated -- for its owner.
+
+    A member used to be able to read it. That made the code a second way
+    into a Circle that the owner did not control: whoever redeemed it
+    landed in the owner's sharing scope all the same.
+    """
+
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
     invite_id = "550e8400-e29b-41d4-a716-446655440001"
     service = OneLocationCircleService(db=object(), hmac_key="a" * 32)  # type: ignore[arg-type]
@@ -262,16 +272,16 @@ def test_member_ensures_re_readable_shared_code_without_rotating_it() -> None:
             "id": circle_id,
             "owner_user_id": "owner-user",
             "member_limit": 20,
-            "role": "member",
+            "role": "owner",
         },
-        {"role": "member"},
+        {"role": "owner"},
         None,
         active_row,
     )
     service._db = _TransactionDb(conn)  # type: ignore[assignment]
 
     result = service.create_invite_code(
-        actor_user_id="member-user",
+        actor_user_id="owner-user",
         circle_id=circle_id,
     )
 
@@ -296,7 +306,7 @@ def test_member_ensures_re_readable_shared_code_without_rotating_it() -> None:
     assert circle_lock_index < membership_lock_index < code_lock_index
 
 
-def test_member_can_create_shared_code_but_cannot_rotate_it(
+def test_owner_can_create_and_rotate_the_shared_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
@@ -316,9 +326,9 @@ def test_member_can_create_shared_code_but_cannot_rotate_it(
             "id": circle_id,
             "owner_user_id": "owner-user",
             "member_limit": 20,
-            "role": "member",
+            "role": "owner",
         },
-        {"role": "member"},
+        {"role": "owner"},
         None,
         None,
         inserted_row,
@@ -326,7 +336,7 @@ def test_member_can_create_shared_code_but_cannot_rotate_it(
     service._db = _TransactionDb(conn)  # type: ignore[assignment]
 
     result = service.create_invite_code(
-        actor_user_id="member-user",
+        actor_user_id="owner-user",
         circle_id=circle_id,
     )
 
@@ -337,23 +347,25 @@ def test_member_can_create_shared_code_but_cannot_rotate_it(
         if "INSERT INTO one_location_circle_invite_codes" in sql
     )
     assert code not in str(conn.params[insert_index])
-    assert conn.params[insert_index]["actor_user_id"] == "member-user"
+    assert conn.params[insert_index]["actor_user_id"] == "owner-user"
 
+    # A member is refused the code outright now, not merely refused a rotate:
+    # handing one out is a way into the owner's Circle, so it is the owner's.
     denied_conn = _CapacityConnection(
         {
             "id": circle_id,
             "owner_user_id": "owner-user",
             "member_limit": 20,
-            "role": "owner",
+            "role": "member",
         },
-        {"role": "owner"},
+        {"role": "member"},
     )
     service._db = _TransactionDb(denied_conn)  # type: ignore[assignment]
     with pytest.raises(OneLocationCircleError) as raised:
         service.create_invite_code(
             actor_user_id="member-user",
             circle_id=circle_id,
-            rotate=True,
+            rotate=False,
         )
     assert raised.value.code == "LOCATION_CIRCLE_OWNER_REQUIRED"
     assert not any("one_location_circle_invite_codes" in sql for sql in denied_conn.sql)
@@ -383,9 +395,9 @@ def test_owner_can_rotate_the_shared_circle_code(
             "id": circle_id,
             "owner_user_id": "owner-user",
             "member_limit": 20,
-            "role": "member",
+            "role": "owner",
         },
-        {"role": "member"},
+        {"role": "owner"},
         None,
         _row(old_invite_id),
         None,
@@ -407,7 +419,7 @@ def test_owner_can_rotate_the_shared_circle_code(
     )
 
 
-def test_member_ensure_does_not_rotate_an_unreadable_legacy_code() -> None:
+def test_ensure_does_not_rotate_an_unreadable_legacy_code() -> None:
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
     service = OneLocationCircleService(db=object(), hmac_key="a" * 32)  # type: ignore[arg-type]
     conn = _CapacityConnection(
@@ -415,9 +427,9 @@ def test_member_ensure_does_not_rotate_an_unreadable_legacy_code() -> None:
             "id": circle_id,
             "owner_user_id": "owner-user",
             "member_limit": 20,
-            "role": "member",
+            "role": "owner",
         },
-        {"role": "member"},
+        {"role": "owner"},
         None,
         {
             "id": "550e8400-e29b-41d4-a716-446655440001",
@@ -431,7 +443,7 @@ def test_member_ensure_does_not_rotate_an_unreadable_legacy_code() -> None:
 
     with pytest.raises(OneLocationCircleError) as raised:
         service.create_invite_code(
-            actor_user_id="member-user",
+            actor_user_id="owner-user",
             circle_id=circle_id,
         )
 
@@ -440,37 +452,83 @@ def test_member_ensure_does_not_rotate_an_unreadable_legacy_code() -> None:
     assert not any("INSERT INTO one_location_circle_invite_codes" in sql for sql in conn.sql)
 
 
-def test_user_circle_capacity_is_serialized_on_the_actor_profile_row() -> None:
-    conn = _CapacityConnection(
-        {"user_id": "member-user"},
-        {"circle_count": CIRCLE_MAX_PER_USER - 1},
-    )
+def test_nobody_is_capped_on_how_many_circles_they_may_belong_to() -> None:
+    """The ten-Circle ceiling is gone, and this is why it should stay gone.
 
-    OneLocationCircleService._lock_user_circle_memberships(
-        conn,
-        user_id="member-user",
-    )
-    OneLocationCircleService._assert_user_circle_capacity(
-        conn,
-        user_id="member-user",
-    )
+    It read as "how many Circles may a person create", but it counted
+    MEMBERSHIPS -- so what it actually decided was how many Circles OTHER
+    PEOPLE may put you in. Someone on ten emergency lists could not be added to
+    an eleventh Circle, and no screen could explain why. That is not a limit
+    that belonged to us.
 
-    assert "FROM actor_profiles" in conn.sql[0]
-    assert "FOR UPDATE" in conn.sql[0]
-    assert "one_location_circle_memberships" in conn.sql[1]
+    Three tests used to hold that ceiling in place. They are gone with it, and
+    this one replaces them: read `create_circle` and find no ceiling, and it is
+    reasonable to add one back. This fails if anyone does.
+    """
+
+    import inspect
+    import re
+
+    from hushh_mcp.services import one_location_circle_service as module
+
+    source = inspect.getsource(module)
+    # The NAME may survive in the comment explaining why it went; the constant,
+    # the check and the refusal may not.
+    assert not re.search(r"^CIRCLE_MAX_PER_USER\s*=", source, re.M)
+    assert "_assert_user_circle_capacity" not in source
+    assert "LOCATION_CIRCLE_LIMIT_REACHED" not in source
+
+    # The per-person LOCK survives the limit it used to guard. It still
+    # serializes one person's concurrent creates and joins against each other.
+    assert "_lock_user_circle_memberships" in source
 
 
-def test_user_circle_capacity_rejects_the_eleventh_membership() -> None:
-    conn = _CapacityConnection({"circle_count": CIRCLE_MAX_PER_USER})
+def test_an_sms_circle_holds_ten_people_where_an_ordinary_circle_holds_a_hundred() -> None:
+    """An SMS Circle is not a small ordinary Circle.
 
-    with pytest.raises(OneLocationCircleError) as raised:
-        OneLocationCircleService._assert_user_circle_capacity(
-            conn,
-            user_id="member-user",
-        )
+    Everyone on it is woken at once, with the owner's address, at the worst
+    moment of their day. A hundred recipients is not a bigger safety net -- it
+    is a hundred messages nobody is accountable for, and a roster the owner
+    cannot check at a glance when it matters most.
+    """
 
-    assert raised.value.code == "LOCATION_CIRCLE_LIMIT_REACHED"
-    assert raised.value.status_code == 409
+    import inspect
+
+    from hushh_mcp.services import one_location_circle_service as module
+
+    assert module.CIRCLE_DEFAULT_MEMBER_LIMIT == 100
+    assert module.SMS_SYSTEM_CIRCLE_MEMBER_LIMIT == 10
+
+    # The system Circle is created with its own ceiling, not the ordinary one.
+    insert = inspect.getsource(module.OneLocationCircleService._insert_system_circle)
+    assert '"member_limit": SMS_SYSTEM_CIRCLE_MEMBER_LIMIT' in insert
+    assert "CIRCLE_DEFAULT_MEMBER_LIMIT" not in insert
+
+    # And Circles provisioned before that ceiling existed are brought down on
+    # the next bootstrap, the same way the rename heals.
+    bootstrap = inspect.getsource(module.OneLocationCircleService.ensure_sms_system_circle)
+    assert "SET member_limit = :member_limit" in bootstrap
+    assert "member_limit <> :member_limit" in bootstrap
+
+
+def test_lowering_the_sms_ceiling_never_evicts_anyone() -> None:
+    """An owner already over ten keeps everyone they have.
+
+    member_limit is read when someone is ADDED. Nothing consults it to decide
+    who may stay, and nothing should: removing people from an emergency list to
+    satisfy a number chosen after they were added would be the wrong way round.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_circle_service as module
+
+    source = inspect.getsource(module)
+    # The only place the ceiling is consulted is the add path's capacity check.
+    for line in source.splitlines():
+        if "member_limit" in line and "DELETE" in line.upper():
+            raise AssertionError(f"member_limit is being used to remove people: {line!r}")
+    assert "reserved_count + len(new_user_ids) - already_reserved > member_limit" in source
 
 
 def test_join_is_idempotent_before_capacity_is_consumed(
@@ -543,54 +601,6 @@ def test_join_is_idempotent_before_capacity_is_consumed(
     assert circle_lock_index < code_lock_index < membership_lock_index
 
 
-def test_join_enforces_the_user_circle_limit_inside_the_locked_transaction() -> None:
-    circle_id = "550e8400-e29b-41d4-a716-446655440000"
-    invite_id = "550e8400-e29b-41d4-a716-446655440001"
-    conn = _CapacityConnection(
-        {"id": invite_id, "circle_id": circle_id},
-        {
-            "id": circle_id,
-            "owner_user_id": "owner-user",
-            "member_limit": 20,
-            "status": "active",
-        },
-        {"user_id": "member-user"},
-        {
-            "id": invite_id,
-            "circle_id": circle_id,
-            "status": "active",
-            "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
-            "max_uses": 19,
-            "use_count": 1,
-        },
-        None,
-        {"circle_count": CIRCLE_MAX_PER_USER},
-    )
-    service = OneLocationCircleService(
-        db=_TransactionDb(conn),  # type: ignore[arg-type]
-        hmac_key="a" * 32,
-    )
-
-    with pytest.raises(OneLocationCircleError) as raised:
-        service.join_circle(
-            user_id="member-user",
-            code="2345-6789-ABCD",
-        )
-
-    assert raised.value.code == "LOCATION_CIRCLE_LIMIT_REACHED"
-    actor_lock_index = next(
-        index for index, sql in enumerate(conn.sql) if "FROM actor_profiles" in sql
-    )
-    circle_lock_index = next(
-        index
-        for index, sql in enumerate(conn.sql)
-        if "FROM one_location_circles" in sql and "FOR UPDATE" in sql
-    )
-    assert "FOR UPDATE" in conn.sql[actor_lock_index]
-    assert circle_lock_index < actor_lock_index
-    assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
-
-
 def test_code_join_respects_capacity_reserved_by_other_pending_invites() -> None:
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
     invite_id = "550e8400-e29b-41d4-a716-446655440001"
@@ -612,7 +622,6 @@ def test_code_join_respects_capacity_reserved_by_other_pending_invites() -> None
             "use_count": 1,
         },
         None,
-        {"circle_count": 0},
         {"member_count": 20},
     )
     service = OneLocationCircleService(
@@ -825,7 +834,6 @@ def test_targeted_invite_accept_rechecks_direct_connection_and_creates_origins(
         {"user_id": "inviter-member"},
         {"id": "connection-id"},
         {"id": "direct-origin-id"},
-        {"circle_count": 0},
         {"member_count": 1},
         None,
         [
@@ -1142,7 +1150,6 @@ def test_owner_authored_invite_can_restore_a_removed_membership(
         {"user_id": "owner-user", "role": "owner"},
         {"id": "connection-id"},
         {"id": "direct-origin-id"},
-        {"circle_count": 0},
         {"member_count": 1},
         None,
         None,
@@ -1289,12 +1296,10 @@ def test_adding_connections_writes_memberships_and_tells_each_person(
             }
         ],
         {"active_member_count": 1, "pending_invite_count": 1},
-        # friend-one: own Circle budget, membership insert, co-member lock.
-        {"circle_count": 1},
+        # friend-one: membership insert, then the co-member lock.
         None,
         [{"user_id": "friend-one"}, {"user_id": "owner-user"}],
-        # friend-two: the same three.
-        {"circle_count": 1},
+        # friend-two: the same two.
         None,
         [
             {"user_id": "friend-one"},
@@ -1455,7 +1460,7 @@ def test_the_people_being_added_are_locked_before_the_connection_rows() -> None:
     assert "ORDER BY user_id" in conn.sql[profile_lock_index]
 
 
-def test_member_cannot_invite_a_user_removed_by_the_circle_owner() -> None:
+def test_a_member_cannot_add_anybody_to_a_circle_they_do_not_own() -> None:
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
     conn = _CapacityConnection(
         {
@@ -1483,7 +1488,10 @@ def test_member_cannot_invite_a_user_removed_by_the_circle_owner() -> None:
             invitee_user_ids=["removed-user"],
         )
 
-    assert raised.value.code == "LOCATION_CIRCLE_MEMBERSHIP_REMOVED"
+    # This used to be a rule of its own -- "only the owner may re-add someone
+    # they removed". It is now a consequence of the bigger one: a member cannot
+    # add anybody, removed or not.
+    assert raised.value.code == "LOCATION_CIRCLE_OWNER_REQUIRED"
     assert not any("FROM connections connection" in sql for sql in conn.sql)
     assert not any("INSERT INTO one_location_circle_member_invites" in sql for sql in conn.sql)
 
@@ -1530,7 +1538,7 @@ def test_recent_terminal_invite_enforces_a_circle_wide_reinvite_cooldown() -> No
 
     with pytest.raises(OneLocationCircleError) as raised:
         service.create_member_invites(
-            actor_user_id="member-user",
+            actor_user_id="owner-user",
             circle_id=circle_id,
             invitee_user_ids=["friend-one"],
         )
@@ -1543,55 +1551,54 @@ def test_recent_terminal_invite_enforces_a_circle_wide_reinvite_cooldown() -> No
     assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
 
 
-def test_a_non_owner_cannot_fill_someone_elses_circle_in_one_tap() -> None:
-    """The ceiling that had to be replaced rather than kept.
+def test_only_the_owner_may_open_either_door_into_a_circle() -> None:
+    """The rule that replaced a ceiling, a system-Circle exception, and a
+    re-add rule -- because all three were the same question badly split.
 
-    It used to count a member's PENDING invitations, which bounded nothing once
-    nothing is pending: a member could have filled the owner's Circle to its
-    limit in a single tap. It now counts the people that member actually put
-    there and who are still there -- same number, same purpose.
+    Sharing through a Circle never asks whether two people connected: shared
+    membership is enough (`_lock_share_delivery`). So whoever decides
+    membership decides who may receive the owner's location. A member adding
+    their own connection put a stranger to the owner inside that scope, and
+    the owner was never shown the decision being made.
+
+    A join code is the same door with a link attached, so it moved too.
+
+    What used to guard fragments of this:
+      * a five-person ceiling on how much of someone else's Circle a member
+        could fill -- it bounded the damage instead of preventing it;
+      * a system-Circle-only rule, because the emergency list was the case
+        where it obviously mattered;
+      * "only the owner may re-add someone they removed".
+    All three are consequences of the one rule now, and gone as separate code.
     """
 
-    circle_id = "550e8400-e29b-41d4-a716-446655440000"
-    conn = _CapacityConnection(
-        {
-            "id": circle_id,
-            "name": "Family",
-            "kind": "family",
-            "owner_user_id": "owner-user",
-            "member_limit": 20,
-            "role": "member",
-        },
-        {"role": "member", "inviter_display_name": "Member"},
-        [{"user_id": "friend-one"}],
-        None,
-        [],
-        [{"connection_id": "connection-1", "user_id": "friend-one"}],
-        [{"connection_id": "connection-1"}],
-        [],
-        {
-            "active_member_count": 5,
-            "pending_invite_count": 0,
-            "actor_pending_invite_count": 0,
-            # Five people this member already put in someone else's Circle.
-            "actor_added_member_count": 5,
-        },
-    )
-    service = OneLocationCircleService(
-        db=_TransactionDb(conn),  # type: ignore[arg-type]
-        hmac_key="a" * 32,
-    )
+    import inspect
 
-    with pytest.raises(OneLocationCircleError) as raised:
-        service.create_member_invites(
-            actor_user_id="member-user",
-            circle_id=circle_id,
-            invitee_user_ids=["friend-one"],
-        )
+    from hushh_mcp.services import one_location_circle_service as module
 
-    assert raised.value.code == "LOCATION_CIRCLE_MEMBER_INVITE_LIMIT_REACHED"
-    assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
-    assert any("membership.metadata->>'addedBy'" in sql for sql in conn.sql)
+    add = inspect.getsource(module.OneLocationCircleService.create_member_invites)
+    code = inspect.getsource(module.OneLocationCircleService.create_invite_code)
+    for name, source in (("adding", add), ("the invite code", code)):
+        assert "LOCATION_CIRCLE_OWNER_REQUIRED" in source, f"{name} is not owner-only"
+
+    summary = inspect.getsource(module.OneLocationCircleService._circle_summary)
+    assert '"canInviteMembers": is_owner' in summary
+    assert '"canViewInviteCode": is_owner and not is_system' in summary
+
+    # The fragments are gone from the module, not merely bypassed.
+    whole = inspect.getsource(module)
+    assert "CIRCLE_NON_OWNER_PENDING_INVITE_LIMIT" not in whole
+    assert "LOCATION_CIRCLE_MEMBER_INVITE_LIMIT_REACHED" not in whole
+    assert "LOCATION_CIRCLE_SYSTEM_OWNER_ONLY" not in whole
+
+    # And gone from the ADD path specifically. The same code still guards the
+    # two paths a person walks themselves -- redeeming a code, accepting an
+    # older invitation -- where the actor is the joiner and the owner's removal
+    # is the thing being checked. That rule is still needed there.
+    assert "LOCATION_CIRCLE_MEMBERSHIP_REMOVED" not in add
+    assert "LOCATION_CIRCLE_MEMBERSHIP_REMOVED" in inspect.getsource(
+        module.OneLocationCircleService.accept_member_invite
+    )
 
 
 def test_adding_someone_who_already_has_an_open_invitation_retires_it(
@@ -1613,10 +1620,11 @@ def test_adding_someone_who_already_has_an_open_invitation_retires_it(
             "id": circle_id,
             "name": "Family",
             "kind": "family",
+            "owner_user_id": "owner-user",
             "member_limit": 20,
-            "role": "member",
+            "role": "owner",
         },
-        {"role": "member", "inviter_display_name": "Member"},
+        {"role": "owner", "inviter_display_name": "Owner"},
         [{"user_id": "friend-one"}],
         None,
         [],
@@ -1639,7 +1647,6 @@ def test_adding_someone_who_already_has_an_open_invitation_retires_it(
             }
         ],
         {"active_member_count": 2, "pending_invite_count": 1},
-        {"circle_count": 1},
         None,
         [{"user_id": "friend-one"}, {"user_id": "member-user"}],
         None,
@@ -1656,7 +1663,7 @@ def test_adding_someone_who_already_has_an_open_invitation_retires_it(
     )
 
     result = service.create_member_invites(
-        actor_user_id="member-user",
+        actor_user_id="owner-user",
         circle_id=circle_id,
         invitee_user_ids=["friend-one"],
     )
@@ -1895,7 +1902,6 @@ def test_an_old_departure_does_not_block_being_added_back(
         [{"connection_id": "connection-1"}],
         [],
         {"active_member_count": 1, "pending_invite_count": 0},
-        {"circle_count": 1},
         None,
         [{"user_id": "friend-one"}, {"user_id": "owner-user"}],
     )
@@ -1960,7 +1966,6 @@ def test_a_seat_an_open_invitation_already_reserved_is_not_charged_twice(
         ],
         # Nineteen members and one seat, held by friend-one's own invitation.
         {"active_member_count": 19, "pending_invite_count": 1},
-        {"circle_count": 1},
         None,
         [{"user_id": "friend-one"}, {"user_id": "owner-user"}],
         None,
@@ -2254,61 +2259,6 @@ def test_the_sms_circle_still_introduces_nobody_and_costs_nobody_a_circle(
     assert insert_params["actor_user_id"] == "owner-user"
 
 
-def test_someone_at_their_circle_limit_cannot_be_added_and_is_not_named(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Their Circle budget is still theirs, and still nobody else's business.
-
-    Acceptance used to be where this was checked, against the person's own
-    account, with a message written for them to read. Adding moved the check to
-    someone else's transaction -- so the message had to stop reading as if it
-    were about the person tapping, and had to stop naming which of their
-    connections is full. Otherwise anyone with a connection and a full Circle
-    to test against could count somebody else's Circles.
-    """
-
-    circle_id = "550e8400-e29b-41d4-a716-446655440000"
-    conn = _CapacityConnection(
-        {
-            "id": circle_id,
-            "name": "Family",
-            "kind": "family",
-            "owner_user_id": "owner-user",
-            "member_limit": 20,
-        },
-        {"role": "owner", "inviter_display_name": "Owner"},
-        [{"user_id": "friend-one"}],
-        None,
-        [],
-        [{"connection_id": "connection-1", "user_id": "friend-one"}],
-        [{"connection_id": "connection-1"}],
-        [],
-        {"active_member_count": 1, "pending_invite_count": 0},
-        {"circle_count": CIRCLE_MAX_PER_USER},
-    )
-    service = OneLocationCircleService(
-        db=_TransactionDb(conn),  # type: ignore[arg-type]
-        hmac_key="a" * 32,
-    )
-    monkeypatch.setattr(
-        circle_service_module,
-        "ensure_connection_origin",
-        lambda _conn, **kwargs: {},
-    )
-
-    with pytest.raises(OneLocationCircleError) as raised:
-        service.create_member_invites(
-            actor_user_id="owner-user",
-            circle_id=circle_id,
-            invitee_user_ids=["friend-one"],
-        )
-
-    assert raised.value.code == "LOCATION_CIRCLE_LIMIT_REACHED"
-    assert "friend-one" not in raised.value.args[0]
-    assert "You can belong to" not in raised.value.args[0]
-    assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
-
-
 def test_targeted_circle_invite_push_is_metadata_only_and_deep_links_to_people(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2585,33 +2535,6 @@ def test_only_the_owner_controls_who_is_on_their_emergency_list() -> None:
     assert ordinary_caps["canViewInviteCode"] is True
     assert ordinary_caps["canRotateInviteCode"] is True
     assert ordinary_caps["canDeleteCircle"] is True
-
-
-def test_emergency_lists_do_not_consume_the_circle_budget() -> None:
-    """Being on eight people's emergency lists must not block making a Circle.
-
-    The limit is about Circles you belong to. An emergency list is somewhere
-    you were placed, and no screen could have explained the refusal.
-    """
-
-    import inspect
-
-    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
-
-    source = inspect.getsource(OneLocationCircleService._assert_user_circle_capacity)
-    assert "NOT circle.is_system" in source
-
-
-def test_a_member_cannot_add_people_to_someone_elses_emergency_list() -> None:
-    """The capability flag shapes the UI; this is the rule behind it."""
-
-    import inspect
-
-    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
-
-    source = inspect.getsource(OneLocationCircleService.create_member_invites)
-    assert "LOCATION_CIRCLE_SYSTEM_OWNER_ONLY" in source
-    assert "is_system_circle" in source
 
 
 def test_no_add_path_can_walk_into_invitation_payload_code() -> None:

@@ -38,12 +38,19 @@ CIRCLE_CODE_TTL_HOURS = 72
 # still readable, and accept/decline still refuse the ones that ran out.
 CIRCLE_MEMBER_INVITE_TTL_HOURS = 72
 CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS = 12
-# How many people a member who does not own the Circle may put into it.
-# Named for the pending invitations it used to count; adding is immediate now,
-# so it counts the members they added who are still active. Same ceiling, same
-# purpose -- one member cannot fill somebody else's Circle.
-CIRCLE_NON_OWNER_PENDING_INVITE_LIMIT = 5
-CIRCLE_MAX_PER_USER = 10
+# How many people may be on one SMS Circle.
+#
+# Deliberately far below an ordinary Circle's hundred, because this is not a
+# smaller version of the same thing: everyone here is woken up at once, with
+# the owner's address, at the worst moment of their day. A hundred recipients
+# is not a bigger safety net -- it is a hundred messages nobody is accountable
+# for and a roster the owner cannot check at a glance when it matters most.
+#
+# There is no cap on how many Circles a person may belong to. That number used
+# to live here as CIRCLE_MAX_PER_USER; it counted MEMBERSHIPS, so it was really
+# deciding how many Circles other people may put you in, which was never ours
+# to decide.
+SMS_SYSTEM_CIRCLE_MEMBER_LIMIT = 10
 # Raised from 20 in migration 158. This constant is stamped onto a Circle at
 # INSERT and never edited afterwards, so it governs new Circles only -- the
 # migration lifts the stored ceiling on Circles that already carry the old
@@ -351,43 +358,6 @@ class OneLocationCircleService:
             )
 
     @staticmethod
-    def _assert_user_circle_capacity(
-        conn: Any, *, user_id: str, adding_other: bool = False
-    ) -> None:
-        count_row = _first(
-            conn.execute(
-                text(
-                    """
-                    SELECT COUNT(*) AS circle_count
-                    FROM one_location_circle_memberships membership
-                    JOIN one_location_circles circle
-                      ON circle.id = membership.circle_id
-                     AND circle.status = 'active'
-                     AND NOT circle.is_system
-                    WHERE membership.user_id = :user_id
-                      AND membership.status = 'active'
-                    """
-                ),
-                {"user_id": user_id},
-            )
-        )
-        if int((count_row or {}).get("circle_count") or 0) >= CIRCLE_MAX_PER_USER:
-            raise OneLocationCircleError(
-                "LOCATION_CIRCLE_LIMIT_REACHED",
-                (
-                    # Deliberately unnamed. Adding people is now immediate, so
-                    # this check runs against someone else's account, and how
-                    # many Circles a person belongs to is their business --
-                    # naming them would answer that question for anyone with a
-                    # connection and a full Circle to test against.
-                    "Someone you selected is already in as many Circles as One allows."
-                    if adding_other
-                    else f"You can belong to up to {CIRCLE_MAX_PER_USER} Circles."
-                ),
-                status_code=409,
-            )
-
-    @staticmethod
     def _circle_summary(row: dict[str, Any]) -> dict[str, Any]:
         owner_user_id = str(row.get("owner_user_id") or "")
         viewer_user_id = str(row.get("viewer_user_id") or "")
@@ -415,18 +385,20 @@ class OneLocationCircleService:
             "createdAt": _iso(row.get("created_at")),
             "updatedAt": _iso(row.get("updated_at")),
             "viewerCapabilities": {
-                # Invite authority is intentionally separate from location,
-                # SMS, rename, removal, and deletion authority.
+                # Both doors into a Circle are the owner's.
                 #
-                # Except on a system Circle, which is one person's private
-                # emergency list. Anyone on it could otherwise add other people
-                # TO it -- a stranger invited by a member would receive the
-                # owner's SOS alerts, at their address, and the owner never
-                # chose them. Owner-controlled, or it is not an emergency list.
-                "canInviteMembers": is_owner or not is_system,
-                # And it has no shareable join code at all: that is the same
-                # hole with a link attached.
-                "canViewInviteCode": not is_system,
+                # Sharing through a Circle never asks whether two people
+                # connected -- shared membership is enough. So whoever decides
+                # membership decides who may receive the owner's location. A
+                # member adding their own connection put a stranger to the
+                # owner inside that scope, and the owner was never shown the
+                # decision. On a system Circle the same act handed out SOS
+                # alerts, with an address, to someone the owner never chose.
+                "canInviteMembers": is_owner,
+                # A join code a member can hand out is the same hole with a
+                # link attached: whoever redeems it lands in the owner's Circle
+                # just the same. A system Circle has no code at all.
+                "canViewInviteCode": is_owner and not is_system,
                 "canRotateInviteCode": is_owner and not is_system,
                 "canManageCircle": is_owner,
                 "canModerateInvites": is_owner,
@@ -770,11 +742,10 @@ class OneLocationCircleService:
         cleaned_kind = _clean_kind(kind)
         try:
             with self._db.engine.begin() as conn:
+                # Serializes this person's create/join against itself. There
+                # is no ceiling left to check -- a person may belong to as many
+                # Circles as people put them in.
                 self._lock_user_circle_memberships(
-                    conn,
-                    user_id=owner_user_id,
-                )
-                self._assert_user_circle_capacity(
                     conn,
                     user_id=owner_user_id,
                 )
@@ -885,6 +856,30 @@ class OneLocationCircleService:
                             "legacy_names": list(SMS_SYSTEM_CIRCLE_LEGACY_NAMES),
                         },
                     )
+                    # Circles provisioned before the SMS ceiling existed carry
+                    # the ordinary hundred. Bring them down on the next
+                    # bootstrap, the same way the rename heals, rather than in
+                    # a migration.
+                    #
+                    # Lowering a ceiling never removes anybody: member_limit is
+                    # read when someone is ADDED, so an owner already over ten
+                    # keeps everyone they have and simply cannot add more.
+                    # Evicting people from an emergency list to satisfy a
+                    # number chosen afterwards would be the wrong way round.
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE one_location_circles
+                            SET member_limit = :member_limit, updated_at = NOW()
+                            WHERE id = CAST(:circle_id AS UUID)
+                              AND member_limit <> :member_limit
+                            """
+                        ),
+                        {
+                            "circle_id": circle_id,
+                            "member_limit": SMS_SYSTEM_CIRCLE_MEMBER_LIMIT,
+                        },
+                    )
                 migrated = self._migrate_sms_contacts_into_circle(conn, owner, circle_id)
 
                 # The owner invited every one of them, so the pair recorded is
@@ -958,7 +953,7 @@ class OneLocationCircleService:
                 {
                     "owner_user_id": owner_user_id,
                     "name": SMS_SYSTEM_CIRCLE_NAME,
-                    "member_limit": CIRCLE_DEFAULT_MEMBER_LIMIT,
+                    "member_limit": SMS_SYSTEM_CIRCLE_MEMBER_LIMIT,
                 },
             )
         )
@@ -1129,6 +1124,17 @@ class OneLocationCircleService:
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_MEMBERSHIP_REQUIRED",
                         "Only an active Circle member can access its invite code.",
+                        status_code=403,
+                    )
+                # A code is a way into the Circle, so it belongs to whoever
+                # decides who gets in. A member who could hand one out could
+                # put a stranger to the owner inside the owner's sharing scope
+                # without the owner ever seeing the decision -- the same hole
+                # that adding had, with a link attached.
+                if str(circle_row.get("owner_user_id") or "") != actor_user_id:
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_OWNER_REQUIRED",
+                        "Only the Circle owner can share this Circle's invite code.",
                         status_code=403,
                     )
                 if rotate and str(circle_row.get("owner_user_id") or "") != actor_user_id:
@@ -1460,7 +1466,6 @@ class OneLocationCircleService:
                 if existing and str(existing.get("status") or "") == "active":
                     joined = False
                 else:
-                    self._assert_user_circle_capacity(conn, user_id=user_id)
                     count_row = _first(
                         conn.execute(
                             text(
@@ -1802,15 +1807,6 @@ class OneLocationCircleService:
                           AND membership.status = 'active'
                       )
                   ) AS pending_invite_count
-                  ,
-                  (
-                    SELECT COUNT(*)
-                    FROM one_location_circle_member_invites invite
-                    WHERE invite.circle_id = circle.id
-                      AND invite.inviter_user_id = :actor_user_id
-                      AND invite.status = 'pending'
-                      AND invite.expires_at > NOW()
-                  ) AS actor_pending_invite_count
                 FROM one_location_circles circle
                 JOIN one_location_circle_memberships actor_membership
                   ON actor_membership.circle_id = circle.id
@@ -1828,7 +1824,7 @@ class OneLocationCircleService:
             if not row:
                 raise OneLocationCircleError(
                     "LOCATION_CIRCLE_MEMBERSHIP_REQUIRED",
-                    "Only an active Circle member can invite people.",
+                    "Only an active Circle member can see this Circle's room.",
                     status_code=403,
                 )
             reserved = int(row.get("active_member_count") or 0) + int(
@@ -1838,14 +1834,10 @@ class OneLocationCircleService:
                 0,
                 int(row.get("member_limit") or CIRCLE_DEFAULT_MEMBER_LIMIT) - reserved,
             )
-            if str(row.get("owner_user_id") or "") == actor_user_id:
-                return circle_remaining
-            actor_remaining = max(
-                0,
-                CIRCLE_NON_OWNER_PENDING_INVITE_LIMIT
-                - int(row.get("actor_pending_invite_count") or 0),
-            )
-            return min(circle_remaining, actor_remaining)
+            # Only the owner can add anyone, so the only ceiling left is the
+            # Circle's own. A member asking gets the same number; they simply
+            # have no way to spend it.
+            return circle_remaining
         except OneLocationCircleError:
             raise
         except Exception as exc:
@@ -2072,7 +2064,18 @@ class OneLocationCircleService:
                 if not circle_row or not actor_membership_row:
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_MEMBERSHIP_REQUIRED",
-                        "Only an active Circle member can invite people.",
+                        "Only an active Circle member can add people.",
+                        status_code=403,
+                    )
+                # And of those members, only the owner. Membership in a Circle
+                # is what lets someone receive the owner's location, so the
+                # owner is the only person who may grant it. This is checked
+                # before any capacity, connection or invitation state is read:
+                # a non-owner learns nothing about the Circle by asking.
+                if str(circle_row.get("owner_user_id") or "") != actor_user_id:
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_OWNER_REQUIRED",
+                        "Only the Circle owner can add people to this Circle.",
                         status_code=403,
                     )
                 circle_row["inviter_display_name"] = actor_membership_row.get(
@@ -2127,14 +2130,6 @@ class OneLocationCircleService:
                         "LOCATION_CIRCLE_ALREADY_MEMBER",
                         "One or more selected connections are already in the Circle.",
                         status_code=409,
-                    )
-                if str(circle_row.get("owner_user_id") or "") != actor_user_id and any(
-                    str(row.get("status") or "") == "removed" for row in target_membership_rows
-                ):
-                    raise OneLocationCircleError(
-                        "LOCATION_CIRCLE_MEMBERSHIP_REMOVED",
-                        "Only the Circle owner can invite someone they previously removed.",
-                        status_code=403,
                     )
                 # Leaving is that person saying no to this Circle specifically,
                 # and it now costs a cooldown the way declining an invitation
@@ -2337,31 +2332,6 @@ class OneLocationCircleService:
                                       AND membership.status = 'active'
                                   )
                               ) AS pending_invite_count
-                              ,
-                              (
-                                SELECT COUNT(*)
-                                FROM one_location_circle_member_invites invite
-                                WHERE invite.circle_id =
-                                      CAST(:circle_id AS UUID)
-                                  AND invite.inviter_user_id = :actor_user_id
-                                  AND invite.status = 'pending'
-                                  AND invite.expires_at > NOW()
-                              ) AS actor_pending_invite_count
-                              ,
-                              -- Adding is immediate, so counting a member's
-                              -- open invitations bounds nothing: they could
-                              -- fill someone else's Circle in one tap. What
-                              -- replaces it counts the people they actually
-                              -- put there who are still there.
-                              (
-                                SELECT COUNT(*)
-                                FROM one_location_circle_memberships membership
-                                WHERE membership.circle_id =
-                                      CAST(:circle_id AS UUID)
-                                  AND membership.status = 'active'
-                                  AND membership.metadata->>'addedBy' =
-                                      :actor_user_id
-                              ) AS actor_added_member_count
                             """
                         ),
                         {
@@ -2374,31 +2344,9 @@ class OneLocationCircleService:
                     (capacity_row or {}).get("pending_invite_count") or 0
                 )
                 member_limit = int(circle_row.get("member_limit") or CIRCLE_DEFAULT_MEMBER_LIMIT)
-                if (
-                    str(circle_row.get("owner_user_id") or "") != actor_user_id
-                    and int((capacity_row or {}).get("actor_pending_invite_count") or 0)
-                    + int((capacity_row or {}).get("actor_added_member_count") or 0)
-                    + len(new_user_ids)
-                    > CIRCLE_NON_OWNER_PENDING_INVITE_LIMIT
-                ):
-                    raise OneLocationCircleError(
-                        "LOCATION_CIRCLE_MEMBER_INVITE_LIMIT_REACHED",
-                        (
-                            "You can add up to "
-                            f"{CIRCLE_NON_OWNER_PENDING_INVITE_LIMIT} people to a "
-                            "Circle you do not own."
-                        ),
-                        status_code=409,
-                    )
+                # Owner-only is enforced for every Circle at the top of this
+                # method, which covers the emergency list too.
                 is_system_circle = bool(circle_row.get("is_system"))
-                # The capability flag above shapes the UI; this is the rule.
-                # Only the owner may put someone on their emergency list.
-                if is_system_circle and str(circle_row.get("owner_user_id") or "") != actor_user_id:
-                    raise OneLocationCircleError(
-                        "LOCATION_CIRCLE_SYSTEM_OWNER_ONLY",
-                        "Only the owner can add people to this Circle.",
-                        status_code=403,
-                    )
                 # Anyone being added who still holds an open invitation is
                 # already inside `reserved_count` -- their invitation reserved
                 # a seat. Counting them again would refuse a Circle with room
@@ -2426,14 +2374,6 @@ class OneLocationCircleService:
                     # Sorted to match the order `_lock_invitees` already took
                     # these people in, so the membership writes cannot reorder
                     # what the locks settled.
-                    if not is_system_circle:
-                        # A system Circle is exempt from the per-person Circle
-                        # budget (`_assert_user_circle_capacity` excludes it),
-                        # so being on somebody's emergency list never costs
-                        # anyone a Circle of their own.
-                        self._assert_user_circle_capacity(
-                            conn, user_id=invitee_user_id, adding_other=True
-                        )
                     conn.execute(
                         text(
                             """
@@ -2836,7 +2776,6 @@ class OneLocationCircleService:
                     if existing and str(existing.get("status") or "") == "active":
                         joined = False
                     else:
-                        self._assert_user_circle_capacity(conn, user_id=user_id)
                         count_row = _first(
                             conn.execute(
                                 text(
