@@ -64,6 +64,7 @@ import {
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
 import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
+import { resolvedAccentHex } from "@/lib/theme/accent";
 import {
   firstNameFromLabel,
   layoutMapNameLabels,
@@ -132,6 +133,38 @@ const MAP_ID = "one-location-private-map";
 // module for the full contract and its latency budget.
 
 const NEARBY_CHECK_IN_RADIUS_METERS = 500;
+
+/**
+ * The check-in radius overlay, deliberately quiet.
+ *
+ * It answers "roughly this far", which is a background fact about the screen,
+ * not its subject — the map underneath is what the person is reading, and the
+ * two pins on it are what they are choosing between. So the boundary is a
+ * hairline and the fill is barely a tint. The radius itself is unchanged:
+ * `NEARBY_CHECK_IN_RADIUS_METERS` still drives the circle, and the server
+ * still owns the 500 m the circle stands for.
+ */
+const NEARBY_CIRCLE_FILL_OPACITY = 0.06;
+const NEARBY_CIRCLE_STROKE_OPACITY = 0.35;
+const NEARBY_CIRCLE_STROKE_WEIGHT = 1.5;
+/** The you→place connector. Slightly stronger: it is a specific answer. */
+const NEARBY_CONNECTOR_STROKE_OPACITY = 0.45;
+const NEARBY_CONNECTOR_STROKE_WEIGHT = 2;
+
+/**
+ * The check-in overlays go through `@capacitor/google-maps`, and neither
+ * renderer resolves a CSS custom property: the web shim hands the string
+ * straight to `new google.maps.Circle`, which silently falls back to its own
+ * defaults on anything unparseable — a black ring over a heavy grey disc, which
+ * is what shipped — and the iOS plugin does `UIColor(hex:) ?? .blue`. So the
+ * previous `"var(--app-accent)"` and `"var(--app-accent-surface)"` never once
+ * drew in the app's accent, and no opacity asked for here reached the fill it
+ * actually produced.
+ *
+ * `resolvedAccentHex()` reads the computed token, so the accent preference
+ * keeps working on this surface instead of being frozen to one palette.
+ */
+
 const TRAY_COLLAPSED_HEIGHT_PX = 56; // 3.5rem, the collapsed pill.
 // The section's own `border` (1px top + 1px bottom) is border-box, so it
 // eats into the content area rather than shrink it away from the header and
@@ -1812,14 +1845,15 @@ export function LocationImmersiveMap({
       }
 
       const active = Boolean(placeFocus?.active);
+      const accent = resolvedAccentHex();
       const circle: Circle = {
         center: circleCenter,
         radius: NEARBY_CHECK_IN_RADIUS_METERS,
-        fillColor: "var(--app-accent-surface)",
-        fillOpacity: 0.1,
-        strokeColor: "var(--app-accent)",
-        strokeOpacity: 0.85,
-        strokeWeight: 2,
+        fillColor: accent,
+        fillOpacity: NEARBY_CIRCLE_FILL_OPACITY,
+        strokeColor: accent,
+        strokeOpacity: NEARBY_CIRCLE_STROKE_OPACITY,
+        strokeWeight: NEARBY_CIRCLE_STROKE_WEIGHT,
         clickable: false,
         title: active
           ? "500 m check-in area around your place"
@@ -1847,9 +1881,9 @@ export function LocationImmersiveMap({
                 { lat: searchPoint.latitude, lng: searchPoint.longitude },
                 placeCenter,
               ],
-              strokeColor: "var(--app-accent)",
-              strokeOpacity: 0.65,
-              strokeWeight: 3,
+              strokeColor: accent,
+              strokeOpacity: NEARBY_CONNECTOR_STROKE_OPACITY,
+              strokeWeight: NEARBY_CONNECTOR_STROKE_WEIGHT,
               geodesic: true,
               clickable: false,
             },

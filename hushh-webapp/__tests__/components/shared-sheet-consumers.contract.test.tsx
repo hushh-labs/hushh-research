@@ -62,7 +62,7 @@ describe("the shared bottom sheet stays shared", () => {
   });
 
   it("leaves body-origin drag dismissal on by default", () => {
-    // Nine of the ten consumers ARE their own scroll box, so the body drag is
+    // Eight of the ten consumers ARE their own scroll box, so the body drag is
     // the gesture they rely on. Only a sheet that owns an inner scroller opts
     // out, and it does so explicitly.
     const primitive = sourceOf("components/ui/sheet.tsx");
@@ -71,7 +71,17 @@ describe("the shared bottom sheet stays shared", () => {
     const optOuts = SHEET_CONSUMERS.filter((consumer) =>
       /contentDragDismiss=\{false\}/.test(sourceOf(consumer)),
     );
+    // Both are the same shape: a fixed frame — a header, then a
+    // `flex-1 overflow-y-auto` body — whose own `scrollTop` is therefore
+    // pinned at 0, so every downward drag inside it would engage the
+    // dismissal and `preventDefault()` the scroll it was trying to make.
+    //
+    // The nearby Check-In panel joined this list rather than reaching for
+    // `dragDismiss={false}`, which is what it used to pass: that switches the
+    // gesture off AND takes the grab handle with it, leaving a phone bottom
+    // sheet with no visible affordance to put it away.
     expect(optOuts).toEqual([
+      "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
       "components/one-location/onboarding/save-location-modal.tsx",
     ]);
   });

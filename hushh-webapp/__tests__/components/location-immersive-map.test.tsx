@@ -894,6 +894,28 @@ describe("LocationImmersiveMap demo experience", () => {
     ).toHaveTextContent("500 m around you");
     expect(mapHarness.map.fitBounds).toHaveBeenCalled();
 
+    // The overlay is handed a colour a map can actually paint.
+    //
+    // Neither renderer resolves CSS custom properties. The web shim passes the
+    // string straight to `new google.maps.Circle`, which falls back to its own
+    // defaults on anything unparseable — a black ring over a heavy grey disc,
+    // which is exactly what shipped — and the iOS plugin does
+    // `UIColor(hex:) ?? .blue`. So `"var(--app-accent)"` never once drew in the
+    // app's accent, and no `fillOpacity` asked for here reached the fill that
+    // was really produced.
+    const [[[drawnCircle]]] = mapHarness.map.addCircles.mock.calls as Array<
+      [Array<Record<string, unknown>>]
+    >;
+    for (const key of ["fillColor", "strokeColor"] as const) {
+      expect(String(drawnCircle[key])).not.toContain("var(");
+      expect(String(drawnCircle[key])).toMatch(/^#[0-9a-f]{3,8}$/i);
+    }
+    // And it stays subordinate to the map it describes: the radius is a
+    // background fact, the two pins inside it are the subject.
+    expect(Number(drawnCircle.fillOpacity)).toBeLessThanOrEqual(0.08);
+    expect(Number(drawnCircle.strokeOpacity)).toBeLessThanOrEqual(0.4);
+    expect(Number(drawnCircle.strokeWeight)).toBeLessThanOrEqual(2);
+
     fireEvent.click(screen.getByTestId("clear-nearby-search-area"));
     await waitFor(() => {
       expect(mapHarness.map.removeCircles).toHaveBeenCalledWith(["circle-0"]);
