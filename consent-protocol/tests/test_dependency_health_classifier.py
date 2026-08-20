@@ -134,3 +134,40 @@ def test_summarize_of_nothing_is_ok() -> None:
 def test_application_broken_outranks_everything() -> None:
     assert summarize([PROVIDER_UNAVAILABLE, APPLICATION_BROKEN]) == APPLICATION_BROKEN
     assert is_advisory(APPLICATION_BROKEN) is False
+
+
+# The Live API is a websocket, so the SAME billing denial arrives with a
+# websocket close code instead of an HTTP status. Observed verbatim in the
+# 2026-08-20 build log. Gating enforcement wording on 403 alone classified this
+# probe as application_broken, and summarize() escalated the whole release to
+# blocking -- one websocket frame undid the entire fix.
+LIVE_WEBSOCKET_DUNNING = (
+    "1008 None. Lightning dunning decision is deny for project: projects/745506018753"
+)
+
+
+def test_websocket_close_code_dunning_is_still_a_provider_outage() -> None:
+    error = _ProviderError(LIVE_WEBSOCKET_DUNNING, 1008)
+    assert classify_provider_error(error) == PROVIDER_UNAVAILABLE
+
+
+def test_enforcement_wording_decides_without_any_status_code() -> None:
+    """Wording is unambiguous; transport codes are not."""
+    error = _ProviderError("Lightning dunning decision is deny", None)
+    assert classify_provider_error(error) == PROVIDER_UNAVAILABLE
+
+
+def test_the_real_nine_probe_outage_summarizes_as_an_outage() -> None:
+    """The exact shape of the 2026-08-20 build: 8 HTTP 403s and 1 websocket 1008.
+
+    Before the fix this summarized to application_broken and blocked a release
+    whose backend image had already deployed correctly.
+    """
+    http_403 = _ProviderError(DUNNING_403, 403)
+    websocket_1008 = _ProviderError(LIVE_WEBSOCKET_DUNNING, 1008)
+    classifications = [classify_provider_error(http_403) for _ in range(8)]
+    classifications.append(classify_provider_error(websocket_1008))
+
+    assert set(classifications) == {PROVIDER_UNAVAILABLE}
+    assert summarize(classifications) == PROVIDER_UNAVAILABLE
+    assert is_advisory(summarize(classifications)) is True
