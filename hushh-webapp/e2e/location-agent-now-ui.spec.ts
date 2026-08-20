@@ -87,18 +87,18 @@ test.describe("Location Agent Now visual contract", () => {
       },
     );
 
-    await expectTypography(page.getByRole("heading", { name: "Quick actions" }), {
-      fontSize: "22px",
-      fontWeight: "600",
-      lineHeight: "27px",
-      color: "rgb(29, 29, 31)",
+    await expectTypography(page.getByRole("heading", { name: "Actions" }), {
+      fontSize: "15px",
+      fontWeight: "500",
+      lineHeight: "20px",
+      color: "rgb(110, 110, 115)",
     });
 
     const rowLabels = page.locator(
-      '[data-testid^="one-location-now"] [data-slot="settings-row-title"]',
+      '[data-testid="one-location-now-activity"] [data-slot="settings-row-title"], [data-testid="one-location-now-more"] [data-slot="settings-row-title"]',
     );
     const rowCount = await rowLabels.count();
-    expect(rowCount).toBeGreaterThanOrEqual(7);
+    expect(rowCount).toBe(5);
     for (let index = 0; index < rowCount; index += 1) {
       await expectTypography(rowLabels.nth(index), {
         fontSize: "17px",
@@ -108,35 +108,21 @@ test.describe("Location Agent Now visual contract", () => {
       });
     }
 
-    const cardTitles = page.locator(
-      '[data-voice-control-id^="one-location-action-"] .ui-text-card-title',
+    const actionTitles = page.locator(
+      '[data-testid="one-location-now-actions"] .ui-text-row-label',
     );
-    await expectTypography(cardTitles.filter({ hasText: "Check-In" }), {
-      fontSize: "17px",
-      fontWeight: "600",
-      lineHeight: "22px",
+    await expectTypography(actionTitles.filter({ hasText: "Check-In" }), {
+      fontSize: "15px",
+      fontWeight: "500",
+      lineHeight: "20px",
       color: "rgb(29, 29, 31)",
     });
-    await expectTypography(cardTitles.filter({ hasText: "SMS" }), {
-      fontSize: "17px",
-      fontWeight: "600",
-      lineHeight: "22px",
-      color: "rgb(29, 29, 31)",
+    await expectTypography(actionTitles.filter({ hasText: "Send SOS" }), {
+      fontSize: "15px",
+      fontWeight: "500",
+      lineHeight: "20px",
+      color: "rgb(255, 59, 48)",
     });
-
-    const cardDescriptions = page.locator(
-      '[data-voice-control-id^="one-location-action-"] .ui-text-row-description',
-    );
-    const descriptionCount = await cardDescriptions.count();
-    expect(descriptionCount).toBeGreaterThanOrEqual(2);
-    for (let index = 0; index < descriptionCount; index += 1) {
-      await expectTypography(cardDescriptions.nth(index), {
-        fontSize: "13px",
-        fontWeight: "400",
-        lineHeight: "18px",
-        color: "rgb(142, 142, 147)",
-      });
-    }
 
     await expect(page.locator("body")).toHaveCSS(
       "background-color",
