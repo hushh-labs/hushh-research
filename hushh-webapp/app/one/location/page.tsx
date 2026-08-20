@@ -529,7 +529,7 @@ const LOCATION_HUB_TAB_LABELS: Readonly<Record<string, string>> = {
 };
 
 const LOCATION_TAB_MODULES: Readonly<Record<string, string[]>> = {
-  now: ["Sharing status", "Active shares", "Shared with me", "Quick actions"],
+  now: ["Sharing status", "Actions", "Activity", "More"],
   people: ["Circles", "Connections"],
   links: ["Temporary links"],
 };
@@ -615,7 +615,7 @@ const LOCATION_VOICE_CONTROLS = [
   { id: "one-location-action-needs-review", label: "Needs my review", purpose: "Approve or decline requests.", actionId: "location.open_needs_review", role: "button" },
   { id: "one-location-action-settings", label: "Settings", purpose: "Open privacy controls.", actionId: "location.open_settings", role: "button" },
   { id: "one-location-action-check-in", label: "Check-In", purpose: "Send a one-off check in.", actionId: "location.open_check_in", role: "button" },
-  { id: "one-location-action-sos", label: "SMS", purpose: "Open emergency SOS.", actionId: "location.open_sos", role: "button" },
+  { id: "one-location-action-sos", label: "Send SOS", purpose: "Open emergency SOS.", actionId: "location.open_sos", role: "button" },
   { id: "one-location-action-ask", label: "Request location", purpose: "Ask for location access.", actionId: "location.open_ask", role: "button" },
   { id: "one-location-action-invite", label: "Invite", purpose: "Invite someone to One.", actionId: "location.open_invite", role: "button" },
   { id: "one-location-action-create-circle", label: "Create", purpose: "Create a circle.", actionId: "location.open_create_circle", role: "button" },

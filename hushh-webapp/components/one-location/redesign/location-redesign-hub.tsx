@@ -114,10 +114,6 @@ import {
 } from "@/components/one-location/redesign/live-share-status-card";
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
-import {
-  QuickActionCard,
-  QuickActionsSection,
-} from "@/components/one-location/redesign/quick-actions";
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
@@ -1276,9 +1272,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
                   ? router.push(ROUTES.ONE_LOCATION_CHECK_IN)
                   : openFlow("check-in")
               }
-              checkInSubtitle={
-                nearbyCheckInAvailable ? "See people nearby" : "Share now"
-              }
               onSos={() => openFlow("sos")}
               onOpenMap={() => router.push(ROUTES.ONE_LOCATION_MAP)}
               onOpenActiveShares={() => openFlow("active-shares")}
@@ -1336,7 +1329,6 @@ function NowHub({
   vm,
   onStartShare,
   onCheckIn,
-  checkInSubtitle,
   onSos,
   onOpenMap,
   onOpenActiveShares,
@@ -1348,7 +1340,6 @@ function NowHub({
   vm: LocationHubViewModel;
   onStartShare: () => void;
   onCheckIn: () => void;
-  checkInSubtitle: string;
   onSos: () => void;
   onOpenMap: () => void;
   onOpenActiveShares: () => void;
@@ -1359,27 +1350,12 @@ function NowHub({
 }) {
   const groupedShellClassName =
     "[--settings-group-radius:16px] bg-white shadow-none dark:bg-[#1C1C1E]";
-  // State beats category on every counted row: colour here means "there is
-  // something here", never "this row exists". A zero count is a neutral row.
-  // "Needs my review" already worked this way; "Active shares" and "Shared with
-  // me" were pinned to action blue, so an empty Location screen showed three
-  // saturated blue tiles reporting 0, 0, 0 — colour that carried no information
-  // and left nothing for the rows that did.
-  const reviewIconTone =
-    vm.pendingOwnerRequests.length > 0 ? "orange" : "gray";
   // The device record keeps counting while the server state reloads, so the row
   // no longer drops to 0 for the second or two after you re-enter the screen.
   const activeShareCount = Math.max(
     vm.activeOwnerGrants.length,
     vm.liveShare?.count ?? 0,
   );
-  // Green = sharing is live right now (the same meaning the header switch and
-  // Check-In carry).
-  const activeSharesIconTone = activeShareCount > 0 ? "green" : "gray";
-  // Indigo = other people, matching the People tab's circles and trusted
-  // contacts, rather than the blue reserved for actions you initiate.
-  const sharedWithMeIconTone =
-    vm.receivedGrants.length > 0 ? "indigo" : "gray";
 
   return (
     <div className="space-y-4" data-testid="one-location-now-hub">
@@ -1417,62 +1393,102 @@ function NowHub({
           saving={vm.liveShareDurationSaving}
         />
       ) : null}
-      {/* Every row and tile below carries the `control_ids` / `action_id` pair
+      {/* Every row and cell below carries the `control_ids` / `action_id` pair
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
           rather than only the screen it lives on. */}
-      {/* The two things a person DOES on this screen, together. Sharing your
-          location and asking for someone else's are the same kind of decision
-          pointed in opposite directions, and they were two groups apart — one
-          alone at the top, the other buried under three status rows. Everything
-          below is what is already happening, or where to look at it. */}
-      <SettingsGroup
-        separatorInset
-        testId="one-location-now-share"
-        shellClassName={groupedShellClassName}
-      >
-        <SettingsRow
-          icon={Navigation}
-          iconTone="blue"
-          title="Share location"
-          density="compact"
-          chevron
-          onClick={onStartShare}
-          testId="one-location-share-row"
-          voiceControlId="one-location-action-share"
-          voiceActionId="location.open_share"
-        />
-        {/* Asking someone to share was reachable only from the People tab, so
-            the Now tab listed every way to give a location out and none to ask
-            for one. Same flow and same voice control id as that entry -- this
-            is an additional way in, not a second implementation. */}
-        {/* Not `Send`: that is the same paper-plane silhouette as `Navigation`
-            on "Share location" two rows up, so at row size the two entries read
-            as the same icon -- and they are opposites. A speech bubble asking a
-            question is distinct at a glance and matches what the flow does:
-            "Requests should explain why. The other person chooses whether to
-            share." Radar and Crosshair were rejected for implying tracking on a
-            surface built around consent. */}
-        <SettingsRow
-          icon={MessageCircleQuestionMark}
-          iconTone="blue"
-          title="Request location"
-          density="compact"
-          chevron
-          onClick={onRequestLocation}
-          testId="one-location-request-row"
-          voiceControlId="one-location-action-ask"
-          voiceActionId="location.open_ask"
-        />
-      </SettingsGroup>
-      <SettingsGroup
-        separatorInset
-        testId="one-location-now-status"
-        shellClassName={groupedShellClassName}
-      >
+      <LocationActionGrid
+        items={[
+          {
+            title: "Share location",
+            icon: <Navigation />,
+            tone: "blue",
+            onClick: onStartShare,
+            controlId: "one-location-action-share",
+            actionId: "location.open_share",
+            testId: "one-location-share-row",
+          },
+          {
+            title: "Request location",
+            icon: <MessageCircleQuestionMark />,
+            tone: "blue",
+            onClick: onRequestLocation,
+            controlId: "one-location-action-ask",
+            actionId: "location.open_ask",
+            testId: "one-location-request-row",
+          },
+          {
+            title: "Check-In",
+            icon: <ShieldCheck />,
+            tone: "blue",
+            onClick: onCheckIn,
+            controlId: "one-location-action-check-in",
+            actionId: "location.open_check_in",
+          },
+          {
+            title: "Send SOS",
+            icon: <Shield />,
+            tone: "red",
+            onClick: onSos,
+            controlId: "one-location-action-sos",
+            actionId: "location.open_sos",
+          },
+        ]}
+      />
+
+      <div className="space-y-2">
+        <LocationNowGroupLabel>Activity</LocationNowGroupLabel>
+        <SettingsGroup
+          separatorInset
+          testId="one-location-now-activity"
+          shellClassName={groupedShellClassName}
+        >
+          <SettingsRow
+            icon={UsersRound}
+            iconTone="gray"
+            title="Active shares"
+            density="compact"
+            trailing={activeShareCount}
+            chevron
+            onClick={onOpenActiveShares}
+            voiceControlId="one-location-action-active-shares"
+            voiceActionId="location.open_active_shares"
+          />
+          <SettingsRow
+            icon={MapPin}
+            iconTone="gray"
+            title="Shared with me"
+            density="compact"
+            trailing={vm.receivedGrants.length}
+            chevron
+            onClick={onOpenSharedWithMe}
+            voiceControlId="one-location-action-shared-with-me"
+            voiceActionId="location.open_shared_with_me"
+          />
+          <SettingsRow
+            icon={ShieldCheck}
+            iconTone="gray"
+            title="Needs my review"
+            density="compact"
+            trailing={vm.pendingOwnerRequests.length}
+            chevron
+            onClick={onOpenNeedsReview}
+            voiceControlId="one-location-action-needs-review"
+            voiceActionId="location.open_needs_review"
+          />
+        </SettingsGroup>
+      </div>
+
+      <div className="space-y-2">
+        <LocationNowGroupLabel>More</LocationNowGroupLabel>
+        <SettingsGroup
+          separatorInset
+          testId="one-location-now-more"
+          shellClassName={groupedShellClassName}
+        >
         <SettingsRow
           icon={Map}
-          iconTone="blue"
+          iconTone="gray"
           title="Your Map"
           density="compact"
           chevron
@@ -1480,39 +1496,6 @@ function NowHub({
           testId="one-location-map-row"
           voiceControlId="one-location-open-map"
           voiceActionId="location.open_map"
-        />
-        <SettingsRow
-          icon={UsersRound}
-          iconTone={activeSharesIconTone}
-          title="Active shares"
-          density="compact"
-          trailing={activeShareCount}
-          chevron
-          onClick={onOpenActiveShares}
-          voiceControlId="one-location-action-active-shares"
-          voiceActionId="location.open_active_shares"
-        />
-        <SettingsRow
-          icon={MapPin}
-          iconTone={sharedWithMeIconTone}
-          title="Shared with me"
-          density="compact"
-          trailing={vm.receivedGrants.length}
-          chevron
-          onClick={onOpenSharedWithMe}
-          voiceControlId="one-location-action-shared-with-me"
-          voiceActionId="location.open_shared_with_me"
-        />
-        <SettingsRow
-          icon={ShieldCheck}
-          iconTone={reviewIconTone}
-          title="Needs my review"
-          density="compact"
-          trailing={vm.pendingOwnerRequests.length}
-          chevron
-          onClick={onOpenNeedsReview}
-          voiceControlId="one-location-action-needs-review"
-          voiceActionId="location.open_needs_review"
         />
         <SettingsRow
           icon={Lock}
@@ -1525,32 +1508,82 @@ function NowHub({
           voiceControlId="one-location-action-settings"
           voiceActionId="location.open_settings"
         />
-      </SettingsGroup>
-
-      <QuickActionsSection title="Quick actions" columns={2}>
-        {/* Green, not blue: Check-In is a presence state you enter, the same
-            family as the header switch being on — and it is the one tile that
-            sits beside the red SMS tile, where "safe / emergency" has to read
-            at a glance. Blue here made the two tiles differ only in the second
-            colour, not the first. */}
-        <QuickActionCard
-          tone="green"
-          icon={<ShieldCheck />}
-          title="Check-In"
-          subtitle={checkInSubtitle}
-          onClick={onCheckIn}
-          controlId="one-location-action-check-in"
-        />
-        <QuickActionCard
-          tone="red"
-          icon={<Shield />}
-          title="SMS"
-          subtitle={vm.sosActive ? "Live now" : "Save my soul"}
-          onClick={onSos}
-          controlId="one-location-action-sos"
-        />
-      </QuickActionsSection>
+        </SettingsGroup>
+      </div>
     </div>
+  );
+}
+
+function LocationNowGroupLabel({ children }: { children: ReactNode }) {
+  return (
+    <AppSectionLabel
+      as="h2"
+      className="px-[6px] text-[15px] font-medium leading-5 text-[color:var(--app-secondary-label)]"
+    >
+      {children}
+    </AppSectionLabel>
+  );
+}
+
+type LocationActionGridItem = {
+  title: string;
+  icon: ReactNode;
+  tone: "blue" | "red";
+  onClick: () => void;
+  controlId: string;
+  actionId: string;
+  testId?: string;
+};
+
+function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
+  return (
+    <section className="space-y-2" data-testid="one-location-now-actions">
+      <LocationNowGroupLabel>Actions</LocationNowGroupLabel>
+      <div
+        data-ui-role="grouped-card"
+        className="grid grid-cols-2 overflow-hidden rounded-[20px] bg-[color:var(--app-card-surface-default-solid)] shadow-none"
+      >
+        {items.map((item, index) => (
+          <button
+            key={item.controlId}
+            type="button"
+            data-testid={item.testId}
+            data-voice-control-id={item.controlId}
+            data-voice-action-id={item.actionId}
+            data-voice-label={item.title}
+            onClick={item.onClick}
+            className={cn(
+              "group flex min-h-[76px] min-w-0 items-center gap-3 bg-transparent px-4 py-3 text-left transition-colors [-webkit-tap-highlight-color:transparent] active:bg-[rgba(120,120,128,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+              index % 2 === 0 &&
+                "border-r border-[color:var(--app-separator)]",
+              index < 2 &&
+                "border-b border-[color:var(--app-separator)]",
+            )}
+          >
+            <span
+              aria-hidden
+              className={cn(
+                "inline-flex h-8 w-8 shrink-0 items-center justify-center [&_svg]:h-6 [&_svg]:w-6 [&_svg]:stroke-[1.9]",
+                item.tone === "red"
+                  ? "text-[color:var(--app-destructive)]"
+                  : "text-[color:var(--app-accent)]",
+              )}
+            >
+              {item.icon}
+            </span>
+            <RowLabel
+              as="span"
+              className={cn(
+                "min-w-0 text-[15px] font-medium leading-5",
+                item.tone === "red" && "text-[color:var(--app-destructive)]",
+              )}
+            >
+              {item.title}
+            </RowLabel>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 

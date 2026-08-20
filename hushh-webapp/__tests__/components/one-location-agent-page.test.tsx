@@ -1198,10 +1198,10 @@ describe("OneLocationAgentPage", () => {
     expect(await toneOf("Needs my review")).toBe("gray");
   });
 
-  it("colours each counted Now-hub row by its own state once it is non-zero", async () => {
-    // Green = sharing is live (same family as the header switch and Check-In),
-    // indigo = other people, orange = something is waiting on you. Each row
-    // reads its OWN count, so one being populated must not colour the others.
+  it("keeps Activity rows visually quiet even when counts are non-zero", async () => {
+    // Activity is a status list, not an action palette. Colour belongs to the
+    // Actions grid and real alerts; counts alone should not make these rows
+    // compete with the primary tasks on the screen.
     mockGetState.mockResolvedValue({
       ...locationState(),
       receivedGrants: [
@@ -1241,41 +1241,39 @@ describe("OneLocationAgentPage", () => {
         ?.getAttribute("data-icon-tone");
     };
 
-    // locationState() already carries one active ownerGrant.
-    expect(await toneOf("Active shares")).toBe("green");
-    expect(await toneOf("Shared with me")).toBe("indigo");
-    expect(await toneOf("Needs my review")).toBe("orange");
+    expect(await toneOf("Active shares")).toBe("gray");
+    expect(await toneOf("Shared with me")).toBe("gray");
+    expect(await toneOf("Needs my review")).toBe("gray");
   });
 
-  it("groups the two things you do apart from the things that are happening", async () => {
-    // Reported: "share location / request location ek sath hona chahiye kyuki
-    // yeh user ke action items hain" — sharing your location and asking for
-    // someone else's are the same kind of decision pointed in opposite
-    // directions, and they sat two groups apart: one alone at the top, the
-    // other buried under three status rows.
-    //
-    // Everything else on this tab is either what is already happening (active
-    // shares, shared with me, needs my review) or where to look at it (Your
-    // Map) or how to change it (Settings). Two groups, not three.
+  it("uses one Actions grid, then quiet Activity and More lists", async () => {
+    // Now has one action home: Share, Request, Check-In, and SOS are peer
+    // choices in a 2x2 panel. Generated state and utility destinations stay in
+    // list groups, which keeps the tab from reading like a dashboard.
     mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
 
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
-    const actions = await screen.findByTestId("one-location-now-share");
+    const actions = await screen.findByTestId("one-location-now-actions");
     expect(within(actions).getByText("Share location")).toBeTruthy();
     expect(within(actions).getByText("Request location")).toBeTruthy();
+    expect(within(actions).getByText("Check-In")).toBeTruthy();
+    expect(within(actions).getByText("Send SOS")).toBeTruthy();
 
-    const rest = screen.getByTestId("one-location-now-status");
-    expect(within(rest).getByText("Your Map")).toBeTruthy();
-    expect(within(rest).getByText("Active shares")).toBeTruthy();
-    expect(within(rest).getByText("Settings")).toBeTruthy();
+    const activity = screen.getByTestId("one-location-now-activity");
+    expect(within(activity).getByText("Active shares")).toBeTruthy();
+    expect(within(activity).getByText("Shared with me")).toBeTruthy();
+    expect(within(activity).getByText("Needs my review")).toBeTruthy();
 
-    // The two must not drift back apart.
-    expect(within(rest).queryByText("Share location")).toBeNull();
-    expect(within(rest).queryByText("Request location")).toBeNull();
-    // And the standalone map group is gone, so the tab is two groups.
+    const more = screen.getByTestId("one-location-now-more");
+    expect(within(more).getByText("Your Map")).toBeTruthy();
+    expect(within(more).getByText("Settings")).toBeTruthy();
+
+    expect(within(activity).queryByText("Share location")).toBeNull();
+    expect(within(more).queryByText("Check-In")).toBeNull();
+    expect(screen.queryByText("Quick actions")).toBeNull();
     expect(screen.queryByTestId("one-location-now-primary")).toBeNull();
   });
 
@@ -2078,7 +2076,7 @@ describe("OneLocationAgentPage", () => {
     mockCaptureCurrentPosition.mockClear();
     const envelopeWritesBeforeOpen = mockStoreEnvelope.mock.calls.length;
 
-    fireEvent.click(screen.getByRole("button", { name: /SMS.*Save my soul/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Send SOS/i }));
 
     expect(
       await screen.findByRole("heading", { name: "Save my Soul", level: 1 }),
@@ -2120,7 +2118,7 @@ describe("OneLocationAgentPage", () => {
         }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /SMS.*Save my soul/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Send SOS/i }));
 
     expect(
       await screen.findByRole("button", {
