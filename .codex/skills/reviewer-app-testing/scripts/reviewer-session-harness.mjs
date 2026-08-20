@@ -75,12 +75,33 @@ export async function createReviewerSessionHarness({
   function attachMemoryOnlyCapture(page) {
     let vaultState = null;
     let ownerToken = "";
+    let firebaseBearer = "";
     const criticalApiFailures = [];
     const responsePromises = new Set();
+    // Two DISTINCT tokens, each read only off its own allowlisted routes so one
+    // can never be mistaken for the other: the vault-owner token rides /api/pkm/,
+    // and the Firebase ID token rides the state/agent routes below. The Firebase
+    // capture exists because the app fetches bootstrap state DURING sign-in and
+    // then serves it from cache -- a caller who attaches a listener after
+    // openSession returns can wait forever for a request that already happened.
+    const firebaseBearerPaths = [
+      "/api/vault/bootstrap-state",
+      "/api/vault/pre-vault-state",
+      "/api/one/runtime/",
+      "/api/one/personal-agent/status",
+      "/api/one/u/",
+    ];
     page.on("request", (request) => {
-      if (!endpointPath(request.url()).startsWith("/api/pkm/")) return;
+      const pathname = endpointPath(request.url());
       const authorization = request.headers().authorization || "";
-      if (authorization.startsWith("Bearer ")) ownerToken = authorization.slice(7);
+      if (!authorization.startsWith("Bearer ")) return;
+      if (pathname.startsWith("/api/pkm/")) {
+        ownerToken = authorization.slice(7);
+        return;
+      }
+      if (firebaseBearerPaths.some((prefix) => pathname.startsWith(prefix))) {
+        firebaseBearer = authorization.slice(7);
+      }
     });
     page.on("response", (response) => {
       const pathname = endpointPath(response.url());
@@ -106,6 +127,12 @@ export async function createReviewerSessionHarness({
     return {
       async ownerToken() {
         return waitForValue(() => ownerToken, "vault-owner token", timeoutMs);
+      },
+      // Synchronous on purpose: the sign-in traffic already happened by the time
+      // a caller asks, so there is nothing to wait for — either it was observed
+      // or the caller needs to trigger a fetch of its own.
+      firebaseBearer() {
+        return firebaseBearer;
       },
       async vaultState() {
         const state = await waitForValue(() => vaultState, "encrypted vault state", timeoutMs);

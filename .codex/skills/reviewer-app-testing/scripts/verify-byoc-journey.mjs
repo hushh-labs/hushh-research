@@ -426,7 +426,10 @@ try {
    */
   async function authoritative(pathname, { method = "GET", body = null } = {}) {
     for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const token = bearerCapture.current() || (await bearerCapture.waitForFirst(60_000));
+      const token =
+        bearerCapture.current() ||
+        capture.firebaseBearer?.() ||
+        (await bearerCapture.waitForFirst(60_000));
       const response = await fetch(`${appOrigin}${pathname}`, {
         method,
         headers: {
@@ -480,7 +483,12 @@ try {
   // PHASE B -- server-side preconditions. All read-only, in both modes.
   // ---------------------------------------------------------------------------
   await step("preconditions", async () => {
-    await bearerCapture.waitForFirst(60_000);
+    // The sign-in flow itself fetches bootstrap state and the app then serves it
+    // from cache, so the login-time bearer lives in the harness capture; only
+    // wait when neither observer saw one.
+    if (!bearerCapture.current() && !capture.firebaseBearer?.()) {
+      await bearerCapture.waitForFirst(60_000);
+    }
     const state = await readBootstrapState();
 
     // The gate that decides whether the whole journey is even possible.
