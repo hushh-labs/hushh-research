@@ -36,6 +36,7 @@ import base64
 import hashlib
 import hmac
 import logging
+import os
 import time
 import urllib.parse
 from typing import Any
@@ -128,7 +129,18 @@ def _oauth_client() -> tuple[str, str, str]:
             status_code=503,
             code="NOT_CONFIGURED",
         )
-    redirect = svc._redirect_uri(None)  # noqa: SLF001 - enforces the registered origin
+    # The REGISTERED redirect, deliberately: OAuth clients cannot be edited by
+    # API, and the canonical /one/profile/google/oauth/return path was only ever
+    # registered for the uat origin — observed live 2026-08-20 as Google's
+    # redirect_uri_mismatch blocking the founder's onboarding. The Gmail return
+    # URI in env is the one door PROVEN registered for this deployment's origin
+    # (Gmail OAuth works through it), so this flow borrows that door and the
+    # return page branches on the byoc state prefix. When the canonical URI is
+    # registered platform-side, the env fallback order makes this self-heal.
+    registered = (
+        os.getenv("GOOGLE_OAUTH_REDIRECT_URI") or os.getenv("GMAIL_OAUTH_REDIRECT_URI") or ""
+    ).strip()
+    redirect = registered or svc._redirect_uri(None)  # noqa: SLF001 - registered-origin enforcement
     return client_id, client_secret, redirect
 
 

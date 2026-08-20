@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { ApiService } from "@/lib/services/api-service";
+
 import {
   AppPageContentRegion,
   AppPageShell,
@@ -223,6 +225,30 @@ export default function ProfileGmailOAuthReturnPageClient({
 
     const code = liveCode || initialCode;
     const state = liveState || initialState;
+    // The one-click cloud setup borrows this ALREADY-REGISTERED return door
+    // (OAuth clients cannot be edited by API, and this is the URI the client
+    // provably accepts for this origin). The byoc state prefix keeps the two
+    // flows unmistakable; nothing Gmail-shaped runs for it.
+    if (state && state.startsWith("byoc.")) {
+      if (!user?.uid || !code) {
+        router.replace("/one/setup/cloud");
+        return;
+      }
+      void ApiService.completeByocAuthorize({ code, state })
+        .then(() => router.replace("/one/setup"))
+        .catch((byocError: unknown) => {
+          const reason =
+            byocError instanceof Error &&
+            byocError.message &&
+            byocError.message !== "BYOC_AUTHORIZE_FAILED"
+              ? byocError.message
+              : "We could not finish setting up your cloud. Try again.";
+          router.replace(
+            `/one/setup/cloud?authorize_error=${encodeURIComponent(reason)}`,
+          );
+        });
+      return;
+    }
     if (!code || !state) {
       setStage("error");
       setError(
