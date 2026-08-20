@@ -17,7 +17,6 @@ import {
   Share2,
   ShieldCheck,
   Trash2,
-  Siren,
   UsersRound,
 } from "lucide-react";
 
@@ -185,7 +184,8 @@ export function othersCountLabel(others: number): string {
 }
 
 export function circleListMemberCountLabel(memberCount: number): string {
-  return othersCountLabel(Math.max(0, memberCount - 1));
+  const others = Math.max(0, memberCount - 1);
+  return `${others} ${others === 1 ? "member" : "members"}`;
 }
 
 function circleFlowErrorMessage(error: unknown, fallback: string): string {
@@ -281,7 +281,7 @@ export function CirclesSection({
     <div className="space-y-[14px]" data-testid="one-location-named-circles">
       <div className="flex items-baseline justify-between gap-4">
         <h2 className="text-[13px] font-normal leading-[17px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
-          Your circles
+          Circles
         </h2>
 
         {/* The static phone reference omits Join, but it remains a shipped
@@ -296,7 +296,7 @@ export function CirclesSection({
             data-voice-control-id="one-location-action-create-circle"
             className="relative !h-auto !min-h-0 !rounded-none !px-0 !py-0 text-[16px] font-normal leading-5 tracking-[-0.24px] after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] sm:text-[15px]"
           >
-            Create circle
+            New circle
           </Button>
           <Button
             type="button"
@@ -458,23 +458,11 @@ export function CirclesSection({
                     circleRole.glyph,
                   )}
                 >
-                  {/* A different glyph, not just a different name. The SMS
-                      Circle is the one row here that does something on its own
-                      -- SOS reads it -- and a person scanning the list should
-                      be able to tell it apart without reading. */}
-                  {circle.isSystem ? (
-                    <Siren className="h-5 w-5" />
-                  ) : (
-                    <UsersRound className="h-5 w-5" />
-                  )}
+                  <UsersRound className="h-5 w-5" />
                 </span>
               }
               title={circle.name}
-              description={
-                circle.isSystem
-                  ? `Emergency SMS · ${circleListMemberCountLabel(circle.memberCount)}`
-                  : circleListMemberCountLabel(circle.memberCount)
-              }
+              description={circleListMemberCountLabel(circle.memberCount)}
               trailing={circle.role === "owner" ? "Owner" : "Member"}
               chevron
               onClick={() => onOpen(circle.id)}
@@ -775,6 +763,15 @@ export function JoinCircleFlow({
  *  trailing Save/Edit button in the `<label>` (a wrapped button steals the
  *  label's activation click and refocuses the field mid-tap). */
 const CIRCLE_NAME_INPUT_ID = "one-location-circle-name-input";
+
+/** Ties the visible "Circle name" label to its input without wrapping the
+ *  trailing Save/Edit button in the `<label>` (a wrapped button steals the
+ *  label's activation click and refocuses the field mid-tap). */
+
+
+/** Ties the visible "Circle name" label to its input without wrapping the
+ *  trailing Save/Edit button in the `<label>` (a wrapped button steals the
+ *  label's activation click and refocuses the field mid-tap). */
 
 /** Names the roster section for `aria-labelledby`, so the list announces as
  *  "Members" rather than as an unlabelled region between two cards. */

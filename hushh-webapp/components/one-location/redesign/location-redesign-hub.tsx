@@ -3527,14 +3527,6 @@ function AskFlow({
     const timer = window.setInterval(() => setStatusNowMs(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
-  // A grant accepted between ticks would otherwise be measured against a
-  // `statusNowMs` from before it existed, inflating "Sharing with you, X
-  // more" by up to a tick's worth of staleness -- enough to round a whole
-  // hour up to "1h 1m more". Resyncing the instant new data lands keeps the
-  // remaining-time math honest from the very first render of a fresh grant.
-  useEffect(() => {
-    setStatusNowMs(Date.now());
-  }, [vm.receivedGrants, vm.requestedByMe]);
   return (
     <div className="space-y-5">
       <TaskFlowHeader
@@ -3625,24 +3617,52 @@ function AskFlow({
                       : undefined
                   }
                   editActive={isEditingThis}
-                  // A live share is ended from Shared with me now, not here
-                  // (SharedWithMeCard's own X calls the same vm.onStopGrant)
-                  // -- this row keeps X only for taking back an unanswered
-                  // ask. A row that is neither keeps no X at all.
+                  // Two different acts share this one control, because the row
+                  // is only ever in one of the two states: a live share ends
+                  // access, an unanswered ask ends the ask. A row that is
+                  // neither keeps no X at all.
                   onRemove={
-                    pendingRequestId
-                      ? () => vm.onWithdrawRequest(pendingRequestId)
-                      : undefined
+                    activeGrant
+                      ? () => vm.onStopGrant(activeGrant.id)
+                      : pendingRequestId
+                        ? () => vm.onWithdrawRequest(pendingRequestId)
+                        : undefined
                   }
                   removeAriaLabel={
-                    pendingRequestId
+                    !activeGrant && pendingRequestId
                       ? `Take back your request to ${recipientLabel}`
                       : undefined
                   }
                   removeBusy={
-                    pendingRequestId
-                      ? vm.withdrawingRequestId === pendingRequestId
-                      : undefined
+                    activeGrant
+                      ? vm.revokingGrantId === activeGrant.id
+                      : vm.withdrawingRequestId === pendingRequestId
+                  }
+                  expandedContent={
+                    isEditingThis && activeGrant ? (
+                      <>
+                        <DurationSelector
+                          value={vm.editGrantDurationHours}
+                          onChange={vm.setEditGrantDurationHours}
+                          label="New duration"
+                          presentation="select"
+                        />
+                        <Button
+                          size="sm"
+                          className="h-9 w-full rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+                          onClick={() =>
+                            vm.onEditGrantSave({
+                              ownerUserId: r.userId,
+                              grantId: activeGrant.id,
+                              ownerLabel: recipientLabel,
+                            })
+                          }
+                          isLoading={vm.savingGrantId === activeGrant.id}
+                        >
+                          Save
+                        </Button>
+                      </>
+                    ) : undefined
                   }
                 />
               );
