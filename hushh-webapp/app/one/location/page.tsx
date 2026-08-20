@@ -655,7 +655,7 @@ type BusyState =
   | "circleRevoke"
   | "namedCircle"
   | "circleMemberInvite"
-  | "shareCircle"
+  | `shareCircle:${string}`
   | `sms-contact:${string}`
   | `sms-circle:${string}`
   | null;
@@ -6796,7 +6796,7 @@ export function OneLocationAgentPageContent({
         return;
       }
 
-      setBusy("shareCircle");
+      setBusy(`shareCircle:${circleId}`);
       try {
         const selection =
           await handleResolveNamedCircleRecipients(circleId, "location");

@@ -1136,7 +1136,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   if (flow !== "none") {
     return (
       <div
-        className="space-y-6"
+        className="space-y-6 pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
         data-ambient-chrome-ignore
         data-testid="one-location-action-flow"
       >
@@ -3022,7 +3022,7 @@ function ShareFlow({
               <SettingsRow
                 key={circle.id}
                 density="compact"
-                disabled={vm.busy === "shareCircle"}
+                disabled={vm.busy === `shareCircle:${circle.id}`}
                 onClick={() => void vm.onSelectShareCircle(circle.id)}
                 ariaPressed={selected}
                 ariaLabel={`${selected ? "Deselect" : "Select"} the ${circle.name} Circle`}
@@ -3039,7 +3039,7 @@ function ShareFlow({
                 }
                 title={circle.name}
                 description={
-                  vm.busy === "shareCircle"
+                  vm.busy === `shareCircle:${circle.id}`
                     ? "Loading…"
                     : selected
                       ? `${selectedReady.length} ready now`
