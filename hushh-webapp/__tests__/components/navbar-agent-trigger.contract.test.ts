@@ -6,7 +6,9 @@ import { describe, expect, it } from "vitest";
 const WEBAPP_ROOT = path.resolve(__dirname, "../..");
 
 function read(relativePath: string) {
-  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8");
+  return fs
+    .readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8")
+    .replace(/\r\n/g, "\n");
 }
 
 describe("Navbar bottom chrome contract", () => {
@@ -47,7 +49,15 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain("aria-label={`Open Agent Chat. ${hint}`}");
     expect(agentBar).not.toContain("openSearchAndChat");
     expect(agentBar).not.toContain("openKaiCommandBar");
-    expect(agentBar).toContain("Talk to One");
+    expect(agentBar).toContain("Ask One");
+    expect(agentBar).toContain("one-bar-aurora--active");
+    expect(agentBar).not.toContain("one-capsule");
+    expect(agentBar).not.toContain("capsuleShowPermission");
+    expect(agentBar).not.toContain("capsuleShowSuccess");
+    expect(agentBar).toContain("AudioLines");
+    expect(agentBar).not.toContain("OneVoiceOrb");
+    expect(agentBar).not.toContain("HushhWordmark");
+    expect(agentBar).not.toContain("translate-y-[calc(100%+0.375rem)]");
     expect(agentBar).toContain(
       'data-native-voice-control-id="one_voice_agent_bar_start"',
     );
@@ -58,7 +68,7 @@ describe("Navbar bottom chrome contract", () => {
     // The native control is the complete visible voice pill. The separate
     // Agent Chat button remains its own action, but no whitespace or icon-only
     // target is allowed inside the voice launcher.
-    expect(agentBar).toContain("agent-bar-voice-launcher press-scale");
+    expect(agentBar).toContain("agent-bar-voice-launcher press-scale relative");
     expect(agentBar).toContain("flex-1 self-stretch items-center");
     expect(agentBar).toContain("hover:bg-current/[0.09]");
     expect(agentBar).toContain("focus-visible:ring-inset");
@@ -120,8 +130,16 @@ describe("Navbar bottom chrome contract", () => {
     );
     expect(bottomShell).toContain('<AgentBar layout="slot" />');
     expect(bottomShell).toContain("items-center gap-1.5");
-    expect(agentBar).toContain('? "h-10 rounded-[1.25rem] px-2"');
-    expect(agentBar).toContain("var(--app-agent-bar-max-width)");
+    expect(agentBar).toContain("layout");
+    expect(agentBar).toContain("AnimatePresence");
+    expect(agentBar).toContain("stiffness: 292");
+    expect(agentBar).toContain("will-change-[width,transform,opacity]");
+    expect(agentBar).toContain("w-[min(calc(100vw-2rem),14rem)]");
+    expect(agentBar).toContain("w-[min(calc(100vw-2rem),21rem)]");
+    expect(agentBar).toContain('title="Start a voice conversation with One"');
+    expect(agentBar).not.toContain("Couldn&apos;t connect · Try again");
+    expect(agentBar).not.toContain("useFeedUnreadCount");
+    expect(agentBar).not.toContain("useConsentPendingSummaryCount");
     expect(bottomShell).toContain("var(--bottom-chrome-full-height)");
     expect(bottomShell).toContain("--app-bottom-shell-height");
     expect(bottomShell).not.toContain("xl:hidden");
@@ -137,8 +155,8 @@ describe("Navbar bottom chrome contract", () => {
     expect(providers).toContain(
       "const foundationVoiceOnlyChrome = isFoundationRoute;",
     );
-    expect(providers).toContain(
-      "const pinnedBottomChrome =\n    isRiaRoute(pathname) || foundationVoiceOnlyChrome;",
+    expect(providers).toMatch(
+      /const pinnedBottomChrome\s*=\s*isRiaRoute\(pathname\) \|\| foundationVoiceOnlyChrome;/,
     );
     expect(providers).toContain(
       "navigationHidden:\n      chromeState.hideCommandBar || foundationVoiceOnlyChrome,",

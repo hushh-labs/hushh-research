@@ -2885,56 +2885,6 @@ html.native-ios [data-testid="one-location-onboarding"] {
   }
 }
 
-/* Agent bar edge glow: a STILL soft gold gradient rim (no idle spin). It only
-   comes alive (a gentle breathing brighten) while a live voice conversation is
-   active, so motion always MEANS something. */
-.one-bar-aurora {
-  position: absolute;
-  inset: -6px;
-  border-radius: 9999px;
-  background: radial-gradient(
-    120% 160% at 50% 120%,
-    rgba(212, 175, 106, 0.5),
-    rgba(212, 175, 106, 0.12) 55%,
-    transparent 72%
-  );
-  filter: blur(12px);
-  opacity: 0.5;
-}
-.one-bar-aurora--active {
-  background: linear-gradient(
-    120deg,
-    rgba(212, 175, 106, 0.7),
-    rgba(129, 140, 248, 0.55),
-    rgba(236, 72, 153, 0.5),
-    rgba(212, 175, 106, 0.7)
-  );
-  animation: one-bar-breathe 3.4s ease-in-out infinite;
-}
-.one-bar-aurora--onboarding {
-  background: radial-gradient(
-    120% 160% at 50% 120%,
-    rgba(212, 175, 106, 0.42),
-    rgba(212, 175, 106, 0.08) 58%,
-    transparent 74%
-  );
-  animation: none;
-}
-@keyframes one-bar-breathe {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 0.9;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .one-bar-aurora--active {
-    animation: none;
-  }
-}
-
 /* ── Cinematic launch sequence (welcome hero) ── */
 /* The quiet-mark IGNITES: a light bloom scales up behind it while the mark
    fades/scales into focus, then a soft ring pulses out once. */
@@ -4475,7 +4425,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   --agent-approval-rim: rgba(255, 255, 255, 0.55);
   --agent-approval-edge: rgba(0, 0, 0, 0.1);
   --agent-approval-cast: rgba(0, 0, 0, 0.18);
-  /* The colour the glass carries, taken from .one-bar-aurora--active -- the
+  /* The colour the glass carries, taken from the live voice bar's aurora -- the
      gold/indigo/pink the voice bar already wears while a conversation is
      live. The card belongs to that same moment, so it should read as the same
      material rather than as a generic accent panel that happened to appear. */
@@ -4691,6 +4641,71 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .dark .kai-bottom-nav-pill {
   border-color: rgba(84, 84, 88, 0.58) !important;
   background: rgba(28, 28, 30, 0.78) !important;
+}
+
+/* Live voice feedback: a restrained rainbow rim around the same glass bar.
+   It is present only while the real voice conversation is active. */
+.one-bar-aurora {
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  background: radial-gradient(
+    120% 160% at 50% 120%,
+    rgba(212, 175, 106, 0.5),
+    rgba(212, 175, 106, 0.12) 55%,
+    transparent 72%
+  );
+  filter: blur(12px);
+  opacity: 0.5;
+}
+
+.one-bar-aurora--active {
+  background: linear-gradient(
+    120deg,
+    rgba(212, 175, 106, 0.7),
+    rgba(129, 140, 248, 0.55),
+    rgba(236, 72, 153, 0.5),
+    rgba(212, 175, 106, 0.7)
+  );
+  background-size: 220% 100%;
+  animation: one-bar-rainbow 4.8s ease-in-out infinite;
+}
+
+@keyframes one-bar-rainbow {
+  0%,
+  100% {
+    background-position: 0% 50%;
+    opacity: 0.55;
+  }
+
+  50% {
+    background-position: 100% 50%;
+    opacity: 0.82;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .one-bar-aurora--active {
+    animation: none;
+  }
+}
+
+/* Sign-in (/login) keeps the Talk to One bar and every control inside it, but
+   drops the bar to a quieter material so the two sign-in buttons are clearly
+   the first thing to touch. Scoped to the AuthStep cluster attribute, which
+   only the sign-in screen renders, so no other route moves. The signed-in
+   bottom nav (.kai-bottom-nav-pill) is deliberately excluded — it does not
+   render here, and matching it would reach every signed-in route.
+   !important is required: the base rule above is itself !important. */
+body:has([data-auth-signin-clusters]) .bottom-chrome-surface {
+  border: 0.5px solid rgba(60, 60, 67, 0.1) !important;
+  background: rgba(255, 255, 255, 0.55) !important;
+  box-shadow: none !important;
+}
+
+.dark body:has([data-auth-signin-clusters]) .bottom-chrome-surface {
+  border-color: rgba(84, 84, 88, 0.32) !important;
+  background: rgba(28, 28, 30, 0.55) !important;
 }
 
 .kai-bottom-nav-pill [data-segment-indicator] {
