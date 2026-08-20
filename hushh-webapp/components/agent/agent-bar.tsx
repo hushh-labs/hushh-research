@@ -19,8 +19,16 @@ import React, {
   type MouseEvent,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { AudioLines, MessageCircle, Monitor, Moon, Sun, X } from "lucide-react";
+import {
+  AudioLines,
+  MessageCircle,
+  Monitor,
+  Moon,
+  Sun,
+  X,
+} from "lucide-react";
 import { useTheme } from "next-themes";
+import { AnimatePresence, motion } from "framer-motion";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
@@ -1271,7 +1279,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       // request, not a toggle. Coalesce it so one mic/socket survives.
       return;
     }
-    if (liveClientRef.current || erroredRef.current || conversationActive) {
+    if (erroredRef.current) {
+      // Failure remains visible until an intentional retry. Reuse the same
+      // teardown/start path so retry never becomes a second voice client.
+      stopConversation();
+    } else if (liveClientRef.current || conversationActive) {
       stopConversation();
       return;
     }
@@ -1280,11 +1292,24 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       onRevoked: () => stopConversationRef.current(),
     });
     voiceLeaseRef.current = lease;
-    const runtimeConnection = await resolveGeminiRuntimeConnection({
-      userId: user?.uid,
-      vaultKey,
-      vaultOwnerToken,
-    });
+    erroredRef.current = false;
+    setVoiceStatus("connecting", "Connecting…");
+    let runtimeConnection;
+    try {
+      runtimeConnection = await resolveGeminiRuntimeConnection({
+        userId: user?.uid,
+        vaultKey,
+        vaultOwnerToken,
+      });
+    } catch {
+      if (lease.isCurrent() && voiceLeaseRef.current?.id === lease.id) {
+        erroredRef.current = true;
+        setVoiceStatus("error", "Couldn't connect");
+        lease.release("runtime_connection_failed");
+        voiceLeaseRef.current = null;
+      }
+      return;
+    }
     if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) {
       return;
     }
@@ -1305,7 +1330,6 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       voiceLeaseRef.current = null;
       return;
     }
-    erroredRef.current = false;
     setConversationActive(true);
     scheduleVoiceIdleTimer();
     const context = runtime?.oneVoiceContextSnapshot ?? null;
@@ -1333,19 +1357,25 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     lastPushedContextRef.current = context
       ? actionableContextKey(context)
       : null;
-    void client.start({
-      context,
-      accessTier: runtime?.tier ?? null,
-      relayUrl,
-      sessionMirrorId: mirrorSessionId,
-      allowedActionIds: context?.available_action_ids ?? null,
-      consentToken: vaultOwnerToken ?? null,
-      runtimeCredentialMode: runtimeConnection.mode,
-      runtimeCredential: runtimeConnection.credential,
-      runtimeCredentialTransport: runtimeConnection.transport,
-      runtimeVertexProject: runtimeConnection.vertexProject,
-      runtimeVertexLocation: runtimeConnection.vertexLocation,
-    });
+    void client
+      .start({
+        context,
+        accessTier: runtime?.tier ?? null,
+        relayUrl,
+        sessionMirrorId: mirrorSessionId,
+        allowedActionIds: context?.available_action_ids ?? null,
+        consentToken: vaultOwnerToken ?? null,
+        runtimeCredentialMode: runtimeConnection.mode,
+        runtimeCredential: runtimeConnection.credential,
+        runtimeCredentialTransport: runtimeConnection.transport,
+        runtimeVertexProject: runtimeConnection.vertexProject,
+        runtimeVertexLocation: runtimeConnection.vertexLocation,
+      })
+      .catch(() => {
+        if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) return;
+        erroredRef.current = true;
+        setVoiceStatus("error", "Couldn't connect");
+      });
   }, [
     conversationActive,
     runtime?.oneVoiceContextSnapshot,
@@ -1564,14 +1594,6 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const isLoginRoute = (pathname ?? "").startsWith(ROUTES.LOGIN);
   const isFoundationPublic = isFoundationPublicRoute(pathname ?? "");
   
-  // The visual styling of the bar (width, aurora, etc.) aligns with the chat
-  // workspace's concept of onboarding.
-  const visualOnboardingChrome =
-    (runtime?.onboardingActive ?? chromeState.useOnboardingChrome) ||
-    isHomeRoute ||
-    isLoginRoute ||
-    isFoundationPublic;
-
   // The physical navbar rendering strictly follows path and auth state. We use
   // this strictly for positioning to avoid overlapping the navbar if the cloud
   // state (runtime.onboardingActive) lags behind the local pathname.
@@ -1700,6 +1722,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             : voiceStatus === "error"
               ? "error"
               : "opening";
+  // The rainbow begins at the tap boundary, while the transport is opening,
+  // so the control feels immediately alive instead of waiting for the socket
+  // to finish connecting. It is still tied only to the real voice lifecycle.
+  const voiceSurfaceActive =
+    conversationActive || voiceStatus === "connecting";
 
   const currentThemePreference = resolveThemePreference(theme) ?? "system";
   const nextTheme = nextThemePreference(currentThemePreference);
@@ -1764,10 +1791,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   );
   // Pill contents for the frosted bar, one JSX source across all modes so
   // the voice/theme controls and test ids never fork.
-  const pillContents = conversationActive ? (
+  const activeVoiceLabel =
+    voiceStatus === "connecting" ? "Listening…" : voiceStatusLabel;
+  const pillContents = voiceSurfaceActive ? (
     // The ENTIRE bar is the tap target to end the conversation: tapping
-    // anywhere stops it. The X icon on the left is a bare marker (no chip
-    // background) showing this is the "tap to end" affordance. On the
+    // anywhere stops it. The X icon on the left is a bare marker showing this
+    // is the "tap to end" affordance. On the
     // pre-auth greeter (home route auto-greet) the theme toggle stays
     // docked alongside it so it never disappears mid-connect.
     <>
@@ -1793,7 +1822,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           className="flex min-w-0 flex-1 items-center gap-3"
           role="status"
           aria-live="polite"
-          aria-label={voiceStatusLabel}
+          aria-label={activeVoiceLabel}
         >
           <AgentVoiceWaveform
             level={voiceLevel}
@@ -1808,9 +1837,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 ? "min-w-0 max-w-[60%] flex-1 truncate text-right text-destructive/80"
                 : "tabular-nums text-current/60",
             )}
-            title={voiceStatus === "error" ? voiceStatusLabel : undefined}
+            title={voiceStatus === "error" ? activeVoiceLabel : undefined}
           >
-            {voiceStatusLabel}
+            {activeVoiceLabel}
           </span>
         </span>
       </button>
@@ -1842,7 +1871,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           <AudioLines className="h-[19px] w-[19px]" />
         </span>
         <span className="relative z-10 min-w-0 flex-1 truncate text-[13px] font-medium text-current/70">
-          Talk to One
+          Ask One
         </span>
         <span
           aria-hidden
@@ -1979,33 +2008,26 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           ) : null}
         </div>
       ) : null}
-      <div
+      <motion.div
+        layout
+        transition={{
+          layout: { type: "spring", stiffness: 292, damping: 32, mass: 0.98 },
+          opacity: { duration: 0.22, ease: [0.2, 0.8, 0.2, 1] },
+        }}
         data-testid="one-voice-agent-bar"
         data-voice-mode={nativeVoiceMode}
         data-morphy-ax-presentation={runtime?.morphyAxPresentation ?? "idle"}
         className={cn(
-          // z-0 (not just `relative`) is required so this pill forms its own
-          // local stacking context: the `.one-bar-aurora -z-10` glow span
-          // below then resolves ONE level behind THIS element, not behind
-          // the whole `z-[118]` fixed wrapper it's nested in. Without z-0 the
-          // active Gemini Live glow renders invisible/clipped behind other
-          // page content instead of hugging the pill.
-          "pointer-events-auto relative z-0 flex w-full items-center gap-2",
-          // The root, public, and signed-in variants share one bar chassis.
-          // Route state may add toggles, but cannot fork width or geometry.
+          "pointer-events-auto relative z-0 flex items-center gap-2",
           layout === "slot"
-            ? "max-w-[min(calc(100vw-1.5rem),var(--app-agent-bar-max-width))]"
-            : "max-w-[min(calc(100vw-2rem),34rem)]",
-          layout === "slot"
-            ? "h-11 rounded-[22px] px-2.5"
-            : "h-11 rounded-full pl-3 pr-1.5",
-          // Single, consolidated transition covering surface color plus the
-          // open/close fade+lift. Smoothly eases the bar in/out with the agent
-          // window lifecycle so it never snaps back into place after closing.
-          "transition-[opacity,transform,background-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,0.84,0.28,1)] will-change-[opacity,transform]",
-          // Bottom-shell material: read the same live ambient token as the
-          // shared bottom mask so the Agent Bar never becomes a white pill on
-          // a dark/gradient route surface.
+            ? voiceSurfaceActive
+              ? "w-[min(calc(100vw-1.5rem),21rem)]"
+              : "w-[min(calc(100vw-1.5rem),14rem)] sm:w-[min(calc(100vw-1.5rem),16.5rem)]"
+            : voiceSurfaceActive
+              ? "w-[min(calc(100vw-2rem),21rem)]"
+              : "w-[min(calc(100vw-2rem),14rem)] sm:w-[min(calc(100vw-2rem),16.5rem)]",
+          layout === "slot" ? "h-11 rounded-[22px] px-2.5" : "h-11 rounded-full pl-3 pr-1.5",
+          "will-change-[width,transform,opacity]",
           "backdrop-blur-[24px] backdrop-saturate-[1.6]",
           "bottom-chrome-surface",
           barHidden
@@ -2014,22 +2036,25 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           barAmbient && "pointer-events-none opacity-70",
         )}
       >
-        {/* Aurora rim only while a live conversation is active, so motion
-            always means something. Pre-auth keeps the same Foundation tone as
-            the onboarding surface; no rainbow competes with One. */}
-        {conversationActive ? (
+        <AnimatePresence initial={false} mode="wait">
+          <motion.div
+            key={voiceSurfaceActive ? "voice-active" : "voice-idle"}
+            initial={{ opacity: 0, y: 2 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -2 }}
+            transition={{ duration: 0.14, ease: [0.2, 0.8, 0.2, 1] }}
+            className="flex min-w-0 flex-1 items-center gap-2"
+          >
+            {pillContents}
+          </motion.div>
+        </AnimatePresence>
+        {voiceSurfaceActive ? (
           <span
             aria-hidden
-            className={cn(
-              "one-bar-aurora -z-10 transition-opacity duration-500",
-              visualOnboardingChrome
-                ? "one-bar-aurora--onboarding"
-                : "one-bar-aurora--active",
-            )}
+            className="one-bar-aurora one-bar-aurora--active -z-10"
           />
         ) : null}
-        {pillContents}
-      </div>
+      </motion.div>
     </div>
   );
 }
