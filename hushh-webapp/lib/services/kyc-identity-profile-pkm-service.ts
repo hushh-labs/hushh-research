@@ -86,8 +86,13 @@ export class KycIdentityProfilePkmService {
   static async saveProfile(
     params: KycIdentityProfilePkmWriteParams,
   ): Promise<PkmWriteCoordinatorResult> {
-    if (params.profile.dateOfBirth && !isValidDateOfBirth(params.profile.dateOfBirth)) {
-      return Promise.reject(new Error("Date of birth must be a real past date."));
+    if (
+      params.profile.dateOfBirth &&
+      !isValidDateOfBirth(params.profile.dateOfBirth)
+    ) {
+      return Promise.reject(
+        new Error("Date of birth must be a real past date."),
+      );
     }
 
     const savedAt = new Date().toISOString();
@@ -218,11 +223,19 @@ export class KycIdentityProfilePkmService {
   }
 }
 
+export function hasCompletedKycIdentityIntake(profile: unknown): boolean {
+  const identityProfile = asRecord(profile);
+  return (
+    identityProfile.identity_intake_status === "completed" ||
+    typeof identityProfile.identity_intake_completed_at === "string" ||
+    isKycIdentityPrefaceComplete(identityProfile)
+  );
+}
+
 /**
- * Holds a completed KYC preface only in this JavaScript process until the
- * person chooses the master setup action and unlocks their vault. It never
- * writes sensitive identity information to browser or server pre-vault state.
- * A refresh before vault setup deliberately asks for the details again.
+ * Compatibility-only in-process storage for drafts created before the KYC
+ * vault prerequisite. New KYC input must open vault setup instead of staging
+ * here; this remains until every legacy caller has drained its pending draft.
  */
 const pendingProfiles = new Map<string, KycIdentityProfile>();
 

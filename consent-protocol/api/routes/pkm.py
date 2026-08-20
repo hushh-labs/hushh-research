@@ -142,7 +142,9 @@ async def require_pkm_metadata_access(
 
 class PKMAgentLabStructureRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
-    message: str = Field(min_length=1, max_length=12000)
+    # Imported personal profiles routinely exceed a short chat-message limit.
+    # Keep a hard bound for abuse protection while accepting a complete export.
+    message: str = Field(min_length=1, max_length=50000)
     current_domains: list[str] = Field(default_factory=list, max_length=256)
     current_manifests: list[dict] = Field(default_factory=list, max_length=256)
     simulated_state: dict | None = None

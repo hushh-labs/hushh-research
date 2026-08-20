@@ -9,16 +9,14 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import {
-  SettingsGroup,
-  SettingsRow,
-} from "@/components/app-ui/settings-ui";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
   SetupCapabilityLoading,
   SetupCapabilityTerminalFooter,
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
 import { KycIdentityPreface } from "@/components/onboarding/setup/kyc-identity-preface";
+import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -53,11 +51,6 @@ export function EmailOnboardingSetupClient() {
       setCheckingIdentity(false);
       return;
     }
-    if (KycIdentityProfileDraftService.hasPending(user.uid)) {
-      setIdentityPrefaceComplete(true);
-      setCheckingIdentity(false);
-      return;
-    }
     if (!vaultKey || !vaultOwnerToken) {
       setCheckingIdentity(false);
       return;
@@ -77,7 +70,12 @@ export function EmailOnboardingSetupClient() {
           setIdentityPrefaceComplete(true);
         }
       } catch (err) {
-        console.warn("[EmailOnboardingSetupClient] Failed to load existing identity profile:", err);
+        console.warn(
+          "[EmailOnboardingSetupClient] Failed to load existing identity profile:",
+          err,
+        );
+        // A failed protected read must not be interpreted as an incomplete KYC flow.
+        if (!cancelled) setIdentityPrefaceComplete(true);
       } finally {
         if (!cancelled) {
           setCheckingIdentity(false);
@@ -95,7 +93,10 @@ export function EmailOnboardingSetupClient() {
     setLoadState("loading");
     try {
       const idToken = await user.getIdToken();
-      const value = await loadEmailDraftingEnabled({ userId: user.uid, idToken });
+      const value = await loadEmailDraftingEnabled({
+        userId: user.uid,
+        idToken,
+      });
       setEnabled(value);
       setLoadState("ready");
     } catch {
@@ -116,7 +117,10 @@ export function EmailOnboardingSetupClient() {
       setLoadState("loading");
       try {
         const idToken = await user.getIdToken();
-        const value = await loadEmailDraftingEnabled({ userId: user.uid, idToken });
+        const value = await loadEmailDraftingEnabled({
+          userId: user.uid,
+          idToken,
+        });
         if (!cancelled) {
           setEnabled(value);
           setLoadState("ready");
@@ -142,32 +146,34 @@ export function EmailOnboardingSetupClient() {
     skipActionId: "setup.skip_email",
   });
 
-  const persistPreference = useCallback(async (checked: boolean) => {
-    const previous = enabled;
-    if (!user?.uid || loadState !== "ready") return;
+  const persistPreference = useCallback(
+    async (checked: boolean) => {
+      const previous = enabled;
+      if (!user?.uid || loadState !== "ready") return;
 
-    setEnabled(checked);
-    setSaving(true);
-    try {
-      if (checked && vaultKey && vaultOwnerToken) {
-        await OneKycClientZkService.ensureConnector({
-          userId: user.uid,
-          vaultKey,
-          vaultOwnerToken,
-        });
-        if (isApplePrivateRelayEmail(user.email)) {
-          const aliases = await AccountService.listEmailAliases(vaultOwnerToken);
-          const verifiedSender = aliases.aliases.some(
-            (alias) =>
-              alias.verification_status === "verified" &&
-              !isApplePrivateRelayEmail(alias.email),
-          );
-          if (!verifiedSender) {
-            throw new Error("A verified non-relay sender is required.");
+      setEnabled(checked);
+      setSaving(true);
+      try {
+        if (checked && vaultKey && vaultOwnerToken) {
+          await OneKycClientZkService.ensureConnector({
+            userId: user.uid,
+            vaultKey,
+            vaultOwnerToken,
+          });
+          if (isApplePrivateRelayEmail(user.email)) {
+            const aliases =
+              await AccountService.listEmailAliases(vaultOwnerToken);
+            const verifiedSender = aliases.aliases.some(
+              (alias) =>
+                alias.verification_status === "verified" &&
+                !isApplePrivateRelayEmail(alias.email),
+            );
+            if (!verifiedSender) {
+              throw new Error("A verified non-relay sender is required.");
+            }
           }
         }
-      }
-      const idToken = await user.getIdToken();
+        const idToken = await user.getIdToken();
       const saved = await saveEmailDraftingEnabled({
         userId: user.uid,
         idToken,
@@ -201,7 +207,16 @@ export function EmailOnboardingSetupClient() {
   }
 
   if (!identityPrefaceComplete) {
-    return <KycIdentityPreface onComplete={() => setIdentityPrefaceComplete(true)} />;
+    return (
+      <CapabilityVaultPrerequisite
+        capabilityLabel="KYC"
+        routeKey="/one/setup/email"
+      >
+        <KycIdentityPreface
+          onComplete={() => setIdentityPrefaceComplete(true)}
+        />
+      </CapabilityVaultPrerequisite>
+    );
   }
 
   if (!coordinator.isReady) return <SetupCapabilityLoading label="One moment…" />;

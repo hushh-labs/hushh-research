@@ -386,6 +386,7 @@ _ENTITY_STATUS_ACTIVE = "active"
 _ENTITY_STATUS_CORRECTED = "corrected"
 _ENTITY_STATUS_DELETED = "deleted"
 _MAX_PREVIEW_CARDS = 8
+_MAX_SEGMENT_SOURCE_CHARS = 4000
 _PREVIEW_CACHE_TTL_SECONDS = max(
     60,
     int(os.getenv("PKM_AGENT_LAB_PREVIEW_CACHE_TTL_SECONDS", "300") or "300"),
@@ -823,7 +824,7 @@ class PKMAgentLabService:
 
     @classmethod
     def _fallback_segmented_messages(cls, message: str) -> list[dict[str, Any]]:
-        normalized = cls._safe_excerpt(message, limit=2000)
+        normalized = cls._safe_excerpt(message, limit=50000)
         if not normalized:
             return []
 
@@ -880,7 +881,10 @@ class PKMAgentLabService:
         for item in items:
             if not isinstance(item, dict):
                 continue
-            source_text = cls._safe_excerpt(str(item.get("source_text") or ""), limit=280)
+            source_text = cls._safe_excerpt(
+                str(item.get("source_text") or ""),
+                limit=_MAX_SEGMENT_SOURCE_CHARS,
+            )
             if not source_text:
                 continue
             normalized = source_text.casefold()
@@ -4642,7 +4646,10 @@ class PKMAgentLabService:
             async def _build_preview_entry(
                 index: int, segment: dict[str, Any]
             ) -> dict[str, Any] | None:
-                source_text = self._safe_excerpt(str(segment.get("source_text") or ""), limit=400)
+                source_text = self._safe_excerpt(
+                    str(segment.get("source_text") or ""),
+                    limit=_MAX_SEGMENT_SOURCE_CHARS,
+                )
                 if not source_text:
                     return None
                 preview_started_at = time.perf_counter()
