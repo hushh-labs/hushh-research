@@ -566,7 +566,27 @@ export function SaveLocationModal({
    * shouting, and never lets a press land on nothing.
    */
   const [addressTouched, setAddressTouched] = useState(false);
-  const sheetPresentation = useSheetPresentation();
+  /**
+   * Which presentation this surface opened in, held for as long as it stays
+   * open.
+   *
+   * Swapping between Sheet and Dialog swaps the parent element type, so React
+   * unmounts and remounts everything inside -- including `LocationPickerMap`,
+   * which re-creates the NATIVE map. Rotating an iPhone 15 Pro Max to
+   * landscape crosses 640px (932 points wide), so a live read would tear down
+   * and rebuild the map under the hand of someone in the middle of placing a
+   * pin. That is the exact lifecycle that produces a blank map (bug log B23 /
+   * B24), and a presented sheet changing presentation style on rotation is not
+   * how iOS behaves anyway.
+   *
+   * Written during render on purpose: while closed it is a pure mirror of the
+   * live value, so the surface always OPENS in the right presentation; the
+   * moment it opens it stops following.
+   */
+  const livePresentation = useSheetPresentation();
+  const openedPresentationRef = useRef(livePresentation);
+  if (!open) openedPresentationRef.current = livePresentation;
+  const sheetPresentation = openedPresentationRef.current;
 
   // Reset internal selection each time the modal (re)opens. When editing an
   // existing saved place, seed the category/label/detail fields from the

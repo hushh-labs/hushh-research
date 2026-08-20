@@ -1481,6 +1481,49 @@ describe("SaveLocationModal", () => {
       }
     });
 
+    it("does not restructure itself when the phone is rotated mid-flow", () => {
+      // Swapping Sheet <-> Dialog swaps the parent element type, so React
+      // remounts everything inside -- including the picker, which re-creates
+      // the NATIVE map. An iPhone 15 Pro Max in landscape is 932 points wide,
+      // so a live media-query read would tear the map down under the hand of
+      // someone placing a pin. Bug log B23 / B24 is what that looks like.
+      const restore = asPhone();
+      try {
+        const { rerender } = render(<SaveLocationModal {...phoneProps} />);
+        expect(screen.getByTestId("save-location-modal").dataset.slot).toBe(
+          "sheet-content",
+        );
+
+        // Rotation: the query stops matching while the surface is still open.
+        restore();
+        rerender(<SaveLocationModal {...phoneProps} />);
+
+        expect(screen.getByTestId("save-location-modal").dataset.slot).toBe(
+          "sheet-content",
+        );
+      } finally {
+        restore();
+      }
+    });
+
+    it("picks up the new presentation the next time it opens", () => {
+      // Frozen while open is not frozen forever -- a closed surface still
+      // mirrors the live width, so it always OPENS in the right presentation.
+      const restore = asPhone();
+      const props = { ...phoneProps, open: false };
+      const { rerender } = render(<SaveLocationModal {...props} />);
+
+      // The width changes while the surface is closed. On a real device the
+      // media-query listener re-renders it here; the test does it by hand.
+      restore();
+      rerender(<SaveLocationModal {...props} />);
+
+      rerender(<SaveLocationModal {...props} open />);
+      expect(screen.getByTestId("save-location-modal").dataset.slot).toBe(
+        "dialog-content",
+      );
+    });
+
     it("keeps the rail inert as a drag surface in the desktop dialog", () => {
       // Same component, no sheet around it: `useSheetDragHandle` returns null
       // and the wrapper must not claim the pointer.
