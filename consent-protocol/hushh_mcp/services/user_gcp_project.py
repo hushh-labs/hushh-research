@@ -47,6 +47,7 @@ import logging
 import re
 from dataclasses import dataclass
 from typing import Any, Optional
+from urllib.parse import quote as _quote
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,11 @@ def suggest_project_id(hushh_id: str, *, display_hint: str = "") -> ProjectNameS
     """
     project_id = f"{_PREFIX}{_suffix_for(hushh_id)}"
     friendly = str(display_hint or "").strip()
-    display_name = f"{friendly}'s Agent One" if friendly else "🤫 Agent One"
+    # Plain "Agent One", deliberately: Google rejects the 🤫 emoji in a project
+    # display name ("display name contains invalid characters"), which broke BOTH
+    # guided routes at once — the console silently discarded the prefill params
+    # and the copy-paste gcloud command failed verbatim for every person.
+    display_name = f"{friendly}'s Agent One" if friendly else "Agent One"
     return ProjectNameSuggestion(
         project_id=project_id,
         display_name=display_name[:30],
@@ -234,8 +239,12 @@ def guided_creation_instructions(
         "projectId": project_id,
         "displayName": display_name,
         "consoleUrl": (
+            # URL-ENCODED, deliberately: the raw name carries spaces (and an
+            # apostrophe on the personalized path), and an unencoded query value
+            # makes the console drop the prefill entirely — the person lands on
+            # a blank form with a random id and no idea why.
             "https://console.cloud.google.com/projectcreate"
-            f"?projectId={project_id}&projectName={display_name}"
+            f"?projectId={_quote(project_id)}&projectName={_quote(display_name)}"
         ),
         "cliCommand": f'gcloud projects create {project_id} --name="{display_name}"',
         "billingNote": (
