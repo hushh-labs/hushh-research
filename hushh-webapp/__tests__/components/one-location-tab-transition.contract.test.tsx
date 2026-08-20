@@ -58,12 +58,18 @@ const embla = vi.hoisted(() => ({
   ref: vi.fn(),
   root: null as HTMLElement | null,
   container: null as HTMLElement | null,
+  api: null as Record<string, unknown> | null,
   options: null as Record<string, unknown> | null,
 }));
 
 vi.mock("embla-carousel-react", () => ({
+  // The api object is cached, because the real hook returns a STABLE instance.
+  // Handing back a fresh object each render makes every effect keyed on
+  // `emblaApi` re-run on every render, which fires the self-healing
+  // reconciliation pass continuously and drowns the behaviour under test.
   default: (options: Record<string, unknown>) => {
     embla.options = options;
+    if (embla.api) return [embla.ref, embla.api];
     const engine = {
       slideRects: Array.from({ length: embla.slideCount }, () => ({
         width: SLIDE_WIDTH,
@@ -84,9 +90,7 @@ vi.mock("embla-carousel-react", () => ({
       previousLocation: { set: () => undefined },
       translate: { to: () => undefined },
     };
-    return [
-      embla.ref,
-      {
+    embla.api = {
         selectedScrollSnap: () => Math.round(-embla.offset / SLIDE_WIDTH),
         // Derived from position, exactly as Embla derives it. A mock that
         // stored progress separately let the two disagree, which is a state
@@ -104,8 +108,8 @@ vi.mock("embla-carousel-react", () => ({
         off: (event: string) => {
           embla.listeners.delete(event);
         },
-      },
-    ];
+    };
+    return [embla.ref, embla.api];
   },
 }));
 
@@ -266,6 +270,7 @@ beforeEach(() => {
   embla.scrollTo.mockClear();
   embla.reInit.mockClear();
   embla.listeners.clear();
+  embla.api = null;
   embla.root = document.createElement("div");
   embla.root.getBoundingClientRect = () =>
     ({ width: SLIDE_WIDTH, height: 800 }) as DOMRect;
@@ -468,15 +473,30 @@ describe("Location tab transition — one writer owns the indicator", () => {
 describe("Location tab transition — Reduce Motion", () => {
   it("places the panel instead of travelling a full screen width", () => {
     reduceMotion = true;
-    render(<LocationPager activeValue="now" />);
+    const view = render(<LocationPager activeValue="now" />);
 
+    // The press itself defers to the route, so nothing moves yet.
     pressTab("people");
+    expect(embla.scrollTo).not.toHaveBeenCalled();
 
+    // The route lands, and the panel is placed rather than travelled.
+    act(() => {
+      view.rerender(<LocationPager activeValue="people" />);
+    });
     expect(embla.scrollTo).toHaveBeenCalledWith(1, true);
     expect(swipeVariable("location")).toBe("1");
   });
 
-  it("still reports the selection, because a jump emits no select or settle", async () => {
+  it("still travels the panel when Reduce Motion is off", () => {
+    const view = render(<LocationPager activeValue="now" />);
+    act(() => {
+      view.rerender(<LocationPager activeValue="people" />);
+    });
+    // No `jump` argument: this one animates.
+    expect(embla.scrollTo).toHaveBeenCalledWith(1);
+  });
+
+  it("leaves the consumer as the only reporter, so a press cannot race its own navigation", () => {
     reduceMotion = true;
     const onSelectionChange = vi.fn();
     const onSelectionCommit = vi.fn();
@@ -489,45 +509,11 @@ describe("Location tab transition — Reduce Motion", () => {
     );
 
     pressTab("people");
-
-    // Nothing reported yet: the report deliberately leaves the tap's own tick.
+    // Reporting from here was tried three ways and every one of them raced
+    // the strip's own navigation, because a tab press takes the whole
+    // document with it on the deployed build.
     expect(onSelectionChange).not.toHaveBeenCalled();
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-
-    // Reported after the current task, not inside the tap's own dispatch:
-    // reporting synchronously put a second navigation request ahead of the
-    // strip's in the same tick and the tap produced no history write at all.
-    // A timer rather than an animation frame, because a page that is not
-    // being painted never delivers a frame and the report would never run.
-    expect(onSelectionChange).toHaveBeenCalledWith("people");
-    expect(onSelectionCommit).toHaveBeenCalledWith("people");
-  });
-
-  it("does not drag the panel back before the consumer's value catches up", () => {
-    reduceMotion = true;
-    const view = render(<LocationPager activeValue="now" />);
-
-    pressTab("people");
-    expect(embla.scrollTo).toHaveBeenLastCalledWith(1, true);
-    embla.scrollTo.mockClear();
-
-    // The route has not committed yet, so the pager still receives "now".
-    // Repairing that disagreement here would undo the person's own tap.
-    act(() => {
-      view.rerender(<LocationPager activeValue="now" />);
-    });
-    // It may re-assert where it already is; it must never go back to the tab
-    // the person just left.
-    for (const call of embla.scrollTo.mock.calls) expect(call[0]).toBe(1);
-    embla.scrollTo.mockClear();
-
-    // A value that is neither where we were nor where we went still wins.
-    act(() => {
-      view.rerender(<LocationPager activeValue="links" />);
-    });
-    expect(embla.scrollTo).toHaveBeenCalledWith(2, true);
+    expect(onSelectionCommit).not.toHaveBeenCalled();
   });
 });
 
