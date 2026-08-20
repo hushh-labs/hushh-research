@@ -57,8 +57,13 @@ export default defineConfig({
       // pass says nothing about whether `dvh` inside a `clamp()`, or a sheet
       // pinned to `bottom-[var(--kb-height)]`, behaves the same in the engine
       // the app actually ships in.
+      // `one-location-map-consent-panel.layout` is opted in for the same
+      // reason: Your Map is the screen people meet on a phone, and the panel
+      // it measures is the surface an iPhone's home indicator sits under. The
+      // fixture is self-contained -- no app shell, so neither of the two
+      // known WebKit failures above can reach it.
       testMatch:
-        /(circle-join-responsive-contract|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|one-location-map-consent-panel\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",
