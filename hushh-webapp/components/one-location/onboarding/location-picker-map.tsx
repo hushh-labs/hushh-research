@@ -21,6 +21,7 @@ import {
   DARK_MAP_STYLES,
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
+import { PICKER_MAP_HEIGHT_CLASSNAME } from "@/components/one-location/onboarding/save-location-sheet-layout";
 import { getPlatform, isNative } from "@/lib/capacitor/platform";
 import {
   claimNativeMap,
@@ -584,22 +585,33 @@ export function LocationPickerMap({
     onReadyChange?.(canConfirm);
   }, [canConfirm, onReadyChange]);
 
-  const accuracyHint = unavailable
-    ? "Review the pin, then continue."
-    : typeof initialAccuracyM === "number" && Number.isFinite(initialAccuracyM)
-      ? initialAccuracyM <= 20
-        ? "GPS gave us a strong starting point. Confirm the entrance yourself."
-        : initialAccuracyM <= 75
-          ? "GPS is only a starting point. Check the pin before continuing."
-          : "GPS is approximate here. Move the pin carefully to your entrance."
-      : "Move the map so the pin tip sits on your entrance.";
+  /**
+   * One short line, and it only changes when the advice changes.
+   *
+   * There were four, all of them narrating GPS at the person: "GPS gave us a
+   * strong starting point. Confirm the entrance yourself." tells you about a
+   * satellite system when the only thing you can do about it is drag a map.
+   * The one distinction worth keeping is whether the starting point is close
+   * enough to trust at a glance -- so a poor fix asks for more care, and
+   * everything else just says what to do.
+   */
+  const accuracyHint =
+    typeof initialAccuracyM === "number" &&
+    Number.isFinite(initialAccuracyM) &&
+    initialAccuracyM > 75
+      ? "We're not sure of this spot. Check it."
+      : "Move the pin if needed.";
 
   return (
 
     <div className={cn("flex flex-col gap-3", className)}>
       <div className="flex items-center justify-between">
-        <p className="text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]">
-          Pin your entrance on the map
+        {/* Three words. "on the map" described the thing the person is already
+            looking at, and this row shares a sheet header with the step rail --
+            every word here is a word the title has to fit beside a 44px close
+            target at 320px. */}
+        <p className="text-[15px] font-semibold text-foreground">
+          Pin your entrance
         </p>
         <button
           type="button"
@@ -622,7 +634,8 @@ export function LocationPickerMap({
         // them and sliding the sheet while the person is moving the pin.
         data-location-picker-surface
         className={cn(
-          "relative h-[min(56vh,420px)] w-full overflow-hidden rounded-2xl border border-black/[0.08] shadow-[0_8px_24px_rgba(16,24,40,0.12)] ring-1 ring-black/[0.02] dark:border-white/[0.1] dark:shadow-[0_8px_24px_rgba(0,0,0,0.4)]",
+          "relative w-full overflow-hidden rounded-2xl border border-black/[0.08] shadow-[0_8px_24px_rgba(16,24,40,0.12)] ring-1 ring-black/[0.02] dark:border-white/[0.1] dark:shadow-[0_8px_24px_rgba(0,0,0,0.4)]",
+          PICKER_MAP_HEIGHT_CLASSNAME,
           // The native map draws below the WebView, so the surface must stay
           // transparent for it to show through. Web keeps the neutral tile bg.
           native
