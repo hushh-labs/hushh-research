@@ -33,7 +33,6 @@ type PreferenceLoadState = "loading" | "ready" | "error";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import {
   isKycIdentityPrefaceComplete,
-  KycIdentityProfileDraftService,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
 
 export function EmailOnboardingSetupClient() {

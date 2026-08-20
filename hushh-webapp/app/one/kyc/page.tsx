@@ -43,7 +43,6 @@ import { KycIdentityPreface } from "@/components/onboarding/setup/kyc-identity-p
 import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
 import {
   isKycIdentityPrefaceComplete,
-  KycIdentityProfileDraftService,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import {

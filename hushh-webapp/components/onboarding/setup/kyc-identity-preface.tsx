@@ -21,6 +21,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
   const [aboutMe, setAboutMe] = useState("");
   const [copied, setCopied] = useState(false);
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
+  const [isSaveStarted, setIsSaveStarted] = useState(false);
   const saveStartedRef = useRef(false);
 
   const canContinue = aboutMe.trim().length > 5;
@@ -44,6 +45,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
     }
 
     saveStartedRef.current = true;
+    setIsSaveStarted(true);
     const saveTask = KycIdentityProfilePkmService.saveProfile({
       userId: user.uid,
       vaultKey,
@@ -124,7 +126,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                 placeholder="Share details about your professional background, interests, residency, or other details. We’ll organize them into separate encrypted memories in your private vault."
                 className="min-h-[140px] rounded-2xl p-5 text-[15px] leading-relaxed resize-none bg-background shadow-sm border border-input/60 focus-visible:ring-primary/20 focus-visible:ring-[4px] focus-visible:border-primary/40 transition-all"
                 aria-label="Tell us about yourself"
-                disabled={saveStartedRef.current}
+                disabled={isSaveStarted}
               />
             </div>
 
@@ -176,12 +178,12 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                 size="lg"
                 fullWidth
                 onClick={handlePrimary}
-                disabled={!canContinue || saveStartedRef.current}
+                disabled={!canContinue || isSaveStarted}
                 showRipple
                 className={cn(
                   "h-14 rounded-full text-base font-semibold shadow-sm",
                   "transition-all duration-200 ease-out active:scale-[0.98]",
-                  canContinue && !saveStartedRef.current
+                  canContinue && !isSaveStarted
                     ? "!bg-foreground !text-background hover:opacity-90"
                     : "!bg-secondary !text-muted-foreground",
                 )}
