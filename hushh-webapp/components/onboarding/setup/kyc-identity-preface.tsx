@@ -1,15 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Brain, Check, Copy } from "lucide-react";
 import { toast } from "sonner";
 
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
 import {
-  KycIdentityProfileDraftService,
   type KycIdentityProfile,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { cn } from "@/lib/utils";
@@ -22,12 +22,13 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [aboutMe, setAboutMe] = useState("");
   const [copied, setCopied] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
+  const saveStartedRef = useRef(false);
 
   const canContinue = aboutMe.trim().length > 5;
 
   const handlePrimary = async () => {
-    if (!canContinue || saving) return;
+    if (!canContinue || saveStartedRef.current) return;
     if (!user?.uid) {
       toast.error("Sign in before saving your details.");
       return;
@@ -37,31 +38,41 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
       aboutMe: aboutMe.trim(),
     };
 
-    if (isVaultUnlocked && vaultKey && vaultOwnerToken) {
-      setSaving(true);
-      try {
-        const result = await KycIdentityProfilePkmService.saveProfile({
-          userId: user.uid,
-          vaultKey,
-          vaultOwnerToken,
-          profile,
-        });
-        if (!result.success) {
-          throw new Error(result.message || "Failed to save profile");
-        }
-        onComplete();
-      } catch (_err) {
-        toast.error("Failed to save identity profile");
-      } finally {
-        setSaving(false);
-      }
-    } else {
-      // Capability setup is deliberately vault-free. Keep the sensitive draft
-      // only in process memory; the root Finish setup action is the one place
-      // that introduces the vault and flushes this profile after unlock.
-      KycIdentityProfileDraftService.stage(user.uid, profile);
-      onComplete();
+    if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+      // KYC text is sensitive. Keep it on this screen and establish the
+      // client-side vault boundary before any onboarding continuation.
+      setVaultDialogOpen(true);
+      return;
     }
+
+    saveStartedRef.current = true;
+    const saveTask = KycIdentityProfilePkmService.saveProfile({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken,
+      profile,
+    });
+    onComplete();
+    toast.info("Saving your details to Memory in the background…");
+    void saveTask
+      .then((result) => {
+        if (!result.success) {
+          console.error("[PKM_INGEST] kyc_background_save_failed", {
+            source: "kyc_identity_onboarding",
+            error_code: "save_incomplete",
+          });
+          toast.error("We couldn't save your details to Memory. Nothing new was added.");
+          return;
+        }
+        toast.success(result.message || "Your data is now saved in Memory.");
+      })
+      .catch(() => {
+        console.error("[PKM_INGEST] kyc_background_save_failed", {
+          source: "kyc_identity_onboarding",
+          error_code: "background_task_rejected",
+        });
+        toast.error("We couldn't save your details to Memory. Nothing new was added.");
+      });
   };
 
   const handleSkip = () => {
@@ -112,10 +123,10 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
               <Textarea
                 value={aboutMe}
                 onChange={(event) => setAboutMe(event.target.value)}
-                placeholder="Share details about your professional background, interests, residency, or other details. Only you and One can see this, and it stays entirely inside your private vault."
+                placeholder="Share details about your professional background, interests, residency, or other details. We’ll organize them into separate encrypted memories in your private vault."
                 className="min-h-[140px] rounded-2xl p-5 text-[15px] leading-relaxed resize-none bg-background shadow-sm border border-input/60 focus-visible:ring-primary/20 focus-visible:ring-[4px] focus-visible:border-primary/40 transition-all"
                 aria-label="Tell us about yourself"
-                disabled={saving}
+                disabled={saveStartedRef.current}
               />
             </div>
 
@@ -163,22 +174,36 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                 size="lg"
                 fullWidth
                 onClick={handlePrimary}
-                disabled={!canContinue || saving}
+                disabled={!canContinue || saveStartedRef.current}
                 showRipple
                 className={cn(
                   "h-14 rounded-full text-base font-semibold shadow-sm",
                   "transition-all duration-200 ease-out active:scale-[0.98]",
-                  canContinue && !saving
+                  canContinue && !saveStartedRef.current
                     ? "!bg-foreground !text-background hover:opacity-90"
                     : "!bg-secondary !text-muted-foreground",
                 )}
               >
-                {saving ? "Saving..." : "Save & Continue"}
+                Save & Continue
               </Button>
             </div>
           </div>
         </div>
       </div>
+      {user ? (
+        <VaultUnlockDialog
+          user={user}
+          open={vaultDialogOpen}
+          onOpenChange={setVaultDialogOpen}
+          onSuccess={() => {
+            setVaultDialogOpen(false);
+            toast.success("Your vault is ready. Save your details to continue.");
+          }}
+          title="Set up your private vault"
+          description="Create or unlock your vault before saving identity details."
+          allowVaultCreation
+        />
+      ) : null}
     </CapabilityCinematicIntroGate>
   );
 }

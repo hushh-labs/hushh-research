@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({
@@ -7,13 +7,26 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
   },
 }));
 
+const ingestionMocks = vi.hoisted(() => ({
+  ingestNaturalLanguagePkm: vi.fn(),
+}));
+
+vi.mock("@/lib/pkm/pkm-natural-language-ingestion", () => ({
+  ingestNaturalLanguagePkm: ingestionMocks.ingestNaturalLanguagePkm,
+}));
+
 import {
   KYC_IDENTITY_PKM_DOMAIN,
   KycIdentityProfileDraftService,
   KycIdentityProfilePkmService,
+  isKycIdentityPrefaceComplete,
   isValidDateOfBirth,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("KycIdentityProfilePkmService", () => {
   it("accepts only real past calendar dates of birth", () => {
@@ -24,6 +37,12 @@ describe("KycIdentityProfilePkmService", () => {
     expect(isValidDateOfBirth("1994-02-29", now)).toBe(false);
     expect(isValidDateOfBirth("2026-08-03", now)).toBe(false);
     expect(isValidDateOfBirth("2099-01-01", now)).toBe(false);
+  });
+
+  it("recognizes segmented free-form imports without retaining the raw blob", () => {
+    expect(isKycIdentityPrefaceComplete({ about_me: "legacy profile" })).toBe(true);
+    expect(isKycIdentityPrefaceComplete({ freeform_import_completed_at: "2026-08-20T00:00:00Z" })).toBe(true);
+    expect(isKycIdentityPrefaceComplete({ about_me: "", updated_at: "2026-08-20T00:00:00Z" })).toBe(false);
   });
 
   it("merges the completed identity preface into the encrypted identity domain", async () => {
@@ -88,6 +107,83 @@ describe("KycIdentityProfilePkmService", () => {
       },
     });
     expect(writtenSummary).toEqual({ identity_profile_updated: true });
+  });
+
+  it("decomposes an imported KYC profile through the canonical PKM proposal path", async () => {
+    let writtenDomainData: Record<string, unknown> | null = null;
+    (PkmWriteCoordinator.saveMergedDomain as Mock).mockImplementationOnce(async (params) => {
+      const plan = await params.build({
+        currentDomainData: {
+          identity_profile: {
+            full_name: "Existing Person",
+            employment_status: "employed",
+          },
+        },
+      });
+      writtenDomainData = plan.domainData;
+      return { saveState: "saved", success: true, fullBlob: {} };
+    });
+    ingestionMocks.ingestNaturalLanguagePkm.mockResolvedValueOnce({
+      preview: { cards: [] },
+      save: { attempted: 3, saved: 3, failed: 0, domains: ["education", "interests"], results: [] },
+    });
+
+    const result = await KycIdentityProfilePkmService.saveProfile({
+      userId: "user_1",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "owner-token",
+      profile: {
+        aboutMe: "I study Mechanical Engineering at IIT Bombay, work at Hushh, and play Rocket League.",
+      },
+    });
+
+    expect(ingestionMocks.ingestNaturalLanguagePkm).toHaveBeenCalledWith({
+      userId: "user_1",
+      message: "I study Mechanical Engineering at IIT Bombay, work at Hushh, and play Rocket League.",
+      currentDomains: ["identity"],
+      vaultKey: "vault-key",
+      vaultOwnerToken: "owner-token",
+      source: "kyc_identity_onboarding",
+      confirmation: expect.objectContaining({
+        confirmedByUser: true,
+        source: "kyc_identity_onboarding",
+      }),
+    });
+    expect(writtenDomainData).toMatchObject({
+      identity_profile: {
+        full_name: "Existing Person",
+        employment_status: "employed",
+        freeform_import_completed_at: expect.any(String),
+      },
+    });
+    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ success: true, message: "Saved 3 separate memory details." });
+  });
+
+  it("reports saved memories accurately when a later imported detail is skipped", async () => {
+    ingestionMocks.ingestNaturalLanguagePkm.mockResolvedValueOnce({
+      preview: { cards: [] },
+      save: { attempted: 2, saved: 1, failed: 1, domains: ["education"], results: [] },
+    });
+    (PkmWriteCoordinator.saveMergedDomain as Mock).mockResolvedValueOnce({
+      saveState: "saved",
+      success: true,
+      fullBlob: {},
+    });
+
+    const result = await KycIdentityProfilePkmService.saveProfile({
+      userId: "user_1",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "owner-token",
+      profile: { aboutMe: "I study at IIT Bombay and prefer gaming laptops." },
+    });
+
+    expect(result).toMatchObject({
+      success: true,
+      saveState: "saved",
+      message: "Saved 1 separate memory detail. 1 detail was skipped and can be retried later.",
+    });
+    expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a pre-vault identity draft only in process memory until its encrypted save settles", async () => {

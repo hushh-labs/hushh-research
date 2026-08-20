@@ -40,7 +40,10 @@ import { AsyncActionStatus } from "@/components/system/async-action-status";
 import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
 import { PkmSectionPreview } from "@/components/profile/pkm-section-preview";
 import { KycIdentityPreface } from "@/components/onboarding/setup/kyc-identity-preface";
-import { KycIdentityProfileDraftService } from "@/lib/services/kyc-identity-profile-pkm-service";
+import {
+  isKycIdentityPrefaceComplete,
+  KycIdentityProfileDraftService,
+} from "@/lib/services/kyc-identity-profile-pkm-service";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import {
   AlertDialog,
@@ -397,7 +400,7 @@ export function OneKycWorkspace({
           vaultOwnerToken,
         });
         const profile = snapshot?.data?.identity_profile as any;
-        if (!cancelled && profile?.about_me?.trim()) {
+        if (!cancelled && isKycIdentityPrefaceComplete(profile)) {
           setIdentityPrefaceComplete(true);
         }
       } catch (err) {

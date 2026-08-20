@@ -385,7 +385,7 @@ _MEMORY_SIMILARITY_STOPWORDS = {
 _ENTITY_STATUS_ACTIVE = "active"
 _ENTITY_STATUS_CORRECTED = "corrected"
 _ENTITY_STATUS_DELETED = "deleted"
-_MAX_PREVIEW_CARDS = 4
+_MAX_PREVIEW_CARDS = 8
 _PREVIEW_CACHE_TTL_SECONDS = max(
     60,
     int(os.getenv("PKM_AGENT_LAB_PREVIEW_CACHE_TTL_SECONDS", "300") or "300"),
@@ -657,7 +657,7 @@ class PKMAgentLabService:
 
     @staticmethod
     def _is_retryable_provider_error(exc: Exception) -> bool:
-        status_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+        status_code = PKMAgentLabService._provider_status_code(exc)
         if status_code in {429, 500, 503}:
             return True
         message = str(exc).lower()
@@ -675,6 +675,44 @@ class PKMAgentLabService:
             "code 503",
         )
         return any(marker in message for marker in markers)
+
+    @staticmethod
+    def _provider_status_code(exc: Exception) -> int | None:
+        for field in ("status_code", "code"):
+            value = getattr(exc, field, None)
+            if callable(value):
+                try:
+                    value = value()
+                except TypeError:
+                    continue
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    @classmethod
+    def _provider_error_code(cls, exc: Exception) -> str:
+        """Classify provider failures without retaining or logging request text."""
+        status_code = cls._provider_status_code(exc)
+        if status_code == 401:
+            return "unauthenticated"
+        if status_code == 403:
+            return "permission_denied"
+        if status_code == 404:
+            return "model_not_found"
+        if status_code == 429:
+            return "quota_exhausted"
+        if status_code in {500, 503}:
+            return "provider_unavailable"
+        message = str(exc).lower()
+        if "quota" in message or "resource exhausted" in message:
+            return "quota_exhausted"
+        if "model" in message and ("not found" in message or "unavailable" in message):
+            return "model_not_found"
+        if "permission" in message or "forbidden" in message:
+            return "permission_denied"
+        return "provider_request_failed"
 
     @staticmethod
     def _provider_retry_delay_seconds(attempt: int) -> float:
@@ -830,8 +868,6 @@ class PKMAgentLabService:
         message: str,
     ) -> list[dict[str, Any]]:
         fallback = cls._fallback_segmented_messages(message)
-        if len(fallback) == 1:
-            return fallback
         if not isinstance(raw, dict):
             return fallback
 
@@ -1516,9 +1552,13 @@ class PKMAgentLabService:
                         await asyncio.sleep(retry_delay_seconds)
                         continue
                 logger.warning(
-                    "pkm.agent_contract_failed agent=%s error_type=%s",
+                    "pkm.agent_contract_failed agent=%s model=%s error_type=%s "
+                    "provider_status=%s error_code=%s",
                     getattr(manifest, "id", "unknown"),
+                    active_model,
                     type(exc).__name__,
+                    self._provider_status_code(exc),
+                    self._provider_error_code(exc),
                 )
                 record("error", attempts=attempt, error_type=type(exc).__name__)
                 return None
@@ -1609,7 +1649,7 @@ class PKMAgentLabService:
         header = (
             "You are the Memory Segmentation Agent for Hussh Kai.\n"
             "Return JSON only with segments, source_agent, contract_version.\n"
-            "Split a single natural-language prompt into 1 to 4 meaningful memory candidates.\n"
+            "Split a single natural-language prompt into 1 to 8 meaningful memory candidates.\n"
         )
         if strict_small_model:
             return (
@@ -1632,7 +1672,7 @@ class PKMAgentLabService:
             "- Return multiple segments only when the prompt clearly contains multiple distinct memories, routines, preferences, or facts.\n"
             "- Do not split purely stylistic repetition.\n"
             "- Keep source_text close to the user's own wording.\n"
-            "- Never emit more than 4 segments.\n"
+            "- Never emit more than 8 segments.\n"
             "- contract_version must be 1.\n"
         )
 
@@ -3931,7 +3971,7 @@ class PKMAgentLabService:
             "notes": [
                 note
                 for note in [
-                    "Prompt was truncated to four preview cards. Split the message if you want Kai to review each memory separately."
+                    "Prompt was truncated to eight preview cards. Split the message if you want Kai to review each memory separately."
                     if split_recommended
                     else "",
                     "Preview is read-only. Save encrypts only the selected PKM updates with the active vault key.",

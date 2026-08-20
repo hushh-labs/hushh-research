@@ -33,7 +33,10 @@ import { AccountService } from "@/lib/services/account-service";
 type PreferenceLoadState = "loading" | "ready" | "error";
 
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
-import { KycIdentityProfileDraftService } from "@/lib/services/kyc-identity-profile-pkm-service";
+import {
+  isKycIdentityPrefaceComplete,
+  KycIdentityProfileDraftService,
+} from "@/lib/services/kyc-identity-profile-pkm-service";
 
 export function EmailOnboardingSetupClient() {
   const { user } = useAuth();
@@ -70,7 +73,7 @@ export function EmailOnboardingSetupClient() {
           vaultOwnerToken,
         });
         const profile = snapshot?.data?.identity_profile as any;
-        if (!cancelled && profile?.about_me?.trim()) {
+        if (!cancelled && isKycIdentityPrefaceComplete(profile)) {
           setIdentityPrefaceComplete(true);
         }
       } catch (err) {
