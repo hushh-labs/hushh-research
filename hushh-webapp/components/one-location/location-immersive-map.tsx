@@ -264,6 +264,14 @@ type RenderMarker = {
 const STALE_TINT = { r: 142, g: 142, b: 147, a: 255 } as const;
 /** Location blue (--app-accent). The established map accent — never cyan. */
 const SELF_TINT = { r: 0, g: 122, b: 255, a: 255 } as const;
+/**
+ * Indigo (--app-people). Circle members and private shares had no tint at
+ * all before this — falling back to whatever the native SDK's default
+ * marker color happens to be, with no guaranteed contrast against map tiles
+ * and no visual link to the "people" role color used everywhere else this
+ * relationship is shown (Circles, Connect, trusted-contact rows).
+ */
+const PERSON_TINT = { r: 88, g: 86, b: 214, a: 255 } as const;
 /** Green (--app-success). A live check-in is a settled positive fact. */
 const PLACE_ACTIVE_TINT = { r: 52, g: 199, b: 89, a: 255 } as const;
 /**
@@ -1029,6 +1037,7 @@ export function LocationImmersiveMap({
               kind: "person",
               grantId: marker.grant.id,
               capturedAt: marker.envelope.capturedAt ?? null,
+              tint: PERSON_TINT,
             } satisfies RenderMarker;
           } catch {
             // A device without the recipient private key must not show a stale or
