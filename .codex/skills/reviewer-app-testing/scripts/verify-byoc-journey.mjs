@@ -79,8 +79,10 @@ const turnMessage = String(
 );
 const live = process.argv.includes("--live") || process.env.BYOC_LIVE === "1";
 // Opt-in, dry-only: clicking "I need to create this project" POSTs /plan (which
-// writes nothing) but sets `expanded`, which REMOVES `byoc-project-existing` and
-// replaces it with `byoc-project-done`. They are mutually exclusive branches, not
+// writes nothing) but sets `expanded`, which swaps the quiet `byoc-project-help`
+// link for the inline creation guidance. The Restraint Charter redesign collapsed
+// the two old continue buttons into ONE primary `byoc-project-continue`; the help
+// link and the primary are complementary controls, not
 // alternatives on one screen, so a live run picks one branch and stays in it.
 const exercisePlanBranch = process.env.BYOC_EXERCISE_PLAN === "1";
 
@@ -566,7 +568,17 @@ try {
     if (suggest.status !== 200) {
       fail(CLASS.DOMAIN, `/byoc/project/suggest answered HTTP ${suggest.status}.`);
     }
-    const prefilled = String(await input.inputValue());
+    // Eventually-consistent on purpose: the card fetches the suggestion on
+    // mount and sets state a tick later; reading the input the instant our own
+    // HTTP round-trip returns races that tick. A card that is actually broken
+    // still fails here -- ten seconds is far past any honest render.
+    let prefilled = "";
+    const prefillDeadline = Date.now() + 10_000;
+    while (Date.now() < prefillDeadline) {
+      prefilled = String(await input.inputValue());
+      if (prefilled) break;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
     if (!prefilled) fail(CLASS.DOMAIN, "The project-id field rendered empty; the suggestion never reached the card.");
     if (suggest.payload?.editable !== true) {
       fail(
@@ -613,10 +625,10 @@ try {
     }
     log(`project_check valid=true available=${String(check.payload?.available)} (null here is expected: the probe is unauthenticated)`);
 
-    // Both continue buttons call the same handler; `canContinue` gates both on
+    // One primary continue (Restraint Charter); `canContinue` gates it on
     // valid && available !== false && length > 0.
-    const existing = page.locator('[data-testid="byoc-project-existing"]');
-    if (!(await existing.isEnabled().catch(() => false))) {
+    const continueControl = page.locator('[data-testid="byoc-project-continue"]');
+    if (!(await continueControl.isEnabled().catch(() => false))) {
       fail(
         CLASS.DOMAIN,
         "The continue control stayed disabled for a valid name, so the tri-state availability did not fail open."
@@ -632,7 +644,7 @@ try {
         "/api/one/runtime/byoc/project/plan",
         Math.min(timeoutMs, 30_000)
       );
-      await page.locator('[data-testid="byoc-project-continue"]').click();
+      await page.locator('[data-testid="byoc-project-help"]').click();
       const plan = await planResponse;
       if (!plan || plan.status !== 200) {
         fail(CLASS.DOMAIN, `/byoc/project/plan answered HTTP ${plan?.status ?? "nothing"}.`);
@@ -670,10 +682,9 @@ try {
         "/api/one/runtime/byoc/project/save",
         Math.min(timeoutMs, 120_000)
       );
-      // Unexpanded branch on purpose: clicking "I need to create this project"
-      // would set `expanded`, remove this control and surface `byoc-project-done`
-      // instead. One branch per run.
-      await page.locator('[data-testid="byoc-project-existing"]').click();
+      // The one primary. The create-help link (`byoc-project-help`) reveals
+      // guidance without writing; this is the only control that saves.
+      await page.locator('[data-testid="byoc-project-continue"]').click();
       const save = await saveResponse;
       if (!save) fail(CLASS.DOMAIN, "The save click never produced a /byoc/project/save call.");
 
@@ -760,9 +771,21 @@ try {
     // PHASE E -- AI access. This is what actually provisions.
     // -------------------------------------------------------------------------
     await step("open-ai-access", async () => {
-      const tile = page.locator('[data-voice-control-id="one_setup_tile_connections"]');
-      if (!(await tile.isVisible().catch(() => false))) {
-        fail(CLASS.DOMAIN, 'The setup hub did not render the "AI access" tile.');
+      // The hub renders the tile once per breakpoint branch; assert that ANY
+      // instance is visible rather than whichever node the locator resolves
+      // first (the hidden branch's node made this a false negative).
+      const tile = page.locator(
+        '[data-voice-control-id="one_setup_tile_connections"]:visible'
+      );
+      // The hub shows its loading skeleton while capability states resolve; an
+      // instantaneous read lands inside that window. Wait for the real tile.
+      const tileVisible = await tile
+        .first()
+        .waitFor({ state: "visible", timeout: Math.min(timeoutMs, 30_000) })
+        .then(() => true)
+        .catch(() => false);
+      if (!tileVisible) {
+        fail(CLASS.DOMAIN, 'The setup hub did not render the "Choose your AI" tile.');
       }
       try {
         await reviewer.navigateInApp(page, "/one/setup/connections");
