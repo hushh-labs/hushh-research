@@ -51,7 +51,7 @@ function MapNameLabelsImpl({ labels, stalePositions }: MapNameLabelsProps) {
             data-stale={label.stale ? "true" : undefined}
             className={`absolute left-0 top-0 flex select-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-4 tracking-[-0.01em] shadow-[0_6px_20px_color-mix(in_oklab,var(--foreground)_22%,transparent)] backdrop-blur-md sm:text-[12px] ${
               isSelf
-                ? "border-[color-mix(in_oklab,var(--app-accent-fg)_35%,transparent)] bg-[var(--app-accent)] text-[var(--app-accent-fg)]"
+                ? "border-black/10 bg-white/95 text-foreground shadow-[0_1px_4px_rgba(60,64,67,0.30),0_1px_2px_rgba(60,64,67,0.18)] dark:border-white/15 dark:bg-background/95 dark:text-foreground"
                 : label.stale
                   ? "border-border/70 bg-background/85 text-muted-foreground"
                   : "border-[var(--app-accent-border)] bg-background/90 text-foreground"
@@ -68,12 +68,9 @@ function MapNameLabelsImpl({ labels, stalePositions }: MapNameLabelsProps) {
             }}
           >
             <span
-              // Your own dot breathes, the way the "Sharing with N" status
-              // does: this one is a live reading from the device in your hand,
-              // not a position somebody else last published.
               className={`h-1.5 w-1.5 shrink-0 rounded-full ${
                 isSelf
-                  ? "bg-[var(--app-accent-fg)] motion-safe:animate-pulse"
+                  ? "hidden"
                   : ""
               }`}
               style={
@@ -95,7 +92,7 @@ function MapNameLabelsImpl({ labels, stalePositions }: MapNameLabelsProps) {
             <span
               className={`absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-[5px] rotate-45 rounded-[2px] border-b border-r ${
                 isSelf
-                  ? "border-[color-mix(in_oklab,var(--app-accent-fg)_35%,transparent)] bg-[var(--app-accent)]"
+                  ? "border-black/10 bg-white/95 dark:border-white/15 dark:bg-background/95"
                   : label.stale
                     ? "border-border/70 bg-background/85"
                     : "border-[var(--app-accent-border)] bg-background/90"
