@@ -21,11 +21,11 @@
  * gets a person as far as "a project exists that you own", and the bootstrap takes it
  * from there.
  *
- * Creation has two routes and the default is the one where hushh holds no permission
- * over the person's cloud: we suggest the name and hand them a console link. Letting
- * hushh create it instead needs an organization-level grant, which is categorically
- * larger than anything else in this flow — so it is offered with its cost stated, next
- * to the alternative that avoids it, rather than as the obvious button.
+ * Creation has two routes. The DEFAULT is one Google sign-in (founder-directed):
+ * the person approves once and the server creates the project if needed, links
+ * their own billing, and applies the authorization plan under their transient,
+ * never-stored token. The manual road — console link + copy-paste command —
+ * stays folded behind "Create it manually instead", as the fallback.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -53,7 +53,6 @@ export function ByocCloudCard({ onProjectNamed, testId }: ByocCloudCardProps) {
   const [plan, setPlan] = useState<Awaited<
     ReturnType<typeof ApiService.planByocProject>
   > | null>(null);
-  const [expanded, setExpanded] = useState(false);
 
   // The suggestion is fetched once and pre-filled. It is stable per person, so a
   // reload does not rename the cloud someone was halfway through accepting.
@@ -117,7 +116,6 @@ export function ByocCloudCard({ onProjectNamed, testId }: ByocCloudCardProps) {
     try {
       const next = await ApiService.planByocProject({ projectId, displayName });
       setPlan(next);
-      setExpanded(true);
     } catch {
       setPlan(null);
     }
@@ -158,61 +156,61 @@ export function ByocCloudCard({ onProjectNamed, testId }: ByocCloudCardProps) {
           </p>
         </div>
 
-        {/* Progressive disclosure: creating a project is the rare path, so it stays a
-            quiet link until asked for, not a competing button. */}
-        {expanded && plan ? (
-          <div className="flex flex-col gap-3 rounded-xl border border-border/60 p-3">
-            <p className="text-sm text-muted-foreground">
-              Create it in your own Google Cloud, then continue below. It is yours from
-              the moment it exists, and {plan.guided.whatHushhGets}
-            </p>
-            <a
-              className="text-sm underline underline-offset-4"
-              href={plan.guided.consoleUrl}
-              target="_blank"
-              rel="noreferrer"
-              data-testid="byoc-console-link"
-            >
-              Open Google Cloud and create it
-            </a>
-            <code className="overflow-x-auto rounded bg-muted p-2 text-xs">
-              {plan.guided.cliCommand}
-            </code>
-            <p className="text-xs text-muted-foreground">{plan.guided.billingNote}</p>
-            {plan.delegated?.grant ? (
-              <details data-testid="byoc-delegated-disclosure">
-                <summary className="cursor-pointer text-sm text-muted-foreground">
-                  Or let hushh create it for you
-                </summary>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {plan.delegated.meaning} {plan.delegated.why_this_is_larger}{" "}
-                  {plan.delegated.revocation}
-                </p>
-              </details>
-            ) : null}
-          </div>
-        ) : (
-          <button
+        {/* One primary action, and it carries the promise: Continue signs the
+            person in to Google once and everything else happens for them. */}
+        <div className="flex flex-col gap-1.5">
+          <Button
             type="button"
-            className="self-start text-sm text-muted-foreground underline underline-offset-4 disabled:opacity-50"
             disabled={!canContinue}
-            onClick={() => void showCreationRoutes()}
-            data-testid="byoc-project-help"
+            onClick={() => void onProjectNamed?.(projectId)}
+            data-testid="byoc-project-continue"
           >
-            I need to create this project
-          </button>
-        )}
+            Continue
+          </Button>
+          <p className="text-center text-xs text-muted-foreground">
+            Sign in to Google once — we create the project if needed, link your
+            billing, and set it up. Nothing is stored.
+          </p>
+        </div>
 
-        {/* One primary action. Whether the project is new or already theirs, the
-            server probes it the same way. */}
-        <Button
-          type="button"
-          disabled={!canContinue}
-          onClick={() => void onProjectNamed?.(projectId)}
-          data-testid="byoc-project-continue"
+        {/* The MANUAL road, named as such (founder-directed), folded shut by
+            default. Native details so the open state is the browser's, not ours. */}
+        <details
+          className="rounded-xl border border-border/60"
+          data-testid="byoc-project-help"
+          onToggle={(event) => {
+            if ((event.target as HTMLDetailsElement).open && !plan) {
+              void showCreationRoutes();
+            }
+          }}
         >
-          Continue
-        </Button>
+          <summary className="cursor-pointer select-none p-3 text-sm text-muted-foreground">
+            Create it manually instead
+          </summary>
+          <div className="flex flex-col gap-2 px-3 pb-3">
+            {plan ? (
+              <>
+                <a
+                  className="text-sm underline underline-offset-4"
+                  href={plan.guided.consoleUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  data-testid="byoc-console-link"
+                >
+                  Open Google Cloud and create it
+                </a>
+                <code className="overflow-x-auto rounded bg-muted p-2 text-xs">
+                  {plan.guided.cliCommand}
+                </code>
+                <p className="text-xs text-muted-foreground">
+                  {plan.guided.billingNote} Then come back and press Continue.
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">Preparing the steps…</p>
+            )}
+          </div>
+        </details>
       </div>
     </SettingsGroup>
   );
