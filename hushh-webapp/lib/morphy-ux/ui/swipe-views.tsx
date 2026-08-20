@@ -265,23 +265,6 @@ export function SwipeViews({
   const renderedHeightRef = useRef<number | null>(null);
   const heightFloorRef = useRef<number | null>(null);
   const measuredValueRef = useRef<string | null>(null);
-  const jumpReportTimerRef = useRef<number | null>(null);
-  /**
-   * A pane we moved to on purpose and told the consumer about, while its
-   * `activeValue` still names the pane we came from.
-   *
-   * The reconcile effect below treats any disagreement between the selected
-   * value and the rendered pane as drift to be repaired. Under Reduce Motion
-   * that repair fires against our own tap: the jump puts the pane on the new
-   * index in the same frame, the consumer's route has not committed yet, and
-   * the effect immediately drags it back -- so the person's tap visibly undoes
-   * itself and only sticks once the query string lands (measured: 700ms to 6s
-   * in dev). Holding until the prop moves is what makes the tap authoritative.
-   */
-  const pendingSelectionRef = useRef<{
-    value: string;
-    awaitedFrom: string;
-  } | null>(null);
   const [heightSettling, setHeightSettling] = useState(false);
   // Bumped on settle so the measurement effect re-runs and releases the floor.
   const [heightSettleTick, setHeightSettleTick] = useState(0);
@@ -291,15 +274,6 @@ export function SwipeViews({
   // `registerTopShellTabPager`.
   useEffect(() => registerTopShellTabPager(tabSetId), [tabSetId]);
 
-  useEffect(
-    () => () => {
-      if (jumpReportTimerRef.current !== null) {
-        window.clearTimeout(jumpReportTimerRef.current);
-        jumpReportTimerRef.current = null;
-      }
-    },
-    [],
-  );
   // Read by the measurement-reconciliation effect below, which must not itself
   // re-run on every selection change (re-subscribing its observer each time),
   // but still needs the CURRENT selection whenever it does fire.
@@ -445,23 +419,9 @@ export function SwipeViews({
         typeof engineSnapCount === "number" &&
         containerChildCount !== engineSnapCount;
 
-      // A pane we moved to on purpose and have already reported upward is the
-      // truth until the consumer's own value moves, exactly as in the
-      // selection effect below. Without this, a resize landing inside that
-      // window repairs the pane back to the tab the person just left -- the
-      // same undo, arriving through the other door.
-      const pending = pendingSelectionRef.current;
-      const pendingIdx =
-        pending !== null && pending.awaitedFrom === activeValueRef.current
-          ? optionsRef.current.findIndex((opt) => opt.value === pending.value)
-          : -1;
-
-      const targetIdx =
-        pendingIdx !== -1
-          ? pendingIdx
-          : optionsRef.current.findIndex(
-              (opt) => opt.value === activeValueRef.current,
-            );
+      const targetIdx = optionsRef.current.findIndex(
+        (opt) => opt.value === activeValueRef.current,
+      );
 
       // Where the pane is trying to go, against where the selected pane belongs.
       // Checking `target` instead of `offsetLocation` allows normal animations
@@ -560,43 +520,44 @@ export function SwipeViews({
    * never ran and the tab press did not commit at all. A macrotask still runs
    * when frames are not being produced.
    */
+  /**
+   * Moves the pager to a selection made somewhere else -- a shell tab tap, a
+   * deep link, a voice action -- and claims the shared indicator variable for
+   * the whole flight, so the pill is that same motion rather than a second
+   * animation racing it.
+   *
+   * `viaRoute` is the press path, where the consumer's own navigation is
+   * already in flight. Under Reduce Motion that path does NOT move the pane
+   * here: it lets the route land and the effect below place the pane the
+   * instant `activeValue` arrives.
+   *
+   * Reporting the selection from here instead was tried and abandoned. Embla
+   * emits neither `select` nor `settle` for a jump, so the jump had to report
+   * upward itself -- and every version of that raced the consumer's own
+   * navigation, because a tab press on the deployed build takes the whole
+   * document with it. Synchronously it put a second `requestNavigation` ahead
+   * of the strip's in the same tick and the press produced no history write at
+   * all; on an animation frame it never ran in a context that was not being
+   * painted; on a timer it still intermittently lost to the navigation.
+   * Letting the route stay the only reporter removes the race rather than
+   * re-timing it, and Reduce Motion still gets a placed pane rather than a
+   * travelled one.
+   */
   const scrollToSelection = useCallback(
-    (api: EmblaCarouselType, index: number) => {
+    (api: EmblaCarouselType, index: number, viaRoute = false) => {
       if (prefersReducedMotion()) {
+        if (viaRoute) return;
         isAnimatingRef.current = false;
         scrollToIndexSafely(api, index, true);
         setTopShellTabSwipeState(tabSetId, Math.max(0, index), false);
         releaseHeightFloor();
-        const nextValue = options[index]?.value;
-        if (nextValue && nextValue !== lastReportedValueRef.current) {
-          lastReportedValueRef.current = nextValue;
-          pendingSelectionRef.current = {
-            value: nextValue,
-            awaitedFrom: activeValueRef.current,
-          };
-          if (jumpReportTimerRef.current !== null) {
-            window.clearTimeout(jumpReportTimerRef.current);
-          }
-          jumpReportTimerRef.current = window.setTimeout(() => {
-            jumpReportTimerRef.current = null;
-            onSelectionChange?.(nextValue);
-            onSelectionCommit?.(nextValue);
-          }, 0);
-        }
         return;
       }
       isAnimatingRef.current = true;
       scrollToIndexSafely(api, index);
       syncTabIndicator(true);
     },
-    [
-      onSelectionChange,
-      onSelectionCommit,
-      options,
-      releaseHeightFloor,
-      syncTabIndicator,
-      tabSetId,
-    ],
+    [releaseHeightFloor, syncTabIndicator, tabSetId],
   );
 
   // The route is the selection authority. Page swipes report their new value
@@ -605,19 +566,6 @@ export function SwipeViews({
     if (!emblaApi) return;
     const targetIdx = options.findIndex((opt) => opt.value === activeValue);
     const visualIdx = resolveVisualIndex(emblaApi, options.length);
-
-    // Never undo a selection we made and have already reported upward. It is
-    // released the moment the consumer's own value moves -- to our pane or to
-    // any other -- so a redirect still wins and this can never latch.
-    const pending = pendingSelectionRef.current;
-    if (pending) {
-      if (pending.awaitedFrom !== activeValue) {
-        pendingSelectionRef.current = null;
-      } else if (options[visualIdx]?.value === pending.value) {
-        lastReportedValueRef.current = pending.value;
-        return;
-      }
-    }
 
     if (targetIdx !== -1 && targetIdx !== visualIdx) {
       scrollToSelection(emblaApi, targetIdx);
@@ -650,8 +598,6 @@ export function SwipeViews({
     isDraggingRef.current = false;
     isAnimatingRef.current = false;
     hasMovedSincePointerDownRef.current = false;
-    // Where the pager physically rests is now the truth; nothing is pending.
-    pendingSelectionRef.current = null;
     setTopShellTabSwipeState(tabSetId, currentIdx, false);
     releaseHeightFloor();
     const newValue = options[currentIdx]?.value;
@@ -739,7 +685,7 @@ export function SwipeViews({
         return;
       // A top-tab press starts the compositor motion immediately. Waiting for
       // Next searchParams made the tab ink update first and the pane lag behind.
-      scrollToSelection(emblaApi, targetIndex);
+      scrollToSelection(emblaApi, targetIndex, true);
     });
   }, [emblaApi, options, scrollToSelection, tabSetId]);
 
@@ -783,7 +729,6 @@ export function SwipeViews({
       isDraggingRef.current = true;
       // A finger landing mid-flight takes over from the tap that started it.
       isAnimatingRef.current = false;
-      pendingSelectionRef.current = null;
       hasMovedSincePointerDownRef.current = false;
       syncTabIndicator(true);
     };
