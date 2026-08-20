@@ -3067,37 +3067,6 @@ class PersonalKnowledgeModelService:
                 _dbg_entry.owner_consent_override,
             )
 
-        manifest_ok = await self.upsert_domain_manifest(normalized_manifest)
-        if not manifest_ok:
-            result["message"] = "Failed to persist PKM scope exposure."
-            return result
-
-        await self.update_domain_summary(
-            user_id,
-            canonical_domain,
-            {
-                **(
-                    normalized_manifest.summary_projection
-                    if isinstance(normalized_manifest.summary_projection, dict)
-                    else {}
-                ),
-                "storage_mode": "per_domain_blob",
-                "manifest_version": next_manifest_version,
-                "path_count": len(normalized_manifest.paths),
-                "externalizable_path_count": len(
-                    [path for path in normalized_manifest.paths if path.exposure_eligibility]
-                ),
-                "top_level_scope_count": len(normalized_manifest.top_level_scope_paths),
-                "last_structured_at": now.isoformat(),
-                "last_content_at": now.isoformat(),
-                "domain_contract_version": normalized_manifest.domain_contract_version,
-                "readable_summary_version": normalized_manifest.readable_summary_version,
-                "upgraded_at": normalized_manifest.upgraded_at.isoformat()
-                if normalized_manifest.upgraded_at
-                else None,
-            },
-        )
-
         disabled_scopes = sorted(
             {
                 f"attr.{canonical_domain}.{top_level_path}.*"
@@ -3106,6 +3075,79 @@ class PersonalKnowledgeModelService:
                 if top_level_path and entry.visibility_posture == "private"
             }
         )
+        manifest_row = self._serialize_manifest(normalized_manifest)
+        for key in ("structure_decision", "summary_projection"):
+            manifest_row[key] = json.loads(str(manifest_row[key]))
+        path_rows = [
+            self._serialize_manifest_path(normalized_manifest, path)
+            for path in normalized_manifest.paths
+        ]
+        scope_rows = [
+            self._serialize_scope_registry_entry(normalized_manifest, entry)
+            for entry in normalized_manifest.scope_registry
+        ]
+        for scope_row in scope_rows:
+            scope_row["summary_projection"] = json.loads(str(scope_row["summary_projection"]))
+        summary_patch = {
+            **(
+                normalized_manifest.summary_projection
+                if isinstance(normalized_manifest.summary_projection, dict)
+                else {}
+            ),
+            "storage_mode": "per_domain_blob",
+            "manifest_version": next_manifest_version,
+            "path_count": len(normalized_manifest.paths),
+            "externalizable_path_count": len(
+                [path for path in normalized_manifest.paths if path.exposure_eligibility]
+            ),
+            "top_level_scope_count": len(normalized_manifest.top_level_scope_paths),
+            "last_structured_at": now.isoformat(),
+            "last_content_at": now.isoformat(),
+            "domain_contract_version": normalized_manifest.domain_contract_version,
+            "readable_summary_version": normalized_manifest.readable_summary_version,
+            "upgraded_at": normalized_manifest.upgraded_at.isoformat()
+            if normalized_manifest.upgraded_at
+            else None,
+        }
+        try:
+            rpc_result = await self._run_rpc(
+                "commit_pkm_scope_exposure_v1",
+                {
+                    "p_user_id": user_id,
+                    "p_domain": canonical_domain,
+                    "p_expected_manifest_revision": current_manifest_version,
+                    "p_next_manifest_revision": next_manifest_version,
+                    "p_manifest_row": JsonParam(manifest_row),
+                    "p_path_rows": JsonParam(path_rows),
+                    "p_scope_rows": JsonParam(scope_rows),
+                    "p_summary_patch": JsonParam(summary_patch),
+                    "p_changed_paths": JsonParam(sorted(changed_scope_paths)),
+                    "p_event_metadata": JsonParam(
+                        {
+                            "changes": [change for change in changes if isinstance(change, dict)],
+                            "disabled_scopes": disabled_scopes,
+                        }
+                    ),
+                },
+            )
+            commit_result = self._unwrap_rpc_payload(rpc_result, "commit_pkm_scope_exposure_v1")
+        except Exception as exc:
+            logger.error("pkm.scope_exposure_commit.error: %s", exc)
+            result["message"] = "Failed to persist PKM scope exposure."
+            return result
+        if not isinstance(commit_result, dict) or not commit_result.get("success"):
+            result["code"] = (
+                "manifest_conflict"
+                if isinstance(commit_result, dict) and commit_result.get("conflict")
+                else None
+            )
+            result["message"] = (
+                "PKM manifest changed. Refresh and retry."
+                if result["code"]
+                else "Failed to persist PKM scope exposure."
+            )
+            return result
+
         revoked_grant_ids = (
             await self._revoke_scope_access_tokens(
                 user_id=user_id,
@@ -3114,21 +3156,6 @@ class PersonalKnowledgeModelService:
             if revoke_matching_active_grants
             else []
         )
-        await self.record_mutation_event(
-            user_id=user_id,
-            domain=canonical_domain,
-            operation_type="scope_exposure_update",
-            path_set=sorted(changed_scope_paths),
-            source_agent="pkm_scope_manager",
-            prior_manifest_version=current_manifest_version,
-            new_manifest_version=next_manifest_version,
-            metadata={
-                "changes": [change for change in changes if isinstance(change, dict)],
-                "disabled_scopes": disabled_scopes,
-                "revoked_grant_ids": revoked_grant_ids,
-            },
-        )
-
         refreshed_manifest = await self.get_domain_manifest(user_id, canonical_domain)
         result.update(
             {

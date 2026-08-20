@@ -38,7 +38,6 @@ import {
 } from "@/lib/agent/agent-chat-history-cache";
 import { clearGeminiRuntimeConnectionCache } from "@/lib/connections/gemini-runtime-configuration";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
-import { KycIdentityProfileDraftService } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { HushhConsent } from "@/lib/capacitor";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
@@ -145,7 +144,6 @@ export function VaultProvider({ children }: VaultProviderProps) {
       clearAgentChatHistoryCache(lockedUserId);
       clearGeminiRuntimeConnectionCache(lockedUserId);
       PreVaultSensitiveDraftService.clearForUser(lockedUserId);
-      KycIdentityProfileDraftService.clear(lockedUserId);
       CacheService.getInstance().invalidate(
         CACHE_KEYS.PKM_DECRYPTED_BLOB(lockedUserId),
       );

@@ -251,9 +251,40 @@ shared-memory changes remain review-first. Each automatic write carries an
 `owner_auto_save_policy` receipt that records the enabled policy version rather
 than claiming that the owner reviewed that individual memory.
 
+KYC onboarding has a separate first-party owner-confirmed path. It requires an
+unlocked private vault before the identity form is shown; an account without a
+vault is first sent through the vault-create flow. The person's `Save &
+Continue` action may then advance the UI immediately while the client organizes
+the submitted free-form narrative into private encrypted PKM facts in the
+background. It does not persist the raw narrative as an `about_me` value, and
+it never auto-writes a card with active sharing recipients. The action is
+recorded as an individual owner confirmation, not as the per-vault automatic
+memory policy above. The submitted KYC step remains complete even if background
+fact organization needs a retry; a transient PKM failure must never reopen KYC
+and make an owner repeat onboarding.
+
 ## Storage rules
 
 - New writes are PKM-only.
+- Unstructured, user-authored memory from Agent chat and the KYC external-agent
+  import uses the shared `POST /api/pkm/memory/proposals` pipeline before that
+  free-form content is written to PKM. Its Flash segmentation agent proposes independently reviewable
+  facts and dynamic domains (up to eight per proposal chunk); the client rejects a
+  truncated proposal rather than silently dropping details, then encrypts and
+  saves each confirmed candidate through the ordinary PKM write coordinator.
+- Large free-form imports are split client-side below the proposal request
+  limit and recursively narrowed when the segmentation model detects more than
+  eight facts. Diagnostic events carry only a correlation id, chunk index,
+  character count, card count, timing, and status; they never include the
+  imported text, vault key, or owner token.
+  Structured writers
+  (for example, KYC verification fields, portfolio records, workflow state,
+  and runtime settings) stay on their typed contracts and never send decrypted
+  domain data back through this semantic-ingestion path.
+- A scope-exposure update is one atomic metadata commit: the manifest, scope
+  registry, index projection, event, and encrypted blob manifest revision move
+  together. Coherent reads fail closed rather than treating mismatched revisions
+  as an empty profile.
 - Encrypted payloads are segmented by top-level domain and segment id.
 - Payload ciphertext remains opaque:
   - `ciphertext`
