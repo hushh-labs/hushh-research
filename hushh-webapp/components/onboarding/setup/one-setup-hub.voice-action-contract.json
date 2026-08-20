@@ -65,10 +65,12 @@
     },
     {
       "action_id": "setup.open_connections",
-      "label": "Set up AI access",
-      "meaning": "Opens AI access setup so the person can choose Hussh managed Gemini or validate and protect their own Gemini access.",
+      "label": "Choose your AI",
+      "meaning": "Opens the AI access choice so the person can use Hussh's Gemini or add their own Gemini key.",
       "aliases": [
+        "choose my ai",
         "set up AI access",
+        "ai access",
         "choose gemini",
         "configure one",
         "use my gemini key"
@@ -235,9 +237,11 @@
     },
     {
       "action_id": "setup.open_email",
-      "label": "KYC",
+      "label": "Identity checks",
       "meaning": "Opens KYC setup so you can choose whether One prepares responses for approval.",
       "aliases": [
+        "identity checks",
+        "kyc",
         "set up kyc",
         "open kyc setup",
         "let one draft for me",
@@ -279,10 +283,11 @@
     },
     {
       "action_id": "setup.open_finance",
-      "label": "Set up your finances",
+      "label": "Set up your money",
       "meaning": "Opens the Finance capability setup step from the setup hub.",
       "aliases": [
         "set up finance",
+        "set up my money",
         "open finance setup",
         "set up investing"
       ],
@@ -321,7 +326,7 @@
     },
     {
       "action_id": "setup.open_ria",
-      "label": "Set up RIA",
+      "label": "Set up your advisor profile",
       "meaning": "Opens the RIA advisor-profile setup step from the setup hub.",
       "aliases": [
         "set up ria",
@@ -364,7 +369,7 @@
     },
     {
       "action_id": "setup.open_connected_systems",
-      "label": "CRM",
+      "label": "Connect your CRM",
       "meaning": "Opens CRM setup so the person can find an existing record or review creating one.",
       "aliases": [
         "link my record to external systems",
@@ -372,7 +377,8 @@
         "link my tools",
         "set up connected systems",
         "show crm systems",
-        "connect crm"
+        "connect crm",
+        "connect my crm"
       ],
       "search_keywords": [
         "link tools",

@@ -8,6 +8,15 @@ const mocks = vi.hoisted(() => ({
   clearKaiNavTour: vi.fn(),
   clearRiaOnboardingDraft: vi.fn(),
   clearVaultMethodPrompt: vi.fn(),
+  forgetLocationMemory: vi.fn(),
+}));
+
+// Mocked rather than exercised for real: location-grant-memory reaches
+// encryption -> HushhKeychain, and this file mocks only @capacitor/core.
+// location-grant-memory.test.ts owns the durable behaviour; this file owns the
+// wiring. Both are needed — either alone passes while the other half is broken.
+vi.mock("@/lib/one-location/location-grant-memory", () => ({
+  forgetLocationMemory: mocks.forgetLocationMemory,
 }));
 
 vi.mock("@/lib/services/pre-vault-onboarding-service", () => ({
@@ -68,6 +77,28 @@ describe("UserLocalStateService", () => {
     expect(mocks.clearKaiNavTour).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearRiaOnboardingDraft).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearVaultMethodPrompt).toHaveBeenCalledWith("uid-1");
+  });
+
+  it("forgets the remembered location grant and the sealed last-known fix", async () => {
+    // These two records are the only user-scoped local state that describes
+    // where a person physically was: a sealed coordinate kept for 24h and a
+    // grant kept for 90d. Both were shipped with no caller for the function
+    // that deletes them, so they outlived sign-out on a shared device.
+    await UserLocalStateService.clearForUser("uid-1");
+
+    expect(mocks.forgetLocationMemory).toHaveBeenCalledWith("uid-1");
+  });
+
+  it("still forgets location even when another cleanup rejects", async () => {
+    // The settled batch swallows rejections, but only for work queued after
+    // this point. Location teardown runs synchronously and ahead of it for
+    // exactly this reason: an unrelated failure must not be able to leave a
+    // coordinate behind.
+    mocks.clearRiaOnboardingDraft.mockRejectedValue(new Error("storage full"));
+
+    await UserLocalStateService.clearForUser("uid-1");
+
+    expect(mocks.forgetLocationMemory).toHaveBeenCalledWith("uid-1");
   });
 
   it("clears the setup completion latch so onboarding can re-arm", async () => {

@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -1249,16 +1248,7 @@ export default function RiaOnboardingPage({
           errorCode={null}
           errorMessage={null}
         />
-        <FullscreenFlowShell
-          width="reading"
-          className="px-0"
-          style={
-            {
-              "--app-fullscreen-flow-content-offset":
-                "var(--top-shell-reserved-height)",
-            } as CSSProperties
-          }
-        >
+        <FullscreenFlowShell width="reading" className="px-0">
           <div
             className="flex min-h-[40vh] items-center justify-center"
             data-ria-onboarding-gate="pending"
@@ -1280,16 +1270,7 @@ export default function RiaOnboardingPage({
         errorCode={error ? "ria_onboarding" : null}
         errorMessage={error}
       />
-      <FullscreenFlowShell
-        width="reading"
-        className="px-0"
-        style={
-          {
-            "--app-fullscreen-flow-content-offset":
-              "var(--top-shell-reserved-height)",
-          } as CSSProperties
-        }
-      >
+      <FullscreenFlowShell width="reading" className="px-0">
         <RiaOnboardingJourney showIntro={currentStep.id === "welcome"}>
           <OnboardingShell
             currentStepIndex={currentStepIndex}

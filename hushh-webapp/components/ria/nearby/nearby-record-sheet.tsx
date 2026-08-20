@@ -20,6 +20,7 @@ import {
   associationCategoryLabel,
   factTypeLabel,
   formatScore,
+  isRegistryOnlyScore,
   type NearbyRecord,
 } from "@/lib/services/nws-nearby-service";
 import { cn } from "@/lib/utils";
@@ -87,8 +88,16 @@ export function NearbyRecordSheet({
             <p className={MUTED_TEXT}>Network strength, not net worth.</p>
             <p className={MUTED_TEXT}>
               Overall {formatScore(record.globalNws)} · Confidence{" "}
-              {record.confidence.grade ?? "—"} · Provisional
+              {record.confidence.grade ?? "—"}
             </p>
+            {/* A registry-discovered record scores far below a reviewed one
+                because two thirds of the weighting has nothing to read, not
+                because the person is lesser. Read from the components rather
+                than from the score kind, which reads "provisional" for both
+                kinds and so cannot tell them apart. */}
+            {isRegistryOnlyScore(record) ? (
+              <p className={MUTED_TEXT}>From public registry role and recency only.</p>
+            ) : null}
           </div>
         </div>
 

@@ -98,7 +98,7 @@ export function EmailOnboardingSetupClient() {
     } catch {
       setEnabled(false);
       setLoadState("error");
-      toast.error("KYC preference could not be loaded. Please try again.");
+      toast.error("Couldn't load this setting. Try again.");
     }
   }, [user]);
 
@@ -122,7 +122,7 @@ export function EmailOnboardingSetupClient() {
         if (!cancelled) {
           setEnabled(false);
           setLoadState("error");
-          toast.error("KYC preference could not be loaded. Please try again.");
+          toast.error("Couldn't load this setting. Try again.");
         }
       }
     })();
@@ -177,8 +177,8 @@ export function EmailOnboardingSetupClient() {
       setEnabled(previous);
       toast.error(
         error instanceof Error && error.message.includes("non-relay")
-          ? "Verify a non-relay sending address before enabling KYC."
-          : "KYC preference could not be saved. Please try again.",
+          ? "Verify a non-relay sending address first."
+          : "Couldn't save this setting. Try again.",
       );
     } finally {
       setSaving(false);
@@ -194,14 +194,14 @@ export function EmailOnboardingSetupClient() {
   );
 
   if (!user || checkingIdentity) {
-    return <SetupCapabilityLoading label="Preparing KYC setup…" />;
+    return <SetupCapabilityLoading label="One moment…" />;
   }
 
   if (!identityPrefaceComplete) {
     return <KycIdentityPreface onComplete={() => setIdentityPrefaceComplete(true)} />;
   }
 
-  if (!coordinator.isReady) return <SetupCapabilityLoading label="Preparing KYC setup…" />;
+  if (!coordinator.isReady) return <SetupCapabilityLoading label="One moment…" />;
 
   return (
     <AppPageShell
@@ -211,7 +211,9 @@ export function EmailOnboardingSetupClient() {
     >
       <AppPageHeaderRegion>
         <PageHeader
-          title="KYC"
+          // Matches the setup row. "KYC" is an abbreviation nobody meets for
+          // the first time and understands; it stays in the code and the id.
+          title="Identity checks"
           description={`Requests must come from ${user?.email || "your verified email"}.`}
           accent="neutral"
         />
@@ -238,7 +240,7 @@ export function EmailOnboardingSetupClient() {
                 checked={enabled}
                 onCheckedChange={handleToggle}
                 disabled={saving || loadState !== "ready"}
-                aria-label="Prepare KYC responses automatically"
+                aria-label="Prepare replies automatically"
                 data-voice-control-id="one-setup-email-drafting-toggle"
               />
             }

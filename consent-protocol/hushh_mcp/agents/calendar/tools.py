@@ -282,7 +282,15 @@ async def _propose(
     plan = proposal["plan"]
     verb = {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
     conflicts = plan.get("conflicts") if isinstance(plan.get("conflicts"), list) else []
-    summary = _proposal_summary(action=action, plan=plan, conflicts=conflicts)
+    # Presentation belongs to the active chat session, not to the provider's
+    # event payload.  A proposal can legitimately contain UTC instants while
+    # the person is using One in another local timezone.
+    summary = _proposal_summary(
+        action=action,
+        plan=plan,
+        conflicts=conflicts,
+        display_time_zone=_timezone(tool_context),
+    )
     confirm_label = f"{verb} anyway" if conflicts else verb
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = {
         "kind": "action",
@@ -310,13 +318,19 @@ async def _propose(
     }
 
 
-def _proposal_summary(*, action: str, plan: dict[str, Any], conflicts: list[object]) -> str:
+def _proposal_summary(
+    *,
+    action: str,
+    plan: dict[str, Any],
+    conflicts: list[object],
+    display_time_zone: str,
+) -> str:
     verb = {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
     title = str(plan.get("title") or plan.get("event_id") or "this event")
     timing = (
         ""
         if action == "cancel"
-        else f" for {_display_time(plan.get('start_at'), plan.get('time_zone'))}"
+        else f" for {_display_time(plan.get('start_at'), display_time_zone)}"
     )
     attendee_note = (
         f" and notify {len(plan.get('attendees', []))} attendee(s)"
@@ -324,7 +338,7 @@ def _proposal_summary(*, action: str, plan: dict[str, Any], conflicts: list[obje
         else " without sending updates"
     )
     details = [
-        _conflict_detail(item, time_zone=str(plan.get("time_zone") or "UTC"))
+        _conflict_detail(item, time_zone=display_time_zone)
         for item in conflicts
         if isinstance(item, dict)
     ]

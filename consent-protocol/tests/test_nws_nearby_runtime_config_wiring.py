@@ -40,7 +40,9 @@ _CONFIG_ARGS = (
     "advisors_api_key_source_secret insurance_agents_api_base_url "
     "insurance_agents_api_key_source_project insurance_agents_api_key_source_secret "
     "one_places_directory_enabled nws_nearby_api_base_url "
-    "nws_nearby_api_key_source_project nws_nearby_api_key_source_secret"
+    "nws_nearby_api_key_source_project nws_nearby_api_key_source_secret "
+    "nws_nearby_v4_api_base_url nws_nearby_v4_api_key_source_project "
+    "nws_nearby_v4_api_key_source_secret"
 ).split()
 
 
@@ -176,3 +178,31 @@ def test_the_deploy_step_mounts_the_key_into_the_backend():
     """A mirrored secret nothing mounts is a secret the runtime never sees."""
     cloudbuild = (_REPO_ROOT / "deploy" / "backend.cloudbuild.yaml").read_text()
     assert "add_secret NWS_NEARBY_API_KEY NWS_NEARBY_API_KEY" in cloudbuild
+
+
+def test_each_lane_mirrors_its_own_v4_credential() -> None:
+    """A v4 key is bound upstream to one consumer and one project.
+
+    The v2 key is a single shared service credential every lane may present.
+    A v4 key is not: the upstream registry maps each key to exactly one
+    consumer, so mirroring one into every lane would hand production UAT's
+    identity and the upstream would refuse it as a project mismatch.
+    """
+    module = _load_sync_module()
+    lanes = module._NWS_V4_KEY_SOURCE_BY_PROJECT
+
+    assert lanes["hushh-pda-uat"] != lanes["hushh-pda"]
+    assert len(set(lanes.values())) == len(lanes)
+    # An unlisted lane mirrors nothing rather than borrowing another's key.
+    assert lanes.get("hushh-pda-dev", "") == ""
+
+
+def test_the_v4_project_id_is_the_lane_not_a_default() -> None:
+    """A per-lane value carrying a default is how one lane inherits another."""
+    module = _load_sync_module()
+
+    uat = module._build_backend_runtime_config(_namespace(project="hushh-pda-uat"))
+    prod = module._build_backend_runtime_config(_namespace(project="hushh-pda"))
+
+    assert uat["nws_nearby_v4_project_id"] == "hushh-pda-uat"
+    assert prod["nws_nearby_v4_project_id"] == "hushh-pda"

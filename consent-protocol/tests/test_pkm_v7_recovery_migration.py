@@ -176,7 +176,10 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
     assert "outputs.run_reviewer_byok == 'true'" in workflow
     assert "--secret=REVIEWER_UID" in workflow
     assert "--secret=REVIEWER_VAULT_PASSPHRASE" in workflow
-    assert "reviewer_byok_continuity_failed" in workflow
+    # Advisory since #5526: the rehearsal still runs and is still reported, but a
+    # reviewer-fixture gap no longer rolls back a verified release.
+    assert '"reviewer_byok": {' in workflow
+    assert '"advisory": True,' in workflow
     assert "steps.postdeploy-db-gate.outcome != 'failure'" in workflow
     assert (
         workflow.count(

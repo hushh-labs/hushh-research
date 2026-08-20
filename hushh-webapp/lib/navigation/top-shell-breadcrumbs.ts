@@ -55,7 +55,11 @@ function titleizeSegment(segment: string): string {
 function oneLocationActionLabel(action: string): string {
   const labels: Record<string, string> = {
     share: "Share location",
-    ask: "Ask someone",
+    // Sentence case, matching every sibling crumb ("Share location", "Active
+    // shares", "Public link") and the screen's own TaskFlowHeader title. The
+    // crumb and the title must read as the same words or the trail and the
+    // screen stop agreeing.
+    ask: "Request location",
     invite: "Invite to Circle",
     "temp-link": "Public link",
     "check-in": "Check-In",
@@ -63,11 +67,32 @@ function oneLocationActionLabel(action: string): string {
     "active-shares": "Active shares",
     "shared-with-me": "Shared with me",
     "needs-review": "Needs my review",
-    sos: "Safety",
+    // The crumb must match the on-screen title of the flow it names. The SOS
+    // screen's TaskFlowHeader reads "Save my Soul", so the crumb does too — a
+    // crumb saying "Safety" for a screen titled otherwise breaks the trail.
+    sos: "Save my Soul",
+    "sms-contacts": "SMS contacts",
     settings: "Settings",
     privacy: "Settings",
   };
   return labels[action] ?? titleizeSegment(action);
+}
+
+/**
+ * Which Location flow the SMS-contacts screen returns to.
+ *
+ * It is reachable from Settings AND from the middle of an SOS, so a fixed
+ * target is wrong: sending someone from SOS back to Settings drops them out of
+ * the emergency flow at the worst possible moment. The hub records the origin
+ * as `?source=sos` when it opens the screen; anything else (including an
+ * absent or unrecognised source) means Settings, where the other entry points
+ * live. This is the single implementation — `resolveSmsContactsBackFlow` in
+ * the Location hub delegates here so the two cannot drift.
+ */
+export function resolveSmsContactsBackAction(
+  source: string | null | undefined,
+): "sos" | "settings" {
+  return source === "sos" ? "sos" : "settings";
 }
 
 function profilePanelLabel(panel: ProfilePanel | null): string | null {
@@ -237,7 +262,9 @@ function resolveTopShellBreadcrumbInner(
       align: "center",
       items: [
         { label: "Set up", href: ROUTES.ONE_SETUP },
-        { label: "AI access" },
+        // Matches the on-screen title; a crumb that disagrees with the heading
+        // reads as two different screens.
+        { label: "Choose your AI" },
       ],
     };
   }
@@ -720,19 +747,39 @@ function resolveTopShellBreadcrumbInner(
       // from People returns to People — instead of always dropping to the
       // default "Now" tab. `openFlow` keeps the current `?view=` tab in the URL
       // when it appends `?action=`, so it is available here. SMS contacts is
-      // only ever reached from Settings, so it retraces to the Settings flow.
+      // reached from Settings AND from the middle of an SOS, so it retraces to
+      // whichever one opened it (see resolveSmsContactsBackAction).
       const hubView = String(searchParams?.get("view") || "").trim();
+      // Name the tab even when it is the default one.
+      //
+      // Closing a flow used to return to a bare `/one/location`, and the App
+      // Router will not perform a navigation whose only change is that the
+      // whole query string disappears: the URL, `useSearchParams`, and every
+      // screen keyed off them stay exactly where they were. Measured on uat
+      // and on production, and not only here -- `/one/feed?tab=x`, `/one?x=1`
+      // and `/one/connect?x=1` all refuse the same way, while adding or
+      // changing a parameter works. That is why every Location flow became
+      // impossible to leave by its own back control while the phone's own
+      // back gesture, which never touches the router, still worked.
+      //
+      // `?view=now` is the hub's own default tab, so this is the same
+      // destination said explicitly rather than by omission.
       const hubBackHref =
         action === "sms-contacts"
-          ? `${ROUTES.ONE_LOCATION}?action=settings`
-          : hubView
-            ? `${ROUTES.ONE_LOCATION}?view=${encodeURIComponent(hubView)}`
-            : ROUTES.ONE_LOCATION;
+          ? `${ROUTES.ONE_LOCATION}?action=${resolveSmsContactsBackAction(
+              searchParams?.get("source"),
+            )}`
+          : `${ROUTES.ONE_LOCATION}?view=${encodeURIComponent(hubView || "now")}`;
       return {
         backHref: returnToNearbyCheckIn
           ? isNearbyPrivateReturnToken(nearbyReturnToken)
             ? buildNearbyCheckInResumeHref(nearbyReturnToken)
-            : `${ROUTES.ONE_LOCATION_MAP}?action=check-in`
+            : // Back from a private check-in goes to check-in's own route.
+              // Naming Your Map with `?action=check-in` sent the person to a
+              // screen that cannot show check-in, which then redirected here
+              // anyway -- a visible detour on the one control whose whole job
+              // is to retrace a step.
+              ROUTES.ONE_LOCATION_CHECK_IN
           : hubBackHref,
         width: "profile",
         align: "center",
@@ -965,6 +1012,25 @@ function resolveTopShellBreadcrumbInner(
         { label: "Profile", href: privacyHref },
         { label: "Privacy", href: privacyHref },
         { label: "PKM Agent" },
+      ],
+    };
+  }
+
+  // Voice's changelog is a third level nested under the Voice detail screen,
+  // one deeper than the generic panel/detail breadcrumb below can express (it
+  // only carries a single detail label). Back must retrace to Voice itself,
+  // not to Preferences.
+  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG) {
+    const preferencesHref = profilePanelHref("preferences");
+    return {
+      backHref: ROUTES.PROFILE_PREFERENCES_VOICE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: ROUTES.PROFILE },
+        { label: "Preferences", href: preferencesHref },
+        { label: "Voice", href: ROUTES.PROFILE_PREFERENCES_VOICE },
+        { label: "What's new" },
       ],
     };
   }

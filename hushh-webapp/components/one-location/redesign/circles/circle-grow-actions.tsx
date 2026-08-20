@@ -42,6 +42,11 @@ import type {
   OneLocationCircleEligibleConnections,
   OneLocationCircleMemberInvite,
 } from "@/lib/one-location/types";
+import {
+  filterPeopleByQuery,
+  sortPeopleByName,
+} from "@/lib/one-location/people-search";
+import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { cn } from "@/lib/utils";
 
 function circleInitials(value: string): string {
@@ -109,13 +114,19 @@ export function CircleInvitePeopleSheet({
   const submitInFlightRef = useRef(false);
   const cancelInFlightRef = useRef(false);
 
-  const filtered = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase();
-    if (!query) return eligibleConnections;
-    return eligibleConnections.filter((connection) =>
-      connection.displayName.toLocaleLowerCase().includes(query),
-    );
-  }, [eligibleConnections, search]);
+  const filtered = useMemo(
+    () =>
+      // Sorted before filtering, like every other people picker in Location.
+      // These two sheets were rendering whatever order the server returned, so
+      // the same two connections could swap places between two openings and a
+      // long list had nowhere to start looking.
+      filterPeopleByQuery(
+        sortPeopleByName(eligibleConnections, (connection) => connection.displayName),
+        search,
+        (connection) => connection.displayName,
+      ),
+    [eligibleConnections, search],
+  );
 
   const load = useCallback(async () => {
     const requestId = ++requestRef.current;
@@ -215,7 +226,11 @@ export function CircleInvitePeopleSheet({
     >
       <SheetContent
         side="bottom"
-        className="mx-auto flex max-h-[88dvh] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
+        // Same pair as the Circle detail sheet: keep the drag gesture off a
+        // scrollable list, and keep the keyboard height inside the max-height
+        // so the search field does not leave the screen when the keyboard opens.
+        dragDismiss={false}
+        className="mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
       >
         <SheetHeader className="text-left">
           <SheetTitle>Add people to {circleName}</SheetTitle>
@@ -343,7 +358,8 @@ export function CircleInvitePeopleSheet({
                       <SettingsRow
                         key={invite.id}
                         icon={Send}
-                        iconTone="blue"
+                        // Awaiting acceptance is PENDING, not an action.
+                        iconTone="orange"
                         title={invite.inviteeDisplayName || "One connection"}
                         description="Waiting for them to join"
                         trailing={
@@ -380,7 +396,10 @@ export function CircleInvitePeopleSheet({
             }
             isLoading={submitting}
             onClick={() => void sendInvites()}
-            className="h-12 w-full shrink-0 rounded-full text-base font-semibold"
+            className={cn(
+              "h-12 w-full shrink-0 rounded-full text-base font-semibold",
+              BLOCKED_CTA,
+            )}
           >
             {selectedIds.size
               ? `Invite ${selectedIds.size} ${

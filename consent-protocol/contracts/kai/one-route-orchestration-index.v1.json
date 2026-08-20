@@ -2804,11 +2804,19 @@
       "canonical_screen": "one_location",
       "voice_contract_file": "app/one/location/page.voice-action-contract.json",
       "action_ids": [
+        "location.accept_circle_invite",
         "location.add_connections",
         "location.add_emergency_contact",
         "location.add_to_circle",
+        "location.approve_request",
+        "location.change_share_duration",
         "location.chat.turn",
         "location.create_circle",
+        "location.decline_circle_invite",
+        "location.decline_request",
+        "location.delete_circle",
+        "location.delete_saved_location",
+        "location.leave_circle",
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
@@ -2830,11 +2838,18 @@
         "location.refresh",
         "location.remove_emergency_contact",
         "location.remove_from_circle",
+        "location.rename_circle",
         "location.resume_updates",
+        "location.save_current_location",
+        "location.select_ask_recipient",
         "location.select_share_recipient",
+        "location.send_check_in",
+        "location.send_request",
         "location.set_auto_share",
         "location.share_selected",
+        "location.stop_share",
         "location.stop_sos",
+        "location.trigger_sos",
         "route.one_location"
       ],
       "action_coverage": "inherited",
@@ -2968,6 +2983,7 @@
       "canonical_screen": "one_location_map",
       "voice_contract_file": null,
       "action_ids": [
+        "location.open_check_in",
         "location.open_map"
       ],
       "action_coverage": "inherited",
@@ -3967,6 +3983,92 @@
       "voice_playbook": {
         "playbook_id": "route.profile.preferences.kai",
         "purpose": "Help the person understand and use the kai screen through its generated controls.",
+        "screen": "profile_preferences",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_preferences",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/one/profile/preferences/voice",
+      "page_file": "app/one/profile/preferences/voice/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.preferences.voice",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.preferences.voice",
+        "purpose": "Help the person manage One's own voice controls -- on/off, tap-confirmation, and which domains it may act in.",
+        "screen": "profile_preferences",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_preferences",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/one/profile/preferences/voice/changelog",
+      "page_file": "app/one/profile/preferences/voice/changelog/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.preferences.voice.changelog",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.preferences.voice.changelog",
+        "purpose": "A read-only list of voice engine updates and fixes. Nothing to act on here.",
         "screen": "profile_preferences",
         "entry_cue": "",
         "proactivity": "ambient",

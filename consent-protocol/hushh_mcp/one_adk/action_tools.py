@@ -27,6 +27,12 @@ from typing import Any
 
 from google.adk.tools.tool_context import ToolContext
 
+from hushh_mcp.one_adk.voice_domain_policy import (
+    is_voice_domain_disabled,
+    is_voice_entirely_disabled,
+    resolve_voice_domain,
+    voice_domain_label,
+)
 from hushh_mcp.services.action_gateway import (
     get_action_gateway_action,
     is_navigation_action,
@@ -149,6 +155,19 @@ def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
     return {str(value).strip() for value in ids if isinstance(value, str) and value.strip()}
 
 
+def _voice_settings(tool_context: ToolContext) -> dict[str, Any]:
+    """The person's own restrictions on their already-authorized voice agent.
+
+    Already bounded and allowlisted by sanitize_voice_settings on the way in;
+    this only re-reads what the trust boundary already validated. Absent
+    context (non-live callers, tests) means no restriction, matching
+    sanitize_voice_settings' own fail-open default.
+    """
+    context = _voice_context(tool_context)
+    settings = context.get("voice_settings") if isinstance(context, dict) else None
+    return settings if isinstance(settings, dict) else {}
+
+
 def _slot_fingerprint(slots: dict[str, Any]) -> str:
     """Stable identity for one action's inputs.
 
@@ -183,7 +202,9 @@ def _missing_required_slot(entry: dict[str, Any], slots: dict[str, Any]) -> dict
     return None
 
 
-def _directive_flags(entry: dict[str, Any] | None) -> dict[str, bool]:
+def _directive_flags(
+    entry: dict[str, Any] | None, *, require_tap_confirmation: bool = False
+) -> dict[str, bool]:
     """Return the generated contract's browser-execution boundary.
 
     Goal steps bypass ``run_app_action`` when they construct a route or
@@ -196,24 +217,34 @@ def _directive_flags(entry: dict[str, Any] | None) -> dict[str, bool]:
             "trustedActivationRequired": True,
         }
     trusted_activation = str(entry.get("activation_policy") or "") == "trusted_activation_required"
-    # Voice does not ask. `confirm_required` no longer raises a card, because
-    # being asked "are you sure?" after saying a thing out loud is the thing
-    # people find most tiring about talking to this app -- and a spoken yes to
-    # a question One just asked adds no information the sentence did not
-    # already carry. Product owner's call, made explicitly and more than once.
+    confirm_required = str(entry.get("execution_policy") or "") == "confirm_required"
+    # Voice does not ask by default. `confirm_required` no longer raises a card
+    # on its own, because being asked "are you sure?" after saying a thing out
+    # loud is the thing people find most tiring about talking to this app --
+    # and a spoken yes to a question One just asked adds no information the
+    # sentence did not already carry. Product owner's call, made explicitly
+    # and more than once.
     #
     # `trusted_activation_required` survives, and is a different kind of thing.
     # The two provider sign-ins open a browser popup, which platforms permit
     # only during a fresh user gesture; removing that would not streamline
     # sign-in, it would break it. Two actions of 151.
     #
-    # What this costs, stated rather than buried: a misheard sentence now runs
-    # a `confirm_required` action directly, including submitting a phone code
-    # and starting a location share. The mitigation is elsewhere and
-    # deliberate -- destructive actions resolve exactly one named target or
-    # refuse, and ambiguity names the candidates rather than picking one.
+    # `require_tap_confirmation` is the person's own opt-in override of that
+    # default, not a second exception to it -- Voice settings, off by default,
+    # same posture as the disabled-domains restriction next to it. Once on, a
+    # `confirm_required` action needs the tap the browser already knows how to
+    # raise for `trusted_activation_required`; nothing new on the client side.
+    #
+    # What this costs when the override is off (still the default), stated
+    # rather than buried: a misheard sentence runs a `confirm_required` action
+    # directly, including submitting a phone code and starting a location
+    # share. The mitigation is elsewhere and deliberate -- destructive actions
+    # resolve exactly one named target or refuse, and ambiguity names the
+    # candidates rather than picking one.
+    needs_confirmation = trusted_activation or (require_tap_confirmation and confirm_required)
     return {
-        "needsConfirmation": trusted_activation,
+        "needsConfirmation": needs_confirmation,
         "trustedActivationRequired": trusted_activation,
     }
 
@@ -384,6 +415,32 @@ async def run_app_action(
             "message": reason,
         }
 
+    voice_settings = _voice_settings(tool_context)
+    if is_voice_entirely_disabled(voice_settings):
+        logger.info("one_adk_action_decision action=%s status=domain_disabled domain=all", clean_id)
+        return {
+            "status": "domain_disabled",
+            "message": (
+                "Voice control is turned off in your settings. Turn it back on "
+                "in Profile, Preferences, Voice, or do this by tap instead."
+            ),
+        }
+    voice_domain = resolve_voice_domain(clean_id)
+    if is_voice_domain_disabled(voice_domain, voice_settings.get("disabled_domains")):
+        logger.info(
+            "one_adk_action_decision action=%s status=domain_disabled domain=%s",
+            clean_id,
+            voice_domain,
+        )
+        return {
+            "status": "domain_disabled",
+            "message": (
+                f"Voice control is turned off for {voice_domain_label(voice_domain)} "
+                "in your settings. Turn it back on in Profile, Preferences, Voice, "
+                "or do this by tap instead."
+            ),
+        }
+
     available_action_ids = _available_action_ids(tool_context)
     # Navigation actions (route.*, allow_direct) are invocable from any
     # screen by design; the browser's per-screen inventory does not bound
@@ -502,7 +559,10 @@ async def run_app_action(
     # gateway does not know (unknown is not a licence) and
     # trusted_activation_required, whose provider window the browser will only
     # open on a fresh human gesture.
-    flags = _directive_flags(entry)
+    flags = _directive_flags(
+        entry,
+        require_tap_confirmation=voice_settings.get("require_tap_confirmation") is True,
+    )
     trusted_activation = flags["trustedActivationRequired"]
     needs_confirmation = flags["needsConfirmation"]
     directive_payload: dict[str, Any] = {
@@ -899,6 +959,36 @@ async def start_app_goal(
     """
     clean_id = str(action_id or "").strip()
     entry = get_action_gateway_action(clean_id)
+    # Checked here, before either journey branch below, because both bypass
+    # run_app_action entirely -- a settled journey never reaches it, and a
+    # navigation journey only reaches it (via the non-journey fallthrough)
+    # after parking its own navigation directive first. One check here covers
+    # both; the plain run_app_action call further down repeats it harmlessly.
+    goal_voice_settings = _voice_settings(tool_context)
+    if is_voice_entirely_disabled(goal_voice_settings):
+        logger.info("one_adk_goal_decision action=%s status=domain_disabled domain=all", clean_id)
+        return {
+            "status": "domain_disabled",
+            "message": (
+                "Voice control is turned off in your settings. Turn it back on "
+                "in Profile, Preferences, Voice, or do this by tap instead."
+            ),
+        }
+    voice_domain = resolve_voice_domain(clean_id)
+    if is_voice_domain_disabled(voice_domain, goal_voice_settings.get("disabled_domains")):
+        logger.info(
+            "one_adk_goal_decision action=%s status=domain_disabled domain=%s",
+            clean_id,
+            voice_domain,
+        )
+        return {
+            "status": "domain_disabled",
+            "message": (
+                f"Voice control is turned off for {voice_domain_label(voice_domain)} "
+                "in your settings. Turn it back on in Profile, Preferences, Voice, "
+                "or do this by tap instead."
+            ),
+        }
     if entry is not None:
         journey = _settled_journey_definition(entry, clean_id)
         if journey is not None:
@@ -975,7 +1065,11 @@ async def start_app_goal(
         return await continue_app_goal(tool_context)
 
     navigation_action_id = navigation_journey["navigation_action_id"]
-    navigation_flags = _directive_flags(get_action_gateway_action(navigation_action_id))
+    navigation_flags = _directive_flags(
+        get_action_gateway_action(navigation_action_id),
+        require_tap_confirmation=_voice_settings(tool_context).get("require_tap_confirmation")
+        is True,
+    )
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:goal:{goal_id}"] = {
         "kind": "action",
         "payload": {
@@ -1126,7 +1220,11 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
         }
 
     slots = run.get("slots") if isinstance(run.get("slots"), dict) else {}
-    action_flags = _directive_flags(get_action_gateway_action(journey_action_id))
+    action_flags = _directive_flags(
+        get_action_gateway_action(journey_action_id),
+        require_tap_confirmation=_voice_settings(tool_context).get("require_tap_confirmation")
+        is True,
+    )
     next_run = {
         **run,
         "step_cursor": 1,

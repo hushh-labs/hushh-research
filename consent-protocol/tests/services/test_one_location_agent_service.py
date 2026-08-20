@@ -12,6 +12,9 @@ import hushh_mcp.services.one_location_agent_service as one_location_agent_modul
 import hushh_mcp.services.one_location_agent_service as one_location_service_module
 from hushh_mcp.operons.location.policy import normalize_duration_hours
 from hushh_mcp.services.one_location_agent_service import (
+    _DIRECTORY_SEPARATOR_FOLD,
+    _DIRECTORY_SEPARATOR_SQL,
+    _DIRECTORY_SEPARATORS,
     OneLocationAgentError,
     OneLocationAgentService,
     _contains_plaintext_location_key,
@@ -208,6 +211,7 @@ class AtomicPrivateShareProbe(OneLocationAgentService):
                     if self.expired_replay
                     else values["expires_at"]
                 ),
+                "duration_mode": values.get("duration_mode", "timed"),
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
@@ -647,6 +651,10 @@ def test_list_verified_recipients_sources_from_connections(
 
 
 class EnvelopeReadProbe(OneLocationAgentService):
+    #: When False the grant is live but no envelope row exists yet — the state a
+    #: recipient sits in between being granted access and the owner's first fix.
+    has_envelope = True
+
     def __init__(self) -> None:
         self.calls: list[str] = []
 
@@ -656,6 +664,8 @@ class EnvelopeReadProbe(OneLocationAgentService):
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
         self.calls.append(sql)
+        if "FROM one_location_envelopes" in sql and not self.has_envelope:
+            return None
         if "FROM one_location_share_grants g" in sql:
             return {
                 "id": "00000000-0000-0000-0000-000000000001",
@@ -698,8 +708,137 @@ def test_view_latest_envelope_returns_ciphertext_only_payload() -> None:
     assert "RETURNING\n              target_grant.id" in stale_cleanup_sql
     assert response["grant"]["recipientUserId"] == "user_b"
     assert response["envelope"]["ciphertext"] == "ciphertext-only"
+    assert response["status"] == "published"
     assert "latitude" not in json.dumps(response)
     assert "longitude" not in json.dumps(response)
+
+
+class _AwaitingFirstPublishProbe(EnvelopeReadProbe):
+    has_envelope = False
+
+
+def test_view_latest_envelope_without_allow_empty_keeps_legacy_404() -> None:
+    """Clients already in the field branch on this error code; it must not move."""
+
+    service = _AwaitingFirstPublishProbe()
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        service.view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+        )
+
+    assert excinfo.value.code == "LOCATION_ENVELOPE_MISSING"
+    assert excinfo.value.status_code == 404
+
+
+def test_view_latest_envelope_allow_empty_returns_awaiting_first_publish() -> None:
+    """A live grant with no point yet is a success, not a failed request.
+
+    The recipient almost always opens One before the owner's first GPS fix
+    lands. Reporting that as 404 made the browser log a failed request on every
+    poll for a state nothing had gone wrong in.
+    """
+
+    service = _AwaitingFirstPublishProbe()
+    response = service.view_latest_envelope(
+        recipient_user_id="user_b",
+        grant_id="00000000-0000-0000-0000-000000000001",
+        allow_empty=True,
+    )
+
+    assert response["envelope"] is None
+    assert response["status"] == "awaiting_first_publish"
+    # The grant itself still comes back so the recipient keeps the owner label
+    # and expiry on screen while waiting.
+    assert response["grant"]["recipientUserId"] == "user_b"
+    # Waiting must never leak coordinates, same as the published path.
+    assert "latitude" not in json.dumps(response)
+    assert "longitude" not in json.dumps(response)
+
+
+def test_view_latest_envelope_allow_empty_does_not_mask_a_missing_grant() -> None:
+    """allow_empty relaxes 'no point yet' only — never 'no such share'."""
+
+    class _NoGrantProbe(EnvelopeReadProbe):
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            self.calls.append(sql)
+            if "FROM one_location_share_grants g" in sql:
+                return None
+            return None
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        _NoGrantProbe().view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            allow_empty=True,
+        )
+
+    assert excinfo.value.code == "LOCATION_GRANT_NOT_FOUND"
+    assert excinfo.value.status_code == 404
+
+
+def test_view_latest_envelope_allow_empty_does_not_mask_a_revoked_grant() -> None:
+    """A revoked/expired share must still be rejected, not reported as waiting."""
+
+    class _RevokedGrantProbe(EnvelopeReadProbe):
+        has_envelope = False
+
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            row = super()._execute_one(sql, params)
+            if row and "FROM one_location_share_grants g" in sql:
+                return {**row, "status": "revoked"}
+            return row
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        _RevokedGrantProbe().view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            allow_empty=True,
+        )
+
+    assert excinfo.value.code == "LOCATION_GRANT_NOT_ACTIVE"
+    assert excinfo.value.status_code == 410
+
+
+def test_view_latest_envelope_allow_empty_does_not_mask_a_rotated_recipient_key() -> None:
+    """A key rotation still needs the 'ask them to share again' signal."""
+
+    class _RotatedKeyProbe(EnvelopeReadProbe):
+        has_envelope = False
+
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            row = super()._execute_one(sql, params)
+            if row and "FROM one_location_share_grants g" in sql:
+                return {**row, "recipient_key_active": False}
+            return row
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        _RotatedKeyProbe().view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            allow_empty=True,
+        )
+
+    assert excinfo.value.code == "LOCATION_GRANT_NOT_ACTIVE"
+    assert excinfo.value.status_code == 410
+
+
+def test_view_latest_envelope_awaiting_first_publish_records_no_view_event() -> None:
+    """No ciphertext was released, so the audit trail must not claim a view."""
+
+    service = _AwaitingFirstPublishProbe()
+    inserted: list[str] = []
+    service._insert_event = lambda **kwargs: inserted.append(  # type: ignore[method-assign]
+        str(kwargs.get("event_type"))
+    )
+
+    service.view_latest_envelope(
+        recipient_user_id="user_b",
+        grant_id="00000000-0000-0000-0000-000000000001",
+        allow_empty=True,
+    )
+
+    assert "location_share_viewed" not in inserted
 
 
 class FourUserMemoryService(OneLocationAgentService):
@@ -890,7 +1029,12 @@ class FourUserMemoryService(OneLocationAgentService):
                     "request_id": None,
                     "referral_id": None,
                     "event_type": "location_share_created",
-                    "metadata_json": json.dumps({"duration_hours": grant_params["duration_hours"]}),
+                    "metadata_json": json.dumps(
+                        {
+                            "duration_hours": grant_params["duration_hours"],
+                            "duration_mode": grant_params.get("duration_mode", "timed"),
+                        }
+                    ),
                 },
             )
         return row
@@ -1684,6 +1828,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 "capability_scopes": params["capability_scopes"],
                 "duration_hours": params["duration_hours"],
                 "expires_at": params["expires_at"],
+                "duration_mode": params.get("duration_mode", "timed"),
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
@@ -1695,6 +1840,26 @@ class FourUserMemoryService(OneLocationAgentService):
             }
             self.grants[grant_id] = row
             return row
+        # "Is this owner already sharing live with this person?" -- the read
+        # that turns an ask into an ask for MORE time. Keyed on the pair, not on
+        # a grant id, so it must be matched before the by-id grant reads below.
+        if (
+            "FROM one_location_share_grants" in sql
+            and "recipient_user_id = :recipient_user_id" in sql
+            and "status = 'active'" in sql
+            and "grant_id" not in params
+        ):
+            now = datetime.now(timezone.utc)
+            live = [
+                grant
+                for grant in self.grants.values()
+                if grant["owner_user_id"] == params["owner_user_id"]
+                and grant["recipient_user_id"] == params["recipient_user_id"]
+                and grant["status"] == "active"
+                and (grant.get("expires_at") is None or grant["expires_at"] > now)
+            ]
+            live.sort(key=lambda item: item["created_at"], reverse=True)
+            return live[0] if live else None
         if "FROM one_location_share_grants" in sql and "owner_user_id = :owner_user_id" in sql:
             grant = self.grants.get(params["grant_id"])
             if (
@@ -1770,13 +1935,25 @@ class FourUserMemoryService(OneLocationAgentService):
                 "requested_at": datetime.now(timezone.utc),
                 "resolved_at": None,
                 "approved_grant_id": None,
+                "requested_duration_hours": params.get("requested_duration_hours"),
+                "requested_duration_mode": params.get("requested_duration_mode"),
+                "extends_grant_id": params.get("extends_grant_id"),
+                "request_revision": 1,
             }
             self.requests[request_id] = row
             return row
-        if "UPDATE one_location_access_requests" in sql and "SET message = :message" in sql:
+        if "UPDATE one_location_access_requests" in sql and "SET message = COALESCE" in sql:
             request = self.requests.get(params["request_id"])
             if request and request["status"] == "pending":
-                request["message"] = params["message"]
+                # COALESCE(:message, message): a re-ask that carries no note
+                # must not blank the note already on the row.
+                if params.get("message") is not None:
+                    request["message"] = params["message"]
+                request["requested_duration_hours"] = params.get("requested_duration_hours")
+                request["requested_duration_mode"] = params.get("requested_duration_mode")
+                request["extends_grant_id"] = params.get("extends_grant_id")
+                if params.get("ask_changed"):
+                    request["request_revision"] = int(request.get("request_revision") or 1) + 1
                 request["requested_at"] = datetime.now(timezone.utc)
                 return request
             return None
@@ -1795,6 +1972,32 @@ class FourUserMemoryService(OneLocationAgentService):
             request["approved_grant_id"] = params["grant_id"]
             request["resolved_at"] = datetime.now(timezone.utc)
             return request
+        if "SET status = 'cancelled'" in sql:
+            # The asker taking their own ask back. Keyed on requester, not
+            # owner -- reproducing the real WHERE clause is the point, because
+            # the safety property being tested is that it cannot reach anybody
+            # else's request.
+            request = self.requests.get(params["request_id"])
+            if (
+                request
+                and request["requester_user_id"] == params["requester_user_id"]
+                and request["status"] == "pending"
+            ):
+                request["status"] = "cancelled"
+                request["resolved_at"] = datetime.now(timezone.utc)
+                return request
+            return None
+        if "SET status = 'denied'" in sql:
+            request = self.requests.get(params["request_id"])
+            if (
+                request
+                and request["owner_user_id"] == params["owner_user_id"]
+                and request["status"] == "pending"
+            ):
+                request["status"] = "denied"
+                request["resolved_at"] = datetime.now(timezone.utc)
+                return request
+            return None
         if (
             "WHERE id = CAST(:grant_id AS UUID)" in sql
             and "recipient_user_id = :referring_user_id" in sql
@@ -1804,7 +2007,10 @@ class FourUserMemoryService(OneLocationAgentService):
                 grant
                 and grant["recipient_user_id"] == params["referring_user_id"]
                 and grant["status"] == "active"
-                and grant["expires_at"] > datetime.now(timezone.utc)
+                and (
+                    grant.get("expires_at") is None
+                    or grant["expires_at"] > datetime.now(timezone.utc)
+                )
             ):
                 return grant
             return None
@@ -1979,6 +2185,22 @@ class FourUserMemoryService(OneLocationAgentService):
             ):
                 grant["status"] = "revoked"
                 grant["revoked_at"] = datetime.now(timezone.utc)
+                return grant
+            return None
+        if "UPDATE one_location_share_grants" in sql and "expires_at = :new_expires_at" in sql:
+            grant = self.grants.get(params["grant_id"])
+            if (
+                grant
+                and params["owner_user_id"] in {grant["owner_user_id"], grant["recipient_user_id"]}
+                and grant["status"] == "active"
+            ):
+                grant["expires_at"] = params["new_expires_at"]
+                grant["duration_hours"] = params.get("duration_hours")
+                # `shorten` hard-codes 'timed' in its own SQL and sends no
+                # param; `set_grant_duration` sends the mode because it can
+                # also put a share on "until I stop".
+                grant["duration_mode"] = params.get("duration_mode") or "timed"
+                grant["updated_at"] = datetime.now(timezone.utc)
                 return grant
             return None
         if "INSERT INTO trusted_connections" in sql:
@@ -2332,16 +2554,272 @@ def test_directory_candidate_search_filters_before_pagination(
     )
 
     assert result == {"items": [], "page": 3, "hasMore": False}
-    assert "LOWER(COALESCE(a.display_name, '')) LIKE '%' || :query || '%'" in service.sql
     assert "a.user_id, a.display_name, a.email" in service.sql
     assert "LIMIT :fetch_limit OFFSET :offset" in service.sql
     assert service.params == {
         "owner_user_id": "owner",
         "candidate_user_id": None,
         "query": "cara",
+        "name_prefix": "cara%",
+        "word_prefix": "% cara%",
+        # Every caller that predates the advisor split still asks for both
+        # halves, so adding the tab changed nobody else's result set.
+        "audience": "all",
         "fetch_limit": 21,
         "offset": 40,
     }
+    # The substring predicate is what made a single letter return an empty
+    # screen: it selected the page under one rule while the caller narrowed it
+    # under another. It must not come back.
+    assert "LIKE '%' || :query || '%'" not in service.sql
+
+
+def test_directory_candidate_search_splits_advisors_inside_the_statement() -> None:
+    """The advisor/people split has to be in the query, beside the matching.
+
+    Applied after LIMIT it could only subtract from a page that was already
+    chosen wrongly -- uneven pages, and every advisor past the first one
+    unreachable. That is the same bug the prefix ranking above exists to
+    prevent, in a second guise.
+    """
+    service = RecipientDirectoryProbe()
+
+    service.search_directory_candidates(owner_user_id="owner", audience="ria")
+
+    assert service.params["audience"] == "ria"
+    assert "FROM ria_profiles rp_audience" in service.sql
+    assert "LIMIT :fetch_limit OFFSET :offset" in service.sql
+    # The gate must accept every status the RIA verification path can write, or
+    # a genuinely verified adviser is missing from the tab built for them.
+    for status in ("active", "verified", "finra_verified"):
+        assert f"'{status}'" in service.sql
+
+
+def test_directory_candidate_search_widens_on_an_unknown_audience() -> None:
+    """A typo in a caller must not silently empty the directory."""
+    service = RecipientDirectoryProbe()
+
+    service.search_directory_candidates(owner_user_id="owner", audience="advisors")
+
+    assert service.params["audience"] == "all"
+
+
+def test_directory_search_matches_prefixes_not_substrings() -> None:
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="n", limit=8)
+
+    # Two tiers, both prefix-anchored: the name starts with the query, or one
+    # of its later words does. Typing "n" is an index request, and an index
+    # that also returns "Anand" because it contains an n is not an index.
+    assert service.params["name_prefix"] == "n%"
+    assert service.params["word_prefix"] == "% n%"
+    assert service.sql.count("LIKE :name_prefix ESCAPE '!'") == 2
+    assert "LIKE :word_prefix ESCAPE '!'" in service.sql
+
+
+def test_directory_search_ranks_name_prefix_above_word_prefix_then_alphabetically() -> None:
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="r")
+
+    # rsplit, not split: the recipient-key LEFT JOIN LATERAL carries its own
+    # ORDER BY, and asserting against that one would pass while saying nothing
+    # about how the directory is ranked.
+    ordering = service.sql.rsplit("ORDER BY", 1)[1].rsplit("LIMIT", 1)[0]
+    # Tier first, then A-Z. Ranking has to be inside the ORDER BY, because
+    # LIMIT/OFFSET is applied to whatever this clause decides -- a ranking
+    # applied to the page afterwards can only reshuffle rows that were already
+    # chosen wrongly.
+    assert "CASE" in ordering
+    assert "LIKE :name_prefix ESCAPE '!' THEN 0" in ordering
+    assert "ELSE 1" in ordering
+    assert "LOWER(COALESCE(NULLIF(BTRIM(a.display_name), '')" in ordering
+    # Deterministic tie-break, or OFFSET paging duplicates and skips rows.
+    assert ordering.strip().endswith("a.user_id")
+
+
+def test_directory_search_ranks_the_tier_before_the_alphabet() -> None:
+    """The tier CASE must be the FIRST key, not merely present in the clause.
+
+    The test above checks which fragments the ORDER BY contains. Move the
+    alphabetical key above the CASE and every one of those assertions stays
+    true -- the CASE is still there, ``ELSE 1`` is still there, the LOWER(...)
+    key is still there, ``a.user_id`` is still last -- while the two tiers stop
+    existing. "n" then comes back as one flat A-Z list with surname matches
+    shuffled in among the first names: Abdul Nasser, Nilesh, Nirmal, Nolan.
+
+    That is exactly the shape people report as "the search went alphabetical",
+    and a clause checked only for which fragments it contains cannot see it.
+    Assert the ORDER of the keys, not their presence.
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="r")
+
+    # Whitespace-folded so this is an assertion about key order, not indentation.
+    ordering = " ".join(service.sql.rsplit("ORDER BY", 1)[1].rsplit("LIMIT", 1)[0].split())
+    assert ordering.startswith("CASE ")
+    assert ordering.index("END,") < ordering.index(
+        "LOWER(COALESCE(NULLIF(BTRIM(a.display_name), '')"
+    )
+    assert ordering.endswith("a.user_id")
+
+
+def test_directory_search_folds_separators_so_tiering_is_about_the_name() -> None:
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="r")
+
+    # " Nilesh" must not be demoted out of the first tier by a leading space,
+    # and "Abdul-Rashid" / "Abdul R." must still reach the second one.
+    assert (
+        service.sql.count(
+            "TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')"
+        )
+        == 3
+    )
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected_name_prefix"),
+    [
+        ("%", "!%%"),
+        ("!", "!!%"),
+        # "_" is a separator before it is ever a wildcard: the stored name has
+        # already had it folded to a space, so matching it literally could only
+        # return nothing. Folded and trimmed, a lone "_" carries no letters at
+        # all and reads as an unfilled box -- never as the match-anything
+        # wildcard it would be unescaped.
+        ("_", "%"),
+        ("50%_off", "50!% off%"),
+    ],
+)
+def test_directory_search_escapes_like_metacharacters(
+    typed: str, expected_name_prefix: str
+) -> None:
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query=typed)
+
+    # Unescaped, a typed "%" is a wildcard that matches the entire directory.
+    # It is a character someone typed into a name box, not query syntax.
+    assert service.params["name_prefix"] == expected_name_prefix
+    assert service.params["word_prefix"] == f"% {expected_name_prefix}"
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected_needle"),
+    [
+        ("O'Brien", "o brien"),
+        ("Jean-Luc", "jean luc"),
+        ("K.R.", "k r"),
+        ("Smith-Jones", "smith jones"),
+        ("de/la", "de la"),
+        ("Singh, Ankit", "singh  ankit"),
+    ],
+)
+def test_directory_search_folds_the_typed_name_the_same_way_as_the_stored_one(
+    typed: str, expected_needle: str
+) -> None:
+    """Typing a name the way it is spelled has to find it.
+
+    The statement folds a stored name's separators to spaces before matching,
+    so "O'Brien" is compared as "o brien". The query used to keep its
+    punctuation, so the pattern "o'brien%" was tested against "o brien" and
+    could never match -- and deleting the punctuation ("obrien") could not
+    match either. Every name with an apostrophe, a hyphen or an initial was
+    unreachable through the search box.
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query=typed)
+
+    assert service.params["query"] == expected_needle
+    assert service.params["name_prefix"] == f"{expected_needle}%"
+    assert service.params["word_prefix"] == f"% {expected_needle}%"
+
+
+def test_directory_search_folds_both_sides_with_one_separator_list() -> None:
+    """The Python fold and the SQL fold cannot drift apart.
+
+    They are two halves of one comparison. If either list of separators is
+    edited alone, names carrying the character that was added or removed stop
+    matching, and nothing else in the suite would notice.
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="n")
+
+    assert service.sql.count(_DIRECTORY_SEPARATOR_SQL) == 3
+    # The Python side folds exactly the characters the SQL side names.
+    for separator in _DIRECTORY_SEPARATORS:
+        assert f"a{separator}b".translate(_DIRECTORY_SEPARATOR_FOLD) == "a b"
+
+
+def test_directory_search_treats_a_query_of_only_separators_as_empty() -> None:
+    """A box holding "-" is a box the reader has not filled in yet.
+
+    Folded, it carries no letters at all. Matching it literally would search
+    for a name beginning with a space and return nothing, which reads as "you
+    have no connections" rather than "keep typing".
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="-.")
+
+    assert service.params["query"] == ""
+
+
+def test_directory_search_preserves_sql_order_against_recommendation_ranking() -> None:
+    """The directory page keeps the order SQL gave it.
+
+    ``_apply_kai_circle_recommendations`` re-sorts by recommendation score for
+    the Location screen, where "who should I share with" is the question. Here
+    the question is "show me the N people, A-Z", and the rows have already been
+    ranked and cut by the statement above. Re-sorting the slice would reorder
+    rows *within* a page while the page boundaries stayed alphabetical.
+    """
+    captured: dict[str, object] = {}
+
+    class OrderProbe(RecipientDirectoryProbe):
+        def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
+            super()._execute_many(sql, params)
+            return [
+                {"user_id": "u-nilesh", "display_name": "Nilesh", "phone_verified": True},
+                {"user_id": "u-nirmal", "display_name": "Nirmal", "phone_verified": True},
+            ]
+
+        def _apply_kai_circle_recommendations(self, **kwargs: object) -> list[dict]:
+            captured.update(kwargs)
+            return list(kwargs["recipients"])  # type: ignore[arg-type]
+
+    service = OrderProbe()
+    result = service.search_directory_candidates(owner_user_id="owner", query="n", limit=8)
+
+    assert captured["preserve_order"] is True
+    assert [item["displayName"] for item in result["items"]] == ["Nilesh", "Nirmal"]
+
+
+def test_recommendations_preserve_order_only_when_asked() -> None:
+    service = OneLocationAgentService()
+    # Deliberately ordered so the two modes cannot agree: A-Z puts Abel first,
+    # score puts Zoe first (she is location-ready, he is not). A fixture where
+    # both orderings coincide would pass whether or not preserve_order is
+    # honoured, and prove nothing.
+    recipients = [
+        {"userId": "u-abel", "displayName": "Abel", "canReceiveLocation": False},
+        {"userId": "u-zoe", "displayName": "Zoe", "canReceiveLocation": True},
+    ]
+
+    preserved = service._apply_kai_circle_recommendations(
+        owner_user_id="owner",
+        recipients=[dict(r) for r in recipients],
+        preserve_order=True,
+    )
+    assert [r["displayName"] for r in preserved] == ["Abel", "Zoe"]
+    # Rank is still assigned, because the Location screen reads it.
+    assert [r["recommendationRank"] for r in preserved] == [1, 2]
+
+    # Default stays the score-ranked behaviour the Location screen depends on:
+    # a location-ready recipient outranks one that is not.
+    reranked = service._apply_kai_circle_recommendations(
+        owner_user_id="owner",
+        recipients=[dict(r) for r in recipients],
+    )
+    assert [r["displayName"] for r in reranked] == ["Zoe", "Abel"]
 
 
 def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None:
@@ -2710,6 +3188,263 @@ def test_location_grant_recipient_can_mark_share_revoked() -> None:
     assert already_revoked["status"] == "revoked"
 
 
+def test_shorten_grant_lets_either_party_bring_expiry_earlier() -> None:
+    service = FourUserMemoryService()
+    for user_id in ("user_a", "user_b", "user_c"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=20,
+    )
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    with pytest.raises(OneLocationAgentError) as unrelated:
+        service.shorten_grant(caller_user_id="user_c", grant_id=grant["id"], duration_hours=1)
+    assert unrelated.value.code == "LOCATION_GRANT_NOT_FOUND"
+
+    # The recipient gives back time early -- self-limiting, needs no
+    # approval from the owner.
+    shortened = service.shorten_grant(
+        caller_user_id="user_b", grant_id=grant["id"], duration_hours=1
+    )
+    assert shortened["status"] == "active"
+    new_expires_at = service.grants[grant["id"]]["expires_at"]
+    assert new_expires_at < original_expires_at
+    shorten_events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_shortened"
+    ]
+    assert shorten_events[-1]["actor_user_id"] == "user_b"
+    assert shorten_events[-1]["metadata"]["reason"] == "recipient_shorten"
+    assert service.notifications[-1]["user_id"] == "user_a"
+
+    # The owner may also shorten their own exposure further.
+    service.shorten_grant(caller_user_id="user_a", grant_id=grant["id"], duration_hours=0.25)
+    assert service.grants[grant["id"]]["expires_at"] < new_expires_at
+
+
+def test_shorten_grant_rejects_any_attempt_to_extend() -> None:
+    """The one thing shorten_grant must never do: move expiry later.
+
+    That would let a recipient keep watching an owner longer than the
+    owner ever agreed to -- exactly the class of unconsented-access bug
+    this endpoint exists to avoid. Extending only ever happens through a
+    fresh request_access the owner approves.
+    """
+    service = FourUserMemoryService()
+    for user_id in ("user_a", "user_b"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    with pytest.raises(OneLocationAgentError) as extend_attempt:
+        service.shorten_grant(caller_user_id="user_b", grant_id=grant["id"], duration_hours=24)
+    assert extend_attempt.value.code == "LOCATION_GRANT_SHORTEN_ONLY"
+    assert service.grants[grant["id"]]["expires_at"] == original_expires_at
+
+
+def _duration_service_with_grant(duration_hours: float = 0.5):
+    """A live user_a -> user_b share, and the service holding it."""
+    service = FourUserMemoryService()
+    for user_id in ("user_a", "user_b", "user_c"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=duration_hours,
+    )
+    return service, grant
+
+
+def test_owner_may_lengthen_their_own_running_share() -> None:
+    """The reported bug: 30 minutes could be stopped, never extended.
+
+    Nobody's consent is missing when the owner adds time to their own share --
+    the owner is the person being seen. `shorten_grant` refusing it was a rule
+    written for the recipient that ended up applying to everyone, and it left
+    Stop as the only thing the live card could offer.
+    """
+    service, grant = _duration_service_with_grant(0.5)
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    extended = service.set_grant_duration(
+        owner_user_id="user_a", grant_id=grant["id"], duration_hours=2
+    )
+
+    assert extended["status"] == "active"
+    assert service.grants[grant["id"]]["expires_at"] > original_expires_at
+    assert service.grants[grant["id"]]["duration_hours"] == 2
+
+
+def test_changing_the_duration_keeps_the_same_grant() -> None:
+    """The row is mutated, never replaced.
+
+    Re-creating the grant to add fifteen minutes hands the recipient a new id:
+    their subscription is keyed on the old one, the stored envelope goes with
+    it, and they get a share-ended alert for a share that never ended.
+    """
+    service, grant = _duration_service_with_grant(1)
+    service.grants[grant["id"]]["latest_envelope_id"] = "envelope-1"
+
+    updated = service.set_grant_duration(
+        owner_user_id="user_a", grant_id=grant["id"], duration_hours=4
+    )
+
+    assert updated["id"] == grant["id"]
+    assert len(service.grants) == 1
+    row = service.grants[grant["id"]]
+    assert row["latest_envelope_id"] == "envelope-1"
+    assert row["recipient_key_id"] == grant["recipientKeyId"]
+    assert row["status"] == "active"
+
+
+def test_owner_may_also_shorten_through_the_same_call() -> None:
+    # One control on the card, so one call has to answer both directions.
+    service, grant = _duration_service_with_grant(4)
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=0.5)
+
+    assert service.grants[grant["id"]]["expires_at"] < original_expires_at
+    events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_duration_changed"
+    ]
+    assert events[-1]["metadata"]["direction"] == "shortened"
+
+
+def test_the_recipient_cannot_reach_the_owner_duration_call() -> None:
+    """The invariant the shorten-only rule existed to protect, kept exactly.
+
+    A recipient lengthening a grant is someone deciding how long they get to
+    watch another person. That is still refused -- here by never matching the
+    row at all, so there is no path to the write.
+    """
+    service, grant = _duration_service_with_grant(1)
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    with pytest.raises(OneLocationAgentError) as refused:
+        service.set_grant_duration(owner_user_id="user_b", grant_id=grant["id"], duration_hours=24)
+    assert refused.value.code == "LOCATION_GRANT_NOT_FOUND"
+    assert service.grants[grant["id"]]["expires_at"] == original_expires_at
+
+    # And a stranger fares no better.
+    with pytest.raises(OneLocationAgentError) as unrelated:
+        service.set_grant_duration(owner_user_id="user_c", grant_id=grant["id"], duration_hours=1)
+    assert unrelated.value.code == "LOCATION_GRANT_NOT_FOUND"
+
+
+def test_the_duration_change_event_names_which_way_it_went() -> None:
+    # One event type carries both directions, so the direction has to be
+    # recorded rather than read off the name.
+    service, grant = _duration_service_with_grant(0.5)
+
+    service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=3)
+
+    events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_duration_changed"
+    ]
+    assert events, "no duration-changed event was written"
+    assert events[-1]["actor_user_id"] == "user_a"
+    assert events[-1]["metadata"]["direction"] == "extended"
+    assert events[-1]["metadata"]["duration_hours"] == 3
+    # The person being watched changed the terms, so the watcher is told.
+    assert service.notifications[-1]["user_id"] == "user_b"
+
+
+def test_a_share_can_be_moved_to_until_stopped_and_back() -> None:
+    service, grant = _duration_service_with_grant(1)
+
+    service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=None,
+        duration_mode="until_stopped",
+    )
+    row = service.grants[grant["id"]]
+    # The duration contract in migration 150 allows exactly two shapes; this is
+    # the open-ended one, and both columns have to be null for it.
+    assert row["duration_mode"] == "until_stopped"
+    assert row["duration_hours"] is None
+    assert row["expires_at"] is None
+
+    service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=1)
+    row = service.grants[grant["id"]]
+    assert row["duration_mode"] == "timed"
+    assert row["expires_at"] is not None
+    events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_duration_changed"
+    ]
+    # Giving an open-ended share an end is less exposure, not more.
+    assert events[-1]["metadata"]["direction"] == "shortened"
+
+
+def test_the_duration_change_obeys_the_same_bounds_as_creating_a_share() -> None:
+    """A share must not become, by editing, a shape it could not be created in."""
+    service, grant = _duration_service_with_grant(1)
+
+    with pytest.raises(OneLocationAgentError) as too_short:
+        service.set_grant_duration(
+            owner_user_id="user_a", grant_id=grant["id"], duration_hours=0.05
+        )
+    assert too_short.value.code == "LOCATION_DURATION_INVALID"
+
+    with pytest.raises(OneLocationAgentError) as too_long:
+        service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=30)
+    assert too_long.value.code == "LOCATION_DURATION_INVALID"
+
+    with pytest.raises(OneLocationAgentError) as bad_mode:
+        service.set_grant_duration(
+            owner_user_id="user_a",
+            grant_id=grant["id"],
+            duration_hours=1,
+            duration_mode="forever",
+        )
+    assert bad_mode.value.code == "LOCATION_DURATION_MODE_INVALID"
+
+
+def test_changing_the_duration_of_a_stopped_share_does_nothing() -> None:
+    # Racing Stop must not resurrect a share, and must not raise either -- the
+    # editor may still be open when the countdown reaches zero.
+    service, grant = _duration_service_with_grant(1)
+    service.revoke_grant(owner_user_id="user_a", grant_id=grant["id"])
+
+    result = service.set_grant_duration(
+        owner_user_id="user_a", grant_id=grant["id"], duration_hours=4
+    )
+
+    assert result["status"] == "revoked"
+    assert service.grants[grant["id"]]["status"] == "revoked"
+
+
 def test_location_request_creation_does_not_require_requester_key_material() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
@@ -2811,6 +3546,63 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
     )
     assert "0100002" not in user_visible_text
     assert "0002" not in user_visible_text
+
+
+def test_until_stopped_private_grant_is_revocable_not_timeboxed() -> None:
+    service = FourUserMemoryService()
+    owner = "user_a"
+    recipient = "user_b"
+    service.register_recipient_key(
+        user_id=recipient,
+        key_id=f"key-{recipient}",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": recipient, "y": recipient},
+    )
+
+    grant = service.create_grant(
+        owner_user_id=owner,
+        recipient_user_id=recipient,
+        recipient_key_id=f"key-{recipient}",
+        duration_hours=None,
+        duration_mode="until_stopped",
+    )
+
+    assert grant["durationMode"] == "until_stopped"
+    assert grant["durationHours"] is None
+    assert grant["expiresAt"] is None
+    assert service.grants[grant["id"]]["expires_at"] is None
+
+    service.store_encrypted_envelope(
+        owner_user_id=owner,
+        grant_id=grant["id"],
+        envelope=encrypted_envelope(f"key-{recipient}", "ciphertext-for-b"),
+    )
+    viewed = service.view_latest_envelope(recipient_user_id=recipient, grant_id=grant["id"])
+    assert viewed["grant"]["durationMode"] == "until_stopped"
+    assert viewed["envelope"]["ciphertext"] == "ciphertext-for-b"
+
+
+def test_until_stopped_is_rejected_for_check_in_grants() -> None:
+    service = FourUserMemoryService()
+    owner = "user_a"
+    recipient = "user_b"
+    service.register_recipient_key(
+        user_id=recipient,
+        key_id=f"key-{recipient}",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": recipient, "y": recipient},
+    )
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.create_grant(
+            owner_user_id=owner,
+            recipient_user_id=recipient,
+            recipient_key_id=f"key-{recipient}",
+            duration_hours=None,
+            duration_mode="until_stopped",
+            share_kind="check_in",
+            reason="check_in",
+        )
+
+    assert exc.value.code == "LOCATION_DURATION_MODE_NOT_ALLOWED"
 
 
 def test_public_invite_is_request_only_and_token_hash_only() -> None:
@@ -3888,7 +4680,7 @@ def test_sms_grant_fails_closed_until_recipient_is_selected() -> None:
         envelope=encrypted_envelope("key-user_b", "ciphertext"),
     )
     assert len(service.notifications) == 1
-    assert service.notifications[0]["title"] == "SMS · Save my soul"
+    assert service.notifications[0]["title"] == "Save my Soul"
     assert service.notifications[0]["body"] == "User A: Come get me"
     assert service.notifications[0]["data"]["notification_profile"] == (
         "one_location_sms_emergency"

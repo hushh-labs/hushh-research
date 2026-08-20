@@ -21,13 +21,19 @@ import {
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import {
+  DURATION_CELL_CLASS,
+  DURATION_CELL_OFF_CLASS,
+  DURATION_CELL_ON_CLASS,
+  DURATION_GRID_CLASS,
+} from "@/components/one-location/redesign/duration-presets";
+
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -35,6 +41,11 @@ import { Switch } from "@/components/ui/switch";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import {
+  readLastKnownFix,
+  rememberLastKnownFix,
+  rememberLocationGrant,
+} from "@/lib/one-location/location-grant-memory";
 import { locationBlockReason } from "@/lib/one-location/location-readiness";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
@@ -50,7 +61,11 @@ import type {
 } from "@/lib/one-location/types";
 import { isNative } from "@/lib/capacitor/platform";
 import { ROUTES } from "@/lib/navigation/routes";
+import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
+
+const SUCCESS_ROLE = SEMANTIC_ROLE_CLASSES.success;
+const NEUTRAL_ROLE = SEMANTIC_ROLE_CLASSES.neutral;
 
 const DURATIONS = [
   { value: 30 as const, label: "30 min" },
@@ -102,6 +117,30 @@ type PointOrigin = "fresh" | "last-known";
  * plausibly has not moved. Past this we stop offering it as "where you are".
  */
 const LAST_KNOWN_POINT_MAX_AGE_MS = 10 * 60 * 1_000;
+
+/**
+ * The same idea, for a fix restored from a previous session rather than taken
+ * during this one.
+ *
+ * Deliberately longer. The in-session budget above governs a silent swap — the
+ * drawer keeps working and says little — so it has to be tight. A restored fix
+ * is always announced, always dated, and always requires the owner to choose a
+ * specific place, which the backend then plausibility-checks at check-in. The
+ * honest comparison is not "an hour-old fix versus a current one", it is "an
+ * hour-old fix, labelled, versus a dead end" — which is what a cold start with
+ * no GPS answer used to be.
+ */
+const RESTORED_POINT_MAX_AGE_MS = 60 * 60 * 1_000;
+
+/** "just now" / "about 20 minutes ago" — how old a restored fix is. */
+function restoredPointAgeLabel(capturedAt: string | null | undefined): string {
+  const capturedMs = Date.parse(capturedAt ?? "");
+  if (!Number.isFinite(capturedMs)) return "";
+  const ageMinutes = Math.round((Date.now() - capturedMs) / 60_000);
+  if (ageMinutes <= 1) return " from just now";
+  if (ageMinutes < 60) return ` from about ${ageMinutes} minutes ago`;
+  return " from about an hour ago";
+}
 
 export type NearbyCheckInPlaceFocus = {
   placeId: string;
@@ -571,30 +610,59 @@ export function NearbyCheckInSheet({
   /**
    * Fall back to the last good fix instead of emptying the drawer.
    *
-   * Returns true when a usable substitute point was adopted. A stale-but-recent
-   * position still lists the right venues, and the owner -- who can see which
-   * building they are in -- is a better judge of that than a receiver having a
-   * bad second. The backend still verifies plausibility at check-in.
+   * A stale-but-recent position still lists the right venues, and the owner --
+   * who can see which building they are in -- is a better judge of that than a
+   * receiver having a bad second. The backend still verifies plausibility at
+   * check-in.
+   *
+   * Two sources, in order of confidence: a fix taken during this session, then
+   * the sealed one carried over from the last. The second is why a cold start
+   * no longer dead-ends. Before it existed the fallback lived only in a ref, so
+   * the very first capture after a reload had nothing behind it -- and on any
+   * machine without a GPS radio that first capture routinely fails with
+   * `kCLErrorLocationUnknown`. A device that knew exactly where it was ten
+   * minutes ago showed "we couldn't get a location reading".
+   *
+   * Returns true when the caller must NOT write a location error -- either a
+   * point was adopted, or the request was superseded while reading storage and
+   * no longer owns the screen.
    */
   const adoptLastKnownPoint = useCallback(
-    (generation: number, expectedOwnerEpoch: number): boolean => {
-      const fallback = lastKnownPointRef.current;
-      if (!fallback) return false;
-      const capturedAt = Date.parse(fallback.capturedAt ?? "");
+    async (generation: number, expectedOwnerEpoch: number): Promise<boolean> => {
+      const superseded = () =>
+        ownerEpochRef.current !== expectedOwnerEpoch ||
+        requestGenerationRef.current !== generation;
+
+      const sessionFix = lastKnownPointRef.current;
+      const sessionFixAt = Date.parse(sessionFix?.capturedAt ?? "");
       if (
-        !Number.isFinite(capturedAt) ||
-        Date.now() - capturedAt > LAST_KNOWN_POINT_MAX_AGE_MS
+        sessionFix &&
+        Number.isFinite(sessionFixAt) &&
+        Date.now() - sessionFixAt <= LAST_KNOWN_POINT_MAX_AGE_MS
       ) {
-        return false;
+        setPoint(sessionFix);
+        setPointOrigin("last-known");
+        setLocationError(null);
+        setAccuracyNotice(null);
+        void loadPlaces(sessionFix, generation, expectedOwnerEpoch);
+        return true;
       }
-      setPoint(fallback);
+
+      const restored = await readLastKnownFix({
+        userId: ownerId,
+        maxAgeMs: RESTORED_POINT_MAX_AGE_MS,
+      }).catch(() => null);
+      if (superseded()) return true;
+      if (!restored) return false;
+
+      setPoint(restored);
       setPointOrigin("last-known");
       setLocationError(null);
       setAccuracyNotice(null);
-      void loadPlaces(fallback, generation, expectedOwnerEpoch);
+      void loadPlaces(restored, generation, expectedOwnerEpoch);
       return true;
     },
-    [loadPlaces],
+    [loadPlaces, ownerId],
   );
 
   const captureAndLoadPlaces = useCallback(
@@ -631,7 +699,7 @@ export function NearbyCheckInSheet({
         }
         if (permission?.state === "granted" && permission.precise === false) {
           setLocationRecovery(isNative() ? "app-settings" : null);
-          if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+          if (!(await adoptLastKnownPoint(generation, expectedOwnerEpoch))) {
             setPoint(null);
             setLocationError(
               "Precise location is off, so we can't see what's around you yet. Turn it on and we'll pick this up automatically.",
@@ -647,7 +715,7 @@ export function NearbyCheckInSheet({
         // being kept: the check-in sheet refused here before ever attempting.
         if (locationBlockReason(permission ?? null)) {
           setLocationRecovery(isNative() ? "app-settings" : null);
-          if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+          if (!(await adoptLastKnownPoint(generation, expectedOwnerEpoch))) {
             setPoint(null);
             setLocationError(
               isNative()
@@ -662,7 +730,7 @@ export function NearbyCheckInSheet({
           permission.locationServicesEnabled === false
         ) {
           setLocationRecovery(isNative() ? "location-settings" : null);
-          if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+          if (!(await adoptLastKnownPoint(generation, expectedOwnerEpoch))) {
             setPoint(null);
             setLocationError(
               isNative()
@@ -694,7 +762,7 @@ export function NearbyCheckInSheet({
             settledPermission.precise === false
           ) {
             setLocationRecovery(isNative() ? "app-settings" : null);
-            if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+            if (!(await adoptLastKnownPoint(generation, expectedOwnerEpoch))) {
               setPoint(null);
               setLocationError(
                 "Precise location is off, so we can't see what's around you yet. Turn it on and we'll pick this up automatically.",
@@ -708,7 +776,7 @@ export function NearbyCheckInSheet({
         }
         if (!hasCheckInAccuracy(nextPoint)) {
           setLocationRecovery(isNative() ? "app-settings" : null);
-          if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+          if (!(await adoptLastKnownPoint(generation, expectedOwnerEpoch))) {
             setPoint(null);
             setLocationError(
               "We can't pin down where you are just yet. Stepping outside or near a window usually fixes it.",
@@ -725,6 +793,17 @@ export function NearbyCheckInSheet({
           isCoarseAccuracy(nextPoint) ? coarseAccuracyNotice(nextPoint) : null,
         );
         lastKnownPointRef.current = nextPoint;
+        // Carry it past this page. The next cold start reads this instead of
+        // starting from nothing, which is what turns a failed first GPS read
+        // from a dead end into a labelled fallback.
+        void rememberLastKnownFix({ userId: ownerId, point: nextPoint });
+        // The grant belongs next to the fix, not to whichever surface happens
+        // to run key bootstrap. This drawer reaches the device directly and is
+        // routinely the FIRST place an account ever produces a coordinate, so
+        // omitting it here left the account's own record of "location works for
+        // me" empty on the surface most likely to prove it. Verified against
+        // live UAT: the sealed fix was written and the grant was not.
+        rememberLocationGrant(ownerId);
         setPointOrigin("fresh");
         setPoint(nextPoint);
         await loadPlaces(nextPoint, generation, expectedOwnerEpoch);
@@ -736,7 +815,7 @@ export function NearbyCheckInSheet({
           return;
         }
         setLocationRecovery(isNative() ? "app-settings" : null);
-        if (adoptLastKnownPoint(generation, expectedOwnerEpoch)) return;
+        if (await adoptLastKnownPoint(generation, expectedOwnerEpoch)) return;
         setPoint(null);
         setAutomaticPlaces([]);
         setSearchResults([]);
@@ -916,10 +995,27 @@ export function NearbyCheckInSheet({
         requestGenerationRef.current += 1;
         searchGenerationRef.current += 1;
       });
-    const timer = window.setInterval(() => void poll(), 15_000);
+    // Poll on a timer ONLY while the drawer is actually on screen.
+    //
+    // The guard above is `state.presence`, not `open`, so this effect also runs
+    // for a checked-in owner who has the sheet mounted but closed — and the
+    // sheet is mounted by every map surface. At 15s that is 4 reads a minute
+    // each, against a server budget of 8 a minute for this route, keyed per
+    // ACCOUNT rather than per tab. Two mounted-but-closed sheets therefore
+    // spend the entire allowance on nobody looking at anything, and the hub's
+    // own presence read comes back 429. That is what put three
+    // "429 (Too Many Requests)" lines on the Location screen.
+    //
+    // Closed, the sheet still refreshes on the two events that actually matter
+    // — the tab becoming visible and the app returning to the foreground —
+    // which is where a stale presence would otherwise be noticed. Nothing is
+    // lost except requests nobody was waiting for.
+    const timer = open
+      ? window.setInterval(() => void poll(), 15_000)
+      : null;
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
-      window.clearInterval(timer);
+      if (timer !== null) window.clearInterval(timer);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       removeLifecycleListener();
     };
@@ -999,14 +1095,14 @@ export function NearbyCheckInSheet({
     return () => window.clearTimeout(timer);
   }, [open, ownerId, point, search, vaultOwnerToken]);
 
-  // Keep the selection inside whatever is on screen. Runs after every list
-  // change (chip switch, search, reload) so the confirm button never points at
-  // a row the owner can no longer see.
+  // Keep the selection inside whatever is on screen without making a choice for
+  // the owner. If a chip switch, search, or reload hides the selected row, the
+  // owner must intentionally choose another place before checking in.
   useEffect(() => {
     setSelectedPlaceId((current) =>
       places.some((place) => place.placeId === current)
         ? current
-        : (places[0]?.placeId ?? ""),
+        : "",
     );
   }, [places]);
 
@@ -1405,32 +1501,62 @@ export function NearbyCheckInSheet({
     }
   };
 
+  // Deliberately NOT modal, and deliberately without a scrim.
+  //
+  // Check-in is a question about the map -- "which of these nearby places are
+  // you at?" -- so the map has to stay readable and pannable to answer it. The
+  // map already proves that intent elsewhere: it publishes camera padding from
+  // this sheet's own rect so the pins stay framed above it. A modal sheet
+  // contradicted that with a `fixed inset-0 z-[711] touch-none` scrim over the
+  // whole screen, which blurred the very map it was asking about and left the
+  // map's close X, Locate and Check-in controls visible but completely
+  // untappable underneath it.
+  //
+  // Outside interactions are swallowed instead of dismissing, so panning or
+  // zooming to find a place cannot close the sheet mid-answer. That makes the
+  // close X the dismissal, which is why it needed a real 44px target (see
+  // SheetContent).
   return (
-    <Sheet modal open={open} onOpenChange={onOpenChange}>
+    <Sheet modal={false} open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
         dragDismiss={false}
         showDragHandle={false}
-        className="gap-0 overflow-hidden px-0 pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[26rem] md:rounded-none md:rounded-l-[var(--app-card-radius-feature)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right"
+        showOverlay={false}
+        onInteractOutside={(event) => event.preventDefault()}
+        // The map is a native view below the WebView, so a tap that lands on it
+        // never reaches Radix as a normal outside-pointer event on some
+        // platforms and does on others. Refusing both keeps dismissal identical
+        // on web and on device instead of platform-dependent.
+        onPointerDownOutside={(event) => event.preventDefault()}
+        // Stop short of the map header instead of the default 85dvh. With the
+        // scrim gone the controls behind are live again, so the sheet must not
+        // be the thing covering them: 8.5rem clears the header's real stack
+        // (56px control row + 8px gap + the Sharing row + its 16px padding)
+        // plus the top safe area, and leaves a visible strip of map between the
+        // two. Phone-only; the md rail is a side sheet and sets max-h-none.
+        className="max-h-[calc(100dvh-env(safe-area-inset-top)-8.5rem-var(--kb-height,0px))] gap-0 overflow-hidden px-0 pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[26rem] md:rounded-none md:rounded-l-[var(--app-card-radius-feature)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right"
         data-testid="one-location-nearby-check-in-sheet"
         data-one-location-nearby-check-in-sheet=""
       >
-        <SheetHeader className="border-b border-border/60 px-5 pb-4 text-left">
-          <div className="flex items-center gap-2 pr-10">
-            <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--app-accent-surface-strong)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]">
-              <UsersRound className="h-4 w-4" />
+        <SheetHeader className="gap-0 border-b border-border/60 px-5 py-4 text-left">
+          <div className="flex min-h-9 items-center gap-2 pr-10">
+            <SheetTitle className="text-[17px] leading-6">Check in</SheetTitle>
+            {/* Preview reports how finished the FEATURE is, not a state the
+                person is in, so it is secondary utility and takes the resting
+                neutral. Orange is spent elsewhere on Location for "awaiting
+                acceptance" and "needs my review"; spending it on a build label
+                too would dilute the one attention signal. The word keeps the
+                label tone so a 10px uppercase badge stays readable. */}
+            <span
+              className={cn(
+                "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                NEUTRAL_ROLE.tile,
+                "text-[color:var(--app-label)]",
+              )}
+            >
+              Preview
             </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <SheetTitle>Check in nearby</SheetTitle>
-                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                  Preview
-                </span>
-              </div>
-              <SheetDescription>
-                Choose a real place within 500 m of your current location.
-              </SheetDescription>
-            </div>
           </div>
         </SheetHeader>
 
@@ -1473,9 +1599,20 @@ export function NearbyCheckInSheet({
 
           {loadingPresence && !state.presence ? null : state.presence ? (
             <div className="space-y-4" data-testid="nearby-presence-active">
-              <section className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+              {/* Only rendered while a check-in is actually live, so the green
+                  is reporting state, not labelling the category. The wash and
+                  the hairline carry it; the shield keeps the foreground tone,
+                  because --app-success on --app-success-tint measures ~1.9:1
+                  and a glyph has to clear 3:1. */}
+              <section
+                className={cn(
+                  "rounded-2xl border p-4",
+                  SUCCESS_ROLE.border,
+                  SUCCESS_ROLE.tile,
+                )}
+              >
                 <div className="flex items-start gap-3">
-                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold">You’re visible nearby</p>
                     <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
@@ -1536,9 +1673,15 @@ export function NearbyCheckInSheet({
                         interactionDisabled={busy !== null}
                         onConnect={() => void connect(attendee)}
                         onRespond={() =>
+                          // Back from Consent Center returns to the screen this
+                          // was opened from -- check-in's own route. Naming Your
+                          // Map here sent the person to a screen that withholds
+                          // the check-in sheet, which then redirected on to the
+                          // same place: the flow they had left visibly rebuilt
+                          // itself twice before reappearing.
                           router.push(
                             buildConsentCenterHref("pending", {
-                              from: `${ROUTES.ONE_LOCATION_MAP}?action=check-in`,
+                              from: ROUTES.ONE_LOCATION_CHECK_IN,
                             }),
                           )
                         }
@@ -1581,11 +1724,6 @@ export function NearbyCheckInSheet({
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h2 className="font-semibold">Places within 500 m</h2>
-                    <p className="text-sm text-muted-foreground">
-                      {typedSearchActive
-                        ? "Search results stay inside the same 500 m area."
-                        : "Every place we can find around you. The closest is selected."}
-                    </p>
                   </div>
                   {capturing ? (
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -1662,7 +1800,8 @@ export function NearbyCheckInSheet({
                           aria-hidden="true"
                         />
                         <span>
-                          Showing places around your last known position — we
+                          Showing places around your last known position
+                          {restoredPointAgeLabel(point.capturedAt)} — we
                           couldn’t refresh it just now. Pick where you actually
                           are, or{" "}
                           <button
@@ -1687,7 +1826,7 @@ export function NearbyCheckInSheet({
                     ) : null}
                     <label className="relative mt-3 block">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <span className="sr-only">Search for another place</span>
+                      <span className="sr-only">Search</span>
                       <Input
                         value={search}
                         onChange={(event) => {
@@ -1703,7 +1842,7 @@ export function NearbyCheckInSheet({
                           }
                         }}
                         disabled={!point || capturing}
-                        placeholder="Search for another place"
+                        placeholder="Search"
                         className="h-11 rounded-full pl-9"
                       />
                       {searching ? (
@@ -1767,6 +1906,7 @@ export function NearbyCheckInSheet({
                             ),
                           ),
                         );
+                        const metadataLabel = metadata.join(" · ");
                         return (
                           <button
                             key={place.placeId}
@@ -1783,12 +1923,18 @@ export function NearbyCheckInSheet({
                           >
                             <MapPin className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
                             <span className="min-w-0 flex-1">
-                              <span className="block break-words text-sm font-semibold leading-5">
+                              <span
+                                title={name}
+                                className="block truncate text-sm font-semibold leading-5"
+                              >
                                 {name}
                               </span>
                               {metadata.length ? (
-                                <span className="mt-0.5 block break-words text-xs leading-4 text-muted-foreground">
-                                  {metadata.join(" · ")}
+                                <span
+                                  title={metadataLabel}
+                                  className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground"
+                                >
+                                  {metadataLabel}
                                 </span>
                               ) : null}
                             </span>
@@ -1808,9 +1954,9 @@ export function NearbyCheckInSheet({
                             variant="ghost"
                             size="sm"
                             className="w-full text-muted-foreground"
-                            onClick={() => setVisiblePlacesCount((c) => c + 3)}
+                            onClick={() => setVisiblePlacesCount(places.length)}
                           >
-                            More places
+                            Show all {places.length} places
                           </Button>
                         </div>
                       ) : null}
@@ -1854,7 +2000,7 @@ export function NearbyCheckInSheet({
                           className="mt-3"
                           onClick={() => selectCategory("all")}
                         >
-                          Show all places
+                          Show all {automaticPlaces.length} places
                         </Button>
                       </div>
                     ) : null}
@@ -1884,21 +2030,30 @@ export function NearbyCheckInSheet({
                   <Clock3 className="h-4 w-4 text-muted-foreground" />
                   <h2 className="font-semibold">Stay visible for</h2>
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2">
+                {/* Raw <button>, not the morphy <Button>: at `size="default"`
+                    that component carries min-h-[50px] in a different
+                    tailwind-merge group from h-*, and `.ui-text-button-label`
+                    forces 17px !important — so it cannot be made compact from
+                    the outside. These are the same class strings the share
+                    duration ladder uses for the identical role (44px, 15px),
+                    so the two duration controls in this product can no longer
+                    disagree about how big a duration choice is. */}
+                <div className={cn("mt-3", DURATION_GRID_CLASS)}>
                   {DURATIONS.map((duration) => (
-                    <Button
+                    <button
                       key={duration.value}
                       type="button"
-                      variant={
-                        durationMinutes === duration.value
-                          ? "default"
-                          : "secondary"
-                      }
                       aria-pressed={durationMinutes === duration.value}
                       onClick={() => setDurationMinutes(duration.value)}
+                      className={cn(
+                        DURATION_CELL_CLASS,
+                        durationMinutes === duration.value
+                          ? DURATION_CELL_ON_CLASS
+                          : DURATION_CELL_OFF_CLASS,
+                      )}
                     >
                       {duration.label}
-                    </Button>
+                    </button>
                   ))}
                 </div>
               </section>
@@ -1922,28 +2077,10 @@ export function NearbyCheckInSheet({
                   </span>
                 </label>
 
-                <details className="group rounded-xl bg-muted/45 px-3 py-2 text-xs leading-4 text-muted-foreground">
-                  <summary className="cursor-pointer list-none font-medium text-foreground/80">
-                    How sharing works
-                  </summary>
-                  <p className="mt-2">
-                    Your current point is sent to Google to suggest nearby
-                    places; searching may send it again to improve results. At
-                    confirmation, Hussh stores your check-in point only as
-                    short-lived encrypted data to match opted-in people within
-                    500 metres. They see your display name in their list, never
-                    your point or exact distance. It is cleared on checkout or
-                    expiry. Closing the app does not check you out.
-                  </p>
-                </details>
-
                 <div className="flex items-center justify-between gap-4 border-t border-border/60 pt-3">
                   <div>
                     <p className="text-sm font-semibold">
                       Connection requests
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Off by default.
                     </p>
                   </div>
                   <Switch
@@ -1956,7 +2093,10 @@ export function NearbyCheckInSheet({
 
               <Button
                 type="button"
-                className="h-12 w-full"
+                // Both halves, or neither lands: `h-12` alone loses to the
+                // size variant's own min-h-[50px], which is why this button has
+                // been 50px the whole time its class said 48.
+                className="h-12 min-h-12 w-full disabled:!bg-muted disabled:!text-muted-foreground disabled:!opacity-100"
                 disabled={
                   busy !== null ||
                   capturing ||

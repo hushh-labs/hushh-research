@@ -8,6 +8,7 @@ Path parameters (public_token, invite_id, grant_id) are bounded to 128 chars max
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 from datetime import datetime
 from typing import Annotated, Any
@@ -55,6 +56,8 @@ from hushh_mcp.services.scheduler_identity import (
 
 router = APIRouter(prefix="/api/one", tags=["One Location Agent"])
 
+logger = logging.getLogger(__name__)
+
 _PublicToken = Annotated[str, Path(min_length=1, max_length=128)]
 _InviteId = Annotated[str, Path(min_length=1, max_length=128)]
 _GrantId = Annotated[str, Path(min_length=1, max_length=128)]
@@ -88,7 +91,12 @@ class CreateGrantRequest(_CamelModel):
         default=None,
         alias="sourceCircleId",
     )
-    duration_hours: float = Field(alias="durationHours", gt=0, le=24)
+    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
+    duration_mode: str = Field(
+        default="timed",
+        alias="durationMode",
+        pattern="^(timed|until_stopped)$",
+    )
     reason: str | None = Field(default=None, max_length=300)
     share_kind: str | None = Field(default=None, alias="shareKind", max_length=40)
 
@@ -115,6 +123,19 @@ class AddSmsContactRequest(_CamelModel):
     recipient_user_id: str = Field(alias="recipientUserId", min_length=1, max_length=160)
 
 
+class SosEmailRecipientsRequest(_CamelModel):
+    """Which contacts One may email for a Save my Soul alert.
+
+    `grantIds` is the authorization, not a hint: only the recipients of live
+    SOS grants the caller's own account just created are returned. No
+    coordinates here — the message is rendered and sent by One, and the server
+    never sees a plaintext location (`one_location_envelopes` keeps
+    coordinates inside the ciphertext).
+    """
+
+    grant_ids: list[str] = Field(alias="grantIds", min_length=1, max_length=20)
+
+
 class StoreEnvelopeRequest(_CamelModel):
     envelope: dict[str, Any]
 
@@ -129,10 +150,51 @@ class UpdateMapPreferencesRequest(_CamelModel):
 class CreateAccessRequest(_CamelModel):
     owner_user_id: str = Field(alias="ownerUserId", min_length=1, max_length=160)
     message: str | None = Field(default=None, max_length=500)
+    # How much time the requester actually wants. Optional so an older client
+    # keeps its current behaviour (no preference -> the owner picks), and a
+    # request, never an authorization: only approve_request writes a grant.
+    requested_duration_hours: float | None = Field(
+        default=None, alias="requestedDurationHours", gt=0, le=24
+    )
+    requested_duration_mode: str | None = Field(
+        default=None,
+        alias="requestedDurationMode",
+        pattern="^(timed|until_stopped)$",
+    )
+    # The live share this ask wants lengthened. A hint the service verifies
+    # against the real grant between these two people before honouring it.
+    extends_grant_id: str | None = Field(default=None, alias="extendsGrantId", max_length=128)
 
 
 class ResolveAccessRequest(_CamelModel):
-    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=24)
+    # Both default to None so an approval with no duration means "grant what
+    # they asked for". Sending one still wins -- the owner can always give less
+    # (or more) than was asked.
+    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
+    duration_mode: str | None = Field(
+        default=None,
+        alias="durationMode",
+        pattern="^(timed|until_stopped)$",
+    )
+
+
+class ShortenGrantRequest(_CamelModel):
+    duration_hours: float = Field(alias="durationHours", gt=0, le=24)
+
+
+class SetGrantDurationRequest(_CamelModel):
+    """A new end time for a share the owner already has running.
+
+    `durationHours` is null for "until I stop", which is why it is optional
+    here and refused by the service for share kinds that may not be open-ended.
+    """
+
+    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
+    duration_mode: str = Field(
+        default="timed",
+        alias="durationMode",
+        pattern="^(timed|until_stopped)$",
+    )
 
 
 class ReferralRequest(_CamelModel):
@@ -155,18 +217,18 @@ class ClaimCircleInviteRequest(_CamelModel):
 
 
 class CreateNamedCircleRequest(_CamelModel):
-    name: str = Field(min_length=2, max_length=80)
+    name: str = Field(min_length=1, max_length=80)
     kind: str = Field(default="other", pattern="^(family|friends|other)$")
 
 
 class BootstrapNamedCircleRequest(_CamelModel):
     # No circle id and no kind: onboarding may only ever create the caller their
     # own first Circle, so there is nothing for a caller to point this at.
-    name: str = Field(min_length=2, max_length=80)
+    name: str = Field(min_length=1, max_length=80)
 
 
 class UpdateNamedCircleRequest(_CamelModel):
-    name: str | None = Field(default=None, min_length=2, max_length=80)
+    name: str | None = Field(default=None, min_length=1, max_length=80)
     kind: str | None = Field(default=None, pattern="^(family|friends|other)$")
 
 
@@ -464,6 +526,36 @@ def add_location_sms_contact(
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
+
+
+@router.post("/location/sos-email-recipients")
+def list_location_sos_email_recipients(
+    payload: SosEmailRecipientsRequest,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Resolve who One may email for a Save my Soul alert.
+
+    The push notification is the first channel and reaches nobody when a
+    contact has notifications off or the app uninstalled; email is the second.
+    One renders and sends that mail through `hushh-mail-api` — the same
+    service as every other product mail — so this endpoint only answers who is
+    reachable, and does so under the caller's own grants.
+
+    Never fails the caller: the alert has already gone out by the time this is
+    called, so a resolution problem is an empty list, not an error. An
+    exception here would make a successful emergency look like a failed one.
+    """
+    # Contact addresses in the body; never cached, never stored.
+    _set_private_no_store(response)
+    try:
+        return _service().list_sos_email_recipients(
+            owner_user_id=_user_id(token_data),
+            grant_ids=payload.grant_ids,
+        )
+    except Exception:
+        logger.warning("one.location.sos_email_recipients.route_failed", exc_info=False)
+        return {"ownerDisplayName": "", "openInOneUrl": "", "recipients": []}
 
 
 @router.delete("/location/sms-contacts/{recipient_user_id}")
@@ -1320,6 +1412,7 @@ def create_location_grant(
                 recipient_user_id=payload.recipient_user_id,
                 recipient_key_id=payload.recipient_key_id,
                 duration_hours=payload.duration_hours,
+                duration_mode=payload.duration_mode,
                 reason=payload.reason,
                 share_kind=payload.share_kind,
                 source_circle_id=(
@@ -1345,6 +1438,7 @@ def create_location_grant_with_envelope(
             recipient_user_id=payload.recipient_user_id,
             recipient_key_id=payload.recipient_key_id,
             duration_hours=payload.duration_hours,
+            duration_mode=payload.duration_mode,
             client_operation_id=payload.client_operation_id,
             confirmed_at=payload.confirmed_at,
             envelope=payload.envelope,
@@ -1387,12 +1481,22 @@ def store_location_envelope(
 @router.get("/location/grants/{grant_id}/envelope")
 def view_latest_location_envelope(
     grant_id: _GrantId,
+    allow_empty: bool = Query(
+        False,
+        description=(
+            "Treat 'grant is live but the owner has not published yet' as a "
+            "success (200 with envelope=null) instead of a 404. Opt-in so "
+            "already-shipped clients keep the legacy LOCATION_ENVELOPE_MISSING "
+            "error contract they branch on."
+        ),
+    ),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
         return _service().view_latest_envelope(
             recipient_user_id=_user_id(token_data),
             grant_id=grant_id,
+            allow_empty=allow_empty,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -1414,6 +1518,53 @@ def revoke_location_grant(
         raise _handle_error(exc) from exc
 
 
+@router.patch("/location/grants/{grant_id}/shorten")
+def shorten_location_grant(
+    grant_id: _GrantId,
+    payload: ShortenGrantRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Bring a grant's expiry earlier. Either party may call this; the
+    service rejects any attempt to move the expiry later -- extending
+    access is the owner's consent to give again, via request_access, not a
+    duration either side can hand themselves through this route."""
+    try:
+        return {
+            "grant": _service().shorten_grant(
+                caller_user_id=_user_id(token_data),
+                grant_id=grant_id,
+                duration_hours=payload.duration_hours,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/grants/{grant_id}/duration")
+def set_location_grant_duration(
+    grant_id: _GrantId,
+    payload: SetGrantDurationRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Set a new end time on a share you own, in either direction.
+
+    Owner only, and the service enforces that by matching on `owner_user_id`
+    alone. A recipient still has just `/shorten`: giving time back needs no
+    permission, taking more is the owner's to give -- and here the owner is the
+    caller, so lengthening their own share is that consent, not a bypass of it."""
+    try:
+        return {
+            "grant": _service().set_grant_duration(
+                owner_user_id=_user_id(token_data),
+                grant_id=grant_id,
+                duration_hours=payload.duration_hours,
+                duration_mode=payload.duration_mode,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.post("/location/requests")
 def request_location_access(
     payload: CreateAccessRequest,
@@ -1425,6 +1576,9 @@ def request_location_access(
                 requester_user_id=_user_id(token_data),
                 owner_user_id=payload.owner_user_id,
                 message=payload.message,
+                requested_duration_hours=payload.requested_duration_hours,
+                requested_duration_mode=payload.requested_duration_mode,
+                extends_grant_id=payload.extends_grant_id,
             )
         }
     except Exception as exc:
@@ -1442,6 +1596,7 @@ def approve_location_access_request(
             owner_user_id=_user_id(token_data),
             request_id=request_id,
             duration_hours=payload.duration_hours,
+            duration_mode=payload.duration_mode,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -1456,6 +1611,23 @@ def deny_location_access_request(
         return {
             "request": _service().deny_request(
                 owner_user_id=_user_id(token_data),
+                request_id=request_id,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/requests/{request_id}/withdraw")
+def withdraw_location_access_request(
+    request_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Take back a pending request you sent. Only the asker can call this."""
+    try:
+        return {
+            "request": _service().withdraw_request(
+                requester_user_id=_user_id(token_data),
                 request_id=request_id,
             )
         }

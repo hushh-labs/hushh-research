@@ -136,16 +136,20 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("const handleTopShellBack");
     expect(source).toContain("onClick={handleTopShellBack}");
     expect(back).toContain("resolveTopShellBreadcrumb");
-    expect(back).toContain(
-      'mode: profilePanelOpen || locationActionOpen ? "replace" : "push"',
-    );
+    // An open panel or Location action closes in place; everything else is a
+    // step in the trail and retraces.
+    expect(back).toContain("if (profilePanelOpen || locationActionOpen)");
+    expect(back).toContain('return action(breadcrumb.backHref, "replace")');
     expect(back).toContain("params.navigate(action);");
     expect(source).toContain("replace: action.mode === \"replace\"");
     expect(source).toContain('source: "tap"');
-    expect(source).toContain('transitionMode: "full"');
+    // The resolver owns whether back is a screen change or an in-place close.
+    // Both call sites pass its answer through; neither hardcodes a mode.
+    expect(back).toContain('? "contextual"');
+    expect(source).toContain("transitionMode: action.transitionMode");
     expect(edgeBack).toContain("requestInternalAppNavigation({");
     expect(edgeBack).toContain('source: "native_back"');
-    expect(edgeBack).toContain('transitionMode: "full"');
+    expect(edgeBack).toContain("transitionMode: action.transitionMode");
     expect(source).not.toContain("router.back();");
   });
 
@@ -364,5 +368,78 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("requestId: null");
     expect(source).toContain("selected: null");
     expect(source).toContain("notificationAction: null");
+  });
+
+  // The shared top bar watches the whole app scroll root for DOM mutations so
+  // it can find a late-mounting or swapped primary page header. That watcher
+  // sits on the critical path of every animating surface: One Location keeps a
+  // live map whose marker glide and Google's own tile updates mutate the DOM
+  // every frame. When the watcher re-measured on each of those mutations, the
+  // main thread stayed saturated with forced reflows and a tap on the back
+  // arrow could not be serviced promptly.
+  describe("mutation watcher stays off the animation hot path", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+    const watcher = source.slice(
+      source.indexOf("const scheduleHeaderRefresh"),
+      source.indexOf("const retryFindHeader"),
+    );
+
+    it("re-queries only when the known header actually went away", () => {
+      // A still-connected header cannot have been swapped, so the steady state
+      // must not pay for a document-wide lookup.
+      expect(watcher).toContain("if (!header?.isConnected)");
+    });
+
+    it("never runs the full measure-and-write pass straight off a mutation", () => {
+      // `refreshHeader()` re-queries AND calls updateHeaderVisibility(), which
+      // forces layout and writes custom properties on <html>. It belongs to the
+      // scroll/attach paths, never to the per-mutation path.
+      expect(watcher).not.toContain("refreshHeader()");
+    });
+
+    it("rate-limits re-measurement when the header did not change", () => {
+      // Content can still reflow the header out of view with no scroll, so this
+      // must keep tracking — just never once per animation frame.
+      expect(source).toContain("const MUTATION_RECHECK_MS = 250;");
+      expect(watcher).toContain("const previous = header;");
+      expect(watcher).toContain(
+        "if (header === previous && now - lastMutationCheckAt < MUTATION_RECHECK_MS)",
+      );
+      expect(watcher).toContain("lastMutationCheckAt = now;");
+    });
+
+    it("keeps re-querying unbounded so a closing flow restores header tracking", () => {
+      // TaskFlowHeader does not mark itself primary, so `header` is null for the
+      // whole life of a `?action=` flow. Giving up on a retry budget here would
+      // strand the hub with stale tracking when the flow closes.
+      expect(watcher).not.toContain("MAX_HEADER_RETRIES");
+      expect(watcher).not.toContain("disconnect()");
+    });
+  });
+
+  // `--top-chrome-collapse-px` feeds `--top-shell-live-height` and
+  // `--top-shell-mask-solid-height`, which route content consumes for layout.
+  // Writing it invalidates layout for the whole document, so an unchanged value
+  // must not be rewritten — this runs on every scroll frame.
+  it("writes the top-chrome custom properties only when they change", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+    const update = source.slice(
+      source.indexOf("const updateHeaderVisibility"),
+      source.indexOf("const detachListeners"),
+    );
+
+    // Measured on a 393px viewport: past ~0.75 progress the back control is no
+    // longer the element under its own coordinates, and at full collapse the
+    // row sits behind `overflow: hidden` at opacity 0. A screen whose only way
+    // back is this arrow must therefore not collapse at all.
+    expect(update).toContain("if (hasBackControlRef.current)");
+    expect(update).toContain("topChromeProgress = 0;");
+
+    expect(update).toContain("if (nextProgress !== lastWrittenProgress)");
+    expect(update).toContain("if (nextCollapsePx !== lastWrittenCollapsePx)");
+    // The bar row is measured on every call; re-querying it each time is a
+    // document-wide lookup for a node that almost never changes.
+    expect(update).toContain("if (!barRow?.isConnected)");
+    expect(update).toContain("barRow?.getBoundingClientRect().height");
   });
 });

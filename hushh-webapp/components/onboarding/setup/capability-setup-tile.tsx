@@ -71,7 +71,15 @@ export interface SetupNavigationTileProps {
   icon: OneCapabilityIcon;
   tone: OneCapabilityTone;
   statusLabel?: string;
+  /**
+   * How the trailing label reads. `required` is the mandatory step that blocks
+   * the exit: it takes the accent pill so it cannot be mistaken for the same
+   * quiet grey status every other row carries.
+   */
+  statusTone?: "muted" | "required";
   isComplete?: boolean;
+  /** Mark the row as the current step in a guided sequence. */
+  isCurrent?: boolean;
   className?: string;
 }
 
@@ -84,7 +92,9 @@ export function SetupNavigationTile({
   icon,
   tone,
   statusLabel,
+  statusTone = "muted",
   isComplete = false,
+  isCurrent = false,
   className,
 }: SetupNavigationTileProps) {
   const router = useRouter();
@@ -123,9 +133,14 @@ export function SetupNavigationTile({
       trailing={
         statusLabel ? (
           <span
+            data-setup-status-tone={statusTone}
             className={cn(
-              "text-xs font-medium",
-              isComplete ? "text-[var(--tone-green)]" : "text-muted-foreground",
+              "shrink-0 text-xs font-medium",
+              isComplete
+                ? "text-[var(--tone-green)]"
+                : statusTone === "required"
+                  ? "rounded-full bg-[var(--app-accent-tint)] px-2 py-0.5 font-semibold text-[var(--app-accent-deep)]"
+                  : "text-muted-foreground",
             )}
           >
             {statusLabel}
@@ -141,7 +156,10 @@ export function SetupNavigationTile({
         onPointerEnter={prefetchRoute}
         onFocus={prefetchRoute}
         onTouchStart={prefetchRoute}
-        aria-label={title}
+        aria-label={
+          statusLabel ? `${title}: ${statusLabel}` : title
+        }
+        aria-current={isCurrent ? "step" : undefined}
         data-href={href}
         data-voice-control-id={voiceControlId}
         className={cn(

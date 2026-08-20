@@ -8,6 +8,7 @@ import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { formatFeedTimestamp } from "@/lib/feed/feed-timestamp";
 import type {
   FeedActionButton,
   FeedActionable,
@@ -99,14 +100,48 @@ function ActionButtons({ actions }: { actions: FeedActionButton[] }) {
  * trailing buttons from nesting.
  */
 export function FeedActionableRow({ item }: { item: FeedActionable }) {
-  const description = item.spinning ? (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent animate-pulse motion-reduce:animate-none" />
-      {item.description}
+  const timeLabel =
+    item.displayTimestamp != null
+      ? formatFeedTimestamp(item.displayTimestamp)
+      : null;
+  const isLive = item.emphasis === "emergency";
+
+  const descriptionBody =
+    item.spinning || isLive ? (
+      <span className="inline-flex min-w-0 items-center gap-1.5">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "h-1.5 w-1.5 shrink-0 rounded-full animate-pulse motion-reduce:animate-none",
+            isLive ? "bg-emerald-500" : "bg-accent",
+          )}
+        />
+        <span className="truncate">{item.description}</span>
+      </span>
+    ) : (
+      <span className="min-w-0">{item.description}</span>
+    );
+
+  const description = timeLabel ? (
+    <span className="flex items-center gap-2">
+      {/* `line-clamp-1` HERE, on the flex item — not on the inline span inside
+          it. `truncate` was on that inner span, where overflow and
+          text-overflow do not apply at all (it is a non-replaced inline box),
+          so the only half of the class that survived was `white-space: nowrap`
+          — which is precisely what made the description one unbreakable line
+          that ran straight over the timestamp. The history row two files away
+          (feed-row.tsx:63) has always clamped the flex item; this is the same
+          shape, one class different. */}
+      <span className="min-w-0 flex-1 truncate">{descriptionBody}</span>
+      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+        {timeLabel}
+      </span>
     </span>
   ) : (
-    item.description
+    descriptionBody
   );
+
+  const hasActions = item.actions.length > 0;
 
   const shared = {
     icon: item.icon,
@@ -114,6 +149,14 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
     title: item.title,
     description,
     trailing: <ActionButtons actions={item.actions} />,
+    // Actions are sized to their content and carry three separate `shrink-0`s,
+    // so on a phone they take the row's width first and leave the text column
+    // at literally 0px: "Deny" + "Approve 4 hours more" is 238.5px of a 358px
+    // row. The title then wrapped one character per line — a 307px-tall row of
+    // single letters at 320px — and the description had nowhere to go.
+    // Stacking gives the text the full width and the buttons their own line.
+    // Only rows that HAVE actions stack; a chevron row is 16px and fine inline.
+    stackTrailingOnMobile: hasActions,
   } as const;
 
   const row = item.href ? (

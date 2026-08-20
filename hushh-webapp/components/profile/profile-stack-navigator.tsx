@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import { cn } from "@/lib/utils";
+
 const STACK_TRANSITION_MS = 260;
 
 export type ProfileStackEntry = {
@@ -42,28 +44,6 @@ function stackPrefixMatches(
   return true;
 }
 
-function StackHeader({
-  title,
-  description,
-}: {
-  title: ReactNode;
-  description?: ReactNode;
-}) {
-  return (
-    <div
-      className="mx-auto w-full max-w-[720px] px-[var(--page-inline-gutter-standard)] pt-[var(--page-header-section-gap)]"
-      data-profile-stack-header="true"
-    >
-      <PageHeader
-        title={title}
-        description={description}
-        accent="neutral"
-        testId="profile-stack-page-header"
-      />
-    </div>
-  );
-}
-
 export function ProfileStackNavigator({
   rootContent,
   entries,
@@ -74,7 +54,6 @@ export function ProfileStackNavigator({
   const [activeIndex, setActiveIndex] = useState(entries.length);
   const [renderedEntries, setRenderedEntries] = useState(entries);
   const pruneTimerRef = useRef<number | null>(null);
-  const scrollRegionRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   useEffect(() => {
     return () => {
@@ -131,22 +110,16 @@ export function ProfileStackNavigator({
   }, [entries, renderedEntries]);
 
   useEffect(() => {
+    // Detail content now flows into the app's own scroll root instead of a
+    // nested scroll region of its own, so pushing a new screen must reset
+    // that shared scroll position -- otherwise a detail screen mounts
+    // already scrolled to wherever the previous screen left off.
     if (typeof document === "undefined") return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow =
-      activeIndex > 0 ? "hidden" : previousOverflow;
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
+    const scrollRoot = document.querySelector<HTMLElement>(
+      '[data-app-scroll-root="true"]',
+    );
+    scrollRoot?.scrollTo({ top: 0 });
   }, [activeIndex]);
-
-  useEffect(() => {
-    if (activeIndex <= 0) return;
-    const frame = window.requestAnimationFrame(() => {
-      scrollRegionRefs.current[activeIndex]?.scrollTo({ top: 0 });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [activeIndex, renderedEntries]);
 
   const screens = [
     {
@@ -167,37 +140,58 @@ export function ProfileStackNavigator({
     }),
   ];
 
+  /* Panes are stacked in a single grid cell instead of laid out as a 100%-wide
+   * horizontal track inside a `100dvh` box.
+   *
+   * The old shape gave Profile its own viewport-height scroller nested inside
+   * the document scroll, so the page rendered two scrollbars and stranded the
+   * last rows ("Account access" → "Sign out") in a dead region under the
+   * floating Talk to One bar. Here only the active pane is in flow, so the
+   * stack is exactly as tall as the screen being shown and the document does
+   * all the scrolling — the same model every other route (One Location
+   * included) already uses. Inactive panes stay mounted so their state and
+   * in-flight data survive a push/pop; they are transparent and out of flow,
+   * so they cost no height and still slide. */
   return (
     <div
-      className="relative min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] overflow-hidden"
+      className="relative w-full overflow-x-clip"
       data-profile-stack="true"
     >
-      <div
-        className="flex h-full w-full min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] transition-transform duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
-        style={{ transform: `translateX(-${Math.max(activeIndex, 0) * 100}%)` }}
-      >
-        {screens.map((entry, index) => (
-          <section
-            key={entry.key}
-            className="flex min-h-full min-w-full w-full shrink-0 flex-col overflow-x-hidden"
-            data-profile-stack-screen={entry.key}
-          >
-            {entry.isRoot ? (
-              <div className="flex min-h-full flex-1 flex-col">
-                {entry.content}
-              </div>
-            ) : entry.presentation === "account" ? (
-              <div
-                ref={(node) => {
-                  scrollRegionRefs.current[index] = node;
-                }}
-                data-profile-stack-scroll="true"
-                className="flex-1 overflow-y-auto overflow-x-hidden"
-              >
+      <div className="grid w-full grid-cols-1 [grid-template-areas:'stack']">
+        {screens.map((entry, index) => {
+          const offset = index - Math.max(activeIndex, 0);
+          const isActive = offset === 0;
+          return (
+            <section
+              key={entry.key}
+              className={cn(
+                "w-full min-w-0 [grid-area:stack] transition-[transform,opacity] duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+                isActive
+                  ? "relative z-10 opacity-100"
+                  : "pointer-events-none absolute inset-x-0 top-0 opacity-0",
+              )}
+              style={{ transform: `translateX(${offset * 100}%)` }}
+              aria-hidden={isActive ? undefined : true}
+              data-profile-stack-screen={entry.key}
+              data-profile-stack-active={isActive ? "true" : undefined}
+            >
+              {entry.isRoot ? (
+                entry.content
+              ) : (
                 <div
-                    className="mx-auto flex w-full max-w-[720px] flex-col px-[var(--page-inline-gutter-standard)] pb-[var(--app-bottom-content-clearance)] pt-0"
                   data-profile-stack-content="true"
+                  /* A reading gap, not a reserve for the fixed bottom bars.
+                   * This sits inside the scroll root, which already reserves
+                   * them — see --app-page-content-bottom-gap. It used to carry
+                   * --app-bottom-content-clearance, a second full copy of that
+                   * band, on top of the one .app-page-shell was also adding. */
+                  className="mx-auto flex w-full max-w-[720px] flex-col gap-[var(--page-header-section-gap)] px-[var(--page-inline-gutter-standard)] pb-[var(--app-page-content-bottom-gap)] pt-[var(--page-header-section-gap)]"
                 >
+                  <PageHeader
+                    title={entry.title}
+                    description={entry.description}
+                    testId="profile-stack-page-header"
+                  />
                   <SettingsPresentationProvider
                     separatorInset
                     density="compact"
@@ -205,36 +199,10 @@ export function ProfileStackNavigator({
                     {entry.content}
                   </SettingsPresentationProvider>
                 </div>
-              </div>
-            ) : (
-              <>
-                <StackHeader
-                  title={entry.title}
-                  description={entry.description}
-                />
-                <div
-                  ref={(node) => {
-                    scrollRegionRefs.current[index] = node;
-                  }}
-                  data-profile-stack-scroll="true"
-                  className="flex-1 overflow-y-auto overflow-x-hidden"
-                >
-                  <div
-                    className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-[var(--app-bottom-content-clearance)] pt-3"
-                    data-profile-stack-content="true"
-                  >
-                    <SettingsPresentationProvider
-                      separatorInset
-                      density="compact"
-                    >
-                      {entry.content}
-                    </SettingsPresentationProvider>
-                  </div>
-                </div>
-              </>
-            )}
-          </section>
-        ))}
+              )}
+            </section>
+          );
+        })}
       </div>
     </div>
   );

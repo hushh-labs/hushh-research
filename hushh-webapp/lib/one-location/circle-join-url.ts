@@ -22,6 +22,52 @@ export function formatCircleCodeForDisplay(raw: string): string {
   return normalized.replace(/(.{4})(?=.)/g, "$1-");
 }
 
+const WEB_ORIGIN = /^https?:\/\//i;
+const LOOPBACK_HOST = /^(localhost|127\.0\.0\.1|\[::1\])$/i;
+
+/**
+ * An origin only counts if the person receiving the invite could open it.
+ *
+ * That rules out Capacitor's two runtime origins -- `App://localhost` on iOS
+ * (rejected on scheme) and `https://localhost` on Android (rejected on host,
+ * since it passes an http(s) check but resolves to the recipient's own device).
+ */
+function normalizeWebOrigin(value: string | null | undefined): string | null {
+  const trimmed = String(value || "")
+    .trim()
+    .replace(/\/+$/, "");
+  if (!WEB_ORIGIN.test(trimmed)) return null;
+  try {
+    return LOOPBACK_HOST.test(new URL(trimmed).hostname) ? null : trimmed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The origin a shared join link must point at.
+ *
+ * Capacitor does not serve the installed app from a web origin: iOS runs on the
+ * custom `App://localhost` scheme (`ios.scheme` in capacitor.config.ts) and
+ * Android on `https://localhost`. Sharing `window.location.origin` from a device
+ * therefore delivered `App://localhost/circle/join?code=...` -- a link that is
+ * dead for whoever receives it, which is why the invite only ever worked when
+ * shared from a browser.
+ *
+ * The live origin still wins on the web so a UAT invite keeps pointing at UAT.
+ * Only when it is not a real web origin do we fall back to the origin baked into
+ * the build (NEXT_PUBLIC_APP_URL, set by the TestFlight/App Store/Play
+ * workflows). Returns null when neither is usable, which makes callers share the
+ * code on its own rather than a broken link.
+ */
+export function resolveCircleJoinOrigin(): string | null {
+  const live =
+    typeof window === "undefined"
+      ? null
+      : normalizeWebOrigin(window.location?.origin);
+  return live ?? normalizeWebOrigin(process.env.NEXT_PUBLIC_APP_URL);
+}
+
 export function buildCircleJoinUrl(origin: string, code: string): string {
   const base = String(origin || "").replace(/\/+$/, "");
   const trimmedCode = String(code || "").trim();

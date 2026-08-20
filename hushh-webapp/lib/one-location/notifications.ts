@@ -2,6 +2,11 @@
 
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import {
+  describeLocationAsk,
+  formatLocationDurationLabel,
+  locationAskFacts,
+} from "@/lib/one-location/duration-copy";
 
 export const ONE_LOCATION_GRANT_OPENED_EVENT =
   "hushh:one-location-grant-opened";
@@ -35,9 +40,12 @@ export type OneLocationWorkflowNotificationType =
   | "location_share_created"
   | "location_access_approved"
   | "location_share_revoked"
+  | "location_share_shortened"
+  | "location_share_duration_changed"
   | "location_share_expired"
   | "location_access_request"
   | "location_access_denied"
+  | "location_access_request_withdrawn"
   | "location_referral_invite"
   | "location_public_invite_submitted"
   | "location_one_network_joined"
@@ -68,6 +76,16 @@ const WORKFLOW_COPY: Record<
     title: "Location access removed",
     fallbackDescription: "Location access from a trusted person was removed.",
   },
+  location_share_shortened: {
+    title: "Location access shortened",
+    fallbackDescription: "A location share's remaining time was shortened.",
+  },
+  location_share_duration_changed: {
+    // One entry for both directions, because one event type carries both. The
+    // per-person line below names which way it went.
+    title: "Sharing time changed",
+    fallbackDescription: "A location share's end time changed.",
+  },
   location_share_expired: {
     title: "Location access expired",
     fallbackDescription: "A location share reached its expiry time.",
@@ -79,6 +97,10 @@ const WORKFLOW_COPY: Record<
   location_access_denied: {
     title: "Location request denied",
     fallbackDescription: "Your location request was denied.",
+  },
+  location_access_request_withdrawn: {
+    title: "Location request taken back",
+    fallbackDescription: "Someone took back their location request.",
   },
   location_referral_invite: {
     title: "Location referral pending",
@@ -422,9 +444,14 @@ export function oneLocationSectionForWorkflowNotificationType(
     case "location_share_created":
     case "location_access_approved":
     case "location_share_revoked":
+    case "location_share_shortened":
+    case "location_share_duration_changed":
     case "location_share_expired":
       return "shared";
     case "location_access_request":
+    // Goes to the same list the ask itself did. The card there is the thing
+    // that just disappeared, so that is where the owner needs to land.
+    case "location_access_request_withdrawn":
       return "approvals";
     case "location_access_denied":
       return "my_requests";
@@ -565,6 +592,22 @@ export function locationWorkflowNotificationCopy(params: {
   referringLabel?: string | null;
   visitorLabel?: string | null;
   networkLabel?: string | null;
+  /**
+   * The ask, when this notification is about one. Without these an access
+   * request reads "Someone is asking to view your location" whether they want
+   * fifteen minutes or a day, and an approval reads "approved" without ever
+   * telling the person who asked which number they were given.
+   */
+  requestedDurationHours?: number | string | null;
+  requestedDurationMode?: string | null;
+  isExtension?: boolean;
+  /** Expiry of the share being extended, for "they have 45 more min left". */
+  extendsGrantExpiresAt?: string | null;
+  /** The duration actually granted, for approval copy. */
+  grantedDurationHours?: number | string | null;
+  grantedDurationMode?: string | null;
+  /** Clock injected so a list of notifications agrees on "now". */
+  nowMs?: number;
 }): { title: string; description: string } {
   const copy = WORKFLOW_COPY[params.type];
   const ownerLabel = privacySafeOneLocationNotificationLabel(params.ownerLabel);
@@ -582,10 +625,46 @@ export function locationWorkflowNotificationCopy(params: {
   const networkLabel = privacySafeOneLocationNotificationLabel(
     params.networkLabel,
   );
+  const nowMs = params.nowMs ?? Date.now();
+  const askFacts = locationAskFacts(
+    {
+      requestedDurationHours:
+        params.requestedDurationHours === null ||
+        params.requestedDurationHours === undefined
+          ? null
+          : Number(params.requestedDurationHours),
+      requestedDurationMode: params.requestedDurationMode ?? null,
+      isExtension: params.isExtension,
+      extendsGrantExpiresAt: params.extendsGrantExpiresAt ?? null,
+    },
+    nowMs,
+  );
+  const grantedLabel =
+    params.grantedDurationMode === "until_stopped"
+      ? "for as long as you need"
+      : formatLocationDurationLabel(params.grantedDurationHours);
 
   switch (params.type) {
     case "location_share_created":
+      return {
+        title: copy.title,
+        description: locationShareNotificationDescription(ownerLabel),
+      };
     case "location_access_approved":
+      // Name the number. "Approved" alone left the person who asked for four
+      // hours with no way to learn they had been given one until it ran out.
+      if (grantedLabel && askFacts.isExtension) {
+        return {
+          title: "More location time approved",
+          description: `${ownerLabel} gave you ${grantedLabel} more of their live location.`,
+        };
+      }
+      if (grantedLabel) {
+        return {
+          title: copy.title,
+          description: `${ownerLabel} shared their live location with you ${grantedLabel}.`,
+        };
+      }
       return {
         title: copy.title,
         description: locationShareNotificationDescription(ownerLabel),
@@ -595,6 +674,20 @@ export function locationWorkflowNotificationCopy(params: {
         title: copy.title,
         description: `${ownerLabel} removed your location access.`,
       };
+    case "location_share_shortened":
+      return {
+        title: copy.title,
+        description: `${ownerLabel} shortened your location access.`,
+      };
+    case "location_share_duration_changed":
+      return {
+        title: copy.title,
+        // Deliberately not "gave you more time" / "shortened": which way it
+        // went lives in the event metadata, and this list is built from the
+        // notification alone. Naming the wrong direction is worse than naming
+        // none, and the share itself is one tap away with the real end time.
+        description: `${ownerLabel} changed the end time.`,
+      };
     case "location_share_expired":
       return {
         title: copy.title,
@@ -602,13 +695,28 @@ export function locationWorkflowNotificationCopy(params: {
       };
     case "location_access_request":
       return {
-        title: copy.title,
-        description: `${requesterLabel} is asking to view your location.`,
+        title: askFacts.isExtension
+          ? "More location time requested"
+          : copy.title,
+        description: `${requesterLabel} ${describeLocationAsk(askFacts)}`,
       };
     case "location_access_denied":
+      // A refused extension has to say the access already held is untouched.
+      // Read as a bare "denied", it looks like everything just stopped.
+      if (askFacts.isExtension) {
+        return {
+          title: "Extra time declined",
+          description: `${ownerLabel} declined the extra time. Any access you already have is unchanged.`,
+        };
+      }
       return {
         title: copy.title,
         description: `${ownerLabel} denied your location request.`,
+      };
+    case "location_access_request_withdrawn":
+      return {
+        title: copy.title,
+        description: `${requesterLabel} took back their location request.`,
       };
     case "location_referral_invite":
       return {

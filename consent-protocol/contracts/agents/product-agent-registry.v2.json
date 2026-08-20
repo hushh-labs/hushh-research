@@ -1019,7 +1019,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "2360dad3a8262808f4dbf91848ee7ae7144773f09bd007f4baf057d847be7083",
+      "system_instruction_sha256": "61fe62b269c02c1c33dd555e2195cd228a91784f95f27618391ba9feac91f478",
       "telemetry_namespace": "agent.unclassified",
       "tools": [
         {

@@ -218,22 +218,21 @@ describe("flag OFF — onboarding is unchanged", () => {
     delete process.env[FLAG];
   });
 
-  it("goes straight from Finish setup to the vault invitation", async () => {
+  it("goes straight from Finish setup to the lock step, no screen in between", async () => {
+    // Main removed the invitation interstitial on purpose: Finish setup opens
+    // the lock dialog itself, and the reassurance copy lives on the lock step's
+    // own first screen. With the local-first flag off, none of the story
+    // screens may appear either.
     render(<OneSetupHub />);
 
     fireEvent.click(screen.getByTestId("one-setup-master-ack"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("one-setup-vault-invitation")).toBeTruthy();
+      expect(screen.getByTestId("vault-unlock-dialog")).toBeTruthy();
     });
     expect(screen.queryByTestId("one-setup-guided-connection")).toBeNull();
     expect(screen.queryByTestId("one-setup-vault-explainer")).toBeNull();
     expect(migrateOnboardingBufferMock).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByTestId("one-setup-vault-invitation-open"));
-    await waitFor(() => {
-      expect(screen.getByTestId("vault-unlock-dialog")).toBeTruthy();
-    });
   });
 
   it("routes home on vault success without running any migration", async () => {

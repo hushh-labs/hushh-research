@@ -389,7 +389,7 @@ function shouldPrioritizeConsentRealtime(pathname: string): boolean {
     normalized.startsWith("/agent") ||
     normalized.startsWith(ROUTES.CONSENTS) ||
     normalized.startsWith(ROUTES.LEGACY_CONSENTS) ||
-    normalized.startsWith("/one/profile") ||
+    normalized.startsWith("/one") ||
     normalized.startsWith("/ria")
   );
 }
@@ -418,6 +418,7 @@ function isOneLocationWorkflowNotificationType(
     value === "location_share_created" ||
     value === "location_access_approved" ||
     value === "location_share_revoked" ||
+    value === "location_share_shortened" ||
     value === "location_share_expired" ||
     value === "location_access_request" ||
     value === "location_access_denied" ||
@@ -466,7 +467,7 @@ function oneLocationNetworkLabel(data: Record<string, string>): string {
 }
 
 function oneLocationNotificationId(data: Record<string, string>): string {
-  return (
+  const base =
     String(data.grant_id || "").trim() ||
     String(data.approved_grant_id || "").trim() ||
     String(data.request_id || "").trim() ||
@@ -474,8 +475,14 @@ function oneLocationNotificationId(data: Record<string, string>): string {
     String(data.referral_id || "").trim() ||
     String(data.connection_id || "").trim() ||
     String(data.invite_id || "").trim() ||
-    String(data.notification_tag || "").trim()
-  );
+    String(data.notification_tag || "").trim();
+  // A still-pending request whose ask CHANGED is a new event on the same row.
+  // De-dup is keyed by (type, id) and persists in localStorage, so without the
+  // revision somebody who asked for an hour and then for four would have the
+  // second ask swallowed — and the owner would be left approving the first
+  // number, having never been told it moved.
+  const revision = String(data.notification_revision || "").trim();
+  return base && revision && revision !== "1" ? `${base}#${revision}` : base;
 }
 
 /**
@@ -898,6 +905,16 @@ export function ConsentNotificationProvider({
         referringLabel: oneLocationReferringLabel(data),
         visitorLabel: oneLocationVisitorLabel(data),
         networkLabel: oneLocationNetworkLabel(data),
+        // How much time the ask is about. Both delivery paths carry these —
+        // the FCM payload from the service, and the reconciliation payload
+        // built from state — so the popup names the same number the feed and
+        // the approvals card do.
+        requestedDurationHours: data.requested_duration_hours || null,
+        requestedDurationMode: data.requested_duration_mode || null,
+        isExtension: String(data.is_extension || "").trim() === "true",
+        extendsGrantExpiresAt: data.extends_grant_expires_at || null,
+        grantedDurationHours: data.duration_hours || null,
+        grantedDurationMode: data.duration_mode || null,
       });
       const copy = {
         title:
@@ -1187,11 +1204,13 @@ export function ConsentNotificationProvider({
                 .trim()
                 .toUpperCase();
               const type =
-                normalizedAction === "REQUESTED"
-                  ? "consent_request"
-                  : normalizedAction === "NOTIFICATION_OPENED"
-                    ? "consent_opened"
-                    : "consent_resolved";
+                payload.type === "connection_request"
+                  ? "connection_request"
+                  : normalizedAction === "REQUESTED"
+                    ? "consent_request"
+                    : normalizedAction === "NOTIFICATION_OPENED"
+                      ? "consent_opened"
+                      : "consent_resolved";
               window.dispatchEvent(
                 new CustomEvent(FCM_MESSAGE_EVENT, {
                   detail: {
@@ -1533,6 +1552,39 @@ export function ConsentNotificationProvider({
           source: "fcm_connection_request",
           reconcile: true,
         });
+
+        // Interactive top-center toast banner for connection request
+        const toastKey = `connection_request:${data.requester_user_id || "new"}`;
+        if (!toastedIdsRef.current.has(toastKey)) {
+          toastedIdsRef.current.add(toastKey);
+          toast(
+            <div className="flex flex-col gap-2">
+              <div className="space-y-0.5">
+                <p className="line-clamp-1 text-sm font-semibold">New Connection Request</p>
+                <p className="line-clamp-1 text-xs text-muted-foreground">
+                  {data.requester_label || "Someone"} wants to connect with you on hushh.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    toast.dismiss(toastKey);
+                    router.push("/one/consent?tab=connections", { scroll: false });
+                  }}
+                  className="px-4 py-2 bg-foreground text-background text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  View Request
+                </button>
+              </div>
+            </div>,
+            {
+              id: toastKey,
+              duration: 8000,
+              position: "top-center",
+            },
+          );
+        }
       }
     };
 
@@ -1542,6 +1594,7 @@ export function ConsentNotificationProvider({
   }, [
     isNativePlatform,
     isVaultUnlocked,
+    router,
     showConsentToast,
     showOneLocationWorkflowNotification,
     user?.uid,

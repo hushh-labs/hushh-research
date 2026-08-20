@@ -8,7 +8,6 @@ import {
   Loader2,
   MapPin,
   Pencil,
-  Plus,
   RefreshCw,
   ShieldCheck,
   Trash2,
@@ -40,22 +39,25 @@ import {
 } from "@/lib/one-location/saved-location-address";
 
 import { readOneLocationControlState } from "@/lib/one-location/location-control-state";
+import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
-import { SUBCARD_SURFACE } from "@/components/one-location/redesign/tokens";
 
 function CategoryIcon({ category }: { category: SavedLocationCategory }) {
   const Icon =
     category === "home" ? Home : category === "work" ? Briefcase : MapPin;
+  // Home keeps the location accent this product uses for every place
+  // affordance. Work and Other share the neutral icon tile: a saved place has
+  // no state to report, and "other" was previously painted the success green,
+  // which claimed a status that a bookmark can neither reach nor fail. The
+  // three categories stay distinguishable by their glyphs, as before.
   const tone =
     category === "home"
-      ? "bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]/15"
-      : category === "work"
-        ? "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]"
-        : "bg-[color:var(--app-success)]/12 text-[color:var(--app-success)] dark:bg-[color:var(--app-success)]/15";
+      ? cn(SEMANTIC_ROLE_CLASSES.action.tile, SEMANTIC_ROLE_CLASSES.action.glyph)
+      : "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]";
   return (
     <span
       className={cn(
@@ -571,26 +573,24 @@ export function SavedLocationsSection() {
         className="w-full min-w-0"
         data-testid="settings-saved-locations"
       >
-        <div className="mb-2.5 flex items-center justify-between gap-3 px-1">
-          <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
-            Saved Locations
+        <div className="mb-3 flex items-baseline justify-between gap-3 px-[2px]">
+          <p className="text-[13px] font-normal leading-[17px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
+            Places
           </p>
           <button
             type="button"
             onClick={() => void handleAdd()}
             disabled={!hasVaultAccess || locationControl.paused || capturing}
-            className="press-scale inline-flex h-8 items-center gap-1.5 rounded-full bg-[color:var(--app-accent)]/12 px-3 text-[13px] font-semibold text-[color:var(--app-accent)] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
+            className="press-scale relative inline-flex h-auto min-h-0 items-center gap-1.5 rounded-none px-0 text-[16px] font-normal leading-[21px] tracking-[-0.3px] text-[color:var(--app-accent)] transition-opacity after:absolute after:-inset-x-3 after:-inset-y-3 after:content-[''] disabled:cursor-not-allowed disabled:opacity-45 sm:text-[15px] sm:leading-[19px] sm:tracking-[-0.24px]"
           >
             {capturing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-            ) : (
-              <Plus className="h-3.5 w-3.5" aria-hidden />
-            )}
+            ) : null}
             Add place
           </button>
         </div>
 
-        <div className={cn("overflow-hidden", SUBCARD_SURFACE)}>
+        <div className="overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]">
           {!hasVaultAccess ? (
             <div className="flex min-h-[60px] items-center gap-3.5 p-3.5">
               <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]">
@@ -628,15 +628,12 @@ export function SavedLocationsSection() {
               </button>
             </div>
           ) : locations.length === 0 ? (
-            <div className="flex min-h-[60px] items-center gap-3.5 p-3.5">
-              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]">
-                <MapPin className="h-[17px] w-[17px]" aria-hidden="true" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[17px] font-normal leading-[22px] text-foreground">
-                  No saved places yet
+            <div className="flex min-h-[110px] items-center justify-center p-5 text-center sm:min-h-[119px]">
+              <div>
+                <p className="text-[17px] font-semibold leading-[22px] tracking-[-0.3px] text-[color:var(--app-secondary-label)]">
+                  No places yet
                 </p>
-                <p className="mt-0.5 text-[15px] leading-5 text-muted-foreground">
+                <p className="sr-only">
                   Add Home, Work, or another place to see it here.
                 </p>
               </div>
@@ -745,7 +742,8 @@ export function SavedLocationsSection() {
           )}
         </div>
         {hasVaultAccess ? (
-          <p className="mt-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
+          <p className="mt-[22px] flex items-center gap-2 px-1 text-[13px] leading-[18px] text-muted-foreground sm:mt-6">
+            <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
             {locationControl.paused
               ? "Resume Location to save another place."
               : "Encrypted in your vault."}
@@ -774,6 +772,12 @@ export function SavedLocationsSection() {
         collectAddressDetails
         startWithMapPicker
         initialCategory={editingLocation?.category ?? null}
+        // Excluding the place being edited: its own label is still free to it.
+        existingLocations={
+          editingLocation
+            ? locations.filter((location) => location.id !== editingLocation.id)
+            : locations
+        }
 
         initialCustomLabel={
           editingLocation?.category === "other" ? editingLocation.label : null

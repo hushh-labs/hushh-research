@@ -10,6 +10,7 @@ describe("top shell back action", () => {
     expect(resolveTopShellBackAction({ pathname: "/ria/onboarding" })).toEqual({
       href: "/one",
       mode: "push",
+      transitionMode: "full",
     });
   });
 
@@ -36,12 +37,16 @@ describe("top shell back action", () => {
       pathname: "/one/profile",
       searchParams: new URLSearchParams("from=/one/location"),
     });
-    expect(action).toEqual({ href: "/one/location", mode: "push" });
+    expect(action).toEqual({
+      href: "/one/location",
+      mode: "push",
+      transitionMode: "full",
+    });
 
     // No origin → historic default (One dashboard).
     expect(
       resolveTopShellBackAction({ pathname: "/one/profile" }),
-    ).toEqual({ href: "/one", mode: "push" });
+    ).toEqual({ href: "/one", mode: "push", transitionMode: "full" });
   });
 
   it("returns the resolved action to the shared transition owner", () => {
@@ -54,8 +59,37 @@ describe("top shell back action", () => {
       }),
     ).toBe(true);
     expect(navigate).toHaveBeenCalledWith({
-      href: "/one/location",
+      href: "/one/location?view=now",
       mode: "replace",
+      transitionMode: "contextual",
     });
+  });
+
+  it("commits a same-screen back in place and only crossfades a real screen change", () => {
+    // Every Location flow closes back onto /one/location — the same screen with
+    // a different query. Crossfading it cost a 300ms exit beat before the
+    // router was called, and any navigation arriving inside that window
+    // superseded the back and dropped it.
+    expect(
+      resolveTopShellBackAction({
+        pathname: "/one/location",
+        searchParams: new URLSearchParams("action=needs-review"),
+      }),
+    ).toMatchObject({
+      href: "/one/location?view=now",
+      transitionMode: "contextual",
+    });
+
+    expect(
+      resolveTopShellBackAction({
+        pathname: "/one/profile",
+        searchParams: new URLSearchParams("panel=security"),
+      }),
+    ).toMatchObject({ href: "/one/profile", transitionMode: "contextual" });
+
+    // Your Map is a different route, so it keeps the full crossfade.
+    expect(
+      resolveTopShellBackAction({ pathname: "/one/location/map" }),
+    ).toMatchObject({ href: "/one/location", transitionMode: "full" });
   });
 });

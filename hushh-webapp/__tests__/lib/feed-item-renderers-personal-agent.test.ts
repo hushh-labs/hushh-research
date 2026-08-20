@@ -70,7 +70,10 @@ function item(eventType: string, metadata: Record<string, unknown> = {}): FeedIt
   };
 }
 
-const GENERIC_FALLBACK = "Something happened in your account.";
+// Main's deliberate change: no pretend explanation for an event this build has
+// no line for — an empty description beats copy that reads like a bug. The row
+// still labels itself "Activity".
+const GENERIC_FALLBACK = "";
 
 describe("private-agent feed vocabulary parity", () => {
   it("the frontend list matches the backend's own constants exactly", () => {

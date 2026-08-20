@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/hooks/use-auth";
-import { FEED_STATE_CHANGED_EVENT } from "@/lib/feed/feed-events";
+import {
+  FEED_STATE_CHANGED_EVENT,
+  feedStateChangeReason,
+} from "@/lib/feed/feed-events";
+import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
+import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { FeedService } from "@/lib/services/feed-service";
-
-const POLL_INTERVAL_MS = 45_000;
 
 /**
  * Returns `null` until the count has resolved. Consumers must treat that as
@@ -16,15 +19,11 @@ const POLL_INTERVAL_MS = 45_000;
 export function useFeedUnreadCount(): number | null {
   const { user } = useAuth();
   const [count, setCount] = useState<number | null>(null);
+  const cancelledRef = useRef(false);
 
-  useEffect(() => {
-    if (!user?.uid) {
-      setCount(null);
-      return;
-    }
-    let cancelled = false;
-
-    const load = async (force = false) => {
+  const load = useCallback(
+    async (force = false) => {
+      if (!user?.uid) return;
       try {
         const idToken = await user.getIdToken();
         const next = await FeedService.unreadCount({
@@ -32,24 +31,56 @@ export function useFeedUnreadCount(): number | null {
           userId: user.uid,
           force,
         });
-        if (!cancelled) setCount(next);
+        if (!cancelledRef.current) setCount(next);
       } catch {
         // Unread count is presentation-only; a transient failure just keeps
         // the last known value instead of surfacing an error state.
       }
-    };
+    },
+    [user],
+  );
 
+  useEffect(() => {
+    cancelledRef.current = false;
+    if (!user?.uid) {
+      setCount(null);
+      return;
+    }
     void load();
-    const interval = setInterval(() => void load(true), POLL_INTERVAL_MS);
-    const handleStateChanged = () => void load(true);
-    window.addEventListener(FEED_STATE_CHANGED_EVENT, handleStateChanged);
-
     return () => {
-      cancelled = true;
-      clearInterval(interval);
-      window.removeEventListener(FEED_STATE_CHANGED_EVENT, handleStateChanged);
+      cancelledRef.current = true;
     };
-  }, [user]);
+  }, [user, load]);
+
+  // Shares the Feed's live signal rather than keeping a private timer, so the
+  // badge and the Feed list re-check on the same tick and cannot drift into
+  // saying different things about the same unread rows.
+  useFeedLiveRefresh(
+    useCallback(() => void load(true), [load]),
+    Boolean(user?.uid),
+  );
+
+  // The badge additionally recounts on a read-only change — that shared signal
+  // skips those, precisely so a list does not re-fetch rows it just marked read.
+  // For the badge it is the whole point: it is the number that has to drop.
+  useEffect(() => {
+    if (!user?.uid) return;
+    const recount = (event: Event) => {
+      const reason = feedStateChangeReason(event);
+      if (reason === "read") {
+        const cached = CacheService.getInstance().get<number>(
+          CACHE_KEYS.FEED_UNREAD_COUNT(user.uid),
+        );
+        if (cached != null) {
+          setCount(cached);
+          return;
+        }
+      }
+      void load(true);
+    };
+    window.addEventListener(FEED_STATE_CHANGED_EVENT, recount);
+    return () => window.removeEventListener(FEED_STATE_CHANGED_EVENT, recount);
+  }, [user?.uid, load]);
 
   return count;
 }

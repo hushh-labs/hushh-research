@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -15,6 +15,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
+import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   CACHE_KEYS,
@@ -22,6 +23,10 @@ import {
   CacheService,
 } from "@/lib/services/cache-service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import {
+  locationApproveActionLabel,
+  locationAskPromptLine,
+} from "@/lib/one-location/duration-copy";
 import {
   DebateRunManagerService,
   type DebateRunTask,
@@ -49,11 +54,6 @@ import {
   locationConsentSummary,
 } from "@/lib/consent/location-consent";
 import { OneLocationService } from "@/lib/one-location/service";
-import {
-  RECIPIENT_KEY_UNAVAILABLE_MESSAGE,
-  decryptLocationEnvelope,
-  ensureVaultSyncedRecipientKey,
-} from "@/lib/one-location/encryption";
 import type {
   OneLocationAccessRequest,
   OneLocationCircleMemberInvite,
@@ -104,6 +104,15 @@ export interface FeedActionable {
   actions: FeedActionButton[];
   sortAt: number;
   /**
+   * Real-world instant to render as the row's "Today - 3:45 PM" label.
+   * Distinct from `sortAt` (which falls back to when the row was first seen so
+   * ordering never breaks) — null/absent exactly when there is no real
+   * timestamp to show the user (a consent entry with no `issued_at`, or any
+   * connection request, whose payload carries no timestamp at all).
+   * `FeedActionableRow` omits the label entirely rather than fabricating one.
+   */
+  displayTimestamp?: number | null;
+  /**
    * High-priority visual treatment. "emergency" rows (an incoming SMS · Save My
    * Soul alert) render with prominent red styling and sort above everything else.
    */
@@ -114,12 +123,30 @@ export interface UseFeedActionablesResult {
   actionables: FeedActionable[];
   count: number;
   loading: boolean;
+  /** A revoked/expired SOS card is sitting in `actionables` with nothing left
+   * to act on — only the Feed page's existing Clear button can remove it. */
+  hasClearableSmsEmergencies: boolean;
+  /** Dismisses every revoked/expired SOS card currently shown. Wired into the
+   * Feed page's existing Clear button so it clears SOS notifications too. */
+  clearSmsEmergencies: () => void;
 }
 
 function toTimestamp(value?: string | number | null): number {
   if (value == null) return 0;
   const ts = new Date(value).getTime();
   return Number.isFinite(ts) ? ts : 0;
+}
+
+/**
+ * Same idea as `toTimestamp` but yields `null` (not `0`) when there is no
+ * source value or it doesn't parse — used for `displayTimestamp`, where the
+ * absence of a real instant must suppress the row's time label rather than
+ * silently rendering an epoch-zero date.
+ */
+function toDisplayTimestamp(value?: string | number | null): number | null {
+  if (value == null) return null;
+  const ts = toTimestamp(value);
+  return ts > 0 ? ts : null;
 }
 
 function consentSummary(entry: ConsentCenterEntry): string {
@@ -166,6 +193,45 @@ export function isActiveSmsEmergencyGrant(grant: OneLocationGrant): boolean {
   return grant.status === "active" && grant.shareKind === "sos";
 }
 
+/**
+ * Any SOS grant a contact ever sent, live or revoked. Unlike
+ * `isActiveSmsEmergencyGrant`, this keeps a revoked/expired SOS in the "Needs
+ * you" feed as a historical alert instead of silently dropping it the instant
+ * the sender cancels — a safety event must stay visible until the recipient
+ * explicitly clears it.
+ */
+export function isSmsEmergencyGrant(grant: OneLocationGrant): boolean {
+  return grant.shareKind === "sos";
+}
+
+const SMS_EMERGENCY_DISMISSED_STORAGE_PREFIX = "hushh:feed-sms-dismissed:";
+
+function readDismissedSmsEmergencyIds(userId: string): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(
+      `${SMS_EMERGENCY_DISMISSED_STORAGE_PREFIX}${userId}`,
+    );
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((id): id is string => typeof id === "string"))
+      : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function writeDismissedSmsEmergencyIds(userId: string, ids: Set<string>): void {
+  try {
+    window.localStorage.setItem(
+      `${SMS_EMERGENCY_DISMISSED_STORAGE_PREFIX}${userId}`,
+      JSON.stringify([...ids]),
+    );
+  } catch {
+    // Storage disabled — the dismiss still applies for this session via state.
+  }
+}
+
 export function notifyFeedActionResolved(): void {
   dispatchConsentStateChanged({ source: "feed_actionable" });
   dispatchFeedStateChanged();
@@ -174,12 +240,23 @@ export function notifyFeedActionResolved(): void {
 export function useFeedActionables(): UseFeedActionablesResult {
   const router = useRouter();
   const { user } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
+  const { vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
-  const [smsEmergencyAddresses, setSmsEmergencyAddresses] = useState<
-    Record<string, string>
-  >({});
+  const [dismissedSmsEmergencyIds, setDismissedSmsEmergencyIds] = useState<
+    Set<string>
+  >(() => new Set());
   const cache = useMemo(() => CacheService.getInstance(), []);
+
+  // Revoked/expired SOS cards stay in the feed as a historical alert until the
+  // recipient explicitly clears them (see the Clear action below); the
+  // per-user dismissal set persists to localStorage so it survives refreshes.
+  useEffect(() => {
+    if (!userId) {
+      setDismissedSmsEmergencyIds(new Set());
+      return;
+    }
+    setDismissedSmsEmergencyIds(readDismissedSmsEmergencyIds(userId));
+  }, [userId]);
 
   // ── Debate + background-task live stores (in-memory, synchronous) ──
   const [debateState, setDebateState] = useState(() =>
@@ -209,14 +286,17 @@ export function useFeedActionables(): UseFeedActionablesResult {
       : "consent_center_summary_guest",
     refreshKey: `one:consents:${consentTick}`,
     enabled: Boolean(userId),
-    load: async () => {
+    // `options.force` is honoured alongside the mutation tick: the consent
+    // services keep their own caches, so a live refresh that dropped the flag
+    // would re-read the same cached page it was trying to move past.
+    load: async (options) => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) throw new Error("Sign in to review consents");
       return ConsentCenterService.getSummary({
         idToken,
         userId: user.uid,
         mode: "consents",
-        force: consentTick > 0,
+        force: consentTick > 0 || Boolean(options?.force),
       });
     },
   });
@@ -236,7 +316,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
       : "consent_center_list_guest",
     refreshKey: `one:consents:${consentTick}:${pendingConsentCount ?? "?"}`,
     enabled: Boolean(userId) && (pendingConsentCount ?? 0) > 0,
-    load: async () => {
+    load: async (options) => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) throw new Error("Sign in to review consents");
       return ConsentCenterService.listEntries({
@@ -246,7 +326,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
         surface: "pending",
         page: 1,
         limit: CONSENT_CENTER_PAGE_SIZE,
-        force: consentTick > 0,
+        force: consentTick > 0 || Boolean(options?.force),
       });
     },
   });
@@ -316,105 +396,77 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // + the stable refresh callbacks, not the changing wrapper identity.
   const locationRequests = locationResource.data?.requests;
   const receivedGrants = locationResource.data?.receivedGrants;
-  const myRecipientKey = locationResource.data?.myRecipientKey;
   const circleMemberInvites = locationResource.data?.circleMemberInvites;
   const locationRefresh = locationResource.refresh;
   const connectionRequests = connectionsResource.data;
   const connectionsRefresh = connectionsResource.refresh;
   const consentItems = consentListResource.data?.items;
+  const consentSummaryRefresh = consentSummaryResource.refresh;
+  const consentListRefresh = consentListResource.refresh;
 
-  // SOS location remains end-to-end encrypted at rest. Only active SOS
-  // grants are opened here, while the recipient vault is unlocked. The
-  // decrypted coordinate exists only long enough to reverse-geocode it;
-  // Feed state retains the resulting human-readable address, never the
-  // plaintext point.
-  useEffect(() => {
-    const emergencies = (receivedGrants ?? []).filter(
-      isActiveSmsEmergencyGrant,
-    );
+  // When a row genuinely has no arrival time, remember when it was first seen.
+  //
+  // These rows used to call `Date.now()` inline, inside the memo — so every
+  // recompute minted a brand-new "now" and they jumped back above rows carrying
+  // real timestamps. Harmless while the Feed only built its list once; with the
+  // live refresh above, the order would reshuffle on every tick. A first-seen
+  // stamp is stable across refreshes AND is the honest answer to "when did this
+  // reach me", so arrival order between two untimed rows is preserved.
+  const firstSeenAtRef = useRef<Map<string, number>>(new Map());
+  const firstSeenAt = useCallback((id: string) => {
+    const remembered = firstSeenAtRef.current.get(id);
+    if (remembered !== undefined) return remembered;
+    const now = Date.now();
+    firstSeenAtRef.current.set(id, now);
+    return now;
+  }, []);
 
-    if (!userId || !vaultOwnerToken || emergencies.length === 0) {
-      setSmsEmergencyAddresses((current) =>
-        Object.keys(current).length === 0 ? current : {},
-      );
-      return;
-    }
+  // "Needs you" is the half of the Feed that is a to-do list, so a stale one is
+  // worse than a stale history: it offers Approve on a request somebody already
+  // answered elsewhere. Every source behind it re-checks on the same live signal
+  // the list and the tab badge use.
+  useFeedLiveRefresh(
+    useCallback(() => {
+      void consentSummaryRefresh({ force: true });
+      void consentListRefresh({ force: true });
+      void locationRefresh({ force: true });
+      void connectionsRefresh({ force: true });
+    }, [
+      connectionsRefresh,
+      consentListRefresh,
+      consentSummaryRefresh,
+      locationRefresh,
+    ]),
+    Boolean(userId),
+  );
 
-    let cancelled = false;
+  // Revoked/expired SOS cards stay in the feed as a historical alert instead
+  // of vanishing the moment the sender cancels — but there is nothing left to
+  // act on, so only the Feed page's existing Clear button removes them (no
+  // separate per-row control). The dismissal set persists to localStorage so
+  // a clear survives refreshes.
+  const clearableSmsEmergencyIds = useMemo(
+    () =>
+      (receivedGrants ?? [])
+        .filter(
+          (grant) =>
+            isSmsEmergencyGrant(grant) &&
+            !isActiveSmsEmergencyGrant(grant) &&
+            !dismissedSmsEmergencyIds.has(grant.id),
+        )
+        .map((grant) => grant.id),
+    [receivedGrants, dismissedSmsEmergencyIds],
+  );
 
-    void Promise.all(
-      emergencies.map(async (grant) => {
-        try {
-          const response = await OneLocationService.viewEnvelope({
-            vaultOwnerToken,
-            grantId: grant.id,
-          });
-
-          let point;
-          try {
-            point = await decryptLocationEnvelope({
-              userId,
-              envelope: response.envelope,
-            });
-          } catch (decryptError) {
-            // Match the Location workspace recovery path: a new device
-            // may need to restore the vault-synced recipient key once.
-            if (
-              decryptError instanceof Error &&
-              decryptError.message === RECIPIENT_KEY_UNAVAILABLE_MESSAGE &&
-              vaultKey &&
-              myRecipientKey?.encryptedPrivateKeyJwk
-            ) {
-              await ensureVaultSyncedRecipientKey({
-                userId,
-                vaultKey,
-                remoteBackup: myRecipientKey,
-              });
-              point = await decryptLocationEnvelope({
-                userId,
-                envelope: response.envelope,
-              });
-            } else {
-              throw decryptError;
-            }
-          }
-
-          const place = await OneLocationService.reverseGeocode({
-            vaultOwnerToken,
-            lat: point.latitude,
-            lng: point.longitude,
-          });
-
-          const address =
-            place.formattedAddress?.trim() || place.name?.trim() || "";
-
-          return [grant.id, address] as const;
-        } catch {
-          // The emergency card must remain useful even while an envelope,
-          // key, or geocoder is temporarily unavailable.
-          return [grant.id, ""] as const;
-        }
-      }),
-    ).then((entries) => {
-      if (cancelled) return;
-
-      setSmsEmergencyAddresses(
-        Object.fromEntries(
-          entries.filter(([, address]) => Boolean(address)),
-        ),
-      );
+  const clearSmsEmergencies = useCallback(() => {
+    if (!userId || clearableSmsEmergencyIds.length === 0) return;
+    setDismissedSmsEmergencyIds((current) => {
+      const next = new Set(current);
+      for (const id of clearableSmsEmergencyIds) next.add(id);
+      writeDismissedSmsEmergencyIds(userId, next);
+      return next;
     });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    myRecipientKey,
-    receivedGrants,
-    userId,
-    vaultKey,
-    vaultOwnerToken,
-  ]);
+  }, [userId, clearableSmsEmergencyIds]);
 
   const actionables = useMemo<FeedActionable[]>(() => {
     if (!userId) return [];
@@ -449,45 +501,70 @@ export function useFeedActionables(): UseFeedActionablesResult {
           }),
           chevron: true,
           actions: [],
-          // No reliable arrival time on a consent entry (only a future
-          // expiry), so treat pending consents as current rather than mixing
-          // future expiry into the descending recency sort.
-          sortAt: Date.now(),
+          // `issued_at` when the backend populated it — never the expiry, which
+          // is in the future and would sort this above everything. Otherwise
+          // when it was first seen, so it holds its place across refreshes.
+          sortAt:
+            toTimestamp(entry.issued_at) || firstSeenAt(`consent:${entry.id}`),
+          // Real only when the backend happened to populate issued_at — never
+          // fabricate a "just now" time label for this type.
+          displayTimestamp: toDisplayTimestamp(entry.issued_at),
         });
       }
     }
 
-    // SMS · Save My Soul emergency alerts — a live share a contact started as an
-    // SOS. Rendered as pinned, emergency-styled cards at the very top of the feed
-    // so a safety alert is never buried under routine activity.
+    // SMS · Save My Soul emergency alerts — a share a contact started as an
+    // SOS. Rendered as pinned, emergency-styled cards at the very top of the
+    // feed so a safety alert is never buried under routine activity. A
+    // revoked/expired SOS stays as a historical entry ("Revoked") rather than
+    // vanishing the moment the sender cancels; the Feed page's existing Clear
+    // button (via `clearSmsEmergencies` above) is what removes it — no
+    // separate per-row control here.
     const smsEmergencies = (receivedGrants ?? []).filter(
-      isActiveSmsEmergencyGrant,
+      (grant) =>
+        isSmsEmergencyGrant(grant) && !dismissedSmsEmergencyIds.has(grant.id),
     );
     for (const grant of smsEmergencies) {
       const label = grant.ownerDisplayName?.trim() || "A contact";
-      const emergencyMessage =
-        grant.shareMessage?.trim() ||
-        "Emergency SMS — sharing live location with you now.";
-      const lastKnownAddress = smsEmergencyAddresses[grant.id]?.trim();
+      const isRevoked = !isActiveSmsEmergencyGrant(grant);
+      // A revoked/expired SOS sorts and displays by when it stopped
+      // mattering, not when it was triggered — mirrors the
+      // `revokedAt || updatedAt || expiresAt` "stopped" convention in
+      // lib/one-location/activity.ts, extended with a createdAt fallback so
+      // this is never 0/null.
+      const resolvedAt = isRevoked
+        ? toTimestamp(grant.revokedAt) ||
+          toTimestamp(grant.updatedAt) ||
+          toTimestamp(grant.expiresAt) ||
+          toTimestamp(grant.createdAt)
+        : toTimestamp(grant.createdAt);
       items.push({
         id: `sms-emergency:${grant.id}`,
         icon: Siren,
         iconTone: "red",
-        emphasis: "emergency",
+        // Only a still-live SOS gets the pinned "Live" emergency treatment.
+        // A revoked/expired one renders as a plain "Needs you" row (see
+        // feed-page.tsx) — Siren icon + red icon-well tint are all that's
+        // left as the "this was an SOS" signal.
+        emphasis: isRevoked ? undefined : "emergency",
         title: `${label} triggered an SOS`,
-        description: lastKnownAddress
-          ? `${emergencyMessage} | Last known: ${lastKnownAddress}`
-          : emergencyMessage,
+        description: isRevoked ? "Emergency SMS - Revoked" : "Emergency SMS - Sent.",
         href: buildOneLocationNotificationHref(grant.id),
         chevron: true,
         actions: [],
-        sortAt: toTimestamp(grant.createdAt) || Date.now(),
+        sortAt: resolvedAt || firstSeenAt(`sms-emergency:${grant.id}`),
+        displayTimestamp: resolvedAt || null,
       });
     }
 
-    // Location access requests — inline Approve (1h) / Deny. Only requests the
+    // Location access requests — inline Approve / Deny. Only requests the
     // viewer owns (and did not send) are actionable; outgoing requests must not
     // surface here as a self-addressed "wants to see your location" card.
+    //
+    // Approve grants exactly what was asked for. It used to send a flat
+    // durationHours: 1, so answering a four-hour ask from here handed out one
+    // hour -- and the card never said what had been asked, so the owner had no
+    // way to notice.
     const pendingLocation = (locationRequests ?? []).filter(
       (request: OneLocationAccessRequest) =>
         isIncomingLocationRequestActionable(request, userId),
@@ -499,7 +576,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
         icon: MapPin,
         iconTone: "blue",
         title: label,
-        description: request.message?.trim() || "Wants to see your location.",
+        // Names the amount, and says when it is extra time on a live share.
+        description: request.message?.trim() || locationAskPromptLine(request, Date.now()),
         actions: [
           {
             key: "deny",
@@ -520,15 +598,18 @@ export function useFeedActionables(): UseFeedActionablesResult {
           },
           {
             key: "approve",
-            label: "Approve",
+            label: locationApproveActionLabel(request, Date.now()),
             tone: "primary",
             disabled: !vaultOwnerToken,
             run: async () => {
               if (!vaultOwnerToken) return;
+              // No durationHours: omitting it means the server grants the
+              // amount that was requested, falling back to an hour only when
+              // the ask named none. Naming a number here is what silently
+              // turned a four-hour ask into a one-hour grant.
               await OneLocationService.approveRequest({
                 vaultOwnerToken,
                 requestId: request.id,
-                durationHours: 1,
               });
               if (userId) OneLocationStateResource.invalidate(userId);
               notifyFeedActionResolved();
@@ -536,7 +617,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
             },
           },
         ],
-        sortAt: toTimestamp(request.requestedAt) || Date.now(),
+        sortAt:
+          toTimestamp(request.requestedAt) ||
+          firstSeenAt(`location:${request.id}`),
+        displayTimestamp: toDisplayTimestamp(request.requestedAt),
       });
     }
 
@@ -589,7 +673,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
             },
           },
         ],
-        sortAt: toTimestamp(invite.createdAt) || Date.now(),
+        sortAt:
+          toTimestamp(invite.createdAt) ||
+          firstSeenAt(`circle-invite:${invite.id}`),
+        displayTimestamp: toDisplayTimestamp(invite.createdAt),
       });
     }
 
@@ -659,7 +746,11 @@ export function useFeedActionables(): UseFeedActionablesResult {
                 },
               },
             ],
-        sortAt: Date.now(),
+        // ConnectionRequest (lib/services/connections-service.ts) carries no
+        // timestamp field at all, so first-seen is the only honest ordering.
+        sortAt: firstSeenAt(`connection:${request.id}`),
+        // Still never fabricate a visible time label from it.
+        displayTimestamp: null,
       });
     }
 
@@ -722,7 +813,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
         onSelect: running ? () => openAnalysis(task.runId) : undefined,
         chevron: running,
         actions,
-        sortAt: toTimestamp(task.updatedAt || task.startedAt) || Date.now(),
+        sortAt:
+          toTimestamp(task.updatedAt || task.startedAt) ||
+          firstSeenAt(`debate:${task.runId}`),
+        displayTimestamp: toDisplayTimestamp(task.updatedAt || task.startedAt),
       });
     }
 
@@ -753,7 +847,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
         title: task.title,
         description: task.description || "Working in the background…",
         actions,
-        sortAt: toTimestamp(task.updatedAt || task.startedAt) || Date.now(),
+        sortAt:
+          toTimestamp(task.updatedAt || task.startedAt) ||
+          firstSeenAt(`task:${task.taskId}`),
+        displayTimestamp: toDisplayTimestamp(task.updatedAt || task.startedAt),
       });
     }
 
@@ -775,9 +872,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
     connectionsRefresh,
     consentItems,
     debateState.tasks,
+    dismissedSmsEmergencyIds,
+    firstSeenAt,
     locationRequests,
     receivedGrants,
-    smsEmergencyAddresses,
     circleMemberInvites,
     locationRefresh,
     openAnalysis,
@@ -794,5 +892,11 @@ export function useFeedActionables(): UseFeedActionablesResult {
     locationResource.loading ||
     connectionsResource.loading;
 
-  return { actionables, count: actionables.length, loading };
+  return {
+    actionables,
+    count: actionables.length,
+    loading,
+    hasClearableSmsEmergencies: clearableSmsEmergencyIds.length > 0,
+    clearSmsEmergencies,
+  };
 }

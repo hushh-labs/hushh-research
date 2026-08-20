@@ -24,6 +24,7 @@ import {
   LogOut,
   Mail,
   MapPin,
+  Mic,
   MessageCircleQuestion,
   Monitor,
   Phone,
@@ -68,6 +69,8 @@ import {
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
 import { GeminiLogo } from "@/components/brand/gemini-logo";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
+import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
+import { VoiceChangelogPage } from "@/components/profile/voice-changelog-page";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
@@ -162,7 +165,7 @@ import {
 } from "@/lib/profile/pkm-section-preview";
 import { loadProfilePkmMetadataForVaultState } from "@/lib/profile/profile-pkm-metadata-policy";
 import { applySlicePosture } from "@/lib/personal-knowledge-model/slice-publishing";
-import { maskPhoneNumber } from "@/lib/services/phone-mandate-service";
+import { formatMaskedPhoneNumber } from "@/lib/services/phone-display";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
@@ -2013,8 +2016,8 @@ function ProfilePageContent() {
       ? "People with your number can find you"
       : "Hidden from contact sync";
   const phoneSummaryText = phoneNumber
-    ? maskPhoneNumber(phoneNumber)
-    : "No phone number linked yet";
+    ? formatMaskedPhoneNumber(phoneNumber)
+    : "No phone number yet";
   const emailVerified = Boolean(user?.emailVerified);
 
   const gmailStatusLabel = gmailPresentation.badgeLabel;
@@ -3055,23 +3058,23 @@ function ProfilePageContent() {
   };
 
   const accountContent = (
-    <div className="profile-account-content space-y-4">
+    <div className="profile-account-content">
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={User}
-          iconTone="blue"
+          iconTone="gray"
           title="Display name"
           description={user.displayName || "Not available"}
         />
         <SettingsRow
           icon={Mail}
-          iconTone="blue"
+          iconTone="gray"
           title="Email"
           description={user.email || "Not available"}
         />
         <SettingsRow
           icon={Phone}
-          iconTone="green"
+          iconTone="gray"
           title="Phone number"
           description={phoneSummaryText}
           trailing={
@@ -3086,7 +3089,7 @@ function ProfilePageContent() {
         />
         <SettingsRow
           icon={Fingerprint}
-          iconTone="green"
+          iconTone="gray"
           title="Sign-in provider"
           description={provider.name}
         />
@@ -3105,7 +3108,7 @@ function ProfilePageContent() {
       <SettingsGroup title="Account actions">
         <SettingsRow
           icon={RefreshCw}
-          iconTone="orange"
+          iconTone="gray"
           className="profile-account-reset-row"
           title="Reset account"
           description={resetRowDescription}
@@ -3191,6 +3194,18 @@ function ProfilePageContent() {
           onClick={() =>
             updateProfileView(
               { panel: "preferences", detail: "gemini" },
+              "push",
+            )
+          }
+        />
+        <SettingsRow
+          icon={Mic}
+          title="Voice"
+          description="What One's voice can do, and its safety controls."
+          chevron
+          onClick={() =>
+            updateProfileView(
+              { panel: "preferences", detail: "voice" },
               "push",
             )
           }
@@ -3728,6 +3743,7 @@ function ProfilePageContent() {
       title: "Account",
       description: "Email, phone, and sign-in.",
       content: accountContent,
+      presentation: "account",
     });
     if (activeDetail === "phone") {
       profileStackEntries.push({
@@ -3903,6 +3919,28 @@ function ProfilePageContent() {
           />
         ),
       });
+    } else if (activeDetail === "voice" || activeDetail === "voice-changelog") {
+      profileStackEntries.push({
+        key: "detail:voice",
+        title: "Voice",
+        description: "One's voice controls.",
+        content: (
+          <VoicePreferencesPanel
+            userId={user.uid}
+            onOpenChangelog={() =>
+              updateProfileView({ detail: "voice-changelog" }, "push")
+            }
+          />
+        ),
+      });
+      if (activeDetail === "voice-changelog") {
+        profileStackEntries.push({
+          key: "detail:voice-changelog",
+          title: "What's new",
+          description: "Voice engine updates and fixes.",
+          content: <VoiceChangelogPage />,
+        });
+      }
     }
   } else if (!routeBlockedByVault && activePanel === "security") {
     profileStackEntries.push({
@@ -3986,17 +4024,17 @@ function ProfilePageContent() {
     <div className="profile-home-screen">
       <AppPageHeaderRegion>
         <header
-          className="profile-home-hero flex w-full min-w-0 flex-col items-center gap-2.5 px-0 text-center sm:px-6"
+          className="profile-home-hero flex w-full min-w-0 flex-col items-center gap-2 px-0 text-center sm:px-6"
           data-slot="page-header"
           data-page-primary="true"
         >
           <ProfileAvatarEditor />
-          <div className="profile-home-copy w-full min-w-0 max-w-full space-y-1.5">
+          <div className="profile-home-copy flex w-full min-w-0 max-w-full flex-col items-center justify-center gap-1">
             <h1 className="profile-home-name ui-text-identity-name [overflow-wrap:anywhere]">
               {user.displayName || "User"}
             </h1>
             <div
-              className="profile-home-meta flex w-full min-w-0 items-center justify-center gap-2 text-sm text-muted-foreground"
+              className="profile-home-meta flex w-full min-w-0 items-center justify-center gap-2 text-xs font-normal text-muted-foreground"
               title={provider.name}
             >
               <ProviderIcon providerId={provider.id} />
@@ -4010,11 +4048,11 @@ function ProfilePageContent() {
 
       <AppPageContentRegion>
         <SurfaceStack compact>
-          <div className="profile-home-content space-y-4 sm:space-y-5">
+          <div className="profile-home-content">
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
                 icon={UserRound}
-                iconTone="blue"
+                iconTone="gray"
                 title={PROFILE_LABELS.account}
                 chevron
                 density="compact"
@@ -4022,7 +4060,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={SlidersHorizontal}
-                iconTone="purple"
+                iconTone="gray"
                 title={PROFILE_LABELS.preferences}
                 chevron
                 density="compact"
@@ -4042,7 +4080,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={MessageCircleQuestion}
-                iconTone="orange"
+                iconTone="gray"
                 title={PROFILE_LABELS.support}
                 chevron
                 density="compact"
@@ -4088,7 +4126,8 @@ function ProfilePageContent() {
       data-testid="profile-primary"
       as="div"
       width="reading"
-      className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      fitContent
+      className="relative isolate pb-3"
       nativeTest={{
         routeId: profileNativeRouteId,
         marker: "native-route-profile",

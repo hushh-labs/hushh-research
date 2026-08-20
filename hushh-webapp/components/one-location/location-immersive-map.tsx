@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   GoogleMap,
   LatLngBounds,
@@ -24,12 +31,18 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { MapNameLabels } from "@/components/one-location/map-name-labels";
 import {
   NearbyCheckInSheet,
   type NearbyCheckInPlaceFocus,
 } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useRequireAuth } from "@/hooks/use-auth";
 import {
   decryptLocationEnvelope,
@@ -42,11 +55,26 @@ import {
 } from "@/lib/one-location/location-workspace-memory";
 import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
 import {
-  DARK_MAP_STYLES,
+  firstNameFromLabel,
+  layoutMapNameLabels,
+  MAP_NAME_LABEL_CLUSTERED_ANCHOR_DISTANCE_PX,
+  MAP_NAME_LABEL_MIN_ANCHOR_DISTANCE_PX,
+  type MapNameLabelCamera,
+  type PlacedMapNameLabel,
+} from "@/lib/one-location/map-name-labels";
+import {
   getBrowserMapsApiKey,
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
+import {
+  filterPeopleByQuery,
+  sortPeopleByName,
+} from "@/lib/one-location/people-search";
+import {
+  LOCATION_COPY,
+  isLocationPermissionDeniedError,
+} from "@/lib/one-location/location-readiness";
 import {
   consumeNearbyPrivateReturn,
   NEARBY_PRIVATE_RESUME_PARAM,
@@ -55,6 +83,7 @@ import { OneLocationService } from "@/lib/one-location/service";
 import type {
   OneLocationMapMarker,
   OneLocationMapPreferences,
+  OneLocationGrant,
   OneLocationNearbyAttendee,
   OneLocationNearbyPresenceState,
   PlainLocationPoint,
@@ -68,6 +97,7 @@ import {
 } from "@/lib/testing/location-map-demo";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { motionDurations, motionEasings } from "@/lib/morphy-ux/motion";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   claimNativeMap,
@@ -91,15 +121,71 @@ const MAP_ID = "one-location-private-map";
 // module for the full contract and its latency budget.
 
 const NEARBY_CHECK_IN_RADIUS_METERS = 500;
+const TRAY_COLLAPSED_HEIGHT_PX = 56; // 3.5rem, the collapsed pill.
+// The section's own `border` (1px top + 1px bottom) is border-box, so it
+// eats into the content area rather than shrink it away from the header and
+// scroll container. It is the one piece of the sheet's height that isn't a
+// measured DOM element, so it stays a literal constant -- everything else
+// below is read from the real, rendered header and body instead of guessed.
+const TRAY_BORDER_HEIGHT_PX = 2;
+/**
+ * The check-in panel's footprint from `md` up, where it docks down the right
+ * side instead of rising from the bottom. Read by both the camera padding and
+ * the name-pill layer, because a strip of map one of them thinks is visible and
+ * the other does not is exactly how a name ends up behind the panel.
+ */
+const DESKTOP_CHECK_IN_PANEL_WIDTH_PX = 436;
 const MAP_ACCENT_CONTROL_CLASSNAME =
   "!border-[var(--app-accent-border)] !bg-[var(--app-accent-surface)] !text-[var(--app-accent-deep)] hover:!bg-[var(--app-accent-surface-strong)] dark:!text-[var(--app-accent-bright)]";
 const MAP_ACCENT_ACTIVE_CLASSNAME =
   "border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--app-accent-fg)] hover:bg-[var(--app-accent-hover)]";
+/** No map, nothing to act on — the resting tone, not an accent and not red. */
+const UNAVAILABLE_TONE = roleClasses("neutral");
+
+function activeShareLabels(grants: OneLocationGrant[]): string[] {
+  return grants
+    .filter((grant) => grant.status === "active")
+    .map(
+      (grant) =>
+        grant.recipientDisplayName?.trim() ||
+        grant.recipientMaskedPhone?.trim() ||
+        "Someone",
+    );
+}
+
+/**
+ * The camera payload `onCameraIdle` and `onBoundsChanged` both deliver.
+ *
+ * Declared here rather than imported: @capacitor/google-maps keeps its callback
+ * data types in `./definitions` and its package root re-exports only the map
+ * primitives, so `CameraIdleCallbackData` is not importable at all. Naming just
+ * the fields this layer reads is also the narrower contract -- the pills need a
+ * viewport and an orientation, not a mapId or a centre.
+ */
+type MapCameraEvent = {
+  bounds?: {
+    northeast: { lat: number; lng: number };
+    southwest: { lat: number; lng: number };
+  };
+  zoom?: number;
+  bearing?: number;
+  tilt?: number;
+};
 
 type RenderMarker = {
   key: string;
   point: PlainLocationPoint;
   label: string;
+  /**
+   * What the pill above this pin says, which is never the whole of `label`:
+   * "Ankit Kumar Singh" is a form-field answer, and three words stacked over a
+   * pin is how a map with four people on it stops being readable. A first name
+   * for a person, "My location" for this device, the venue for a check-in.
+   *
+   * It stays in the WebView. The renderer is still handed the generic titles
+   * below -- this is the label layer's own copy, not a relaxation of that line.
+   */
+  shortLabel: string;
   /**
    * `place` is the venue the owner is checking in to. It is deliberately
    * distinct from `self`: the two are frequently a street apart, and collapsing
@@ -117,8 +203,38 @@ type RenderMarker = {
   capturedAt?: string | null;
 };
 
-/** Grey. A pin whose owner has gone quiet stops claiming to be live. */
+/**
+ * Pin tints for the Capacitor Google Maps bridge.
+ *
+ * `tintColor` takes a literal {r,g,b,a} and is resolved by the native SDK, so
+ * a CSS custom property cannot reach it — these mirror the light-theme value
+ * of the semantic token named beside each one, and must be kept in step with
+ * app/globals.css.
+ *
+ * The on-map legend reads these SAME constants (see `tintCss` below) instead
+ * of the CSS tokens. That is deliberate: the accent token follows the user's
+ * accent preference, so a token-painted swatch would turn gold while the pin
+ * it names stayed blue — a legend that lies. One source, no drift.
+ */
+/** Grey (--app-tertiary-label). A pin whose owner has gone quiet stops claiming to be live. */
 const STALE_TINT = { r: 142, g: 142, b: 147, a: 255 } as const;
+/** Location blue (--app-accent). The established map accent — never cyan. */
+const SELF_TINT = { r: 0, g: 122, b: 255, a: 255 } as const;
+/** Green (--app-success). A live check-in is a settled positive fact. */
+const PLACE_ACTIVE_TINT = { r: 52, g: 199, b: 89, a: 255 } as const;
+/**
+ * Orange (--app-warning). The venue is chosen but the check-in has not
+ * happened yet — "Checking in at", not "Checked in at". Deliberately not the
+ * neutral grey, which on this same map already means "gone quiet", and not
+ * the accent, which would make the place pin indistinguishable from the
+ * "you" pin the legend exists to tell it apart from.
+ */
+const PLACE_PENDING_TINT = { r: 255, g: 149, b: 0, a: 255 } as const;
+
+/** The CSS form of a pin tint, so a legend swatch cannot drift from its pin. */
+function tintCss(tint: { r: number; g: number; b: number }): string {
+  return `rgb(${tint.r}, ${tint.g}, ${tint.b})`;
+}
 
 /** "last seen 7m ago" -- a fact about their signal, not their intent. */
 function lastSeenLabel(
@@ -150,6 +266,17 @@ function isStaleAt(
 function displayLabel(marker: OneLocationMapMarker): string {
   return marker.grant.ownerDisplayName?.trim() || "A trusted person";
 }
+
+/** What this person's pin is called on the map itself. */
+function displayShortLabel(marker: OneLocationMapMarker): string {
+  const full = marker.grant.ownerDisplayName?.trim();
+  // The unnamed case never goes through the first-name split: "A trusted
+  // person" would come back as the single letter "A".
+  return (full ? firstNameFromLabel(full) : "") || "Trusted person";
+}
+
+/** The pill over this device's own pin. */
+const SELF_SHORT_LABEL = "My location";
 
 function personInitials(label: string): string {
   return label
@@ -337,8 +464,17 @@ export function LocationImmersiveMap({
   const initialDemoMode = isLocationMapDemoEnabled(searchParams.get("demo"));
   const mapElement = useRef<HTMLElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
-  const topControlsRef = useRef<HTMLDivElement | null>(null);
+  const topControlsRef = useRef<HTMLElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
+  // Measures the tray's real rendered pieces -- the toggle header and the
+  // body's natural (unclipped) content -- so the sheet can size itself to
+  // its content instead of a hand-computed guess at their heights (a guess
+  // that was previously off by the section's own border-width). Reading the
+  // DOM directly here means there is nothing left to keep in sync by hand.
+  const trayHeaderRef = useRef<HTMLButtonElement | null>(null);
+  const trayContentRef = useRef<HTMLDivElement | null>(null);
+  const [trayHeaderHeight, setTrayHeaderHeight] = useState(0);
+  const [trayContentHeight, setTrayContentHeight] = useState(0);
   const markerIdsRef = useRef<string[]>([]);
   const markerGenerationRef = useRef(0);
   const markerCommandRef = useRef<Promise<void>>(Promise.resolve());
@@ -394,12 +530,42 @@ export function LocationImmersiveMap({
     return () => window.clearInterval(timer);
   }, []);
   const [selfMarker, setSelfMarker] = useState<RenderMarker | null>(null);
+  /**
+   * What the renderer is currently showing, so the HTML name pills can be put
+   * over the right pins. Null until the first camera report lands, which is
+   * also why the layer simply does not exist on a renderer too old to send one.
+   */
+  const [mapCamera, setMapCamera] = useState<MapNameLabelCamera | null>(null);
+  /**
+   * iOS and Android report the camera only once it SETTLES, so between the
+   * gesture starting and it stopping the coordinates above describe where the
+   * map used to be. The pills fade out for that window rather than slide across
+   * the screen away from their pins. Web reports every frame and never sets it.
+   */
+  const [cameraMoving, setCameraMoving] = useState(false);
+  const [mapBox, setMapBox] = useState({
+    width: 0,
+    height: 0,
+    insetTop: 0,
+    insetBottom: 0,
+    insetLeft: 0,
+    insetRight: 0,
+  });
+  /**
+   * Web fires a bounds report per animation frame of a pan. Coalescing them
+   * into one state update per frame is what keeps a drag at 60fps with a
+   * screenful of names on it.
+   */
+  const cameraFrameRef = useRef<number | null>(null);
+  const pendingCameraRef = useRef<MapNameLabelCamera | null>(null);
   // Count of the account's own ACTIVE outgoing shares (people it is sharing
   // its location WITH). Sourced from the full getState (map-state only carries
   // incoming markers), so it's fetched on a lighter cadence than the 5s marker
   // refresh — the map surfaces it as a "Sharing with N" status, since outgoing
   // shares carry no coordinate to plot.
   const [activeShareCount, setActiveShareCount] = useState<number | null>(null);
+  const [activeShareNames, setActiveShareNames] = useState<string[]>([]);
+  const [sharingPopoverOpen, setSharingPopoverOpen] = useState(false);
   const [selected, setSelected] = useState<RenderMarker | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [trayExpanded, setTrayExpanded] = useState(true);
@@ -700,8 +866,9 @@ export function LocationImmersiveMap({
         key: "current-device-location",
         kind: "self",
         label: "You",
+        shortLabel: SELF_SHORT_LABEL,
         point,
-        tint: { r: 0, g: 122, b: 255, a: 255 },
+        tint: SELF_TINT,
       };
       setSelfMarker(currentLocation);
       if (options.select) setSelected(currentLocation);
@@ -729,8 +896,9 @@ export function LocationImmersiveMap({
       key: "current-device-location",
       kind: "self",
       label: "You",
+      shortLabel: SELF_SHORT_LABEL,
       point,
-      tint: { r: 0, g: 122, b: 255, a: 255 },
+      tint: SELF_TINT,
     });
   }, [auth.userId, demoMode]);
 
@@ -752,6 +920,7 @@ export function LocationImmersiveMap({
         const demoMarkers = locationMapDemoPeople().map((person) => ({
           ...person,
           kind: "person" as const,
+          shortLabel: firstNameFromLabel(person.label) || person.label,
         }));
         markerSignatureRef.current = markerSignature(demoMarkers);
         setMarkers(demoMarkers);
@@ -772,6 +941,7 @@ export function LocationImmersiveMap({
                 `${marker.grant.id}:${marker.envelope.capturedAt}`,
               point,
               label: displayLabel(marker),
+              shortLabel: displayShortLabel(marker),
               kind: "person",
               grantId: marker.grant.id,
               capturedAt: marker.envelope.capturedAt ?? null,
@@ -820,13 +990,26 @@ export function LocationImmersiveMap({
     try {
       const state = await OneLocationService.getState(vaultOwnerToken);
       if (!mountedRef.current) return;
-      setActiveShareCount(
-        state.ownerGrants.filter((grant) => grant.status === "active").length,
-      );
+      const names = activeShareLabels(state.ownerGrants);
+      setActiveShareCount(names.length);
+      setActiveShareNames(names);
     } catch {
       // A status count is non-critical; leave the last-known value in place.
     }
   }, [auth.userId, demoMode, vaultOwnerToken]);
+
+  useEffect(() => {
+    if (!sharingPopoverOpen) return;
+    const close = () => setSharingPopoverOpen(false);
+    window.addEventListener("scroll", close, true);
+    return () => window.removeEventListener("scroll", close, true);
+  }, [sharingPopoverOpen]);
+
+  useEffect(() => {
+    if ((activeShareCount ?? 0) === 0 && sharingPopoverOpen) {
+      setSharingPopoverOpen(false);
+    }
+  }, [activeShareCount, sharingPopoverOpen]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -988,15 +1171,19 @@ export function LocationImmersiveMap({
               ? 11
               : 2,
           disableDefaultUI: true,
-          // Open dark to match the mobile dark theme. Read the resolved theme
-          // from the <html> `dark` class that next-themes sets, so no
-          // camera-recreating hook dependency is introduced; a cloud-styled
-          // mapId can supersede this.
-          styles:
-            typeof document !== "undefined" &&
-            document.documentElement.classList.contains("dark")
-              ? DARK_MAP_STYLES
-              : undefined,
+          // `styles` is deliberately NOT passed.
+          //
+          // @capacitor/google-maps sets its own `mapId` because advanced
+          // markers require one, and Google ignores `styles` entirely whenever
+          // a mapId is present — logging "A Map's styles property cannot be
+          // set when a mapId is present" on every single map create. So this
+          // was never theming anything: it was dead config that produced a
+          // warning each time the map mounted, and made the console look like
+          // the map was failing when it was not.
+          //
+          // Restoring a dark map means styling the mapId in the Google Cloud
+          // console, which is where a mapId's appearance now lives. Passing
+          // DARK_MAP_STYLES here cannot do it.
         },
       });
       if (superseded()) {
@@ -1006,6 +1193,47 @@ export function LocationImmersiveMap({
         return;
       }
       mapRef.current = map;
+      // The name pills are HTML above the map, so they need to know what the
+      // renderer is showing. Both platforms emit `onBoundsChanged` beside
+      // `onCameraIdle`, but only web emits it DURING a gesture -- native sends
+      // both once the camera settles, which is what `onCameraMoveStarted`
+      // compensates for by fading the layer out for the length of a drag.
+      //
+      // Wrapped, and tried before `setMapReady`, because a renderer without
+      // camera listeners must still produce a working map: the only thing it
+      // loses is the names floating over its pins.
+      try {
+        const publishCamera = (data: MapCameraEvent | null) => {
+          const bounds = data?.bounds;
+          if (!bounds) return;
+          pendingCameraRef.current = {
+            north: bounds.northeast.lat,
+            south: bounds.southwest.lat,
+            east: bounds.northeast.lng,
+            west: bounds.southwest.lng,
+            zoom: Number(data.zoom) || 0,
+            bearing: Number(data.bearing) || 0,
+            tilt: Number(data.tilt) || 0,
+          };
+          if (cameraFrameRef.current !== null) return;
+          cameraFrameRef.current = window.requestAnimationFrame(() => {
+            cameraFrameRef.current = null;
+            const next = pendingCameraRef.current;
+            if (!next) return;
+            setMapCamera(next);
+            // A fresh camera IS the end of the stale window, whether it
+            // arrived from an idle event or from web's per-frame reports.
+            setCameraMoving(false);
+          });
+        };
+        await map.setOnBoundsChangedListener(publishCamera);
+        await map.setOnCameraIdleListener(publishCamera);
+        if (isNative()) {
+          await map.setOnCameraMoveStartedListener(() => setCameraMoving(true));
+        }
+      } catch {
+        // No camera reports, so no name pills. Everything else still works.
+      }
       await map.setOnMarkerClickListener((event) => {
         const marker = markerByMapIdRef.current.get(event.markerId);
         if (!marker) return;
@@ -1028,6 +1256,12 @@ export function LocationImmersiveMap({
     return () => {
       cancelled = true;
       setMapReady(false);
+      if (cameraFrameRef.current !== null) {
+        window.cancelAnimationFrame(cameraFrameRef.current);
+        cameraFrameRef.current = null;
+      }
+      pendingCameraRef.current = null;
+      setMapCamera(null);
       // Destroy the native map instance and drop the ref on teardown. Without
       // this, closing Your Map left the @capacitor/google-maps instance
       // (registered under MAP_ID) alive; re-opening then raced a fresh create()
@@ -1138,6 +1372,9 @@ export function LocationImmersiveMap({
       key: `nearby-place:${nearbyPlaceFocus.placeId || "active"}`,
       kind: "place",
       label: nearbyPlaceFocus.label,
+      // A venue is a public place the owner picked, so the pill may name it in
+      // full -- unlike a person, whose full name stays in the tray.
+      shortLabel: nearbyPlaceFocus.label,
       point: {
         latitude: nearbyPlaceFocus.latitude,
         longitude: nearbyPlaceFocus.longitude,
@@ -1145,9 +1382,7 @@ export function LocationImmersiveMap({
         capturedAt: new Date(0).toISOString(),
         sourcePlatform: "unknown",
       },
-      tint: nearbyPlaceFocus.active
-        ? { r: 16, g: 185, b: 129, a: 255 }
-        : { r: 139, g: 92, b: 246, a: 255 },
+      tint: nearbyPlaceFocus.active ? PLACE_ACTIVE_TINT : PLACE_PENDING_TINT,
     };
   }, [nearbyCheckInOpen, nearbyPlaceFocus]);
 
@@ -1163,6 +1398,53 @@ export function LocationImmersiveMap({
     return next;
   }, [isCheckInSurface, markers, nearbyPlaceMarker, selfMarker]);
 
+  /**
+   * Past this many pins the renderer merges neighbours into cluster bubbles, so
+   * a pin is no longer drawn at its own coordinate. Shared with the pill layer,
+   * which has to spread its names further apart while that is true or it would
+   * label bubbles that stand for four people with the name of one.
+   */
+  const clusteringActive = visibleMarkers.length > 8;
+
+  /**
+   * The names floating over the pins.
+   *
+   * Order and overlap are decided in `layoutMapNameLabels`, which is where the
+   * zoomed-out case is actually handled: at world zoom fifty shares fall within
+   * a few hundred pixels of each other, and the answer is a handful of readable
+   * names rather than fifty pills in a heap.
+   */
+  const nameLabels = useMemo<PlacedMapNameLabel[]>(() => {
+    if (!mapCamera || !rendererReady || status === "unavailable") return [];
+    return layoutMapNameLabels({
+      labels: visibleMarkers.map((marker) => ({
+        key: marker.key,
+        text: marker.shortLabel,
+        kind: marker.kind,
+        point: {
+          latitude: marker.point.latitude,
+          longitude: marker.point.longitude,
+        },
+        stale: isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs),
+        tintCss: marker.tint ? tintCss(marker.tint) : undefined,
+      })),
+      camera: mapCamera,
+      viewport: mapBox,
+      minAnchorDistancePx: clusteringActive
+        ? MAP_NAME_LABEL_CLUSTERED_ANCHOR_DISTANCE_PX
+        : MAP_NAME_LABEL_MIN_ANCHOR_DISTANCE_PX,
+    });
+  }, [
+    clusteringActive,
+    freshnessSeconds,
+    mapBox,
+    mapCamera,
+    rendererReady,
+    staleClockMs,
+    status,
+    visibleMarkers,
+  ]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -1172,7 +1454,7 @@ export function LocationImmersiveMap({
     // expanded. Anchor the camera's bottom inset to the tray's stable bottom
     // edge plus its COLLAPSED footprint, never its live expanded height, so
     // toggling the tray open/closed never re-frames (zooms/pans) the map.
-    const COLLAPSED_TRAY_HEIGHT = 56; // 3.5rem, matches the collapsed tray
+    const COLLAPSED_TRAY_HEIGHT = TRAY_COLLAPSED_HEIGHT_PX;
     const publishPadding = () => {
       const top = topControlsRef.current?.getBoundingClientRect().bottom ?? 72;
       const trayRect = peopleTrayRef.current?.getBoundingClientRect();
@@ -1193,7 +1475,7 @@ export function LocationImmersiveMap({
         : 0;
       const padding = {
         top: Math.ceil(top + 12),
-        right: desktopCheckInOpen ? 436 : 20,
+        right: desktopCheckInOpen ? DESKTOP_CHECK_IN_PANEL_WIDTH_PX : 20,
         bottom: Math.ceil(
           Math.max(
             trayBottomInset + COLLAPSED_TRAY_HEIGHT + 12,
@@ -1207,6 +1489,25 @@ export function LocationImmersiveMap({
       // setPadding can still nudge the camera on some SDK versions.
       if (key === lastPaddingKey) return;
       lastPaddingKey = key;
+      // NATIVE ONLY. On iOS/Android `setPadding` is a true camera inset
+      // (GMSMapView.padding / GoogleMap.setPadding): the zoom is untouched and
+      // the map still paints edge to edge, it just keeps the centre and the
+      // controls clear of the floating chrome. The @capacitor/google-maps WEB
+      // shim is a different operation entirely —
+      //
+      //   async setPadding({id, padding}) {
+      //     const bounds = maps[id].map.getBounds();
+      //     if (bounds !== undefined) maps[id].map.fitBounds(bounds, padding);
+      //   }
+      //
+      // — i.e. it re-fits the already-visible world into a box shrunk by this
+      // padding. That is a ZOOM-OUT, and a raster map snaps to a whole integer
+      // zoom, so the world (z2) drops to z1 and no longer fills the container:
+      // Google's own out-of-world grey shows as a band above and below the map
+      // and the world repeats horizontally. That is the "gap at top and bottom"
+      // QA reported on uat.one.hushh.ai/one/location/map. The container itself
+      // is correct and untouched (`h-[100dvh]`, map `absolute inset-0`).
+      if (!isNative()) return;
       void map.setPadding(padding);
     };
     const schedulePadding = () => {
@@ -1232,6 +1533,109 @@ export function LocationImmersiveMap({
       window.removeEventListener("resize", schedulePadding);
     };
   }, [mapReady, nearbyCheckInOpen]);
+
+  // The pill layer is positioned in the map box's own pixels, so it needs that
+  // box's size and the room the floating chrome takes out of it. Measured from
+  // the real elements rather than assumed: the top controls are one row on a
+  // desktop and two on a phone, and that ~60px difference decides where the
+  // highest name on the map is allowed to sit.
+  useEffect(() => {
+    const element = mapElement.current;
+    if (!element || !mapReady) return;
+    let frame: number | null = null;
+    const measure = () => {
+      frame = null;
+      const rect = element.getBoundingClientRect();
+      const controlsBottom =
+        topControlsRef.current?.getBoundingClientRect().bottom ?? rect.top;
+      const trayRect = peopleTrayRef.current?.getBoundingClientRect();
+      // The tray's COLLAPSED footprint, not its live height -- opening the
+      // people list must not wipe every name out of the lower half of the map.
+      const trayInset = trayRect
+        ? Math.max(0, rect.bottom - trayRect.bottom) + TRAY_COLLAPSED_HEIGHT_PX
+        : TRAY_COLLAPSED_HEIGHT_PX;
+      // Check-in docks to the right from `md` up and rises from the bottom
+      // below it, so the room it takes is a different edge on each.
+      const checkInSheet = nearbyCheckInOpen
+        ? document.querySelector<HTMLElement>(
+            "[data-one-location-nearby-check-in-sheet]",
+          )
+        : null;
+      const desktopCheckInOpen =
+        nearbyCheckInOpen &&
+        window.matchMedia("(min-width: 768px)").matches;
+      const mobileSheetInset =
+        checkInSheet && !desktopCheckInOpen
+          ? Math.max(0, rect.bottom - checkInSheet.getBoundingClientRect().top)
+          : 0;
+      const next = {
+        width: rect.width,
+        height: rect.height,
+        insetTop: Math.max(0, controlsBottom - rect.top) + 8,
+        insetBottom: Math.max(trayInset, mobileSheetInset) + 8,
+        insetLeft: 8,
+        insetRight:
+          (desktopCheckInOpen ? DESKTOP_CHECK_IN_PANEL_WIDTH_PX : 0) + 8,
+      };
+      setMapBox((current) =>
+        current.width === next.width &&
+        current.height === next.height &&
+        current.insetTop === next.insetTop &&
+        current.insetBottom === next.insetBottom &&
+        current.insetLeft === next.insetLeft &&
+        current.insetRight === next.insetRight
+          ? current
+          : next,
+      );
+    };
+    const scheduleMeasure = () => {
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(measure);
+    };
+    measure();
+    const observer = new ResizeObserver(scheduleMeasure);
+    observer.observe(element);
+    if (topControlsRef.current) observer.observe(topControlsRef.current);
+    const checkInSheet = document.querySelector<HTMLElement>(
+      "[data-one-location-nearby-check-in-sheet]",
+    );
+    if (nearbyCheckInOpen && checkInSheet) observer.observe(checkInSheet);
+    window.addEventListener("resize", scheduleMeasure);
+    window.addEventListener("orientationchange", scheduleMeasure);
+    return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener("resize", scheduleMeasure);
+      window.removeEventListener("orientationchange", scheduleMeasure);
+    };
+    // rendererReady and isCheckInSurface decide whether the top controls and
+    // the people tray are mounted at all, and the check-in panel changes which
+    // edge of the map is spoken for, so all three have to re-run the measure.
+  }, [isCheckInSurface, mapReady, nearbyCheckInOpen, rendererReady]);
+
+  // The tray body's rendered box is height-clamped by its scroll container,
+  // so its own size never reflects how tall its content actually is. Track
+  // the header and the body's content directly instead, synchronously
+  // before paint so there is no grow-in flash, and again whenever either
+  // changes size (chips added/removed, search narrows the list, nearby
+  // results arrive). The tray section itself only mounts once the renderer
+  // is ready, so the dependencies below -- its exact mount condition --
+  // make sure this attaches once the refs actually exist, not just once on
+  // the component's own first render.
+  useLayoutEffect(() => {
+    const header = trayHeaderRef.current;
+    const content = trayContentRef.current;
+    if (!header || !content) return;
+    const measure = () => {
+      setTrayHeaderHeight(header.offsetHeight);
+      setTrayContentHeight(content.offsetHeight);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [rendererReady, status, isCheckInSurface]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1456,7 +1860,7 @@ export function LocationImmersiveMap({
           return marker ? [[id, marker] as const] : [];
         }),
       );
-      if (visibleMarkers.length > 8) {
+      if (clusteringActive) {
         await map.enableClustering(4);
       } else {
         await map.disableClustering();
@@ -1481,6 +1885,7 @@ export function LocationImmersiveMap({
     // keeps a live-coloured pin until some unrelated refresh happens to redraw
     // it.
   }, [
+    clusteringActive,
     entryLocationSettled,
     mapReady,
     visibleMarkers,
@@ -1559,8 +1964,26 @@ export function LocationImmersiveMap({
   const locateMe = useCallback(async () => {
     if (!vaultOwnerToken) return;
     setBusy("locate");
+    // Getting a position and telling other people about it are two different
+    // jobs that used to share one catch, so a failed network call and a device
+    // that would not answer produced the same sentence: "we could not update
+    // your location". Only one of those is about location.
+    let point: PlainLocationPoint;
     try {
-      const point = await captureCurrentLocation();
+      point = await captureCurrentLocation();
+    } catch (error) {
+      // captureCurrentLocation now answers from the shared store when the
+      // device declines, so reaching here means there is genuinely nothing to
+      // centre on — worth saying, unlike a refresh that merely failed.
+      toast.error(
+        isLocationPermissionDeniedError(error)
+          ? LOCATION_COPY.denied
+          : LOCATION_COPY.noFix,
+      );
+      setBusy(null);
+      return;
+    }
+    try {
       await focusSelfPoint(point, { animate: true, select: true });
       if (demoMode) {
         toast.success("Centered on your device location.");
@@ -1584,9 +2007,9 @@ export function LocationImmersiveMap({
       );
       // Keep the on-map "Sharing with N" status in sync off this same fetch.
       if (mountedRef.current) {
-        setActiveShareCount(
-          state.ownerGrants.filter((grant) => grant.status === "active").length,
-        );
+        const names = activeShareLabels(state.ownerGrants);
+        setActiveShareCount(names.length);
+        setActiveShareNames(names);
       }
       await Promise.all(
         grants.map(async (grant) => {
@@ -1607,11 +2030,13 @@ export function LocationImmersiveMap({
           });
         }),
       );
-      toast.success(
-        "Your active private recipients can see this foreground update.",
-      );
+      // Keeps the fact that other PEOPLE received it — that is the privacy-
+      // relevant half. "Location updated" would hide it.
+      toast.success("Sent to the people you share with.");
     } catch {
-      toast.error("We could not update your location.");
+      // The map has already moved to the new position; what failed is telling
+      // the people it is shared with.
+      toast.error("Couldn't send the update.");
     } finally {
       setBusy(null);
     }
@@ -1623,32 +2048,41 @@ export function LocationImmersiveMap({
     vaultOwnerToken,
   ]);
 
-  const filteredPeople = useMemo(() => {
-    const query = searchQuery.trim().toLocaleLowerCase();
-    if (!query) return markers;
-    return markers.filter((marker) =>
-      marker.label.toLocaleLowerCase().includes(query),
-    );
-  }, [markers, searchQuery]);
+  // A–Z before the query, so the tray has somewhere to start looking; the
+  // filter then keeps that order inside each of its relevance groups. Applied
+  // here rather than to `markers` itself, because the pin layer and the
+  // three-avatar preview above read that list positionally.
+  const filteredPeople = useMemo(
+    () =>
+      filterPeopleByQuery(
+        sortPeopleByName(markers, (marker) => marker.label),
+        searchQuery,
+        (marker) => marker.label,
+      ),
+    [markers, searchQuery],
+  );
 
   const nearbyAttendees = useMemo(
     () => (nearbyPresenceState.presence ? nearbyPresenceState.attendees : []),
     [nearbyPresenceState],
   );
 
-  const filteredNearbyAttendees = useMemo(() => {
-    const query = searchQuery.trim().toLocaleLowerCase();
-    if (!query) return nearbyAttendees;
-    return nearbyAttendees.filter((attendee) =>
-      attendee.displayName.toLocaleLowerCase().includes(query),
-    );
-  }, [nearbyAttendees, searchQuery]);
+  // One search box sits above both lists, so both have to narrow the same way.
+  // This one kept a private `includes()` after the pins moved to
+  // `filterPeopleByQuery`, which left a single box behaving as two: typing "n"
+  // narrowed the pins to Neelesh and left every "n"-containing name standing in
+  // Around you.
+  const filteredNearbyAttendees = useMemo(
+    () =>
+      filterPeopleByQuery(
+        sortPeopleByName(nearbyAttendees, (attendee) => attendee.displayName),
+        searchQuery,
+        (attendee) => attendee.displayName,
+      ),
+    [nearbyAttendees, searchQuery],
+  );
 
   const drawerEntryCount = markers.length + nearbyAttendees.length;
-  const hasVisibleTrayResults =
-    filteredPeople.length > 0 ||
-    filteredNearbyAttendees.length > 0 ||
-    selected !== null;
 
   // One number, one word for what it counts. The screen is already the map and
   // the tray is already the people, so "live locations on your map" spent five
@@ -1822,14 +2256,79 @@ export function LocationImmersiveMap({
     );
   }, [demoAvailable, demoMode]);
 
+  /**
+   * A name in the "Sharing with" list belongs to someone this account shares
+   * its location WITH. That is a different direction from the pins, which are
+   * people who share with THIS account, so the same person only has a pin when
+   * the sharing is mutual. Matched on the display label, which is the only
+   * identity both sides carry here.
+   */
+  const markerForSharedPerson = useCallback(
+    (name: string): RenderMarker | null => {
+      const wanted = name.trim().toLocaleLowerCase();
+      if (!wanted) return null;
+      return (
+        markers.find(
+          (marker) => marker.label.trim().toLocaleLowerCase() === wanted,
+        ) ?? null
+      );
+    },
+    [markers],
+  );
+
+  const openSharedPerson = useCallback(
+    async (name: string) => {
+      setSharingPopoverOpen(false);
+      const pin = markerForSharedPerson(name);
+      if (pin) {
+        await focusMarker(pin);
+        return;
+      }
+      // No pin means no coordinate to fly to. Leaving the tap inert would put
+      // this row right back where it started, so it goes to the one screen that
+      // can actually answer for this share.
+      closeMap();
+    },
+    [closeMap, focusMarker, markerForSharedPerson],
+  );
+
   const showEveryone = useCallback(async () => {
     const map = mapRef.current;
-    if (!map || visibleMarkers.length === 0) return;
+    if (!map) return;
     setSelected(null);
     setSearchQuery("");
     setTrayExpanded(false);
-    await frameMarkers(map, visibleMarkers);
-  }, [visibleMarkers]);
+    // Everyone was `disabled` whenever there was nothing to frame, and silent
+    // whenever the only thing to frame was you. Both are the same experience
+    // from the outside -- press it, nothing happens, no reason given -- and
+    // both are exactly the state a new account is in. That is the reported
+    // "everyone is not working on your map, why does it so?".
+    //
+    // So the control is never disabled, and it answers the question it was
+    // asked. `markers` is the incoming set: people who chose to share with this
+    // account. Your own pin is not "everyone".
+    if (markers.length === 0) {
+      toast.message("No one is sharing a live location with you yet.");
+    }
+    if (visibleMarkers.length > 0) {
+      await frameMarkers(map, visibleMarkers);
+      return;
+    }
+    // Nothing on the map at all, not even this device. Still put the camera
+    // somewhere true rather than leaving the press unanswered.
+    try {
+      const point = await captureAndRememberCurrentLocation();
+      await focusSelfPoint(point, { animate: true, select: false });
+    } catch {
+      // Locate owns the permission and no-fix copy; repeating it here would
+      // give one tap two competing explanations.
+    }
+  }, [
+    captureAndRememberCurrentLocation,
+    focusSelfPoint,
+    markers.length,
+    visibleMarkers,
+  ]);
 
   return (
     <main
@@ -1849,90 +2348,234 @@ export function LocationImmersiveMap({
           closing ? "pointer-events-none" : ""
         }`}
       />
-      <div
+      {/*
+        Who each pin is. A coloured pin says somebody is here; on a map with
+        two people on it that is not the question being asked. The names live
+        in the WebView above the map -- never handed to the renderer, which
+        keeps the private-share boundary exactly where the marker effect above
+        put it -- and are inert, so they cannot swallow a pan or a tap.
+      */}
+      {rendererReady && mapReady && status !== "unavailable" && !closing ? (
+        <MapNameLabels labels={nameLabels} stalePositions={cameraMoving} />
+      ) : null}
+      <header
         ref={topControlsRef}
+        aria-label={
+          isCheckInSurface ? "Check in map controls" : "Location map controls"
+        }
         // z-30 (above the z-20 map loading/error overlay and people tray): at
         // equal z-index the later-in-DOM full-screen overlay painted on top of
         // the close X and could swallow the tap that dismisses the map. Keeping
         // the controls strictly above every map layer guarantees the back/X and
         // locate buttons stay tappable in every state (loading, error, tray open).
-        className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))]"
+        //
+        // A grid, not a flex row: with flex + justify-between, three-plus items
+        // of uneven width get spread by *equal gaps*, which is what dragged
+        // Check-in and Sharing out of place in the first place.
+        //
+        // From `sm` up, `1fr auto 1fr` forces the two outer columns to the same
+        // width regardless of what they contain, which puts the middle (auto)
+        // column -- Sharing -- at the header's true visual center no matter how
+        // wide the close X or the Check-in+Locate group are.
+        //
+        // Below `sm` -- i.e. every phone -- that same symmetry is what broke the
+        // header. Making the left column (one 56px X) as wide as the right one
+        // (Check-in + Locate) burns ~95px on empty space, and the leftover
+        // centre column could not hold "Sharing with 2" AND let Check-in keep
+        // its label. Measured in Chromium against this stylesheet, "Check in"
+        // was truncated at EVERY phone width tested -- 320, 360, 375, 390 and
+        // 430 -- reaching the reporter as the single letter "C".
+        // A product-owned action word is not an acceptable thing to truncate,
+        // so the phone layout gives row 1 to the controls at their natural
+        // widths and drops Sharing onto its own full-width row beneath them.
+        // Nothing truncates, and the Sharing popover gains the room it needs to
+        // open without being clipped by the screen edge.
+        className="pointer-events-none absolute inset-x-0 top-0 z-30 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:grid-cols-[1fr_auto_1fr]"
       >
-        <ShellActionSurface
-          className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
-          aria-label="Back to Location"
-          data-testid="one-location-map-close"
-          disabled={closing}
-          onClick={closeMap}
-          onPointerUp={(event) => {
-            if (event.pointerType === "touch" || event.pointerType === "pen") {
-              closeMap();
-            }
-          }}
-        >
-          <X className="h-5 w-5 stroke-[2.25]" />
-        </ShellActionSurface>
-        {rendererReady && nearbyCheckInAvailable && !demoMode ? (
-          <ShellActionSurface
-            variant="pill"
-            className={`pointer-events-auto min-w-0 border shadow-lg backdrop-blur-md ${
-              nearbyPresenceState.presence
-                ? MAP_ACCENT_ACTIVE_CLASSNAME
-                : MAP_ACCENT_CONTROL_CLASSNAME
-            }`}
-            aria-label={
-              nearbyPresenceState.presence
-                ? `Nearby check-in active with ${nearbyPresenceState.attendees.length} people`
-                : "Check in nearby"
-            }
-            data-testid="one-location-map-nearby-check-in"
-            onClick={openNearbyCheckIn}
-          >
-            <UsersRound className="h-4 w-4 shrink-0" />
-            <span className="truncate">
-              {nearbyPresenceState.presence
-                ? `Nearby ${nearbyPresenceState.attendees.length}`
-                : "Check in"}
-            </span>
-          </ShellActionSurface>
-        ) : null}
-        {!demoMode && (activeShareCount ?? 0) > 0 ? (
-          <span
-            data-testid="one-location-map-sharing-status"
-            aria-label={`You are sharing your location with ${activeShareCount} ${
-              activeShareCount === 1 ? "person" : "people"
-            }`}
-            className="pointer-events-none hidden min-w-0 shrink items-center gap-1.5 truncate rounded-full border border-[var(--app-accent-border)] bg-background/85 px-3 py-1.5 text-[12px] font-semibold text-[var(--app-accent-deep)] shadow-lg backdrop-blur-md md:flex dark:text-[var(--app-accent-bright)]"
-          >
-            <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--app-accent)] motion-safe:animate-pulse"
-              aria-hidden="true"
-            />
-            <span className="truncate">Sharing with {activeShareCount}</span>
-          </span>
-        ) : null}
-        {rendererReady ? (
+        <div className="col-start-1 row-start-1 flex min-w-0 items-center">
           <ShellActionSurface
             className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
-            aria-label={
-              busy === "locate" ? "Finding your location" : "Show my location"
-            }
-            aria-busy={busy === "locate"}
-            data-testid="one-location-map-locate"
-            disabled={busy === "locate"}
-            onClick={() => void locateMe()}
+            aria-label="Back to Location"
+            data-testid="one-location-map-close"
+            disabled={closing}
+            onClick={closeMap}
+            onPointerUp={(event) => {
+              if (event.pointerType === "touch" || event.pointerType === "pen") {
+                closeMap();
+              }
+            }}
           >
-            {busy === "locate" ? (
-              <Loader2
-                className="h-5 w-5 animate-spin stroke-[2.25]"
-                aria-hidden="true"
-              />
-            ) : (
-              <LocateFixed className="h-5 w-5 stroke-[2.25]" />
-            )}
+            <X className="h-5 w-5 stroke-[2.25]" />
           </ShellActionSurface>
+        </div>
+        <div className="col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center sm:col-span-1 sm:col-start-2 sm:row-start-1">
+          {!demoMode && (activeShareCount ?? 0) > 0 ? (
+            <Popover
+              open={sharingPopoverOpen}
+              onOpenChange={setSharingPopoverOpen}
+              modal={false}
+            >
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  data-testid="one-location-map-sharing-status"
+                  aria-label={`Show who you are sharing your location with. ${activeShareCount} ${
+                    activeShareCount === 1 ? "person" : "people"
+                  }.`}
+                  aria-expanded={sharingPopoverOpen}
+                  className="pointer-events-auto press-scale flex min-w-0 shrink items-center gap-1.5 truncate rounded-full border border-[var(--app-accent-border)] bg-background/85 px-3 py-1.5 text-[12px] font-semibold text-[var(--app-accent-deep)] shadow-lg backdrop-blur-md transition-colors hover:bg-background/95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] focus-visible:ring-offset-2 dark:text-[var(--app-accent-bright)]"
+                >
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--app-accent)] motion-safe:animate-pulse"
+                    aria-hidden="true"
+                  />
+                  <span className="truncate">
+                    Sharing with {activeShareCount}
+                  </span>
+                  <span className="sr-only" role="status" aria-live="polite">
+                    You are sharing your location with {activeShareCount}{" "}
+                    {activeShareCount === 1 ? "person" : "people"}.
+                  </span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="center"
+                side="bottom"
+                sideOffset={8}
+                onOpenAutoFocus={(event) => event.preventDefault()}
+                className="pointer-events-auto w-[min(17rem,calc(100vw-2rem))] rounded-[18px] border border-[var(--app-accent-border)] bg-background/92 p-2 text-foreground shadow-xl backdrop-blur-md"
+              >
+                <p className="px-2 py-1 text-[13px] font-semibold leading-[18px] text-muted-foreground">
+                  Sharing with
+                </p>
+                <ul className="grid gap-1" aria-label="People you are sharing with">
+                  {activeShareNames.map((name, index) => {
+                    const pin = markerForSharedPerson(name);
+                    return (
+                      <li key={`${name}-${index}`}>
+                        {/*
+                          A row here names a real person, so it has to behave
+                          like one: tapping "Ankit Kumar Singh" should take you
+                          to Ankit Kumar Singh. It used to be inert text, which
+                          is the worst of both worlds -- it looks like a list
+                          you can act on and answers nothing when you press it.
+
+                          The two destinations are the only two that exist. If
+                          they share back, they have a pin, so the tap flies the
+                          camera to it. If they do not, there is nothing to fly
+                          to, and the only useful place is the Location screen
+                          where that share is managed -- so the tap goes there
+                          rather than pretending to do something on the map.
+                          min-h-11 keeps the row a 44px touch target.
+                        */}
+                        <button
+                          type="button"
+                          data-testid="one-location-map-sharing-person"
+                          data-has-pin={pin ? "true" : "false"}
+                          aria-label={
+                            pin
+                              ? `Show ${name} on your map`
+                              : `Manage your location share with ${name}`
+                          }
+                          className="flex min-h-11 w-full items-center gap-2 rounded-[12px] px-2 py-1.5 text-left text-[15px] leading-5 transition-colors hover:bg-[var(--app-accent-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                          onClick={() => void openSharedPerson(name)}
+                        >
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]"
+                            aria-hidden="true"
+                          />
+                          <span className="min-w-0 flex-1 truncate">
+                            {name}
+                          </span>
+                          {pin ? (
+                            <span
+                              className="shrink-0 text-[11px] font-medium text-muted-foreground"
+                              aria-hidden="true"
+                            >
+                              On your map
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </PopoverContent>
+            </Popover>
+          ) : null}
+        </div>
+        {rendererReady ? (
+          <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-3 sm:col-start-3">
+            {/*
+              Your Map keeps this control in the tray below, not up here. Two
+              floating pills plus the Sharing status is a second row of chrome
+              across the top of a screen whose whole job is to show the map,
+              and it is the arrangement that has been truncating "Check in" to
+              "C" on phone widths for as long as it has existed.
+
+              Check-in's own route still needs it here: that surface renders no
+              tray (see the `!isCheckInSurface` gate on the tray section), and
+              this pill is the only way back into the sheet after dismissing it.
+            */}
+            {rendererReady &&
+            nearbyCheckInAvailable &&
+            !demoMode &&
+            isCheckInSurface ? (
+              <ShellActionSurface
+                variant="pill"
+                // ShellActionSurface's own wrapper is shrink-0 by default (a
+                // fixed-size top-bar control never used to need to give way).
+                // Here it shares a grid column with Locate and can be pushed
+                // by Sharing sitting dead-center, so it needs to be the one
+                // that yields -- wrapperClassName reaches the actual flex
+                // item; min-w-0 on the trigger itself lets its own truncate
+                // span ellipsis instead of just refusing to shrink.
+                wrapperClassName="min-w-0 shrink"
+                className={`pointer-events-auto min-w-0 border shadow-lg backdrop-blur-md ${
+                  nearbyPresenceState.presence
+                    ? MAP_ACCENT_ACTIVE_CLASSNAME
+                    : MAP_ACCENT_CONTROL_CLASSNAME
+                }`}
+                aria-label={
+                  nearbyPresenceState.presence
+                    ? `Nearby check-in active with ${nearbyPresenceState.attendees.length} people`
+                    : "Check in nearby"
+                }
+                data-testid="one-location-map-nearby-check-in"
+                onClick={openNearbyCheckIn}
+              >
+                <UsersRound className="h-4 w-4 shrink-0" />
+                <span className="truncate">
+                  {nearbyPresenceState.presence
+                    ? `Nearby ${nearbyPresenceState.attendees.length}`
+                    : "Check in"}
+                </span>
+              </ShellActionSurface>
+            ) : null}
+            {rendererReady ? (
+              <ShellActionSurface
+                className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
+                aria-label={
+                  busy === "locate" ? "Finding your location" : "Show my location"
+                }
+                aria-busy={busy === "locate"}
+                data-testid="one-location-map-locate"
+                disabled={busy === "locate"}
+                onClick={() => void locateMe()}
+              >
+                {busy === "locate" ? (
+                  <Loader2
+                    className="h-5 w-5 animate-spin stroke-[2.25]"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <LocateFixed className="h-5 w-5 stroke-[2.25]" />
+                )}
+              </ShellActionSurface>
+            ) : null}
+          </div>
         ) : null}
-      </div>
+      </header>
       {/*
         Two pins on one map need naming, or the owner cannot tell which is
         "me" and which is "the place I'm checking in to" -- and those are
@@ -1951,7 +2594,8 @@ export function LocationImmersiveMap({
           {nearbySearchPoint ? (
             <span className="flex items-center gap-2">
               <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full bg-[rgb(0,122,255)]"
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: tintCss(SELF_TINT) }}
                 aria-hidden="true"
               />
               <span className="truncate text-foreground">You are here</span>
@@ -1963,11 +2607,14 @@ export function LocationImmersiveMap({
               data-testid="one-location-nearby-place-legend"
             >
               <span
-                className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                  nearbyPlaceFocus.active
-                    ? "bg-emerald-500"
-                    : "bg-violet-500"
-                }`}
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{
+                  backgroundColor: tintCss(
+                    nearbyPlaceFocus.active
+                      ? PLACE_ACTIVE_TINT
+                      : PLACE_PENDING_TINT,
+                  ),
+                }}
                 aria-hidden="true"
               />
               <span className="truncate text-foreground">
@@ -1986,7 +2633,13 @@ export function LocationImmersiveMap({
             </span>
           ) : null}
           <span className="pl-[1.125rem] font-normal text-muted-foreground">
-            500 m {nearbyPlaceFocus?.active ? "match" : "search"} area
+            {/* "match" is the backend's word for how it pairs attendees, and it
+                also hid a real difference: the live circle is drawn around the
+                PLACE, the search circle around the PERSON (see the circle title
+                at ~1396). Naming the anchor says both things in plain words. */}
+            {nearbyPlaceFocus?.active
+              ? "500 m around your place"
+              : "500 m around you"}
           </span>
         </div>
       ) : null}
@@ -2010,7 +2663,7 @@ export function LocationImmersiveMap({
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 opacity-[0.5] [background-image:linear-gradient(to_right,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px)] [background-size:32px_32px]"
           />
-          <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-background text-[color:var(--app-accent,#087ff5)] shadow-lg">
+          <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-background text-[color:var(--app-accent)] shadow-lg">
             <Loader2 className="h-7 w-7 animate-spin" strokeWidth={2} aria-hidden />
           </span>
           <p className="relative text-sm font-medium text-muted-foreground">
@@ -2026,16 +2679,34 @@ export function LocationImmersiveMap({
         >
           <MapPin className="h-6 w-6 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
           <h1 className="mt-3 text-xl font-semibold">Your Map</h1>
+          {/*
+            This is the renderer-consent gate: accepting it writes
+            GOOGLE_MAPS_RENDERER_CONSENT_VERSION. All three claims are
+            load-bearing and none may be dropped for brevity — private shares
+            are opened locally, Google Maps is told the minimum, and Nearby
+            Check-In is a separate opt-in.
+
+            Two words in the third claim are protected, and a previous trim of
+            this paragraph lost both:
+            - "only" is the exclusivity guarantee. The other two claims keep
+              theirs ("open only on this device", "gets only what it needs");
+              dropping it here alone said Check-In is separate without saying
+              nothing else can start it.
+            - "Nearby" is the feature's name, and the single word that says
+              this is the surface that shows you to people AROUND you rather
+              than to people you picked. Settings states the same strong form.
+            Shorten the connective tissue if you must; leave those two.
+          */}
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Private shares open only on this device. Google Maps uses the
-            minimum location needed to show them. Nearby Check-In is separate
-            and starts only when you choose it.
+            Private shares open only on this device. Google Maps gets only what
+            it needs to draw them. Nearby Check-In is separate — it starts only
+            when you do.
           </p>
           <Button
             className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
             onClick={() => void acceptRenderer()}
           >
-            Continue to Your Map
+            Continue
           </Button>
           {demoAvailable ? (
             <Button
@@ -2045,7 +2716,10 @@ export function LocationImmersiveMap({
               onClick={toggleDemoPeople}
             >
               <UsersRound className="h-4 w-4" />
-              Preview with fictional people
+              {/* "not real people" is not lost with the shorter label: tapping
+                  this raises the "Showing fictional people…" toast, and the map
+                  carries a Demo badge for as long as the preview is on. */}
+              See a demo
             </Button>
           ) : null}
         </section>
@@ -2061,17 +2735,27 @@ export function LocationImmersiveMap({
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 opacity-[0.5] [background-image:linear-gradient(to_right,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px)] [background-size:32px_32px]"
           />
-          <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-background text-[color:var(--app-accent,#087ff5)] shadow-lg">
+          {/* There is no map and nothing to tap: an unavailable surface takes
+              the resting neutral, not the accent that promises an action.
+              Red would be wrong too — this placeholder exists precisely so
+              the screen never reads as broken. */}
+          <span
+            className={`relative flex h-14 w-14 items-center justify-center rounded-full bg-background shadow-lg ${UNAVAILABLE_TONE.glyph}`}
+          >
             <MapPin className="h-7 w-7" strokeWidth={2} aria-hidden />
           </span>
           <h1 className="relative font-semibold">
+            {/* "build" and "Maps key" are engineering words on a full-bleed
+                screen an ordinary person is looking at. The distinction the two
+                branches exist to make — this is our problem, not your device or
+                your permission — is what the replacement keeps. */}
             {unavailableReason === "maps-key"
-              ? "This build has no Maps key"
+              ? "Maps isn't available"
               : "The map could not start"}
           </h1>
           <p className="relative max-w-sm text-sm text-muted-foreground">
             {unavailableReason === "maps-key"
-              ? "Maps is not configured for this build."
+              ? "Nothing is wrong with your location."
               : "Check your connection and try again."}
           </p>
         </div>
@@ -2088,10 +2772,15 @@ export function LocationImmersiveMap({
             width: trayExpanded
               ? "min(34rem, calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)))"
               : "3.5rem",
+            // Fit the sheet to its content (header + measured body), not the
+            // viewport's full allowance -- that fixed allowance is what left
+            // a slab of dead space below the last row of buttons whenever
+            // the content was shorter than the available height. The
+            // viewport calc and 29.5rem figure now only cap it: a short list
+            // shrinks the sheet, a long one still stops short of the notch
+            // and scrolls internally.
             height: trayExpanded
-              ? hasVisibleTrayResults
-                ? "clamp(10rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 29.5rem)"
-                : "min(22rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)))"
+              ? `clamp(${TRAY_COLLAPSED_HEIGHT_PX}px, ${trayHeaderHeight + trayContentHeight + TRAY_BORDER_HEIGHT_PX}px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))`
               : "3.5rem",
             borderRadius: trayExpanded ? "1.75rem" : "999px",
             transition: [
@@ -2104,6 +2793,7 @@ export function LocationImmersiveMap({
           }}
         >
           <button
+            ref={trayHeaderRef}
             type="button"
             className={`group relative flex w-full shrink-0 touch-manipulation items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70 motion-reduce:transition-none ${
               trayExpanded
@@ -2117,9 +2807,11 @@ export function LocationImmersiveMap({
               ].join(", "),
             }}
             aria-expanded={trayExpanded}
-            aria-label={
-              trayExpanded ? "Minimize map controls" : "Expand map controls"
-            }
+            // This control expands and collapses the PEOPLE list, not the map
+            // controls — the section it opens is labelled "People checked in
+            // nearby" / "Live locations shared with you". A screen-reader user
+            // was being told the wrong thing about what the button does.
+            aria-label={trayExpanded ? "Hide people" : "Show people"}
             data-testid="one-location-map-tray-toggle"
             onClick={() => setTrayExpanded((current) => !current)}
           >
@@ -2218,12 +2910,16 @@ export function LocationImmersiveMap({
             inert={!trayExpanded}
           >
             <div
-              className="h-full min-h-0 overflow-y-auto overscroll-contain px-3 pb-3 pt-1"
+              className="h-full min-h-0 overflow-y-auto overscroll-contain"
               data-testid="one-location-map-tray-scroll"
             >
+              {/* Unconstrained by the scroll container's fixed height above,
+                  so its offsetHeight is the content's true natural size,
+                  padding included since that padding lives here now. */}
+              <div ref={trayContentRef} className="px-3 pb-3 pt-1">
               <label className="relative block">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <span className="sr-only">Find a person on Your Map</span>
+                <span className="sr-only">Find a person</span>
                 <Input
                   className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4"
                   data-testid="one-location-map-search"
@@ -2420,7 +3116,7 @@ export function LocationImmersiveMap({
                         : // The header already says no one is sharing. This
                           // line spends itself on the part the header cannot:
                           // what it takes to appear here.
-                          "Pins appear once they share and allow maps."}
+                          "Pins appear once they share with maps on."}
                     </p>
                   ) : null}
                 </div>
@@ -2492,17 +3188,50 @@ export function LocationImmersiveMap({
                 <Button
                   className="h-11 min-w-0 rounded-2xl px-2"
                   variant="secondary"
-                  disabled={visibleMarkers.length === 0}
+                  data-testid="one-location-map-show-everyone"
                   onClick={() => void showEveryone()}
                 >
                   Everyone
                 </Button>
               </div>
+              {/*
+                Check in, moved down off the map.
+
+                It used to float in the top-right corner beside Locate, which
+                put two pills and a Sharing status over the top of the map on
+                every phone -- the reporter's "when i want to view my map".
+                Down here it is full width and under the thumb, sitting with
+                the people it is about rather than over the map it obscured.
+
+                Last in the sheet on purpose: the row above it is toggles
+                (Demo / Visible / Everyone), and this is the one thing on the
+                screen a person actually goes somewhere to do.
+              */}
+              {!isCheckInSurface && nearbyCheckInAvailable && !demoMode ? (
+                <Button
+                  className="mt-3 h-12 w-full rounded-2xl"
+                  aria-label={
+                    nearbyPresenceState.presence
+                      ? `Nearby check-in active with ${nearbyPresenceState.attendees.length} people`
+                      : "Check in nearby"
+                  }
+                  data-testid="one-location-map-nearby-check-in"
+                  onClick={openNearbyCheckIn}
+                >
+                  <UsersRound className="h-4 w-4 shrink-0" />
+                  <span className="truncate">
+                    {nearbyPresenceState.presence
+                      ? `Nearby ${nearbyPresenceState.attendees.length}`
+                      : "Check in"}
+                  </span>
+                </Button>
+              ) : null}
               {status === "error" ? (
                 <p className="mt-2 text-center text-xs text-destructive">
                   Some locations didn&apos;t refresh.
                 </p>
               ) : null}
+              </div>
             </div>
           </div>
         </section>

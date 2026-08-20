@@ -444,11 +444,45 @@ def _normalize_discovery(payload: dict[str, Any]) -> dict[str, Any]:
             "searchPerformed": bool(summary.get("search_performed")),
             "effectiveRadiusKm": _coerce_float(summary.get("effective_radius_km")),
         },
+        "sourceHealth": _normalize_source_health(payload.get("source_health")),
         "release": _normalize_release(payload.get("release")),
         "reviewScope": _normalize_review_scope(payload.get("discovery")),
         "financialContext": _normalize_financial_context(payload.get("financial_context")),
         "scoreDefinition": _text(payload.get("score_definition")),
         "results": [_normalize_result(item) for item in results],
+    }
+
+
+def _normalize_source_health(value: Any) -> dict[str, Any] | None:
+    """Whether the list an advisor is reading is the whole list.
+
+    The national index fans out across two independent public registries. When
+    one of them is stale, partial or unavailable the upstream still answers
+    ``200`` with whatever the other returned -- a shorter list that looks
+    exactly like a complete one. An advisor deciding who to approach in a city
+    has no way to tell those apart, so the degradation travels rather than being
+    dropped as plumbing.
+
+    Returns ``None`` when the upstream sends no health block at all, so an older
+    revision degrades to today's behaviour instead of claiming false health.
+    """
+    block = _as_dict(value)
+    status = _text(block.get("status"))
+    if not status:
+        return None
+
+    def _names(key: str) -> list[str]:
+        return [text for text in (_text(item) for item in _as_list(block.get(key))) if text]
+
+    degraded = _names("unavailable_sources") + _names("partial_sources") + _names("stale_sources")
+    return {
+        "status": status,
+        "queriedSourceCount": _coerce_int(block.get("queried_source_count")) or 0,
+        "successfulSources": _names("successful_sources"),
+        # One list, because the distinction between a source that answered
+        # partially and one that answered with old data does not change what the
+        # advisor does about it: treat the list as incomplete.
+        "degradedSources": degraded,
     }
 
 
@@ -526,6 +560,14 @@ def _normalize_result(row: dict[str, Any]) -> dict[str, Any]:
         "globalNws": _coerce_float(row.get("global_nws")),
         "nearbyRankScore": _coerce_float(row.get("nearby_rank_score")),
         "scoreStatus": _text(row.get("score_status")),
+        # Which scoring regime produced the number above. A nationally
+        # discovered record is scored from registry role and freshness alone --
+        # its graph, track-record and capital components are structurally zero,
+        # so it lands near 20 while a reviewed record lands near 78. The two are
+        # not comparable, and shown side by side without this the lower number
+        # reads as a weaker person rather than a thinner source.
+        "scoreKind": _text(row.get("score_kind")),
+        "rankingBasis": _text(row.get("ranking_basis")),
         "confidence": {
             "score": _coerce_float(confidence.get("score")),
             "grade": _text(confidence.get("grade")),

@@ -141,6 +141,11 @@ tests/test_pod_storage.py
 tests/test_pod_turn_grounding.py
 tests/test_pod_turn_relay.py
 tests/test_pod_turn_route.py
+tests/test_vault_keys_metadata.py
+tests/services/test_connections_service.py
+tests/routes/test_connections_route.py
+tests/test_ria_claim_flow.py
+tests/test_ria_iam_service_architecture.py
 tests/test_portfolio_stream_quality_rules.py
 tests/test_product_agent_registry_v2.py
 tests/test_provision_uses_the_persons_own_cloud.py
@@ -150,13 +155,11 @@ tests/test_ria_claim_dossiers_migration.py
 tests/test_ria_claim_email_evidence.py
 tests/test_ria_claim_email_routes.py
 tests/test_ria_claim_email_test_path.py
-tests/test_ria_claim_flow.py
 tests/test_ria_claim_location.py
 tests/test_ria_dossier_email_service.py
 tests/test_ria_dossier_mail_contract.py
 tests/test_ria_dossier_routes.py
 tests/test_ria_dossier_service.py
-tests/test_ria_iam_service_architecture.py
 tests/test_ria_onboarding_status_claim_event.py
 tests/test_scheduler_identity.py
 tests/test_scoped_export_download.py
@@ -166,7 +169,6 @@ tests/test_standing_read_reissue.py
 tests/test_stream_agent_thinking_gemini_error_cwe209.py
 tests/test_stream_path_query_bounds_cwe400.py
 tests/test_user_gcp_backend.py
-tests/test_vault_keys_metadata.py
 tests/test_webauthn_aal.py
 tests/test_webauthn_mds.py
 tests/test_webauthn_repo.py

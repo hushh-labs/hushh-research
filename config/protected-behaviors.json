@@ -1,0 +1,387 @@
+{
+  "_comment": [
+    "Behaviours that were fixed once and must not be silently re-broken.",
+    "",
+    "A permission list cannot protect a fixed behaviour here: `main` waives",
+    "REVIEW for the bypass cohort but never waives VALIDATION (see the note in",
+    ".github/workflows/ci.yml above the ci-status job). So the durable guard is",
+    "a test that runs in the pull-request lane -- it blocks everyone equally,",
+    "including every review-bypass user and every --admin merge.",
+    "",
+    "That leaves one hole: a test can be deleted, and a deleted test is green.",
+    "This file closes it. Each entry pins the tests that PROVE a behaviour --",
+    "the file, the named cases inside it, and an assertion floor. CI fails the",
+    "PR when any of those disappear.",
+    "",
+    "Deleting or weakening an entry is deliberately an actor-gated edit: this",
+    "file is listed in main.protected_pipeline_paths in config/ci-governance.json,",
+    "so scripts/ci/verify-protected-pipeline-edits.py checks who touched it.",
+    "",
+    "Assertion floors are set BELOW the current count on purpose. They catch a",
+    "test file being gutted, not ordinary edits that add or reshuffle a couple",
+    "of assertions. Raise a floor when a behaviour gains real new coverage."
+  ],
+  "protected_behaviors": [
+    {
+      "name": "location-people-search-finds-a-person-from-one-letter",
+      "summary": "Every people picker on the Location surface matches a query that BEGINS a word ahead of one that merely appears inside it, so one typed letter narrows the list. One character keeps only word-beginning matches (falling back to loose ones when nothing begins with it, so it can never empty a list that has a match); two or more characters drop nothing. Combining marks are part of a word, so an Indic name is never split at its matras.",
+      "fixed_by": "aa7be6ea2",
+      "why_it_needs_a_lock": [
+        "The bug WAS a bare `includes(query)` filter, and it was duplicated at six",
+        "call sites: the add-people sheet in Circle detail, the Circle grow sheet",
+        "reached from Check-In, the check-in contact list, the map's people tray,",
+        "and both recipient searches on the hub. Every branch cut before aa7be6ea2",
+        "still carries that one-line filter verbatim in all six, so a conflict",
+        "resolved the wrong way silently restores it with nothing in review to",
+        "notice -- the list simply stops narrowing again.",
+        "",
+        "The Indic half is the part no reviewer would catch. `/[^\\p{L}\\p{N}]+/u`",
+        "reads a matra as a word separator, so it shredded every Devanagari name",
+        "and shipped green past 13 unit tests, typecheck, lint, a full-suite",
+        "baseline and a verified UAT deploy, because every fixture was Latin. See",
+        "R20 in .claude/skills/safe-changes/SKILL.md. Dropping the \\p{M} from that",
+        "character class is a one-character edit that no Latin test can fail."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/lib/one-location/__tests__/people-search.test.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 16,
+          "required_titles": [
+            "narrows to the person whose name begins with a single typed letter",
+            "keeps every match beyond one character, word beginnings first",
+            "never empties a list that has a match, even for one character",
+            "keeps an Indic name whole instead of splitting it at every matra",
+            "still finds an Indic name by a syllable inside it"
+          ]
+        },
+        {
+          "path": "hushh-webapp/components/one-location/redesign/circles/__tests__/circle-grow-actions.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 10,
+          "required_titles": [
+            "finds a connection from the first letter here too",
+            "paints its blocked Select people CTA the same as the Circle detail copy"
+          ]
+        },
+        {
+          "path": "hushh-webapp/components/one-location/redesign/circles/__tests__/named-circle-flows.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 90,
+          "required_titles": [
+            "finds a connection from the first letter of any of their names",
+            "blocks Create only while the name is empty, and says so visibly"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "connect-people-search-is-an-alphabetical-index",
+      "summary": "Typing one letter into Connect returns every person whose name matches, ranked by the server ahead of LIMIT and ordered A-Z within each tier. The client renders that page unchanged and never re-filters or re-sorts it.",
+      "fixed_by": "2afe801beddacc9618c4f25328370e9232722332",
+      "why_it_needs_a_lock": [
+        "The original bug WAS a client-side prefix filter and sort layered on top",
+        "of a paged server result. Branches cut before the fix still carry that",
+        "code verbatim, so a merge-conflict resolved the wrong way puts it back",
+        "with nothing in review to notice. That near-miss already happened once,",
+        "at merge commit 7c647f75e, and was resolved correctly only by hand."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/__tests__/app/connect/page-client.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 120,
+          "required_titles": [
+            "renders every person the directory returned, in the order it returned them",
+            "shows every match for a single typed letter",
+            "preserves the directory's A-Z order rather than re-sorting the page",
+            "renders one letter's whole page, in the server's sequence, with nothing dropped",
+            "says so when a search matches nobody"
+          ]
+        },
+        {
+          "path": "consent-protocol/tests/services/test_one_location_agent_service.py",
+          "assertion_pattern": "^\\s+assert ",
+          "min_assertions": 380,
+          "required_titles": [
+            "def test_directory_search_ranks_name_prefix_above_word_prefix_then_alphabetically",
+            "def test_directory_search_ranks_the_tier_before_the_alphabet",
+            "def test_directory_search_folds_separators_so_tiering_is_about_the_name"
+          ]
+        },
+        {
+          "path": "consent-protocol/tests/services/test_connections_service.py",
+          "assertion_pattern": "^\\s+assert ",
+          "min_assertions": 115,
+          "required_titles": [
+            "def test_search_directory_fallback_matches_prefixes_and_ranks_them",
+            "def test_search_directory_fallback_pages_the_ranked_list_not_the_raw_one"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "connect-request-asks-before-it-shares",
+      "summary": "A connection request opens the capability review pre-granting nothing in either direction. The only permitted bypass is a catalog that is empty on BOTH sides, and it must send empty handle lists.",
+      "fixed_by": "99dc41d99",
+      "why_it_needs_a_lock": [
+        "This contract test sat RED on main from 2026-08-15 to 2026-08-16 and",
+        "nobody saw it, because ci.yml has no vitest lane and the full suite only",
+        "runs in the merge queue -- which every review-bypass user skips. It was",
+        "asserting dialog copy, so ordinary UI polish made it stale; it now",
+        "asserts the consent shape instead, which is the part that must not move."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/__tests__/app/connect/page-client.contract.test.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 18,
+          "required_titles": [
+            "requires an explicit capability review whenever there is anything to review"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "connect-rias-tab-lists-only-verified-advisers",
+      "summary": "The RIAs tab shows only connections the server has annotated as verified RIAs, and the heading count, the empty state and the rows all read that one filtered list. A connection carrying no annotation is NOT an adviser.",
+      "fixed_by": "#5362",
+      "why_it_needs_a_lock": [
+        "The directory half of this tab was audience-split server-side from the",
+        "start; the 'My connections' list above it was never split at all, so the",
+        "RIAs tab repeated the People tab exactly and listed people who had never",
+        "finished RIA onboarding. A tester found it, not CI.",
+        "",
+        "The filter is one clause on a useMemo and the annotation is one key on a",
+        "dict two repos apart. Either can be dropped in a conflict resolution with",
+        "nothing in review to notice -- the tab simply goes back to listing",
+        "everyone, which looks like a populated tab rather than a broken one.",
+        "",
+        "The fail-closed direction matters as much as the filter: an unannotated",
+        "row must be hidden from the tab, never promoted into it."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/__tests__/app/connect/page-client.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 60,
+          "required_titles": [
+            "lists only verified advisers under My connections on the RIAs tab",
+            "treats a connection with no RIA annotation as not an adviser"
+          ]
+        },
+        {
+          "path": "consent-protocol/tests/services/test_connections_service.py",
+          "assertion_pattern": "assert ",
+          "min_assertions": 60,
+          "required_titles": [
+            "test_list_connections_annotates_ria_status_per_row",
+            "test_list_connections_uses_the_same_verified_gate_as_the_directory"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "one-location-duration-states-itself-once",
+      "summary": "Choosing the open-ended share duration collapses the timed wheel instead of fading it behind a second, contradicting label; and the Request lane never offers an open-ended option at all, because you cannot ask to watch someone until THEY stop.",
+      "fixed_by": "#5362",
+      "why_it_needs_a_lock": [
+        "The faded remains of the wheel WERE the defect: the chip stating the",
+        "choice was a child of an opacity-40 wrapper, so it rendered grey in the",
+        "middle of a grey control while a blue button under it said the opposite",
+        "words. Restoring the fade is a one-line change.",
+        "",
+        "The Request half is worse than cosmetic. `allowUntilStop={false}` is a",
+        "single prop with no test on either half before this entry, and the value",
+        "it suppresses is a non-numeric sentinel that this lane later runs",
+        "Number() over -- deleting the prop posts NaN to a `gt=0` field."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/components/one-location/redesign/__tests__/duration-wheel-picker.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 40,
+          "required_titles": [
+            "emits the until-stop alias and removes the wheel while toggled on",
+            "recovers a sentinel value into a real duration on a lane that hides the option"
+          ]
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 400,
+          "required_titles": [
+            "never offers an open-ended duration when asking someone else"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "one-location-share-picker-says-who-can-already-see-you",
+      "summary": "The share recipient picker separates people who already hold an active grant into their own group, showing the same remaining time the Active shares screen shows for that grant. The grouping appears only when there is something to group.",
+      "fixed_by": "#5362",
+      "why_it_needs_a_lock": [
+        "Picking someone who already holds an active grant does not extend it --",
+        "`_create_enforced_grant_row` revokes the old row and inserts a new one --",
+        "so a re-pick silently restarts a running timer. Before this, every row",
+        "looked identical, so that was invisible at the moment of choosing.",
+        "",
+        "The whole feature is one read of `vm.activeOwnerGrants`, a field that sat",
+        "on the same view-model unread for the life of the screen. Dropping the",
+        "read returns the picker to a flat list that looks correct."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 400,
+          "required_titles": [
+            "separates people who can already see you from people who cannot",
+            "keeps one flat list when nobody can see you yet"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "one-location-onboarding-art-is-not-positioned-from-the-viewport",
+      "summary": "The Check-in card's artwork is anchored in a percentage of its own region, so its place inside the card does not change when the viewport height changes. The copy and the artwork never overlap.",
+      "fixed_by": "#5363",
+      "why_it_needs_a_lock": [
+        "This shipped as five separate `bottom` rules on [data-one-checkin-art] --",
+        "two `vh` clamps and three fixed pixel values inside width/height media",
+        "queries -- each of which outranks the element's own class by source order.",
+        "The card's size is width-driven and never moved; the art slid up inside it",
+        "as the phone got taller, until it ran over the body copy. A tester found it",
+        "by stepping from a 393x852 iPhone 14 Pro to a 430x932 Pro Max.",
+        "",
+        "A width-only sweep cannot catch this, and neither can reading the source:",
+        "the first attempt at this fix removed ONE clamp and the browser test found",
+        "four more overrides still winning. The lock is the height sweep."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/e2e/one-location-checkin-card.layout.spec.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 6,
+          "required_titles": [
+            "the artwork is not positioned from the viewport"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "gemini-endpoint-select-matches-the-key-field-on-webkit",
+      "summary": "The API endpoint picker and the key field under it share a radius, height and text inset \u2014 including under WebKit, where a native <select> ignores author border-radius unless appearance is removed.",
+      "fixed_by": "#5363",
+      "why_it_needs_a_lock": [
+        "`appearance-none` looks like a cosmetic class and is the entire fix. Under",
+        "WebKit's default `appearance: menulist` the engine draws the control and",
+        "overrides the author's border-radius: measured 5px against the input's",
+        "14px, before AND after handing the select the input's classes.",
+        "",
+        "Chromium honours the author radius either way, so a Chromium-only test",
+        "passes the broken control. The iOS app is a WKWebView. Deleting the class,",
+        "or letting this spec fall out of the webkit project's testMatch, silently",
+        "restores the defect on the platform most of our users are on."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/e2e/gemini-endpoint-fields.layout.spec.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 6,
+          "required_titles": [
+            "appearance-none is load-bearing, not decoration"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "location-header-status-names-what-the-switch-controls",
+      "summary": "The Location header's status always reads \"Location on/off/paused/blocked/limited\" at every width, and renders under the title rather than beside the switch.",
+      "fixed_by": "#5363",
+      "why_it_needs_a_lock": [
+        "The full string beside the switch wrapped the 28px title on every iPhone,",
+        "so it was shortened to one word on phones. That fit, and it cost the label",
+        "its meaning: iOS showed a bare green switch over the word \"On\", which",
+        "never said what it switched. Reported from the device.",
+        "",
+        "The one-word form is the tempting fix every time the title wraps again.",
+        "Moving the status under the title is what makes the full string affordable;",
+        "putting it back in the actions column brings the abbreviation back with it."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 400,
+          "required_titles": [
+            "keeps the heading and location toggle inline as the only header action"
+          ]
+        },
+        {
+          "path": "hushh-webapp/lib/one-location/__tests__/location-readiness.test.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 30,
+          "required_titles": [
+            "names what the switch controls in every state, at every width"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "confirming-a-place-in-onboarding-turns-location-on",
+      "summary": "Saving and labelling a place during Location onboarding sets the live preview on, so the hub the person is redirected to does not greet them with \"Location off\" seconds after they granted permission and dropped a pin.",
+      "fixed_by": "fix/location-polish-round3",
+      "why_it_needs_a_lock": [
+        "Onboarding captures a position DIRECTLY rather than through",
+        "`ensureForegroundLocationReady`, so it never reaches `activateMyLocation`",
+        "and never sets `selfPreviewEnabled`. A new owner also has no grants and no",
+        "nearby presence, so all three disjuncts behind `locationEnabled` are false.",
+        "",
+        "It shipped because every hub test reaches the hub through",
+        "`skipLocationEntryFlow`, which presses \"Skip for now\" on the save modal \u2014",
+        "so the save path never once reached an assertion about the header. The",
+        "guard has to be a test that SAVES.",
+        "",
+        "The write is two fields on the same call the header switch itself uses.",
+        "Deleting it restores a hub that contradicts what the person just did."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 400,
+          "required_titles": [
+            "turns location on once a place is confirmed in onboarding"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "duration-cells-stay-compact-wherever-they-render",
+      "summary": "Every duration choice in Location renders at the 44px / 15px cell, including the nearby Check-in sheet's \"Stay visible for\" pills, which now reuse the ladder's exported class strings instead of a morphy Button.",
+      "fixed_by": "fix/location-polish-round3",
+      "why_it_needs_a_lock": [
+        "A morphy <Button> at size=\"default\" is 50px tall with a 17px label, and",
+        "neither can be overridden from outside: min-h-[50px] sits in a different",
+        "tailwind-merge group from h-*, and .ui-text-button-label forces 17px",
+        "!important. So the Check-in sheet rendered the SAME role 6px taller and 2px",
+        "larger than this app's own duration control, and the only way back is a raw",
+        "<button> carrying the ladder's classes.",
+        "",
+        "Reaching for <Button> while tidying this sheet is the obvious move and it",
+        "silently undoes the fix. The geometry test is what catches that."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/e2e/one-location-duration-ladder.layout.spec.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 20,
+          "required_titles": [
+            "Check-in duration pills reuse the ladder cell"
+          ]
+        }
+      ]
+    }
+  ]
+}

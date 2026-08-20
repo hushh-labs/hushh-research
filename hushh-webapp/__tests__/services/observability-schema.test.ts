@@ -184,6 +184,77 @@ describe("observability schema", () => {
     expect(result.sanitized.total_fact_count_bucket).toBe("50_249");
   });
 
+  /**
+   * The emergency alert is the most sensitive thing this product instruments.
+   * It is worth measuring — an SOS that silently reaches nobody is the worst
+   * bug we could ship — but only ever as counts. This test is the guard that
+   * keeps a future "just add the message so we can debug it" from landing.
+   */
+  it("keeps the emergency SOS event to counts and drops the message, place and people", () => {
+    const result = validateAndSanitizeEvent("one_location_sos_triggered", {
+      env: "production",
+      platform: "ios",
+      event_category: "feature",
+      app_version: "2.1.0",
+      route_id: "one_location",
+      result: "error",
+      selected_count: 3,
+      reached_count: 0,
+      unreachable_count: 3,
+      has_note: true,
+      // None of these may ever reach analytics.
+      message: "I'm not safe, come get me",
+      latitude: 37.7749,
+      longitude: -122.4194,
+      recipient_names: "Mom, Dad",
+      phone: "+16505550101",
+    } as any);
+
+    expect(result.ok).toBe(false);
+    expect(result.droppedKeys).toContain("message");
+    expect(result.droppedKeys).toContain("latitude");
+    expect(result.droppedKeys).toContain("longitude");
+    expect(result.droppedKeys).toContain("recipient_names");
+    expect(result.droppedKeys).toContain("phone");
+    // The counts that make the alert falsifiable survive.
+    expect(result.sanitized.selected_count).toBe(3);
+    expect(result.sanitized.reached_count).toBe(0);
+    expect(result.sanitized.has_note).toBe(true);
+  });
+
+  it("accepts the check-in and Circle events without naming the Circle", () => {
+    const checkIn = validateAndSanitizeEvent("one_location_check_in_completed", {
+      env: "production",
+      platform: "ios",
+      event_category: "feature",
+      app_version: "2.1.0",
+      route_id: "one_location",
+      result: "success",
+      selected_count: 2,
+      success_count: 2,
+      failure_count: 0,
+      circle_targeted: true,
+    });
+    expect(checkIn.ok).toBe(true);
+    expect(checkIn.droppedKeys).toEqual([]);
+    expect(checkIn.sanitized.circle_targeted).toBe(true);
+
+    const circle = validateAndSanitizeEvent("one_location_circle_created", {
+      env: "production",
+      platform: "web",
+      event_category: "feature",
+      app_version: "2.1.0",
+      route_id: "one_location",
+      result: "success",
+      circle_kind: "family",
+      // A Circle name is the user's own words and routinely names a household.
+      circle_name: "The Sharmas",
+    } as any);
+    expect(circle.ok).toBe(false);
+    expect(circle.droppedKeys).toContain("circle_name");
+    expect(circle.sanitized.circle_kind).toBe("family");
+  });
+
   it("drops sensitive fields from cache performance events", () => {
     const result = validateAndSanitizeEvent("cache_resource_resolved", {
       env: "uat",

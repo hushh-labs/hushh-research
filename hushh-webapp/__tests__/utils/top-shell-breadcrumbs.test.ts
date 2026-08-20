@@ -543,9 +543,13 @@ describe("top shell breadcrumbs", () => {
     const cases: Array<[string, string]> = [
       ["check-in", "Check-In"],
       ["private-check-in", "Private Check-In"],
-      ["sos", "Safety"],
+      // The crumb mirrors the screen's own <h1>, which reads "Save my Soul".
+      ["sos", "Save my Soul"],
+      // NOTE: sms-contacts is deliberately absent from this table — it is the
+      // one flow whose back target is not the hub (it retraces to whoever
+      // opened it), so its label and back href are asserted separately below.
       ["share", "Share location"],
-      ["ask", "Ask someone"],
+      ["ask", "Request location"],
       ["invite", "Invite to Circle"],
       ["temp-link", "Public link"],
       ["settings", "Settings"],
@@ -561,7 +565,7 @@ describe("top shell breadcrumbs", () => {
       const params = new URLSearchParams();
       params.set("action", action);
       expect(resolveTopShellBreadcrumb("/one/location", params)).toEqual({
-        backHref: "/one/location",
+        backHref: "/one/location?view=now",
         width: "profile",
         align: "center",
         items: [
@@ -572,13 +576,17 @@ describe("top shell breadcrumbs", () => {
       });
     }
 
+    // Back from a private check-in returns to check-in's own route. It must
+    // never name Your Map: that screen withholds the check-in sheet, so
+    // pointing back at it made the one control whose job is to retrace a step
+    // land on a screen the flow is not on, which then redirected away again.
     const fromNearbyCheckIn = new URLSearchParams();
     fromNearbyCheckIn.set("action", "private-check-in");
     fromNearbyCheckIn.set("source", "nearby");
     expect(
       resolveTopShellBreadcrumb("/one/location", fromNearbyCheckIn),
     ).toEqual({
-      backHref: "/one/location/map?action=check-in",
+      backHref: "/one/location/check-in",
       width: "profile",
       align: "center",
       items: [
@@ -594,7 +602,7 @@ describe("top shell breadcrumbs", () => {
     expect(
       resolveTopShellBreadcrumb("/one/location", fromNearbyCheckIn)?.backHref,
     ).toBe(
-      "/one/location/map?action=check-in&resume=123e4567-e89b-12d3-a456-426614174000",
+      "/one/location/check-in?resume=123e4567-e89b-12d3-a456-426614174000",
     );
 
     // Opened from Profile: the leading crumb reflects the real origin, but back
@@ -603,7 +611,7 @@ describe("top shell breadcrumbs", () => {
     fromProfile.set("from", "/one/profile");
     fromProfile.set("action", "check-in");
     expect(resolveTopShellBreadcrumb("/one/location", fromProfile)).toEqual({
-      backHref: "/one/location",
+      backHref: "/one/location?view=now",
       width: "profile",
       align: "center",
       items: [
@@ -645,6 +653,24 @@ describe("top shell breadcrumbs", () => {
     fromSettings.set("action", "sms-contacts");
     expect(
       resolveTopShellBreadcrumb("/one/location", fromSettings)?.backHref,
+    ).toBe("/one/location?action=settings");
+
+    // SOS → SMS contacts → back to SOS. Contacts is reachable mid-emergency,
+    // and returning that person to Settings drops them out of the flow they
+    // were in the middle of, at the worst possible moment.
+    const fromSos = new URLSearchParams();
+    fromSos.set("action", "sms-contacts");
+    fromSos.set("source", "sos");
+    expect(resolveTopShellBreadcrumb("/one/location", fromSos)?.backHref).toBe(
+      "/one/location?action=sos",
+    );
+
+    // An unrecognised source is not an emergency; Settings stays the default.
+    const fromUnknown = new URLSearchParams();
+    fromUnknown.set("action", "sms-contacts");
+    fromUnknown.set("source", "nearby");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromUnknown)?.backHref,
     ).toBe("/one/location?action=settings");
   });
 

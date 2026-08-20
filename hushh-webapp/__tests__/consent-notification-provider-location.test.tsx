@@ -484,6 +484,46 @@ describe("global One Location notification provider", () => {
     );
   });
 
+  it("surfaces a shortened-share notification instead of silently dropping it", async () => {
+    // location_share_shortened is a new notification_type (the Edit action in
+    // Ask Location can now shorten a live grant). isOneLocationWorkflowNotificationType
+    // gates every incoming push on an explicit type allow-list, so a type
+    // added on the backend without a matching frontend entry is silently
+    // dropped here -- no toast, no bell entry, and critically no
+    // notifyConsentSurfaceRefresh, so the other party's Location page would
+    // never even get the push-driven refresh for it.
+    renderProvider();
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
+
+    const detail = {
+      notification: {
+        title: "Location access shortened",
+        body: "Alex shortened your location access.",
+      },
+      data: {
+        type: "location_share_shortened",
+        grant_id: "grant-shortened-1",
+        owner_display_label: "Alex",
+        request_url: "/one/location?grantId=grant-shortened-1&section=shared",
+      },
+    };
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("fcm-message", { detail }));
+    });
+
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "one_location_workflow:location_share_shortened:grant-shortened-1",
+        title: "Location access shortened",
+        description: "Alex shortened your location access.",
+        routeHref: detail.data.request_url,
+      }),
+    );
+  });
+
   it("surfaces a targeted Circle invitation once with its People deep link", async () => {
     renderProvider();
     await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());

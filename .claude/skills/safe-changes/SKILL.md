@@ -581,7 +581,340 @@ First must be empty — any hit is a raw `tel:` template that skipped the helper
 Second must list both directory surfaces (`advisor-detail-surface.tsx` and
 `insurance-agent-detail-surface.tsx`).
 
-### R15 — Stage by name, verify from the index, and land ignore rules on `main`
+### R15 — An overlay's z-index is meaningless until you name what it must sit above
+
+**Incident (2026-08-16, the Location onboarding "save a place" sheet).**
+The sheet's scrim was `z-[559]` with `bg-black/45 backdrop-blur-[6px]` — correct
+CSS, correct intent, and completely invisible. Location onboarding renders as a
+full-screen **opaque** takeover at `z-[560]`, so the dim and the blur were painted
+underneath it. The sheet's own content tied at `z-[560]` and won on portal order,
+which is why it appeared at all: a white rectangle pasted onto a fully lit screen
+with no separation. Reported as "it's looking like a patch — background should be
+blur", which reads as a missing blur and is actually a buried one. Adding more
+blur would have changed nothing.
+
+**Rule.** A modal layered over a takeover, drawer, or any other full-screen
+surface must be checked against **that surface's** z-index, not against the app's
+default chrome. Before setting one, grep the z-indexes it must clear and the ones
+it must stay under, and write both into the comment. Here: above the onboarding
+takeover at 560, below the shared sheet/drawer layer at 711.
+
+**Check.**
+```bash
+git grep -nE 'fixed inset-0 z-\[[0-9]{3}\]' -- hushh-webapp/components hushh-webapp/app \
+  | grep -E 'bg-(white|\[#)'
+git grep -nE 'overlayClassName="z-\[([0-9]{3})\]' -- hushh-webapp/components
+```
+Every overlay in the second list must outrank every opaque full-screen layer in
+the first that it can appear over. The Location pair is 600/601 vs 560.
+
+### R16 — A Tailwind arbitrary value does not always beat the class it is meant to replace
+
+**Incident (2026-08-16, giving that same sheet a real elevation.)**
+`cn(...)` merged `shadow-[var(--app-card-shadow-feature)]` from the dialog
+primitive with `shadow-[0_24px_60px_-12px_rgba(16,24,40,0.35),...]` from the
+caller. tailwind-merge kept **both** classes on the element — it cannot compare
+two opaque arbitrary values — and the base one won on stylesheet order. Typecheck,
+lint and the unit tests were all green; the class was present in the DOM; the
+shadow simply never rendered. Only reading `getComputedStyle(...).boxShadow` in a
+real browser exposed it.
+
+**Rule.** When an arbitrary-value utility overrides another arbitrary-value
+utility of the same property, assert the **computed** style, not the class list.
+If it loses, mark it `!`. This applies to any comma-bearing arbitrary value
+(`shadow-[…]`, `transition-[…]`, `bg-[image:…]`, `grid-template-columns-[…]`).
+
+**Check.**
+```bash
+# Every shared primitive that ships its own arbitrary shadow.
+git grep -lE 'shadow-\[' -- hushh-webapp/components/ui
+# Every caller trying to override one of those from the outside.
+git grep -nE 'shadow-\[0_' -- hushh-webapp/components hushh-webapp/app \
+  | grep -v 'components/ui/' | grep -v '!shadow-'
+```
+The first lists the base layers (`dialog`, `sheet`, `alert-dialog`, `card`,
+`tabs`, `sidebar`). Any hit in the second is a caller whose shadow may be silently
+losing to one of them — read `getComputedStyle(el).boxShadow` in a browser before
+believing it rendered.
+
+### R17 — `git stash` is shared by every worktree; never use it to take a baseline
+
+**Incident (2026-08-16, proving a test failure was pre-existing on main.)**
+The plan was ordinary: `git stash -u`, run the suite at the base, `git stash
+pop`. But there was nothing local to stash — the work was already committed — so
+`stash -u` created no entry, and `pop` therefore popped **another agent's**
+wallet-card WIP into this worktree. It conflicted across 17 files. Nothing was
+lost (their two entries survived, because a conflicting pop does not drop the
+entry, and the real work was in a commit), but the tree had to be reset and the
+"baseline" proved nothing.
+
+The stash is a property of the **repository**, not the worktree or the branch.
+In a checkout several agents share, it is someone else's inbox.
+
+**Rule.** To compare against a base, add a throwaway worktree at that commit and
+run there. Never `git stash` in this repo — not to park work, not to peek at
+main. Commit to a branch instead; a commit is yours, a stash entry is everyone's.
+
+**Check.**
+```bash
+# Anything here belongs to somebody. If it is non-empty, do not pop.
+git stash list
+# The safe baseline instead:
+git worktree add /tmp/base-$$ origin/main && \
+  echo "run the check in /tmp/base-$$, then: git worktree remove /tmp/base-$$ --force"
+```
+
+### R18 — A width that "looks fine" is unmeasured; product titles need a number, not a glance
+
+**Incident (2026-08-16, adding a third tab to Connect.)** Three tabs plus the
+strip's stock 16px option padding left `Around you` 77px of the 80px it needs on
+a 375px screen, so it rendered `Around yo…`. Typecheck, lint, the full unit
+suite and every governance verifier were green: jsdom performs no layout, so a
+`truncate` class is invisible to it, and there was no horizontal scrollbar to
+notice. Measuring the real class strings against the built stylesheet in headless
+Chromium found it in seconds — and the same run found `Insurance` had been
+shipping as `Insuranc…` at 320px in the already-released *Around you* strip.
+
+**Rule.** A product-owned title may never resolve to an ellipsis. Adding an
+option to any segmented/tab strip, or lengthening a label, requires a measured
+width at 320-430px before it ships. Unbounded user content may truncate; copy we
+wrote may not.
+
+**Check.**
+```bash
+# Needs a build first — it measures the real stylesheet, not a copy of it.
+cd hushh-webapp && npx playwright test e2e/tab-title-integrity.spec.ts \
+  --project=chromium --reporter=line
+```
+Add every new strip's labels to `TAB_STRIPS` in that spec; a strip that is not
+listed is simply unmeasured.
+
+### R19 — A CSS rule that "obviously" wins may not. Read the computed value off the running app
+
+**Incident (2026-08-16, chasing a "header overlaying" report on the Feed).**
+`hushh-webapp/app/globals.css` gates the top chrome's background on an attribute:
+`html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask { --ambient-chrome-wash: 0% }`.
+Every supporting fact checked out — `grep -rn data-ambient-chrome-primed` returns
+that line and nothing else (no code sets it), the top bar element really does
+carry the bare `ambient-chrome-mask` class, and the gate's specificity (0,2,1)
+really does beat `.ambient-chrome-mask--top` (0,1,0). The conclusion drawn —
+"the top bar is permanently transparent, that is the overlap report" — was still
+wrong. Signed into UAT and measured, `--ambient-chrome-wash` computes to **94%**
+and the bar paints solidly; cascade layers decide it, not specificity. A
+subagent RCA lane reached the same wrong answer at "high" confidence, so reader
+agreement was not evidence either. The change was written and would have shipped
+a global-stylesheet edit — every screen in the app — for a defect that does not
+exist.
+
+**Rule.** Never edit `globals.css`, a theme token, or any global chrome rule on
+the strength of reading the cascade. Sign in and read the value back off the
+running app first. If the measurement contradicts the code reading, the
+measurement wins — revert, do not rationalise.
+
+**Check.** Credentials are in Secret Manager; the login page only auto-signs-in
+when the native test bridge is installed as an init script before the first
+`goto`. From `hushh-webapp/` (so the `playwright` import resolves):
+```bash
+export REVIEWER_UID=$(gcloud secrets versions access latest --secret=REVIEWER_UID --project=hushh-pda-uat)
+export REVIEWER_VAULT_PASSPHRASE=$(gcloud secrets versions access latest --secret=REVIEWER_VAULT_PASSPHRASE --project=hushh-pda-uat)
+```
+```js
+await page.addInitScript(({ expectedUserId, vaultPassphrase }) => {
+  window.__HUSHH_NATIVE_TEST__ = { ...(window.__HUSHH_NATIVE_TEST__ || {}),
+    enabled: true, autoReviewerLogin: true, expectedUserId, vaultPassphrase };
+}, { expectedUserId: process.env.REVIEWER_UID, vaultPassphrase: process.env.REVIEWER_VAULT_PASSPHRASE });
+// /login?redirect=%2Fria -> "Continue as reviewer" -> #unlock-passphrase -> "Unlock with passphrase"
+getComputedStyle(document.querySelector(".ambient-chrome-mask--top")).getPropertyValue("--ambient-chrome-wash");
+```
+Must print `94%`. Anything you believe about a global rule that you have not
+read back this way is a hypothesis, not a finding.
+
+---
+
+### R20 — A word-boundary regex built from `\p{L}\p{N}` silently shreds every Indic name
+
+**Incident (2026-08-16, making one-letter people search work — PR #5317, fixed
+in #5325).** A new people-search helper split names on `/[^\p{L}\p{N}]+/u` to
+find word beginnings, so typing `n` would surface "Neelesh" rather than every
+name merely containing an "n". It worked perfectly in Latin and shipped green:
+13 unit tests, typecheck, lint, a full-suite baseline comparison, and a verified
+UAT deploy. A matra is a combining mark (`\p{M}`) — neither a letter nor a
+digit — so the regex treated every one as a **word separator**. `झुम्मा` became
+`["झ","म","म",""]` and `नीलेश` became `["न","ल","श"]`: every syllable read as a
+separate word. "Begins a word" therefore meant nothing for exactly the names
+this product's users have. Because a one-character query keeps only
+word-beginning matches, it could **drop** a real match — `म` over `[सुमन, कमल]`
+returned `सुमन` alone. Nothing caught it because every fixture was Latin.
+
+**Rule.** Any regex that splits or tokenizes **user-supplied names or text**
+must include `\p{M}` with the `u` flag — `/[^\p{L}\p{N}\p{M}]+/u`, never
+`/[^\p{L}\p{N}]+/u`. Combining marks belong *inside* a word, never between
+words. Add at least one Devanagari fixture: a Latin-only fixture set cannot fail
+this. (`normalizeSpokenName` in `app/one/location/page.tsx` already had this
+right — copy it rather than re-deriving it.)
+
+Scope this to regexes that **split**. A deliberately lossy comparison key may
+strip marks on purpose — `comparable()` in
+`lib/one-location/saved-location-address.ts` strips spaces and punctuation too,
+so dropping marks matches its intent — and a postal-code validator is fine
+without `\p{M}` because Devanagari digits are already `\p{N}` (`११००११`
+validates). Both are expected hits below; neither is a bug.
+
+**Check.**
+```bash
+cd hushh-webapp
+# Boundary regexes missing \p{M}. Expect only the two known-benign hits in
+# saved-location-address.ts; anything else that SPLITS a name is the bug.
+grep -rnE '\\p\{L\}\\p\{N\}\]' --include='*.ts' --include='*.tsx' lib components app \
+  | grep -v '\\p{M}'
+
+# Prove the difference on a real name before trusting either form:
+node -e '
+const bad=/[^\p{L}\p{N}]+/u, good=/[^\p{L}\p{N}\p{M}]+/u;
+for (const n of ["झुम्मा","नीलेश","सुमन"])
+  console.log(n, JSON.stringify(n.split(bad)), "->", JSON.stringify(n.split(good)));'
+# bad splits each name into single consonants; good keeps it whole.
+```
+
+---
+
+
+### R21 — The top shell paints lower than it reserves. Clear the fade, not the reserve
+
+**Incident (2026-08-17, "header overlay ho rha hai" reported across screens.)**
+The fixed top shell is solid down to `--top-shell-reserved-height` and then
+dissolves over `--top-fade-active`. `--top-shell-mask-visible-height` is the sum,
+and that is the header's real bottom edge. Standard routes are cleared
+structurally — `app/providers.tsx` renders `[data-app-shell-top-spacer]` inside
+the scroll root, so a page cannot start under the header even if it forgets to
+ask. A `flow` route gets **no spacer at all**, and
+`resolveSignedInShellContentOffset` forced its `--page-top-start` to `0px`. So
+`--app-fullscreen-flow-content-offset` came out exactly equal to the reserved
+height and every fullscreen flow began its first line 22px *inside* the
+dissolve. Measured on UAT: `/ria/claim` content top 76px against a header
+painting to 82px, identically at 390px and 1024px.
+
+It then survived the obvious fix. Two RIA screens hard-set that same variable
+back to `var(--top-shell-reserved-height)` in a local `style` prop, so they kept
+the old geometry after the shared token was corrected — which is exactly what
+"it's fixed on some pages but not others" looks like from the outside.
+
+**Rule.** Clearance is measured against the mask's **visible** height, never its
+reserved height. A `flow` route has no shell spacer, so its page must consume
+`--app-fullscreen-flow-content-offset` (through `FullscreenFlowShell`) or
+`--top-content-pad`, and no page may redefine either token down to the bare
+reserved height. Prove it in a browser: JSDOM performs no layout, so a green unit
+suite says nothing about whether a header covers text.
+
+**Check.**
+```bash
+cd ~/Desktop/husshresearch/hushh-webapp
+npx vitest run __tests__/navigation/fullscreen-flow-top-clearance.contract.test.ts
+npm run test:layout-contracts
+```
+The first fails closed for any `flow` route that does not name the file owning
+its clearance. The second measures the pixels at eight widths in Chromium and in
+WebKit — WebKit being the engine the iOS app actually runs.
+
+### R22 — A fixture that inherits `:root` is measuring a different app than the one that ships
+
+**Incident (2026-08-17, extending the R21 contract to the sticky section rail.)**
+The new browser test passed with the bug deliberately reintroduced. The fixture
+built the shell from `resolveSignedInShellContentOffset` and let everything else
+inherit from `app/globals.css`, which looked faithful and was not: CSS
+substitutes a custom property using the values present where it is **declared**,
+so `:root`'s `--top-shell-mask-visible-height` bakes in `:root`'s own
+`--top-fade-active` (8px) and keeps that computed value as it inherits. The real
+route shell re-declares the whole derived block, resolving the same token
+against 22px. The fixture's header was therefore **14px shorter** than the
+shipped one — and a rail pinned 6px too high cleared it comfortably.
+
+A passing new test is not evidence. Only the mutation is.
+
+**Rule.** When a test reproduces a runtime surface outside the app, it must
+build it from the **same exported function** the app uses, never from a
+hand-picked subset of tokens. If a value is re-declared at a scope below
+`:root`, inheriting it instead of re-declaring it silently changes the number.
+And every new contract test gets mutation-checked against the bug it claims to
+catch, before it is committed — reintroduce the defect, watch it go red, restore.
+
+**Check.**
+```bash
+cd ~/Desktop/husshresearch/hushh-webapp
+# The fixture and the shell must read one source; this returns two call sites.
+grep -rn "resolveTopShellGeometryStyle" app components e2e
+```
+One call site means something is hand-copying the geometry again.
+
+### R23 — The `:root` substitution trap is in the shipped CSS too, not only in fixtures
+
+**Incident (2026-08-17, the empty band under every screen — PR #5390.)** R22
+caught this pattern in a *test fixture*. It is also in `app/globals.css`:
+
+```css
+:root {
+  --app-bottom-content-clearance: calc(
+    var(--bottom-chrome-stack-height, var(--app-bottom-inset)) + 24px
+  );
+}
+```
+
+`--bottom-chrome-stack-height` is set on the route shell in `app/providers.tsx`
+and **never on `:root`**, so this token froze the `--app-bottom-inset` fallback
+and inherited that computed value everywhere — 112px measured, against the 132px
+`AppBottomShell` actually publishes. `.app-page-shell` then applied it as a
+second bottom reserve on top of the scroll root's real one, and
+`.profile-home-screen` a third. Result: a wide empty band under the last card on
+every screen in the app, and enough manufactured scroll travel that short pages
+scrolled their content up under the top bar.
+
+Nobody spotted it for months because the number is wrong by a constant. It does
+not look like a bug; it looks like a slightly generous gap.
+
+**Rule.** A token declared at `:root` may only read other tokens that are also
+defined at `:root`. If it needs a value the route shell owns, declare it at the
+shell too (as `resolveTopShellGeometryStyle` does) — or do the `calc()` at the
+point of use. And before adding any clearance, find out who already reserves that
+edge: in this app the scroll root owns the fixed bottom chrome, and its own
+comment says so.
+
+**Check.** Every `:root` token that reads a shell-scoped var, listed:
+
+```bash
+cd ~/Desktop/husshresearch/hushh-webapp
+# Tokens providers.tsx declares on the route shell, not on :root.
+python3 - <<'EOF'
+import re
+shell = set(re.findall(r'"(--[a-z0-9-]+)":', open('app/providers.tsx').read()))
+css = open('app/globals.css').read()
+root = css.split('}')[0] if css.startswith(':root') else re.search(r':root\s*{(.*?)\n}', css, re.S).group(1)
+hits = sorted({v for v in re.findall(r'var\((--[a-z0-9-]+)', root) if v in shell})
+print('\n'.join(hits) or 'clean')
+EOF
+```
+Anything printed is a token to check by hand: it is frozen to its `:root`
+fallback **unless** the shell also re-declares every token derived from it (the
+top-shell block does; the bottom one did not). Read the computed value back in a
+browser before believing either answer, then either move the declaration or move
+the `calc()`. And grep for other places applying the same clearance — this one
+was being added four times: `.app-page-shell`, `.profile-home-screen`,
+`profile-stack-navigator.tsx`, and the scroll root that legitimately owns it.
+
+## Adding a rule
+
+Every mistake found becomes a rule. Fix the **cause**, not the symptom, then add
+the rule so it cannot recur. When the user says "add that to the skill", that
+means a new numbered rule here.
+
+Rules are numbered sequentially and **never renumbered** — R3 must still mean R3
+in six months, so it can be cited in review. Append; do not reorder or reuse a
+retired number.
+
+Template:
+
+```markdown
+
+### R24 — Stage by name, verify from the index, and land ignore rules on `main`
 
 **Incident (2026-08-07, landing the deploy-SHA gate fix on `main`).** A deliberately
 three-file change was cut from `origin/main`, staged with `git add -A`, and merged. It

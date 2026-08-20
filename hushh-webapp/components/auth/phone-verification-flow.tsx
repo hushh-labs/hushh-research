@@ -47,7 +47,7 @@ import {
 } from "@/lib/constants/country-phone-options";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { ApiService } from "@/lib/services/api-service";
-import { maskPhoneNumber } from "@/lib/services/phone-mandate-service";
+import { formatMaskedPhoneNumber } from "@/lib/services/phone-display";
 import { trackEvent } from "@/lib/observability/client";
 import {
   kaiAppCardTitleClassName,
@@ -395,7 +395,9 @@ export function PhoneVerificationFlow({
   }, [onStepChange, step]);
 
   const maskedPhone = useMemo(
-    () => maskPhoneNumber(currentPhoneNumber),
+    // Same read-back as the Account row that opens this flow, so the number
+    // does not change shape between the two screens.
+    () => formatMaskedPhoneNumber(currentPhoneNumber),
     [currentPhoneNumber],
   );
   const selectedCountryOption = useMemo(

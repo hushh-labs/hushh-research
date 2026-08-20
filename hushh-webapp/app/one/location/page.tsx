@@ -61,7 +61,11 @@ import { SaveLocationModal } from "@/components/one-location/onboarding/save-loc
 import type { PickedLocation } from "@/components/one-location/onboarding/location-picker-map";
 import {
   addSavedLocation,
+  defaultLabelForCategory,
   DuplicateSavedLocationError,
+  loadSavedLocations,
+  removeSavedLocation,
+  type SavedLocation,
   type SavedLocationCategory,
 } from "@/lib/one-location/saved-locations";
 import {
@@ -129,6 +133,21 @@ import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { LocationBus } from "@/lib/one-location/location-bus";
+import {
+  isPublishableAge,
+  publishPointFrom,
+  shouldWarnOnPublishFailure,
+} from "@/lib/one-location/live-publish-decision";
+import {
+  isShareReadyRecipient,
+  recipientSelectionFromIds,
+  resolveEffectiveShareRecipients,
+} from "@/lib/one-location/share-recipient-selection";
+import {
+  ambiguousMatchNames,
+  resolveBySpokenName,
+} from "@/lib/one-location/resolve-by-spoken-name";
 
 
 import {
@@ -155,14 +174,30 @@ import {
   playOneLocationNotificationSound,
   type OneLocationNotificationSection,
 } from "@/lib/one-location/notifications";
+import {
+  formatLocationDurationLabel,
+  locationApproveActionLabel,
+  locationAskPromptLine,
+} from "@/lib/one-location/duration-copy";
 import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import {
   LOCATION_BLOCK_MESSAGE,
+  LOCATION_COPY,
+  type LocationFailure,
   isLocationPermissionDeniedError,
+  isUsableFixAge,
   locationBlockReason,
   locationReadiness as resolveLocationReadiness,
+  shouldSurfaceLocationError,
 } from "@/lib/one-location/location-readiness";
+import {
+  GRANT_EDIT_DURATION_FALLBACK,
+  defaultEditDurationHours,
+  grantDurationEditIntent,
+  grantRemainingHours,
+} from "@/lib/one-location/grant-duration-edit";
+import { snapToWheelDurationHours } from "@/components/one-location/redesign/duration-wheel-picker";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   describeContactSyncOutcome,
@@ -175,10 +210,15 @@ import { OneLocationActivityDashboard } from "@/components/one-location/activity
 import {
   LocationRedesignHub,
   ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS,
+  type GrantViewStatus,
   type LocationHubViewModel,
   type PrivateCheckInRequest,
   type PrivateCheckInResult,
 } from "@/components/one-location/redesign/location-redesign-hub";
+import {
+  SHARE_DURATION_LADDER,
+  SHARE_DURATION_UNTIL_STOP_VALUE,
+} from "@/components/one-location/redesign/duration-presets";
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
@@ -186,6 +226,7 @@ import { buildOneLocationRequestMessage } from "@/lib/one-location/request-messa
 import {
   clearLocationWorkspaceMemory,
   readLocationWorkspaceMemory,
+  samePlainLocationPoint,
   writeLocationWorkspaceMemory,
   type LocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
@@ -196,6 +237,20 @@ import {
   ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
 } from "@/lib/one-location/nearby-check-in-availability";
 
+import {
+  clearLiveShareEntries,
+  liveShareEntriesEqual,
+  loadLiveShareEntries,
+  pruneLiveShareEntries,
+  reconcileLiveShareEntries,
+  saveLiveShareEntries,
+  summarizeLiveShareEntries,
+  type LiveShareSessionEntry,
+} from "@/lib/one-location/live-share-session";
+import {
+  LiveShareStatusCard,
+  type LiveShareStatus,
+} from "@/components/one-location/redesign/live-share-status-card";
 import {
   clearSosIncident,
   loadSosIncident,
@@ -220,7 +275,10 @@ import {
   type EmergencyInfo,
   type EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
-import { buildCircleJoinUrl } from "@/lib/one-location/circle-join-url";
+import {
+  buildCircleJoinUrl,
+  resolveCircleJoinOrigin,
+} from "@/lib/one-location/circle-join-url";
 import type {
   DriveDestination,
   DriveSharePayload,
@@ -244,6 +302,7 @@ import type {
   OneLocationState,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
+import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import {
   isCircleSelectionFullySelected,
@@ -273,6 +332,14 @@ import {
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
+import {
+  trackLocationShareConfirmed,
+  trackLocationShareReceived,
+} from "@/lib/observability/location-events";
+import {
+  rememberLocationInviteSource,
+  trackLocationFunnelStepCompleted,
+} from "@/lib/observability/growth";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
 import { LiveMap } from "@/components/one-location/live-map";
@@ -289,6 +356,7 @@ import {
 import { getApiBaseUrl } from "@/lib/services/api-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import {
+  buildCircleInviteShareText,
   circleShareLabel,
   isShareCancellationError,
   shareNamedCircleCode,
@@ -302,6 +370,46 @@ const DURATION_OPTIONS = [
 ];
 
 /**
+ * Mirrors SHARE_DURATION_LADDER in components/one-location/redesign/
+ * duration-presets.tsx. "Today" is gone: `Number("today")` is NaN, so the
+ * picker resolved that token to 15 minutes and wrote "0.25" back over it.
+ */
+/**
+ * What One will accept when someone says "share my location for ...".
+ *
+ * The ladder plus the two lengths the ladder does not show but the picker can
+ * still reach through Custom, so a spoken "half an hour" or "a full day" is
+ * not refused for being off the grid.
+ */
+const SHARE_VOICE_DURATION_VALUES = new Set<string>([
+  ...SHARE_DURATION_LADDER.map((rung) => rung.value),
+  SHARE_DURATION_UNTIL_STOP_VALUE,
+  "0.5",
+  "24",
+]);
+
+const PRIVATE_SHARE_DURATION_LABELS: Record<string, string> = {
+  "0.25": "15 min",
+  "1": "1 hour",
+  "2": "2 hours",
+  "4": "4 hours",
+  "8": "8 hours",
+  until_stopped: "Until I stop",
+};
+
+// A spoken-safe version of PRIVATE_SHARE_DURATION_LABELS -- covers every
+// value SHARE_VOICE_DURATION_VALUES actually accepts ("0.5" and "24" are not
+// in that map, since it backs a different, UI-only label) and reads as a
+// sentence fragment ("30 minutes") rather than a compact chip ("30 min").
+function shareVoiceDurationSpokenLabel(value: string): string {
+  if (value === SHARE_DURATION_UNTIL_STOP_VALUE) return "until you stop it";
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return value;
+  if (hours < 1) return `${Math.round(hours * 60)} minutes`;
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
+
+/**
  * How many recipients a single share fans out to concurrently.
  *
  * Sharing is per-recipient independent, so this is pure wall-clock win — but
@@ -312,9 +420,65 @@ const DURATION_OPTIONS = [
 const ONE_LOCATION_SHARE_CONCURRENCY = 4;
 
 const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
+
+/**
+ * How old a fix this heartbeat may reuse without re-reading the device.
+ *
+ * One tick. The requirement has always been that a recipient watching someone
+ * move sees where they are now — `maxAgeMs: 0` was a mechanism chosen for
+ * that, and it became the wrong one once a continuous watch existed. This
+ * ceiling means a published point is never older than a single period, which
+ * is the guarantee the recipient side is already written against: it calls a
+ * share stale at three of them.
+ */
+const LIVE_HEARTBEAT_MAX_AGE_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS;
+
+/**
+ * The point this heartbeat may publish, or null to skip the tick.
+ *
+ * Reads the shared store first, and only asks the device when the store has
+ * nothing recent — which, while the movement watch is running, is almost
+ * never. Anything not measured this session is refused: `publishPointFrom`
+ * rejects a restored fix outright, because the recipient's screen says "live".
+ */
+async function liveHeartbeatPoint(): Promise<PlainLocationPoint | null> {
+  const held = LocationBus.getState();
+  if (
+    held.snapshotOrigin === "fresh" &&
+    isPublishableAge(held.snapshot?.capturedAt, LIVE_HEARTBEAT_MAX_AGE_MS)
+  ) {
+    return publishPointFrom(held);
+  }
+  await LocationBus.ensure({ maxAgeMs: LIVE_HEARTBEAT_MAX_AGE_MS });
+  return publishPointFrom(LocationBus.getState());
+}
+
 // Recipients poll faster than the owner's publish heartbeat so the shared dot
 // stays fresh; the LiveMap marker interpolates between these reads.
 const LIVE_VIEW_REFRESH_INTERVAL_MS = 5_000;
+/**
+ * Cadence for a share that is live but has never published a point. There is
+ * nothing to stream yet — the owner's first GPS fix hasn't landed — so asking
+ * every 5s burns a request per grant per tick for an answer that cannot change
+ * until the owner acts. The grant row already carries the authoritative tag
+ * (`latestEnvelopeId`), so this path only exists to catch the first publish
+ * promptly when no push notification arrives to refresh state.
+ */
+const AWAITING_FIRST_PUBLISH_POLL_MS = 30_000;
+/**
+ * Per-grant backoff ceiling after consecutive failed reads. One share that is
+ * genuinely broken (pruned envelope, rotated key, backend degraded) must never
+ * keep hitting the backend at the live cadence — and must never slow down the
+ * healthy shares next to it, which is why backoff is tracked per grant.
+ */
+const LIVE_VIEW_BACKOFF_MAX_MS = 60_000;
+/**
+ * A sweep that never settles (hung fetch, throttled tab resumed mid-flight)
+ * would leave the in-flight guard latched and silently kill live tracking for
+ * the rest of the session. Past this age the guard is treated as stale and the
+ * next tick proceeds, so the poll can always recover itself.
+ */
+const LIVE_VIEW_INFLIGHT_WATCHDOG_MS = 30_000;
 const LIVE_LOCATION_STALE_THRESHOLD_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS * 3;
 const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
 // True live tracking: while a share is active and the app is foregrounded, the
@@ -359,7 +523,7 @@ const USE_LOCATION_REDESIGN: boolean = true;
  * the surface on screen stay the same surface.
  */
 const LOCATION_HUB_TAB_LABELS: Readonly<Record<string, string>> = {
-  now: "Now",
+  now: "Overview",
   people: "People",
   links: "Links",
 };
@@ -498,7 +662,16 @@ type BusyState =
 type OneLocationSelectionSurface =
   "quick_circle" | "section_list" | "select_menu";
 
-type OneLocationDurationBucket = "15m" | "30m" | "1h" | "4h" | "24h" | "custom";
+type OneLocationDurationBucket =
+  | "15m"
+  | "30m"
+  | "1h"
+  | "2h"
+  | "4h"
+  | "8h"
+  | "24h"
+  | "until_stopped"
+  | "custom";
 type OneLocationForegroundOperation = "publish" | "view";
 type OneLocationForegroundTrigger = "manual" | "foreground_interval";
 type OneLocationFocusTarget = OneLocationNotificationSection;
@@ -560,6 +733,7 @@ function formatDateTime(value?: string | null): string {
 function expiresLabel(grant: OneLocationGrant): string {
   if (grant.status === "revoked") return "Revoked";
   if (grant.status === "expired") return "Expired";
+  if (grant.durationMode === "until_stopped") return "Until stopped";
   return `Expires ${formatDateTime(grant.expiresAt)}`;
 }
 
@@ -567,11 +741,16 @@ function expiresLabel(grant: OneLocationGrant): string {
 // 14 min"). This is a key confidence cue: the user can always see that sharing
 // is time-boxed and will end on its own. Falls back to the absolute time when
 // the window is long, and degrades gracefully if the timestamp is missing.
-function expiresCountdownLabel(value?: string | null): string | null {
+function expiresCountdownLabel(
+  value?: string | null,
+  // Injected so every countdown on the screen ticks off one clock. Defaulted
+  // for the handful of callers that render once and do not need to move.
+  nowMs: number = Date.now(),
+): string | null {
   if (!value) return null;
   const expiresAt = new Date(value).getTime();
   if (!Number.isFinite(expiresAt)) return null;
-  const diffMs = expiresAt - Date.now();
+  const diffMs = expiresAt - nowMs;
   if (diffMs <= 0) return "Stopping now";
   const minutes = Math.round(diffMs / 60000);
   if (minutes < 60) {
@@ -756,20 +935,6 @@ function enrichRecipientsWithContactSignal(
   });
 }
 
-function recipientSelectionFromIds(
-  recipients: OneLocationRecipient[],
-  selectedIds: string[],
-): OneLocationRecipient[] {
-  const recipientById = new Map(
-    recipients.map((recipient) => [recipient.userId, recipient]),
-  );
-  return selectedIds
-    .map((recipientId) => recipientById.get(recipientId))
-    .filter((recipient): recipient is OneLocationRecipient =>
-      Boolean(recipient),
-    );
-}
-
 function addSelectedId(selectedIds: string[], recipientId: string): string[] {
   if (selectedIds.includes(recipientId)) return selectedIds;
   return [...selectedIds, recipientId];
@@ -788,11 +953,16 @@ function toggleSelectedId(
 function useShareRecipientSelectionState(): readonly [
   string[],
   (next: SetStateAction<string[]>) => string[],
+  MutableRefObject<string[]>,
 ] {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   // React can batch multiple share actions before rerendering. This cursor lets
   // each action compose from the latest queued selection while state remains
-  // the rendered source of truth.
+  // the rendered source of truth. Exposed (read-only by convention) so a
+  // handler that fires immediately after a select -- faster than the render
+  // that would otherwise make the pick visible -- can still read who was just
+  // chosen instead of the not-yet-committed empty state. See its use in
+  // handleShare's effectiveSelectedShareRecipients.
   const latestSelectedIdsRef = useRef<string[]>([]);
   const updateSelectedIds = useCallback(
     (next: SetStateAction<string[]>): string[] => {
@@ -804,20 +974,7 @@ function useShareRecipientSelectionState(): readonly [
     },
     [],
   );
-  return [selectedIds, updateSelectedIds] as const;
-}
-
-type ShareReadyRecipient = OneLocationRecipient & {
-  keyId: string;
-  publicKeyJwk: JsonWebKey;
-};
-
-function isShareReadyRecipient(
-  recipient: OneLocationRecipient,
-): recipient is ShareReadyRecipient {
-  return Boolean(
-    recipient.canReceiveLocation && recipient.keyId && recipient.publicKeyJwk,
-  );
+  return [selectedIds, updateSelectedIds, latestSelectedIdsRef] as const;
 }
 
 function peopleCountLabel(count: number): string {
@@ -890,13 +1047,81 @@ function oneLocationDurationBucket(value: string): OneLocationDurationBucket {
       return "30m";
     case "1":
       return "1h";
+    case "2":
+      return "2h";
     case "4":
       return "4h";
+    case "8":
+      return "8h";
     case "24":
       return "24h";
+    case "until_stopped":
+      return "until_stopped";
     default:
       return "custom";
   }
+}
+
+/**
+ * The invite lanes read one shared `durationHours` string with `Number()`,
+ * and that string is written by several screens. Two ways it can be a value
+ * they cannot post:
+ *
+ *   - a non-numeric sentinel ("until_stopped"), which is `NaN` against a
+ *     `gt=0` field — a 422 the person sees as an invite that just failed
+ *   - a length another lane chose, above this lane's own ceiling
+ *
+ * Neither is reachable from the invite screens themselves, which is why it
+ * went unnoticed: both arrive from whatever the share or request composer
+ * left in state.
+ */
+function inviteDurationHours(value: string, maxHours: number): number {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return Math.min(1, maxHours);
+  return Math.min(maxHours, hours);
+}
+
+/** `le=24` on CreateCircleInviteRequest, and the screen offers 1 or 24. */
+const CIRCLE_INVITE_MAX_DURATION_HOURS = 24;
+
+/**
+ * A public link is readable by anyone who has it, so its ceiling is one hour
+ * and the screen says so.
+ *
+ * The ceiling was defeatable: one `durationHours` string is shared by the
+ * public-link lane, the circle-invite lane (which offers 24 hours) and the
+ * request composer, so picking 24 on one screen made the next public link
+ * post 24 — and the backend accepts it (`le=24`). The UI cap was the only
+ * thing enforcing this, and it was not enforcing it.
+ */
+const PUBLIC_INVITE_MAX_DURATION_HOURS = 1;
+
+function publicInviteDurationHours(value: string): number {
+  return inviteDurationHours(value, PUBLIC_INVITE_MAX_DURATION_HOURS);
+}
+
+function privateShareDurationPayload(value: string): {
+  durationHours?: number;
+  durationMode: "timed" | "until_stopped";
+} {
+  if (value === "until_stopped") {
+    return { durationMode: "until_stopped" };
+  }
+  // No "today" branch: the token cannot reach here any more (the picker has
+  // no such rung, and `Number("today")` is NaN so the wheel rewrote it to
+  // "0.25" on sight). Anything else is clamped into the window the backend
+  // accepts — `gt=0, le=24` — rather than posted and rejected.
+  const hours = Number(value);
+  return {
+    durationHours: Number.isFinite(hours)
+      ? Math.min(24, Math.max(0.25, hours))
+      : 0.25,
+    durationMode: "timed",
+  };
+}
+
+function privateShareDurationLabel(value: string): string {
+  return PRIVATE_SHARE_DURATION_LABELS[value] ?? `${value} hours`;
 }
 
 function oneLocationEventResult(
@@ -925,6 +1150,65 @@ function receivedGrantOwnerLabel(grant: OneLocationGrant): string {
     grant.ownerDisplayName || grant.recipientDisplayName,
     "A trusted person",
   );
+}
+
+/**
+ * Copy for a share that is genuinely live but has no point yet. Shared by the
+ * success path (backend answered `awaiting_first_publish`), the legacy 404 path,
+ * and the pre-flight skip driven by `grant.latestEnvelopeId`, so all three
+ * render byte-identical text — the state setters below compare by value to
+ * avoid re-rendering the map on every poll.
+ */
+function awaitingFirstPublishMessage(grant: OneLocationGrant): string {
+  return `${receivedGrantOwnerLabel(
+    grant,
+  )} is sharing, but hasn't sent a live location update yet. It will appear here automatically as soon as they move or open One.`;
+}
+
+/** Outcome of one recipient-side envelope read, used to pace the next poll. */
+type OneLocationViewOutcome = "published" | "awaiting" | "error" | "skipped";
+
+type OneLocationGrantPollEntry = {
+  /** Epoch ms before which this grant must not be read again. */
+  nextAttemptAt: number;
+  /** Consecutive failed reads; drives the exponential backoff. */
+  failures: number;
+};
+
+/**
+ * Pace the next recipient-side read of one share, per grant.
+ *
+ * - `published` — the dot is live and moving, so stay on the tick cadence. Zero
+ *   delay keeps the streaming path byte-for-byte as fast as it was.
+ * - `awaiting` / `skipped` — healthy share with nothing to send. Asking twelve
+ *   times a minute cannot change an answer that only the owner can change, so
+ *   drop to the slow heartbeat.
+ * - `error` — exponential backoff, capped. Tracked per grant so one broken share
+ *   can neither hammer the backend nor slow down the healthy shares beside it.
+ */
+function recordGrantPollOutcome(
+  schedule: Map<string, OneLocationGrantPollEntry>,
+  grantId: string,
+  outcome: OneLocationViewOutcome,
+  now: number,
+): OneLocationGrantPollEntry {
+  const previousFailures = schedule.get(grantId)?.failures ?? 0;
+  const failures = outcome === "error" ? previousFailures + 1 : 0;
+  let delayMs = 0;
+  if (outcome === "error") {
+    delayMs = Math.min(
+      LIVE_VIEW_REFRESH_INTERVAL_MS * 2 ** failures,
+      LIVE_VIEW_BACKOFF_MAX_MS,
+    );
+  } else if (outcome !== "published") {
+    delayMs = AWAITING_FIRST_PUBLISH_POLL_MS;
+  }
+  const entry: OneLocationGrantPollEntry = {
+    nextAttemptAt: now + delayMs,
+    failures,
+  };
+  schedule.set(grantId, entry);
+  return entry;
 }
 
 function requestLabel(request: OneLocationAccessRequest): string {
@@ -987,7 +1271,11 @@ function oneLocationBackoffBucket(delayMs: number): OneLocationBackoffBucket {
   return "gte_3s";
 }
 
-function oneLocationFailureClass(error: unknown): string {
+/**
+ * Exported for the unit test that guards the ordering below. The ordering is
+ * the whole point of this function and is easy to undo by accident.
+ */
+export function oneLocationFailureClass(error: unknown): string {
   if (isTransientOneApiError(error)) return "one_api_unavailable";
   const name =
     error && typeof error === "object" && "name" in error
@@ -1002,14 +1290,29 @@ function oneLocationFailureClass(error: unknown): string {
   if (name === "aborterror" || message.includes("abort")) return "aborted";
   if (message.includes("network") || message.includes("fetch"))
     return "network";
-  if (message.includes("permission") || message.includes("location"))
-    return "permission";
+  // Encryption before permission. "location" is a substring of almost every
+  // message this surface produces — "could not decrypt location envelope"
+  // included — so matching it first labelled key and envelope failures as
+  // permission problems. In production, `permission` is 965 of 1,248 retry
+  // events on iOS, and an unknown share of those are really something else;
+  // the point of a failure class is to send you to the right cause.
   if (
     message.includes("key") ||
     message.includes("encrypt") ||
     message.includes("decrypt")
   ) {
     return "encryption";
+  }
+  // Matched on the vocabulary the platforms actually use for a denial, not on
+  // the word "location" — which appears in nearly every message this surface
+  // produces and was therefore labelling unrelated failures as permission
+  // problems.
+  if (
+    message.includes("permission") ||
+    message.includes("denied") ||
+    message.includes("authoriz")
+  ) {
+    return "permission";
   }
   return "unknown";
 }
@@ -1193,11 +1496,13 @@ function LocalMapPreview({
   point,
   showNavigation = true,
   viewportResetKey,
+  staleAction,
 }: {
   point: PlainLocationPoint;
   // Self-location previews do not need Directions/Start - you are already there.
   showNavigation?: boolean;
   viewportResetKey?: string | number;
+  staleAction?: ReactNode;
 }) {
   const captured = formatDateTime(point.capturedAt);
   const accuracy = locationAccuracyLabel(point);
@@ -1291,15 +1596,18 @@ function LocalMapPreview({
       {isStale ? (
         <div
           role="status"
-          className="mx-3 mb-3 flex min-w-0 items-start gap-2 rounded-[12px] border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-[12px] font-medium text-amber-800 dark:text-amber-100"
+          className="mx-3 mb-3 flex min-w-0 flex-col gap-2 rounded-[12px] border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-[12px] font-medium text-amber-800 sm:flex-row sm:items-center sm:justify-between dark:text-amber-100"
         >
-          <AlertTriangle
-            className="mt-0.5 h-4 w-4 shrink-0"
-            aria-hidden="true"
-          />
-          <span className="min-w-0 break-words [overflow-wrap:anywhere]">
-            Location update may be stale. Ask them to refresh sharing.
+          <span className="flex min-w-0 items-start gap-2">
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0"
+              aria-hidden="true"
+            />
+            <span className="min-w-0 break-words [overflow-wrap:anywhere]">
+              Location may be stale.
+            </span>
           </span>
+          {staleAction ? <span className="shrink-0">{staleAction}</span> : null}
         </div>
       ) : null}
     </div>
@@ -1444,7 +1752,7 @@ function EmptyOneState({
 }: {
   icon: LucideIcon;
   title: string;
-  description: string;
+  description?: string;
 }) {
   return (
     <div className="flex min-h-24 min-w-0 max-w-full flex-col items-start gap-3 p-3.5 text-sm sm:flex-row sm:items-center">
@@ -1455,9 +1763,11 @@ function EmptyOneState({
         <div className="font-semibold text-[#1c1c1e] dark:text-white">
           {title}
         </div>
-        <div className="break-words text-[13px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-          {description}
-        </div>
+        {description ? (
+          <div className="break-words text-[13px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+            {description}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -1976,6 +2286,53 @@ export function OneLocationAgentPageContent({
   // Per-grant revoke tracking so "Stop sharing" only spins on the specific
   // active-share card the user tapped, not every active share at once.
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+  /** Which sent request is being taken back. Keyed by request, not by grant. */
+  const [withdrawingRequestId, setWithdrawingRequestId] = useState<
+    string | null
+  >(null);
+  /** Which grant is showing the inline duration editor, wherever it's listed. */
+  const [editingGrantId, setEditingGrantId] = useState<string | null>(null);
+  /** Which grant's duration is being saved. Separate from revoke on purpose. */
+  const [savingGrantId, setSavingGrantId] = useState<string | null>(null);
+  const [editGrantDurationHours, setEditGrantDurationHours] = useState(
+    GRANT_EDIT_DURATION_FALLBACK,
+  );
+  // One clock for every "time left" on this screen. The countdowns read
+  // Date.now() at render and nothing re-rendered them, so "Stops in 59 min"
+  // was true when the screen opened and stayed on the glass as the hour ran
+  // out -- the single number people use to decide when to ask for more time
+  // was the one that had quietly stopped moving. 30s, not 1s: these labels
+  // are minute-grained, and re-rendering to move nothing is cost with no
+  // reader.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    // A screen returning from background can be minutes stale; refresh the
+    // clock on the way in rather than waiting out the next tick.
+    const syncNow = () => setNowMs(Date.now());
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", syncNow);
+    }
+    return () => {
+      window.clearInterval(timer);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", syncNow);
+      }
+    };
+  }, []);
+  const approvalsNowMs = nowMs;
+  /*
+   * The live share card's own time editor. Separate from the three flags above
+   * on purpose: those edit a share somebody else is giving you, where more time
+   * has to be asked for. This one edits the share you are giving, where more
+   * time is yours to grant and applies immediately.
+   */
+  const [liveShareDurationEditing, setLiveShareDurationEditing] =
+    useState(false);
+  const [liveShareDurationHours, setLiveShareDurationHours] = useState(
+    GRANT_EDIT_DURATION_FALLBACK,
+  );
+  const [liveShareDurationSaving, setLiveShareDurationSaving] = useState(false);
   // Opt-in: keep publishing location while the app is backgrounded (native only).
   const [backgroundShareEnabled, setBackgroundShareEnabled] = useState(false);
   // Monotonic counter bumped each time a share completes successfully, so the
@@ -2104,7 +2461,7 @@ export function OneLocationAgentPageContent({
   const [oneNetworkListExpanded, setOneNetworkListExpanded] = useState(false);
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [selectedRequestOwnerId, setSelectedRequestOwnerId] = useState("");
-  const [selectedRecipientIds, setSelectedRecipientIds] =
+  const [selectedRecipientIds, setSelectedRecipientIds, selectedRecipientIdsRef] =
     useShareRecipientSelectionState();
   const [selectedRequestOwnerIds, setSelectedRequestOwnerIds] = useState<
     string[]
@@ -2237,6 +2594,10 @@ export function OneLocationAgentPageContent({
     ) => {
       setLocationWorkspace((current) => {
         const next = updater(current);
+        // An updater that decided nothing changed hands back the same object.
+        // Honouring that is what lets React bail out instead of re-rendering
+        // this surface on every live poll.
+        if (next === current) return current;
         writeLocationWorkspaceMemory(auth.userId, next);
         return next;
       });
@@ -2288,27 +2649,40 @@ export function OneLocationAgentPageContent({
   const decryptedPoints = locationWorkspace.decryptedPoints;
   const setDecryptedPoints = useCallback(
     (next: SetStateAction<Record<string, PlainLocationPoint>>) => {
-      updateLocationWorkspace((current) => ({
-        ...current,
-        decryptedPoints:
+      updateLocationWorkspace((current) => {
+        const resolved =
           typeof next === "function"
             ? (
                 next as (
                   value: Record<string, PlainLocationPoint>,
                 ) => Record<string, PlainLocationPoint>
               )(current.decryptedPoints)
-            : next,
-      }));
+            : next;
+        // Propagate the updater's "nothing changed" verdict instead of
+        // allocating a fresh workspace around an unchanged map.
+        if (resolved === current.decryptedPoints) return current;
+        return { ...current, decryptedPoints: resolved };
+      });
     },
     [updateLocationWorkspace],
   );
-  // Per-grant, recipient-facing message shown when a received share can't be
-  // decrypted because the on-device key no longer matches (e.g. the key rotated
-  // after WKWebView storage loss). Drives the inline "ask them to share again"
-  // recovery state instead of a raw crypto error. Keyed by grant id, mirrors
-  // `decryptedPoints`.
+  // Per-grant, recipient-facing status shown when a received share has no point
+  // on screen. Keyed by grant id, mirrors `decryptedPoints`.
+  //
+  // The tone is not decoration, it is the whole point. Two very different
+  // things land here and were previously indistinguishable behind a bare
+  // string named "error":
+  //
+  //   waiting — the share is healthy and the owner simply has not published a
+  //     point yet. This is the single most common state on the receiving side
+  //     and it is a SUCCESS. Rendering it as a warning would put a scary
+  //     banner on the happy path, which is exactly the category error that
+  //     made `oneLocationFailureClass` label these as permission failures.
+  //   blocked — the recipient genuinely cannot open this share and it will not
+  //     fix itself on the next poll. Only this tone earns an alert and the
+  //     "Ask to refresh" action.
   const [grantViewErrors, setGrantViewErrors] = useState<
-    Record<string, string>
+    Record<string, GrantViewStatus>
   >({});
   const [openedGrantTick, setOpenedGrantTick] = useState(0);
   // Bumped whenever the recipient unwatches a share, so the memoized
@@ -2332,6 +2706,22 @@ export function OneLocationAgentPageContent({
   const focusClearRef = useRef<number | null>(null);
   const livePublishInFlightRef = useRef(false);
   const liveViewInFlightRef = useRef(false);
+  /** When the in-flight sweep began, so a wedged sweep can be timed out. */
+  const liveViewStartedAtRef = useRef(0);
+  /** Identifies the sweep that currently owns the in-flight guard. */
+  const liveViewSweepIdRef = useRef(0);
+  /** Per-grant read pacing: see `recordGrantPollOutcome`. */
+  const grantPollScheduleRef = useRef<Map<string, OneLocationGrantPollEntry>>(
+    new Map(),
+  );
+  /** Latest-value refs so the recipient poll runs on one stable interval. */
+  const visibleReceivedGrantsRef = useRef<OneLocationGrant[]>([]);
+  const viewGrantEnvelopeRef = useRef<
+    (
+      grant: OneLocationGrant,
+      options?: { silent?: boolean; trigger?: OneLocationForegroundTrigger },
+    ) => Promise<OneLocationViewOutcome>
+  >(async () => "skipped");
   const suppressAutoRecipientSelectionRef = useRef(false);
   const shareReviewAttemptRef = useRef(0);
   const shareReviewPendingRef = useRef(false);
@@ -2399,20 +2789,32 @@ export function OneLocationAgentPageContent({
       ),
     [rankedRecipients, selectedShareCircleSelection],
   );
-  const visibleRecipients = useMemo(() => {
-    const query = recipientSearch.trim().toLowerCase();
-    if (!query) return rankedRecipients;
-    return rankedRecipients.filter((recipient) =>
-      recommendationSearchText(recipient).includes(query),
-    );
-  }, [rankedRecipients, recipientSearch]);
-  const visibleShareRecipients = useMemo(() => {
-    const query = shareRecipientSearch.trim().toLowerCase();
-    if (!query) return rankedRecipients;
-    return rankedRecipients.filter((recipient) =>
-      recommendationSearchText(recipient).includes(query),
-    );
-  }, [rankedRecipients, shareRecipientSearch]);
+  // A typed search matches the NAME, and nothing else on the row.
+  //
+  // These two boxes used to search `recommendationSearchText`, which appends
+  // every recipient's headline, relationship, category and reason labels to
+  // their name. Those labels are boilerplate — each person carries one of
+  // "Needs action", "Trusted Circle", "One Network", "Contact match",
+  // "Ready for private location sharing" — so most letters begin a word on
+  // EVERY row: "n" hit "Needs", "t" hit "Trusted", "o" hit "One", "r" hit
+  // "Ready", "c" hit "Contact" and "Circle". Typing the first letter of a
+  // person's name returned the entire list, which is exactly the complaint
+  // that word-prefix matching was added to answer. The matcher was already
+  // right; it was being handed a haystack with the same words in every straw.
+  //
+  // Connect settled this rule first: matching on anything other than the name
+  // is how a search returns a person nobody asked for. `recommendationSearchText`
+  // stays for the voice path below, where the input is a whole spoken phrase
+  // rather than one letter and the extra context helps rather than swamps.
+  const visibleRecipients = useMemo(
+    () => filterPeopleByQuery(rankedRecipients, recipientSearch, recipientLabel),
+    [rankedRecipients, recipientSearch],
+  );
+  const visibleShareRecipients = useMemo(
+    () =>
+      filterPeopleByQuery(rankedRecipients, shareRecipientSearch, recipientLabel),
+    [rankedRecipients, shareRecipientSearch],
+  );
   const hasMoreVisibleRecipients =
     visibleRecipients.length > ONE_NETWORK_PREVIEW_LIMIT;
   const showExpandedOneNetworkList =
@@ -2562,6 +2964,77 @@ export function OneLocationAgentPageContent({
       (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
     [state?.ownerGrants],
   );
+
+  /* ------------------------------------------------------------------ *
+   * Live share continuity
+   *
+   * `state` is a memory-only snapshot that expires after a minute, so leaving
+   * this route and returning re-entered the screen believing nothing was live
+   * until the network answered — a share deliberately set to "1 hour" appeared
+   * to have been forgotten. The device record below restores the running window
+   * on the first frame; the server stays the authority and reconciles into it.
+   * ------------------------------------------------------------------ */
+  const [liveShareEntries, setLiveShareEntries] = useState<
+    LiveShareSessionEntry[]
+  >(() => loadLiveShareEntries(auth.userId ?? ""));
+  const liveShareEntriesRef = useRef(liveShareEntries);
+  useEffect(() => {
+    liveShareEntriesRef.current = liveShareEntries;
+  }, [liveShareEntries]);
+
+  useEffect(() => {
+    const userId = auth.userId;
+    // Another account's shares must never render as yours, not even for one
+    // frame, so the record is keyed per owner and cleared on the way out.
+    setLiveShareEntries(userId ? loadLiveShareEntries(userId) : []);
+  }, [auth.userId]);
+
+  const commitLiveShareEntries = useCallback(
+    (next: LiveShareSessionEntry[]) => {
+      const userId = auth.userId;
+      if (liveShareEntriesEqual(next, liveShareEntriesRef.current)) return;
+      liveShareEntriesRef.current = next;
+      setLiveShareEntries(next);
+      if (!userId) return;
+      if (next.length) saveLiveShareEntries(userId, next);
+      else clearLiveShareEntries(userId);
+    },
+    [auth.userId],
+  );
+
+  useEffect(() => {
+    // Guarded on `state`: reconciling against an empty grant list before the
+    // first load lands would erase a genuinely running share.
+    if (!auth.userId || !state) return;
+    commitLiveShareEntries(
+      reconcileLiveShareEntries(liveShareEntriesRef.current, activeOwnerGrants),
+    );
+  }, [activeOwnerGrants, auth.userId, commitLiveShareEntries, state]);
+
+  const liveShareStatus = useMemo<LiveShareStatus | null>(() => {
+    const shareWindow = summarizeLiveShareEntries(liveShareEntries);
+    if (!shareWindow) return null;
+    const liveGrantIds = new Set(
+      liveShareEntries.map((entry) => entry.grantId),
+    );
+    return {
+      count: shareWindow.count,
+      // Names come from the server state only. The device record stays
+      // coordinate- and identity-free, so a cold start shows "2 people" rather
+      // than inventing who they are.
+      names: activeOwnerGrants
+        .filter((grant) => liveGrantIds.has(grant.id))
+        .map((grant) => grantCounterpartyLabel(grant))
+        .filter(Boolean),
+      startedAt: shareWindow.startedAt,
+      endsAt: shareWindow.endsAt,
+      stoppableGrantId:
+        liveShareEntries.length === 1
+          ? (liveShareEntries[0]?.grantId ?? null)
+          : null,
+    };
+  }, [activeOwnerGrants, liveShareEntries]);
+
   const locationEnabled =
     !locationControl.paused &&
     (locationControl.selfPreviewEnabled ||
@@ -2991,6 +3464,20 @@ export function OneLocationAgentPageContent({
     ],
   );
 
+  // The countdown hitting zero is the first moment anyone knows the share is
+  // over — the backend expires it silently. Drop the local record and pull the
+  // authoritative state so the screen agrees with the server within one round
+  // trip instead of sitting at 00:00.
+  const handleLiveShareEnded = useCallback(() => {
+    const userId = auth.userId;
+    commitLiveShareEntries(
+      pruneLiveShareEntries(liveShareEntriesRef.current, Date.now()),
+    );
+    if (!userId) return;
+    OneLocationStateResource.invalidate(userId);
+    void refresh({ background: true });
+  }, [auth.userId, commitLiveShareEntries, refresh]);
+
   const refreshLocationPermission = useCallback(async () => {
     // A failed read means we do not know, which is a reason to ask the device
     // rather than to declare it unusable. Reporting `unavailable` here used to
@@ -3043,9 +3530,69 @@ export function OneLocationAgentPageContent({
        * on/off control passes this; every other caller keeps today's behaviour.
        */
       isStale?: () => boolean;
-    }): Promise<{ ready: boolean; point?: PlainLocationPoint }> => {
+      /**
+       * Whether this gate may speak.
+       *
+       * False for a caller that prints its own message — nine of them do, and
+       * a shared toast on top meant one failure produced two. Also false for
+       * anything the owner did not ask for: a screen warming a position in the
+       * background does not get to interrupt them about it.
+       */
+      announce?: boolean;
+      /**
+       * Refuse a held position; only a fix measured now will do.
+       *
+       * For the small set of callers where degrading would be a lie rather
+       * than a courtesy. Un-pausing is one: pause is a privacy control, and
+       * resuming a share on a remembered coordinate would start telling people
+       * the owner is somewhere they have left. The live publisher and the
+       * check-in confirmation draw the same line for the same reason.
+       */
+      requireMeasurement?: boolean;
+    }): Promise<{
+      ready: boolean;
+      point?: PlainLocationPoint;
+      origin?: "fresh" | "restored";
+      failure?: LocationFailure;
+    }> => {
       const shouldCapturePoint = Boolean(options?.capturePoint);
       const shouldOpenSettings = options?.autoOpenSettings !== false;
+      const announce = options?.announce !== false;
+
+      const heldFix = (): PlainLocationPoint | null => {
+        const bus = LocationBus.getState();
+        if (!bus.snapshot) return null;
+        if (!isUsableFixAge(bus.snapshot.capturedAt)) return null;
+        return {
+          latitude: bus.snapshot.latitude,
+          longitude: bus.snapshot.longitude,
+          accuracyM: bus.snapshot.accuracyM ?? null,
+          capturedAt: bus.snapshot.capturedAt,
+          sourcePlatform: bus.snapshot.sourcePlatform ?? "web",
+        };
+      };
+
+      // Nothing to do but hand back what we already have.
+      //
+      // A caller that does not need a new measurement, on a session that is
+      // holding a usable position, used to pay for a permission read and a
+      // device round trip anyway — and could be toasted at for the privilege.
+      // On Safari, where the permission value is unreadable, it took that path
+      // every single time.
+      if (!shouldCapturePoint && !observedLocationDenialRef.current) {
+        const held = heldFix();
+        if (held) {
+          return {
+            ready: true,
+            point: held,
+            origin:
+              LocationBus.getState().snapshotOrigin === "fresh"
+                ? "fresh"
+                : "restored",
+          };
+        }
+      }
+
       const currentPermission = await refreshLocationPermission();
 
       // Only two things stop us before we have tried, and neither can be fixed
@@ -3059,11 +3606,11 @@ export function OneLocationAgentPageContent({
       // attempt, and let a real PERMISSION_DENIED be the thing that blocks.
       const blockReason = locationBlockReason(currentPermission);
       if (blockReason) {
-        toast.error(LOCATION_BLOCK_MESSAGE[blockReason]);
-        if (shouldOpenSettings) {
+        if (announce) toast.error(LOCATION_BLOCK_MESSAGE[blockReason]);
+        if (shouldOpenSettings && announce) {
           await OneLocationService.openLocationSettings().catch(() => null);
         }
-        return { ready: false };
+        return { ready: false, failure: "blocked" };
       }
 
       if (
@@ -3104,7 +3651,14 @@ export function OneLocationAgentPageContent({
         // so a later step in the same flow can use it instead of paying for a
         // second acquisition. `shouldCapturePoint` still governs the SIDE
         // EFFECT (activateMyLocation) above — only the return widens.
-        return { ready: true, point };
+        return {
+          ready: true,
+          point,
+          origin:
+            LocationBus.getState().snapshotOrigin === "restored"
+              ? "restored"
+              : "fresh",
+        };
       } catch (error) {
         const nextPermission =
           await OneLocationService.getPermissionState().catch(() => null);
@@ -3116,17 +3670,45 @@ export function OneLocationAgentPageContent({
         const denied = isLocationPermissionDeniedError(error);
         observedLocationDenialRef.current = denied;
         setLocationDenialObserved(denied);
-        const message = locationServicesErrorMessage(error);
-        toast.error(message);
+
+        // Not a refusal, and we are holding a position. Use it and say
+        // nothing: this is the case that produced most of the noise, because
+        // a device that declines one reading is routine and the owner has
+        // nothing to do about it.
+        const held =
+          denied || options?.requireMeasurement ? null : heldFix();
+        if (held) {
+          if (shouldCapturePoint && !options?.isStale?.()) {
+            activateMyLocation(held);
+          }
+          return { ready: true, point: held, origin: "restored" };
+        }
+
+        const failure: LocationFailure = denied
+          ? "denied"
+          : isLocationServicesDisabled(nextPermission)
+            ? "blocked"
+            : "no-fix";
         if (
-          shouldOpenSettings &&
-          (denied ||
-            isLocationServicesDisabled(nextPermission) ||
-            message.toLowerCase().includes("turn on location"))
+          shouldSurfaceLocationError({
+            hasUsableFix: false,
+            observedDenial: denied,
+            blockReason: locationBlockReason(nextPermission),
+            blocksUserIntent: announce,
+          })
         ) {
+          toast.error(
+            failure === "no-fix" ? LOCATION_COPY.noFix : LOCATION_COPY.denied,
+          );
+        }
+        // Settings only for something Settings can fix. The old trigger also
+        // fired on any message containing "turn on location" — which the web
+        // plugin puts on a TIMEOUT, so a laptop with no GPS radio was thrown
+        // at a settings pane it does not have.
+        if (shouldOpenSettings && announce && failure !== "no-fix") {
           await OneLocationService.openLocationSettings().catch(() => null);
         }
-        return { ready: false };
+        return { ready: false, failure };
       }
     },
     [activateMyLocation, refreshLocationPermission],
@@ -3518,10 +4100,26 @@ export function OneLocationAgentPageContent({
     setShareDurationHours(ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS);
     setShareMessage("");
   }, [setSelectedRecipientIds]);
-  const resetRequestComposer = useCallback(() => {
+  /**
+   * Clears the ask composer after a send.
+   *
+   * `sentUserIds` is subtracted rather than the whole selection being dropped:
+   * sending takes several round trips (identity sync, key registration, then one
+   * request per person), and anybody tapped during that window used to be wiped
+   * by a blanket clear when it finally landed. Their pick simply vanished, with
+   * no error and no request. Only the people actually asked are removed.
+   */
+  const resetRequestComposer = useCallback((sentUserIds?: readonly string[]) => {
     suppressAutoRecipientSelectionRef.current = true;
     setSelectedRequestOwnerId("");
-    setSelectedRequestOwnerIds([]);
+    if (!sentUserIds) {
+      setSelectedRequestOwnerIds([]);
+    } else {
+      const sent = new Set(sentUserIds);
+      setSelectedRequestOwnerIds((current) =>
+        current.filter((id) => !sent.has(id)),
+      );
+    }
     setRequestMessage("");
   }, []);
 
@@ -3535,12 +4133,27 @@ export function OneLocationAgentPageContent({
       landOnAfter?: string,
     ): Promise<LocalOnboardingActionResult> => {
       const effectiveDurationHours = durationOverride ?? shareDurationHours;
+      const durationPayload = privateShareDurationPayload(effectiveDurationHours);
       // Set on every attempt, so a landing asked for by one share can never
       // survive into the next one. Taps pass nothing and get the clean hub.
       shareCompletedDestinationRef.current = landOnAfter ?? null;
     if (!vaultOwnerToken) {
       return { status: "blocked", summary: "Unlock One before sharing your location." };
     }
+    // See resolveEffectiveShareRecipients' doc comment for why an empty
+    // selectedShareRecipients falls back to the ref instead of being trusted
+    // as "nobody picked".
+    const effectiveSelectedShareRecipients = resolveEffectiveShareRecipients(
+      selectedShareRecipients,
+      shareRecipientPool,
+      selectedRecipientIdsRef.current,
+    );
+    const effectiveSetupNeededSelectedRecipients =
+      effectiveSelectedShareRecipients.filter(
+        (recipient) => !isShareReadyRecipient(recipient),
+      );
+    const effectiveShareReadySelectedRecipients =
+      effectiveSelectedShareRecipients.filter(isShareReadyRecipient);
     // Test the SELECTION, not the share-ready subset of it. Those differ
     // whenever someone is picked who has not finished their own Location
     // setup, and reading the subset made this answer "nobody is selected"
@@ -3548,18 +4161,18 @@ export function OneLocationAgentPageContent({
     // chain back to pick someone it had already picked. Observed live: the
     // pick settled "Matched Abdul Rashid", and the share that followed it
     // said nobody was selected.
-    if (!selectedShareRecipients.length) {
+    if (!effectiveSelectedShareRecipients.length) {
       return {
         status: "blocked",
         summary:
           "Nobody is selected yet. Pick who you want to share with, then say share again.",
       };
     }
-    if (setupNeededSelectedRecipients.length) {
+    if (effectiveSetupNeededSelectedRecipients.length) {
       // Name them. The person picked this contact by name a moment ago, so
       // the name is already theirs and already spoken; "someone you picked"
       // leaves them guessing which of several it means.
-      const blockedNames = setupNeededSelectedRecipients
+      const blockedNames = effectiveSetupNeededSelectedRecipients
         .map((recipient) => recipientLabel(recipient).trim())
         .filter(Boolean);
       return {
@@ -3605,7 +4218,7 @@ export function OneLocationAgentPageContent({
       // unbounded fan-out over a large Circle can exhaust a small connection
       // pool. Four at a time keeps the wall clock near a single round trip and
       // stays well inside the pool.
-      const pending = [...shareReadySelectedRecipients];
+      const pending = [...effectiveShareReadySelectedRecipients];
       const shareOne = async () => {
         for (;;) {
           const recipient = pending.shift();
@@ -3615,7 +4228,7 @@ export function OneLocationAgentPageContent({
               vaultOwnerToken,
               recipientUserId: recipient.userId,
               recipientKeyId: recipient.keyId,
-              durationHours: Number(effectiveDurationHours),
+              ...durationPayload,
               reason: shareMessage.trim() || undefined,
               shareKind: "share",
               sourceCircleId:
@@ -3643,19 +4256,16 @@ export function OneLocationAgentPageContent({
       if (!successCount && lastRecipientError) {
         throw lastRecipientError;
       }
-      trackEvent("one_location_share_confirmed", {
+      trackLocationShareConfirmed({
         route_id: "one_location",
         result: oneLocationEventResult(successCount, recipientFailureCount),
-        selected_count: shareReadySelectedRecipients.length,
+        selected_count: effectiveShareReadySelectedRecipients.length,
         success_count: successCount,
         failure_count: recipientFailureCount,
         duration_bucket: oneLocationDurationBucket(effectiveDurationHours),
         review_required: shareReviewOpen,
       });
-      const durationLabel =
-        DURATION_OPTIONS.find(
-          (option) => option.value === String(effectiveDurationHours),
-        )?.label ?? `${effectiveDurationHours} hours`;
+      const durationLabel = privateShareDurationLabel(effectiveDurationHours);
       let summary: string;
       if (recipientFailureCount) {
         summary = `Location shared with ${peopleCountLabel(successCount)} for ${durationLabel}. ${recipientFailureCount} ${
@@ -3675,12 +4285,12 @@ export function OneLocationAgentPageContent({
     } catch (error) {
       const failureCount =
         recipientFailureCount ||
-        shareReadySelectedRecipients.length - successCount ||
+        effectiveShareReadySelectedRecipients.length - successCount ||
         1;
-      trackEvent("one_location_share_confirmed", {
+      trackLocationShareConfirmed({
         route_id: "one_location",
         result: oneLocationEventResult(successCount, failureCount),
-        selected_count: shareReadySelectedRecipients.length,
+        selected_count: effectiveShareReadySelectedRecipients.length,
         success_count: successCount,
         failure_count: failureCount,
         duration_bucket: oneLocationDurationBucket(effectiveDurationHours),
@@ -3701,14 +4311,12 @@ export function OneLocationAgentPageContent({
       publishEnvelopeWithRetry,
       refresh,
       resetShareComposer,
-      // The whole list, not just its length: the blocked message now names
-      // who is holding the share up.
-      setupNeededSelectedRecipients,
+      selectedRecipientIdsRef,
       selectedShareRecipients,
       shareDurationHours,
       shareMessage,
+      shareRecipientPool,
       shareReviewOpen,
-      shareReadySelectedRecipients,
       vaultOwnerToken,
     ],
   );
@@ -3852,6 +4460,11 @@ export function OneLocationAgentPageContent({
         const result = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: false,
+          // This runs when Save my Soul is merely OPENED. Nobody has asked for
+          // anything yet, so a failure here has nothing to tell them — and on
+          // a promptable browser a toast plus a settings pane for opening a
+          // panel is how "it keeps asking me again" happens.
+          announce: false,
         });
         if (!result.ready || !result.point) {
           setSosEmergencyStatus((current) =>
@@ -3903,33 +4516,53 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
-  // Warm the local emergency number from ANY location the app already has.
-  //
-  // Save My Soul used to start from nothing: open the screen, ask for a fix,
-  // then wait on a reverse-geocode, leaving "Finding local number" on the one
-  // control someone might need in seconds. Every other flow here — the map, a
-  // share, a check-in — already produces a fix, so the country can be settled
-  // long before the SOS screen is ever opened.
-  //
-  // Runs only when the answer would actually change: no fix, no token, or a fix
-  // still inside the radius the current number was confirmed at, and it does
-  // nothing. It never requests permission, so it cannot prompt on its own.
-  useEffect(() => {
-    if (!myLocationPoint || !vaultOwnerToken) return;
-    const alreadyCoversThisPoint =
-      sosEmergencyStatus === "resolved" &&
-      isWithinEmergencyTrustRadius(
-        sosEmergencyOriginRef.current,
-        myLocationPoint,
-      );
-    if (alreadyCoversThisPoint) return;
-    void resolveEmergencyInfoForPoint(myLocationPoint, { seedFromCache: true });
-  }, [
-    myLocationPoint,
-    resolveEmergencyInfoForPoint,
-    sosEmergencyStatus,
-    vaultOwnerToken,
-  ]);
+  // The local emergency number is looked up only when someone actually taps
+  // "Find local number" (resolveSosLocation, wired to onResolveEmergencyNumber
+  // below) or triggers Save My Soul. It used to also warm silently off any fix
+  // the app already had, which made the control read as permanently loading
+  // before anyone pressed it — the lookup must stay a deliberate, on-click act.
+
+  /**
+   * Records that the emergency alert fired, on every path it can leave by.
+   *
+   * Counts only: never the note, the coordinates, or who was contacted. The
+   * number that matters is `reached_count` — an alert that reached nobody is
+   * the most serious failure this product has, and it is exactly the case that
+   * previously produced no telemetry because the emit sat on the success path.
+   *
+   * The three counts reconcile: `selected` is everyone the person chose, and
+   * `unreachable` covers both those filtered out as not-ready and those whose
+   * device was not alerted, so `reached + unreachable === selected`.
+   */
+  const trackSosTriggered = useCallback(
+    ({
+      selectedCount,
+      reachedCount,
+      unreachableCount,
+      emailedCount = 0,
+      note,
+    }: {
+      selectedCount: number;
+      reachedCount: number;
+      unreachableCount: number;
+      emailedCount?: number;
+      note?: string | null;
+    }) => {
+      trackEvent("one_location_sos_triggered", {
+        route_id: "one_location",
+        // "error", not "expected_error": reaching nobody is a genuine failure
+        // of the alert, never a normal outcome.
+        // Success if the alert landed on either channel.
+        result: reachedCount > 0 || emailedCount > 0 ? "success" : "error",
+        selected_count: selectedCount,
+        reached_count: reachedCount,
+        unreachable_count: unreachableCount,
+        emailed_count: emailedCount,
+        has_note: Boolean(note && note.trim()),
+      });
+    },
+    [],
+  );
 
   const handleTriggerSos = useCallback(
     async (note?: string | null) => {
@@ -3941,6 +4574,16 @@ export function OneLocationAgentPageContent({
       );
       const totalSelected = smsActionRecipients.length;
       if (!readyRecipients.length) {
+        // Emitted before returning. This is an alert that reached nobody, which
+        // is precisely the case the event exists to surface; leaving it on the
+        // success path only meant the failures we most need to see were the
+        // ones that produced no telemetry at all.
+        trackSosTriggered({
+          selectedCount: totalSelected,
+          reachedCount: 0,
+          unreachableCount: 0,
+          note,
+        });
         toast.error(
           totalSelected
             ? "Your SMS contacts are not ready to receive location yet."
@@ -3952,8 +4595,14 @@ export function OneLocationAgentPageContent({
       try {
         const point = await resolveSosLocation();
         if (!point) {
+          trackSosTriggered({
+            selectedCount: totalSelected,
+            reachedCount: 0,
+            unreachableCount: readyRecipients.length,
+            note,
+          });
           toast.error(
-            "Couldn't get your location — SMS not sent. Check location permissions.",
+            "Couldn't get your location — alert not sent. Check location permissions.",
           );
           return;
         }
@@ -3976,19 +4625,66 @@ export function OneLocationAgentPageContent({
           .map((outcome) => outcome.displayName);
         const reached = readyRecipients.length - unreachable.length;
 
+        // Second channel. A push reaches nobody when notifications are off, so
+        // the same alert goes out by email — the one place a closed app cannot
+        // swallow it. Awaited (not fired and forgotten) so the message below
+        // can tell the sender what actually happened, which is the whole point
+        // of having a fallback. It never throws.
+        const mail = await OneLocationService.sendSosEmails({
+          vaultOwnerToken,
+          grantIds: incident.grantIds,
+          latitude: point.latitude,
+          longitude: point.longitude,
+          accuracyM: point.accuracyM ?? null,
+          // Save my Soul sends the last known position rather than nothing
+          // when the device will not produce a new one — the right call in an
+          // emergency, but only if the person reading it is told how old it
+          // is. The email stamps anything older than a couple of minutes.
+          capturedAt: point.capturedAt,
+          note,
+          emergencyNumber: sosEmergency?.number ?? null,
+        });
+
+        // Only worth saying when it changes what the sender should do next:
+        // "nobody's phone lit up" reads very differently if two inboxes got it.
+        // And a contact with no address is named rather than skipped in
+        // silence — "Emailed 0" with no reason is what made a broken email
+        // channel look like a working one.
+        const mailNote =
+          (mail.emailed > 0 ? ` Emailed ${mail.emailed}.` : "") +
+          (mail.withoutEmail.length > 0
+            ? ` No email on file for ${formatNameList(mail.withoutEmail)}.`
+            : "");
+
+        // Emitted after the email fallback so it reports the alert's real
+        // outcome rather than the push channel's. An SOS where every push
+        // failed but two inboxes received it is not an alert that reached
+        // nobody, and recording it as one would point the investigation at
+        // exactly the wrong thing.
+        trackSosTriggered({
+          selectedCount: totalSelected,
+          reachedCount: reached,
+          unreachableCount: unreachable.length + skipped,
+          emailedCount: mail.emailed,
+          note,
+        });
+
         if (reached === 0) {
+          const stillNoOne = mail.emailed === 0;
           toast.error(
-            `Location shared, but no one was alerted — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off. Call emergency services if you need help now.`,
+            stillNoOne
+              ? `Location shared, but no one was alerted — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off. Call emergency services if you need help now.`
+              : `No phones lit up — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off.${mailNote} Call emergency services if you need help now.`,
           );
         } else if (unreachable.length > 0) {
           toast.warning(
-            `SMS sent to ${reached} of ${readyRecipients.length} contacts. Couldn't alert ${formatNameList(unreachable)} — notifications are off on their end.`,
+            `Alerted ${reached} of ${readyRecipients.length} contacts. Couldn't reach ${formatNameList(unreachable)} — notifications are off on their end.${mailNote}`,
           );
         } else {
           toast.success(
             skipped > 0
-              ? `SMS sent to ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).`
-              : `SMS sent to ${readyRecipients.length} contact(s).`,
+              ? `Alerted ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).${mailNote}`
+              : `Alerted ${readyRecipients.length} contact(s).${mailNote}`,
           );
         }
         void refresh().catch(() => null);
@@ -3998,6 +4694,18 @@ export function OneLocationAgentPageContent({
         if (error instanceof SosPanicError && error.partialIncident) {
           setSosIncident(error.partialIncident);
         }
+        // Reported as reaching nobody, because on this path we genuinely cannot
+        // tell. `SosPanicError.partialIncident` carries only grant ids, not
+        // per-recipient delivery, so some contacts may in fact have been
+        // alerted before the throw. Biasing an unobservable emergency outcome
+        // toward failure is the right way round: it surfaces for investigation
+        // rather than being averaged away, which a guessed number would do.
+        trackSosTriggered({
+          selectedCount: totalSelected,
+          reachedCount: 0,
+          unreachableCount: totalSelected,
+          note,
+        });
         toast.error(
           error instanceof Error ? error.message : "Could not send SMS alert.",
         );
@@ -4012,6 +4720,10 @@ export function OneLocationAgentPageContent({
       smsActionRecipients,
       refresh,
       sosIncident,
+      trackSosTriggered,
+      // The local emergency number is read at send time so the email can tell
+      // the recipient which number to dial where the sender is.
+      sosEmergency?.number,
       vaultOwnerToken,
     ],
   );
@@ -4175,6 +4887,8 @@ export function OneLocationAgentPageContent({
         const readiness = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: true,
+          // Prints its own message below.
+          announce: false,
         });
         if (!readiness.ready || !readiness.point) {
           return;
@@ -4207,8 +4921,8 @@ export function OneLocationAgentPageContent({
     async (
       grant: OneLocationGrant,
       options?: { silent?: boolean; trigger?: OneLocationForegroundTrigger },
-    ) => {
-      if (!auth.userId || !vaultOwnerToken) return;
+    ): Promise<OneLocationViewOutcome> => {
+      if (!auth.userId || !vaultOwnerToken) return "skipped";
       const activeUserId = auth.userId;
       const silent = Boolean(options?.silent);
       const trigger =
@@ -4223,6 +4937,10 @@ export function OneLocationAgentPageContent({
               vaultOwnerToken,
               grantId: grant.id,
             });
+            // Live share, no point published yet. The backend reports this as a
+            // success (see `allow_empty` in OneLocationService.viewEnvelope), so
+            // there is nothing to decrypt and nothing has gone wrong.
+            if (!response.envelope) return null;
             try {
               return await decryptLocationEnvelope({
                 userId: activeUserId,
@@ -4251,7 +4969,31 @@ export function OneLocationAgentPageContent({
             }
           },
         });
-        setDecryptedPoints((current) => ({ ...current, [grant.id]: point }));
+        if (!point) {
+          // Live share, first point not published yet. This is a success, not a
+          // failure: hold the calm waiting copy and let the caller drop this
+          // grant to the slow cadence until the owner actually publishes.
+          setGrantViewErrors((current) => {
+            const waiting = awaitingFirstPublishMessage(grant);
+            return current[grant.id]?.message === waiting
+              ? current
+              : {
+                  ...current,
+                  [grant.id]: { message: waiting, tone: "waiting" },
+                };
+          });
+          if (!silent) toast.message(awaitingFirstPublishMessage(grant));
+          return "awaiting";
+        }
+        // A stationary owner republishes the same point every heartbeat, so most
+        // ticks decrypt to something identical to what is already on screen.
+        // Writing it anyway would allocate a new workspace object and re-render
+        // this whole surface every few seconds for no visible change.
+        setDecryptedPoints((current) =>
+          samePlainLocationPoint(current[grant.id], point)
+            ? current
+            : { ...current, [grant.id]: point },
+        );
         // Recovered — clear any prior "ask them to share again" state.
         setGrantViewErrors((current) => {
           if (!(grant.id in current)) return current;
@@ -4259,18 +5001,21 @@ export function OneLocationAgentPageContent({
           delete next[grant.id];
           return next;
         });
+        // The receiving half of activation. A person who is only ever shared
+        // with -- the invited friend, which is the whole viral loop -- is still
+        // an active user of a sharing product, and counted as un-activated
+        // until this fires.
+        trackLocationShareReceived();
+        return "published";
       } catch (error) {
         const keyUnavailable =
           error instanceof Error &&
           error.message === RECIPIENT_KEY_UNAVAILABLE_MESSAGE;
-        // The grant is active ("Live") but the owner has not published any
-        // encrypted point yet — e.g. they JUST started sharing, or haven't
-        // moved / re-opened One since. The backend returns a 404
-        // LOCATION_ENVELOPE_MISSING for this. It's a normal "not ready yet"
-        // state on the happy path, NOT a failure, so we must never surface the
-        // raw backend string ("The owner has not published an encrypted
-        // location envelope yet.") as a scary red error toast the moment the
-        // recipient lands on the page.
+        // Legacy shape of the same "not ready yet" state: a backend that predates
+        // `allow_empty` answers 404 LOCATION_ENVELOPE_MISSING instead of a 200
+        // with a null envelope. This branch must stay for as long as a client
+        // can reach an older backend — including the window during a rollout
+        // where the webapp ships ahead of the Python service.
         const envelopeMissing =
           !keyUnavailable &&
           (apiErrorCode(error) === "LOCATION_ENVELOPE_MISSING" ||
@@ -4296,41 +5041,62 @@ export function OneLocationAgentPageContent({
           });
           setGrantViewErrors((current) => ({
             ...current,
-            [grant.id]: `Couldn't open ${receivedGrantOwnerLabel(
-              grant,
-            )}'s live location — the secure key changed. Ask them to share again.`,
+            [grant.id]: {
+              message: `Couldn't open ${receivedGrantOwnerLabel(
+                grant,
+              )}'s live location — the secure key changed. Ask them to share again.`,
+              tone: "blocked",
+            },
           }));
-        } else if (envelopeMissing) {
+          return "error";
+        }
+        if (envelopeMissing) {
           // Calm, reassuring "waiting for their first update" state. The share
           // is genuinely active; the point simply hasn't arrived yet and will
           // appear automatically on the next poll once the owner publishes.
-          const waitingMessage = `${receivedGrantOwnerLabel(
-            grant,
-          )} is sharing, but hasn't sent a live location update yet. It will appear here automatically as soon as they move or open One.`;
+          const waitingMessage = awaitingFirstPublishMessage(grant);
           setGrantViewErrors((current) =>
-            current[grant.id] === waitingMessage
+            current[grant.id]?.message === waitingMessage
               ? current
-              : { ...current, [grant.id]: waitingMessage },
+              : {
+                  ...current,
+                  [grant.id]: { message: waitingMessage, tone: "waiting" },
+                },
           );
           // Only nudge with a gentle (non-error) toast on an explicit tap, and
           // never on the background poll, so the page stays quiet while waiting.
           if (!silent) {
             toast.message(waitingMessage);
           }
-        } else if (!silent) {
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "Could not view this private location update.",
-          );
+          return "awaiting";
+        }
+        const genericMessage =
+          error instanceof Error && error.message
+            ? error.message
+            : "Could not view this private location update.";
+        if (!silent) {
+          toast.error(genericMessage);
+          // The person tapped View and it failed. A toast disappears, so also
+          // leave the reason on the card itself -- otherwise tapping again is
+          // the only way to find out anything, which is how a recipient ends
+          // up retrying the same broken share over and over.
+          setGrantViewErrors((current) => ({
+            ...current,
+            [grant.id]: { message: genericMessage, tone: "blocked" },
+          }));
         } else {
+          // Stay quiet on the background poll. A transient network blip must
+          // not paint an alert every five seconds over content that is about
+          // to refresh itself; the same reasoning governs the page-level load
+          // banner. An explicit tap is what promotes this to something the
+          // person sees.
           console.warn(
             "[OneLocationAgent] Silent location refresh skipped:",
             error,
           );
         }
+        return "error";
       } finally {
-
         if (!silent) setBusy(null);
       }
     },
@@ -4429,7 +5195,7 @@ export function OneLocationAgentPageContent({
       return changed ? next : current;
     });
     setGrantViewErrors((current) => {
-      const next: Record<string, string> = {};
+      const next: Record<string, GrantViewStatus> = {};
       let changed = false;
       for (const [grantId, message] of Object.entries(current)) {
         if (activeGrantIds.has(grantId)) {
@@ -4464,12 +5230,20 @@ export function OneLocationAgentPageContent({
         return;
       livePublishInFlightRef.current = true;
       try {
-        // Never a reused fix: a recipient watching this person move must see
-        // where they are now, not where they were when a button was last
-        // pressed. One capture here still serves every grant below.
-        const point = await OneLocationService.captureCurrentPosition({
-          maxAgeMs: 0,
-        });
+        // Read the shared position rather than forcing a second acquisition.
+        //
+        // The movement watch below already feeds the bus every fix the device
+        // produces, so the bus snapshot IS the newest position that exists. A
+        // competing one-shot here made the point less current, not more: on
+        // iOS it raced that watch for the plugin's single pending-call slot,
+        // and on web getCurrentPosition can spend ~23s — longer than this
+        // interval. Every lost race threw, and this loop reported "could not
+        // get your location" once a tick while the watch was delivering.
+        const point = await liveHeartbeatPoint();
+        // Nothing measured this session. The watch will deliver; a recipient
+        // watching a live dot must never be shown a remembered coordinate,
+        // and there is nothing here to tell the owner.
+        if (!point) return;
         if (!automaticPrivatePublishingAllowedRef.current) return;
         // Every grant is published independently. Sharing this loop's failure
         // between recipients is what made "share with several people" look
@@ -4509,11 +5283,23 @@ export function OneLocationAgentPageContent({
           }),
         );
       } catch (error) {
-        void refreshLocationPermission();
-        console.warn(
-          "[OneLocationAgent] Foreground live update skipped:",
-          error,
-        );
+        // Only worth the owner's attention when the platform refused or we
+        // hold no position at all. A failed refresh while a share is running
+        // on a good fix is not news they can act on — and re-reading
+        // permission on every one of those cost a platform round trip every
+        // twenty seconds for a value nothing on this path reads.
+        if (
+          shouldWarnOnPublishFailure({
+            error,
+            snapshot: LocationBus.getState().snapshot,
+            observedDenial: observedLocationDenialRef.current,
+          })
+        ) {
+          console.warn(
+            "[OneLocationAgent] Foreground live update skipped:",
+            error,
+          );
+        }
       } finally {
         livePublishInFlightRef.current = false;
       }
@@ -4532,7 +5318,6 @@ export function OneLocationAgentPageContent({
     permission?.state,
     publishEnvelopeWithRetry,
     recipientForGrant,
-    refreshLocationPermission,
     vaultOwnerToken,
   ]);
 
@@ -4749,39 +5534,122 @@ export function OneLocationAgentPageContent({
     setMyLocationPoint,
   ]);
 
+  // Latest-value refs for the recipient poll below. The poll must survive on a
+  // single long-lived interval: keying its effect on the grant objects and the
+  // `viewGrantEnvelope` identity tore the timer down and rebuilt it on every
+  // render, and each rebuild fires an immediate sweep — so a render burst became
+  // a request burst at the backend (visible as clusters of back-to-back reads
+  // between the honest 5s ticks). These refs let the effect depend only on the
+  // grant id list, which changes when the set of shares genuinely changes.
   useEffect(() => {
-    if (!activeVisibleReceivedGrants.length) return;
-    if (busy && busy !== "load") return;
+    visibleReceivedGrantsRef.current = activeVisibleReceivedGrants;
+    viewGrantEnvelopeRef.current = viewGrantEnvelope;
+  });
+
+  const visibleReceivedGrantKey = useMemo(
+    () => activeVisibleReceivedGrants.map((grant) => grant.id).join(","),
+    [activeVisibleReceivedGrants],
+  );
+  const liveViewPollBlocked = Boolean(busy && busy !== "load");
+
+  useEffect(() => {
+    if (!visibleReceivedGrantKey) return;
+    if (liveViewPollBlocked) return;
 
     const refreshVisibleGrants = async () => {
-      if (liveViewInFlightRef.current) return;
+      const now = Date.now();
+      // Checked before the watchdog: a backgrounded tab is throttled by the
+      // browser, so an in-flight sweep sitting there is expected, not wedged.
       if (
         typeof document !== "undefined" &&
         document.visibilityState === "hidden"
       )
         return;
+      if (liveViewInFlightRef.current) {
+        // Normal overlap: the previous sweep is still running, skip this tick.
+        if (now - liveViewStartedAtRef.current < LIVE_VIEW_INFLIGHT_WATCHDOG_MS)
+          return;
+        // The previous sweep never settled. Without this escape the guard stays
+        // latched for the life of the page and live tracking dies silently, with
+        // the interval still firing into a permanent no-op.
+        console.warn(
+          "[OneLocationAgent] Live view sweep exceeded the watchdog; " +
+            "releasing the in-flight guard so polling can recover.",
+        );
+      }
+
+      const grants = visibleReceivedGrantsRef.current;
+      const schedule = grantPollScheduleRef.current;
+      // Only read shares whose next attempt is actually due. A share that has
+      // never published, or one that keeps failing, sits on a slower cadence
+      // than a share that is streaming a moving dot.
+      const due = grants.filter((grant) => {
+        const entry = schedule.get(grant.id);
+        return !entry || now >= entry.nextAttemptAt;
+      });
+      if (!due.length) return;
+
+      // Claim this sweep. If the watchdog above abandoned an earlier one, that
+      // earlier sweep may still resolve later — and it must not then clear a
+      // guard it no longer owns, which would let two sweeps run concurrently.
+      const sweepId = liveViewSweepIdRef.current + 1;
+      liveViewSweepIdRef.current = sweepId;
       liveViewInFlightRef.current = true;
+      liveViewStartedAtRef.current = now;
       try {
+        const view = viewGrantEnvelopeRef.current;
         await Promise.allSettled(
-          activeVisibleReceivedGrants.map((grant) =>
-            viewGrantEnvelope(grant, {
-              silent: true,
-              trigger: "foreground_interval",
-            }),
-          ),
+          due.map(async (grant) => {
+            // Deliberately NOT gated on `grant.latestEnvelopeId`. That column is
+            // a denormalised copy of "has this share ever published", and using
+            // it to skip the read would mean one missed write permanently hides
+            // a live dot — a far worse failure than an extra request. The
+            // cadence below is driven by the response itself, so it self-heals.
+            //
+            // Defensive: viewGrantEnvelope already resolves rather than rejects
+            // for every state it knows about, but a future throw inside it must
+            // degrade this grant to backoff — never take down the whole sweep.
+            let outcome: OneLocationViewOutcome = "error";
+            try {
+              outcome = await view(grant, {
+                silent: true,
+                trigger: "foreground_interval",
+              });
+            } catch (error) {
+              console.warn(
+                "[OneLocationAgent] Live view sweep entry failed:",
+                error,
+              );
+            }
+            recordGrantPollOutcome(schedule, grant.id, outcome, now);
+          }),
         );
       } finally {
-        liveViewInFlightRef.current = false;
+        if (liveViewSweepIdRef.current === sweepId) {
+          liveViewInFlightRef.current = false;
+        }
       }
     };
 
+    // Drop schedule entries for shares that are no longer on screen so a long
+    // session cannot accumulate state for revoked/expired grants.
+    const liveIds = new Set(visibleReceivedGrantKey.split(","));
+    for (const id of [...grantPollScheduleRef.current.keys()]) {
+      if (!liveIds.has(id)) grantPollScheduleRef.current.delete(id);
+    }
+
     void refreshVisibleGrants();
-    const interval = window.setInterval(
-      () => void refreshVisibleGrants(),
-      LIVE_VIEW_REFRESH_INTERVAL_MS,
-    );
+    const interval = window.setInterval(() => {
+      // A synchronous throw here would kill the interval for the rest of the
+      // session, so nothing is allowed to escape the tick.
+      try {
+        void refreshVisibleGrants();
+      } catch (error) {
+        console.warn("[OneLocationAgent] Live view tick failed:", error);
+      }
+    }, LIVE_VIEW_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(interval);
-  }, [activeVisibleReceivedGrants, busy, viewGrantEnvelope]);
+  }, [visibleReceivedGrantKey, liveViewPollBlocked, setGrantViewErrors]);
 
   // Keep native background publishing in sync with the opt-in toggle + grants.
   // Web returns { started:false } and this is a no-op there.
@@ -4830,6 +5698,235 @@ export function OneLocationAgentPageContent({
     },
     [refresh, vaultOwnerToken],
   );
+
+  /**
+   * Take back a request you sent, before the other person has answered it.
+   *
+   * Reported from QA: two requests sent, both rows reading "Asked", and no way
+   * off either one -- a wrong person or a changed mind was permanent until the
+   * other side happened to answer. Asking is a consent act, so undoing it is
+   * the asker's own to make.
+   *
+   * Its own busy flag, not `revokingGrantId`: that one is keyed by grant, and
+   * a pending request has no grant to key on.
+   */
+  const handleWithdrawRequest = useCallback(
+    async (requestId: string) => {
+      if (!vaultOwnerToken) return;
+      setWithdrawingRequestId(requestId);
+      try {
+        await OneLocationService.withdrawRequest({
+          vaultOwnerToken,
+          requestId,
+        });
+        toast.success("Request taken back.");
+        void refresh().catch(() => null);
+      } catch (error) {
+        toast.error(
+          oneLocationErrorMessage(error, "Could not take back request."),
+        );
+      } finally {
+        setWithdrawingRequestId(null);
+      }
+    },
+    [refresh, vaultOwnerToken],
+  );
+
+  /**
+   * Edit a received grant's remaining time -- from any list that shows one
+   * (Ask's "already sharing" rows, Requests sent, Shared with me).
+   *
+   * Shortening is self-limiting -- the owner already agreed to be seen at
+   * least this long -- so it applies immediately. Extending is a different
+   * question: it grows how long the recipient can see the owner, and that
+   * is the owner's consent to give again, via a fresh request_access the
+   * owner approves like any other.
+   *
+   * Which one this is gets decided here, from the same expiry the row is
+   * already rendering as "30 more min". It used to be decided by calling
+   * shorten_grant and waiting for the backend to refuse: every ask-for-more
+   * -time paid for a doomed round trip before the real one, which is the
+   * "Save is slow" report. The refusal is still handled -- a client clock
+   * can disagree with the server's near the boundary -- but it is now the
+   * rare correction rather than the normal path.
+   */
+  const handleEditGrantDuration = useCallback(
+    async (
+      params: { ownerUserId: string; grantId: string; ownerLabel: string },
+      durationHours: number,
+    ) => {
+      if (!vaultOwnerToken) return;
+      const { ownerUserId, grantId, ownerLabel } = params;
+      const grant = activeReceivedGrants.find((row) => row.id === grantId);
+      // Its own flag, not the revoke one. Sharing `revokingGrantId` made
+      // saving a duration disable that row's Remove button, and a save that
+      // returned early left the flag set for good -- so the next Edit on
+      // that person opened with Save already spinning and permanently
+      // disabled. That is the "save button takes more time" report.
+      setSavingGrantId(grantId);
+      try {
+        const intent = grantDurationEditIntent({
+          grant,
+          durationHours,
+          nowMs: Date.now(),
+        });
+        // Save on a picker still showing what the share already has left is
+        // not a change. It used to spend a refused shorten and then ask the
+        // owner for one more minute of their location, and report that as
+        // "Asked ... for more time" over a row whose time never moved.
+        if (intent === "unchanged") {
+          setEditingGrantId(null);
+          return;
+        }
+        if (intent === "shorten") {
+          try {
+            await OneLocationService.shortenGrant({
+              vaultOwnerToken,
+              grantId,
+              durationHours,
+            });
+            toast.success("Access shortened.");
+            setEditingGrantId(null);
+            // Held until the list has actually reconciled, so this grant is
+            // not savable again against the expiry it just replaced.
+            await refresh({ background: true }).catch(() => null);
+            return;
+          } catch (error) {
+            if (apiErrorCode(error) !== "LOCATION_GRANT_SHORTEN_ONLY") {
+              toast.error(
+                error instanceof Error
+                  ? error.message
+                  : "Couldn't change the time. Try again.",
+              );
+              return;
+            }
+            // The backend read the clock differently. Fall through and ask.
+          }
+        }
+        // Extending needs the owner's approval again -- send a new request
+        // rather than silently lengthening the existing grant.
+        try {
+          // The amount travels WITH the request now. This used to send the
+          // literal string "Requesting more time." and nothing else, so the
+          // number the person had just chosen from the picker directly above
+          // this button was the one fact the owner never received.
+          const durationLabel = formatLocationDurationLabel(durationHours);
+          await OneLocationService.requestAccess({
+            vaultOwnerToken,
+            ownerUserId,
+            message: durationLabel
+              ? `Requesting ${durationLabel} more of your live location.`
+              : "Requesting more time.",
+            requestedDurationHours: durationHours,
+            requestedDurationMode: "timed",
+            extendsGrantId: grantId,
+          });
+          toast.success(
+            durationLabel
+              ? `Asked ${ownerLabel} for ${durationLabel} more.`
+              : `Asked ${ownerLabel} for more time.`,
+          );
+          setEditingGrantId(null);
+          await refresh({ background: true }).catch(() => null);
+        } catch (error) {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : `Couldn't ask ${ownerLabel} for more time. Try again.`,
+          );
+        }
+      } finally {
+        setSavingGrantId(null);
+      }
+    },
+    [activeReceivedGrants, refresh, vaultOwnerToken],
+  );
+
+  /**
+   * Open the live share card's time editor, seeded on what the share has left.
+   *
+   * Seeded, not defaulted: an editor that always opens on "1 hour" is not
+   * showing the share, and Save on that untouched field silently becomes a
+   * change nobody asked for. The wheel snaps to its own 15-minute grid, so the
+   * value we hold has to be snapped too, or the screen and the save disagree.
+   */
+  const handleEditLiveShareDurationStart = useCallback(() => {
+    const grantId = liveShareStatus?.stoppableGrantId;
+    const grant = grantId
+      ? activeOwnerGrants.find((row) => row.id === grantId)
+      : undefined;
+    if (grant?.durationMode === "until_stopped") {
+      setLiveShareDurationHours("until_stopped");
+    } else {
+      const remaining = grantRemainingHours(grant, Date.now());
+      setLiveShareDurationHours(
+        snapToWheelDurationHours(
+          remaining && remaining > 0 ? remaining : Number(GRANT_EDIT_DURATION_FALLBACK),
+        ),
+      );
+    }
+    setLiveShareDurationEditing(true);
+  }, [activeOwnerGrants, liveShareStatus?.stoppableGrantId]);
+
+  const handleSaveLiveShareDuration = useCallback(async () => {
+    const grantId = liveShareStatus?.stoppableGrantId;
+    if (!vaultOwnerToken || !grantId) return;
+    const grant = activeOwnerGrants.find((row) => row.id === grantId);
+    const untilStopped = liveShareDurationHours === "until_stopped";
+    const durationHours = untilStopped ? null : Number(liveShareDurationHours);
+
+    // Save on a wheel still showing what the share already has left is not a
+    // change. Sending it anyway spends a round trip, writes an audit row, and
+    // pushes the recipient an alert about a time that did not move.
+    if (
+      durationHours !== null &&
+      grant?.durationMode !== "until_stopped" &&
+      grantDurationEditIntent({
+        grant,
+        durationHours,
+        nowMs: Date.now(),
+      }) === "unchanged"
+    ) {
+      setLiveShareDurationEditing(false);
+      return;
+    }
+
+    setLiveShareDurationSaving(true);
+    try {
+      await OneLocationService.setGrantDuration({
+        vaultOwnerToken,
+        grantId,
+        durationHours,
+        durationMode: untilStopped ? "until_stopped" : "timed",
+      });
+      toast.success("Time updated.");
+      setLiveShareDurationEditing(false);
+      // Held until the list has reconciled, so the card's countdown is already
+      // reading the new expiry when the editor closes.
+      await refresh({ background: true }).catch(() => null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Couldn't change the time. Try again.",
+      );
+    } finally {
+      setLiveShareDurationSaving(false);
+    }
+  }, [
+    activeOwnerGrants,
+    liveShareDurationHours,
+    liveShareStatus?.stoppableGrantId,
+    refresh,
+    vaultOwnerToken,
+  ]);
+
+  // A share that ends, or a second share starting, takes the single grant this
+  // editor was opened against out from under it. Closing is the honest answer:
+  // the wheel would otherwise still be pointing at a share that is gone.
+  useEffect(() => {
+    if (!liveShareStatus?.stoppableGrantId) setLiveShareDurationEditing(false);
+  }, [liveShareStatus?.stoppableGrantId]);
 
   const handleStopSos = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -5090,17 +6187,22 @@ export function OneLocationAgentPageContent({
     handleSyncContactSignalRef.current = handleSyncContactSignal;
   }, [handleSyncContactSignal]);
 
+  // Resolves true only when at least one request actually reached the server.
+  // The Ask screen latches its "Request sent." confirmation on this, so a failed
+  // send can never leave a success message on screen (it used to latch
+  // optimistically the moment the button was tapped).
   const handleRequestAccess = useCallback(async (reason?: string | null) => {
-    if (!vaultOwnerToken || !selectedRequestOwners.length) return;
+    if (!vaultOwnerToken || !selectedRequestOwners.length) return false;
     if (!auth.user || !auth.userId) {
       toast.error("Refresh your session before sending a location request.");
-      return;
+      return false;
     }
     const activeUser = auth.user;
     const activeUserId = auth.userId;
     const activeVaultOwnerToken = vaultOwnerToken;
     setBusy("request");
     let successCount = 0;
+    const sentUserIds: string[] = [];
     try {
       await AccountIdentityService.syncCurrentUser(activeUser).catch(
         (error) => {
@@ -5127,12 +6229,22 @@ export function OneLocationAgentPageContent({
         }
       })();
       for (const owner of selectedRequestOwners) {
+        // Send the duration the person actually picked. The Ask screen has
+        // shown a "Duration requested" control all along; it was collected
+        // and then dropped here, so the owner was asked an unquantified
+        // question and approved whatever their own control happened to say.
         await OneLocationService.requestAccess({
           vaultOwnerToken: activeVaultOwnerToken,
           ownerUserId: owner.userId,
           message: buildOneLocationRequestMessage(reason, requestMessage),
+          requestedDurationHours: Number(durationHours),
+          requestedDurationMode: "timed",
         });
         successCount += 1;
+        // Recorded as each one lands, not from the selection up front: an id the
+        // recipient list cannot resolve is never actually sent, and subtracting
+        // it anyway would clear a person nobody asked.
+        sentUserIds.push(owner.userId);
       }
       trackEvent("one_location_request_sent", {
         route_id: "one_location",
@@ -5142,7 +6254,7 @@ export function OneLocationAgentPageContent({
         failure_count: 0,
         has_note: Boolean(requestMessage.trim()),
       });
-      resetRequestComposer();
+      resetRequestComposer(sentUserIds);
       playOneLocationNotificationSound();
       toast.success(
         selectedRequestOwners.length === 1
@@ -5152,6 +6264,7 @@ export function OneLocationAgentPageContent({
             )}. We'll notify you here when they respond.`,
       );
       void refresh().catch(() => null);
+      return true;
     } catch (error) {
       const failureCount = selectedRequestOwners.length - successCount || 1;
       trackEvent("one_location_request_sent", {
@@ -5166,12 +6279,20 @@ export function OneLocationAgentPageContent({
       if (isTransientOneApiError(error)) {
         await refresh().catch(() => null);
       }
+      // Partial success still counts: the people who were asked really were
+      // asked, and their rows now read "Asked". Only a total failure denies the
+      // confirmation.
+      return successCount > 0;
     } finally {
       setBusy(null);
     }
   }, [
     auth.user,
     auth.userId,
+    // The request now carries the duration this composer is showing, so the
+    // callback has to be rebuilt when that changes -- otherwise it closes over
+    // the value the screen opened with and sends a stale amount.
+    durationHours,
     refresh,
     requestMessage,
     resetRequestComposer,
@@ -5194,7 +6315,7 @@ export function OneLocationAgentPageContent({
       const point = readiness.point;
       const response = await OneLocationService.createPublicInvite({
         vaultOwnerToken,
-        durationHours: Number(durationHours),
+        durationHours: publicInviteDurationHours(durationHours),
         locationSnapshot: point,
       });
       const url = publicInviteUrlLabel(response.publicUrl);
@@ -5284,7 +6405,7 @@ export function OneLocationAgentPageContent({
         const point = readiness.point;
         const response = await OneLocationService.createPublicInvite({
           vaultOwnerToken,
-          durationHours: Number(durationHours),
+          durationHours: publicInviteDurationHours(durationHours),
           locationSnapshot: point,
         });
         url = publicInviteUrlLabel(response.publicUrl);
@@ -5336,7 +6457,10 @@ export function OneLocationAgentPageContent({
     try {
       const response = await OneLocationService.createCircleInvite({
         vaultOwnerToken,
-        durationHours: Number(durationHours),
+        durationHours: inviteDurationHours(
+          durationHours,
+          CIRCLE_INVITE_MAX_DURATION_HOURS,
+        ),
         message: "Join me on One.",
       });
       const url = publicInviteUrlLabel(response.inviteUrl);
@@ -5349,6 +6473,7 @@ export function OneLocationAgentPageContent({
         copied_to_clipboard: copiedToClipboard,
         active_invite_count: activeCircleInvites.length + 1,
       });
+      trackLocationFunnelStepCompleted("invite_shared");
       toast.success(
         copiedToClipboard
           ? "Invite to One link created and copied."
@@ -5590,6 +6715,14 @@ export function OneLocationAgentPageContent({
           kind,
         });
         scheduleNamedCircleStateRefresh();
+        // The kind, never the name — a Circle name is the user's own words and
+        // often identifies a household.
+        trackEvent("one_location_circle_created", {
+          route_id: "one_location",
+          result: "success",
+          circle_kind: kind,
+        });
+        trackLocationFunnelStepCompleted("circle_created");
         toast.success(`${circle.name} created.`);
         return circle;
       } catch (error) {
@@ -5722,18 +6855,22 @@ export function OneLocationAgentPageContent({
   const handleShareNamedCircleCode = useCallback(
     async (circle: OneLocationCircleDetail, code: string) => {
       try {
-        const joinUrl =
-          typeof window !== "undefined"
-            ? buildCircleJoinUrl(window.location.origin, code)
-            : undefined;
+        // Not window.location.origin: inside the installed iOS/Android build
+        // that is a Capacitor scheme, and the link it produced was dead.
+        const joinOrigin = resolveCircleJoinOrigin();
+        const joinUrl = joinOrigin
+          ? buildCircleJoinUrl(joinOrigin, code)
+          : undefined;
         const circleLabel = circleShareLabel(circle.name);
         const delivery = await shareNamedCircleCode({
           title: `Join ${circle.name} on One`,
           // The link lives in `url` only. Repeating it inline made share targets
           // that append `url` to `text` (WhatsApp, Messages) deliver it twice.
-          text: joinUrl
-            ? `Join my ${circleLabel} on One — tap the link to join, or enter code ${code}. Location and SMS stay private until you choose to share.`
-            : `Join my ${circleLabel} on One with code ${code}. You'll connect with current and future members, while location and SMS stay private until you choose to share.`,
+          text: buildCircleInviteShareText({
+            circleLabel,
+            code,
+            hasJoinLink: Boolean(joinUrl),
+          }),
           dialogTitle: "Share Circle code",
           url: joinUrl,
         });
@@ -5797,6 +6934,11 @@ export function OneLocationAgentPageContent({
     if (!vaultOwnerToken || !auth.userId) return;
     const pending = readPendingCircleJoin(auth.userId);
     if (!pending) return;
+    // Recorded before the join is attempted: arriving on someone's circle code
+    // is the viral acquisition, whether or not the code turns out to be spent.
+    // Without this the invite_source dimension is never populated and viral
+    // joins cannot be told apart from cold ones.
+    rememberLocationInviteSource("circle_code");
     clearPendingCircleJoin(auth.userId);
     let cancelled = false;
     void OneLocationService.joinNamedCircle({ vaultOwnerToken, code: pending })
@@ -5892,17 +7034,21 @@ export function OneLocationAgentPageContent({
   const handleShareOnboardingCircleInvite = useCallback(
     async (invite: OnboardingCircleInvite) => {
       try {
-        const joinUrl =
-          typeof window !== "undefined"
-            ? buildCircleJoinUrl(window.location.origin, invite.code)
-            : undefined;
+        // See handleShareNamedCircleCode: the live origin is a Capacitor scheme
+        // in the installed build, so the shared link has to come from here.
+        const joinOrigin = resolveCircleJoinOrigin();
+        const joinUrl = joinOrigin
+          ? buildCircleJoinUrl(joinOrigin, invite.code)
+          : undefined;
         const circleLabel = circleShareLabel(invite.circleName);
         const delivery = await shareNamedCircleCode({
           title: `Join ${invite.circleName} on One`,
           // Link in `url` only — see the note on handleShareNamedCircleCode.
-          text: joinUrl
-            ? `Join my ${circleLabel} on One — tap the link to join, or enter code ${invite.code}. Set up One, then the link opens the join screen with the code filled in. Location and SMS stay private until you choose to share.`
-            : `Join my ${circleLabel} on One with code ${invite.code}. Set up One, then open Location → People → Join a circle and enter it. Location and SMS stay private until you choose to share.`,
+          text: buildCircleInviteShareText({
+            circleLabel,
+            code: invite.code,
+            hasJoinLink: Boolean(joinUrl),
+          }),
           dialogTitle: "Share Circle code",
           url: joinUrl,
         });
@@ -6247,10 +7393,24 @@ export function OneLocationAgentPageContent({
       }
       if (!automatic) setBusy("approve");
       try {
+        // Grant what they asked for. The owner is answering a request that
+        // named an amount -- their own duration control belongs to shares
+        // THEY start, and reading it here is how a person who asked for four
+        // hours silently got one. Fall back to the owner's control only when
+        // the ask carried no amount (older clients, referral requests).
+        const requestedHours = Number(request.requestedDurationHours);
+        const approvedHours =
+          Number.isFinite(requestedHours) && requestedHours > 0
+            ? requestedHours
+            : Number(durationHours);
         const response = await OneLocationService.approveRequest({
           vaultOwnerToken,
           requestId: request.id,
-          durationHours: Number(durationHours),
+          durationHours: approvedHours,
+          durationMode:
+            request.requestedDurationMode === "until_stopped"
+              ? "until_stopped"
+              : "timed",
         });
         await publishEnvelopeWithRetry(response.grant, requester, "manual");
         // Name the person. An automatic approval is still a share starting
@@ -6609,6 +7769,8 @@ export function OneLocationAgentPageContent({
         const readiness = await ensureForegroundLocationReady({
           capturePoint: false,
           autoOpenSettings: true,
+          // Prints its own message below.
+          announce: false,
         });
         // The location shown on the consent screen is the only point this
         // operation may encrypt; permission is rechecked without recapturing.
@@ -6688,7 +7850,7 @@ export function OneLocationAgentPageContent({
         }
         const successCount = succeededRecipientIds.length;
         const failureCount = failedRecipientIds.length;
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(successCount, failureCount),
           selected_count: selected.length,
@@ -6696,6 +7858,18 @@ export function OneLocationAgentPageContent({
           failure_count: failureCount,
           duration_bucket: oneLocationDurationBucket(durationHoursValue),
           review_required: false,
+        });
+        // Emitted alongside the share event, not instead of it: a check-in *is*
+        // a recipient-scoped share and still counts toward activation, but
+        // without its own event Check-In and live sharing are indistinguishable
+        // in reporting, so we cannot tell which feature people actually use.
+        trackEvent("one_location_check_in_completed", {
+          route_id: "one_location",
+          result: oneLocationEventResult(successCount, failureCount),
+          selected_count: selected.length,
+          success_count: successCount,
+          failure_count: failureCount,
+          circle_targeted: Boolean(request.sourceCircleId),
         });
         if (failureCount === 0) {
           toast.success(
@@ -6725,7 +7899,7 @@ export function OneLocationAgentPageContent({
           .filter(
             (recipientId) => !succeededRecipientIds.includes(recipientId),
           );
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(
             succeededRecipientIds.length,
@@ -6783,6 +7957,8 @@ export function OneLocationAgentPageContent({
         const readiness = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: true,
+          // Prints its own message below.
+          announce: false,
         });
         if (!readiness.ready || !readiness.point) {
           toast.error("Couldn't get your location — drive not shared.");
@@ -6963,6 +8139,8 @@ export function OneLocationAgentPageContent({
           const readiness = await ensureForegroundLocationReady({
             capturePoint: true,
             autoOpenSettings: true,
+            // Prints its own message below.
+            announce: false,
           });
           if (!readiness.ready || !readiness.point) {
             toast.error(
@@ -6991,7 +8169,7 @@ export function OneLocationAgentPageContent({
           await publishEnvelopeWithRetry(grant, recipient, "manual", point);
           successCount += 1;
         }
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(successCount, 0),
           selected_count: selected.length,
@@ -7007,7 +8185,7 @@ export function OneLocationAgentPageContent({
         void refresh().catch(() => null);
       } catch (error) {
         const failureCount = selected.length - successCount || 1;
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(successCount, failureCount),
           selected_count: selected.length,
@@ -7068,6 +8246,8 @@ export function OneLocationAgentPageContent({
         const readiness = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: true,
+          // Prints its own message below.
+          announce: false,
         });
         if (!readiness.ready || !readiness.point) {
           toast.error(
@@ -7233,6 +8413,9 @@ export function OneLocationAgentPageContent({
     const readiness = await ensureForegroundLocationReady({
       capturePoint: false,
       autoOpenSettings: true,
+      // Opening the review screen is not the owner asking for a fix. Failing
+      // here used to toast before the screen they pressed had even appeared.
+      announce: false,
     });
     if (shareReviewAttemptRef.current !== attemptId) return;
     shareReviewPendingRef.current = false;
@@ -7322,7 +8505,7 @@ export function OneLocationAgentPageContent({
         : `Location, ${hubTabLabel} tab`,
       deadEnd,
       sections: [
-        { id: "now", title: "Now", purpose: "See current sharing status and start a quick action." },
+        { id: "now", title: "Overview", purpose: "See current sharing status and start a quick action." },
         { id: "people", title: "People", purpose: "See the people and circles you share location with." },
         { id: "links", title: "Links", purpose: "See and create temporary sharing links." },
       ],
@@ -7476,6 +8659,12 @@ export function OneLocationAgentPageContent({
           capturePoint: true,
           autoOpenSettings: true,
           isStale,
+          // Renders its outcome inline on the switch itself.
+          announce: false,
+          // Turning location on must not succeed on a remembered position:
+          // pause is a privacy control, and resuming a share on a coordinate
+          // the owner has left starts telling people something untrue.
+          requireMeasurement: true,
         });
         // A newer tap owns the control now. Reporting this one's outcome would
         // describe a state the person has already moved on from, and rolling
@@ -7483,8 +8672,14 @@ export function OneLocationAgentPageContent({
         if (isStale()) return superseded;
         if (!result.ready || !result.point) {
           rollbackOptimisticOn();
+          // Say which of the two it was. "Needs device Location permission"
+          // was printed even when permission was fine and the device had
+          // simply not answered yet, which sent people to a settings screen
+          // with nothing to change on it.
           const message =
-            "Live location preview needs device Location permission.";
+            result.failure === "no-fix"
+              ? LOCATION_COPY.noFix
+              : LOCATION_COPY.denied;
           setMyLocationError(message);
           return { status: "blocked", summary: message };
         }
@@ -7497,7 +8692,11 @@ export function OneLocationAgentPageContent({
       } catch (error) {
         if (isStale()) return superseded;
         rollbackOptimisticOn();
-        const message = locationServicesErrorMessage(error);
+        // The gate already decided whether this was a refusal; asserting a
+        // cause from the error text guessed wrong on every timeout.
+        const message = isLocationPermissionDeniedError(error)
+          ? LOCATION_COPY.denied
+          : LOCATION_COPY.noFix;
         setMyLocationError(message);
         toast.error(message);
         return { status: "failed", summary: message };
@@ -7778,10 +8977,15 @@ export function OneLocationAgentPageContent({
 
   useLocalOnboardingActionHandler("location.share_selected", async (slots) => {
     const requested = String(slots?.duration_hours ?? "").trim();
-    // Only the durations the composer itself offers. An unrecognised value is
-    // ignored in favour of what is on screen rather than coerced into some
-    // nearest number the person never asked for.
-    const duration = DURATION_OPTIONS.some((option) => option.value === requested)
+    // Only the durations the share composer itself offers. An unrecognised
+    // value is ignored in favour of what is on screen rather than coerced
+    // into some nearest number the person never asked for.
+    //
+    // This used to check DURATION_OPTIONS — a different list belonging to a
+    // different screen — so "2 hours", "8 hours" and "until I stop" were all
+    // refused by voice while "24 hours" was accepted and then silently
+    // rewritten to 23h45m by the picker's grid.
+    const duration = SHARE_VOICE_DURATION_VALUES.has(requested)
       ? requested
       : undefined;
     if (duration) setShareDurationHours(duration);
@@ -7798,6 +9002,276 @@ export function OneLocationAgentPageContent({
     // that does not navigate it waits for nothing and times out into a false
     // "started", which is why it cannot simply be returned unconditionally.
     return { ...result, routeAfter: landOn, screenAfter: "one_location" };
+  });
+
+  useLocalOnboardingActionHandler("location.stop_share", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say whose access you want to stop." };
+    }
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before stopping a share." };
+    }
+    const resolved = resolveBySpokenName(
+      activeOwnerGrants,
+      spoken,
+      (grant) => grant.recipientDisplayName,
+    );
+    if (resolved.kind === "none") {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody currently has your location shared with that name.",
+      };
+    }
+    if (resolved.kind === "many") {
+      // Never guess between people, same as picking a share recipient.
+      const names = ambiguousMatchNames(resolved.matches, (grant) => grant.recipientDisplayName);
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} active shares match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} active shares match that name. Ask which one they meant.`,
+      };
+    }
+    const grant = resolved.match;
+    // handleRevoke is best-effort (its own toast carries a real failure); the
+    // same trust handleStopSos already gets for the identical shape.
+    await handleRevoke(grant.id);
+    return {
+      status: "succeeded" as const,
+      summary: `Stopped sharing your location with ${(grant.recipientDisplayName || "them").trim()}.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.approve_request", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say whose request you want to approve." };
+    }
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before approving a request." };
+    }
+    const resolved = resolveBySpokenName(
+      pendingOwnerRequests,
+      spoken,
+      (request) => request.requesterDisplayName,
+    );
+    if (resolved.kind === "none") {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody is waiting on your decision with that name.",
+      };
+    }
+    if (resolved.kind === "many") {
+      const names = ambiguousMatchNames(
+        resolved.matches,
+        (request) => request.requesterDisplayName,
+      );
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} requests match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} requests match that name. Ask which one they meant.`,
+      };
+    }
+    const request = resolved.match;
+    await handleApprove(request);
+    return {
+      status: "succeeded" as const,
+      summary: `Approved ${(request.requesterDisplayName || "their").trim()}'s request.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.decline_request", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say whose request you want to decline." };
+    }
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before declining a request." };
+    }
+    const resolved = resolveBySpokenName(
+      pendingOwnerRequests,
+      spoken,
+      (request) => request.requesterDisplayName,
+    );
+    if (resolved.kind === "none") {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody is waiting on your decision with that name.",
+      };
+    }
+    if (resolved.kind === "many") {
+      const names = ambiguousMatchNames(
+        resolved.matches,
+        (request) => request.requesterDisplayName,
+      );
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} requests match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} requests match that name. Ask which one they meant.`,
+      };
+    }
+    const request = resolved.match;
+    await handleDeny(request.id);
+    return {
+      status: "succeeded" as const,
+      summary: `Declined ${(request.requesterDisplayName || "their").trim()}'s request.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.change_share_duration", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say whose access time you want to change." };
+    }
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before changing a share's time." };
+    }
+    const requested = String(slots?.duration_hours ?? "").trim();
+    if (!SHARE_VOICE_DURATION_VALUES.has(requested)) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Say how long: 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, 24 hours, or until you stop it.",
+      };
+    }
+    const resolved = resolveBySpokenName(
+      activeOwnerGrants,
+      spoken,
+      (grant) => grant.recipientDisplayName,
+    );
+    if (resolved.kind === "none") {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody currently has your location shared with that name.",
+      };
+    }
+    if (resolved.kind === "many") {
+      const names = ambiguousMatchNames(resolved.matches, (grant) => grant.recipientDisplayName);
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} active shares match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} active shares match that name. Ask which one they meant.`,
+      };
+    }
+    const grant = resolved.match;
+    const untilStopped = requested === SHARE_DURATION_UNTIL_STOP_VALUE;
+    try {
+      await OneLocationService.setGrantDuration({
+        vaultOwnerToken,
+        grantId: grant.id,
+        durationHours: untilStopped ? null : Number(requested),
+        durationMode: untilStopped ? "until_stopped" : "timed",
+      });
+      void refresh({ background: true }).catch(() => null);
+    } catch (error) {
+      return {
+        status: "blocked" as const,
+        summary:
+          error instanceof Error ? error.message : "Couldn't change the time. Try again.",
+      };
+    }
+    const name = (grant.recipientDisplayName || "them").trim();
+    return {
+      status: "succeeded" as const,
+      summary: untilStopped
+        ? `Changed ${name}'s access to last until you stop it.`
+        : `Changed ${name}'s access to ${shareVoiceDurationSpokenLabel(requested)}.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.select_ask_recipient", async (slots) => {
+    // Mirrors location.select_share_recipient's own matching/ambiguity
+    // rules exactly -- same connections list, same "never guess" discipline
+    // -- because asking someone for their location and sharing yours with
+    // them draw from the identical pool of people.
+    const spoken = String(slots?.person ?? "").trim();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say who you want to ask." };
+    }
+    let resolved = resolveBySpokenName(
+      contactSignalRecipients,
+      spoken,
+      recipientLabel,
+      recommendationSearchText,
+    );
+    if (resolved.kind === "none" && !vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see who you are connected to while the vault is locked, so I cannot tell whether they are there.",
+      };
+    }
+    if (resolved.kind === "none" && vaultOwnerToken) {
+      try {
+        const freshRecipients = await OneLocationService.listRecipients(vaultOwnerToken);
+        resolved = resolveBySpokenName(
+          rankRecipientsForRecommendation(
+            enrichRecipientsWithContactSignal(freshRecipients, contactMatchedUserIds),
+            contactMatchedUserIds,
+          ),
+          spoken,
+          recipientLabel,
+          recommendationSearchText,
+        );
+      } catch {
+        return {
+          status: "blocked" as const,
+          summary: "Location is still loading your connections. Please try that name again in a moment.",
+        };
+      }
+    }
+    if (resolved.kind === "none") {
+      return { status: "blocked" as const, summary: "Nobody in your connections matches that name." };
+    }
+    if (resolved.kind === "many") {
+      const names = ambiguousMatchNames(resolved.matches, recipientLabel);
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${resolved.matches.length} people match that name: ${names}. Ask which one they meant.`
+          : `${resolved.matches.length} people match that name. Ask which one they meant.`,
+      };
+    }
+    const match = resolved.match;
+    addRequestOwner(match.userId);
+    return {
+      status: "succeeded" as const,
+      summary: `Picked ${recipientLabel(match).trim()} to ask. Say "send it" to send the request.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.send_request", async () => {
+    if (!vaultOwnerToken) {
+      return { status: "blocked" as const, summary: "Unlock One before sending a request." };
+    }
+    if (!selectedRequestOwners.length) {
+      return {
+        status: "blocked" as const,
+        summary: "Say who you want to ask first, then say send it.",
+      };
+    }
+    const names = selectedRequestOwners
+      .map((owner) => recipientLabel(owner).trim())
+      .filter(Boolean)
+      .join(", ");
+    const sent = await handleRequestAccess();
+    if (!sent) {
+      return {
+        status: "blocked" as const,
+        summary: "Couldn't send the request. Try again.",
+      };
+    }
+    return {
+      status: "succeeded" as const,
+      summary:
+        selectedRequestOwners.length === 1
+          ? `Asked ${names || "them"} for their location.`
+          : `Asked ${selectedRequestOwners.length} people for their location.`,
+    };
   });
 
   useLocalOnboardingActionHandler("location.stop_sos", async () => {
@@ -7829,6 +9303,67 @@ export function OneLocationAgentPageContent({
         grantCount === 1
           ? "Stopped the SOS and revoked the share it created."
           : `Stopped the SOS and revoked the ${grantCount} shares it created.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.trigger_sos", async (slots) => {
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary: "Unlock One before sending an SOS alert.",
+      };
+    }
+    // Same re-entry guard handleTriggerSos itself enforces -- checked here
+    // too so the person hears why nothing happened, instead of a silent
+    // no-op behind a "succeeded" that never actually sent a second alert.
+    if (sosIncident) {
+      return {
+        status: "blocked" as const,
+        summary: "There is already an SOS running. Say stop the S O S to end it first.",
+      };
+    }
+    if (locationPermissionBlocksSharing(permission)) {
+      return {
+        status: "blocked" as const,
+        summary: "Location access is off, so I cannot send an SOS alert with your position.",
+      };
+    }
+    const readyRecipients = smsActionRecipients.filter(isSosShareReadyRecipient);
+    if (!readyRecipients.length) {
+      return {
+        status: "blocked" as const,
+        summary: smsActionRecipients.length
+          ? "Your emergency contacts are not ready to receive an alert yet."
+          : "Add at least one emergency contact before sending an SOS alert.",
+      };
+    }
+    const note = String(slots?.note ?? "").trim() || null;
+    if (slots?.confirmed !== true) {
+      // The highest-consequence action on this surface -- a misheard "yes"
+      // here dispatches a real emergency alert, including a fallback email,
+      // to real people. Every other destructive action on Location gets a
+      // spoken confirmation at most; this one gets the same explicit,
+      // tappable card as removing an emergency contact, but never skips it.
+      const names = formatNameList(readyRecipients.map((r) => recipientLabel(r)));
+      return {
+        status: "blocked" as const,
+        summary: "Sending an SOS alert needs a confirmation.",
+        data: {
+          [VOICE_CONFIRM_DATA_KEY]: {
+            actionId: "location.trigger_sos",
+            slots: { note: note ?? "", confirmed: true },
+            prompt: `Send an SOS alert to ${names} right now?`,
+            subject: { name: "SOS alert", detail: names },
+            consequence: getKaiActionById("location.trigger_sos")?.meaning ?? null,
+            confirmLabel: "Send SOS",
+          },
+        },
+      };
+    }
+    void handleTriggerSos(note);
+    return {
+      status: "succeeded" as const,
+      summary: "Sending your SOS alert now.",
     };
   });
 
@@ -8043,6 +9578,50 @@ export function OneLocationAgentPageContent({
       return { circle: match };
     },
     [namedCircles],
+  );
+
+  /** Shared by the accept/decline circle-invitation voice handlers. */
+  const resolveVoiceCircleInvite = useCallback(
+    (
+      spoken: string,
+    ): { invite: OneLocationCircleMemberInvite } | { blocked: string } => {
+      if (!incomingCircleMemberInvites.length) {
+        return { blocked: "You do not have any pending circle invitations." };
+      }
+      if (!spoken) {
+        const [onlyInvite] = incomingCircleMemberInvites;
+        if (onlyInvite && incomingCircleMemberInvites.length === 1) {
+          return { invite: onlyInvite };
+        }
+        return {
+          blocked: `Say which circle: ${incomingCircleMemberInvites
+            .map((invite) => invite.circleName)
+            .join(", ")}.`,
+        };
+      }
+      const resolved = resolveBySpokenName(
+        incomingCircleMemberInvites,
+        spoken,
+        (invite) => invite.circleName,
+      );
+      if (resolved.kind === "none") {
+        return {
+          blocked: `No pending invitation matches that circle name. Your invitations are: ${incomingCircleMemberInvites
+            .map((invite) => invite.circleName)
+            .join(", ")}.`,
+        };
+      }
+      if (resolved.kind === "many") {
+        return {
+          blocked: `More than one invitation matches that: ${ambiguousMatchNames(
+            resolved.matches,
+            (invite) => invite.circleName,
+          )}. Say which one.`,
+        };
+      }
+      return { invite: resolved.match };
+    },
+    [incomingCircleMemberInvites],
   );
 
   useLocalOnboardingActionHandler("location.create_circle", async (slots) => {
@@ -8319,6 +9898,439 @@ export function OneLocationAgentPageContent({
     },
   );
 
+  useLocalOnboardingActionHandler("location.rename_circle", async (slots) => {
+    const spokenName = String(slots?.name ?? "").trim();
+    if (!spokenName) {
+      return {
+        status: "blocked" as const,
+        summary: "Say what you want to rename the circle to.",
+      };
+    }
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see your circles while the vault is locked.",
+      };
+    }
+    const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+    if ("blocked" in resolved) {
+      return { status: "blocked" as const, summary: resolved.blocked };
+    }
+    const circle = resolved.circle;
+    if (circle.viewerCapabilities?.canManageCircle === false) {
+      return {
+        status: "blocked" as const,
+        summary: `You cannot rename ${circle.name}. Only its owner can.`,
+      };
+    }
+    // Exact name only, same discipline as creating one -- a near match must
+    // still rename to what was actually said rather than silently no-op'ing.
+    if (normalizeSpokenName(circle.name) === normalizeSpokenName(spokenName)) {
+      return {
+        status: "succeeded" as const,
+        summary: `${circle.name} is already called that.`,
+      };
+    }
+    const duplicate = namedCircles.find(
+      (other) =>
+        other.id !== circle.id &&
+        normalizeSpokenName(other.name) === normalizeSpokenName(spokenName),
+    );
+    if (duplicate) {
+      return {
+        status: "blocked" as const,
+        summary: `You already have a circle called ${duplicate.name}. Pick a different name.`,
+      };
+    }
+    try {
+      const renamed = await handleRenameNamedCircle(circle.id, spokenName);
+      return {
+        status: "succeeded" as const,
+        summary: `Renamed ${circle.name} to ${renamed.name}.`,
+      };
+    } catch (error) {
+      return {
+        status: "failed" as const,
+        summary: oneLocationErrorMessage(error, "Could not rename the circle."),
+      };
+    }
+  });
+
+  useLocalOnboardingActionHandler("location.leave_circle", async (slots) => {
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see your circles while the vault is locked.",
+      };
+    }
+    const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+    if ("blocked" in resolved) {
+      return { status: "blocked" as const, summary: resolved.blocked };
+    }
+    const circle = resolved.circle;
+    if (circle.role === "owner") {
+      return {
+        status: "blocked" as const,
+        summary: `You own ${circle.name}, so you cannot leave it. Delete it instead, or hand off ownership first.`,
+      };
+    }
+    if (slots?.confirmed !== true) {
+      // Leaving takes away what this circle was sharing with the person, and
+      // is not always reversible if the owner does not re-invite them.
+      return {
+        status: "blocked" as const,
+        summary: `Leaving ${circle.name} needs a confirmation.`,
+        data: {
+          [VOICE_CONFIRM_DATA_KEY]: {
+            actionId: "location.leave_circle",
+            slots: { circle: String(slots?.circle ?? ""), confirmed: true },
+            prompt: `Leave ${circle.name}?`,
+            subject: { name: circle.name, detail: null },
+            consequence:
+              getKaiActionById("location.leave_circle")?.meaning ?? null,
+            confirmLabel: "Leave",
+          },
+        },
+      };
+    }
+    try {
+      await handleLeaveNamedCircle(circle.id);
+    } catch (error) {
+      return {
+        status: "failed" as const,
+        summary: oneLocationErrorMessage(error, "Could not leave the circle."),
+      };
+    }
+    return {
+      status: "succeeded" as const,
+      summary: `You left ${circle.name}.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.delete_circle", async (slots) => {
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see your circles while the vault is locked.",
+      };
+    }
+    const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+    if ("blocked" in resolved) {
+      return { status: "blocked" as const, summary: resolved.blocked };
+    }
+    const circle = resolved.circle;
+    if (circle.role !== "owner") {
+      return {
+        status: "blocked" as const,
+        summary: `You cannot delete ${circle.name}. Only its owner can -- leave it instead.`,
+      };
+    }
+    if (slots?.confirmed !== true) {
+      return {
+        status: "blocked" as const,
+        summary: `Deleting ${circle.name} needs a confirmation.`,
+        data: {
+          [VOICE_CONFIRM_DATA_KEY]: {
+            actionId: "location.delete_circle",
+            slots: { circle: String(slots?.circle ?? ""), confirmed: true },
+            prompt: `Delete ${circle.name}? Everyone in it loses access through it.`,
+            subject: {
+              name: circle.name,
+              detail: `${circle.memberCount} member${circle.memberCount === 1 ? "" : "s"}`,
+            },
+            consequence:
+              getKaiActionById("location.delete_circle")?.meaning ?? null,
+            confirmLabel: "Delete",
+          },
+        },
+      };
+    }
+    try {
+      await handleDeleteNamedCircle(circle.id);
+    } catch (error) {
+      return {
+        status: "failed" as const,
+        summary: oneLocationErrorMessage(error, "Could not delete the circle."),
+      };
+    }
+    return {
+      status: "succeeded" as const,
+      summary: `Deleted ${circle.name}.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler(
+    "location.accept_circle_invite",
+    async (slots) => {
+      if (!vaultOwnerToken) {
+        return {
+          status: "blocked" as const,
+          summary:
+            "Unlock One first -- I cannot see your circle invitations while the vault is locked.",
+        };
+      }
+      const resolved = resolveVoiceCircleInvite(
+        String(slots?.circle ?? "").trim(),
+      );
+      if ("blocked" in resolved) {
+        return { status: "blocked" as const, summary: resolved.blocked };
+      }
+      try {
+        await handleAcceptNamedCircleMemberInvite(resolved.invite.id);
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(error, "Could not join the circle."),
+        };
+      }
+      return {
+        status: "succeeded" as const,
+        summary: `Joined ${resolved.invite.circleName}.`,
+      };
+    },
+  );
+
+  useLocalOnboardingActionHandler(
+    "location.decline_circle_invite",
+    async (slots) => {
+      if (!vaultOwnerToken) {
+        return {
+          status: "blocked" as const,
+          summary:
+            "Unlock One first -- I cannot see your circle invitations while the vault is locked.",
+        };
+      }
+      const resolved = resolveVoiceCircleInvite(
+        String(slots?.circle ?? "").trim(),
+      );
+      if ("blocked" in resolved) {
+        return { status: "blocked" as const, summary: resolved.blocked };
+      }
+      try {
+        await handleDeclineNamedCircleMemberInvite(resolved.invite.id);
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(
+            error,
+            "Could not decline the invitation.",
+          ),
+        };
+      }
+      return {
+        status: "succeeded" as const,
+        summary: `Declined the invitation to ${resolved.invite.circleName}.`,
+      };
+    },
+  );
+
+  useLocalOnboardingActionHandler(
+    "location.save_current_location",
+    async (slots) => {
+      const spokenLabel = String(slots?.label ?? "").trim();
+      if (!spokenLabel) {
+        return {
+          status: "blocked" as const,
+          summary:
+            "Say what to call this place -- home, work, or a name like the gym.",
+        };
+      }
+      if (!vaultKey || !vaultOwnerToken || !auth.userId) {
+        return {
+          status: "blocked" as const,
+          summary: "Unlock One first -- I cannot save a place while the vault is locked.",
+        };
+      }
+      const normalized = normalizeSpokenName(spokenLabel);
+      const category: SavedLocationCategory =
+        normalized === "home" ? "home" : normalized === "work" ? "work" : "other";
+      const readiness = await ensureForegroundLocationReady({
+        capturePoint: true,
+        announce: false,
+      });
+      if (!readiness.ready || !readiness.point) {
+        return {
+          status: "failed" as const,
+          summary:
+            "Could not get your current location. Check that location access is on and try again.",
+        };
+      }
+      try {
+        await addSavedLocation({
+          context: { userId: auth.userId, vaultKey, vaultOwnerToken },
+          input: {
+            category,
+            label: spokenLabel,
+            latitude: readiness.point.latitude,
+            longitude: readiness.point.longitude,
+          },
+        });
+      } catch (error) {
+        if (error instanceof DuplicateSavedLocationError) {
+          return {
+            status: "succeeded" as const,
+            summary: `You already have a saved place near here called ${error.existingLabel}.`,
+          };
+        }
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(error, "Could not save this location."),
+        };
+      }
+      return {
+        status: "succeeded" as const,
+        summary:
+          category === "other"
+            ? `Saved this location as ${spokenLabel}.`
+            : `Saved this location as ${defaultLabelForCategory(category)}.`,
+      };
+    },
+  );
+
+  useLocalOnboardingActionHandler(
+    "location.delete_saved_location",
+    async (slots) => {
+      const spokenLabel = String(slots?.label ?? "").trim();
+      if (!vaultKey || !vaultOwnerToken || !auth.userId) {
+        return {
+          status: "blocked" as const,
+          summary:
+            "Unlock One first -- I cannot see your saved places while the vault is locked.",
+        };
+      }
+      let saved: SavedLocation[];
+      try {
+        saved = await loadSavedLocations({
+          userId: auth.userId,
+          vaultKey,
+          vaultOwnerToken,
+        });
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(error, "Could not load your saved places."),
+        };
+      }
+      if (!saved.length) {
+        return {
+          status: "blocked" as const,
+          summary: "You do not have any saved places yet.",
+        };
+      }
+      let target: SavedLocation | undefined;
+      if (!spokenLabel && saved.length === 1) {
+        target = saved[0];
+      } else {
+        const resolved = resolveBySpokenName(saved, spokenLabel, (loc) => loc.label);
+        if (resolved.kind === "none") {
+          return {
+            status: "blocked" as const,
+            summary: spokenLabel
+              ? `No saved place matches that name. Your saved places are: ${saved
+                  .map((loc) => loc.label)
+                  .join(", ")}.`
+              : `Say which saved place: ${saved.map((loc) => loc.label).join(", ")}.`,
+          };
+        }
+        if (resolved.kind === "many") {
+          return {
+            status: "blocked" as const,
+            summary: `More than one saved place matches that: ${ambiguousMatchNames(
+              resolved.matches,
+              (loc) => loc.label,
+            )}. Say which one.`,
+          };
+        }
+        target = resolved.match;
+      }
+      if (!target) {
+        return {
+          status: "blocked" as const,
+          summary: "You do not have any saved places yet.",
+        };
+      }
+      const resolvedTarget = target;
+      if (slots?.confirmed !== true) {
+        return {
+          status: "blocked" as const,
+          summary: `Deleting ${resolvedTarget.label} needs a confirmation.`,
+          data: {
+            [VOICE_CONFIRM_DATA_KEY]: {
+              actionId: "location.delete_saved_location",
+              slots: { label: spokenLabel, confirmed: true },
+              prompt: `Delete the saved place called ${resolvedTarget.label}?`,
+              subject: {
+                name: resolvedTarget.label,
+                detail: resolvedTarget.address ?? null,
+              },
+              consequence:
+                getKaiActionById("location.delete_saved_location")?.meaning ?? null,
+              confirmLabel: "Delete",
+            },
+          },
+        };
+      }
+      try {
+        await removeSavedLocation({
+          context: { userId: auth.userId, vaultKey, vaultOwnerToken },
+          id: resolvedTarget.id,
+        });
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(error, "Could not delete that saved place."),
+        };
+      }
+      return {
+        status: "succeeded" as const,
+        summary: `Deleted ${resolvedTarget.label}.`,
+      };
+    },
+  );
+
+  // A tap-only child (`CheckInFlow`) owns the check-in draft's selection state
+  // and cannot be called into directly. Bumping this and threading it through
+  // `LocationHubViewModel` lets that component notice and submit its OWN
+  // already-seeded draft, instead of page.tsx trying to reconstruct it.
+  const [voiceCheckInSendRequestId, setVoiceCheckInSendRequestId] =
+    useState(0);
+  const triggerVoiceCheckInSend = useCallback(() => {
+    setVoiceCheckInSendRequestId((current) => current + 1);
+  }, []);
+
+  useLocalOnboardingActionHandler("location.send_check_in", async () => {
+    const currentAction = searchParams.get("action");
+    if (currentAction !== "check-in" && currentAction !== "event-check-in") {
+      return {
+        status: "blocked" as const,
+        summary: "Open Check-In first, then say send it.",
+      };
+    }
+    const readyRecipients = sosActionRecipients.filter((recipient) =>
+      isShareReadyRecipient(recipient),
+    );
+    if (!readyRecipients.length) {
+      return {
+        status: "blocked" as const,
+        summary: "You do not have anyone ready to check in with yet.",
+      };
+    }
+    if (!myLocationPoint) {
+      return {
+        status: "blocked" as const,
+        summary: "I need a location fix first -- give it a moment and try again.",
+      };
+    }
+    triggerVoiceCheckInSend();
+    return {
+      status: "succeeded" as const,
+      summary: "Sending your check-in.",
+    };
+  });
+
   const handleAutoApproveChange = useCallback(
     (enabled: boolean) => {
       updateOneLocationControlState(auth.userId, (current) => ({
@@ -8572,6 +10584,15 @@ export function OneLocationAgentPageContent({
       category: SavedLocationCategory,
       label: string,
       details?: SavedLocationAddressDetails,
+      /**
+       * The address line exactly as the modal had it when Save was pressed.
+       * The modal already dropped this in favour of `saveLocationAddress`
+       * state, which is null for the whole of root setup -- there is no vault
+       * token yet, so nothing ever reverse-geocodes into it. The place then
+       * saved with no address at all, which is what "address is not
+       * populating" looked like once it reached the vault.
+       */
+      addressLine?: string | null,
     ) => {
       if (
         !auth.userId ||
@@ -8586,14 +10607,18 @@ export function OneLocationAgentPageContent({
       const sessionEpoch = savedLocationSessionEpochRef.current;
       setSaveLocationSaving(true);
       try {
+        // What was on screen wins over what state happened to hold.
+        const composedFrom =
+          (typeof addressLine === "string" ? addressLine.trim() : "") ||
+          saveLocationAddress;
         const input = {
           category,
           label,
           latitude: saveLocationPoint.latitude,
           longitude: saveLocationPoint.longitude,
           address: details
-            ? buildSavedLocationAddress(saveLocationAddress, details)
-            : saveLocationAddress,
+            ? buildSavedLocationAddress(composedFrom, details)
+            : composedFrom,
         };
         const canPersistNow = Boolean(vaultKey && vaultOwnerToken);
         if (vaultKey && vaultOwnerToken) {
@@ -8611,6 +10636,26 @@ export function OneLocationAgentPageContent({
           // existing Finish setup transaction commits it after vault unlock.
           PreVaultSensitiveDraftService.stageSavedLocation(auth.userId, input);
         }
+        // Confirming a place turns the live preview on.
+        //
+        // Onboarding captures a position directly rather than through
+        // `ensureForegroundLocationReady`, so it never reached
+        // `activateMyLocation` and never set `selfPreviewEnabled`. A brand-new
+        // owner also has no grants and no nearby presence, so all three
+        // disjuncts behind `locationEnabled` were false and the hub they are
+        // redirected to greeted them with "Location off" — seconds after they
+        // granted permission, let the device take a fix, dragged a pin and
+        // tagged it Home. Saving a place really is a different authority from
+        // sharing one, but "my location is off" is not a true reading of the
+        // state the person just created.
+        //
+        // The same two-field write the header switch itself performs, so both
+        // entry points leave the control in one state.
+        updateOneLocationControlState(auth.userId, (current) => ({
+          ...current,
+          paused: false,
+          selfPreviewEnabled: true,
+        }));
         if (
           savedLocationSessionEpochRef.current !== sessionEpoch ||
           savedLocationSessionUserId !== savingUserId
@@ -9188,8 +11233,13 @@ export function OneLocationAgentPageContent({
           initialAccuracyM={saveLocationPoint?.accuracyM}
           rendererDisclosureAccepted={savedLocationRendererAccepted}
           onAcceptRendererDisclosure={acceptSavedLocationMapRenderer}
-          onSave={(category, label, details) =>
-            void handleSaveOnboardingLocation(category, label, details)
+          onSave={(category, label, details, addressLine) =>
+            void handleSaveOnboardingLocation(
+              category,
+              label,
+              details,
+              addressLine,
+            )
           }
           onSkip={handleSkipSaveOnboardingLocation}
         />
@@ -9212,6 +11262,7 @@ export function OneLocationAgentPageContent({
     canShare,
     busy,
     revokingGrantId,
+    withdrawingRequestId,
     shareCompletedTick,
     shareCompletedDestination: shareCompletedDestinationRef.current,
     readiness: {
@@ -9253,6 +11304,8 @@ export function OneLocationAgentPageContent({
     visibleRecipients,
     visibleShareRecipients,
     activeOwnerGrants,
+    liveShare: liveShareStatus,
+    onLiveShareEnded: handleLiveShareEnded,
     // Received grants stay reachable in their focused detail view. Dismissing
     // a preview never mutates the durable grant or its revocation state.
     receivedGrants: activeReceivedGrants,
@@ -9296,15 +11349,43 @@ export function OneLocationAgentPageContent({
     onRequestPermission: () => void handleRequestLocationPermission(),
     onOpenLocationSettings: () => void handleOpenLocationSettings(),
     onSyncContacts: () => void handleSyncContactSignal(),
-    onShareToContacts: () => void handleShareContactInvite(),
     onOpenShareReview: () => void handleOpenShareReview(),
     onEnterShareConfirm: announceShareReviewOpened,
     onConfirmShare: () => void handleShare(),
-    onSendRequest: (reason) => void handleRequestAccess(reason),
+    onSendRequest: (reason) => handleRequestAccess(reason),
     onApprove: (request) => void handleApprove(request),
     onDeny: (requestId) => void handleDeny(requestId),
+    onWithdrawRequest: (requestId) => void handleWithdrawRequest(requestId),
     onViewGrant: (grant) => void handleView(grant),
     onStopGrant: (grantId) => void handleRevoke(grantId),
+    onAskReshare: (grant) => void handleAskReshare(grant),
+    editingGrantId,
+    savingGrantId,
+    onEditGrantStart: (grantId) => {
+      // Open on what the share actually has left, not on a constant. The
+      // editor used to say "1 hour" above a row reading "30 more min", so
+      // the field was never the current duration and Save on the untouched
+      // default asked for MORE time instead of changing anything.
+      setEditGrantDurationHours(
+        defaultEditDurationHours(
+          activeReceivedGrants.find((grant) => grant.id === grantId),
+          Date.now(),
+        ),
+      );
+      setEditingGrantId(grantId);
+    },
+    onEditGrantCancel: () => setEditingGrantId(null),
+    liveShareDurationEditing,
+    liveShareDurationHours,
+    setLiveShareDurationHours,
+    liveShareDurationSaving,
+    onEditLiveShareDurationStart: handleEditLiveShareDurationStart,
+    onEditLiveShareDurationCancel: () => setLiveShareDurationEditing(false),
+    onSaveLiveShareDuration: () => void handleSaveLiveShareDuration(),
+    editGrantDurationHours,
+    setEditGrantDurationHours,
+    onEditGrantSave: (params) =>
+      void handleEditGrantDuration(params, Number(editGrantDurationHours)),
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
     onCopyPublicInvite: () => void handleCopyPublicInvite(),
     onSharePublicInvite: () => void handleSharePublicInvite(),
@@ -9349,16 +11430,24 @@ export function OneLocationAgentPageContent({
     formatDateTime,
     expiresLabel: (value) =>
       value ? `Live until ${formatDateTime(value)}` : "Live now",
-    expiresCountdownLabel: (value) => expiresCountdownLabel(value) ?? "Active",
-    renderMapPreview: (point, showNavigation, viewportResetKey) => (
+    expiresCountdownLabel: (value) =>
+      expiresCountdownLabel(value, nowMs) ?? "Active",
+    nowMs,
+    renderMapPreview: (point, showNavigation, viewportResetKey, staleAction) => (
       <LocalMapPreview
         point={point}
         showNavigation={showNavigation}
         viewportResetKey={`${mapViewportResetKey}:${viewportResetKey ?? "default"}`}
+        staleAction={staleAction}
       />
     ),
     mapLocationHref: googleMapsLocationUrl,
     decryptedPoints,
+    // The page has always computed these on every five-second poll; until now
+    // the only component that rendered them was the retired legacy UI below,
+    // so a recipient waiting on a first point — the most common receiving
+    // state — saw a card with a name, a date, and no explanation at all.
+    grantViewStatuses: grantViewErrors,
     reverseGeocodePoint: (point) =>
       reverseGeocodeForSavedLocation(point.latitude, point.longitude),
     sosRecipients: sosActionRecipients,
@@ -9381,6 +11470,7 @@ export function OneLocationAgentPageContent({
     onRemoveSmsContact: handleRemoveSmsContact,
     onCheckIn: handleCheckIn,
     onDiscardPrivateCheckInOperation: discardPrivateCheckInOperation,
+    voiceCheckInSendRequestId,
   };
 
   // The mobile-first redesign hub is the ONLY customer-facing UI. It renders in
@@ -9422,7 +11512,35 @@ export function OneLocationAgentPageContent({
           ) : null}
 
           {showInitialSkeleton ? (
-            <HushhLoader variant="page" label="Loading location..." />
+            <>
+              {/* A running share is the one thing here that cannot wait for the
+                  network — it is already happening. Hiding a live privacy state
+                  behind a spinner is exactly what made a one-hour share look
+                  forgotten on the way back to this screen. Stopping works from
+                  here too; it needs the grant id, not the workspace. */}
+              {liveShareStatus ? (
+                <LiveShareStatusCard
+                  status={liveShareStatus}
+                  onManage={() =>
+                    router.push("/one/location?action=active-shares")
+                  }
+                  onStop={
+                    liveShareStatus.stoppableGrantId
+                      ? () =>
+                          void handleRevoke(
+                            liveShareStatus.stoppableGrantId ?? "",
+                          )
+                      : undefined
+                  }
+                  stopBusy={
+                    Boolean(liveShareStatus.stoppableGrantId) &&
+                    revokingGrantId === liveShareStatus.stoppableGrantId
+                  }
+                  onEnded={handleLiveShareEnded}
+                />
+              ) : null}
+              <HushhLoader variant="page" label="Loading location..." />
+            </>
           ) : (
             <LocationRedesignHub vm={locationHubVm} />
           )}
@@ -10155,7 +12273,11 @@ export function OneLocationAgentPageContent({
                                 {grant.status}
                               </Badge>
                               <span className="min-w-0 break-words text-[12px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-                                {expiresLabel(grant)} - {grant.durationHours}h
+                                {expiresLabel(grant)}
+                                {grant.durationMode === "until_stopped" ||
+                                grant.durationHours == null
+                                  ? ""
+                                  : ` - ${grant.durationHours}h`}
                               </span>
                             </div>
                           </div>
@@ -10193,7 +12315,6 @@ export function OneLocationAgentPageContent({
                       <EmptyOneState
                         icon={UsersRound}
                         title="No active shares"
-                        description="Create one encrypted grant when you need a trusted person to see you."
                       />
                     )}
                   </div>
@@ -10229,6 +12350,13 @@ export function OneLocationAgentPageContent({
                           <h3 className="break-words text-[16px] font-semibold tracking-tight text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
                             {requestLabel(request)}
                           </h3>
+                          {/* What is being asked, before anything else. The
+                              amount and whether it is extra time on a live
+                              share are the whole decision; the free-text
+                              note and timestamp are context underneath. */}
+                          <p className="text-[13px] font-semibold leading-relaxed text-[#1c1c1e] dark:text-white">
+                            {locationAskPromptLine(request, approvalsNowMs)}
+                          </p>
                           <p className="text-[13px] font-medium leading-relaxed text-[#8e8e93] dark:text-white/55">
                             {request.message ||
                               `Requested ${formatDateTime(request.requestedAt)}`}
@@ -10248,7 +12376,13 @@ export function OneLocationAgentPageContent({
                               onClick={() => void handleApprove(request)}
                               className="h-9 flex-1 rounded-[12px] bg-[color:var(--app-accent)] font-semibold text-[color:var(--app-accent-fg)] shadow-[0_2px_8px_var(--app-accent-ring)] hover:bg-[color:var(--app-accent-hover)]"
                             >
-                              Approve
+                              {/* The button names the amount, so pressing it is
+                                  agreeing to a number rather than finding out
+                                  which one afterwards. */}
+                              {locationApproveActionLabel(
+                                request,
+                                approvalsNowMs,
+                              )}
                             </ActionButton>
                           </div>
                         </div>
@@ -10492,7 +12626,7 @@ export function OneLocationAgentPageContent({
                   {visibleReceivedGrants.length ? (
                     visibleReceivedGrants.map((grant, index) => {
                       const point = decryptedPoints[grant.id];
-                      const viewError = grantViewErrors[grant.id];
+                      const viewError = grantViewErrors[grant.id]?.message;
                       return (
                         <div
                           key={grant.id}
@@ -10513,13 +12647,13 @@ export function OneLocationAgentPageContent({
                                   {grant.status}
                                 </Badge>
                                 {grant.status === "active" &&
-                                expiresCountdownLabel(grant.expiresAt) ? (
+                                expiresCountdownLabel(grant.expiresAt, nowMs) ? (
                                   <span className="inline-flex items-center gap-1 rounded-full bg-[#34c759]/12 px-2 py-0.5 text-[11px] font-semibold text-[#2dbd5a] dark:bg-[#34c759]/15">
                                     <Clock3
                                       className="h-3 w-3"
                                       aria-hidden="true"
                                     />
-                                    {expiresCountdownLabel(grant.expiresAt)}
+                                    {expiresCountdownLabel(grant.expiresAt, nowMs)}
                                   </span>
                                 ) : null}
                                 <span className="min-w-0 break-words text-[12px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
@@ -10558,7 +12692,31 @@ export function OneLocationAgentPageContent({
                           </div>
                           {point ? (
                             <div className="px-3.5 pb-3.5">
-                              <LocalMapPreview point={point} />
+                              <LocalMapPreview
+                                point={point}
+                                staleAction={
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => void handleAskReshare(grant)}
+                                    disabled={busy === "request"}
+                                    className="h-8 rounded-full border-amber-500/30 bg-white/70 px-3 text-[12px] font-semibold text-amber-800 hover:bg-white dark:border-amber-300/25 dark:bg-white/10 dark:text-amber-100 dark:hover:bg-white/15"
+                                  >
+                                    {busy === "request" ? (
+                                      <Loader2
+                                        className="mr-1.5 h-3.5 w-3.5 animate-spin"
+                                        aria-hidden="true"
+                                      />
+                                    ) : (
+                                      <Send
+                                        className="mr-1.5 h-3.5 w-3.5"
+                                        aria-hidden="true"
+                                      />
+                                    )}
+                                    Ask to refresh
+                                  </Button>
+                                }
+                              />
                             </div>
                           ) : viewError && grant.status === "active" ? (
                             <div className="px-3.5 pb-3.5">

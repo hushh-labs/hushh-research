@@ -11,7 +11,8 @@ import {
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { PrivateAgentCard } from "@/components/connections/private-agent-card";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
-import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
+import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
+import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
@@ -114,19 +115,7 @@ export function GeminiRuntimeConfigurationPage({
   const needsUnlock = !setupMode && Boolean(
     user && !isVaultUnlocked && hasVault === true,
   );
-  const finishConnections = useCallback(async () => {
-    if (!hasRuntimeChoice) {
-      return {
-        status: "blocked" as const,
-        summary: "Choose AI access before finishing setup.",
-      };
-    }
-    if (finishing) {
-      return {
-        status: "blocked" as const,
-        summary: "AI access setup is already being finished.",
-      };
-    }
+  const returnToSetupHub = useCallback(() => {
     setFinishing(true);
     const requested = requestInternalAppNavigation({
       href: ROUTES.ONE_SETUP,
@@ -136,13 +125,29 @@ export function GeminiRuntimeConfigurationPage({
       transitionMode: "full",
     });
     if (!requested) router.replace(ROUTES.ONE_SETUP);
+  }, [router]);
+
+  const finishConnections = useCallback(async () => {
+    if (!hasRuntimeChoice) {
+      return {
+        status: "blocked" as const,
+        summary: "Choose your AI first.",
+      };
+    }
+    if (finishing) {
+      return {
+        status: "blocked" as const,
+        summary: "AI access setup is already being finished.",
+      };
+    }
+    returnToSetupHub();
     return {
       status: "started" as const,
       summary: "AI access setup is complete. Returning to setup.",
       routeAfter: ROUTES.ONE_SETUP,
       screenAfter: "one_setup",
     };
-  }, [finishing, hasRuntimeChoice, router]);
+  }, [finishing, hasRuntimeChoice, returnToSetupHub]);
 
   useLocalOnboardingActionHandler(
     "setup.finish_connections",
@@ -187,11 +192,47 @@ export function GeminiRuntimeConfigurationPage({
       }}
     >
       <AppPageHeaderRegion>
+        {/* The provider marks used to live on a full-screen prologue with its
+            own Continue button — one extra screen and one extra tap in front of
+            a two-option choice. They carry the same "these are the models"
+            context here, inline, at zero cost. */}
+        {setupMode ? (
+          <ul
+            className="mb-4 flex flex-wrap items-center gap-2"
+            aria-label="AI providers"
+            data-runtime-provider-lane
+          >
+            {RUNTIME_PROVIDER_CATALOG.map((provider) => (
+              <li key={provider.id} className="relative">
+                <span
+                  className="inline-flex h-9 w-9 items-center justify-center"
+                  title={
+                    provider.availability === "available"
+                      ? `${provider.name} is available now`
+                      : `${provider.name} is coming soon`
+                  }
+                >
+                  {/* One size for every mark. The row gave each provider a
+                      36px slot but only Gemini was sized to it — the other four
+                      kept the mark's own 48px default, so they overflowed their
+                      slots and overlapped each other by 4px, which is why the
+                      logos looked cramped and Grok came out clipped. */}
+                  <RuntimeProviderMark provider={provider} className="h-9 w-9" />
+                </span>
+                <span className="sr-only">
+                  {provider.availability === "available"
+                    ? `${provider.name} is available now.`
+                    : `${provider.name} is coming soon.`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <PageHeader
-          title={setupMode ? "AI access" : "Gemini settings"}
+          title={setupMode ? "Choose your AI" : "Gemini settings"}
           description={
             setupMode
-              ? "Choose Hussh managed Gemini or set up your own Gemini access."
+              ? "Use ours, or bring your own key."
               : "Choose how your private agent reaches Gemini."
           }
           accent="neutral"
@@ -223,6 +264,14 @@ export function GeminiRuntimeConfigurationPage({
                   );
                   setSetupChoice(state.oneRuntimeSetupChoice);
                   setHasRuntimeChoice(true);
+                  // Taking the recommended option IS the whole decision —
+                  // there is nothing further to enter — so it finishes this
+                  // step instead of parking the person on a Continue button
+                  // they have to find. Bringing your own key still continues
+                  // below, because that path has a form left to fill.
+                  if (choice === "hushh_managed_vertex") {
+                    returnToSetupHub();
+                  }
                 }
               : undefined
           }
@@ -250,14 +299,14 @@ export function GeminiRuntimeConfigurationPage({
       </AppPageContentRegion>
       {setupMode ? (
         <SetupCompletionFooter
-          label="Finish AI access setup"
+          label="Continue"
           onComplete={() => void finishConnections()}
           busy={finishing}
           disabled={!hasRuntimeChoice || finishing}
           controlId="one-setup-connections-terminal"
           actionId="setup.finish_connections"
           purpose="Record the selected Gemini runtime and return to setup."
-          supportingText="Choose one Gemini option before continuing."
+          supportingText="Pick one to continue."
         />
       ) : null}
       {!setupMode && user ? (
@@ -277,14 +326,9 @@ export function GeminiRuntimeConfigurationPage({
     </AppPageShell>
   );
 
-  // AI access is a root prerequisite rather than an agent capability. Its
-  // shared intro stays presentational-only and never enters the capability
-  // catalog or generated action registry.
-  return setupMode ? (
-    <CapabilityCinematicIntroGate capabilityId="connections">
-      {content}
-    </CapabilityCinematicIntroGate>
-  ) : (
-    content
-  );
+  // AI access is a root prerequisite rather than an agent capability, and it is
+  // the ONE step that blocks finishing setup. It deliberately does not sit
+  // behind the shared cinematic prologue: a mandatory two-option choice must be
+  // one tap from the hub, not a screen, a Continue, and then the choice.
+  return content;
 }

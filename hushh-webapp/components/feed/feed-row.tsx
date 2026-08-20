@@ -3,6 +3,7 @@
 import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { cn } from "@/lib/utils";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
+import { formatFeedTimestamp } from "@/lib/feed/feed-timestamp";
 import type { FeedIconTone } from "@/lib/feed/use-feed-actionables";
 import type { FeedItem, FeedSourceDomain } from "@/lib/services/feed-service";
 
@@ -15,23 +16,6 @@ const DOMAIN_TONE: Record<FeedSourceDomain, FeedIconTone> = {
   connections: "green",
 };
 
-function timeAgo(value: string): string {
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return "";
-  const deltaMs = Math.max(0, Date.now() - timestamp);
-  const minutes = Math.floor(deltaMs / (60 * 1000));
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(value).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-}
-
 /**
  * A single historical activity row, built on the canonical SettingsRow so the
  * feed shares the app's list vocabulary (icon well, title/description,
@@ -41,12 +25,19 @@ function timeAgo(value: string): string {
 export function FeedRow({
   item,
   onOpen,
+  unread,
 }: {
   item: FeedItem;
   onOpen: (item: FeedItem) => void;
+  /**
+   * Overrides `item.read` for styling only. The Feed marks itself read on open
+   * but keeps those rows looking unread for the rest of the visit; without this
+   * the page's live refresh would restyle them the moment the server agreed.
+   */
+  unread?: boolean;
 }) {
   const presentation = presentFeedItem(item);
-  const read = item.read;
+  const read = unread === undefined ? item.read : !unread;
   const tone = DOMAIN_TONE[item.source_domain] ?? "gray";
 
   return (
@@ -68,20 +59,22 @@ export function FeedRow({
         </span>
       }
       description={
-        <span className="line-clamp-1">{presentation.description}</span>
+        <span className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 line-clamp-1">
+            {presentation.description}
+          </span>
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {formatFeedTimestamp(item.created_at)}
+          </span>
+        </span>
       }
       trailing={
-        <span className="flex shrink-0 items-center gap-1.5">
-          <span className="text-xs tabular-nums text-muted-foreground">
-            {timeAgo(item.created_at)}
-          </span>
-          {!read ? (
-            <span
-              aria-label="Unread"
-              className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
-            />
-          ) : null}
-        </span>
+        !read ? (
+          <span
+            aria-label="Unread"
+            className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
+          />
+        ) : null
       }
       chevron={Boolean(presentation.href)}
       onClick={presentation.href ? () => onOpen(item) : undefined}

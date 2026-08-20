@@ -347,6 +347,40 @@ def test_accept_creates_connection_and_two_trusted_edges():
     # Two trusted_connections INSERTs happened.
     trusted_inserts = [c for c in db.calls if "INSERT INTO trusted_connections" in c[0]]
     assert len(trusted_inserts) == 2
+    # Regression guard: accepting a connection must never touch location
+    # sharing on its own. A newly accepted connection used to silently
+    # fan out a bidirectional live-location grant to both people with no
+    # request involved (auto_start_share_for_new_peer, removed). Location
+    # sharing may only ever be created by an explicit
+    # OneLocationAgentService.approve_request call against a real,
+    # explicit OneLocationAccessRequest.
+    assert not any("one_location_share_grants" in c[0] for c in db.calls)
+    assert not any("one_location_map_preferences" in c[0] for c in db.calls)
+
+
+def test_accept_request_never_imports_or_calls_location_service():
+    """Structural guard against re-wiring auto-share into accept_request.
+
+    This is what actually broke: a prior commit imported
+    OneLocationAgentService inside accept_request and called
+    auto_start_share_for_new_peer as a bidirectional post-commit side
+    effect, with no explicit location request anywhere in the path. Assert
+    directly on the source so a future edit that reintroduces an import of
+    or a call into the location service from here fails loudly instead of
+    silently. (Comments in accept_request are allowed to *mention*
+    OneLocationAgentService.approve_request as a pointer for readers --
+    only real imports/calls are checked here.)
+    """
+    import inspect
+
+    from hushh_mcp.services.connections_service import ConnectionsService
+
+    lines = inspect.getsource(ConnectionsService.accept_request).splitlines()
+    code_only = "\n".join(line for line in lines if not line.strip().startswith("#"))
+    assert "one_location_agent_service" not in code_only.lower()
+    assert "OneLocationAgentService" not in code_only
+    assert "auto_start_share_for_new_peer" not in code_only
+    assert "auto_share" not in code_only.lower()
 
 
 def test_accept_rejected_when_not_addressee():
@@ -568,6 +602,75 @@ def test_search_directory_filters_by_query_against_display_name():
     assert [i["userId"] for i in out["items"]] == ["user-c"]
 
 
+def test_search_directory_fallback_matches_prefixes_and_ranks_them():
+    """The in-memory fallback answers the same question as the SQL path.
+
+    Typing one letter is an index request. A substring match answers a
+    different question -- "Anand" contains an n -- and the two paths disagreeing
+    would mean findability depended on which branch a deployment took.
+    """
+    svc = _svc()
+    svc._directory_lookup = lambda owner_user_id: [
+        {"userId": "u-anand", "displayName": "Anand"},  # contains n, starts with a
+        {"userId": "u-nirmal", "displayName": "Nirmal"},
+        {"userId": "u-abdul", "displayName": "Abdul Nasser"},  # second word starts with n
+        {"userId": "u-nilesh", "displayName": "Nilesh"},
+    ]
+    db = _RecordingDB([[], [], []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", query="n", page=1, limit=20)
+
+    # Anand is gone: it only ever matched as a substring. Name-prefix names
+    # come first and A-Z within the tier; the surname match ranks below them
+    # rather than being mixed in, which is what made the earlier version of
+    # this read as random.
+    assert [i["displayName"] for i in out["items"]] == ["Nilesh", "Nirmal", "Abdul Nasser"]
+
+
+def test_search_directory_fallback_folds_separators_like_the_sql_path():
+    svc = _svc()
+    svc._directory_lookup = lambda owner_user_id: [
+        {"userId": "u-hyphen", "displayName": "Abdul-Rashid"},
+        {"userId": "u-initial", "displayName": "Abdul R."},
+        {"userId": "u-spaced", "displayName": "  Rashid Ahmed"},
+    ]
+    db = _RecordingDB([[], [], []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", query="r", page=1, limit=20)
+
+    # "  Rashid Ahmed" is trimmed, so it earns the first tier rather than being
+    # demoted by a leading space. The hyphen and the full stop are separators,
+    # so both reach the second tier instead of hiding their second word.
+    #
+    # Asserted as tiers rather than one exact sequence on purpose: how "Abdul
+    # R." and "Abdul-Rashid" order against each other depends on whether
+    # punctuation is significant in the active collation, and pinning that here
+    # would be pinning the database's locale, not this code's behaviour.
+    found = [i["userId"] for i in out["items"]]
+    assert found[0] == "u-spaced"
+    assert sorted(found[1:]) == ["u-hyphen", "u-initial"]
+
+
+def test_search_directory_fallback_pages_the_ranked_list_not_the_raw_one():
+    svc = _svc()
+    svc._directory_lookup = lambda owner_user_id: [
+        {"userId": f"u-{name}", "displayName": name}
+        for name in ["Nolan", "Anand", "Nilesh", "Chandan", "Nirmal"]
+    ]
+    db = _RecordingDB([[], [], []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        first = svc.search_directory("user-a", query="n", page=1, limit=2)
+        second = svc.search_directory("user-a", query="n", page=2, limit=2)
+
+    # Ranking finishes before the slice, so page 1 holds the first two N names
+    # and page 2 continues the same list. Slicing first and ranking after is
+    # exactly the bug this replaced.
+    assert [i["displayName"] for i in first["items"]] == ["Nilesh", "Nirmal"]
+    assert first["hasMore"] is True
+    assert [i["displayName"] for i in second["items"]] == ["Nolan"]
+    assert second["hasMore"] is False
+
+
 def test_search_directory_delegates_pagination_to_eligible_directory_query():
     calls: list[tuple[str, dict[str, object]]] = []
 
@@ -602,11 +705,157 @@ def test_search_directory_delegates_pagination_to_eligible_directory_query():
                 "maskedPhone": "******4455",
                 "maskedEmail": "c***a@example.com",
                 "relationship": "none",
+                "isRia": False,
             }
         ],
         "page": 2,
         "hasMore": True,
+        "audience": "all",
     }
+
+
+class _RiaAwareDB:
+    """Answers by what the statement asks, not by call order.
+
+    The directory read now issues an RIA lookup as well as the three
+    connection-graph reads, and their order is an implementation detail; a
+    queue-based double would make these tests fail whenever that order moved.
+    """
+
+    def __init__(self, ria_user_ids: set[str]):
+        self._ria_user_ids = set(ria_user_ids)
+        self.calls: list[tuple[str, dict]] = []
+
+    def execute_raw(self, sql, params=None):
+        self.calls.append((sql, params or {}))
+        if "ria_profiles" in sql:
+            requested = set((params or {}).get("user_ids") or [])
+            return SimpleNamespace(
+                data=[{"user_id": uid} for uid in sorted(self._ria_user_ids & requested)]
+            )
+        return SimpleNamespace(data=[])
+
+
+def test_search_directory_passes_audience_to_a_directory_that_understands_it():
+    """The advisor split belongs in the query, not in a filter over the page.
+
+    A filter applied after LIMIT can only subtract from a page that was already
+    chosen wrongly: "advisors, page 2" would be page 2 of everyone with the
+    non-advisors removed -- pages of uneven size, and every advisor past the
+    first page unreachable.
+    """
+    calls: list[dict[str, object]] = []
+
+    def directory_search(
+        owner_user_id: str,
+        *,
+        query: str,
+        page: int,
+        limit: int,
+        audience: str = "all",
+    ) -> dict[str, object]:
+        calls.append({"query": query, "page": page, "limit": limit, "audience": audience})
+        return {"items": [], "page": page, "hasMore": False}
+
+    svc = ConnectionsService(directory_search=directory_search)
+    db = _RecordingDB([[], [], []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", query="", page=1, limit=8, audience="ria")
+
+    assert calls == [{"query": "", "page": 1, "limit": 8, "audience": "ria"}]
+    assert out["audience"] == "ria"
+
+
+def test_search_directory_still_splits_when_the_directory_predates_audience():
+    """A directory double that never declared `audience` must not silently
+    return everyone to the advisor tab."""
+    people = [
+        {"userId": "u-ria", "displayName": "Ada Advisor"},
+        {"userId": "u-person", "displayName": "Ben Person"},
+    ]
+
+    def legacy_directory_search(
+        owner_user_id: str, *, query: str, page: int, limit: int
+    ) -> dict[str, object]:
+        return {"items": people, "page": page, "hasMore": False}
+
+    svc = ConnectionsService(directory_search=legacy_directory_search)
+    db = _RiaAwareDB({"u-ria"})
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", page=1, limit=8, audience="ria")
+
+    assert [i["userId"] for i in out["items"]] == ["u-ria"]
+    assert out["items"][0]["isRia"] is True
+
+
+def test_search_directory_audiences_partition_the_directory():
+    """Everyone lands in exactly one tab, so separating advisors never makes a
+    person unreachable."""
+    people = [
+        {"userId": "u-ria", "displayName": "Ada Advisor"},
+        {"userId": "u-person", "displayName": "Ben Person"},
+    ]
+
+    def legacy_directory_search(
+        owner_user_id: str, *, query: str, page: int, limit: int
+    ) -> dict[str, object]:
+        return {"items": people, "page": page, "hasMore": False}
+
+    svc = ConnectionsService(directory_search=legacy_directory_search)
+    db = _RiaAwareDB({"u-ria"})
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", page=1, limit=8, audience="people")
+
+    assert [i["userId"] for i in out["items"]] == ["u-person"]
+    assert out["items"][0]["isRia"] is False
+
+
+def test_search_directory_unknown_audience_widens_instead_of_hiding_people():
+    """A typo in a caller must not silently empty the directory."""
+
+    def legacy_directory_search(
+        owner_user_id: str, *, query: str, page: int, limit: int
+    ) -> dict[str, object]:
+        return {
+            "items": [{"userId": "u-person", "displayName": "Ben Person"}],
+            "page": page,
+            "hasMore": False,
+        }
+
+    svc = ConnectionsService(directory_search=legacy_directory_search)
+    db = _RecordingDB([[], [], []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", page=1, limit=8, audience="advisors")
+
+    assert out["audience"] == "all"
+    assert [i["userId"] for i in out["items"]] == ["u-person"]
+
+
+def test_directory_audience_gate_matches_the_capability_gate():
+    """The advisor tab and the capability catalog must agree on who is an RIA.
+
+    If the tab used a looser rule, it would list people whose only possible
+    outcome is an empty capability sheet -- an advisor directory whose rows
+    cannot advise.
+    """
+    from hushh_mcp.services.connections_service import _RIA_VERIFIED_STATUS_SQL
+    from hushh_mcp.services.ria_iam_service import RIAIAMService
+
+    for status in RIAIAMService._RIA_VERIFIED_STATUSES:
+        assert f"'{status}'" in _RIA_VERIFIED_STATUS_SQL, f"audience gate omits '{status}'"
+
+    svc = _svc()
+    captured: dict[str, str] = {}
+
+    def fake_execute_many(sql, params=None):
+        captured["sql"] = sql
+        return []
+
+    svc._execute_many = fake_execute_many
+    svc._verified_ria_user_ids(["u-1"])
+
+    for status in RIAIAMService._RIA_VERIFIED_STATUSES:
+        assert f"'{status}'" in captured["sql"], f"annotation gate omits '{status}'"
 
 
 def test_list_connections_maps_rows():
@@ -624,6 +873,80 @@ def test_list_connections_maps_rows():
         out = svc.list_connections("user-a")
     assert out[0]["userId"] == "user-b"
     assert out[0]["connectionId"] == "conn-1"
+
+
+def test_list_connections_annotates_ria_status_per_row():
+    """The RIAs tab lists your connections above its search results.
+
+    Without a per-row flag it had nothing to filter them by, so it listed every
+    connection you have -- and someone who never finished RIA onboarding was
+    shown under "RIAs", which is the one claim that tab makes.
+    """
+    svc = _svc()
+    connection_rows = [
+        {
+            "connection_id": "conn-1",
+            "user_id": "user-advisor",
+            "display_name": "Ada",
+            "photo_url": None,
+            "created_at": "2026-07-09T00:00:00Z",
+        },
+        {
+            "connection_id": "conn-2",
+            "user_id": "user-plain",
+            "display_name": "Bob",
+            "photo_url": None,
+            "created_at": "2026-07-08T00:00:00Z",
+        },
+    ]
+    # Second call is _verified_ria_user_ids: only the advisor comes back.
+    db = _RecordingDB([connection_rows, [{"user_id": "user-advisor"}]])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.list_connections("user-a")
+
+    by_id = {row["userId"]: row for row in out}
+    assert by_id["user-advisor"]["isRia"] is True
+    assert by_id["user-plain"]["isRia"] is False
+
+
+def test_list_connections_uses_the_same_verified_gate_as_the_directory():
+    """One definition of "verified", or the two lists on the RIAs tab disagree.
+
+    The directory half already gates on `_RIA_VERIFIED_STATUS_SQL`; the
+    connections half must resolve through the same helper rather than growing a
+    second status list that can drift.
+    """
+    svc = _svc()
+    connection_rows = [
+        {
+            "connection_id": "conn-1",
+            "user_id": "user-advisor",
+            "display_name": "Ada",
+            "photo_url": None,
+            "created_at": "2026-07-09T00:00:00Z",
+        }
+    ]
+    db = _RecordingDB([connection_rows, []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        svc.list_connections("user-a")
+
+    from hushh_mcp.services.ria_iam_service import RIAIAMService
+
+    annotation_sql = db.calls[1][0]
+    assert "ria_profiles" in annotation_sql
+    for status in RIAIAMService._RIA_VERIFIED_STATUSES:
+        assert f"'{status}'" in annotation_sql, f"annotation gate omits '{status}'"
+
+
+def test_list_connections_makes_no_ria_query_when_you_have_none():
+    """No connections means no ids to annotate, so no second round trip."""
+    svc = _svc()
+    db = _RecordingDB([[]])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.list_connections("user-a")
+
+    assert out == []
+    assert len(db.calls) == 1
 
 
 def test_remove_connection_revokes_connection_and_trusted_edges():

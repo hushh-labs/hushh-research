@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isActiveSmsEmergencyGrant,
   isIncomingLocationRequestActionable,
+  isSmsEmergencyGrant,
 } from "@/lib/feed/use-feed-actionables";
 import type {
   OneLocationAccessRequest,
@@ -113,5 +114,24 @@ describe("isActiveSmsEmergencyGrant", () => {
     expect(
       isActiveSmsEmergencyGrant(grant({ shareKind: "sos", status: "revoked" })),
     ).toBe(false);
+  });
+});
+
+describe("isSmsEmergencyGrant", () => {
+  it("surfaces an SOS share regardless of status, so a revoke stays visible", () => {
+    expect(isSmsEmergencyGrant(grant({ shareKind: "sos", status: "active" }))).toBe(
+      true,
+    );
+    expect(isSmsEmergencyGrant(grant({ shareKind: "sos", status: "revoked" }))).toBe(
+      true,
+    );
+    expect(isSmsEmergencyGrant(grant({ shareKind: "sos", status: "expired" }))).toBe(
+      true,
+    );
+  });
+
+  it("does NOT surface a non-SOS share", () => {
+    expect(isSmsEmergencyGrant(grant({ shareKind: "share" }))).toBe(false);
+    expect(isSmsEmergencyGrant(grant({ shareKind: "check_in" }))).toBe(false);
   });
 });

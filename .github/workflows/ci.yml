@@ -109,6 +109,15 @@ jobs:
             fi
           elif [ "${{ github.event_name }}" = "push" ]; then
             LOG_OPTS="$(resolve_from_default_branch)"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # A manually dispatched run validates a BRANCH, so it scans that
+            # branch's own commits — the same range a push resolves. It used to
+            # fall through to the bare-SHA case below, which walks all history
+            # (~3400 commits) and fails on findings that predate the branch by
+            # years. That made the manual lane useless exactly when it is
+            # needed most: when the pull_request event does not fire and this
+            # is the only way to validate a change.
+            LOG_OPTS="$(resolve_from_default_branch)"
           else
             # workflow_dispatch and anything else: bound the scan the same way every
             # other lane does. A BARE SHA is not a range -- git reads it as "every
@@ -398,6 +407,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
+
+      # The layout-contract pack drives real Chromium and WebKit. WebKit is not
+      # optional: it is the engine iOS ships, and a native <select> there
+      # ignores an author border-radius that Chromium honours, so a
+      # Chromium-only run passes controls that are visibly broken on an iPhone.
+      - name: Install Playwright browsers
+        run: |
+          set -euo pipefail
+          npm ci --prefix hushh-webapp
+          (cd hushh-webapp && npx playwright install --with-deps chromium webkit)
 
       - name: Run targeted web contract checks
         run: bash scripts/ci/orchestrate.sh web-targeted

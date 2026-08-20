@@ -196,6 +196,10 @@
       "file": "app/api/one/[...path]/route.ts"
     },
     {
+      "template": "/api/one/location/sos-email",
+      "file": "app/api/one/location/sos-email/route.ts"
+    },
+    {
       "template": "/api/pkm/{path*}",
       "file": "app/api/pkm/[...path]/route.ts"
     },
@@ -605,11 +609,11 @@
       },
       "native": null,
       "shell": {
-        "app_page_shell": false,
-        "page_header": false,
+        "app_page_shell": true,
+        "page_header": true,
         "settings_ui": false,
         "shared_loader": false,
-        "back_button_pattern": "route-local-check-required"
+        "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
@@ -3983,10 +3987,18 @@
       },
       "voice_action_contract_file": "app/one/location/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "location.accept_circle_invite",
         "location.add_connections",
         "location.add_emergency_contact",
         "location.add_to_circle",
+        "location.approve_request",
+        "location.change_share_duration",
         "location.create_circle",
+        "location.decline_circle_invite",
+        "location.decline_request",
+        "location.delete_circle",
+        "location.delete_saved_location",
+        "location.leave_circle",
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
@@ -4008,11 +4020,18 @@
         "location.refresh",
         "location.remove_emergency_contact",
         "location.remove_from_circle",
+        "location.rename_circle",
         "location.resume_updates",
+        "location.save_current_location",
+        "location.select_ask_recipient",
         "location.select_share_recipient",
+        "location.send_check_in",
+        "location.send_request",
         "location.set_auto_share",
         "location.share_selected",
-        "location.stop_sos"
+        "location.stop_share",
+        "location.stop_sos",
+        "location.trigger_sos"
       ],
       "api_dependencies": [
         {
@@ -5739,6 +5758,138 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/profile/preferences/voice",
+      "page_file": "app/one/profile/preferences/voice/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.preferences.voice",
+          "purpose": "Help the person manage One's own voice controls -- on/off, tap-confirmation, and which domains it may act in.",
+          "screen": "profile_preferences",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/preferences/voice",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fvoice",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/voice",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/preferences/voice/changelog",
+      "page_file": "app/one/profile/preferences/voice/changelog/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.preferences.voice.changelog",
+          "purpose": "A read-only list of voice engine updates and fixes. Nothing to act on here.",
+          "screen": "profile_preferences",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/preferences/voice/changelog",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fvoice%2Fchangelog",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/voice/changelog",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/profile/receipts",
       "page_file": "app/one/profile/receipts/page.tsx",
       "physical_page_exists": true,
@@ -6881,8 +7032,10 @@
       "route_contract": {
         "mode": "flow",
         "exemption_reason": "Finance preferences use the existing full-height wizard inside the setup route.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "shell_verification_file": "app/one/setup/kai/page.tsx",
+        "shell_verification_includes": [
+          "--top-content-pad"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -6949,8 +7102,10 @@
       "route_contract": {
         "mode": "flow",
         "exemption_reason": "Finance source selection uses the existing import flow inside the setup route.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "shell_verification_file": "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
+        "shell_verification_includes": [
+          "FullscreenFlowShell"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -7230,8 +7385,10 @@
       "route_contract": {
         "mode": "flow",
         "exemption_reason": "RIA onboarding retains its existing full-screen verification flow inside the setup route.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "shell_verification_file": "app/ria/onboarding/page.tsx",
+        "shell_verification_includes": [
+          "FullscreenFlowShell"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -8584,5 +8741,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "aa1c723a01a2683a16fbbdaf232e9f6146d315fded5151ed22c65588c68a53e2"
+  "content_sha256": "ab3a35068348762fad945d543ae4127193cbef19e52ab63233744c0471bd1eea"
 }

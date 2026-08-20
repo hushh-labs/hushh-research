@@ -12,19 +12,23 @@
 
 import { useId, useState, type ReactNode } from "react";
 import {
+  AlertTriangle,
   ChevronDown,
   Clock3,
   Copy,
   ExternalLink,
   Loader2,
   MapPin,
+  Pencil,
   RefreshCw,
   Share2,
   ShieldCheck,
   User,
+  X,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Button } from "@/components/ui/button";
 import { Avatar, StatusPill } from "./primitives";
@@ -54,6 +58,12 @@ export function TrustedPersonCard({
   actionBusy,
   actionDisabled,
   selected,
+  onEdit,
+  editActive,
+  onRemove,
+  removeBusy,
+  removeAriaLabel,
+  expandedContent,
 }: {
   name: string;
   subtitle?: string;
@@ -65,12 +75,28 @@ export function TrustedPersonCard({
   actionBusy?: boolean;
   actionDisabled?: boolean;
   selected?: boolean;
+  /** Edit this person's live grant duration (shorten now / ask for more). */
+  onEdit?: () => void;
+  /** True while `expandedContent` is the open duration editor for this row. */
+  editActive?: boolean;
+  /** Revoke this person's live grant. */
+  onRemove?: () => void;
+  removeBusy?: boolean;
+  /**
+   * What the X actually does on this row, for people using a screen reader.
+   * Defaults to ending access, because that is what it does on a live row --
+   * but on a row whose request is still unanswered it ends the ASK, and
+   * announcing that as "remove their access" describes the wrong act.
+   */
+  removeAriaLabel?: string;
+  /** Full-width block below the row, e.g. the inline duration editor. */
+  expandedContent?: ReactNode;
 }) {
   return (
     <div
       className={cn(
         SUBCARD_SURFACE,
-        "flex items-center gap-3 p-3.5",
+        "p-3.5",
         // `ring-inset` draws the selection outline INSIDE the card bounds so a
         // parent scroll/`overflow-hidden` container can never clip its edges or
         // corners (the reported "incomplete blue outline"). `ring-2` gives a
@@ -79,40 +105,71 @@ export function TrustedPersonCard({
           "border-[color:var(--app-accent)] ring-2 ring-inset ring-[color:var(--app-accent)]",
       )}
     >
-      <Avatar initials={initialsFrom(name)} />
-      <div className="min-w-0 flex-1">
-        <p className="break-words text-[15px] font-semibold leading-5 text-foreground [overflow-wrap:anywhere] sm:text-[17px] sm:leading-[22px]">
-          {name}
-        </p>
-        {subtitle ? (
-          <p
-            className={cn(
-              MUTED_TEXT,
-              "break-words [overflow-wrap:anywhere]",
-            )}
-          >
-            {subtitle}
+      <div className="flex items-center gap-3">
+        <Avatar initials={initialsFrom(name)} />
+        <div className="min-w-0 flex-1">
+          <p className="break-words text-[15px] font-semibold leading-5 text-foreground [overflow-wrap:anywhere] sm:text-[17px] sm:leading-[22px]">
+            {name}
           </p>
+          {subtitle ? (
+            <p
+              className={cn(
+                MUTED_TEXT,
+                "break-words [overflow-wrap:anywhere]",
+              )}
+            >
+              {subtitle}
+            </p>
+          ) : null}
+        </div>
+
+        {statusLabel ? (
+          <StatusPill tone={tone === "neutral" ? "neutral" : tone}>
+            {statusLabel}
+          </StatusPill>
+        ) : null}
+        {onEdit ? (
+          <ShellActionSurface
+            variant="icon"
+            className="h-9 w-9 shrink-0"
+            aria-label={`${editActive ? "Cancel editing" : "Edit"} access for ${name}`}
+            aria-pressed={editActive}
+            onClick={onEdit}
+          >
+            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+          </ShellActionSurface>
+        ) : null}
+        {onRemove ? (
+          <ShellActionSurface
+            variant="icon"
+            className="h-9 w-9 shrink-0 text-destructive"
+            aria-label={removeAriaLabel ?? `Remove ${name}'s access`}
+            onClick={onRemove}
+            disabled={removeBusy}
+          >
+            {removeBusy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            ) : (
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+          </ShellActionSurface>
+        ) : null}
+        {actionLabel && onAction ? (
+          <Button
+            size="sm"
+            variant={tone === "pending" ? "outline" : "default"}
+            onClick={onAction}
+            aria-label={actionAriaLabel}
+            isLoading={actionBusy}
+            disabled={actionDisabled}
+            className="h-8 shrink-0 rounded-full px-3.5 text-sm"
+          >
+            {actionLabel}
+          </Button>
         ) : null}
       </div>
-
-      {statusLabel ? (
-        <StatusPill tone={tone === "neutral" ? "neutral" : tone}>
-          {statusLabel}
-        </StatusPill>
-      ) : null}
-      {actionLabel && onAction ? (
-        <Button
-          size="sm"
-          variant={tone === "pending" ? "outline" : "default"}
-          onClick={onAction}
-          aria-label={actionAriaLabel}
-          isLoading={actionBusy}
-          disabled={actionDisabled}
-          className="h-8 shrink-0 rounded-full px-3.5 text-sm"
-        >
-          {actionLabel}
-        </Button>
+      {expandedContent ? (
+        <div className="mt-3 space-y-3">{expandedContent}</div>
       ) : null}
     </div>
   );
@@ -280,12 +337,32 @@ export function RequestCard({
 /* SharedWithMeCard (focused received-share detail)                   */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Why a received share has nothing on the map yet.
+ *
+ * `waiting` is a healthy share whose owner has not published a point yet —
+ * the most common state on the receiving side, and a success. It gets calm
+ * muted copy and no action, because it resolves itself on the next poll.
+ *
+ * `blocked` is a share the recipient genuinely cannot open and that will not
+ * fix itself. Only this earns the alert treatment and the recovery action.
+ *
+ * Collapsing these two into one "error" string is what left recipients staring
+ * at a card with a name, a date, and no explanation of any kind.
+ */
+export type GrantViewStatus = {
+  message: string;
+  tone: "waiting" | "blocked";
+};
+
 export function SharedWithMeCard({
   name,
   statusLine,
   onView,
   onDismiss,
   onRecenter,
+  onRemove,
+  removeBusy,
   mapHref,
   viewBusy,
   previewExpanded,
@@ -294,12 +371,20 @@ export function SharedWithMeCard({
   address,
   addressLoading,
   coordinatesFallback,
+  viewStatus,
+  onAskReshare,
+  askReshareBusy,
 }: {
   name: string;
   statusLine: string;
   onView: () => void;
   onDismiss?: () => void;
   onRecenter?: () => void;
+  /** Revoke this grant. Ends this person's access to your view of their
+   * location -- distinct from `onDismiss`, which only collapses the local
+   * preview and leaves the grant (and access) active. */
+  onRemove?: () => void;
+  removeBusy?: boolean;
   mapHref?: string;
   viewBusy?: boolean;
   previewExpanded?: boolean;
@@ -311,7 +396,17 @@ export function SharedWithMeCard({
   addressLoading?: boolean;
   /** "lat, lng" shown when no street address is available. */
   coordinatesFallback?: string;
+  /**
+   * Why there is no location on screen. Rendered only while nothing has been
+   * decrypted yet — once a point arrives it is the answer, and a stale status
+   * line underneath it would contradict what the person is looking at.
+   */
+  viewStatus?: GrantViewStatus | null;
+  /** Re-request access from the owner. Offered only for the `blocked` tone. */
+  onAskReshare?: () => void;
+  askReshareBusy?: boolean;
 }) {
+  const warningRole = roleClasses("warning");
   const canOpenMap = Boolean(previewExpanded && mapHref);
   const previewRegionId = useId();
   const isPreviewExpanded = Boolean(previewExpanded);
@@ -330,12 +425,12 @@ export function SharedWithMeCard({
         <Avatar initials={initialsFrom(name)} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-semibold text-foreground">
-            {name} is sharing with you
+            {name}
           </p>
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
             <p className={cn(MUTED_TEXT, "min-w-0 truncate")}>{statusLine}</p>
             <StatusPill tone="ready" className="shrink-0">
-              Access active
+              Active
             </StatusPill>
           </div>
         </div>
@@ -395,13 +490,75 @@ export function SharedWithMeCard({
           )}
         </div>
       ) : null}
+      {viewStatus ? (
+        viewStatus.tone === "waiting" ? (
+          // Deliberately not `role="alert"`, not amber, not an icon that reads
+          // as a problem. Nothing is wrong: the share is live and the first
+          // point simply has not arrived. `aria-live="polite"` announces it
+          // once without interrupting, which is what a status is.
+          <p
+            aria-live="polite"
+            className={cn(MUTED_TEXT, "flex items-start gap-1.5 text-sm")}
+          >
+            <Clock3
+              className="mt-0.5 h-3.5 w-3.5 shrink-0"
+              aria-hidden="true"
+            />
+            <span className="min-w-0 break-words">{viewStatus.message}</span>
+          </p>
+        ) : (
+          // Five hand-mixed hexes stood here. #ff9f0a is the iOS DARK-mode
+          // orange used as a light-mode literal, and the 0.08 wash sat under
+          // the light token and roughly half the dark one, so the banner
+          // nearly vanished in dark. The warning role already encodes the
+          // light/dark pairing this was reaching for by hand.
+          <div
+            role="alert"
+            className={cn(
+              "flex flex-col gap-2.5 rounded-[var(--app-card-radius-compact)] border p-3 sm:flex-row sm:items-center sm:justify-between",
+              warningRole.tile,
+              warningRole.border,
+            )}
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle
+                className={cn("mt-0.5 h-4 w-4 shrink-0", warningRole.glyph)}
+                aria-hidden="true"
+              />
+              <p
+                className={cn(
+                  "min-w-0 break-words text-[12.5px] font-medium leading-snug [overflow-wrap:anywhere]",
+                  warningRole.glyph,
+                )}
+              >
+                {viewStatus.message}
+              </p>
+            </div>
+            {onAskReshare ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onAskReshare}
+                isLoading={askReshareBusy}
+                className={cn(
+                  "w-full shrink-0 rounded-full bg-[color:var(--app-card-surface-default-solid)] sm:w-auto",
+                  warningRole.border,
+                  warningRole.glyph,
+                )}
+              >
+                Ask to refresh
+              </Button>
+            ) : null}
+          </div>
+        )
+      ) : null}
       <div id={previewRegionId} hidden={!isPreviewExpanded}>
         {children}
       </div>
       {message ? (
         <p className={cn(MUTED_TEXT, "text-sm")}>{message}</p>
       ) : null}
-      <div className="grid grid-cols-1 gap-2">
+      <div className={cn("grid gap-2", onRemove ? "grid-cols-2" : "grid-cols-1")}>
         {canOpenMap ? (
           <Button
             asChild
@@ -429,6 +586,18 @@ export function SharedWithMeCard({
             View location
           </Button>
         )}
+        {onRemove ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onRemove}
+            isLoading={removeBusy}
+            aria-label={`Remove ${name} from Shared with me`}
+            className="h-9 rounded-full text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
+          >
+            Remove
+          </Button>
+        ) : null}
       </div>
     </div>
   );

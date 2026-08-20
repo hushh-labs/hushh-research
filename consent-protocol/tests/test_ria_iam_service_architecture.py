@@ -1041,7 +1041,8 @@ def test_consent_center_history_keeps_different_subjects_separate():
 
 @pytest.mark.asyncio
 async def test_consent_center_summary_uses_surface_loaders_without_get_center(monkeypatch):
-    monkeypatch.setenv("CONSENT_CENTER_SUMMARY_V2_ENABLED", "true")
+    # No env var set at all: this is the default now, not an opt-in.
+    monkeypatch.delenv("CONSENT_CENTER_SUMMARY_V2_ENABLED", raising=False)
     service = ConsentCenterService()
     contributor_calls = {"location": 0, "marketplace": 0, "connections": 0}
 
@@ -1096,9 +1097,13 @@ async def test_consent_center_summary_uses_surface_loaders_without_get_center(mo
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("actor", ["investor", "ria"])
-async def test_consent_center_summary_defaults_to_legacy_surface_counts(monkeypatch, actor):
-    """The optimization is opt-in; default UAT behavior must retain scalar counts."""
+async def test_consent_center_summary_ria_actor_always_uses_legacy_surface_counts(monkeypatch):
+    """The single-fetch optimization only covers the investor actor -- the
+    branch in `get_center_summary` that calls `_location_buckets_async` /
+    `_marketplace_buckets_async` once is `elif normalized_actor == "investor"`,
+    so a ria actor keeps the three independent `_get_surface_count` calls
+    regardless of the feature flag. Unset here (the default) on purpose: this
+    must stay true whether or not V2 is enabled."""
     monkeypatch.delenv("CONSENT_CENTER_SUMMARY_V2_ENABLED", raising=False)
     service = ConsentCenterService()
     calls: list[tuple[str, str, str]] = []
@@ -1107,22 +1112,79 @@ async def test_consent_center_summary_defaults_to_legacy_surface_counts(monkeypa
         calls.append((user_id, actor, surface))
         return {"pending": 3, "active": 2, "previous": 1}[surface]
 
+    monkeypatch.setattr(service, "_get_surface_count", _surface_count)
+
+    payload = await service.get_center_summary("user_1", actor="ria")
+
+    assert payload["counts"] == {"pending": 3, "active": 2, "previous": 1}
+    assert calls == [
+        ("user_1", "ria", "pending"),
+        ("user_1", "ria", "active"),
+        ("user_1", "ria", "previous"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_consent_center_summary_explicit_opt_out_uses_legacy_surface_counts(monkeypatch):
+    """`CONSENT_CENTER_SUMMARY_V2_ENABLED=false` is the rollback lever for the
+    investor actor's single-fetch path -- explicitly disabling it must still
+    fall all the way back to the original three-`_get_surface_count`-calls
+    behavior."""
+    monkeypatch.setenv("CONSENT_CENTER_SUMMARY_V2_ENABLED", "false")
+    service = ConsentCenterService()
+    calls: list[tuple[str, str, str]] = []
+
+    async def _surface_count(user_id: str, *, actor: str, surface: str, mode: str) -> int:
+        calls.append((user_id, actor, surface))
+        return {"pending": 3, "active": 2, "previous": 1}[surface]
+
     async def _unexpected(*_args, **_kwargs):  # noqa: ANN002, ANN003
-        raise AssertionError("V2 loaders must not run while the feature flag is disabled")
+        raise AssertionError("V2 loaders must not run while explicitly disabled")
 
     monkeypatch.setattr(service, "_get_surface_count", _surface_count)
     monkeypatch.setattr(service, "_location_buckets_async", _unexpected)
     monkeypatch.setattr(service, "_marketplace_buckets_async", _unexpected)
     monkeypatch.setattr(service, "_incoming_connection_request_count", _unexpected)
 
-    payload = await service.get_center_summary("user_1", actor=actor)
+    payload = await service.get_center_summary("user_1", actor="investor")
 
     assert payload["counts"] == {"pending": 3, "active": 2, "previous": 1}
     assert calls == [
-        ("user_1", actor, "pending"),
-        ("user_1", actor, "active"),
-        ("user_1", actor, "previous"),
+        ("user_1", "investor", "pending"),
+        ("user_1", "investor", "active"),
+        ("user_1", "investor", "previous"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_consent_center_summary_connections_mode_fetches_entries_once(monkeypatch):
+    """`mode=connections` has its own v2 branch, reachable by real traffic --
+    the Consent Center page's Connections tab passes it through to this exact
+    endpoint. It must fetch `_load_connection_entries_for_actor` once and
+    derive all three counts from it via `_connection_surface_for_status`,
+    the same predicate the legacy per-surface path used, rather than the
+    legacy path's three independent fetches."""
+    monkeypatch.delenv("CONSENT_CENTER_SUMMARY_V2_ENABLED", raising=False)
+    service = ConsentCenterService()
+    fetch_calls = 0
+
+    async def _connection_entries(_user_id: str, *, actor: str):
+        nonlocal fetch_calls
+        fetch_calls += 1
+        return [
+            {"id": "c1", "status": "pending"},
+            {"id": "c2", "status": "pending"},
+            {"id": "c3", "status": "accepted"},
+            {"id": "c4", "status": "rejected"},
+            {"id": "c5", "status": "revoked"},
+        ]
+
+    monkeypatch.setattr(service, "_load_connection_entries_for_actor", _connection_entries)
+
+    payload = await service.get_center_summary("user_1", actor="ria", mode="connections")
+
+    assert payload["counts"] == {"pending": 2, "active": 1, "previous": 2}
+    assert fetch_calls == 1
 
 
 @pytest.mark.asyncio

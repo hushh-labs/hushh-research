@@ -77,7 +77,7 @@ const ACCENT_STYLES: Record<SectionAccent, {
   },
   location: {
     eyebrow: "text-muted-foreground",
-    icon: "bg-[color:var(--app-accent)] text-white shadow-none",
+    icon: "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] shadow-none",
   },
   success: {
     eyebrow: "text-emerald-700 dark:text-emerald-300",
@@ -131,7 +131,12 @@ function HeaderLeading({
   iconSize: "md" | "lg";
 }) {
   if (leading) {
-    return <div className="shrink-0 self-start">{leading}</div>;
+    // Centred, not top-pinned. `self-start` aligned a 44px tile to the top of a
+    // copy column whose first line is a 20px eyebrow, so against the much
+    // larger title beneath it the tile read as floating above the heading
+    // rather than belonging to it. The `icon` branch below keeps `self-stretch`
+    // — that one spans the whole column by design.
+    return <div className="shrink-0 self-center">{leading}</div>;
   }
 
   if (!icon) {

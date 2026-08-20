@@ -59,6 +59,10 @@ describe("navigation journeys", () => {
       "connect.remove_connection",
       "connect.search_people",
       "connect.send_request",
+      // Circle invitations. Accepting starts sharing with the circle's
+      // members; declining closes the invitation without sharing anything.
+      // Both resolve one invitation off the person's own pending list.
+      "location.accept_circle_invite",
       // Emergency contacts. Adding resolves against people ELIGIBLE to
       // receive an SOS -- someone who has not finished their own Location
       // setup cannot receive one, and adding them would build a list that
@@ -72,33 +76,64 @@ describe("navigation journeys", () => {
       // only exists on Location. Adding is an invitation the other person has
       // to accept, which is why it settles rather than reporting done.
       "location.add_to_circle",
+      // Per-item share management (approve/decline a request, stop or
+      // re-time a named share, pick who to ask). Escorted for the same
+      // reason as everything else: the handler that acts on a specific
+      // grant/request only exists on Location itself.
+      "location.approve_request",
+      "location.change_share_duration",
       "location.create_circle",
+      "location.decline_circle_invite",
+      "location.decline_request",
+      // Deleting a circle is owner-only and takes it away from every member,
+      // not just the caller -- unlike leaving, which only affects the caller.
+      "location.delete_circle",
+      "location.delete_saved_location",
+      "location.leave_circle",
       "location.pause_updates",
       "location.remove_emergency_contact",
       "location.remove_from_circle",
+      "location.rename_circle",
       "location.resume_updates",
+      // Saving reads wherever the device currently is, so there is nothing to
+      // arrive at on Location's screen itself -- the escort exists only so
+      // the local handler that does the write is reachable from anywhere.
+      "location.save_current_location",
+      "location.select_ask_recipient",
       // Escorted because selecting someone sends nothing. Asked from another
       // screen it was simply unavailable, which broke "share my location with
       // Sarah" from anywhere but Location. `location.share_selected` is still
       // deliberately absent: arriving and FIRING is the thing that must not
       // happen unattended.
       "location.select_share_recipient",
+      "location.send_request",
       // Two settings-shaped actions whose handlers already existed on the
       // screen with no way to reach them by speaking. Both are
       // confirm_required: stopping an SOS ends a live emergency broadcast,
       // and automatic sharing decides whether approved people keep receiving
       // updates without you doing anything.
       "location.set_auto_share",
+      "location.stop_share",
       "location.stop_sos",
+      // The highest-consequence action on this surface. Escorted the same
+      // way stopping is: the person can say "send an SOS" from wherever
+      // they are, and the explicit tap-confirmation card -- not this
+      // journey -- is what actually gates it from firing unattended.
+      "location.trigger_sos",
+      "setup.connect_gmail",
+      "setup.finish_calendar",
       "setup.finish_connected_systems",
       "setup.finish_connections",
       "setup.finish_email",
       "setup.finish_finance",
+      "setup.finish_gmail",
       "setup.finish_location",
       "setup.finish_ria",
+      "setup.skip_calendar",
       "setup.skip_connected_systems",
       "setup.skip_email",
       "setup.skip_finance",
+      "setup.skip_gmail",
       "setup.skip_location",
       "setup.skip_ria",
     ]);

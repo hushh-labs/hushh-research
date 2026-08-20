@@ -45,6 +45,12 @@ export function NearbyDirectories({
         value={directory}
         onValueChange={(value) => setDirectory(value as NearbyDirectory)}
         options={DIRECTORY_TABS}
+        // Same compact padding as the Connect strip above it, for the same
+        // reason and found the same way: measured at 320px, "Insurance" needed
+        // 69px and had 59px, so this has been shipping as "Insuranc…" on the
+        // narrowest phones. Three tabs do not fit at the stock 16px option
+        // padding. Nothing changes from 640px up.
+        className="[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5"
       />
 
       {directory === "places" ? (

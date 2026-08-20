@@ -104,12 +104,18 @@ A Capacitor app draws maps two different ways, and they need different keys:
 
 | Surface | Renderer | Key |
 |---|---|---|
-| "Your Map" immersive | `@capacitor/google-maps` native SDK | `NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY` |
-| Onboarding location picker, LiveMap | Maps **JS** in the WKWebView | `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY` |
+| "Your Map" immersive — on native | `@capacitor/google-maps` native SDK | `NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY` |
+| Onboarding location picker, LiveMap — on native | `@capacitor/google-maps` native SDK | `NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY` |
+| Either surface — on web (browser tab, `npm run dev`) | Maps **JS** in the page | `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY` |
 
 "It is the iPhone app, so the iOS key covers it" is the wrong instinct and cost this
-incident. Read `hushh-webapp/lib/one-location/maps-config.ts` before assuming which key a
-surface uses.
+incident — but so is "the onboarding picker is Maps JS, so it always wants the browser
+key": that was true until the picker was moved onto the native SDK too, precisely
+because the browser JS SDK is rejected inside the `App://` WKWebView. Both map surfaces
+now key off `isNative()`, not off which surface they are — read
+`hushh-webapp/lib/one-location/maps-config.ts` and the `isNative()` branch in
+`location-picker-map.tsx` / `location-immersive-map.tsx` before assuming which key a
+surface uses, rather than trusting this table's surface names alone.
 
 Restrict each key to only the services its surface calls. The browser key needs
 `maps-backend` (Maps JS), `places` (the picker's `Place.searchNearby` nearest-place

@@ -3,6 +3,10 @@
 import { AlertTriangle, Eye, Link as LinkIcon, MapPin, Share2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  roleClasses,
+  type SemanticRole,
+} from "@/lib/morphy-ux/tokens/semantic-roles";
 import type { ClientAction } from "@/lib/one-location/types";
 
 const CONFIRM_LABEL: Record<ClientAction["type"], string> = {
@@ -21,6 +25,23 @@ const ACTION_ICON: Record<ClientAction["type"], typeof MapPin> = {
   check_in: MapPin,
 };
 
+/**
+ * What each pending action MEANS, so the card can be read before it is read.
+ *
+ * Every one of these is something the user is about to do, which is why they
+ * are `action` rather than the status colour of their outcome — a check-in is
+ * green once it has happened, not while it is still a button. The exception is
+ * the SOS alert, whose whole surface elsewhere is the emergency red, and which
+ * arrived here looking exactly like "share my location".
+ */
+const ACTION_ROLE: Record<ClientAction["type"], SemanticRole> = {
+  publish_share: "action",
+  view_envelope: "action",
+  create_public_link: "action",
+  sos_panic: "danger",
+  check_in: "action",
+};
+
 export function ActionConfirmCard({
   action,
   busy,
@@ -33,13 +54,14 @@ export function ActionConfirmCard({
   onCancel: () => void;
 }) {
   const Icon = ACTION_ICON[action.type] ?? MapPin;
+  const role = ACTION_ROLE[action.type] ?? "action";
   return (
     <div
       data-testid="action-confirm-card"
       className="rounded-2xl border border-primary/20 bg-primary/5 p-4"
     >
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 text-primary">
+        <span className={`mt-0.5 ${roleClasses(role).glyph}`}>
           <Icon className="h-5 w-5" aria-hidden />
         </span>
         <p className="flex-1 text-sm font-medium">{action.summary}</p>
@@ -48,6 +70,9 @@ export function ActionConfirmCard({
         <Button
           data-testid="action-confirm-accept"
           size="sm"
+          // Primary CTAs stay accent unless the action is genuinely
+          // destructive; "Send SMS" fires the emergency alert.
+          variant={role === "danger" ? "destructive" : "default"}
           isLoading={busy}
           onClick={onConfirm}
         >

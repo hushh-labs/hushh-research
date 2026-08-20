@@ -12,7 +12,8 @@ import {
 import { GeminiLogo } from "@/components/brand/gemini-logo";
 import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { Input, INPUT_CLASSNAME } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
@@ -240,8 +241,8 @@ export function GeminiRuntimeSettingsCard({
       // and a single cheerful string for both is how a product starts lying.
       toast.success(
         selection.agentScheduled
-          ? "Hussh managed Gemini is selected. Your private agent is being built."
-          : "Hussh managed Gemini is selected.",
+          ? "Using Hussh's AI. Your private agent is being built."
+          : "Using Hussh's AI.",
       );
     } catch (error) {
       setMode(previousMode);
@@ -517,12 +518,17 @@ export function GeminiRuntimeSettingsCard({
         <SettingsRow
         asChild
         leading={<GeminiLogo className="h-8 w-8" />}
-        title="Hussh managed Gemini"
-        description="Ready now with Hussh-managed Gemini. No personal key is needed."
+        title="Use Hussh's AI"
+        description="No key needed."
+        // The default we want people to take. Until it is chosen the row says
+        // so out loud, so the fast path is the obvious one rather than the one
+        // you work out by elimination.
         trailing={
           mode === "hushh_managed_vertex" && hasExplicitSelection ? (
             <Badge variant="secondary">Selected</Badge>
-          ) : null
+          ) : (
+            <Badge variant="outline">Recommended</Badge>
+          )
         }
         testId="profile-managed-runtime"
       >
@@ -536,11 +542,11 @@ export function GeminiRuntimeSettingsCard({
         <SettingsRow
         asChild
         leading={<GeminiLogo className="h-8 w-8" />}
-        title="Use my Gemini access"
+        title="Use my own key"
         description={
           requiresExplicitSelection && !vaultReady
-            ? "Add a Gemini key now. It stays only in this session until your private vault is ready."
-            : "Use a Google AI Studio key encrypted only in your private vault."
+            ? "Add your own Gemini key."
+            : "Your key stays locked to you."
         }
         trailing={
           mode === "byok" && hasExplicitSelection ? (
@@ -574,7 +580,31 @@ export function GeminiRuntimeSettingsCard({
                   invalidateCredentialValidation();
                 }}
                 disabled={isSaving || isRemoving || credentialValidation.status === "checking"}
-                className="ui-text-input-value h-10 w-full rounded-[var(--app-card-radius-compact)] border border-input bg-background px-3"
+                /* The SAME class the key field under it uses, so the two
+                   stacked controls finally agree on radius, height, inset,
+                   surface, border and focus ring — they were 24px/40px/12px
+                   against 14px/44px/14px.
+
+                   `appearance-none` is not cosmetic and is not optional. This
+                   is a native <select>, and WebKit — the engine inside the iOS
+                   app — draws `appearance: menulist` itself and OVERRIDES the
+                   author's border-radius and padding. Measured in WebKit: the
+                   select computes 5px against the input's 14px, and simply
+                   handing it the input's classes leaves it at 5px. Without this
+                   line the reported mismatch survives the fix on the only
+                   platform most of our users are on.
+
+                   `pr-9` then reserves the space the arrow used to get for
+                   free, now that we are drawing the control ourselves. */
+                className={cn(INPUT_CLASSNAME, "appearance-none bg-no-repeat pr-9")}
+                style={{
+                  // The disclosure arrow, drawn by us because appearance-none
+                  // removes the UA's. Inline because it is a data: URI keyed to
+                  // the label colour token, not a reusable utility.
+                  backgroundImage:
+                    "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'><path d='M1 1.5L6 6.5L11 1.5' stroke='%236e6e73' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/></svg>\")",
+                  backgroundPosition: "right 14px center",
+                }}
               >
                 <option value="developer_api">Google AI Studio</option>
                 <option value="vertex_api_key">
@@ -690,12 +720,10 @@ export function GeminiRuntimeSettingsCard({
           can only choose Gemini, so a list of future providers does not change that
           decision and competes with it (Restraint Charter: earn every element +
           progressive disclosure). The per-row badge is dropped in both contexts: it
-          only restated this group's own title, description, and the row's disabled
-          state (law 5). */}
+          only restated this group's own title and the row's disabled state (law 5). */}
       {!requiresExplicitSelection ? (
         <SettingsGroup
           title="Coming soon"
-          description="More model choices will appear here when they are ready."
           testId="profile-coming-soon-runtime"
           separatorInset
         >

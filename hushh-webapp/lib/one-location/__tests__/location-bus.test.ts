@@ -138,6 +138,23 @@ describe("LocationBus permission handling", () => {
 
     expect(LocationBus.getState().status).toBe("unavailable");
   });
+
+  it("recognises the native plugins' refusal, not just the browser's", async () => {
+    // iOS and Android reject with this exact sentence and no custom error
+    // name. The bus used to test the message against /denied|blocked/i, which
+    // this sentence fails — so on a phone a real refusal was filed as a
+    // transient failure. That is the one misclassification the degradation
+    // path cannot survive: it would hand the owner their last known position
+    // forever instead of the screen that gets them un-blocked.
+    mockLocation.getCurrentPosition.mockRejectedValue(
+      new Error("Location permission was not granted."),
+    );
+
+    const snapshot = await LocationBus.ensure();
+
+    expect(snapshot).toBeNull();
+    expect(LocationBus.getState().status).toBe("denied");
+  });
 });
 
 describe("LocationBus.watch", () => {
@@ -152,6 +169,17 @@ describe("LocationBus.watch", () => {
 
     stopB();
     expect(mockLocation.clearWatch).toHaveBeenCalledWith({ id: "watch-1" });
+  });
+
+  it("starts one watch even when both surfaces mount in the same tick", async () => {
+    // The Location page starts two watches — one to publish movement, one to
+    // draw the owner's own marker — and they mount together. Sequential
+    // subscribers are caught by the watchId guard; simultaneous ones are only
+    // caught by the in-flight guard, so this is the case the test above
+    // cannot see.
+    await Promise.all([LocationBus.watch(), LocationBus.watch()]);
+
+    expect(mockLocation.watchPosition).toHaveBeenCalledTimes(1);
   });
 
   it("ignores a repeated stop from the same subscriber", async () => {
@@ -218,5 +246,36 @@ describe("LocationBus.watch", () => {
 
     expect(LocationBus.getState().status).toBe("denied");
     expect(LocationBus.getState().error).toBe("blocked for this site");
+  });
+
+  it("reports a NATIVE mid-watch revocation, which carries no numeric code", async () => {
+    // The case above is browser-shaped: `code: 1` is
+    // GeolocationPositionError.PERMISSION_DENIED. Capacitor's native reject
+    // has no numeric code at all — CAPPluginCall.reject takes `String?` and
+    // HushhLocationPlugin passes none — so a watch-path check written as
+    // `error.code === 1` is dead on iOS and Android. It looked covered because
+    // both existing cases feed a `code`, so the old comparison kept them green.
+    //
+    // This is the shape the device actually sends: the exact message
+    // HushhLocationPlugin.failWatches() rejects with when authorization flips
+    // to .denied while a watch is live. It must read as a denial, not as the
+    // routine between-fixes noise the branch above deliberately swallows.
+    let emit: ((point: unknown, error: unknown) => void) | null = null;
+    mockLocation.watchPosition.mockImplementation(
+      async (_options: unknown, callback: (p: unknown, e: unknown) => void) => {
+        emit = callback;
+        return "watch-1";
+      },
+    );
+
+    await LocationBus.watch();
+    emit?.(POINT, null);
+    emit?.(null, new Error("Location permission was not granted."));
+
+    expect(LocationBus.getState().status).toBe("denied");
+    expect(LocationBus.getState().permission).toBe("denied");
+    expect(LocationBus.getState().error).toBe(
+      "Location permission was not granted.",
+    );
   });
 });
