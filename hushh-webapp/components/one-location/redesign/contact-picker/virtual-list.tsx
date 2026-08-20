@@ -33,6 +33,9 @@ export function VirtualContactList<T>({
   maxHeightClassName = "max-h-[52vh]",
   testId,
   ariaLabel,
+  presentation = "grouped",
+  scrollClassName,
+  itemClassName,
 }: {
   items: readonly T[];
   getKey: (item: T) => string;
@@ -40,6 +43,24 @@ export function VirtualContactList<T>({
   maxHeightClassName?: string;
   testId?: string;
   ariaLabel?: string;
+  /**
+   * How the rows are dressed.
+   *
+   * `"grouped"` is the picker's own look and stays the default, so the two
+   * surfaces already using this component are untouched: one card shell,
+   * hairlines between rows.
+   *
+   * `"cards"` is for a list whose rows are ALREADY cards. The Ask flow renders
+   * `TrustedPersonCard`, and wrapping those in the group shell would put a
+   * card inside a card and draw a divider between two things that already have
+   * their own edges. Windowing is the part worth sharing; the dressing is not.
+   */
+  presentation?: "grouped" | "cards";
+  /** Replaces the scroll container's classes in `cards` presentation, so a
+   *  caller keeps the scrollbar and spacing its screen already had. */
+  scrollClassName?: string;
+  /** Per-row wrapper classes in `cards` presentation. */
+  itemClassName?: string;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const virtualize = shouldVirtualizeList(items.length);
@@ -54,22 +75,36 @@ export function VirtualContactList<T>({
     getItemKey: (index) => getKey(items[index] as T),
   });
 
+  const asCards = presentation === "cards";
+  const Shell = asCards
+    ? ({ children }: { children: ReactNode }) => <>{children}</>
+    : ContactGroup;
+
   if (!virtualize) {
     return (
-      <ContactGroup>
-        <div data-testid={testId} aria-label={ariaLabel} role={ariaLabel ? "list" : undefined}>
+      <Shell>
+        <div
+          data-testid={testId}
+          aria-label={ariaLabel}
+          role={ariaLabel ? "list" : undefined}
+          className={asCards ? scrollClassName : undefined}
+        >
           {items.map((item) => (
-            <div key={getKey(item)} role={ariaLabel ? "listitem" : undefined}>
+            <div
+              key={getKey(item)}
+              role={ariaLabel ? "listitem" : undefined}
+              className={asCards ? itemClassName : undefined}
+            >
               {renderItem(item)}
             </div>
           ))}
         </div>
-      </ContactGroup>
+      </Shell>
     );
   }
 
   return (
-    <ContactGroup>
+    <Shell>
       <div
         ref={scrollRef}
         data-testid={testId}
@@ -81,7 +116,7 @@ export function VirtualContactList<T>({
           // Momentum scrolling in the Capacitor webview; without it a long
           // roster scrolls with a dead, non-native feel on iOS.
           "[-webkit-overflow-scrolling:touch]",
-          maxHeightClassName,
+          asCards ? scrollClassName : maxHeightClassName,
         )}
       >
         <div
@@ -98,7 +133,12 @@ export function VirtualContactList<T>({
                 ref={virtualizer.measureElement}
                 data-index={virtualItem.index}
                 role={ariaLabel ? "listitem" : undefined}
-                className="absolute left-0 top-0 w-full border-b border-[color:var(--app-separator)] last:border-b-0"
+                className={cn(
+                  "absolute left-0 top-0 w-full",
+                  asCards
+                    ? itemClassName
+                    : "border-b border-[color:var(--app-separator)] last:border-b-0",
+                )}
                 style={{ transform: `translateY(${virtualItem.start}px)` }}
               >
                 {renderItem(item)}
@@ -107,6 +147,6 @@ export function VirtualContactList<T>({
           })}
         </div>
       </div>
-    </ContactGroup>
+    </Shell>
   );
 }
