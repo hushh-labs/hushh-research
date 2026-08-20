@@ -16,6 +16,7 @@ import {
   Share2,
   ShieldCheck,
   Trash2,
+  Siren,
   UsersRound,
 } from "lucide-react";
 
@@ -394,11 +395,23 @@ export function CirclesSection({
                     circleRole.glyph,
                   )}
                 >
-                  <UsersRound className="h-5 w-5" />
+                  {/* A different glyph, not just a different name. The SMS
+                      Circle is the one row here that does something on its own
+                      -- SOS reads it -- and a person scanning the list should
+                      be able to tell it apart without reading. */}
+                  {circle.isSystem ? (
+                    <Siren className="h-5 w-5" />
+                  ) : (
+                    <UsersRound className="h-5 w-5" />
+                  )}
                 </span>
               }
               title={circle.name}
-              description={circleListMemberCountLabel(circle.memberCount)}
+              description={
+                circle.isSystem
+                  ? `Emergency SMS · ${circleListMemberCountLabel(circle.memberCount)}`
+                  : circleListMemberCountLabel(circle.memberCount)
+              }
               trailing={circle.role === "owner" ? "Owner" : "Member"}
               chevron
               onClick={() => onOpen(circle.id)}
@@ -1061,22 +1074,20 @@ export function CircleDetailFlow({
       await onInviteConnections(circle.id, inviteeUserIds);
       toast.success(
         inviteeUserIds.length === 1
-          ? "Circle invitation sent."
-          : `${inviteeUserIds.length} Circle invitations sent.`,
+          ? "Added to the Circle."
+          : `${inviteeUserIds.length} people added to the Circle.`,
       );
-      // Sending is the sheet's terminal action for any selection size, so close
+      // Adding is the sheet's terminal action for any selection size, so close
       // it and let the toast confirm. Bump the request ref first so a slower
       // in-flight eligibility load cannot repopulate a dismissed sheet, and
-      // reload the detail behind it to pick up the new pending invitations.
+      // reload the detail behind it to pick up the new members.
       peopleRequestRef.current += 1;
       setSelectedConnectionIds(new Set());
       setPeopleSearch("");
       setPeopleSheetOpen(false);
       await reload();
     } catch (error) {
-      toast.error(
-        circleFlowErrorMessage(error, "Could not send the invitation."),
-      );
+      toast.error(circleFlowErrorMessage(error, "Could not add them."));
       // Capacity or eligibility may have changed while the sheet was open.
       // Reconcile against the server before another tap so stale selections
       // are trimmed rather than repeatedly submitting a known conflict.
@@ -1431,8 +1442,17 @@ export function CircleDetailFlow({
               <SheetHeader className="text-left">
                 <SheetTitle>Add people to {circle.name}</SheetTitle>
                 <SheetDescription>
-                  Choose existing connections. They join only after accepting
-                  the Circle invitation; no second Connect request is needed.
+                  {/* No Circle sends invitations any more. Only existing
+                      connections can be picked here, and two people who are
+                      already connected have already agreed to know each other
+                      -- so the membership is written on tap and the person is
+                      notified. Saying "they join after accepting" would
+                      describe a step that no longer happens, on the screen
+                      where believing it means thinking you still have time to
+                      change your mind. */}
+                  {circle.isSystem
+                    ? "Choose existing connections. They are added straight away, so SMS alerts reach them immediately."
+                    : "Choose existing connections. They are added straight away and told you added them."}
                 </SheetDescription>
               </SheetHeader>
 
@@ -1476,8 +1496,8 @@ export function CircleDetailFlow({
                           title="Your connections"
                           description={
                             remainingCapacity === 1
-                              ? "You can invite 1 more person right now."
-                              : `You can invite ${remainingCapacity} more people right now.`
+                              ? "You can add 1 more person right now."
+                              : `You can add ${remainingCapacity} more people right now.`
                           }
                           testId="one-location-circle-eligible-connections"
                         >
@@ -1543,7 +1563,7 @@ export function CircleDetailFlow({
                         <EmptyState
                           title={
                             remainingCapacity === 0
-                              ? "No invitation slots available"
+                              ? "No room left in this Circle"
                               : peopleSearch.trim()
                                 ? "No matching connections"
                                 : "No connections to add"
@@ -1612,7 +1632,7 @@ export function CircleDetailFlow({
                   )}
                 >
                   {selectedConnectionIds.size
-                    ? `Invite ${selectedConnectionIds.size} ${
+                    ? `Add ${selectedConnectionIds.size} ${
                         selectedConnectionIds.size === 1 ? "person" : "people"
                       }`
                     : "Select people"}
