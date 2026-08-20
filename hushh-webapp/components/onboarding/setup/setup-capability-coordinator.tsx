@@ -603,6 +603,8 @@ type SetupCapabilityTerminalFooterProps = {
   pending?: boolean;
   skipLabel?: string;
   finishLabel?: string;
+  /** Override the default supporting text. Pass `null` to suppress it entirely. */
+  supportingText?: string | null;
 };
 
 /** Shared explicit Finish/Skip boundary, not a route query or header back button. */
@@ -613,6 +615,7 @@ export function SetupCapabilityTerminalFooter({
   pending = false,
   skipLabel,
   finishLabel,
+  supportingText: supportingTextOverride,
 }: SetupCapabilityTerminalFooterProps) {
   const operationallyReady =
     isOperationallyReady || coordinator.operationallyReady;
@@ -641,7 +644,9 @@ export function SetupCapabilityTerminalFooter({
           : `Skip ${capabilityId} setup for now and return to setup.`
       }
       supportingText={
-        operationallyReady
+        supportingTextOverride !== undefined
+          ? (supportingTextOverride ?? undefined)
+          : operationallyReady
           ? "This capability is ready. You can return to setup."
           : "You can return to this setup any time."
       }
