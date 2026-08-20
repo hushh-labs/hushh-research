@@ -103,6 +103,20 @@ if has_match '^hushh-webapp/(components/one-location/|__tests__/components/one-l
   ran=1
 fi
 
+# The accent identity.
+#
+# `lib/theme/accent.ts` owns the one switchable accent, and now also
+# `resolvedAccentHex()` -- the accent as a LITERAL, for a consumer that cannot
+# resolve a CSS custom property at all. The static token scan in Web Core
+# catches a raw hex in a component; nothing ran the behaviour of the resolver
+# those components now depend on, and getting it wrong is silent: an
+# unparseable colour reaching @capacitor/google-maps draws Google's own default
+# on web and flat blue on iOS, both of which look deliberate.
+if has_match '^hushh-webapp/(lib/theme/|__tests__/lib/theme-accent)'; then
+  run_check "accent identity" npm run verify:accent
+  ran=1
+fi
+
 # The shared bottom-sheet primitive.
 #
 # `components/ui/sheet.tsx` is imported by ten surfaces and matched NO pack at

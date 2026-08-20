@@ -64,6 +64,7 @@ import {
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
 import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
+import { resolvedAccentHex } from "@/lib/theme/accent";
 import {
   firstNameFromLabel,
   layoutMapNameLabels,
@@ -150,41 +151,19 @@ const NEARBY_CIRCLE_STROKE_WEIGHT = 1.5;
 const NEARBY_CONNECTOR_STROKE_OPACITY = 0.45;
 const NEARBY_CONNECTOR_STROKE_WEIGHT = 2;
 
-/** Last-resort accent, matching `--app-accent` in app/globals.css. */
-const MAP_ACCENT_FALLBACK_HEX = "#007aff";
-
 /**
- * The accent, as something a map can actually paint.
+ * The check-in overlays go through `@capacitor/google-maps`, and neither
+ * renderer resolves a CSS custom property: the web shim hands the string
+ * straight to `new google.maps.Circle`, which silently falls back to its own
+ * defaults on anything unparseable — a black ring over a heavy grey disc, which
+ * is what shipped — and the iOS plugin does `UIColor(hex:) ?? .blue`. So the
+ * previous `"var(--app-accent)"` and `"var(--app-accent-surface)"` never once
+ * drew in the app's accent, and no opacity asked for here reached the fill it
+ * actually produced.
  *
- * These overlays go through `@capacitor/google-maps`, and neither renderer
- * resolves CSS custom properties: the web shim hands the string straight to
- * `new google.maps.Circle`, which silently falls back to its own defaults on
- * an unparseable colour (a black ring over a heavy grey disc), and the iOS
- * plugin does `UIColor(hex:) ?? .blue`. So the previous `"var(--app-accent)"`
- * and `"var(--app-accent-surface)"` never once drew in the app's accent —
- * they drew Google's default on web and flat blue on device, which is why the
- * boundary dominated the screen no matter what opacity was asked for.
- *
- * Reading the computed value keeps the alternate accent theme working, where
- * the token is `#d4a574` rather than the system blue.
+ * `resolvedAccentHex()` reads the computed token, so the accent preference
+ * keeps working on this surface instead of being frozen to one palette.
  */
-function mapAccentHex(): string {
-  if (typeof window === "undefined" || typeof document === "undefined") {
-    return MAP_ACCENT_FALLBACK_HEX;
-  }
-  try {
-    const resolved = getComputedStyle(document.documentElement)
-      .getPropertyValue("--app-accent")
-      .trim();
-    // Only a literal colour is useful here. A token that resolves to another
-    // var(), or to nothing during first paint, must not reach the bridge.
-    return /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(resolved)
-      ? resolved
-      : MAP_ACCENT_FALLBACK_HEX;
-  } catch {
-    return MAP_ACCENT_FALLBACK_HEX;
-  }
-}
 
 const TRAY_COLLAPSED_HEIGHT_PX = 56; // 3.5rem, the collapsed pill.
 // The section's own `border` (1px top + 1px bottom) is border-box, so it
@@ -1866,7 +1845,7 @@ export function LocationImmersiveMap({
       }
 
       const active = Boolean(placeFocus?.active);
-      const accent = mapAccentHex();
+      const accent = resolvedAccentHex();
       const circle: Circle = {
         center: circleCenter,
         radius: NEARBY_CHECK_IN_RADIUS_METERS,
