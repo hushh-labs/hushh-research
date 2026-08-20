@@ -265,7 +265,7 @@ export function SwipeViews({
   const renderedHeightRef = useRef<number | null>(null);
   const heightFloorRef = useRef<number | null>(null);
   const measuredValueRef = useRef<string | null>(null);
-  const jumpReportFrameRef = useRef<number | null>(null);
+  const jumpReportTimerRef = useRef<number | null>(null);
   /**
    * A pane we moved to on purpose and told the consumer about, while its
    * `activeValue` still names the pane we came from.
@@ -293,9 +293,9 @@ export function SwipeViews({
 
   useEffect(
     () => () => {
-      if (jumpReportFrameRef.current !== null) {
-        window.cancelAnimationFrame(jumpReportFrameRef.current);
-        jumpReportFrameRef.current = null;
+      if (jumpReportTimerRef.current !== null) {
+        window.clearTimeout(jumpReportTimerRef.current);
+        jumpReportTimerRef.current = null;
       }
     },
     [],
@@ -545,16 +545,20 @@ export function SwipeViews({
    * disagreed with what was on screen until an unrelated navigation caught up
    * (measured on WebKit: ~700ms before, ~6s after).
    *
-   * It is reported on the NEXT FRAME, which is where Embla's own `select`
-   * lands, and that timing is load-bearing rather than incidental. A shell tab
-   * press dispatches its selection synchronously and then opens its own
-   * navigation; reporting from inside that dispatch put a second
-   * `requestNavigation` for the same destination ahead of it in the same tick,
-   * and the coordinator supersedes rather than coalesces an intent that has
-   * already committed. Measured: the tap then produced no history write at all
-   * on Chromium. One frame later the tick is over and the report is either a
-   * no-op or the only navigation, which is the same shape the animated path
-   * has always had.
+   * It is reported after the current task, and that timing is load-bearing
+   * rather than incidental. A shell tab press dispatches its selection
+   * synchronously and then opens its own navigation; reporting from inside
+   * that dispatch put a second `requestNavigation` for the same destination
+   * ahead of it in the same tick, and the coordinator supersedes rather than
+   * coalesces an intent that has already committed. Measured: the tap then
+   * produced no history write at all on Chromium.
+   *
+   * A timer, not an animation frame. The only requirement is to be out of the
+   * current tick -- but `requestAnimationFrame` also waits for a paint, and a
+   * page that is not being painted never delivers one. Measured against the
+   * deployed build: in a throttled context rAF never fired, so the report
+   * never ran and the tab press did not commit at all. A macrotask still runs
+   * when frames are not being produced.
    */
   const scrollToSelection = useCallback(
     (api: EmblaCarouselType, index: number) => {
@@ -570,14 +574,14 @@ export function SwipeViews({
             value: nextValue,
             awaitedFrom: activeValueRef.current,
           };
-          if (jumpReportFrameRef.current !== null) {
-            window.cancelAnimationFrame(jumpReportFrameRef.current);
+          if (jumpReportTimerRef.current !== null) {
+            window.clearTimeout(jumpReportTimerRef.current);
           }
-          jumpReportFrameRef.current = window.requestAnimationFrame(() => {
-            jumpReportFrameRef.current = null;
+          jumpReportTimerRef.current = window.setTimeout(() => {
+            jumpReportTimerRef.current = null;
             onSelectionChange?.(nextValue);
             onSelectionCommit?.(nextValue);
-          });
+          }, 0);
         }
         return;
       }

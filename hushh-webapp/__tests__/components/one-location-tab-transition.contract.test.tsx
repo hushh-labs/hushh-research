@@ -490,10 +490,17 @@ describe("Location tab transition — Reduce Motion", () => {
 
     pressTab("people");
 
-    // Reported one frame later, where Embla's own `select` would have landed.
-    // Reporting inside the tap's own dispatch put a second navigation request
-    // ahead of the strip's in the same tick, and the tap then produced no
-    // history write at all.
+    // Nothing reported yet: the report deliberately leaves the tap's own tick.
+    expect(onSelectionChange).not.toHaveBeenCalled();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // Reported after the current task, not inside the tap's own dispatch:
+    // reporting synchronously put a second navigation request ahead of the
+    // strip's in the same tick and the tap produced no history write at all.
+    // A timer rather than an animation frame, because a page that is not
+    // being painted never delivers a frame and the report would never run.
     expect(onSelectionChange).toHaveBeenCalledWith("people");
     expect(onSelectionCommit).toHaveBeenCalledWith("people");
   });
