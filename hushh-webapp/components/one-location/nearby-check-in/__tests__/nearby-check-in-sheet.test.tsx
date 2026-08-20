@@ -238,10 +238,10 @@ describe("NearbyCheckInSheet", () => {
 
     // The panel used to pass `dragDismiss={false}`, which switched the gesture
     // off AND removed the grab handle with it — a phone bottom sheet with no
-    // affordance to put it away. `"handle"` restores the handle while keeping
-    // body drag off, which this sheet genuinely needs: it owns an inner
-    // scroller, so its own scrollTop never leaves 0 and a body-drag rule would
-    // read every downward swipe over the place list as a dismissal.
+    // affordance to put it away. `contentDragDismiss={false}` keeps the handle
+    // while leaving body drag off, which this sheet genuinely needs: it owns
+    // an inner scroller, so its own scrollTop never leaves 0 and a body-drag
+    // rule would read every downward swipe over the place list as a dismissal.
     const handle = document.querySelector('[data-slot="sheet-drag-handle"]');
     expect(handle).toBeInTheDocument();
     expect(handle).toHaveAttribute("aria-label", "Drag down to close");

@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -20,11 +21,15 @@ import {
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
 import {
+  READY_CODE_CLASSNAME,
   READY_MAP_CLASSNAME,
+  READY_MAP_SHORT_WINDOW_CSS,
   READY_PANEL_CLASSNAME,
   READY_SURFACE_CLASSNAME,
 } from "@/components/one-location/onboarding/ready-panel-layout";
+import { resolveOnboardingFinaleMapPoint } from "@/lib/one-location/onboarding-map-point";
 import { normalizeCircleCode } from "@/lib/one-location/pending-circle-join";
+import { useCurrentLocation } from "@/lib/one-location/use-current-location";
 import { useGoogleMaps } from "@/lib/one-location/use-google-maps";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
@@ -1663,6 +1668,7 @@ function ContactsScreen({
 function ReadyScreen({
   currentUserName: _currentUserName,
   mapPoint,
+  mapEmptyLabel,
   invite,
   loading,
   error,
@@ -1690,6 +1696,8 @@ function ReadyScreen({
 }: {
   currentUserName: string;
   mapPoint: { lat: number; lng: number } | null;
+  /** What the map band says when there is no coordinate to draw. */
+  mapEmptyLabel: string;
   invite: OnboardingCircleInvite | null;
   loading: boolean;
   error: string | null;
@@ -1730,6 +1738,7 @@ function ReadyScreen({
           layout every map product converges on for the same reason. */}
       <OnboardingLiveMap
         point={mapPoint}
+        emptyLabel={mapEmptyLabel}
         className={READY_MAP_CLASSNAME}
       />
 
@@ -1757,39 +1766,34 @@ function ReadyScreen({
         data-testid="one-location-onboarding-ready-panel"
       >
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 pt-6 md:px-7 md:pb-5 md:pt-7">
+          {/* The headline is the map's, so it only gets to make the claim when
+              there is a map. Reaching this screen with Location declined is an
+              ordinary outcome -- the features screen offers "Not now" -- and
+              telling that person they are on a map, over a panel that says the
+              map is unavailable, is the one thing this screen must not do. */}
           <h1
             className="ui-text-agent-title pb-1 leading-[1.15] text-[#151b26] dark:!text-[#f5f7fb]"
             data-one-ready-title
           >
-            You&apos;re on the map.
+            {mapPoint ? "You're on the map." : "You're all set."}
           </h1>
           <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
             Private until you share.
           </p>
 
-        <p
-          className="mt-6 flex items-center gap-2 text-[14px] font-medium leading-5 text-[#5c626c] dark:text-[#aeb8c7]"
-          data-testid="onboarding-ready-empty-seat"
-          data-one-ready-seat
-        >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-[color:var(--app-accent)]/45">
-            <UserPlus
-              className="h-3.5 w-3.5 text-[color:var(--app-accent)]/70"
-              strokeWidth={2.2}
-            />
-          </span>
-          Your people show up here once they join.
-        </p>
-
+        {/* "Your people show up here once they join." used to sit here, with a
+            dashed empty-seat avatar beside it. The map above and the invite
+            card below already say it between them, and a screen a person reads
+            in three seconds cannot afford a sentence that only restates its own
+            layout. */}
         <div
-          className="mt-5 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-white/[0.08] dark:bg-[#1c212a]"
+          className="mt-6 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-white/[0.08] dark:bg-[#1c212a]"
           data-testid="one-location-onboarding-invite-card"
           data-one-ready-code
         >
           {loading ? (
             <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[#8d99a8]">
-              <Loader2 className="h-5 w-5 animate-spin" /> Preparing your circle
-              code
+              <Loader2 className="h-5 w-5 animate-spin" /> Getting your code
             </div>
           ) : error ? (
             <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
@@ -1806,17 +1810,27 @@ function ReadyScreen({
             </div>
           ) : invite ? (
             <>
+              {/* The circle's name, not a sentence wrapped around it. "Bring
+                  your people to Ankit's Circle" spent five words introducing
+                  the two things directly under it -- a code and a Share
+                  button -- which the card's own shape already introduces. */}
               <p className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[#aeb8c7]">
-                Bring your people to {invite.circleName}
+                {invite.circleName}
               </p>
               <p
-                className="mt-2 select-all whitespace-nowrap font-mono text-[clamp(20px,6vw,28px)] font-bold uppercase leading-[1.15] tracking-[0.12em] text-[#151b26] dark:text-[#f5f7fb]"
+                className={READY_CODE_CLASSNAME}
                 data-testid="one-location-onboarding-invite-code"
+                data-ui-contract="required-copy"
+                data-ui-id="onboarding-invite-code"
+                data-ui-truncation="forbid"
               >
                 {formattedCode}
               </p>
+              {/* Kept, shortened. The expiry changes what the person does with
+                  the code, so it stays; "You can get a fresh one any time" is a
+                  reassurance about a screen they have not reached yet. */}
               <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[#8d99a8]">
-                Expires in 72 hours. You can get a fresh one any time.
+                Expires in 72 hours
               </p>
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <button
@@ -1843,8 +1857,10 @@ function ReadyScreen({
             </>
           ) : (
             <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[#8d99a8]">
-              Your circle code will be ready in One. You can share it any time
-              from your circle.
+              {/* Where to get it is the button at the bottom of this screen,
+                  which already says "Open One Location". Saying it again here
+                  is the paragraph this card used to be. */}
+              Your code isn&apos;t ready yet.
             </p>
           )}
         </div>
@@ -1860,8 +1876,8 @@ function ReadyScreen({
                   className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
                   strokeWidth={2.5}
                 />
-                You&apos;ll join {joinPreview?.name ?? "their circle"} as soon as
-                One finishes setting up.
+                You&apos;ll join {joinPreview?.name ?? "their circle"} after
+                setup.
               </p>
             ) : joinPreview ? (
               <div
@@ -1885,7 +1901,7 @@ function ReadyScreen({
                 </p>
                 {joinPreview.alreadyMember ? (
                   <p className="mt-3 text-[13px] leading-[18px] text-[#73777f] dark:text-[#aeb8c7]">
-                    You&apos;re already in this circle.
+                    Already in this circle.
                   </p>
                 ) : (
                   <button
@@ -1915,8 +1931,11 @@ function ReadyScreen({
               </div>
             ) : (
               <details className="group" data-testid="onboarding-join-circle-toggle" open={Boolean(joinCode)}>
+                {/* An action, not a question. "Someone sent you a code?" asks
+                    the person to confirm a situation before it offers to do
+                    anything about it; this names what tapping does. */}
                 <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]">
-                  Someone sent you a code?
+                  Join with a code
                 </summary>
                 <div className="mt-3 flex gap-2">
                   <input
@@ -1955,13 +1974,17 @@ function ReadyScreen({
         ) : null}
         </div>
 
-        <footer className="relative z-10 shrink-0 bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 dark:bg-[#14171d] md:px-7 md:pb-7">
+        {/* The SAME surface as the panel it sits inside, by token rather than
+            by a second hand-picked hex. When the panel moved to the semantic
+            token and this did not, dark mode showed the panel at #1c1c1e and
+            its own footer at #14171d -- one card with a seam across it. */}
+        <footer className="relative z-10 shrink-0 bg-[color:var(--app-primary-surface)] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 md:px-7 md:pb-7">
           {settlementRetryCount > 0 ? (
             <p
               className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]"
               role="status"
             >
-              That didn&apos;t save. Tap again to finish setting up Location.
+              That didn&apos;t save. Tap again.
             </p>
           ) : null}
           {/* Always the completion CTA. A code that failed to load is not a
@@ -1976,24 +1999,14 @@ function ReadyScreen({
 
       <style>{`
         [data-one-ready-title] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; }
-        [data-one-ready-seat] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 80ms; }
         [data-one-ready-code] { animation: oneReadyRise 560ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 140ms; }
-        /* 34dvh of map is right on a phone, which is tall. A 1366x768 laptop is
-           shorter than an iPhone, and there the same fraction pushed the join
-           link below the fold -- so the last thing on the screen needed a
-           scroll to discover it existed. The map yields the height instead,
-           since it is atmosphere and the link is a way in. Phones are past 820px
-           and keep the taller band. */
-        @media (max-width: 767px) and (max-height: 820px) {
-          [data-testid="onboarding-live-map"] { height: 24dvh; min-height: 150px; }
-        }
+        ${READY_MAP_SHORT_WINDOW_CSS}
         @keyframes oneReadyRise {
           from { opacity: 0; transform: translateY(14px); }
           to   { opacity: 1; transform: translateY(0); }
         }
         @media (prefers-reduced-motion: reduce) {
           [data-one-ready-title],
-          [data-one-ready-seat],
           [data-one-ready-code] {
             animation: none;
             opacity: 1;
@@ -2050,6 +2063,38 @@ export function OneLocationOnboardingFlow({
   preconnect("https://maps.googleapis.com");
   preconnect("https://maps.gstatic.com");
   useGoogleMaps({ enabled: true });
+
+  /**
+   * The account's position, from the one place the whole app already keeps it.
+   *
+   * `auto` resolves a fix on mount ONLY when the OS has already granted
+   * permission; it never triggers a first prompt, which matters more here than
+   * anywhere -- iOS grants exactly one Core Location alert per install, and
+   * this flow's entire second screen exists to spend it deliberately.
+   *
+   * Subscribed here rather than in the Location page because the bus updates
+   * as the device reports, and the page is a very large tree that has no reason
+   * to re-render for a coordinate only the finale reads. The onboarding overlay
+   * is mounted for a minute at most.
+   */
+  const { snapshot: deviceSnapshot } = useCurrentLocation({ auto: true });
+
+  /**
+   * Where the finale's camera actually goes.
+   *
+   * `mapPoint` is the page's answer from the three sources it owns. All three
+   * are empty on ordinary runs -- someone who skipped the save-place step, or
+   * granted Location and walked straight through -- and the screen then drew a
+   * picture of a map the person was not on. The bus is the last resort.
+   */
+  const finaleMapPoint = useMemo(
+    () =>
+      resolveOnboardingFinaleMapPoint({
+        onboarding: mapPoint,
+        device: deviceSnapshot,
+      }),
+    [deviceSnapshot, mapPoint],
+  );
 
   const [screen, setScreen] = useState<OnboardingScreen>(() =>
     initialScreen(startAt),
@@ -2112,6 +2157,18 @@ export function OneLocationOnboardingFlow({
   const locationGranted =
     locationPermission?.state === "granted" &&
     locationPermission.locationServicesEnabled !== false;
+  /**
+   * The states where asking again cannot help: refused, held by device policy,
+   * or the phone's Location Services switch is off. `prompt` and a null (not
+   * yet read) permission are deliberately NOT blocked -- those are the states
+   * where the answer is still coming.
+   *
+   * Read on the finale only, to name the right reason for an empty map band.
+   */
+  const locationBlocked =
+    locationPermission?.state === "denied" ||
+    locationPermission?.state === "restricted" ||
+    locationPermission?.locationServicesEnabled === false;
   const notificationsGranted = notificationDeliveryMode === "push_active";
 
   const requestMissingPermissions = useCallback(() => {
@@ -2190,7 +2247,9 @@ export function OneLocationOnboardingFlow({
       setCircleInviteError(
         error instanceof Error && error.message
           ? error.message
-          : "We couldn't prepare your circle code. Try again.",
+          // The state, not the apology. "Try again" is the button directly
+          // under this line, so the sentence does not have to say it too.
+          : "Couldn't get your code.",
       );
     } finally {
       circleInviteInFlightRef.current = false;
@@ -2555,9 +2614,9 @@ export function OneLocationOnboardingFlow({
             full-size instance renders here, invisibly, so the tiles are in the
             browser cache before the screen that shows them exists. It unmounts
             as the finale mounts, so there is never a second live map. */}
-        {screen === "contacts" && mapPoint ? (
+        {screen === "contacts" && finaleMapPoint ? (
           <OnboardingLiveMap
-            point={mapPoint}
+            point={finaleMapPoint}
             className="pointer-events-none absolute inset-0 -z-10 opacity-0"
           />
         ) : null}
@@ -2579,7 +2638,12 @@ export function OneLocationOnboardingFlow({
         {screen === "invite" ? (
           <ReadyScreen
             currentUserName={currentUserName}
-            mapPoint={mapPoint}
+            mapPoint={finaleMapPoint}
+            // Two different reasons produce an empty map band, and only the
+            // caller can tell them apart. "Map unavailable" in front of someone
+            // who refused Location blames the wrong thing and hides the one
+            // thing they could change.
+            mapEmptyLabel={locationBlocked ? "Location is off" : "Map unavailable"}
             invite={circleInvite}
             loading={circleInviteLoading}
             error={circleInviteError}

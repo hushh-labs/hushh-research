@@ -1,40 +1,37 @@
+// @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
 /**
- * Which drag surfaces a bottom sheet exposes.
+ * The close button and the drag handle share the top of every bottom sheet.
  *
- * `SheetContent` has two: the grab handle, and the content body. The body rule
- * engages when `surface.scrollTop <= 0`, which is exactly right for a sheet
- * that scrolls itself — you can only pull it down once you are already at the
- * top of it.
+ * The handle is a full-width `z-[5] touch-none` band occupying y=0..44. The
+ * close button sits at `top-4` as a 32px circle whose hit region is widened to
+ * the platform's 44px minimum by `after:-inset-1.5` — so it starts at y=10 and
+ * three quarters of it lies underneath the handle. Without an explicit layer
+ * the handle wins on stacking order and swallows those taps, on every sheet
+ * that shows both: the close button looks fine and does nothing for most of
+ * its own target.
  *
- * It is exactly wrong for a sheet that owns an INNER scroll container. That
- * sheet's own `scrollTop` is pinned at 0 forever, so every downward swipe over
- * its content reads as a dismissal and the list inside never scrolls at all.
- * The nearby Check-In panel is one of those: a fixed header, then a
- * `flex-1 overflow-y-auto` body holding the place list.
+ * `shared-sheet-consumers.contract.test.tsx` owns everything else about this
+ * primitive — the `contentDragDismiss` default, `useSheetDragHandle`, the
+ * consumer list, and the real drag mechanics. This file is only the layering,
+ * which nothing else asserts.
  *
- * `dragDismiss="handle"` is the third state between "drag anywhere" and the
- * old workaround of switching the gesture off entirely — which also removed
- * the handle, leaving a phone bottom sheet with no grab affordance at all.
- *
- * WHAT THIS FILE DOES NOT DO: drive the gesture. JSDOM performs no layout and
- * no real pointer capture, and the body-drag path does not engage there even
- * on a default sheet — so a "swiping the body did not dismiss" assertion would
- * pass vacuously and prove nothing. What is asserted here is the wiring, which
- * is the part that actually changed; the drag mechanics themselves are the
- * pre-existing hook and are untouched.
+ * It exists as its own file because it is also the reason
+ * `components/ui/sheet.tsx` now has a CI lane at all: before
+ * `verify:bottom-sheet`, a change confined to the one component that decides
+ * whether ten surfaces can be dismissed ran no test on a pull request.
  */
 
-function renderSheet(dragDismiss: boolean | "handle") {
+function renderSheet(contentDragDismiss: boolean) {
   render(
     <Sheet open modal={false} onOpenChange={vi.fn()}>
       <SheetContent
         side="bottom"
-        dragDismiss={dragDismiss}
+        contentDragDismiss={contentDragDismiss}
         showOverlay={false}
         className="gap-0 overflow-hidden px-0"
       >
@@ -52,38 +49,24 @@ function renderSheet(dragDismiss: boolean | "handle") {
 const dragHandle = () =>
   document.querySelector('[data-slot="sheet-drag-handle"]');
 
-describe("bottom sheet drag surfaces", () => {
-  it('gives a "handle" sheet the grab affordance a phone expects', () => {
-    renderSheet("handle");
+describe("the close button and the drag handle", () => {
+  it("layers the close button above the handle it overlaps", () => {
+    renderSheet(false);
+    const close = screen.getByRole("button", { name: "Close" });
+    expect(close.className).toContain("z-10");
+    expect(dragHandle()?.className).toContain("z-[5]");
+  });
+
+  it("keeps the handle for a sheet that only opts out of body drag", () => {
+    // The Check-In panel's shape: it cannot use body drag, because it owns an
+    // inner scroller and its own scrollTop never leaves 0. Opting out of that
+    // must not cost it the grab affordance as well — `dragDismiss={false}`
+    // would have removed both.
+    renderSheet(false);
     const handle = dragHandle();
     expect(handle).toBeInTheDocument();
     expect(handle).toHaveAttribute("aria-label", "Drag down to close");
     // Phone-only: from `sm` the same component is a side rail with no handle.
     expect(handle?.className).toContain("sm:hidden");
-  });
-
-  it("still renders the handle for a default bottom sheet", () => {
-    renderSheet(true);
-    expect(dragHandle()).toBeInTheDocument();
-  });
-
-  it("renders no handle at all when the gesture is switched off", () => {
-    renderSheet(false);
-    // This is what the Check-In panel used to be. A bottom sheet with no
-    // handle reads to a phone user as a card that arrived, not a sheet they
-    // can put away.
-    expect(dragHandle()).toBeNull();
-  });
-
-  it("keeps the close button above the handle it overlaps", () => {
-    renderSheet("handle");
-    // The handle is a full-width `z-[5] touch-none` band across the top 44px,
-    // and the close button's 44px hit region (`after:-inset-1.5` on a 32px
-    // circle at `top-4`) reaches up into it from y=10. Without an explicit
-    // layer the handle is painted over three quarters of the close target and
-    // swallows its taps — on every bottom sheet that shows both.
-    const close = screen.getByRole("button", { name: "Close" });
-    expect(close.className).toContain("z-10");
-    expect(dragHandle()?.className).toContain("z-[5]");
   });
 });

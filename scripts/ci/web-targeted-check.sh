@@ -105,12 +105,16 @@ fi
 
 # The shared bottom-sheet primitive.
 #
-# `components/ui/sheet.tsx` is imported by ~30 surfaces and matched NO pack at
+# `components/ui/sheet.tsx` is imported by ten surfaces and matched NO pack at
 # all, so a change to the one component that decides whether a phone sheet can
 # be dragged away -- and whether its close button is reachable underneath the
 # drag handle -- ran zero tests on a pull request. Both of those have been real
 # defects.
-if has_match '^hushh-webapp/(components/ui/sheet\.tsx|__tests__/components/bottom-sheet-drag-dismiss)'; then
+#
+# `shared-sheet-consumers.contract.test.tsx` is reachable from the One Location
+# pack too, but only when a file under components/one-location/ changes. A
+# change confined to the primitive itself reaches it only through here.
+if has_match '^hushh-webapp/(components/ui/sheet\.tsx|__tests__/components/(bottom-sheet-drag-dismiss|shared-sheet-consumers))'; then
   run_check "bottom sheet" npm run verify:bottom-sheet
   ran=1
 fi

@@ -1560,10 +1560,15 @@ export function NearbyCheckInSheet({
         // `scrollTop` never leaves 0 — and the body-drag rule engages on
         // exactly that condition. Enabled for the body, every downward swipe
         // over the place list would have dismissed the sheet instead of
-        // scrolling it. Restricted to the handle, the phone gets the native
-        // grab-and-pull it expects, the list scrolls, and dismissal still
-        // leaves the map standing with its "Check in" pill to re-open.
-        dragDismiss="handle"
+        // scrolling it. `contentDragDismiss={false}` leaves the handle as the
+        // only drag surface: the phone gets the native grab-and-pull it
+        // expects, the list scrolls, and dismissal still leaves the map
+        // standing with its "Check in" pill to re-open.
+        //
+        // The panel used to pass `dragDismiss={false}`, which switched the
+        // gesture off AND took the grab handle with it — a phone bottom sheet
+        // with no affordance to put it away.
+        contentDragDismiss={false}
         showOverlay={false}
         onInteractOutside={(event) => event.preventDefault()}
         // The map is a native view below the WebView, so a tap that lands on it

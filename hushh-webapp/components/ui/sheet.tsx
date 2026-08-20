@@ -84,6 +84,31 @@ function SheetOverlay({
   )
 }
 
+/**
+ * The pointer handlers that make an element behave as the sheet's grabber.
+ *
+ * Exposed through context so a sheet whose header ALREADY carries a grabber --
+ * or something standing in for one, like a slide indicator -- can be dragged
+ * by that row instead of stacking a second 44px handle above it. Attach all
+ * four to the SAME element: the drag takes pointer capture on the element it
+ * started from and releases it on the same one.
+ */
+type SheetDragHandleProps = {
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void
+  onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void
+  onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void
+  onPointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void
+}
+
+const SheetDragHandleContext = React.createContext<SheetDragHandleProps | null>(
+  null,
+)
+
+/** Null unless the surrounding sheet is a draggable bottom sheet. */
+function useSheetDragHandle(): SheetDragHandleProps | null {
+  return React.useContext(SheetDragHandleContext)
+}
+
 type SheetContentProps =
   React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content> & {
     side?: "top" | "right" | "bottom" | "left"
@@ -91,18 +116,20 @@ type SheetContentProps =
     /**
      * Enables the native-style downward drag dismissal used by mobile bottom
      * sheets. Bottom sheets opt in by default; other sides are unaffected.
-     *
-     * `"handle"` is the same gesture, restricted to the grab handle.
-     *
-     * Body drag engages when `surface.scrollTop <= 0`, which is the correct
-     * test for a sheet that scrolls itself. A sheet that instead owns an INNER
-     * scroll container keeps its own `scrollTop` at 0 permanently, so every
-     * downward swipe over its content would read as a dismissal and the list
-     * inside would never scroll. Such a sheet passes `"handle"`: the handle
-     * still drags, so the phone keeps the gesture it expects, and the content
-     * underneath keeps scrolling.
      */
-    dragDismiss?: boolean | "handle"
+    dragDismiss?: boolean
+    /**
+     * Lets a downward drag that starts anywhere in the sheet body dismiss it.
+     *
+     * On by default, because most sheets ARE their own scroll box: the drag
+     * only engages once that box is already scrolled to the top, so it cannot
+     * steal a scroll. A sheet that is a fixed frame with its own inner
+     * scroller has no such guard -- the outer surface never scrolls, so its
+     * `scrollTop` is permanently 0 and every downward drag inside the body
+     * would engage and `preventDefault()` the scroll it was trying to make.
+     * Those sheets pass `false` and keep the handle as the only drag surface.
+     */
+    contentDragDismiss?: boolean
     /** Renders the accessible drag affordance above a draggable bottom sheet. */
     showDragHandle?: boolean
     /** Optional surface-specific scrim treatment for a semantic app sheet. */
@@ -133,6 +160,7 @@ function SheetContent(
     showCloseButton = true,
     showOverlay = true,
     dragDismiss = true,
+    contentDragDismiss = true,
     showDragHandle,
     overlayClassName,
     onPointerDown,
@@ -152,13 +180,25 @@ function SheetContent(
     onContentPointerMove,
     onContentPointerEnd,
   } = useBottomSheetDragDismiss({
-    enabled: side === "bottom" && Boolean(dragDismiss),
-    bodyEnabled: side === "bottom" && dragDismiss === true,
+    enabled: side === "bottom" && dragDismiss,
     open: sheet?.open ?? false,
     onOpenChange: sheet?.onOpenChange ?? (() => undefined),
   })
   const shouldShowDragHandle =
-    side === "bottom" && Boolean(dragDismiss) && (showDragHandle ?? true)
+    side === "bottom" && dragDismiss && (showDragHandle ?? true)
+  const dragEnabled = side === "bottom" && dragDismiss
+  const dragHandleProps = React.useMemo<SheetDragHandleProps | null>(
+    () =>
+      dragEnabled
+        ? {
+            onPointerDown: onHandlePointerDown,
+            onPointerMove: onHandlePointerMove,
+            onPointerUp: onHandlePointerEnd,
+            onPointerCancel: onHandlePointerEnd,
+          }
+        : null,
+    [dragEnabled, onHandlePointerDown, onHandlePointerMove, onHandlePointerEnd],
+  )
 
   return (
     <SheetPortal>
@@ -181,19 +221,19 @@ function SheetContent(
           className
         )}
         onPointerDown={(event) => {
-          onContentPointerDown(event)
+          if (contentDragDismiss) onContentPointerDown(event)
           onPointerDown?.(event)
         }}
         onPointerMove={(event) => {
-          onContentPointerMove(event)
+          if (contentDragDismiss) onContentPointerMove(event)
           onPointerMove?.(event)
         }}
         onPointerUp={(event) => {
-          onContentPointerEnd(event)
+          if (contentDragDismiss) onContentPointerEnd(event)
           onPointerUp?.(event)
         }}
         onPointerCancel={(event) => {
-          onContentPointerEnd(event)
+          if (contentDragDismiss) onContentPointerEnd(event)
           onPointerCancel?.(event)
         }}
         {...props}
@@ -222,7 +262,9 @@ function SheetContent(
             />
           </div>
         ) : null}
-        {children}
+        <SheetDragHandleContext.Provider value={dragHandleProps}>
+          {children}
+        </SheetDragHandleContext.Provider>
         {/*
           The visible circle stays exactly 32px (p-2 + size-4) so no sheet
           changes appearance. `after:-inset-1.5` extends only the HIT region to
@@ -267,13 +309,10 @@ type BottomSheetDragState = {
  */
 function useBottomSheetDragDismiss({
   enabled,
-  bodyEnabled = enabled,
   open,
   onOpenChange,
 }: {
   enabled: boolean
-  /** Whether a swipe on the CONTENT (rather than the handle) can dismiss. */
-  bodyEnabled?: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -375,7 +414,7 @@ function useBottomSheetDragDismiss({
 
   const onContentPointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!bodyEnabled || event.button !== 0 || dragRef.current?.engaged) return
+      if (!enabled || event.button !== 0 || dragRef.current?.engaged) return
       dragRef.current = {
         startY: event.clientY,
         lastY: event.clientY,
@@ -384,14 +423,14 @@ function useBottomSheetDragDismiss({
         engaged: false,
       }
     },
-    [bodyEnabled],
+    [enabled],
   )
 
   const onContentPointerMove = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const drag = dragRef.current
       const surface = sheetContentRef.current
-      if (!bodyEnabled || !drag || !surface || !drag.fromContent) return
+      if (!enabled || !drag || !surface || !drag.fromContent) return
 
       if (!drag.engaged) {
         const movedDown = event.clientY - drag.startY
@@ -417,20 +456,20 @@ function useBottomSheetDragDismiss({
       drag.lastT = event.timeStamp
       surface.style.transform = `translate3d(0, ${delta}px, 0)`
     },
-    [bodyEnabled],
+    [enabled],
   )
 
   const onContentPointerEnd = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const drag = dragRef.current
-      if (!bodyEnabled || !drag || !drag.fromContent) return
+      if (!enabled || !drag || !drag.fromContent) return
       if (!drag.engaged) {
         dragRef.current = null
         return
       }
       finishDrag(event)
     },
-    [bodyEnabled, finishDrag],
+    [enabled, finishDrag],
   )
 
   return {
@@ -499,4 +538,5 @@ export {
   SheetFooter,
   SheetTitle,
   SheetDescription,
+  useSheetDragHandle,
 }
