@@ -121,9 +121,30 @@ fi
 run_pass "A · conflict resolutions in this PR's sync merges" \
   env MERGE_REGRESSION_MODE=block bash "$MERGE_SCAN" "$BASE_REF"
 
+# Passes B and C both ask "the base has this content — does HEAD still?". That
+# question only means "the PR dropped it" if HEAD already contains the base.
+# On a branch that is merely BEHIND, every commit the base gained since the
+# fork point answers "missing" and the check turns into pure noise — a branch
+# forked an hour ago flags every file main touched in that hour. Being behind
+# is the Base Freshness Gate's job, and that gate BLOCKS, so it is the
+# authority on it; there is nothing for this advisory check to add. Skip.
+if git merge-base --is-ancestor "$BASE_SHA" HEAD 2>/dev/null; then
+  BASE_IN_HEAD=1
+else
+  BASE_IN_HEAD=0
+  echo ""
+  echo "[merge-fidelity] PASSES B and C skipped — HEAD does not contain $BASE_REF's tip"
+  echo "                 (${BASE_SHA:0:9}). This branch is behind its base, which the Base"
+  echo "                 Freshness Gate already blocks on. Sync the branch and re-run;"
+  echo "                 asking whether the base's content survived into a branch that"
+  echo "                 never received it only produces false findings."
+fi
+
 # ---- Pass B: fork point -> base tip, did it survive into HEAD? -------------
 FORK_POINT="$(git merge-base HEAD "$BASE_SHA" 2>/dev/null || true)"
-if [ -z "$FORK_POINT" ] || [ "$FORK_POINT" = "$BASE_SHA" ]; then
+if [ "$BASE_IN_HEAD" -eq 0 ]; then
+  : # already explained above
+elif [ -z "$FORK_POINT" ] || [ "$FORK_POINT" = "$BASE_SHA" ]; then
   echo ""
   echo "[merge-fidelity] PASS B skipped — branch forks at $BASE_REF's tip, so there is"
   echo "                 no window between the fork point and the base to lose anything in."
@@ -134,7 +155,9 @@ fi
 
 # ---- Pass C: wide window, narrowed to the files this PR touches ------------
 WINDOW_SHA="$(git rev-list -1 --before="${WINDOW_DAYS} days ago" "$BASE_SHA" 2>/dev/null || true)"
-if [ -z "$WINDOW_SHA" ] || [ "$WINDOW_SHA" = "$BASE_SHA" ]; then
+if [ "$BASE_IN_HEAD" -eq 0 ]; then
+  : # already explained above
+elif [ -z "$WINDOW_SHA" ] || [ "$WINDOW_SHA" = "$BASE_SHA" ]; then
   echo ""
   echo "[merge-fidelity] PASS C skipped — no commit on $BASE_REF older than ${WINDOW_DAYS} days."
 else
@@ -165,17 +188,20 @@ fi
 ACK_LABEL=0
 ACK_REASON=""
 if [ -n "$PR_NUMBER" ] && command -v gh >/dev/null 2>&1; then
-  PR_JSON="$(gh pr view "$PR_NUMBER" --json labels,body,author 2>/dev/null || true)"
+  PR_JSON="$(gh pr view "$PR_NUMBER" --json labels,body 2>/dev/null || true)"
   if [ -n "$PR_JSON" ]; then
-    if printf '%s' "$PR_JSON" | grep -q '"name":"intentional-revert"'; then
+    # Read live, not from the trigger-time event payload: adding the label and
+    # the ack line then re-running this job must clear the flag without a push.
+    if printf '%s' "$PR_JSON" | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+sys.exit(0 if any(l.get("name")=="intentional-revert" for l in (d.get("labels") or [])) else 1)' 2>/dev/null; then
       ACK_LABEL=1
     fi
     ACK_REASON="$(printf '%s' "$PR_JSON" \
       | python3 -c 'import json,sys,re
 d=json.load(sys.stdin)
 m=re.search(r"^Merge-Regression-Ack:[ \t]*(.+)$", d.get("body") or "", re.M)
-print((m.group(1).strip() if m else ""))
-print(((d.get("author") or {}).get("login") or ""))' 2>/dev/null | head -1)"
+print(m.group(1).strip() if m else "")' 2>/dev/null)"
   fi
 fi
 
