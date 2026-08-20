@@ -1462,13 +1462,25 @@ export function LocationImmersiveMap({
    * The owner's own position is drawn as their avatar in HTML, so the renderer
    * must not also draw a pin under it — two markers on one coordinate.
    *
-   * Two booleans, both of which only ever flip once, so this does not churn the
-   * marker bridge: `rendererReady` is the consent gate, `cameraReported` is
-   * whether anything can be projected at all. Everything else about the self
-   * marker is unchanged — it stays in `visibleMarkers`, so initial framing, the
-   * people tray and the search index still count it.
+   * Three flags, none of which changes more than once per screen, so this does
+   * not churn the marker bridge: `rendererReady` is the consent gate,
+   * `cameraReported` is whether anything can be projected at all, and
+   * `isCheckInSurface` scopes this to Your Map.
+   *
+   * **Check-in deliberately keeps the renderer's pin.** It is a different
+   * question — "how far am I from the place I am checking in to?" — and it
+   * answers it with two pins, a connector between them, and a colour legend in
+   * the header whose swatches are `SELF_TINT` and the place tint. Swapping one
+   * of those two pins for a photo breaks the comparison and leaves the legend's
+   * blue dot standing for nothing on the map. Extending the avatar there means
+   * redesigning that legend too, which is not this change.
+   *
+   * Everything else about the self marker is unchanged — it stays in
+   * `visibleMarkers`, so initial framing, the people tray and the search index
+   * still count it.
    */
-  const selfPinDrawnAsAvatar = rendererReady && cameraReported;
+  const selfPinDrawnAsAvatar =
+    rendererReady && cameraReported && !isCheckInSurface;
 
   /** What the renderer is asked to draw: everything except the owner's own pin. */
   const rendererMarkers = useMemo(

@@ -2365,6 +2365,37 @@ describe("LocationImmersiveMap reported map defects", () => {
     ).toHaveTextContent("AK");
   });
 
+  it("leaves the check-in map's two pins and its colour legend alone", async () => {
+    // Check-in asks a different question -- how far am I from the place I am
+    // checking in to -- and answers it with two pins, a connector, and a legend
+    // whose swatch IS the owner's pin colour. A photo in place of one of those
+    // pins breaks the comparison and leaves the legend keying nothing.
+    experienceHarness.nearbyAvailable = true;
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "ios",
+    });
+
+    await renderReadyMap({ surface: "check-in" });
+    await reportCamera();
+
+    expect(
+      screen.queryByTestId("one-location-map-self-avatar"),
+    ).not.toBeInTheDocument();
+    const lastAddMarkers = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as
+      | Array<{ coordinate: { lat: number; lng: number } }>
+      | undefined;
+    expect(
+      lastAddMarkers?.some(
+        (marker) => Math.abs(marker.coordinate.lat - 25.46) < 0.0001,
+      ),
+    ).toBe(true);
+  });
+
   it("keeps the renderer's own pin when the renderer never reports a camera", async () => {
     // A renderer too old to emit onBoundsChanged/onCameraIdle can project
     // nothing, so the avatar layer has no coordinates to draw at. Losing the
