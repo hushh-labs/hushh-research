@@ -3445,6 +3445,72 @@ export class ApiService {
    * outcome rather than an error: a person needs `hushhCaller` from this response in
    * order to run the authorization script, so the first call is expected to say no.
    */
+  /**
+   * ONE-CLICK CLOUD, the default. `begin` returns Google's consent URL for an
+   * online-only cloud-platform grant bound to this signed-in person and this
+   * project name; `complete` hands the code back and the server does the rest —
+   * create the project if it does not exist, link the person's own billing,
+   * apply the authorization plan under THEIR transient token, then prove and
+   * record it through the same save path as the manual route. The console link
+   * and the copy-paste script remain as the fallback.
+   */
+  static async beginByocAuthorize(input: { projectId: string }): Promise<{ authUrl: string }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/runtime/byoc/authorize/begin", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+      body: JSON.stringify({ projectId: input.projectId }),
+    });
+    if (!response.ok) {
+      let serverMessage = "";
+      try {
+        const body = (await response.json()) as { detail?: { message?: string } | string };
+        serverMessage =
+          typeof body.detail === "string" ? body.detail : (body.detail?.message ?? "");
+      } catch {
+        // fall through to the generic error
+      }
+      throw new Error(serverMessage || "BYOC_AUTHORIZE_BEGIN_FAILED");
+    }
+    return response.json();
+  }
+
+  static async completeByocAuthorize(input: { code: string; state: string }): Promise<{
+    projectId: string;
+    region: string;
+    bootstrapServiceAccount: string;
+    authorized: boolean;
+    hushhCaller: string;
+    nextStep: string;
+    createdProject: boolean;
+    billingLinked: boolean;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/runtime/byoc/authorize/complete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+      body: JSON.stringify({ code: input.code, state: input.state }),
+    });
+    if (!response.ok) {
+      let serverMessage = "";
+      try {
+        const body = (await response.json()) as { detail?: { message?: string } | string };
+        serverMessage =
+          typeof body.detail === "string" ? body.detail : (body.detail?.message ?? "");
+      } catch {
+        // fall through to the generic error
+      }
+      throw new Error(serverMessage || "BYOC_AUTHORIZE_FAILED");
+    }
+    return response.json();
+  }
+
   static async saveByocProject(input: {
     projectId: string;
     region?: string;

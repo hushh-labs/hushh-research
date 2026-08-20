@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   AppPageContentRegion,
@@ -39,6 +39,7 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
  */
 export function ByocCloudSetupPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<Awaited<
     ReturnType<typeof ApiService.saveByocProject>
@@ -47,12 +48,39 @@ export function ByocCloudSetupPage() {
 
   usePublishVoiceSurfaceMetadata({ screenId: "one_setup_cloud" });
 
+  // The OAuth return route lands back here with the server's refusal when the
+  // one-click flow could not finish (no billing account, name taken, ...).
+  // Surfacing it verbatim is the whole point: it names the person's next move.
+  useEffect(() => {
+    const reason = searchParams.get("authorize_error");
+    if (reason) setError(reason);
+  }, [searchParams]);
+
   const handleProjectNamed = useCallback(async (projectId: string) => {
     setSaving(true);
     setError(null);
     try {
-      setSaved(await ApiService.saveByocProject({ projectId }));
+      // THE DEFAULT IS ONE CLICK (founder-directed): sign in to Google once and
+      // the server creates the project if needed, links the person's own
+      // billing, applies the authorization plan under their transient token,
+      // and records the proven cloud. The manual console/script route stays
+      // reachable through the card's create-help, as the fallback.
+      const begun = await ApiService.beginByocAuthorize({ projectId });
+      window.location.assign(begun.authUrl);
+      return;
     } catch (err) {
+      // A deployment without Google sign-in configured falls back to the
+      // manual route: record the name, show the script, prove on re-save.
+      // The fallback is a lane, not an error.
+      const message = err instanceof Error ? err.message : "";
+      if (message === "BYOC_AUTHORIZE_BEGIN_FAILED" || /not configured/i.test(message)) {
+        try {
+          setSaved(await ApiService.saveByocProject({ projectId }));
+          return;
+        } catch (fallbackErr) {
+          err = fallbackErr;
+        }
+      }
       // The project is not recorded, so the step is genuinely incomplete. Say that
       // rather than advancing: a false "done" here surfaces much later, in their own
       // cloud, as a provisioning failure with nothing naming the cause. When the

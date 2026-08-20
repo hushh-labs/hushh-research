@@ -689,3 +689,115 @@ async def save_byoc_project(
             )
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# ONE-CLICK CLOUD (founder-directed default, 2026-08-20): sign in to Google
+# once and the whole cloud step happens — create the project if it does not
+# exist (personal account, parentless), link the person's own billing, run the
+# script's authorization plan under THEIR transient token, then prove and
+# record it through the same save path the manual route uses. The console link
+# and the copy-paste script remain as the fallback, not the default.
+# ---------------------------------------------------------------------------
+
+
+class ByocAuthorizeBeginRequest(BaseModel):
+    projectId: str = Field(min_length=1, max_length=64)
+
+
+class ByocAuthorizeBeginResponse(BaseModel):
+    authUrl: str
+
+
+class ByocAuthorizeCompleteRequest(BaseModel):
+    code: str = Field(min_length=1)
+    state: str = Field(min_length=1)
+    region: str = Field(default="us-central1", max_length=32)
+    bootstrapServiceAccountId: str = Field(default="one-bootstrap", max_length=30)
+
+
+class ByocAuthorizeCompleteResponse(ByocProjectSaveResponse):
+    createdProject: bool
+    billingLinked: bool
+
+
+@router.post("/byoc/authorize/begin", response_model=ByocAuthorizeBeginResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def begin_byoc_authorize(
+    request: Request,
+    body: ByocAuthorizeBeginRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> ByocAuthorizeBeginResponse:
+    """The Google consent URL for the one-click cloud setup.
+
+    The state is signed, expiring and bound to THIS caller; the grant requested
+    is online-only (no refresh token exists to store)."""
+    from hushh_mcp.services import byoc_oauth_authorizer as oauth
+    from hushh_mcp.services.user_gcp_project import validate_project_id
+
+    verdict = validate_project_id(body.projectId)
+    if not verdict.valid:
+        raise HTTPException(
+            status_code=422, detail={"code": "INVALID_PROJECT_ID", "reason": verdict.reason}
+        )
+    try:
+        return ByocAuthorizeBeginResponse(authUrl=oauth.begin(firebase_uid, verdict.project_id))
+    except oauth.ByocAuthorizeError as exc:
+        raise HTTPException(
+            status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
+        ) from exc
+
+
+@router.post("/byoc/authorize/complete", response_model=ByocAuthorizeCompleteResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def complete_byoc_authorize(
+    request: Request,
+    body: ByocAuthorizeCompleteRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> ByocAuthorizeCompleteResponse:
+    """Everything after the Google consent screen, in one authenticated hop.
+
+    The person's access token lives in this coroutine's locals for exactly this
+    call: create-if-missing, link billing, apply the authorization plan, then
+    hand off to the SAME save path the manual route uses — the cryptographic
+    proof and the durable marker have one implementation, not two."""
+    from hushh_mcp.services import byoc_oauth_authorizer as oauth
+    from hushh_mcp.services.user_gcp_project import suggest_project_id
+
+    try:
+        project = oauth.verify_state(body.state, firebase_uid)
+        token = await asyncio.to_thread(oauth.exchange_code, body.code)
+        suggestion = suggest_project_id(firebase_uid)
+        ensured = await asyncio.to_thread(
+            oauth.ensure_project,
+            project_id=project,
+            display_name=suggestion.display_name,
+            token=token,
+        )
+        billing = await asyncio.to_thread(oauth.ensure_billing, project_id=project, token=token)
+        await asyncio.to_thread(
+            oauth.apply_authorization,
+            project=project,
+            token=token,
+            caller_sa=_hushh_caller_identity(),
+            bootstrap_account_id=body.bootstrapServiceAccountId,
+        )
+    except oauth.ByocAuthorizeError as exc:
+        raise HTTPException(
+            status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
+        ) from exc
+
+    saved = await save_byoc_project(
+        request=request,
+        body=ByocProjectSaveRequest(
+            projectId=project,
+            region=body.region,
+            bootstrapServiceAccountId=body.bootstrapServiceAccountId,
+        ),
+        firebase_uid=firebase_uid,
+    )
+    return ByocAuthorizeCompleteResponse(
+        **saved.model_dump(),
+        createdProject=bool(ensured.get("created")),
+        billingLinked=bool(billing.get("billingLinked")),
+    )

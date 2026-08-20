@@ -329,3 +329,157 @@ def apply_authorization(
 
     logger.info("byoc_oauth.authorized project=%s services=%d", project, len(REQUIRED_SERVICES))
     return {"project": project, "bootstrapServiceAccount": sa_email}
+
+
+# ---------------------------------------------------------------------------
+# The PRODUCTION path: nothing exists yet, and the app is the person's only tool.
+#
+# A real person has no pre-created project, no gcloud, and no operator behind
+# the curtain. So the same transient token that authorizes must also be able to
+# CREATE the project (personal account, no parent) and LINK billing — the two
+# steps the guided console route made manual. The console + CLI route remains,
+# demoted to fallback.
+# ---------------------------------------------------------------------------
+
+_CRM_URL = "https://cloudresourcemanager.googleapis.com/v1"
+_BILLING_URL = "https://cloudbilling.googleapis.com/v1"
+_CREATE_POLL_SECONDS = 90
+
+
+def ensure_project(
+    *,
+    project_id: str,
+    display_name: str,
+    token: str,
+    session: Any = None,
+    sleep: Any = time.sleep,
+) -> dict[str, Any]:
+    """The project exists and is the caller's, creating it if needed.
+
+    Personal-account creation, deliberately parentless: ``projects.create`` with
+    no parent lands the project directly under the signed-in person, which is
+    exactly the tenancy BYOC promises. (The delegated org/folder path lives in
+    ``user_gcp_project.create_project`` and stays separate — it needs an
+    org-level grant this flow never asks for.)
+    """
+    if session is None:
+        import requests as session  # noqa: PLC0415
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    probe = session.get(f"{_CRM_URL}/projects/{project_id}", headers=headers, timeout=30)
+    if probe.status_code == 200:
+        state = str(probe.json().get("lifecycleState") or "")
+        if state == "ACTIVE":
+            return {"projectId": project_id, "created": False}
+        raise ByocAuthorizeError(
+            f"The name {project_id} belongs to a project that is "
+            f"{'being deleted' if state == 'DELETE_REQUESTED' else state.lower() or 'unavailable'}. "
+            "Google reserves deleted names for about 30 days — pick a different name.",
+            status_code=409,
+            code="NAME_UNAVAILABLE",
+        )
+
+    created = session.post(
+        f"{_CRM_URL}/projects",
+        headers={**headers, "Content-Type": "application/json"},
+        json={
+            "projectId": project_id,
+            "name": display_name or project_id,
+            "labels": {"created-by": "hussh-one", "tenancy": "user-owned"},
+        },
+        timeout=60,
+    )
+    if created.status_code == 409:
+        # Exists but the probe could not see it: someone else's, or this
+        # person's own soft-deleted one. Either way the name is not usable.
+        raise ByocAuthorizeError(
+            f"The name {project_id} is already taken (possibly by a recently "
+            "deleted project — Google reserves those names for about 30 days). "
+            "Pick a different name.",
+            status_code=409,
+            code="NAME_UNAVAILABLE",
+        )
+    op = _check(created, "create your Google Cloud project")
+
+    op_name = str(op.get("name") or "")
+    deadline = time.monotonic() + _CREATE_POLL_SECONDS
+    while op_name and not op.get("done"):
+        if time.monotonic() > deadline:
+            raise ByocAuthorizeError(
+                "Google is taking unusually long to create the project; try again "
+                "in a minute — the name is yours now.",
+                status_code=504,
+                code="CREATE_TIMEOUT",
+            )
+        sleep(3)
+        op = _check(
+            session.get(f"{_CRM_URL}/{op_name}", headers=headers, timeout=30),
+            "check project creation",
+        )
+    if op.get("error"):
+        raise ByocAuthorizeError(
+            "Google refused to create the project: "
+            + str(op["error"].get("message") or "no reason given"),
+            status_code=502,
+            code="CREATE_FAILED",
+        )
+
+    logger.info("byoc_oauth.project_created project=%s", project_id)
+    return {"projectId": project_id, "created": True}
+
+
+def ensure_billing(*, project_id: str, token: str, session: Any = None) -> dict[str, Any]:
+    """The project has billing, linking the person's own account if needed.
+
+    Google refuses almost every API on an unbilled project, so this is not
+    optional polish — without it the authorize step fails three calls later with
+    an error naming none of this. When the person has exactly one open billing
+    account the link is automatic; zero or several is THEIR decision, returned
+    as a typed refusal the UI can explain rather than guessed at.
+    """
+    if session is None:
+        import requests as session  # noqa: PLC0415
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    info = _check(
+        session.get(
+            f"{_BILLING_URL}/projects/{project_id}/billingInfo", headers=headers, timeout=30
+        ),
+        "read the project's billing state",
+    )
+    if info.get("billingEnabled"):
+        return {"billingLinked": False, "billingAccount": str(info.get("billingAccountName") or "")}
+
+    accounts = _check(
+        session.get(f"{_BILLING_URL}/billingAccounts", headers=headers, timeout=30),
+        "list your billing accounts",
+    )
+    open_accounts = [a for a in (accounts.get("billingAccounts") or []) if a.get("open")]
+    if len(open_accounts) != 1:
+        raise ByocAuthorizeError(
+            (
+                "Your Google account has no open billing account. Create one at "
+                "console.cloud.google.com/billing, then press Continue again."
+                if not open_accounts
+                else f"Your Google account has {len(open_accounts)} open billing accounts; "
+                "link the one you want to this project in the Google console, then "
+                "press Continue again."
+            ),
+            status_code=409,
+            code="NEEDS_BILLING",
+        )
+
+    account_name = str(open_accounts[0].get("name") or "")
+    _check(
+        session.put(
+            f"{_BILLING_URL}/projects/{project_id}/billingInfo",
+            headers={**headers, "Content-Type": "application/json"},
+            json={"billingAccountName": account_name},
+            timeout=30,
+        ),
+        "link your billing account",
+    )
+    logger.info("byoc_oauth.billing_linked project=%s", project_id)
+    return {"billingLinked": True, "billingAccount": account_name}
