@@ -91,8 +91,18 @@ type SheetContentProps =
     /**
      * Enables the native-style downward drag dismissal used by mobile bottom
      * sheets. Bottom sheets opt in by default; other sides are unaffected.
+     *
+     * `"handle"` is the same gesture, restricted to the grab handle.
+     *
+     * Body drag engages when `surface.scrollTop <= 0`, which is the correct
+     * test for a sheet that scrolls itself. A sheet that instead owns an INNER
+     * scroll container keeps its own `scrollTop` at 0 permanently, so every
+     * downward swipe over its content would read as a dismissal and the list
+     * inside would never scroll. Such a sheet passes `"handle"`: the handle
+     * still drags, so the phone keeps the gesture it expects, and the content
+     * underneath keeps scrolling.
      */
-    dragDismiss?: boolean
+    dragDismiss?: boolean | "handle"
     /** Renders the accessible drag affordance above a draggable bottom sheet. */
     showDragHandle?: boolean
     /** Optional surface-specific scrim treatment for a semantic app sheet. */
@@ -142,12 +152,13 @@ function SheetContent(
     onContentPointerMove,
     onContentPointerEnd,
   } = useBottomSheetDragDismiss({
-    enabled: side === "bottom" && dragDismiss,
+    enabled: side === "bottom" && Boolean(dragDismiss),
+    bodyEnabled: side === "bottom" && dragDismiss === true,
     open: sheet?.open ?? false,
     onOpenChange: sheet?.onOpenChange ?? (() => undefined),
   })
   const shouldShowDragHandle =
-    side === "bottom" && dragDismiss && (showDragHandle ?? true)
+    side === "bottom" && Boolean(dragDismiss) && (showDragHandle ?? true)
 
   return (
     <SheetPortal>
@@ -219,9 +230,16 @@ function SheetContent(
           drag-dismiss region, this was a genuinely hard target to hit on a
           phone, and a close button that needs two or three tries is
           indistinguishable from one that does not work.
+
+          `z-10` finishes that job. The 44px hit region reaches up to y=10,
+          and the drag handle above it is a full-width `z-[5] touch-none` band
+          occupying y=0..44 -- so on every bottom sheet that shows both, the
+          handle was painted over three quarters of the close target and
+          swallowed its taps. Sitting the close button above the handle leaves
+          the handle draggable everywhere except the corner it never owned.
         */}
         {showCloseButton && (
-          <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-4 right-4 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity after:absolute after:-inset-1.5 after:content-[''] hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+          <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-4 right-4 z-10 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity after:absolute after:-inset-1.5 after:content-[''] hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
             <XIcon className="size-4" />
             <span className="sr-only">Close</span>
           </SheetPrimitive.Close>
@@ -249,10 +267,13 @@ type BottomSheetDragState = {
  */
 function useBottomSheetDragDismiss({
   enabled,
+  bodyEnabled = enabled,
   open,
   onOpenChange,
 }: {
   enabled: boolean
+  /** Whether a swipe on the CONTENT (rather than the handle) can dismiss. */
+  bodyEnabled?: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -354,7 +375,7 @@ function useBottomSheetDragDismiss({
 
   const onContentPointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!enabled || event.button !== 0 || dragRef.current?.engaged) return
+      if (!bodyEnabled || event.button !== 0 || dragRef.current?.engaged) return
       dragRef.current = {
         startY: event.clientY,
         lastY: event.clientY,
@@ -363,14 +384,14 @@ function useBottomSheetDragDismiss({
         engaged: false,
       }
     },
-    [enabled],
+    [bodyEnabled],
   )
 
   const onContentPointerMove = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const drag = dragRef.current
       const surface = sheetContentRef.current
-      if (!enabled || !drag || !surface || !drag.fromContent) return
+      if (!bodyEnabled || !drag || !surface || !drag.fromContent) return
 
       if (!drag.engaged) {
         const movedDown = event.clientY - drag.startY
@@ -396,20 +417,20 @@ function useBottomSheetDragDismiss({
       drag.lastT = event.timeStamp
       surface.style.transform = `translate3d(0, ${delta}px, 0)`
     },
-    [enabled],
+    [bodyEnabled],
   )
 
   const onContentPointerEnd = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const drag = dragRef.current
-      if (!enabled || !drag || !drag.fromContent) return
+      if (!bodyEnabled || !drag || !drag.fromContent) return
       if (!drag.engaged) {
         dragRef.current = null
         return
       }
       finishDrag(event)
     },
-    [enabled, finishDrag],
+    [bodyEnabled, finishDrag],
   )
 
   return {

@@ -103,6 +103,18 @@ if has_match '^hushh-webapp/(components/one-location/|__tests__/components/one-l
   ran=1
 fi
 
+# The shared bottom-sheet primitive.
+#
+# `components/ui/sheet.tsx` is imported by ~30 surfaces and matched NO pack at
+# all, so a change to the one component that decides whether a phone sheet can
+# be dragged away -- and whether its close button is reachable underneath the
+# drag handle -- ran zero tests on a pull request. Both of those have been real
+# defects.
+if has_match '^hushh-webapp/(components/ui/sheet\.tsx|__tests__/components/bottom-sheet-drag-dismiss)'; then
+  run_check "bottom sheet" npm run verify:bottom-sheet
+  ran=1
+fi
+
 # The browser-measured layout contracts.
 #
 # Until this pack, `test:layout-contracts` was referenced in exactly one place in

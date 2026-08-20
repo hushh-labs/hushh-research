@@ -121,6 +121,60 @@ const MAP_ID = "one-location-private-map";
 // module for the full contract and its latency budget.
 
 const NEARBY_CHECK_IN_RADIUS_METERS = 500;
+
+/**
+ * The check-in radius overlay, deliberately quiet.
+ *
+ * It answers "roughly this far", which is a background fact about the screen,
+ * not its subject — the map underneath is what the person is reading, and the
+ * two pins on it are what they are choosing between. So the boundary is a
+ * hairline and the fill is barely a tint. The radius itself is unchanged:
+ * `NEARBY_CHECK_IN_RADIUS_METERS` still drives the circle, and the server
+ * still owns the 500 m the circle stands for.
+ */
+const NEARBY_CIRCLE_FILL_OPACITY = 0.06;
+const NEARBY_CIRCLE_STROKE_OPACITY = 0.35;
+const NEARBY_CIRCLE_STROKE_WEIGHT = 1.5;
+/** The you→place connector. Slightly stronger: it is a specific answer. */
+const NEARBY_CONNECTOR_STROKE_OPACITY = 0.45;
+const NEARBY_CONNECTOR_STROKE_WEIGHT = 2;
+
+/** Last-resort accent, matching `--app-accent` in app/globals.css. */
+const MAP_ACCENT_FALLBACK_HEX = "#007aff";
+
+/**
+ * The accent, as something a map can actually paint.
+ *
+ * These overlays go through `@capacitor/google-maps`, and neither renderer
+ * resolves CSS custom properties: the web shim hands the string straight to
+ * `new google.maps.Circle`, which silently falls back to its own defaults on
+ * an unparseable colour (a black ring over a heavy grey disc), and the iOS
+ * plugin does `UIColor(hex:) ?? .blue`. So the previous `"var(--app-accent)"`
+ * and `"var(--app-accent-surface)"` never once drew in the app's accent —
+ * they drew Google's default on web and flat blue on device, which is why the
+ * boundary dominated the screen no matter what opacity was asked for.
+ *
+ * Reading the computed value keeps the alternate accent theme working, where
+ * the token is `#d4a574` rather than the system blue.
+ */
+function mapAccentHex(): string {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return MAP_ACCENT_FALLBACK_HEX;
+  }
+  try {
+    const resolved = getComputedStyle(document.documentElement)
+      .getPropertyValue("--app-accent")
+      .trim();
+    // Only a literal colour is useful here. A token that resolves to another
+    // var(), or to nothing during first paint, must not reach the bridge.
+    return /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(resolved)
+      ? resolved
+      : MAP_ACCENT_FALLBACK_HEX;
+  } catch {
+    return MAP_ACCENT_FALLBACK_HEX;
+  }
+}
+
 const TRAY_COLLAPSED_HEIGHT_PX = 56; // 3.5rem, the collapsed pill.
 // The section's own `border` (1px top + 1px bottom) is border-box, so it
 // eats into the content area rather than shrink it away from the header and
@@ -1683,14 +1737,15 @@ export function LocationImmersiveMap({
       }
 
       const active = Boolean(placeFocus?.active);
+      const accent = mapAccentHex();
       const circle: Circle = {
         center: circleCenter,
         radius: NEARBY_CHECK_IN_RADIUS_METERS,
-        fillColor: "var(--app-accent-surface)",
-        fillOpacity: 0.1,
-        strokeColor: "var(--app-accent)",
-        strokeOpacity: 0.85,
-        strokeWeight: 2,
+        fillColor: accent,
+        fillOpacity: NEARBY_CIRCLE_FILL_OPACITY,
+        strokeColor: accent,
+        strokeOpacity: NEARBY_CIRCLE_STROKE_OPACITY,
+        strokeWeight: NEARBY_CIRCLE_STROKE_WEIGHT,
         clickable: false,
         title: active
           ? "500 m check-in area around your place"
@@ -1718,9 +1773,9 @@ export function LocationImmersiveMap({
                 { lat: searchPoint.latitude, lng: searchPoint.longitude },
                 placeCenter,
               ],
-              strokeColor: "var(--app-accent)",
-              strokeOpacity: 0.65,
-              strokeWeight: 3,
+              strokeColor: accent,
+              strokeOpacity: NEARBY_CONNECTOR_STROKE_OPACITY,
+              strokeWeight: NEARBY_CONNECTOR_STROKE_WEIGHT,
               geodesic: true,
               clickable: false,
             },
