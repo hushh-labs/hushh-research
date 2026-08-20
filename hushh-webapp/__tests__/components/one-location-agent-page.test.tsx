@@ -1248,7 +1248,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("uses one Actions grid, then quiet Activity and More lists", async () => {
-    // Now has one action home: Share, Request, Check-In, and SOS are peer
+    // Now has one action home: Share, Request, Check-In, and SMS are peer
     // choices in a 2x2 panel. Generated state and utility destinations stay in
     // list groups, which keeps the tab from reading like a dashboard.
     mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
@@ -1261,7 +1261,27 @@ describe("OneLocationAgentPage", () => {
     expect(within(actions).getByText("Share location")).toBeTruthy();
     expect(within(actions).getByText("Request location")).toBeTruthy();
     expect(within(actions).getByText("Check-In")).toBeTruthy();
-    expect(within(actions).getByText("Send SOS")).toBeTruthy();
+    expect(within(actions).getByText("SMS")).toBeTruthy();
+
+    const actionGrid = actions.querySelector("[data-one-location-action-grid]");
+    expect(actionGrid?.className).toContain("grid-cols-2");
+    expect(actionGrid?.className).toContain("rounded-[22px]");
+    expect(actionGrid?.className).toContain(
+      "shadow-[var(--app-card-shadow-standard)]",
+    );
+
+    const actionCells = actionGrid?.querySelectorAll(
+      "[data-one-location-action-cell]",
+    );
+    expect(actionCells).toHaveLength(4);
+    actionCells?.forEach((cell) => {
+      expect(cell.className).toContain("items-center");
+      expect(cell.className).toContain("text-center");
+      expect(cell.className).toContain("min-h-[116px]");
+    });
+    expect(
+      actionGrid?.querySelector("[data-one-location-action-icon]")?.className,
+    ).toContain("[&_svg]:h-8");
 
     const activity = screen.getByTestId("one-location-now-activity");
     expect(within(activity).getByText("Active shares")).toBeTruthy();
@@ -2077,7 +2097,7 @@ describe("OneLocationAgentPage", () => {
     mockCaptureCurrentPosition.mockClear();
     const envelopeWritesBeforeOpen = mockStoreEnvelope.mock.calls.length;
 
-    fireEvent.click(screen.getByRole("button", { name: /Send SOS/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^SMS$/i }));
 
     expect(
       await screen.findByRole("heading", { name: "Save my Soul", level: 1 }),
@@ -2119,7 +2139,7 @@ describe("OneLocationAgentPage", () => {
         }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Send SOS/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^SMS$/i }));
 
     expect(
       await screen.findByRole("button", {
