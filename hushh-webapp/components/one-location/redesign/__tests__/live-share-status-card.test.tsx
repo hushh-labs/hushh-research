@@ -187,6 +187,35 @@ describe("LiveShareStatusCard", () => {
     expect(onManage).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps Stop for ONE person who happens to hold two shares", () => {
+    // The affordance is driven by a headcount, not a grant count. After the
+    // two-lane split one friend can hold an ordinary share and an SOS share at
+    // once; the summarizer reports that as `count: 1` with one name and a
+    // resolved `stoppableGrantId`, and the card must go on offering the
+    // one-tap Stop rather than degrading to Manage at the exact moment the
+    // owner has the most sharing running.
+    const onStop = vi.fn();
+    render(
+      <LiveShareStatusCard
+        status={status({
+          count: 1,
+          names: ["Rohan Mehta"],
+          // The ordinary share: the SMS one has its own Stop on the Emergency
+          // screen, and after the lane split neither ends the other.
+          stoppableGrantId: "grant_ordinary",
+          endsAt: "2026-08-16T18:00:00.000Z",
+        })}
+        onManage={vi.fn()}
+        onStop={onStop}
+      />,
+    );
+
+    expect(screen.getByText("Sharing with Rohan Mehta")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Manage" })).toBeNull();
+    screen.getByRole("button", { name: "Stop" }).click();
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
   it("offers Change time on a single share, beside the end time", () => {
     // The reported bug: a 30-minute share could be stopped and nothing else.
     // The control has to be there, and it has to be the footer's sibling --

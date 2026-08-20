@@ -1,10 +1,23 @@
 "use client";
 
 /**
- * Client-side record of an active SOS incident. The grant `metadata.reason`
- * ("sos_panic") is written server-side but NOT exposed via getState/OneLocationGrant,
- * so we persist the incident (its grant ids + start time) here to drive the
- * "LIVE LOCATION ACTIVE" banner and the "I'm safe" stop across reloads.
+ * Client-side record of an active SOS incident: which grants THIS device
+ * created when the alert went out, so the "LIVE LOCATION ACTIVE" banner and the
+ * "I'm safe" stop survive a reload.
+ *
+ * What this record is NOT is the only way to tell an SOS grant from an ordinary
+ * one. An earlier version of this comment claimed the server-side `sos_panic`
+ * marker was "not exposed via getState/OneLocationGrant"; that was already
+ * false, and acting on it would mean re-deriving a workaround for something the
+ * API already answers. `_grant_payload` puts `shareKind` on EVERY grant it
+ * returns, owner grants included, and `isSmsTriggeredGrant` in
+ * `lib/one-location/notifications.ts` is the single client-side reader of it.
+ * Use that to ask "is this the SMS share?" -- the two-lane replacement rule the
+ * backend now enforces depends on client and server agreeing on that question.
+ *
+ * What this record still uniquely holds is the SET of grants one particular
+ * "hold SOS" produced, which is what makes "I'm safe" tear down exactly what it
+ * created and nothing else.
  *
  * Coordinate-free by construction: only grant ids and an ISO timestamp are stored.
  */
