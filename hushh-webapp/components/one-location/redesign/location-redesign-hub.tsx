@@ -50,8 +50,6 @@ import {
   locationApproveActionLabel,
   locationAskPromptLine,
 } from "@/lib/one-location/duration-copy";
-import { formatShareEndsAt } from "@/lib/one-location/share-countdown";
-import { ONE_LOCATION_GRANT_ID_PARAM } from "@/lib/one-location/notifications";
 import {
   groupGrantsByCounterpart,
   type OneLocationGrantLaneGroup,
@@ -107,16 +105,10 @@ import {
 
 export type { GrantViewStatus } from "./cards";
 import {
-  DURATION_CELL_CLASS,
-  DURATION_CELL_OFF_CLASS,
-  DURATION_GRID_CLASS,
-} from "./duration-presets";
-import {
   PersonShareLanes,
   ShareLanesDisclosure,
   useExpandedShareLanes,
 } from "./share-lanes";
-import { grantRemainingHours } from "@/lib/one-location/grant-duration-edit";
 // LocationTypeSelector stays exported from ./selectors, unused for now, so
 // PR #4767 can wire it back to a real precision mode without rebuilding it.
 import {
@@ -2283,7 +2275,6 @@ function PeopleHub({
 }) {
   const hasSearch = vm.recipientSearch.trim().length > 0;
   const filtered = vm.visibleRecipients;
-  const hasAnyRecipients = vm.recipients.length > 0;
   // Your live shares, by the person they point at -- ALL of them, not the
   // first one found. This list used to read `activeOwnerGrants.find(...)`,
   // which was correct only while a pair could hold one grant. Once an ordinary
@@ -3536,6 +3527,14 @@ function AskFlow({
     const timer = window.setInterval(() => setStatusNowMs(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
+  // A grant accepted between ticks would otherwise be measured against a
+  // `statusNowMs` from before it existed, inflating "Sharing with you, X
+  // more" by up to a tick's worth of staleness -- enough to round a whole
+  // hour up to "1h 1m more". Resyncing the instant new data lands keeps the
+  // remaining-time math honest from the very first render of a fresh grant.
+  useEffect(() => {
+    setStatusNowMs(Date.now());
+  }, [vm.receivedGrants, vm.requestedByMe]);
   return (
     <div className="space-y-5">
       <TaskFlowHeader
@@ -3626,52 +3625,24 @@ function AskFlow({
                       : undefined
                   }
                   editActive={isEditingThis}
-                  // Two different acts share this one control, because the row
-                  // is only ever in one of the two states: a live share ends
-                  // access, an unanswered ask ends the ask. A row that is
-                  // neither keeps no X at all.
+                  // A live share is ended from Shared with me now, not here
+                  // (SharedWithMeCard's own X calls the same vm.onStopGrant)
+                  // -- this row keeps X only for taking back an unanswered
+                  // ask. A row that is neither keeps no X at all.
                   onRemove={
-                    activeGrant
-                      ? () => vm.onStopGrant(activeGrant.id)
-                      : pendingRequestId
-                        ? () => vm.onWithdrawRequest(pendingRequestId)
-                        : undefined
+                    pendingRequestId
+                      ? () => vm.onWithdrawRequest(pendingRequestId)
+                      : undefined
                   }
                   removeAriaLabel={
-                    !activeGrant && pendingRequestId
+                    pendingRequestId
                       ? `Take back your request to ${recipientLabel}`
                       : undefined
                   }
                   removeBusy={
-                    activeGrant
-                      ? vm.revokingGrantId === activeGrant.id
-                      : vm.withdrawingRequestId === pendingRequestId
-                  }
-                  expandedContent={
-                    isEditingThis && activeGrant ? (
-                      <>
-                        <DurationSelector
-                          value={vm.editGrantDurationHours}
-                          onChange={vm.setEditGrantDurationHours}
-                          label="New duration"
-                          presentation="select"
-                        />
-                        <Button
-                          size="sm"
-                          className="h-9 w-full rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-                          onClick={() =>
-                            vm.onEditGrantSave({
-                              ownerUserId: r.userId,
-                              grantId: activeGrant.id,
-                              ownerLabel: recipientLabel,
-                            })
-                          }
-                          isLoading={vm.savingGrantId === activeGrant.id}
-                        >
-                          Save
-                        </Button>
-                      </>
-                    ) : undefined
+                    pendingRequestId
+                      ? vm.withdrawingRequestId === pendingRequestId
+                      : undefined
                   }
                 />
               );

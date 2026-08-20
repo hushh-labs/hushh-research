@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 
@@ -19,10 +20,6 @@ import {
 import { CIRCLE_NAME_ACTION_CLASSNAME } from "@/components/one-location/redesign/circles/circle-name-row-layout";
 import { CIRCLE_MEMBER_MENU_CLASSNAME } from "@/components/one-location/redesign/circles/circle-member-row-layout";
 import { ROUTES } from "@/lib/navigation/routes";
-import {
-  OneLocationLockRequiredError,
-  type OneLocationLockState,
-} from "@/lib/one-location/circle-lock-state";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleInvitePreview,
@@ -600,7 +597,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /Neel Shah Connected on One/i }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Invite 2 people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 2 people" }));
 
     await waitFor(() =>
       expect(onInviteConnections).toHaveBeenCalledWith("circle-1", [
@@ -684,7 +681,7 @@ describe("named Circle flows", () => {
         name: /Friend User Connected on One/i,
       }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
     await waitFor(() =>
       expect(onInviteConnections).toHaveBeenCalledWith("circle-1", [
         "friend-user",
@@ -787,7 +784,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Add people" }),
     );
-    expect(await screen.findByText(/invite 1 more person right now/i)).toBeTruthy();
+    expect(await screen.findByText(/add 1 more person right now/i)).toBeTruthy();
 
     const asha = screen.getByRole("button", {
       name: /Asha Meena Connected on One/i,
@@ -800,7 +797,7 @@ describe("named Circle flows", () => {
     expect(asha).toHaveAttribute("aria-pressed", "true");
     expect(neel).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Invite 1 person" }),
+      screen.getByRole("button", { name: "Add 1 person" }),
     ).toBeEnabled();
   });
 
@@ -826,7 +823,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Add people" }),
     );
-    expect(await screen.findByText("No invitation slots available")).toBeTruthy();
+    expect(await screen.findByText("No room left in this Circle")).toBeTruthy();
     expect(screen.queryByText("Stale Candidate")).toBeNull();
   });
 
@@ -874,7 +871,7 @@ describe("named Circle flows", () => {
       name: /Asha Meena Connected on One/i,
     });
     fireEvent.click(asha);
-    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
       expect(onLoadEligibleConnections).toHaveBeenCalledTimes(2),
@@ -1001,7 +998,7 @@ describe("named Circle flows", () => {
     );
   });
 
-  it("removes a member from a labelled destructive action rather than a bare icon", async () => {
+  it("removes a member from a labelled destructive menu action, behind a labelled overflow trigger", async () => {
     const onRemoveMember = vi.fn(async () => undefined);
     const ownerCircle = {
       ...circle("circle-1", "Meena Family"),
@@ -1026,10 +1023,15 @@ describe("named Circle flows", () => {
     );
 
     const trigger = await screen.findByRole("button", {
-      name: "Remove John Smith from this Circle",
+      name: "Actions for John Smith",
     });
-    expect(trigger).toHaveTextContent("Remove");
-    fireEvent.click(trigger);
+    // Radix opens DropdownMenuTrigger on pointerdown (no PointerEvent in
+    // jsdom) or on Enter/Space keydown — use the keyboard path here.
+    fireEvent.keyDown(trigger, { key: "Enter" });
+
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
+    );
 
     fireEvent.click(
       await screen.findByRole("button", { name: "Remove", hidden: true }),
@@ -1383,7 +1385,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Asha Meena Connected on One/i }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
       expect(onInviteConnections).toHaveBeenCalledWith("circle-1", [
@@ -1402,7 +1404,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /Neel Shah Connected on One/i }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Invite 2 people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 2 people" }));
 
     await waitFor(() =>
       expect(onInviteConnections).toHaveBeenLastCalledWith("circle-1", [
@@ -1443,7 +1445,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Asha Meena Connected on One/i }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith("Circle capacity changed."),
@@ -1506,7 +1508,7 @@ describe("named Circle flows", () => {
         name: /Friend User Connected on One/i,
       }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Add people" })).toBeNull(),
