@@ -339,6 +339,7 @@ gcp_backend_live=""
 pod_signing_key_secret=""
 pod_invoker_member=""
 pod_turn_enabled=""
+pod_directive_transport=""
 dev_simulation_enabled=""
 # BYOC locals, pre-initialised for `set -u`. They are assigned ONLY inside the dev
 # block, and every append_optional_env below runs unconditionally -- so without these
@@ -415,6 +416,13 @@ if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   fi
   # The pod actually runs Agent One. Off => POST /api/one/pod/turn 404s.
   pod_turn_enabled="true"
+  # Action frames from pod turns. Off, `pod_relay` strips `frames` from every
+  # pod answer unconditionally and never re-adds them -- the in-pod agent can
+  # talk but not drive the app. On, frames pass ONLY through
+  # `_authorize_and_frame_directives`: the hub re-validates each action, issues
+  # a single-use ledger entry with trusted activation forced on, and caps one
+  # action per turn. The pod still only ever PROPOSES.
+  pod_directive_transport="true"
 
   # -- BYOC: the production path, exercised in dev against a real second project --
   #
@@ -472,6 +480,7 @@ append_optional_env "HUSSH_GCP_BACKEND_LIVE" "${gcp_backend_live}"
 append_optional_env "HUSSH_POD_SIGNING_KEY_SECRET" "${pod_signing_key_secret}"
 append_optional_env "HUSSH_POD_INVOKER_MEMBER" "${pod_invoker_member}"
 append_optional_env "HUSSH_POD_TURN_ENABLED" "${pod_turn_enabled}"
+append_optional_env "POD_DIRECTIVE_TRANSPORT_ENABLED" "${pod_directive_transport}"
 append_optional_env "HUSHH_DEV_SIMULATION_ENABLED" "${dev_simulation_enabled}"
 append_optional_env "HUSHH_DEV_PHONE_TEST_NUMBERS" "${dev_phone_test_numbers}"
 append_optional_env "POD_STORAGE_GCS_BUCKET" "${dev_pod_state_bucket}"
@@ -562,6 +571,15 @@ cmd=(
 # that class; it is being taken here only where the cost is trivial.
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   cmd+=("--no-cpu-throttling")
+  # A LIVENESS probe, distinct from the startup probe above. The startup probe
+  # answers "did the workers ever boot" (gunicorn binds :8080 before forking, so
+  # TCP lies -- see that flag's note); this one answers "is a started instance
+  # still able to serve", which previously had NO detector: a worker that
+  # degraded after a healthy start was invisible and unrestarted. Failure here
+  # makes Cloud Run recycle the instance. Scoped to dev with the same reasoning
+  # as --no-cpu-throttling: recycling behavior on the shared uat/prod lanes is
+  # an operational decision that needs founder sign-off, not a silent default.
+  cmd+=("--liveness-probe=httpGet.path=/health,periodSeconds=30,failureThreshold=3,timeoutSeconds=5,initialDelaySeconds=60")
 fi
 
 if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then

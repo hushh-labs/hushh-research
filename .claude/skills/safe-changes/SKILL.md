@@ -900,20 +900,6 @@ the `calc()`. And grep for other places applying the same clearance — this one
 was being added four times: `.app-page-shell`, `.profile-home-screen`,
 `profile-stack-navigator.tsx`, and the scroll root that legitimately owns it.
 
-## Adding a rule
-
-Every mistake found becomes a rule. Fix the **cause**, not the symptom, then add
-the rule so it cannot recur. When the user says "add that to the skill", that
-means a new numbered rule here.
-
-Rules are numbered sequentially and **never renumbered** — R3 must still mean R3
-in six months, so it can be cited in review. Append; do not reorder or reuse a
-retired number.
-
-Template:
-
-```markdown
-
 ### R24 — Stage by name, verify from the index, and land ignore rules on `main`
 
 **Incident (2026-08-07, landing the deploy-SHA gate fix on `main`).** A deliberately
