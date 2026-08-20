@@ -8,6 +8,7 @@ import {
   KeyRound,
   Loader2,
   LogOut,
+  MoreVertical,
   Pencil,
   Plus,
   RotateCw,
@@ -35,6 +36,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -46,6 +53,7 @@ import { SectionLabel, TrailingValue } from "@/components/app-ui/typography";
 import {
   EmptyState,
   TaskFlowHeader,
+  TrustNoteCard,
 } from "@/components/one-location/redesign/primitives";
 import {
   CARD_SURFACE,
@@ -130,7 +138,7 @@ const CIRCLE_INVITE_SECONDARY_ACTION =
 /**
  * A circle is a group of trusted people, so its glyph carries the PEOPLE role
  * rather than the accent used for things you can DO. The action controls that
- * sit alongside it (New circle, Join, Share, Add people) stay accent, which is
+ * sit alongside it (Create circle, Join, Share, Add people) stay accent, which is
  * what keeps "this is a group" and "this is a button" from looking alike.
  *
  * Glyph only. The wells this sits in ask for `--app-accent-soft`, a token that
@@ -170,9 +178,14 @@ function circleInitials(value: string): string {
  * There are three kinds and nothing on this screen acts on any of them, so
  * the word was decoration in front of the fact. The count stands alone.
  */
-function circleListMemberCountLabel(memberCount: number): string {
-  const others = Math.max(0, memberCount - 1);
-  return `${others} ${others === 1 ? "member" : "members"}`;
+/** Wording for a member count that has already excluded the viewer. */
+export function othersCountLabel(others: number): string {
+  if (others <= 0) return "No members yet";
+  return `${others} ${others === 1 ? "person" : "people"}`;
+}
+
+export function circleListMemberCountLabel(memberCount: number): string {
+  return othersCountLabel(Math.max(0, memberCount - 1));
 }
 
 function circleFlowErrorMessage(error: unknown, fallback: string): string {
@@ -268,7 +281,7 @@ export function CirclesSection({
     <div className="space-y-[14px]" data-testid="one-location-named-circles">
       <div className="flex items-baseline justify-between gap-4">
         <h2 className="text-[13px] font-normal leading-[17px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
-          Circles
+          Your circles
         </h2>
 
         {/* The static phone reference omits Join, but it remains a shipped
@@ -283,7 +296,7 @@ export function CirclesSection({
             data-voice-control-id="one-location-action-create-circle"
             className="relative !h-auto !min-h-0 !rounded-none !px-0 !py-0 text-[16px] font-normal leading-5 tracking-[-0.24px] after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] sm:text-[15px]"
           >
-            New circle
+            Create circle
           </Button>
           <Button
             type="button"
@@ -787,6 +800,7 @@ function CircleMemberRow({
   onConnect?: () => Promise<void>;
   connecting?: boolean;
 }) {
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const isCurrentUser = member.userId === currentUserId;
   const canShare =
     !isCurrentUser && member.phoneVerified && member.secureLocationReady;
@@ -1057,6 +1071,7 @@ export function CircleDetailFlow({
   >([]);
   const [remainingCapacity, setRemainingCapacity] = useState(0);
   const [peopleSearch, setPeopleSearch] = useState("");
+  const [memberSearch, setMemberSearch] = useState("");
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<
     Set<string>
   >(() => new Set());
@@ -1110,6 +1125,7 @@ export function CircleDetailFlow({
     setPeopleSheetOpen(false);
     setPeopleSearch("");
     setSelectedConnectionIds(new Set());
+    setMemberSearch("");
     setSavingName(false);
     peopleRequestRef.current += 1;
     void reload();
@@ -1386,9 +1402,7 @@ export function CircleDetailFlow({
             ? // Same line as the list row this screen was opened from, so the
               // count does not change wording between the two. The kind is
               // dropped here for the same reason it is dropped there.
-              `${externalMembersCount} ${
-                externalMembersCount === 1 ? "member" : "members"
-              }`
+              othersCountLabel(externalMembersCount)
             : "Loading Circle…"
         }
       />

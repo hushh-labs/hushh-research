@@ -544,6 +544,21 @@ export function normalizeOneLocationShareKind(
   return "share";
 }
 
+/**
+ * Whether a grant came from the Save My Soul panic flow -- the lane this UI
+ * calls "SMS".
+ *
+ * Restored as the minimum dependency of `lib/one-location/grant-lanes.ts`,
+ * which the SOS grant-lane split (#5552) introduced. Reads the same
+ * normalizer every other share-kind check here reads, so a grant cannot be
+ * classified one way by this predicate and another by its badge.
+ */
+export function isSmsTriggeredGrant(grant: {
+  shareKind?: string | null;
+}): boolean {
+  return normalizeOneLocationShareKind(grant.shareKind) === "sos";
+}
+
 /** Short, human tag per share kind for badges/labels (SMS / Check-In / Share). */
 export function oneLocationShareKindLabel(kind?: string | null): string {
   switch (normalizeOneLocationShareKind(kind)) {

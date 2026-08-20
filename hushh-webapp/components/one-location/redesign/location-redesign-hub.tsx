@@ -1996,6 +1996,7 @@ function LocationDetailFlow({
                       )
                     : null}
                 </SharedWithMeCard>
+                </div>
               );
             })}
           </div>
