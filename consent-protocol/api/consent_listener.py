@@ -43,6 +43,9 @@ MIN_FINAL_REMINDER_WINDOW_MS = 2 * 60 * 60 * 1000
 _CONSENT_NOTIFY_QUEUE_MAXSIZE = 100
 _consent_notify_queues: Dict[str, asyncio.Queue] = {}
 _consent_notify_queues_lock = asyncio.Lock()
+# The loop the SSE queues live on. Captured when a consumer connects, so a
+# producer running on a FastAPI threadpool worker can still reach them.
+_serving_loop: asyncio.AbstractEventLoop | None = None
 _DEVELOPER_CONSENT_QUEUE_MAXSIZE = 20
 _developer_consent_subscribers: Dict[tuple[str, str], set[asyncio.Queue]] = {}
 _developer_consent_subscribers_lock = asyncio.Lock()
@@ -164,9 +167,50 @@ async def _push_to_developer_consent_queues(data: Dict[str, Any]) -> None:
 
 def get_consent_queue(user_id: str) -> asyncio.Queue:
     """Get or create the asyncio queue for this user (used by SSE generator)."""
+    _remember_serving_loop()
     if user_id not in _consent_notify_queues:
         _consent_notify_queues[user_id] = asyncio.Queue(maxsize=_CONSENT_NOTIFY_QUEUE_MAXSIZE)
     return _consent_notify_queues[user_id]
+
+
+def _remember_serving_loop() -> None:
+    """Record the loop the SSE queues live on, so worker threads can reach them.
+
+    Called from ``get_consent_queue``, which only ever runs inside the SSE
+    endpoint -- i.e. on the serving loop itself.
+    """
+    global _serving_loop
+    try:
+        _serving_loop = asyncio.get_running_loop()
+    except RuntimeError:  # pragma: no cover - never called off-loop today
+        pass
+
+
+def push_to_consent_queue_threadsafe(user_id: str, data: Dict[str, Any]) -> bool:
+    """Enqueue an SSE event from a thread that has no running event loop.
+
+    FastAPI runs a plain ``def`` handler in a threadpool worker, where
+    ``asyncio.get_running_loop()`` raises. Every producer of connection-request
+    events is such a handler (``def create_connection_request``,
+    ``def request_nearby_connection``), so the fire-and-forget
+    ``loop.create_task(...)`` they used to attempt raised RuntimeError and was
+    swallowed -- the SSE lane was dead for those events, and the web client had
+    no way to learn about a new connection request unless it had an active push
+    subscription.
+
+    Returns True when the coroutine was scheduled. False means there is no
+    serving loop yet (no SSE consumer has ever connected in this process), which
+    is not an error: there is nobody to deliver to.
+    """
+    loop = _serving_loop
+    if loop is None or loop.is_closed():
+        return False
+    try:
+        asyncio.run_coroutine_threadsafe(_push_to_consent_queue(user_id, data), loop)
+        return True
+    except Exception as exc:  # noqa: BLE001 - delivery is best-effort, never fatal
+        logger.warning("consent.sse_threadsafe_enqueue_failed error=%s", exc)
+        return False
 
 
 async def subscribe_developer_consent_queue(

@@ -31,7 +31,13 @@ function isHandledByVisibleApp(data) {
     type.startsWith("location_") ||
     type === "consent_request" ||
     type === "consent_opened" ||
-    type === "consent_resolved"
+    type === "consent_resolved" ||
+    // connection_request renders an in-app Sonner toast in the provider, so a
+    // visible tab must be given the chance to acknowledge and suppress the OS
+    // banner. Omitting it meant the addressee got BOTH surfaces for one event —
+    // and, before the copy fix, saw two different sentences (the banner named
+    // the requester, the toast said "Someone").
+    type === "connection_request"
   );
 }
 
