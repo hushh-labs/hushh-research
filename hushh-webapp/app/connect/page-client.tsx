@@ -36,6 +36,7 @@ import {
 import { useRequireAuth } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
@@ -397,6 +398,27 @@ export default function ConnectPageClient() {
   useEffect(() => {
     void loadOutgoingRequestIds();
   }, [loadOutgoingRequestIds]);
+
+  useEffect(() => {
+    const handleStateChanged = (event: Event) => {
+      const detail =
+        (event as CustomEvent<{ action?: unknown; reconcile?: unknown }>)
+          .detail || {};
+      // Only re-fetch for real mutations (`action`) or explicit reconcile
+      // requests, not bookkeeping echoes like "fcm_opened" that would
+      // otherwise flash the list on every notification read.
+      if (!detail.action && !detail.reconcile) return;
+      void loadConnections().then((rows) => setConnections(rows));
+      void loadOutgoingRequestIds();
+    };
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, handleStateChanged);
+    return () => {
+      window.removeEventListener(
+        CONSENT_STATE_CHANGED_EVENT,
+        handleStateChanged,
+      );
+    };
+  }, [loadConnections, loadOutgoingRequestIds]);
 
   // The directory is every account on Hussh, so listing all of it unprompted
   // stops being useful as soon as sign-ups outgrow a screen or two: the person
