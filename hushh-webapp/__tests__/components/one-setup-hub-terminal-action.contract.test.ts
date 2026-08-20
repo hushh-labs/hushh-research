@@ -53,7 +53,7 @@ describe("One setup hub terminal action contract", () => {
     // The reorder itself, asserted on the rendered order rather than on intent.
     // Broken on purpose: move the cloud tile below AI access and this goes red.
     expect(source.indexOf('title="Your cloud"')).toBeLessThan(
-      source.indexOf('title="AI access"'),
+      source.indexOf('title="Choose your AI"'),
     );
     expect(source).toContain(
       "PreVaultUserStateService.hasOneRuntimeChoice(currentState)",
@@ -112,7 +112,7 @@ describe("One setup hub terminal action contract", () => {
     // one more optional status. The blocking row takes the accent pill and the
     // current-step role so it is legible as the thing to do first.
     expect(hub).toContain('statusLabel="Required"');
-    expect(hub).toContain('statusTone="required"');
+    expect(hub).toContain('statusTone={cloudComplete ? "required" : "muted"}');
     expect(tile).toContain('statusTone === "required"');
     expect(tile).toContain("bg-[var(--app-accent-tint)]");
     expect(tile).toContain('aria-current={isCurrent ? "step" : undefined}');

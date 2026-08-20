@@ -189,7 +189,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
   };
 
   const clickManaged = () =>
-    fireEvent.click(screen.getByRole("button", { name: /Hussh managed Gemini/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Use Hussh's AI/i }));
 
   it("tells the server about the managed choice", async () => {
     renderSetupCard();
