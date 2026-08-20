@@ -1086,7 +1086,15 @@ def test_create_request_notifies_addressee_on_new_insert():
     db = SimpleNamespace(execute_raw=lambda sql, params=None: next(responses))
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         svc.create_request("user-a", addressee_user_id="user-b")
-    assert calls == [{"addressee_user_id": "user-b", "requester_user_id": "user-a"}]
+    # The new row's id rides along so the push can deep-link to the review sheet
+    # instead of the Connections list (issue #5422).
+    assert calls == [
+        {
+            "addressee_user_id": "user-b",
+            "requester_user_id": "user-a",
+            "connection_request_id": "req-1",
+        }
+    ]
 
 
 def test_create_request_does_not_notify_on_idempotent_existing():
@@ -1144,6 +1152,7 @@ def test_nearby_alias_request_atomically_revalidates_versions_and_inserts():
                     "target_user_id": "user-b",
                     "relationship": "pending_outgoing",
                     "created": True,
+                    "created_request_id": "req-nearby-1",
                 }
             ],
         ],
@@ -1170,6 +1179,10 @@ def test_nearby_alias_request_atomically_revalidates_versions_and_inserts():
     assert "insert into connection_requests" in normalized_mutation_sql
     assert "target.allow_connection_requests" in normalized_mutation_sql
     assert "'pending', null" in normalized_mutation_sql
+    # The CTE must surface the inserted id, otherwise this path can only ever
+    # send the unscoped Connections-list link (issue #5422).
+    assert "returning id, requester_user_id, addressee_user_id" in normalized_mutation_sql
+    assert "as created_request_id" in normalized_mutation_sql
     expected_params = {
         "requester_user_id": "user-a",
         "participant_alias": "6f80b5ee-85b8-4678-a663-9f84ae985ed5",
@@ -1189,6 +1202,7 @@ def test_nearby_alias_request_atomically_revalidates_versions_and_inserts():
         {
             "addressee_user_id": "user-b",
             "requester_user_id": "user-a",
+            "connection_request_id": "req-nearby-1",
         }
     ]
 
