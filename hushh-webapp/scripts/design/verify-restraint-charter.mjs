@@ -44,6 +44,35 @@ const FIRST_RUN_SURFACES = [
 
 const CHARTER = "Restraint Charter (docs/reference/quality/design.md, Visual Language 1)";
 
+// Surfaces that carry legitimate state badges (a real "Saved"/"Selected"/"Locked"
+// state) or morphy-ux buttons whose primary reading is a variant, not the absence of
+// one, cannot use the generalizable scan above without false positives. For those,
+// pin the specific charter fix with an exact-string assertion (the house-guard style
+// in verify-apple-hierarchy): a fix that regresses reappears as the banned string, or
+// disappears as a missing required one.
+const REGRESSION_ASSERTIONS = [
+  {
+    path: "components/connections/gemini-runtime-configuration-page.tsx",
+    absent: "stays in this session until you finish setup",
+    law: "law 3 (earn every element): the AI-access header must not restate the BYOK row's session-scope caveat",
+  },
+  {
+    path: "components/connections/gemini-runtime-settings-card.tsx",
+    absent: 'trailing={<Badge variant="outline">Coming soon</Badge>}',
+    law: "law 5 (no decorative badge): the per-row Coming soon badge only restated the group title and the disabled state",
+  },
+  {
+    path: "components/connections/gemini-runtime-settings-card.tsx",
+    present: 'requiresExplicitSelection ? "blue" : "blue-gradient"',
+    law: "law 2 (one primary action): the AI-access confirm/validate action must demote below the footer on the first-run step",
+  },
+  {
+    path: "components/onboarding/setup/one-setup-hub.tsx",
+    absent: "takeoverHeading",
+    law: "law 1 (one title per screen): the setup hub's two-title takeover path (a PageHeader stacked over a story screen) must not return",
+  },
+];
+
 const failures = [];
 
 function read(repoPath) {
@@ -120,6 +149,20 @@ for (const surface of FIRST_RUN_SURFACES) {
   }
 }
 
+for (const assertion of REGRESSION_ASSERTIONS) {
+  const src = read(assertion.path);
+  if (assertion.absent && src.includes(assertion.absent)) {
+    failures.push(
+      `${assertion.path}: reintroduced "${assertion.absent}". ${CHARTER} ${assertion.law}.`,
+    );
+  }
+  if (assertion.present && !src.includes(assertion.present)) {
+    failures.push(
+      `${assertion.path}: missing required "${assertion.present}". ${CHARTER} ${assertion.law}.`,
+    );
+  }
+}
+
 if (failures.length > 0) {
   console.error(`verify-restraint-charter: ${failures.length} failure(s)\n`);
   for (const failure of failures) {
@@ -128,4 +171,6 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log(`verify-restraint-charter: OK (${FIRST_RUN_SURFACES.length} first-run surfaces)`);
+console.log(
+  `verify-restraint-charter: OK (${FIRST_RUN_SURFACES.length} first-run surfaces, ${REGRESSION_ASSERTIONS.length} pinned fixes)`,
+);

@@ -191,7 +191,7 @@ export function GeminiRuntimeConfigurationPage({
           title={setupMode ? "AI access" : "Gemini settings"}
           description={
             setupMode
-              ? "Choose Hussh managed Gemini or set up your own Gemini access. Your credential stays in this session until you finish setup."
+              ? "Choose Hussh managed Gemini or set up your own Gemini access."
               : "Choose how your private agent reaches Gemini."
           }
           accent="neutral"

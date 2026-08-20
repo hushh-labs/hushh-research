@@ -528,24 +528,14 @@ export function OneSetupHub() {
     vaultInvitationOpen && Boolean(user) && !isVaultUnlocked;
   const localFirstSequenceActive =
     localFirstEnabled && localFirstStage !== "idle" && Boolean(user);
-  // One heading per takeover screen. Null keeps the hub's own heading, which is
-  // the only thing the flag-off path ever sees beyond the vault invitation.
-  const takeoverHeading = localFirstSequenceActive
-    ? localFirstStage === "guided_connection" || localFirstStage === "migrating"
-      ? {
-          title: "Your private agent",
-          description: "One last connection.",
-        }
-      : {
-          title: "A private place for what matters",
-          description: "Your vault is required to finish setup.",
-        }
-    : showVaultInvitation
-      ? {
-          title: "A private place for what matters",
-          description: "Your vault is required to finish setup.",
-        }
-      : null;
+  // A centered story-screen takeover (the local-first sequence or the vault
+  // invitation) is a full screen with its own single title, icon, and action. The
+  // hub therefore suppresses its own PageHeader while one is showing: rendering
+  // both stacked two competing titles over one centered screen, and the story
+  // screen's title is the more specific one (Restraint Charter: one title per
+  // screen). The guided-connection screen even repeated "One last connection"
+  // verbatim under the header.
+  const storyTakeoverActive = localFirstSequenceActive || showVaultInvitation;
 
   return (
     <AppPageShell
@@ -559,52 +549,52 @@ export function OneSetupHub() {
         dataState: hubStateLoading ? "loading" : "loaded",
       }}
     >
-      <AppPageHeaderRegion>
-        {/* Header title + mobile master action share one flex row. The action
-            was absolutely positioned over the header before, so the large
-            display title ran underneath it and the two overlapped. A flex row
-            with a min-w-0 title column and a shrink-0 button keeps real
-            horizontal separation; the title shrinks within its column. */}
-        <div className="flex items-start gap-3">
-          <div className="min-w-0 flex-1">
-          <PageHeader
-            title={
-              takeoverHeading
-                ? takeoverHeading.title
-                : !hubStateLoading && allReady
-                  ? "You're all set"
-                  : "Finish setting up One"
-            }
-            description={
-              takeoverHeading ? takeoverHeading.description : summary
-            }
-            accent="neutral"
-            className={styles.setupHeader}
-          />
+      {/* Suppressed during a story-screen takeover: that centered screen owns the
+          one title, so the hub must not render a second one above it. */}
+      {!storyTakeoverActive ? (
+        <AppPageHeaderRegion>
+          {/* Header title + mobile master action share one flex row. The action
+              was absolutely positioned over the header before, so the large
+              display title ran underneath it and the two overlapped. A flex row
+              with a min-w-0 title column and a shrink-0 button keeps real
+              horizontal separation; the title shrinks within its column. */}
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <PageHeader
+                title={
+                  !hubStateLoading && allReady
+                    ? "You're all set"
+                    : "Finish setting up One"
+                }
+                description={summary}
+                accent="neutral"
+                className={styles.setupHeader}
+              />
+            </div>
+            {/* Mobile surfaces the master Skip/Finish action top-right in the
+                header so it is always reachable and never hides behind the fixed
+                "Talk to One" agent bar. Desktop keeps the in-flow footer below. */}
+            {!hubStateLoading ? (
+              <button
+                type="button"
+                onClick={() => void handleMasterAck()}
+                disabled={dismissing || !setupPrerequisitesComplete}
+                title={
+                  !cloudComplete
+                    ? "Connect your own cloud before continuing."
+                    : !runtimeChoiceComplete
+                      ? "Choose an AI access option before continuing."
+                      : undefined
+                }
+                data-testid="one-setup-master-ack-mobile"
+                className="mt-1 shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:opacity-40 sm:hidden"
+              >
+                {masterActionLabel}
+              </button>
+            ) : null}
           </div>
-          {/* Mobile surfaces the master Skip/Finish action top-right in the
-              header so it is always reachable and never hides behind the fixed
-              "Talk to One" agent bar. Desktop keeps the in-flow footer below. */}
-          {!hubStateLoading && !takeoverHeading ? (
-            <button
-              type="button"
-              onClick={() => void handleMasterAck()}
-              disabled={dismissing || !setupPrerequisitesComplete}
-              title={
-                !cloudComplete
-                  ? "Connect your own cloud before continuing."
-                  : !runtimeChoiceComplete
-                    ? "Choose an AI access option before continuing."
-                    : undefined
-              }
-              data-testid="one-setup-master-ack-mobile"
-              className="mt-1 shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:opacity-40 sm:hidden"
-            >
-              {masterActionLabel}
-            </button>
-          ) : null}
-        </div>
-      </AppPageHeaderRegion>
+        </AppPageHeaderRegion>
+      ) : null}
 
       <AppPageContentRegion>
         {localFirstSequenceActive ? (

@@ -82,7 +82,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     expect(screen.queryByText("Selected")).toBeNull();
   });
 
-  it("keeps Gemini selectable and labels the other models as coming soon", () => {
+  it("on the first-run step keeps Gemini selectable and defers the coming-soon models", () => {
     render(
       <GeminiRuntimeSettingsCard
         userId="fresh-user"
@@ -100,6 +100,27 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
 
     expect(screen.getByText("Hussh managed Gemini")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Gemini" })).toBeTruthy();
+    // Restraint Charter: the mandatory first-run step lets the person choose only
+    // Gemini, so the future-providers list is deferred to the settings context
+    // rather than competing with the one decision here.
+    expect(screen.queryByRole("heading", { name: "Coming soon" })).toBeNull();
+    expect(screen.queryByTestId("profile-coming-soon-openai")).toBeNull();
+  });
+
+  it("in the settings context lists the coming-soon models without a decorative badge", () => {
+    render(
+      <GeminiRuntimeSettingsCard
+        userId="fresh-user"
+        vaultKey={null}
+        vaultOwnerToken={null}
+        needsVaultCreation
+        needsUnlock={false}
+        onRequestVaultUnlock={vi.fn()}
+        onRequestVaultCreation={vi.fn()}
+        initiallyConfigured={false}
+      />,
+    );
+
     expect(screen.getByRole("heading", { name: "Coming soon" })).toBeTruthy();
     for (const provider of [
       ["openai", "OpenAI"],
@@ -109,7 +130,9 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     ] as const) {
       const row = screen.getByTestId(`profile-coming-soon-${provider[0]}`);
       expect(row).toHaveTextContent(provider[1]);
-      expect(row).toHaveTextContent("Coming soon");
+      // Law 5: the per-row "Coming soon" badge only restated the group heading and
+      // the disabled state, so it is gone; the heading and styling carry it.
+      expect(row).not.toHaveTextContent("Coming soon");
       expect(row).toHaveClass("cursor-not-allowed");
       expect(screen.queryByRole("button", { name: provider[1] })).toBeNull();
     }
@@ -166,7 +189,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
   };
 
   const clickManaged = () =>
-    fireEvent.click(screen.getByRole("button", { name: /Hushh managed Gemini/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Hussh managed Gemini/i }));
 
   it("tells the server about the managed choice", async () => {
     renderSetupCard();

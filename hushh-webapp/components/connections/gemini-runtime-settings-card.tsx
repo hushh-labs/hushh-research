@@ -644,13 +644,23 @@ export function GeminiRuntimeSettingsCard({
             </HelperText>
             <div className="flex flex-wrap gap-2">
               {credentialValidation.status === "ready" ? (
-                <Button type="button" onClick={() => void saveByok()} disabled={isSaving || isRemoving}>
+                // In first-run the footer "Finish AI access setup" is the screen's one
+                // primary; this in-panel step demotes to solid blue so the gradient
+                // footer reads as primary (Restraint Charter: one primary action). In
+                // the settings context there is no footer, so it stays the primary.
+                <Button
+                  type="button"
+                  variant={requiresExplicitSelection ? "blue" : "blue-gradient"}
+                  onClick={() => void saveByok()}
+                  disabled={isSaving || isRemoving}
+                >
                   {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
                   Confirm and save
                 </Button>
               ) : (
                 <Button
                   type="button"
+                  variant={requiresExplicitSelection ? "blue" : "blue-gradient"}
                   onClick={() => void validateByok()}
                   disabled={
                     isSaving ||
@@ -676,23 +686,30 @@ export function GeminiRuntimeSettingsCard({
         ) : null}
       </SettingsGroup>
 
-      <SettingsGroup
-        title="Coming soon"
-        description="More model choices will appear here when they are ready."
-        testId="profile-coming-soon-runtime"
-        separatorInset
-      >
-        {COMING_SOON_PROVIDERS.map((provider) => (
-          <SettingsRow
-            key={provider.id}
-            leading={<RuntimeProviderMark provider={provider} className="!h-8 !w-8" />}
-            title={provider.name}
-            trailing={<Badge variant="outline">Coming soon</Badge>}
-            disabled
-            testId={`profile-coming-soon-${provider.id}`}
-          />
-        ))}
-      </SettingsGroup>
+      {/* Settings context only. On the mandatory first-run AI-access step the person
+          can only choose Gemini, so a list of future providers does not change that
+          decision and competes with it (Restraint Charter: earn every element +
+          progressive disclosure). The per-row badge is dropped in both contexts: it
+          only restated this group's own title, description, and the row's disabled
+          state (law 5). */}
+      {!requiresExplicitSelection ? (
+        <SettingsGroup
+          title="Coming soon"
+          description="More model choices will appear here when they are ready."
+          testId="profile-coming-soon-runtime"
+          separatorInset
+        >
+          {COMING_SOON_PROVIDERS.map((provider) => (
+            <SettingsRow
+              key={provider.id}
+              leading={<RuntimeProviderMark provider={provider} className="!h-8 !w-8" />}
+              title={provider.name}
+              disabled
+              testId={`profile-coming-soon-${provider.id}`}
+            />
+          ))}
+        </SettingsGroup>
+      ) : null}
     </>
   );
 }
