@@ -195,7 +195,7 @@ export function RuntimeSecretSettingsCard({
       setRevealedKeys((current) => ({ ...current, [provider.id]: null }));
       setShowKeys((current) => ({ ...current, [provider.id]: false }));
       setConfiguredKeys((current) => ({ ...current, [provider.id]: true }));
-      toast.success(`${provider.label} key saved.`);
+      toast.success(`${provider.label} key saved to your encrypted vault.`);
     } catch (error) {
       const message =
         error instanceof Error
@@ -276,7 +276,7 @@ export function RuntimeSecretSettingsCard({
       setRevealedKeys((current) => ({ ...current, [provider.id]: null }));
       setShowKeys((current) => ({ ...current, [provider.id]: false }));
       setConfiguredKeys((current) => ({ ...current, [provider.id]: false }));
-      toast.success(`${provider.label} key removed.`);
+      toast.success(`${provider.label} key removed from your encrypted vault.`);
     } catch (error) {
       const message =
         error instanceof Error
@@ -319,7 +319,7 @@ export function RuntimeSecretSettingsCard({
       });
       if (!secret) {
         setConfiguredKeys((current) => ({ ...current, [provider.id]: false }));
-        toast.error(`No saved ${provider.label} key found.`);
+        toast.error(`No saved ${provider.label} key found in your encrypted vault.`);
         return;
       }
       setRevealedKeys((current) => ({ ...current, [provider.id]: secret }));
@@ -337,7 +337,7 @@ export function RuntimeSecretSettingsCard({
 
   const statusLabel = (providerId: RuntimeSecretProviderId) =>
     needsVaultCreation
-      ? "Set up lock"
+      ? "Vault needed"
       : needsUnlock
         ? "Locked"
         : loadingStatus
@@ -349,7 +349,7 @@ export function RuntimeSecretSettingsCard({
   return (
     <SettingsGroup
       title="Runtime keys"
-      description="Store model provider keys securely."
+      description="Store model provider keys in your encrypted PKM vault."
       testId="runtime-secret-settings"
     >
       <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
@@ -363,7 +363,7 @@ export function RuntimeSecretSettingsCard({
                 Model provider keys
               </p>
               <p className="text-[12px] leading-[1.45] text-muted-foreground">
-                Encrypted and private.
+                Encrypted in your PKM vault.
               </p>
             </div>
           </div>
@@ -488,9 +488,9 @@ export function RuntimeSecretSettingsCard({
                         Saving...
                       </>
                     ) : needsVaultCreation ? (
-                      "Set a lock"
+                      "Create vault"
                     ) : needsUnlock || !vaultReady ? (
-                      "Unlock"
+                      "Unlock vault"
                     ) : (
                       "Save"
                     )}

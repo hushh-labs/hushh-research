@@ -236,7 +236,7 @@ export function GeminiRuntimeSettingsCard({
           ? "This setting changed on another device. Refresh and try again."
           : requiresExplicitSelection
             ? "We couldn’t save this setup choice. Try again."
-            : "Unlock again, then try this setting.",
+            : "Open your private vault again, then try this setting.",
       );
     } finally {
       selectionPendingRef.current = false;
@@ -411,7 +411,7 @@ export function GeminiRuntimeSettingsCard({
         await onSelectionReadyChange?.("byok_pending_vault");
       }
       notifyGeminiRuntimeConfigurationChanged();
-      toast.success("Your Gemini configuration is saved.");
+      toast.success("Your Gemini configuration is saved in your encrypted vault.");
     } catch {
       toast.error("Gemini key could not be saved.");
     } finally {
@@ -548,7 +548,7 @@ export function GeminiRuntimeSettingsCard({
             <div className="flex items-center justify-between gap-3">
               <CardTitle as="p">Gemini connection</CardTitle>
               <Badge variant={hasSavedKey ? "secondary" : "outline"}>
-                {needsVaultCreation ? "Set up lock" : needsUnlock ? "Locked" : hasSavedKey ? "Saved" : "Not set"}
+                {needsVaultCreation ? "Vault needed" : needsUnlock ? "Locked" : hasSavedKey ? "Saved" : "Not set"}
               </Badge>
             </div>
             <FormLabel className="block space-y-1">

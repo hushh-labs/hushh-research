@@ -311,7 +311,7 @@ const routeOverrides = {
       location_capture:
         "After renderer consent, Map takes one bounded foreground fix for camera focus. Locate me publishes only on an explicit tap. Nearby check-in takes a fresh bounded fix only for an explicit, time-boxed check-in.",
       visibility:
-        "An active private or Circle share is visible on the recipient's map unconditionally -- no separate map-visibility opt-in. Local/UAT nearby discovery requires separate explicit visibility consent, returns a roster without peer coordinates, and fails closed in production.",
+        "Ghost Mode remains the map default. Local/UAT nearby discovery requires separate explicit visibility consent, returns a roster without peer coordinates, and fails closed in production.",
     },
   },
   "/one/kai/news": {

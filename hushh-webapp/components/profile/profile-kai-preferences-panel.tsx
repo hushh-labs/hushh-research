@@ -65,9 +65,9 @@ export function ProfileKaiPreferencesPanel({
     return (
       <SurfaceCard>
         <SurfaceCardHeader>
-          <SurfaceCardTitle>Unlock to edit your preferences</SurfaceCardTitle>
+          <SurfaceCardTitle>Unlock to edit Kai preferences</SurfaceCardTitle>
           <SurfaceCardDescription>
-            Your risk profile and horizon are stored privately.
+            Risk profile and horizon preferences are stored securely in your vault.
           </SurfaceCardDescription>
         </SurfaceCardHeader>
         <SurfaceCardContent>
@@ -99,7 +99,7 @@ export function ProfileKaiPreferencesPanel({
         <SurfaceCardHeader>
           <SurfaceCardTitle>Preferences unavailable</SurfaceCardTitle>
           <SurfaceCardDescription>
-            We could not load your saved preferences. Reopen this screen to retry.
+            We could not load your saved Kai preferences. Reopen this screen to retry.
           </SurfaceCardDescription>
         </SurfaceCardHeader>
       </SurfaceCard>

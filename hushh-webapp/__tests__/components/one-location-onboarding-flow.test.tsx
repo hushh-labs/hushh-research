@@ -69,17 +69,10 @@ function renderFlow(
   };
 }
 
-/**
- * welcome -> features -> contacts.
- *
- * Step two is a permission primer (#5395): its CTA asks for Location on the
- * first tap and moves on with the second. Nothing fires the OS dialog on the
- * way in any more, so this walk has to make the ask explicitly.
- */
+/** welcome -> features -> contacts. */
 function openContactsScreen() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-  fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-  fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+  fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
 }
 
 /** ...and on to the invite screen, declining the contacts step. */
@@ -146,8 +139,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     const advance = [
       ["one-location-onboarding-welcome", "Get started"],
-      ["one-location-onboarding-features", "Allow location"],
-      ["one-location-onboarding-features", "Choose my people"],
+      ["one-location-onboarding-features", "Find my people"],
       ["one-location-onboarding-contacts", "Not now"],
       ["one-location-onboarding-invite", null],
     ] as const;
@@ -180,8 +172,7 @@ describe("OneLocationOnboardingFlow", () => {
     record("one-location-onboarding-welcome");
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
     record("one-location-onboarding-features");
-    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
     record("one-location-onboarding-contacts");
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     record("one-location-onboarding-invite");
@@ -305,39 +296,33 @@ describe("OneLocationOnboardingFlow", () => {
       }
     }
 
-    // The hero slot (testid "location-use-case-trip") now carries Check-In \u2014
-    // the real Check-In flow only tells chosen people you arrived, so it gets
-    // this fallback copy rather than a hotel/key-pickup claim the flow cannot
-    // back up. Share moves to the first compact slot, SOS keeps the second.
-    const heroCard = screen.getByTestId("location-use-case-trip");
-    const shareCard = screen.getByTestId("location-use-case-checkin");
-    const sosCard = screen.getByTestId("location-use-case-sos");
-
     expect(
       Array.from(
-        heroCard.querySelectorAll("[data-one-feature-title-line]"),
-      ).map((line) => line.textContent),
-    ).toEqual(["Can\u2019t find", "each other?"]);
-    expect(
-      Array.from(
-        shareCard.querySelectorAll("[data-one-feature-title-line]"),
+        screen
+          .getByTestId("location-use-case-trip")
+          .querySelectorAll("[data-one-feature-title-line]"),
       ).map((line) => line.textContent),
     ).toEqual(["Can\u2019t explain", "where you are?"]);
     expect(
       Array.from(
-        sosCard.querySelectorAll("[data-one-feature-title-line]"),
+        screen
+          .getByTestId("location-use-case-checkin")
+          .querySelectorAll("[data-one-feature-title-line]"),
       ).map((line) => line.textContent),
-    ).toEqual(["Can\u2019t call", "for help?"]);
+    ).toEqual(["At the venue, but", "can\u2019t find each other?"]);
+    expect(
+      Array.from(
+        screen
+          .getByTestId("location-use-case-sos")
+          .querySelectorAll("[data-one-feature-title-line]"),
+      ).map((line) => line.textContent),
+    ).toEqual(["Need help but can\u2019t", "call or speak?"]);
 
     expect(
-      screen.getByRole("heading", { name: "Location that helps" }),
-    ).toBeTruthy();
-    expect(screen.getByText("Share, check in, or get help.")).toBeTruthy();
-    expect(
-      screen.getByRole("heading", { name: "Can\u2019t find each other?" }),
+      screen.getByRole("heading", { name: "Need to keep people updated?" }),
     ).toBeTruthy();
     expect(
-      screen.getByText("Check in once. Everyone knows you arrived."),
+      screen.getByText("Share location, check in, or send help in seconds."),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
@@ -345,25 +330,27 @@ describe("OneLocationOnboardingFlow", () => {
       }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("heading", { name: "Can\u2019t call for help?" }),
+      screen.getByText("Share once. Your Circle can find you safely."),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        name: "At the venue, but can\u2019t find each other?",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        name: "Need help but can\u2019t call or speak?",
+      }),
     ).toBeTruthy();
 
-    expect(
-      heroCard.querySelector("[data-one-use-case-tag]")?.textContent,
-    ).toBe("Check in");
-    expect(
-      shareCard.querySelector("[data-one-use-case-tag]")?.textContent,
-    ).toBe("Share");
-    // "SMS" also labels the radar core below, so this must stay scoped to
-    // the tag pill or it collides with that second "SMS" text node.
-    expect(
-      sosCard.querySelector("[data-one-use-case-tag]")?.textContent,
-    ).toBe("SMS");
-    expect(screen.getByText("Checked in")).toBeTruthy();
-    expect(screen.getByText("Sharing")).toBeTruthy();
-    expect(screen.getByText("Help sent")).toBeTruthy();
+    expect(screen.getByText("Share location")).toBeTruthy();
+    expect(screen.getByText("Check in")).toBeTruthy();
+    expect(screen.getByText("SMS \u00b7 Save My Soul")).toBeTruthy();
+    expect(screen.getByText("Sharing with Mom, Driver +1")).toBeTruthy();
+    expect(screen.getByText("Checked in at Hotel Grand")).toBeTruthy();
+    expect(screen.getByText("Alerted 3 contacts")).toBeTruthy();
 
-    const smsCard = sosCard;
+    const smsCard = screen.getByTestId("location-use-case-sos");
     const smsCore = smsCard.querySelector("[data-one-sms-core]");
     const smsLabel = smsCard.querySelector("[data-one-sms-label]");
     const smsPulse = smsCard.querySelector("[data-one-sms-core-pulse]");
@@ -373,7 +360,6 @@ describe("OneLocationOnboardingFlow", () => {
       "[data-one-sms-radar-clearance]",
     );
     const smsRadar = smsCard.querySelector("[data-one-sms-radar]");
-    expect(smsLabel?.textContent).toBe("SMS");
     expect(smsArtRegion?.className).toContain("flex-1");
     expect(smsRadarClearance?.className).toContain("h-[108px]");
     expect(smsRadarClearance?.className).toContain("w-[108px]");
@@ -397,144 +383,51 @@ describe("OneLocationOnboardingFlow", () => {
       );
     }
 
-    // Hero card: a pin marks the arrival, a checkmark confirms it \u2014 no hotel
-    // art, no key, and no share avatars (those belong to the compact card).
-    expect(heroCard.querySelector("svg.lucide-map-pin")).toBeTruthy();
-    expect(heroCard.querySelector("svg.lucide-check")).toBeTruthy();
-    expect(
-      heroCard.querySelector(
-        'img[src="/one-location/onboarding/feature-checkin-house-transparent.webp"]',
-      ),
-    ).toBeNull();
-    expect(
-      heroCard.querySelector('img[src*="/feature-share-person-"]'),
-    ).toBeNull();
+    const checkInCard = screen.getByTestId("location-use-case-checkin");
+    expect(checkInCard.querySelector("[data-one-checkin-pin]")).toBeNull();
+    const hotelArt = checkInCard.querySelector(
+      'img[src="/one-location/onboarding/feature-checkin-house-transparent.webp"]',
+    );
+    const hotelFrame = checkInCard.querySelector("[data-one-checkin-art]");
+    expect(hotelArt).toBeTruthy();
+    expect(hotelFrame?.className).toContain("w-[54%]");
+    expect(hotelFrame).toHaveStyle({
+      perspective: "320px",
+      perspectiveOrigin: "50% 100%",
+    });
+    expect(hotelArt).toHaveStyle({ transform: "rotateY(8deg)" });
+    expect(hotelArt?.className).not.toContain("rotate-");
 
-    // Compact Share card: one trusted-person avatar, no hotel art.
-    expect(
-      shareCard.querySelector(
-        'img[src="/one-location/onboarding/feature-share-person-1.webp"]',
-      ),
-    ).toBeTruthy();
-    expect(
-      shareCard.querySelector(
-        'img[src="/one-location/onboarding/feature-checkin-house-transparent.webp"]',
-      ),
-    ).toBeNull();
+    const shareCard = screen.getByTestId("location-use-case-trip");
+    for (const asset of [
+      "feature-share-person-1.webp",
+      "feature-share-person-2.webp",
+      "feature-share-person-3.webp",
+    ]) {
+      expect(
+        shareCard.querySelector(`img[src="/one-location/onboarding/${asset}"]`),
+      ).toBeTruthy();
+    }
+    expect(shareCard.querySelector('img[src*="/orbit-person-"]')).toBeNull();
 
-    expect(screen.getByRole("button", { name: "Choose my people" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Find my people" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
     expect(screen.queryByText("Connected Person")).toBeNull();
   });
 
-  it("never fires the OS prompt on the way into screen two", async () => {
-    // #5395. Arriving at screen two used to fire BOTH native dialogs on the
-    // same tick as the navigation, over a screen nobody had read. iOS grants
-    // exactly one Core Location prompt per install, so a reflexive refusal
-    // was permanent. Nothing may be asked until an explicit tap.
+  it("requests only missing permissions as screen two opens", () => {
     const props = renderFlow();
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    expect(props.onRequestLocation).not.toHaveBeenCalled();
-    expect(props.onRequestNotifications).not.toHaveBeenCalled();
-    expect(props.onLocationReady).not.toHaveBeenCalled();
-
-    // The explainer is on screen BEFORE the ask.
-    expect(
-      screen.getByTestId("one-location-onboarding-location-reason").textContent,
-    ).toBe("Share, check in, or get help.");
-
-    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
-    // Sequenced, not raced: notifications wait for Location to settle so the
-    // two native alerts cannot stack and cover each other.
-    await waitFor(() =>
-      expect(props.onRequestNotifications).toHaveBeenCalledTimes(1),
-    );
+    expect(props.onLocationReady).not.toHaveBeenCalled();
+    expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
-  });
-
-  it("asks for Location before notifications, never both at once", async () => {
-    // Two native alerts opened in parallel put the second one over the first,
-    // so people answered a notifications prompt believing it was the location
-    // prompt they had just asked for.
-    let releaseLocation: (() => void) | null = null;
-    const onRequestLocation = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseLocation = () => resolve();
-        }),
-    );
-    const props = renderFlow({ onRequestLocation });
-
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-
-    expect(onRequestLocation).toHaveBeenCalledTimes(1);
-    expect(props.onRequestNotifications).not.toHaveBeenCalled();
-
-    await act(async () => {
-      releaseLocation?.();
-    });
-    await waitFor(() =>
-      expect(props.onRequestNotifications).toHaveBeenCalledTimes(1),
-    );
-  });
-
-  it("offers a way past a refused Location instead of trapping the screen", () => {
-    // A refusal is recoverable state, not a dead end: everything except live
-    // sharing still works, so the flow stays open unless Location is required.
-    const props = renderFlow({
-      locationPermission: {
-        state: "denied",
-        precise: false,
-        background: "restricted",
-        locationServicesEnabled: true,
-      },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-
-    // No Allow button: the OS will not show the alert again, so offering to
-    // ask would be a button that does nothing.
-    expect(screen.queryByRole("button", { name: "Allow location" })).toBeNull();
-    expect(
-      screen.getByTestId("one-location-onboarding-location-reason").textContent,
-    ).toBe("Location is off. Turn it on in Settings.");
-
-    fireEvent.click(
-      screen.getByTestId("one-location-onboarding-skip-location"),
-    );
-    expect(screen.getByTestId("one-location-onboarding-contacts")).toBeTruthy();
-    expect(props.onRequestLocation).not.toHaveBeenCalled();
-  });
-
-  it("holds a refused device on screen two when Location is required", () => {
-    const props = renderFlow({
-      requireLocationToComplete: true,
-      locationPermission: {
-        state: "denied",
-        precise: false,
-        background: "restricted",
-        locationServicesEnabled: true,
-      },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    // No escape hatch when the caller made Location mandatory — the only
-    // control is the one that can actually fix the refusal.
-    expect(
-      screen.queryByTestId("one-location-onboarding-skip-location"),
-    ).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
-    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
   });
 
   it("runs Location-ready onboarding work without re-requesting permission", async () => {
@@ -554,11 +447,11 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onRequestNotifications).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Choose my people" }),
+        screen.getByRole("button", { name: "Find my people" }),
       ).toBeEnabled(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onLocationReady).toHaveBeenCalledTimes(1);
   });
@@ -575,9 +468,7 @@ describe("OneLocationOnboardingFlow", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    // Refused on arrival, so there is no Allow button to press -- the person
-    // leaves for Settings and comes back with the permission changed.
-    expect(props.onRequestLocation).not.toHaveBeenCalled();
+    expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     expect(props.onLocationReady).not.toHaveBeenCalled();
 
     props.rerenderFlow({
@@ -590,10 +481,10 @@ describe("OneLocationOnboardingFlow", () => {
     });
 
     await waitFor(() => expect(props.onLocationReady).toHaveBeenCalledTimes(1));
-    expect(props.onRequestLocation).not.toHaveBeenCalled();
+    expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Choose my people" }),
+        screen.getByRole("button", { name: "Find my people" }),
       ).toBeEnabled(),
     );
   });
@@ -621,7 +512,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     await waitFor(() => expect(onLocationReady).toHaveBeenCalledTimes(1));
     expect(
-      screen.getByRole("button", { name: "Choose my people" }),
+      screen.getByRole("button", { name: "Find my people" }),
     ).toBeDisabled();
     expect(screen.queryByTestId("one-location-onboarding-people")).toBeNull();
 
@@ -631,7 +522,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Choose my people" }),
+        screen.getByRole("button", { name: "Find my people" }),
       ).toBeEnabled(),
     );
   });
@@ -640,9 +531,8 @@ describe("OneLocationOnboardingFlow", () => {
     const props = renderFlow({ requireLocationToComplete: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-    expect(screen.getByRole("button", { name: "Choose my people" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+    expect(screen.getByRole("button", { name: "Find my people" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
 
     expect(props.onRequestLocation).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
@@ -650,16 +540,9 @@ describe("OneLocationOnboardingFlow", () => {
   });
 
   it("supports the previous permissions-only entry through the consolidated screen", async () => {
-    // This entry was the worst version of #5395: it fired both dialogs from a
-    // mount effect, before the person had tapped anything at all. It lands on
-    // the same screen two and now gets the same primer.
     const props = renderFlow({ startAt: "permissions" });
 
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    expect(props.onRequestLocation).not.toHaveBeenCalled();
-    expect(props.onRequestNotifications).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
     await waitFor(() => {
       expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
       expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
@@ -730,8 +613,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
 
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
@@ -851,7 +733,7 @@ describe("OneLocationOnboardingFlow", () => {
       "bg-[color:var(--app-grouped-background)]",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
     const contactsScreen = screen.getByTestId(
       "one-location-onboarding-contacts",
     );
@@ -1187,56 +1069,6 @@ describe("OneLocationOnboardingFlow", () => {
       );
     });
 
-    it("searches matched contacts once the address book match is large enough to need it", async () => {
-      // A synced address book can match well past a screenful (issue #5564).
-      // Below the shared reveal threshold (10) a search box is noise; above
-      // it, one is required — same rule the contact picker itself uses.
-      const bigMatches = Array.from({ length: 25 }, (_, index) => ({
-        userId: `user_${index}`,
-        displayName: `Synced Contact ${index}`,
-      }));
-      const onSyncOnboardingContacts = vi
-        .fn()
-        .mockResolvedValue({ status: "matched", matches: bigMatches });
-      renderFlow({ onSyncOnboardingContacts });
-      openContactsScreen();
-      fireEvent.click(
-        screen.getByRole("button", { name: "Check my contacts" }),
-      );
-
-      expect(await screen.findByText("Synced Contact 0")).toBeTruthy();
-      const search = screen.getByTestId("onboarding-contact-matches-search");
-
-      fireEvent.change(search, { target: { value: "contact 7" } });
-      expect(screen.getByText("Synced Contact 7")).toBeTruthy();
-      expect(screen.queryByText("Synced Contact 0")).toBeNull();
-
-      fireEvent.change(search, { target: { value: "zzz-nobody" } });
-      expect(
-        await screen.findByText(/No contacts match/),
-      ).toBeTruthy();
-
-      fireEvent.change(search, { target: { value: "" } });
-      expect(await screen.findByText("Synced Contact 0")).toBeTruthy();
-      expect(screen.getByText("Synced Contact 24")).toBeTruthy();
-    });
-
-    it("hides the contact-matches search below the reveal threshold", async () => {
-      const onSyncOnboardingContacts = vi
-        .fn()
-        .mockResolvedValue({ status: "matched", matches });
-      renderFlow({ onSyncOnboardingContacts });
-      openContactsScreen();
-      fireEvent.click(
-        screen.getByRole("button", { name: "Check my contacts" }),
-      );
-
-      expect(await screen.findByText("Trusted B")).toBeTruthy();
-      expect(
-        screen.queryByTestId("onboarding-contact-matches-search"),
-      ).toBeNull();
-    });
-
     it("says so plainly when nobody matched, and still moves on", async () => {
       const onSyncOnboardingContacts = vi
         .fn()
@@ -1319,8 +1151,7 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ contactsStepAvailable: false, onSyncOnboardingContacts });
 
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-      fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
 
       expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
       expect(
@@ -1333,8 +1164,7 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ contactsStepAvailable: false });
 
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-      fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
       fireEvent.click(screen.getByRole("button", { name: "Go back" }));
 
       // Back must not land on a screen that was never shown.
@@ -1347,8 +1177,7 @@ describe("OneLocationOnboardingFlow", () => {
       const props = renderFlow({ contactsStepAvailable: false });
 
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-      fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
       fireEvent.click(finishButton());
 
       expect(props.onComplete).toHaveBeenCalledTimes(1);

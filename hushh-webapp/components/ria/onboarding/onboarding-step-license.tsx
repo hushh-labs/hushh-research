@@ -41,7 +41,7 @@ export function OnboardingStepLicense({
             onChange={(event) => onLicenseNumberChange(event.target.value)}
             placeholder="INA00123456 or 7413463"
             className={cn(
-              "min-w-0 flex-1 bg-transparent py-3 text-right text-[17px] font-medium tabular-nums text-foreground placeholder:text-muted-foreground/70 outline-none",
+              "min-w-0 flex-1 bg-transparent py-3 text-right text-[17px] font-medium tabular-nums text-foreground placeholder:text-muted-foreground/50 outline-none",
               verificationStatus === "not_found" &&
                 "text-amber-600 dark:text-amber-300",
               verificationStatus === "error" && "text-red-600 dark:text-red-300"

@@ -2368,7 +2368,7 @@ export function ConsentCenterPage() {
     load: async () => {
       const vaultOwnerToken = getVaultOwnerToken();
       if (!user?.uid || !vaultOwnerToken) {
-        throw new Error("Unlock One to open this request.");
+        throw new Error("Unlock your vault to open this consent request.");
       }
       return ConsentCenterService.lookupPendingRequests({
         vaultOwnerToken,
@@ -3011,8 +3011,8 @@ export function ConsentCenterPage() {
               />
             ) : selectedRequestNeedsUnlock ? (
               <SettingsRow
-                title="Unlock to review"
-                description="Unlock to load this request securely."
+                title="Unlock vault to review"
+                description="Unlock your vault to load this request securely."
               />
             ) : selectedPendingLookupResource.error ? (
               <SettingsRow

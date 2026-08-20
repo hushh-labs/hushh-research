@@ -51,7 +51,7 @@ function describeAdvisorState(
     return "Your advisor connection is active, but the shared package is not published yet.";
   }
   if (state === "unavailable") {
-    return "Falling back to the default list because the advisor package is unavailable right now.";
+    return "Kai is falling back to the default list because the advisor package is unavailable right now.";
   }
   if (tickerStatus === "included") {
     return "This stock is included in the advisor package and will shape the debate context directly.";
@@ -104,8 +104,8 @@ export function StockComparisonPreview({
             title={preview ? `${preview.symbol} vs the active picks list` : "Compare before debate"}
             description={
               preview
-                ? "Confirm the live quote against the current list source before you launch the debate."
-                : "Preparing a live quote and list comparison."
+                ? "Confirm the live quote against the current Kai list source before you launch the debate."
+                : "Kai is preparing a live quote and list comparison."
             }
             icon={GitCompareArrows}
             accent="default"
@@ -165,7 +165,7 @@ export function StockComparisonPreview({
                     Debate source
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    This list context is used when the debate starts and when the result is saved.
+                    Kai will use this active list context when the debate starts and when the result is saved.
                   </p>
                 </div>
                 <div className="w-full sm:w-auto sm:min-w-[220px]">
@@ -240,7 +240,7 @@ export function StockComparisonPreview({
                 <p className="text-sm text-muted-foreground">
                   {preview.list_match.in_list
                     ? preview.list_match.company_name || preview.quote.company_name
-                    : "This stock does not currently match the selected picks list."}
+                    : "Kai does not currently match this stock to the selected picks list."}
                 </p>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
@@ -297,7 +297,7 @@ export function StockComparisonPreview({
               </span>
               <div className="min-w-0 space-y-2">
                 <p className="text-sm font-medium text-foreground">
-                  {preview.list_match.investment_thesis || "Launch the full debate to generate the deeper thesis and recommendation context."}
+                  {preview.list_match.investment_thesis || "Kai can launch the full debate to generate the deeper thesis and recommendation context."}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Source: {selectedSource?.label || preview.list_match.label || preview.list_match.source_id} · Quote as of{" "}

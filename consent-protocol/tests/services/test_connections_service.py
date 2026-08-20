@@ -358,77 +358,6 @@ def test_accept_creates_connection_and_two_trusted_edges():
     assert not any("one_location_map_preferences" in c[0] for c in db.calls)
 
 
-def test_accept_notifies_requester_only():
-    """Accepting a request nudges the original requester -- not the approver.
-
-    Regression guard for #5423: before this, accept_request fired no push to
-    either side, and the acceptance flow's Kai chat confirmation text was
-    mistaken for a push notification. This asserts the real wiring.
-    """
-    svc = _svc()
-    calls = []
-    svc._accept_notifier = lambda **kw: calls.append(kw)
-    db = _RecordingDB(
-        [
-            [
-                {
-                    "id": "req-1",
-                    "requester_user_id": "user-a",
-                    "addressee_user_id": "user-b",
-                    "status": "pending",
-                }
-            ],
-            [],  # proposal review -> no scopes
-            [{"id": "conn-1"}],
-            [{"id": "tc-1"}],
-            [{"id": "tc-2"}],
-            [{"id": "req-1"}],
-        ]
-    )
-    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
-        svc.accept_request("user-b", "req-1")
-    assert calls == [{"requester_user_id": "user-a", "approver_user_id": "user-b"}]
-
-
-def test_accept_notify_failure_does_not_break_write():
-    """A failing accept-notifier is swallowed; the connection is still made."""
-    svc = _svc()
-
-    def _boom(**_kw):
-        raise RuntimeError("fcm down")
-
-    svc._accept_notifier = _boom
-    db = _RecordingDB(
-        [
-            [
-                {
-                    "id": "req-1",
-                    "requester_user_id": "user-a",
-                    "addressee_user_id": "user-b",
-                    "status": "pending",
-                }
-            ],
-            [],
-            [{"id": "conn-1"}],
-            [{"id": "tc-1"}],
-            [{"id": "tc-2"}],
-            [{"id": "req-1"}],
-        ]
-    )
-    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
-        out = svc.accept_request("user-b", "req-1")
-    assert out["status"] == "accepted"
-
-
-def test_notify_accepted_suppresses_self_directed_push():
-    """Actor-exclusion guard: never nudge someone about their own action."""
-    svc = _svc()
-    calls = []
-    svc._accept_notifier = lambda **kw: calls.append(kw)
-    svc._notify_accepted("user-a", "user-a")
-    assert calls == []
-
-
 def test_accept_request_never_imports_or_calls_location_service():
     """Structural guard against re-wiring auto-share into accept_request.
 
@@ -1055,108 +984,6 @@ def test_remove_connection_revokes_connection_and_trusted_edges():
     )
 
 
-def test_disconnecting_ends_the_pairs_one_location_circle_memberships():
-    """Revoking the connection is not enough to stop the location.
-
-    One Location permits a delivery when there is an active non-Circle
-    connection origin OR the two share an active Circle. Leaving the
-    memberships behind keeps the second arm of that OR true, so the person who
-    disconnected keeps receiving live location -- and, because SOS reads the
-    system Circle's roster, an address in an emergency SMS.
-    """
-    svc = _svc()
-    db = _RecordingDB(
-        [
-            [
-                {
-                    "id": "conn-1",
-                    "user_a_id": "user-a",
-                    "user_b_id": "user-b",
-                    "status": "active",
-                }
-            ],  # SELECT
-            [],  # explicit scope proposals -> none
-            [],  # explicit share grants -> none
-            [],  # RIA relation projection -> none
-            [{"id": "tc-1"}],  # UPDATE trusted_connections
-            [{"id": "conn-1"}],  # UPDATE connections
-        ]
-    )
-    calls: list[dict] = []
-    with (
-        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
-        patch.object(
-            svc,
-            "_end_one_location_circle_memberships",
-            lambda **kwargs: calls.append(kwargs),
-        ),
-    ):
-        out = svc.remove_connection("user-a", "conn-1")
-
-    assert out == {"removed": 1}
-    assert calls == [{"user_a_id": "user-a", "user_b_id": "user-b"}]
-
-
-def test_a_disconnect_that_changed_nothing_evicts_nobody():
-    """An already-revoked connection is not a fresh disconnect.
-
-    remove_connection is idempotent -- a second call finds the row already
-    revoked and reports removed: 0. Treating that as a disconnect would evict
-    people from Circles on a no-op retry.
-    """
-    svc = _svc()
-    db = _RecordingDB(
-        [
-            [
-                {
-                    "id": "conn-1",
-                    "user_a_id": "user-a",
-                    "user_b_id": "user-b",
-                    "status": "active",
-                }
-            ],  # SELECT
-            [],
-            [],
-            [],
-            [],  # trusted edges already revoked
-            [],  # UPDATE connections matched nothing
-        ]
-    )
-    calls: list[dict] = []
-    with (
-        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
-        patch.object(
-            svc,
-            "_end_one_location_circle_memberships",
-            lambda **kwargs: calls.append(kwargs),
-        ),
-    ):
-        out = svc.remove_connection("user-a", "conn-1")
-
-    assert out == {"removed": 0}
-    assert calls == []
-
-
-def test_circle_cleanup_runs_after_the_connection_is_revoked():
-    """Order is load-bearing, not stylistic.
-
-    The cleanup reconciles grants the Circle authorized, and that
-    reconciliation asks whether an INDEPENDENT relationship still supports each
-    share. Run before the connection row is revoked, it would find the
-    connection this very statement is in the middle of ending and answer yes --
-    preserving a share as a connection-scoped one, moments before that
-    connection stops existing.
-    """
-    import inspect
-
-    from hushh_mcp.services.connections_service import ConnectionsService
-
-    source = inspect.getsource(ConnectionsService.remove_connection)
-    revoke_index = source.index("UPDATE connections")
-    cleanup_index = source.index("_end_one_location_circle_memberships")
-    assert revoke_index < cleanup_index
-
-
 def test_remove_connection_returns_zero_when_not_member_or_missing():
     svc = _svc()
     # SELECT returns no row — caller is not a member or id is unknown.
@@ -1259,15 +1086,7 @@ def test_create_request_notifies_addressee_on_new_insert():
     db = SimpleNamespace(execute_raw=lambda sql, params=None: next(responses))
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         svc.create_request("user-a", addressee_user_id="user-b")
-    # The new row's id rides along so the push can deep-link to the review sheet
-    # instead of the Connections list (issue #5422).
-    assert calls == [
-        {
-            "addressee_user_id": "user-b",
-            "requester_user_id": "user-a",
-            "connection_request_id": "req-1",
-        }
-    ]
+    assert calls == [{"addressee_user_id": "user-b", "requester_user_id": "user-a"}]
 
 
 def test_create_request_does_not_notify_on_idempotent_existing():
@@ -1325,7 +1144,6 @@ def test_nearby_alias_request_atomically_revalidates_versions_and_inserts():
                     "target_user_id": "user-b",
                     "relationship": "pending_outgoing",
                     "created": True,
-                    "created_request_id": "req-nearby-1",
                 }
             ],
         ],
@@ -1352,10 +1170,6 @@ def test_nearby_alias_request_atomically_revalidates_versions_and_inserts():
     assert "insert into connection_requests" in normalized_mutation_sql
     assert "target.allow_connection_requests" in normalized_mutation_sql
     assert "'pending', null" in normalized_mutation_sql
-    # The CTE must surface the inserted id, otherwise this path can only ever
-    # send the unscoped Connections-list link (issue #5422).
-    assert "returning id, requester_user_id, addressee_user_id" in normalized_mutation_sql
-    assert "as created_request_id" in normalized_mutation_sql
     expected_params = {
         "requester_user_id": "user-a",
         "participant_alias": "6f80b5ee-85b8-4678-a663-9f84ae985ed5",
@@ -1375,7 +1189,6 @@ def test_nearby_alias_request_atomically_revalidates_versions_and_inserts():
         {
             "addressee_user_id": "user-b",
             "requester_user_id": "user-a",
-            "connection_request_id": "req-nearby-1",
         }
     ]
 

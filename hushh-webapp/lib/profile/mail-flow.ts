@@ -368,7 +368,7 @@ export function resolveGmailStatusSummary(options: {
   return {
     tone: "neutral",
     title: "Gmail not connected",
-    detail: "One learns what you care about from your receipts.",
+    detail: `Connect Gmail to start. ${GMAIL_RECEIPT_SIGNAL_EXPLANATION}`,
     helper: null,
   };
 }

@@ -118,11 +118,7 @@ import {
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import {
   resolveInitialTopChromeProgress,
-  resolveTopChromeCollapseProgress,
-  resolveTopChromeOpacityProgress,
   resolveTopChromeScrollProgress,
-  TOP_CHROME_ROW_MAX_HEIGHT_CSS,
-  TOP_CHROME_ROW_OPACITY_CSS,
 } from "@/lib/navigation/top-chrome-scroll-progress";
 
 /* ── Re-exports (backward compat) ─────────────────────────────────── */
@@ -395,20 +391,12 @@ function TopShellBreadcrumbTrail({
           <span
             key={`${item.label}-${index}`}
             className={cn(
-              "flex items-center gap-1",
-              // The last crumb (current page) keeps its full label. An
-              // ancestor crumb may still shrink under real pressure, but
-              // never below its own unbreakable text width — `min-w-min`
-              // (`min-width: min-content`) pins that floor explicitly rather
-              // than relying on the flex default, because a plain `<button>`
-              // does not get the usual auto-min-content floor a `<span>`
-              // gets: without an explicit `min-w-min` a button-based crumb
-              // still shrinks past its own text width under real pressure,
-              // which is how a short word like "Location" or "Security" used
-              // to get crushed to a couple of characters even though it
-              // would fit. `truncate` stays on as a safety net for a
-              // genuinely long ancestor label.
-              isLast ? "shrink-0" : "min-w-min shrink",
+              "flex min-w-0 items-center gap-1",
+              // The last crumb (current page) keeps its full label; earlier
+              // ancestors are allowed to shrink and truncate so a deep trail
+              // like "Profile > Preferences > Gemini" collapses gracefully on
+              // narrow iOS widths instead of colliding/overflowing the header.
+              isLast ? "shrink-0" : "min-w-0 shrink",
             )}
           >
             {index > 0 ? (
@@ -420,7 +408,7 @@ function TopShellBreadcrumbTrail({
             {item.href && !isLast ? (
               <button
                 type="button"
-                className="min-w-min shrink truncate text-[color:var(--app-secondary-label)] transition-colors hover:text-current"
+                className="min-w-0 max-w-[9rem] shrink truncate text-[color:var(--app-secondary-label)] transition-colors hover:text-current"
                 onClick={() =>
                   requestInternalAppNavigation({
                     href: item.href!,
@@ -438,7 +426,7 @@ function TopShellBreadcrumbTrail({
                   "truncate",
                   isLast
                     ? "min-w-0 shrink-0 font-semibold text-current"
-                    : "min-w-min shrink text-[color:var(--app-secondary-label)]",
+                    : "min-w-0 shrink text-[color:var(--app-secondary-label)]",
                 )}
                 aria-current={isLast ? "page" : undefined}
               >
@@ -625,27 +613,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       }
       const rowHeight = barRow?.getBoundingClientRect().height ?? 0;
       const root = document.documentElement;
-      // The row's opacity and its reserved height (`max-height` + `overflow:
-      // hidden`) used to be driven off the SAME raw progress value, so for
-      // most of the gesture the row was still visibly opaque while its
-      // bottom edge was already being cropped by the shrinking box — a hard
-      // clip line through the brand mark and title, not a clean fade.
-      //
-      // Splitting the one gesture into two sequential sub-progresses fixes
-      // that without touching the gesture itself: opacity finishes fading to
-      // zero over the first half, and the box only starts losing height over
-      // the second half — by which point there is nothing left to clip. Both
-      // curves still reach 1 together at the same scroll position, so "fully
-      // collapsed" behavior elsewhere is unchanged; only the path there
-      // stops being visibly broken.
-      const opacityProgress = resolveTopChromeOpacityProgress(topChromeProgress);
-      const collapseProgress = resolveTopChromeCollapseProgress(topChromeProgress);
-      const nextProgress = String(opacityProgress);
+      const nextProgress = String(topChromeProgress);
       if (nextProgress !== lastWrittenProgress) {
         lastWrittenProgress = nextProgress;
         root.style.setProperty("--top-chrome-progress", nextProgress);
       }
-      const nextCollapsePx = `${Math.max(0, rowHeight * collapseProgress)}px`;
+      const nextCollapsePx = `${Math.max(0, rowHeight * topChromeProgress)}px`;
       if (nextCollapsePx !== lastWrittenCollapsePx) {
         lastWrittenCollapsePx = nextCollapsePx;
         root.style.setProperty("--top-chrome-collapse-px", nextCollapsePx);
@@ -849,19 +822,9 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     );
     // Inner/"subagent" routes read as "Kai > Analysis", not
     // "One > Kai > Analysis": drop the app-root crumb from the visible trail.
-    const withoutRoot =
-      cleaned.length > 0 && cleaned[0]?.label === "One"
-        ? cleaned.slice(1)
-        : cleaned;
-    // The bar is one line tall on every supported width, so a chain deeper
-    // than "immediate parent > current page" (e.g. "Profile > Security >
-    // Lock methods") has nowhere to go but ellipsis — each dropped ancestor
-    // used to split the shrink budget with its siblings, which is how a
-    // plain word like "Profile" or "Location" ended up as "P..." even though
-    // it would trivially fit on its own. Showing only the last two crumbs
-    // keeps the trail meaningful ("Security > Lock methods") without ever
-    // needing to truncate a short canonical label to get there.
-    return withoutRoot.length > 2 ? withoutRoot.slice(-2) : withoutRoot;
+    return cleaned.length > 0 && cleaned[0]?.label === "One"
+      ? cleaned.slice(1)
+      : cleaned;
   }, [topShellBreadcrumb]);
   const hasBreadcrumbTrail = !centerTitle && breadcrumbTrailItems.length > 0;
   const canShowPersonaSwitcher = useMemo(
@@ -1050,11 +1013,15 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
             data-testid="top-app-bar-header"
             className="pointer-events-none relative w-full shrink-0 overflow-hidden transform-gpu will-change-[max-height,opacity]"
             style={{
-              maxHeight: tabsOnlyChrome ? "0px" : TOP_CHROME_ROW_MAX_HEIGHT_CSS,
+              maxHeight: tabsOnlyChrome
+                ? "0px"
+                : "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) - var(--top-chrome-collapse-px, 0px))",
               paddingTop: tabsOnlyChrome
                 ? "0px"
                 : "calc(var(--top-inset) + var(--top-systembar-row-gap))",
-              opacity: tabsOnlyChrome ? 0 : TOP_CHROME_ROW_OPACITY_CSS,
+              opacity: tabsOnlyChrome
+                ? 0
+                : "calc(1 - var(--top-chrome-progress, 0))",
               transform: tabsOnlyChrome
                 ? "translate3d(0, -0.5rem, 0)"
                 : "translate3d(0, 0, 0)",
@@ -1269,7 +1236,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         {showVaultUnlockAction ? (
                           <ShellActionSurface
                             variant="icon"
-                            aria-label="Unlock"
+                            aria-label="Unlock vault"
                             onClick={() => setVaultUnlockOpen(true)}
                           >
                             <KeyRound className="h-5 w-5 text-amber-600 dark:text-amber-300" />
@@ -1345,12 +1312,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           user={user}
           open={vaultUnlockOpen}
           onOpenChange={setVaultUnlockOpen}
-          title="Unlock"
-          description="Unlock to use secure memory and background activity."
+          title="Unlock vault"
+          description="Unlock your vault to use secure memory and background activity."
           onSuccess={() => {
             setVaultUnlockOpen(false);
             setHasVault(true);
-            toast.success("Unlocked.");
+            toast.success("Vault unlocked.");
           }}
         />
       ) : null}
@@ -1475,8 +1442,8 @@ function OnboardingRouteActions() {
           user={user}
           open={vaultUnlockOpen}
           onOpenChange={setVaultUnlockOpen}
-          title="Unlock to delete account"
-          description="This can't be undone — it removes everything you've saved."
+          title="Unlock Vault to Delete Account"
+          description="Unlock your vault to confirm deletion. This is permanent and removes all encrypted records."
           onSuccess={() => {
             setVaultUnlockOpen(false);
             window.setTimeout(() => void requestDeleteAccount(), 300);

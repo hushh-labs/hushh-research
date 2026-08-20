@@ -1321,7 +1321,7 @@ export class OneKycClientZkService {
     const next = await generateConnectorRecord();
     const save = await this.storeConnector({ ...params, connector: next });
     if (!save.success) {
-      throw new Error(save.message || "Unable to save KYC connector.");
+      throw new Error(save.message || "Unable to save KYC connector in your vault.");
     }
     await OneKycService.registerClientConnector({
       userId: params.userId,

@@ -70,23 +70,13 @@ describe("nearby check-in destination", () => {
     }
   });
 
-  it("gives Nearby Check-In its own route, separate from the Check-In tile", () => {
+  it("sends the hub's Check in tile and its deep link straight to check-in", () => {
     const hub = source("components/one-location/redesign/location-redesign-hub.tsx");
-    // The hub's "Nearby" row -- not the Check-In tile -- owns the only
-    // in-hub navigation to Nearby Check-In's dedicated route.
+    // The tile, when nearby check-in is available on this build.
     expect(hub).toContain("router.push(ROUTES.ONE_LOCATION_CHECK_IN)");
-  });
-
-  it("never redirects the Check-In tile or its deep link into Nearby (#5459)", () => {
-    // Nearby Check-In being available used to make `?action=check-in` --
-    // the tile's own navigation and One's own execution of
-    // location.open_check_in -- hand off to Nearby's map surface instead of
-    // the private "send a note" flow the tile promises ("Share now") and the
-    // contract action describes ("send a one-off note of where you are").
-    // Nearby now has its own entry (the "Nearby" row); this action must
-    // never again be redirected into it just because it happens to be on.
-    const hub = code("components/one-location/redesign/location-redesign-hub.tsx");
-    expect(hub).not.toContain("router.replace(ROUTES.ONE_LOCATION_CHECK_IN");
+    // The `?action=check-in` arrival -- a deep link, or One executing the
+    // location.open_check_in contract action.
+    expect(hub).toContain("router.replace(ROUTES.ONE_LOCATION_CHECK_IN");
   });
 
   it("resumes a private check-in on check-in's own route", () => {

@@ -52,52 +52,8 @@ export default defineConfig({
       // `appearance: menulist` ignores the author's border-radius, so the
       // radius defect it covers is INVISIBLE in Chromium. A Chromium-only run
       // passes the broken control.
-      // `save-location-sheet.layout` is opted in for the same reason: its step
-      // rail is measured through a canvas, and the sheet it guards is a
-      // first-run iOS surface. A colour contract that only ever ran on
-      // Chromium proves nothing about the container people actually launch.
-      // `one-intro-welcome.layout` is opted in because it is a `svh` contract:
-      // Safari is the engine whose collapsing browser chrome makes `svh` and
-      // `dvh` disagree, so a Chromium-only pass proves nothing about whether
-      // the welcome screen scrolls on the phone people actually hold.
-      // `auth-sign-in.layout` is opted in because sign-in is the first screen
-      // every new person sees and the app ships inside an iOS WKWebView: a
-      // Chromium-only pass proves nothing about the container they launch.
-      // `feed-sticky-header-opaque.layout` is opted in because it is a
-      // compositing contract (backdrop-blur + a colour-mix background) --
-      // exactly the kind of thing that can render differently between
-      // engines, and the Feed ships inside the same WKWebView.
-      // `register-phone-title.layout` is opted in because it is a text-metric
-      // and line-break contract (does this string wrap at this font size) --
-      // exactly the kind of thing that can differ between engines, and the
-      // phone-verification screen every new person hits ships inside the same
-      // WKWebView.
-      // `request-card-duration-picker.layout` is opted in for the same reason
-      // as `gemini-endpoint-fields.layout`: it measures a Radix Select
-      // trigger's real height, and a `data-[size=default]:h-9` compound
-      // selector already beat a caller's plain `h-11` override once
-      // (silently, in every engine that pass ran on) -- a Chromium-only pass
-      // proves nothing about the WKWebView people actually approve requests
-      // in.
-      // `top-shell-breadcrumb-trail.layout` is opted in because it is a
-      // text-metric contract (does a short ancestor label ellipsize under
-      // real width pressure) on the shared top-bar breadcrumb every nested
-      // screen renders -- exactly the kind of thing that differs between
-      // engines, and the app ships inside a WKWebView.
-      // `one-location-create-circle.layout` is opted in because the Create-a-
-      // circle CTA now renders in a busy state while the lock decision settles,
-      // and its label is held in flow at `opacity-0` to keep the button from
-      // resizing under the thumb. Whether a zero-opacity span still reserves
-      // its full text width is an engine question, and Circles are created
-      // inside the same WKWebView.
-      // `circle-member-row.layout` is opted in because it is a flex-and-
-      // truncation contract on a list every Circle member opens: whether a
-      // `min-w-0 flex-1` column really yields to a fixed trailing cluster, and
-      // whether `truncate` holds a long name to one line, are both engine
-      // questions -- and the roster this measures was reported from a phone,
-      // which is a WKWebView.
       testMatch:
-        /(circle-join-responsive-contract|auth-sign-in\.layout|register-phone-title\.layout|connect-circle-cta\.layout|connect-pagination\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|feed-sticky-header-opaque\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|one-intro-welcome\.layout|request-card-duration-picker\.layout|top-shell-breadcrumb-trail\.layout|one-location-map-consent\.layout|one-location-create-circle\.layout|circle-member-row\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",

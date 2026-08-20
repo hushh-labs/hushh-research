@@ -93,8 +93,8 @@ export function ConnectedSystemsOnboardingSetupClient() {
             user={user}
             open={showUnlock}
             onOpenChange={setShowUnlock}
-            title="Set a lock"
-            description="Unlock to review CRM."
+            title="Set up your private vault"
+            description="Open your vault to review CRM."
             allowVaultCreation={false}
             onSuccess={() => setShowUnlock(false)}
           />

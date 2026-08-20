@@ -6,7 +6,6 @@ from api.routes.one.adk_live import (
     _GOAL_CONTINUATION_NOTE,
     _close_quietly,
     _goal_continuation_is_already_ready,
-    _greeting_eligible,
     _InitialGreetingGate,
     _navigation_continuation_screen,
     _receive_runtime_bootstrap,
@@ -41,30 +40,6 @@ def test_initial_greeting_gate_invalidates_a_pending_cue_after_visitor_activity(
     assert gate.may_send(epoch) is False
     assert gate.mark_sent(epoch) is False
     assert gate.schedule() is None
-
-
-def test_greeting_eligible_covers_fresh_visitors_and_onboarding_screens():
-    """A fresh (pre-auth) visitor always gets the proactive relay greeting,
-    on any screen -- there is no other greeting mechanism for them yet."""
-    assert _greeting_eligible("one_agents", is_fresh_visitor=True) is True
-    assert _greeting_eligible("", is_fresh_visitor=True) is True
-
-    # An authenticated visitor on an onboarding screen still gets it too.
-    assert _greeting_eligible("one_setup", is_fresh_visitor=False) is True
-    assert _greeting_eligible("kai_setup_wizard", is_fresh_visitor=False) is True
-
-
-def test_greeting_ineligible_for_a_returning_visitor_on_an_ordinary_screen():
-    """The actual fix: an authenticated visitor on an ordinary (non-
-    onboarding) screen must NOT get the relay's proactive greeting -- they
-    get an instant local one from the browser instead, and a 1.5s+-later
-    relay greeting on top of it would be redundant, not additive."""
-    assert _greeting_eligible("one_agents", is_fresh_visitor=False) is False
-    assert _greeting_eligible("one_location", is_fresh_visitor=False) is False
-    # The very first schedule call always passes an empty screen (the real
-    # one isn't known yet) -- must not schedule for an authenticated visitor
-    # before the first app_context arrives either.
-    assert _greeting_eligible("", is_fresh_visitor=False) is False
 
 
 class _BootstrapSocket:

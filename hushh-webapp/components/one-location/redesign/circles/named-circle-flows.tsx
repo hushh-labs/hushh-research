@@ -8,7 +8,6 @@ import {
   KeyRound,
   Loader2,
   LogOut,
-  MoreVertical,
   Pencil,
   Plus,
   RotateCw,
@@ -17,25 +16,10 @@ import {
   Share2,
   ShieldCheck,
   Trash2,
-  Siren,
   UsersRound,
 } from "lucide-react";
 
-import { Button, buttonVariants } from "@/components/ui/button";
-import { INPUT_CLASSNAME } from "@/components/ui/input";
-import {
-  CREATE_CIRCLE_CTA_CLASSNAME,
-  CREATE_CIRCLE_NAME_INPUT_CLASSNAME,
-  CREATE_CIRCLE_NAME_PLACEHOLDER,
-} from "@/components/one-location/redesign/circles/create-circle-layout";
-import {
-  createCircleCreateAttemptId,
-  logCircleCreate,
-  logCircleCreateLockCheck,
-  logCircleCreateLockGuard,
-  type CircleCreateAttemptId,
-} from "@/lib/one-location/circle-create-diagnostics";
-import type { OneLocationLockState } from "@/lib/one-location/circle-lock-state";
+import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,12 +33,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -62,31 +40,18 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { SectionLabel, TrailingValue } from "@/components/app-ui/typography";
 import {
   EmptyState,
   TaskFlowHeader,
+  TrustNoteCard,
 } from "@/components/one-location/redesign/primitives";
-import {
-  CARD_SURFACE,
-  MUTED_TEXT,
-} from "@/components/one-location/redesign/tokens";
+import { MUTED_TEXT } from "@/components/one-location/redesign/tokens";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
-import { ROUTES } from "@/lib/navigation/routes";
 import {
   CIRCLE_NAME_ACTION_CLASSNAME,
   CIRCLE_NAME_INPUT_CLASSNAME,
   CIRCLE_NAME_ROW_CLASSNAME,
 } from "@/components/one-location/redesign/circles/circle-name-row-layout";
-import {
-  CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME,
-  CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME,
-  CIRCLE_MEMBER_ACTION_CLASSNAME,
-  CIRCLE_MEMBER_AVATAR_CLASSNAME,
-  CIRCLE_MEMBER_MENU_CLASSNAME,
-  CIRCLE_MEMBER_ROW_CLASSNAME,
-  CIRCLE_MEMBER_TRAILING_CLASSNAME,
-} from "@/components/one-location/redesign/circles/circle-member-row-layout";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnection,
@@ -103,7 +68,6 @@ import {
   sortPeopleByName,
 } from "@/lib/one-location/people-search";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
-import { relationshipCta } from "@/lib/connections/relationship-label";
 import { cn } from "@/lib/utils";
 
 const CIRCLES_GROUP_SURFACE =
@@ -113,44 +77,9 @@ const CIRCLES_EMPTY_STATE_WRAPPER =
   "[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)]";
 
 /**
- * The Circle detail screen's own cards -- rename, invite -- on the SAME
- * surface recipe as the Members list they sit above.
- *
- * They used to be hand-rolled: `rounded-[22px] border border-border shadow-sm`
- * against the grouped card's 24px radius, borderless fill and standard card
- * shadow. Three cards, two radii, two borders and two shadows down one
- * scroll, which is most of what "scattered" was describing. `CARD_SURFACE` is
- * the app-wide recipe `SettingsGroup` already renders, so there is now one.
- */
-const CIRCLE_DETAIL_CARD = cn(CARD_SURFACE, "p-4");
-
-/**
- * Leave / Delete circle.
- *
- * `variant="outline"` gave these a filled neutral slab with a red hairline and
- * red label -- a painted button that reads as the loudest control on a screen
- * whose actual primary action is "Add people". iOS puts a destructive row on
- * the same card surface as everything else and lets the red label carry it,
- * which is what this does.
- */
-const CIRCLE_DESTRUCTIVE_ACTION =
-  "h-12 w-full rounded-full text-[17px] font-semibold text-destructive hover:bg-destructive/10 hover:text-destructive";
-
-/**
- * "Generate invite code", "Refresh invite code", "Rotate code".
- *
- * All of them are alternatives to the card's one primary action, so they read
- * as one quiet tier: same height, same radius, accent label, no fill. Three
- * full-width neutral slabs in a column was the invite card's share of
- * "scattered".
- */
-const CIRCLE_INVITE_SECONDARY_ACTION =
-  "mt-2 h-11 w-full rounded-full font-semibold";
-
-/**
  * A circle is a group of trusted people, so its glyph carries the PEOPLE role
  * rather than the accent used for things you can DO. The action controls that
- * sit alongside it (Create circle, Join, Share, Add people) stay accent, which is
+ * sit alongside it (New circle, Join, Share, Add people) stay accent, which is
  * what keeps "this is a group" and "this is a button" from looking alike.
  *
  * Glyph only. The wells this sits in ask for `--app-accent-soft`, a token that
@@ -190,14 +119,9 @@ function circleInitials(value: string): string {
  * There are three kinds and nothing on this screen acts on any of them, so
  * the word was decoration in front of the fact. The count stands alone.
  */
-/** Wording for a member count that has already excluded the viewer. */
-export function othersCountLabel(others: number): string {
-  if (others <= 0) return "No members yet";
-  return `${others} ${others === 1 ? "person" : "people"}`;
-}
-
-export function circleListMemberCountLabel(memberCount: number): string {
-  return othersCountLabel(Math.max(0, memberCount - 1));
+function circleListMemberCountLabel(memberCount: number): string {
+  const others = Math.max(0, memberCount - 1);
+  return `${others} ${others === 1 ? "member" : "members"}`;
 }
 
 function circleFlowErrorMessage(error: unknown, fallback: string): string {
@@ -293,7 +217,7 @@ export function CirclesSection({
     <div className="space-y-[14px]" data-testid="one-location-named-circles">
       <div className="flex items-baseline justify-between gap-4">
         <h2 className="text-[13px] font-normal leading-[17px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
-          Your circles
+          Circles
         </h2>
 
         {/* The static phone reference omits Join, but it remains a shipped
@@ -308,7 +232,7 @@ export function CirclesSection({
             data-voice-control-id="one-location-action-create-circle"
             className="relative !h-auto !min-h-0 !rounded-none !px-0 !py-0 text-[16px] font-normal leading-5 tracking-[-0.24px] after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] sm:text-[15px]"
           >
-            Create circle
+            New circle
           </Button>
           <Button
             type="button"
@@ -470,23 +394,11 @@ export function CirclesSection({
                     circleRole.glyph,
                   )}
                 >
-                  {/* A different glyph, not just a different name. The SMS
-                      Circle is the one row here that does something on its own
-                      -- SOS reads it -- and a person scanning the list should
-                      be able to tell it apart without reading. */}
-                  {circle.isSystem ? (
-                    <Siren className="h-5 w-5" />
-                  ) : (
-                    <UsersRound className="h-5 w-5" />
-                  )}
+                  <UsersRound className="h-5 w-5" />
                 </span>
               }
               title={circle.name}
-              description={
-                circle.isSystem
-                  ? `Emergency SMS · ${circleListMemberCountLabel(circle.memberCount)}`
-                  : circleListMemberCountLabel(circle.memberCount)
-              }
+              description={circleListMemberCountLabel(circle.memberCount)}
               trailing={circle.role === "owner" ? "Owner" : "Member"}
               chevron
               onClick={() => onOpen(circle.id)}
@@ -537,219 +449,51 @@ const CIRCLE_KIND_OPTIONS: {
 
 export function CreateCircleFlow({
   busy,
-  lockState,
   onSubmit,
-  renderUnlock,
 }: {
   busy: boolean;
-  /**
-   * Whether this account currently holds a lock token. Circles are reachable
-   * without one (VaultLockGuard admits a no-lock account), so the screen has to
-   * know, rather than discovering it in the failure path of the last tap.
-   */
-  lockState: OneLocationLockState;
   onSubmit: (name: string, kind: OneLocationCircleKind) => Promise<void>;
-  /**
-   * Renders the unlock sheet. Owned by the caller so this file keeps no vault
-   * dependency and the sheet stays the same one the rest of the app uses.
-   * `onDone(true)` on a successful unlock, `onDone(false)` when dismissed.
-   */
-  renderUnlock?: (props: {
-    open: boolean;
-    onDone: (unlocked: boolean) => void;
-  }) => React.ReactNode;
 }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<OneLocationCircleKind>("family");
-  const [unlockOpen, setUnlockOpen] = useState(false);
-  // An attempt that unlocked and is waiting for the token to actually reach
-  // this component. See `handleUnlockDone` for why it cannot resume inline.
-  const [pendingResume, setPendingResume] = useState<CircleCreateAttemptId | null>(
-    null,
-  );
-  // A submit already in flight. `busy` cannot carry this on its own: the page
-  // only raises it once the request starts, so a second tap during the lock
-  // decision — or during the unlock sheet — would otherwise start a second
-  // create. Held in a ref because it must be readable in the same tick as the
-  // tap that sets it.
-  const submittingRef = useRef(false);
-  // The attempt the unlock sheet was opened for. Kept so a successful unlock
-  // resumes THAT create, and a stale sheet cannot resurrect an abandoned one.
-  const pendingAttemptRef = useRef<CircleCreateAttemptId | null>(null);
-  const trimmedName = name.trim();
-  // "Not known yet" is not "locked". While identity settles the CTA waits
-  // rather than accusing an unlocked person of being locked.
-  const lockResolving = lockState === "resolving";
   // One typed character is a name. Requiring two silently withheld the button
   // from anyone naming a circle "A", with nothing on screen saying why.
-  const canSubmit = trimmedName.length >= 1 && !busy && !lockResolving;
+  const canSubmit = name.trim().length >= 1 && !busy;
 
-  const runCreate = async (attemptId: CircleCreateAttemptId, resumed: boolean) => {
-    const startedAt = Date.now();
-    logCircleCreate("API", {
-      attemptId,
-      endpoint: "POST /api/one/location/circles",
-      started: true,
-      resumed,
-    });
+  const submit = async () => {
     try {
-      await onSubmit(trimmedName, kind);
-      logCircleCreate("Success", {
-        attemptId,
-        durationMs: Date.now() - startedAt,
-        resumed,
-        circleKind: kind,
-      });
+      await onSubmit(name.trim(), kind);
     } catch (error) {
-      // A server rejection is a server rejection. It keeps its own message and
-      // is never relabelled as a lock problem.
-      logCircleCreate("Failure", {
-        attemptId,
-        stage: "api",
-        reason: error instanceof Error ? error.name : "unknown",
-        durationMs: Date.now() - startedAt,
-        resumed,
-      });
       toast.error(
         circleFlowErrorMessage(error, "Could not create this Circle."),
       );
     }
   };
 
-  const submit = async () => {
-    if (submittingRef.current) return;
-    const attemptId = createCircleCreateAttemptId();
-    logCircleCreate("Click", {
-      attemptId,
-      route: "/one/location?action=create-circle",
-      circleKind: kind,
-      hasName: trimmedName.length > 0,
-    });
-    logCircleCreateLockCheck(attemptId, lockState);
-
-    if (lockResolving) {
-      // Unreachable from the CTA (it is disabled), kept so a programmatic
-      // caller cannot turn an unsettled state into a refusal.
-      logCircleCreateLockGuard(attemptId, "wait", "lock_state_unsettled");
-      return;
-    }
-
-    if (lockState === "locked") {
-      logCircleCreateLockGuard(attemptId, "unlock_required", "no_owner_token");
-      if (!renderUnlock) {
-        // No sheet available (a caller that did not wire one). Fall through to
-        // the handler so its own typed error surfaces rather than nothing
-        // happening at all.
-        submittingRef.current = true;
-        try {
-          await runCreate(attemptId, false);
-        } finally {
-          submittingRef.current = false;
-        }
-        return;
-      }
-      submittingRef.current = true;
-      pendingAttemptRef.current = attemptId;
-      logCircleCreate("Unlock", { attemptId, phase: "opened" });
-      setUnlockOpen(true);
-      return;
-    }
-
-    logCircleCreateLockGuard(attemptId, "allow", "owner_token_present");
-    submittingRef.current = true;
-    try {
-      await runCreate(attemptId, false);
-    } finally {
-      submittingRef.current = false;
-    }
-  };
-
-  const handleUnlockDone = (unlocked: boolean) => {
-    const attemptId = pendingAttemptRef.current;
-    pendingAttemptRef.current = null;
-    setUnlockOpen(false);
-    if (!attemptId) {
-      submittingRef.current = false;
-      return;
-    }
-    if (!unlocked) {
-      // Cancelled. Nothing was created, the typed name and the chosen kind are
-      // untouched, and the screen is exactly where it was.
-      logCircleCreate("Unlock", { attemptId, phase: "cancelled" });
-      logCircleCreate("Resume", { attemptId, resumed: false, reason: "unlock_cancelled" });
-      submittingRef.current = false;
-      return;
-    }
-    logCircleCreate("Unlock", { attemptId, phase: "succeeded" });
-    // Park it. Do NOT create here: VaultFlow calls unlockVault() and onSuccess()
-    // in the SAME tick (components/vault/vault-flow.tsx:341-342), and
-    // unlockVault is plain state setters, so React has not re-rendered yet.
-    // Creating now would run the submit handler this render closed over — the
-    // one holding the null token — and throw the very error the unlock just
-    // cleared. The effect below runs it once the token has actually arrived.
-    setPendingResume(attemptId);
-  };
-
-  useEffect(() => {
-    if (!pendingResume) return;
-    // Still settling: keep waiting rather than deciding on an unknown.
-    if (lockState === "resolving") return;
-    const attemptId = pendingResume;
-    setPendingResume(null);
-    if (lockState === "locked") {
-      // The sheet reported success but no token reached us. Release the form
-      // instead of leaving it spinning on a create that can never run.
-      logCircleCreate("Resume", {
-        attemptId,
-        resumed: false,
-        reason: "lock_not_ready",
-      });
-      submittingRef.current = false;
-      return;
-    }
-    logCircleCreate("Resume", {
-      attemptId,
-      resumed: true,
-      preservedName: trimmedName.length > 0,
-      preservedKind: kind,
-    });
-    void (async () => {
-      try {
-        await runCreate(attemptId, true);
-      } finally {
-        submittingRef.current = false;
-      }
-    })();
-    // `runCreate` is recreated every render and re-running this effect for that
-    // alone would double-submit. The parked attempt id is the trigger; the
-    // lock state is the condition.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingResume, lockState]);
-
   return (
     <div className="space-y-6" data-testid="one-location-create-circle-flow">
-      {/* No `eyebrow` — a single-screen flow does not need the route name
-          repeated above the title (location-header-system treats the
-          eyebrow as optional). */}
       <TaskFlowHeader
+        eyebrow="People"
         title="Create a circle"
-        description="A private group for people you trust."
+        description="Name the group."
       />
 
       <label className="block space-y-2">
-        <span className="text-sm font-semibold text-foreground">Name</span>
+        <span className="text-sm font-semibold text-foreground">
+          Circle name
+        </span>
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
           maxLength={80}
           autoComplete="off"
           spellCheck
-          placeholder={CREATE_CIRCLE_NAME_PLACEHOLDER}
-          className={CREATE_CIRCLE_NAME_INPUT_CLASSNAME}
+          placeholder="e.g. Meena Family"
+          className="h-12 w-full rounded-2xl border border-border bg-[color:var(--app-card-surface-default-solid)] px-4 text-base outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
         />
       </label>
 
-      <SettingsGroup title="Who is it for?" separatorInset>
+      <SettingsGroup title="Circle type" separatorInset>
         {CIRCLE_KIND_OPTIONS.map((option) => (
           <SettingsRow
             key={option.value}
@@ -763,6 +507,7 @@ export function CreateCircleFlow({
             icon={UsersRound}
             iconTone={option.value === "family" ? "purple" : "blue"}
             title={option.label}
+            description={option.description}
             trailing={
               kind === option.value ? (
                 <Check className="h-5 w-5 text-[color:var(--app-accent)]" />
@@ -774,33 +519,23 @@ export function CreateCircleFlow({
         ))}
       </SettingsGroup>
 
-      <p className="flex items-center gap-1.5 text-[14px] leading-4 text-[color:var(--app-secondary-label)]">
-        <ShieldCheck
-          className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"
-          aria-hidden="true"
-        />
-        Sharing starts only when you choose.
-      </p>
+      <TrustNoteCard
+        title="Connected, still private"
+        description="Members connect. Sharing stays explicit."
+      />
 
       <Button
         type="button"
         disabled={!canSubmit}
-        // Spins while the request runs AND while identity is still settling, so
-        // an unsettled lock reads as "one moment" rather than as a dead button.
-        isLoading={busy || lockResolving}
+        isLoading={busy}
         onClick={() => void submit()}
-        className={cn(CREATE_CIRCLE_CTA_CLASSNAME, BLOCKED_CTA)}
-        data-lock-state={lockState}
+        className={cn(
+          "h-12 w-full rounded-full text-base font-semibold",
+          BLOCKED_CTA,
+        )}
       >
         Create circle
       </Button>
-
-      {renderUnlock
-        ? renderUnlock({
-            open: unlockOpen,
-            onDone: (unlocked) => void handleUnlockDone(unlocked),
-          })
-        : null}
     </div>
   );
 }
@@ -965,10 +700,6 @@ export function JoinCircleFlow({
  *  label's activation click and refocuses the field mid-tap). */
 const CIRCLE_NAME_INPUT_ID = "one-location-circle-name-input";
 
-/** Names the roster section for `aria-labelledby`, so the list announces as
- *  "Members" rather than as an unlabelled region between two cards. */
-const CIRCLE_MEMBERS_HEADING_ID = "one-location-circle-members-heading";
-
 function CircleMemberRow({
   member,
   currentUserId,
@@ -976,8 +707,6 @@ function CircleMemberRow({
   busy,
   onShare,
   onRemove,
-  onConnect,
-  connecting = false,
 }: {
   member: OneLocationCircleMember;
   currentUserId: string | null;
@@ -985,181 +714,57 @@ function CircleMemberRow({
   busy: boolean;
   onShare: () => void;
   onRemove: () => Promise<void>;
-  /** Sends a connection request to this member. Absent when none is possible. */
-  onConnect?: () => Promise<void>;
-  connecting?: boolean;
 }) {
-  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const isCurrentUser = member.userId === currentUserId;
   const canShare =
     !isCurrentUser && member.phoneVerified && member.secureLocationReady;
-  const canRemove = isOwner && member.role !== "owner";
-  const hasMenu = canShare || canRemove;
-
-  const relationship =
-    !isCurrentUser && member.relationship && member.relationship !== "self"
-      ? member.relationship
-      : null;
-  const cta = relationship ? relationshipCta(relationship) : null;
-
-  /**
-   * Only a control the viewer can actually press gets to look like one.
-   *
-   * Every row used to render `relationshipCta` as a button whatever it said,
-   * so a roster of people you already know was a column of grey, dead,
-   * button-shaped "Connected" -- the loudest thing on the screen, repeated
-   * once per member, saying the one thing that is true of a roster by
-   * default. Reported as exactly that: "why is there a need to show the
-   * connected section with their name".
-   *
-   * Connected is now silent (visually -- it stays in the row's accessible
-   * name below, because absence is not something a screen reader can read),
-   * and the two states that are NOT the default keep their own affordance.
-   */
-  const actionCta = cta && cta.action !== "none" ? cta : null;
-  /** Waiting on them. Real news, but nothing here can act on it, so it is a
-   *  status and not a button. */
-  const pendingLabel =
-    cta && cta.action === "none" && relationship === "pending_outgoing"
-      ? cta.label
-      : null;
-
-  const secondaryLine =
-    member.role === "owner"
-      ? "Circle owner"
-      : member.secureLocationReady
-        ? "Ready for private sharing"
-        : "Location setup needed";
-  // The one second line that is asking for something rather than reporting.
-  const secondaryNeedsSetup =
-    member.role !== "owner" && !member.secureLocationReady;
 
   return (
-    <div className={CIRCLE_MEMBER_ROW_CLASSNAME}>
-      <Avatar className={CIRCLE_MEMBER_AVATAR_CLASSNAME}>
+    <div className="flex min-h-16 items-center gap-3 px-4 py-3">
+      <Avatar className="h-11 w-11">
         {member.photoUrl ? (
           <AvatarImage src={member.photoUrl} alt="" />
         ) : null}
         <AvatarFallback>{circleInitials(member.displayName)}</AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">
-        {/* `truncate`, not `break-words`. A long name used to wrap to three
-            lines and push its own row to twice the height of its neighbours,
-            which is the other half of what a 320px phone was showing. */}
-        <p
-          className="truncate text-[15px] font-semibold leading-5 text-foreground"
-          title={member.displayName}
-        >
+        <p className="truncate text-[15px] font-semibold text-foreground">
           {member.displayName}
           {isCurrentUser ? " (you)" : ""}
         </p>
-        <p
-          className={cn(
-            MUTED_TEXT,
-            "truncate",
-            // The amber pair `WARNING_SURFACE` already uses for caution copy,
-            // not the flat `--app-warning`: that token is the #ff9500 glyph
-            // tone and measures ~2.2:1 on this card, well under the 4.5:1 a
-            // 13px sentence needs.
-            secondaryNeedsSetup && "text-amber-700 dark:text-amber-300",
-          )}
-        >
-          {secondaryLine}
+        <p className={cn(MUTED_TEXT, "truncate")}>
+          {member.role === "owner"
+            ? "Circle owner"
+            : member.secureLocationReady
+              ? "Ready for private sharing"
+              : "Location setup needed"}
         </p>
-        {/* Said once, to the accessibility tree only. The visible row drops
-            the default relationship rather than repeating it down the list. */}
-        {cta && !actionCta && !pendingLabel ? (
-          <span className="sr-only">Connected on One</span>
-        ) : null}
       </div>
-      <div className={CIRCLE_MEMBER_TRAILING_CLASSNAME}>
-        {pendingLabel ? (
-          <span
-            className="px-1 text-[13px] font-medium leading-5 text-muted-foreground"
-            data-testid={`circle-member-relationship-${member.userId}`}
-          >
-            {pendingLabel}
-          </span>
-        ) : null}
-        {actionCta?.action === "connect" ? (
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy || connecting}
-            isLoading={connecting}
-            aria-label={`Connect with ${member.displayName}`}
-            data-testid={`circle-member-connect-${member.userId}`}
-            className={CIRCLE_MEMBER_ACTION_CLASSNAME}
-            onClick={() => void onConnect?.()}
-          >
-            {actionCta.label}
-          </Button>
-        ) : null}
-        {/* `pending_incoming` used to render an ENABLED button whose click
-            handler ran only for `action === "connect"` -- so the one row that
-            had something waiting on it offered a control that did nothing at
-            all. Answering an incoming request lives on Connect, and this is
-            now the link that goes there. */}
-        {actionCta?.action === "respond" ? (
-          <a
-            href={ROUTES.CONNECT}
-            aria-label={`Respond to the connection request from ${member.displayName}`}
-            data-testid={`circle-member-respond-${member.userId}`}
-            className={cn(
-              buttonVariants({ variant: "outline", size: "sm" }),
-              CIRCLE_MEMBER_ACTION_CLASSNAME,
-            )}
-          >
-            {actionCta.label}
-          </a>
-        ) : null}
-        {hasMenu ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                disabled={busy}
-                aria-label={`Actions for ${member.displayName}`}
-                className={CIRCLE_MEMBER_MENU_CLASSNAME}
-              >
-                <MoreVertical className="h-5 w-5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {canShare ? (
-                <DropdownMenuItem onSelect={() => onShare()}>
-                  <Share2 className="h-4 w-4" />
-                  Share location
-                </DropdownMenuItem>
-              ) : null}
-              {canRemove ? (
-                <DropdownMenuItem
-                  variant="destructive"
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    setConfirmRemoveOpen(true);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Remove from Circle
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          // Holds the kebab column open on the rows that have no kebab. Without
-          // it the roster's right edge steps in and out by 44px from row to row.
-          <span
-            aria-hidden="true"
-            className={CIRCLE_MEMBER_MENU_CLASSNAME}
-            data-testid="circle-member-menu-spacer"
-          />
-        )}
-      </div>
-      {canRemove ? (
-        <AlertDialog open={confirmRemoveOpen} onOpenChange={setConfirmRemoveOpen}>
+      {canShare ? (
+        <Button
+          type="button"
+          size="sm"
+          disabled={busy}
+          onClick={onShare}
+          className="h-11 min-w-16 rounded-full"
+        >
+          Share
+        </Button>
+      ) : null}
+      {isOwner && member.role !== "owner" ? (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              aria-label={`Remove ${member.displayName} from this Circle`}
+              className="h-11 shrink-0 rounded-full px-3 font-semibold text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              Remove
+            </Button>
+          </AlertDialogTrigger>
           <AlertDialogContent size="sm">
             <AlertDialogHeader>
               <AlertDialogTitle>
@@ -1199,7 +804,6 @@ export function CircleDetailFlow({
   onShareCode,
   onShareWithMember,
   onRemoveMember,
-  onConnectMember,
   onLoadEligibleConnections,
   onInviteConnections,
   onCancelMemberInvite,
@@ -1226,14 +830,6 @@ export function CircleDetailFlow({
   ) => Promise<void>;
   onShareWithMember: (circleId: string, userId: string) => void;
   onRemoveMember: (circleId: string, userId: string) => Promise<void>;
-  /**
-   * Sends a connection request to a co-member.
-   *
-   * Sharing a Circle does not connect two people -- a joiner is paired with
-   * whoever invited them and nobody else -- so the roster is where that
-   * introduction can be asked for explicitly, and answered by the other person.
-   */
-  onConnectMember: (circleId: string, userId: string) => Promise<void>;
   onLoadEligibleConnections: (
     circleId: string,
   ) => Promise<OneLocationCircleEligibleConnections>;
@@ -1260,7 +856,6 @@ export function CircleDetailFlow({
   >([]);
   const [remainingCapacity, setRemainingCapacity] = useState(0);
   const [peopleSearch, setPeopleSearch] = useState("");
-  const [memberSearch, setMemberSearch] = useState("");
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<
     Set<string>
   >(() => new Set());
@@ -1314,7 +909,6 @@ export function CircleDetailFlow({
     setPeopleSheetOpen(false);
     setPeopleSearch("");
     setSelectedConnectionIds(new Set());
-    setMemberSearch("");
     setSavingName(false);
     peopleRequestRef.current += 1;
     void reload();
@@ -1348,9 +942,6 @@ export function CircleDetailFlow({
     circle?.inviteCodeNeedsOwnerRotation,
   );
   const members = useMemo(() => circle?.members ?? [], [circle?.members]);
-  // One request in flight at a time: the roster re-renders from the reloaded
-  // Circle, and two overlapping sends would leave the wrong row spinning.
-  const [connectingUserId, setConnectingUserId] = useState<string | null>(null);
   // Single source of truth for the member count shown on BOTH the "Your
   // circles" list row and this detail subtitle: the number of OTHER people in
   // the circle (everyone except the viewer). `circle.memberCount` from the
@@ -1362,27 +953,6 @@ export function CircleDetailFlow({
     () => members.filter((member) => member.userId !== currentUserId).length,
     [members, currentUserId],
   );
-
-  // Filters the already-loaded Members list client-side, same as the "Add
-  // people" sheet's connection search — a circle's roster is small enough
-  // that there is no server round trip worth making for this.
-  const filteredMembers = useMemo(
-    () =>
-      filterPeopleByQuery(
-        sortPeopleByName(members, (member) => member.displayName),
-        memberSearch,
-        (member) => member.displayName,
-      ),
-    [members, memberSearch],
-  );
-
-  // Beside the "Members" heading. Unfiltered it is the same phrase the screen
-  // title and the "Your circles" row use, so the number never changes wording
-  // between the three places it appears; filtered it reports the match count
-  // against the roster, because that is the list actually on screen.
-  const memberCountLabel = memberSearch.trim()
-    ? `${filteredMembers.length} of ${members.length}`
-    : othersCountLabel(externalMembersCount);
 
   const filteredEligibleConnections = useMemo(
     () =>
@@ -1452,20 +1022,22 @@ export function CircleDetailFlow({
       await onInviteConnections(circle.id, inviteeUserIds);
       toast.success(
         inviteeUserIds.length === 1
-          ? "Added to the Circle."
-          : `${inviteeUserIds.length} people added to the Circle.`,
+          ? "Circle invitation sent."
+          : `${inviteeUserIds.length} Circle invitations sent.`,
       );
-      // Adding is the sheet's terminal action for any selection size, so close
+      // Sending is the sheet's terminal action for any selection size, so close
       // it and let the toast confirm. Bump the request ref first so a slower
       // in-flight eligibility load cannot repopulate a dismissed sheet, and
-      // reload the detail behind it to pick up the new members.
+      // reload the detail behind it to pick up the new pending invitations.
       peopleRequestRef.current += 1;
       setSelectedConnectionIds(new Set());
       setPeopleSearch("");
       setPeopleSheetOpen(false);
       await reload();
     } catch (error) {
-      toast.error(circleFlowErrorMessage(error, "Could not add them."));
+      toast.error(
+        circleFlowErrorMessage(error, "Could not send the invitation."),
+      );
       // Capacity or eligibility may have changed while the sheet was open.
       // Reconcile against the server before another tap so stale selections
       // are trimmed rather than repeatedly submitting a known conflict.
@@ -1578,11 +1150,7 @@ export function CircleDetailFlow({
   };
 
   return (
-    // `space-y-5`, and every section below owns its own internal rhythm. The
-    // screen used to pair a 24px stack gap with `SettingsGroup`'s own 28px
-    // heading margin, so the one gap on the page that mattered least -- the
-    // one above "Members" -- was also the largest.
-    <div className="space-y-5" data-testid="one-location-circle-detail-flow">
+    <div className="space-y-6" data-testid="one-location-circle-detail-flow">
       <TaskFlowHeader
         eyebrow="Your circles"
         title={circle?.name ?? "Circle"}
@@ -1591,7 +1159,9 @@ export function CircleDetailFlow({
             ? // Same line as the list row this screen was opened from, so the
               // count does not change wording between the two. The kind is
               // dropped here for the same reason it is dropped there.
-              othersCountLabel(externalMembersCount)
+              `${externalMembersCount} ${
+                externalMembersCount === 1 ? "member" : "members"
+              }`
             : "Loading Circle…"
         }
       />
@@ -1621,7 +1191,7 @@ export function CircleDetailFlow({
       {circle ? (
         <>
           {isOwner ? (
-            <div className={CIRCLE_DETAIL_CARD}>
+            <div className="rounded-[22px] border border-border bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-sm">
               <label
                 htmlFor={CIRCLE_NAME_INPUT_ID}
                 className="block text-sm font-semibold text-foreground"
@@ -1684,30 +1254,26 @@ export function CircleDetailFlow({
 
           {canInviteMembers ? (
             <div
-              className={CIRCLE_DETAIL_CARD}
+              className="rounded-[22px] border border-border bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-sm"
               data-testid="one-location-circle-invite-card"
             >
               <div className="flex items-start gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
                   <KeyRound className="h-5 w-5" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[15px] font-semibold leading-5 text-foreground">
+                  <p className="font-semibold text-foreground">
                     Invite people
                   </p>
-                  <p className={cn(MUTED_TEXT, "mt-1")}>
+                  <p className="mt-0.5 text-sm text-muted-foreground">
                     Every Circle member can invite an existing connection or
                     share the same Circle code.
                   </p>
                 </div>
               </div>
-              {/* The card's primary action, and the only filled control on the
-                  screen. It used to be `variant="outline"` -- the same neutral
-                  slab as "Generate invite code" directly beneath it, so two
-                  identical grey pills stacked with nothing saying which one
-                  the screen wanted pressed. */}
               <Button
                 type="button"
+                variant="outline"
                 disabled={busy}
                 onClick={openPeopleSheet}
                 className="mt-4 h-11 w-full rounded-full font-semibold"
@@ -1716,7 +1282,7 @@ export function CircleDetailFlow({
                 Add people
               </Button>
               {canViewInviteCode && inviteCode ? (
-                <div className="mt-4 rounded-[var(--app-radius-md)] bg-muted/55 p-4 text-center">
+                <div className="mt-4 rounded-2xl bg-muted/55 p-4 text-center">
                   <p className="break-all font-mono text-lg font-bold tracking-[0.08em] text-foreground min-[360px]:text-xl min-[360px]:tracking-[0.12em]">
                     {inviteCode.code}
                   </p>
@@ -1750,22 +1316,19 @@ export function CircleDetailFlow({
                 </div>
               ) : canViewInviteCode && inviteCodeNeedsOwnerRotation ? (
                 canRotateInviteCode ? (
-                  /* Secondary to "Add people", so it is quiet -- accent label
-                     on no fill -- rather than a second neutral slab of the
-                     same size and weight. */
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="outline"
                     disabled={busy}
                     isLoading={busy}
                     onClick={() => void generateCode(true)}
-                    className={CIRCLE_INVITE_SECONDARY_ACTION}
+                    className="mt-2 h-11 w-full rounded-full font-semibold"
                   >
                     <RotateCw className="mr-2 h-4 w-4" />
                     Refresh invite code
                   </Button>
                 ) : (
-                  <p className="mt-3 rounded-[var(--app-radius-md)] bg-muted/55 px-4 py-3 text-sm leading-5 text-muted-foreground">
+                  <p className="mt-3 rounded-2xl bg-muted/55 px-4 py-3 text-sm leading-5 text-muted-foreground">
                     Ask the Circle owner to refresh the older invite code. It
                     will appear here for every member as soon as they do.
                   </p>
@@ -1773,11 +1336,11 @@ export function CircleDetailFlow({
               ) : canViewInviteCode ? (
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   disabled={busy}
                   isLoading={busy}
                   onClick={() => void generateCode()}
-                  className={CIRCLE_INVITE_SECONDARY_ACTION}
+                  className="mt-2 h-11 w-full rounded-full font-semibold"
                 >
                   <KeyRound className="mr-2 h-4 w-4" />
                   Generate invite code
@@ -1789,7 +1352,7 @@ export function CircleDetailFlow({
                   variant="ghost"
                   isLoading={busy}
                   onClick={() => void generateCode(true)}
-                  className={CIRCLE_INVITE_SECONDARY_ACTION}
+                  className="mt-2 h-11 w-full rounded-full"
                 >
                   <RotateCw className="mr-2 h-4 w-4" />
                   Rotate code
@@ -1829,17 +1392,8 @@ export function CircleDetailFlow({
               <SheetHeader className="text-left">
                 <SheetTitle>Add people to {circle.name}</SheetTitle>
                 <SheetDescription>
-                  {/* No Circle sends invitations any more. Only existing
-                      connections can be picked here, and two people who are
-                      already connected have already agreed to know each other
-                      -- so the membership is written on tap and the person is
-                      notified. Saying "they join after accepting" would
-                      describe a step that no longer happens, on the screen
-                      where believing it means thinking you still have time to
-                      change your mind. */}
-                  {circle.isSystem
-                    ? "Choose existing connections. They are added straight away, so SMS alerts reach them immediately."
-                    : "Choose existing connections. They are added straight away and told you added them."}
+                  Choose existing connections. They join only after accepting
+                  the Circle invitation; no second Connect request is needed.
                 </SheetDescription>
               </SheetHeader>
 
@@ -1883,8 +1437,8 @@ export function CircleDetailFlow({
                           title="Your connections"
                           description={
                             remainingCapacity === 1
-                              ? "You can add 1 more person right now."
-                              : `You can add ${remainingCapacity} more people right now.`
+                              ? "You can invite 1 more person right now."
+                              : `You can invite ${remainingCapacity} more people right now.`
                           }
                           testId="one-location-circle-eligible-connections"
                         >
@@ -1950,7 +1504,7 @@ export function CircleDetailFlow({
                         <EmptyState
                           title={
                             remainingCapacity === 0
-                              ? "No room left in this Circle"
+                              ? "No invitation slots available"
                               : peopleSearch.trim()
                                 ? "No matching connections"
                                 : "No connections to add"
@@ -2019,7 +1573,7 @@ export function CircleDetailFlow({
                   )}
                 >
                   {selectedConnectionIds.size
-                    ? `Add ${selectedConnectionIds.size} ${
+                    ? `Invite ${selectedConnectionIds.size} ${
                         selectedConnectionIds.size === 1 ? "person" : "people"
                       }`
                     : "Select people"}
@@ -2028,107 +1582,40 @@ export function CircleDetailFlow({
             </SheetContent>
           </Sheet>
 
-          {/* One section, in reading order: what this is, how to narrow it,
-              then the list. The search field used to sit ABOVE the "Members"
-              heading, so the screen offered a way to filter a list it had not
-              introduced yet -- and the heading it belonged to arrived after
-              it, under `SettingsGroup`'s own 28px top margin. */}
-          <section className="space-y-2.5" aria-labelledby={CIRCLE_MEMBERS_HEADING_ID}>
-            <div className="flex items-baseline justify-between gap-3 px-1.5">
-              <SectionLabel
-                id={CIRCLE_MEMBERS_HEADING_ID}
-                role="heading"
-                aria-level={2}
-              >
-                Members
-              </SectionLabel>
-              {/* The count, not "Members connect through this Circle." -- the
-                  invite card two cards up already says how membership works,
-                  and a sentence that repeats it is a line of prose between a
-                  heading and the thing it heads.
+          <SettingsGroup
+            title="Members"
+            description="Members connect through this Circle."
+            testId="one-location-circle-members"
+          >
+            {members.map((member) => (
+              <CircleMemberRow
+                key={member.userId}
+                member={member}
+                currentUserId={currentUserId}
+                isOwner={Boolean(isOwner)}
+                busy={busy}
+                onShare={() =>
+                  onShareWithMember(circle.id, member.userId)
+                }
+                onRemove={async () => {
+                  await removeMember(member.userId);
+                }}
+              />
+            ))}
+          </SettingsGroup>
 
-                  Under an active query it counts what is ON SCREEN. The same
-                  "3 people" above a filtered list of one is the heading
-                  contradicting the list it heads. */}
-              <TrailingValue>{memberCountLabel}</TrailingValue>
-            </div>
+          <TrustNoteCard
+            title="Connected does not mean visible"
+            description="Live access still needs approval."
+          />
 
-            {members.length ? (
-              <label className="relative block">
-                <span className="sr-only">Search members</span>
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                {/* The app's own field, so this search box and Connect's are
-                    one control rather than two that resemble each other. */}
-                <input
-                  value={memberSearch}
-                  onChange={(event) => setMemberSearch(event.target.value)}
-                  placeholder="Search members"
-                  autoComplete="off"
-                  className={cn(INPUT_CLASSNAME, "pl-11 pr-3.5")}
-                  data-testid="one-location-circle-member-search"
-                />
-              </label>
-            ) : null}
-
-            {filteredMembers.length ? (
-              <SettingsGroup
-                testId="one-location-circle-members"
-                // A synced Circle can hold up to 100 members (migration 158).
-                // Capping the card's own height and scrolling inside it keeps
-                // "Delete circle" and everything below reachable without
-                // paging through the whole roster first.
-                shellClassName={CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME}
-                contentClassName={CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME}
-              >
-                {filteredMembers.map((member) => (
-                  <CircleMemberRow
-                    key={member.userId}
-                    member={member}
-                    currentUserId={currentUserId}
-                    isOwner={Boolean(isOwner)}
-                    busy={busy}
-                    onShare={() =>
-                      onShareWithMember(circle.id, member.userId)
-                    }
-                    onRemove={async () => {
-                      await removeMember(member.userId);
-                    }}
-                    connecting={connectingUserId === member.userId}
-                    onConnect={async () => {
-                      if (connectingUserId) return;
-                      setConnectingUserId(member.userId);
-                      try {
-                        await onConnectMember(circle.id, member.userId);
-                      } finally {
-                        setConnectingUserId(null);
-                      }
-                    }}
-                  />
-                ))}
-              </SettingsGroup>
-            ) : (
-              <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
-                <EmptyState
-                  title="No members found"
-                  description="Try a different name."
-                />
-              </div>
-            )}
-          </section>
-
-          {/* A system Circle (today: SMS Contacts) is provisioned by the product
-              and read by SOS, so deleting it would switch emergency alerts off
-              with nothing on screen saying so. Every other owner power stays --
-              rename, invite, remove. The API and a database trigger refuse the
-              delete too; this only keeps the person from being offered
-              something that cannot happen. */}
-          {isOwner && !circle.isSystem ? (
+          {isOwner ? (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button
                   type="button"
-                  variant="ghost"
-                  className={cn(CARD_SURFACE, CIRCLE_DESTRUCTIVE_ACTION)}
+                  variant="outline"
+                  className="h-11 w-full rounded-full border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive"
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
                   Delete circle
@@ -2162,9 +1649,9 @@ export function CircleDetailFlow({
               <AlertDialogTrigger asChild>
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   disabled={busy}
-                  className={cn(CARD_SURFACE, CIRCLE_DESTRUCTIVE_ACTION)}
+                  className="h-11 w-full rounded-full border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive"
                 >
                   <LogOut className="mr-2 h-4 w-4" />
                   Leave circle
@@ -2196,7 +1683,7 @@ export function CircleDetailFlow({
           )}
         </>
       ) : !loadError ? (
-        <div className="flex min-h-40 items-center justify-center rounded-[var(--app-card-radius-standard,24px)] bg-muted/35">
+        <div className="flex min-h-40 items-center justify-center rounded-[22px] bg-muted/35">
           <ShieldCheck className="h-8 w-8 animate-pulse text-muted-foreground" />
         </div>
       ) : null}

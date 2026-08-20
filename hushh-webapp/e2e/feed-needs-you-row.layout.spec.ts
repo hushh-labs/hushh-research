@@ -12,26 +12,20 @@ import {
 /**
  * The Feed's "Needs you" rows, measured in a real browser at phone widths.
  *
- * The timestamp lives on the TITLE line, beside the person's name, not on the
- * description line:
+ * A row's description and its "Today - 3:04 AM" label share one flex line:
  *
- *   <span class="flex min-w-0 items-center gap-2">
- *     <span class="min-w-0 flex-1 truncate">Sharuk Khan Abdulrahman</span>
- *     <span class="shrink-0 …">3:11 AM</span>
+ *   <span class="flex items-center gap-2">
+ *     <span class="min-w-0 flex-1"><span class="min-w-0 truncate">…</span></span>
+ *     <span class="shrink-0 …">Today - 3:04 AM</span>
  *   </span>
- *
- * It used to ride inside the description line instead, sharing a track whose
- * width was a function of whatever the action-button column left over — so a
- * long description could paint over it, and the timestamp's own position
- * technically depended on whether Decline/Accept rendered even once that
- * collision was fixed. Anchoring it to the name line instead makes its
- * position a function of the name's length only, never of `trailing`.
  *
  * `truncate` sits on an INLINE span, where `overflow` and `text-overflow` do
  * not apply — only its `white-space: nowrap` survives. The flex item that
  * could clip it carries `min-w-0 flex-1` and no `overflow-hidden`, so a long
- * name could in principle run out of its track and paint over the timestamp
- * the same way a description once did. Assert the same two facts here.
+ * description runs straight out of its track and paints over the timestamp.
+ * The wider the trailing action buttons, the narrower the track, the worse it
+ * gets — which is why the "Approve 4 hours more" row is the broken one and a
+ * chevron-only row is not.
  *
  * The markup is the real rendered output of `FeedActionableRow` +
  * `SettingsRow`, captured from those components, so the classes under test are
@@ -129,22 +123,30 @@ ${productFontStyle()}
 type Probe = {
   title: string;
   descText: string;
-  /** The flex TRACK the title's name span was given. */
+  /** The flex TRACK the description was given. */
   trackLeft: number;
   trackRight: number;
-  /** The timestamp box, now on the title line. */
+  /** The ink of the description text itself (inline span's own box). */
+  inkLeft: number;
+  inkRight: number;
+  /** The timestamp box. */
   stampLeft: number;
   stampRight: number;
   stampText: string;
-  /** Does the title's name track actually clip? */
-  titleOverflowX: string;
+  /** How far the description ink runs past its own track. */
+  spill: number;
+  /** Horizontal intersection between the description ink and the stamp. */
+  overlap: number;
+  /** Does the description box actually clip? */
+  descOverflowX: string;
+  trailingWidth: number;
   titleHeight: number;
   rowHeight: number;
 };
 
 test.describe("Feed 'Needs you' row", () => {
   for (const width of WIDTHS) {
-    test(`title never paints over the timestamp at ${width}px`, async ({
+    test(`description never paints over the timestamp at ${width}px`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -156,28 +158,49 @@ test.describe("Feed 'Needs you' row", () => {
         for (const row of document.querySelectorAll(
           '[data-testid="settings-row"]',
         )) {
-          const titleEl = row.querySelector('[data-slot="settings-row-title"]');
-          // A row with no timestamp (none in this fixture, but a chevron-only
-          // consent row elsewhere in the app) renders the title as plain text
-          // with no nested line/track/stamp — guard rather than assume.
-          const line = titleEl?.firstElementChild as HTMLElement | null;
+          const title =
+            row.querySelector('[data-slot="settings-row-title"]')?.textContent ??
+            "";
+          const desc = row.querySelector(
+            '[data-slot="settings-row-description"]',
+          );
+          const line = desc?.firstElementChild as HTMLElement | null;
           const track = line?.children[0] as HTMLElement | null;
+          const ink = track?.firstElementChild as HTMLElement | null;
           const stamp = line?.children[1] as HTMLElement | null;
+          const trailing = (row.firstElementChild as HTMLElement | null)
+            ?.lastElementChild as HTMLElement | null;
 
           const t = track?.getBoundingClientRect();
+          // An inline span's own box is what the glyphs occupy.
+          const i = ink?.getBoundingClientRect();
           const s = stamp?.getBoundingClientRect();
+          const tr = trailing?.getBoundingClientRect();
 
-          const descEl = row.querySelector('[data-slot="settings-row-description"]');
           out.push({
-            title: track?.textContent ?? titleEl?.textContent ?? "",
-            descText: descEl?.textContent ?? "",
+            title,
+            descText: ink?.textContent ?? "",
             trackLeft: t?.left ?? 0,
             trackRight: t?.right ?? 0,
+            inkLeft: i?.left ?? 0,
+            inkRight: i?.right ?? 0,
             stampLeft: s?.left ?? 0,
             stampRight: s?.right ?? 0,
             stampText: stamp?.textContent ?? "",
-            titleOverflowX: track ? getComputedStyle(track).overflowX : "",
-            titleHeight: titleEl?.getBoundingClientRect().height ?? 0,
+            spill: (i?.right ?? 0) - (t?.right ?? 0),
+            overlap: Math.max(
+              0,
+              Math.min(i?.right ?? 0, s?.right ?? 0) -
+                Math.max(i?.left ?? 0, s?.left ?? 0),
+            ),
+            descOverflowX: track
+              ? getComputedStyle(track).overflowX
+              : "",
+            trailingWidth: tr?.width ?? 0,
+            titleHeight:
+              row
+                .querySelector('[data-slot="settings-row-title"]')
+                ?.getBoundingClientRect().height ?? 0,
             rowHeight: row.getBoundingClientRect().height,
           });
         }
@@ -185,7 +208,6 @@ test.describe("Feed 'Needs you' row", () => {
       });
 
       for (const row of rows) {
-        if (!row.stampText) continue; // rows with no timestamp have nothing to check here
         // THE CONTRACT, stated the way the browser actually enforces it.
         //
         // The first version of this asserted that the inner span's rect did not
@@ -198,21 +220,21 @@ test.describe("Feed 'Needs you' row", () => {
         // the track clips, and the track ends before the timestamp begins.
         // Assert both.
         expect(
-          row.titleOverflowX,
-          `${row.title}: title track does not clip (overflow-x: ${row.titleOverflowX})`,
+          row.descOverflowX,
+          `${row.title}: description track does not clip (overflow-x: ${row.descOverflowX})`,
         ).not.toBe("visible");
         expect(
           row.trackRight,
-          `${row.title}: title track reaches ${row.trackRight.toFixed(1)}px, timestamp starts at ${row.stampLeft.toFixed(1)}px`,
+          `${row.title}: description track reaches ${row.trackRight.toFixed(1)}px, timestamp starts at ${row.stampLeft.toFixed(1)}px`,
         ).toBeLessThanOrEqual(row.stampLeft + 0.5);
         // The timestamp is still on screen and still readable.
         expect(
           row.stampRight - row.stampLeft,
           `${row.title}: timestamp collapsed to ${(row.stampRight - row.stampLeft).toFixed(1)}px`,
         ).toBeGreaterThan(40);
-        // At 320px, action buttons used to leave the text column 0px wide and
-        // `[overflow-wrap:anywhere]` broke a long name into one-character
-        // lines, tens of pixels tall per row.
+        // The same collapse takes the title: at 320px the action buttons leave
+        // the text column 0px wide and `[overflow-wrap:anywhere]` breaks
+        // "JHUMMA KUMARI" into 12 one-character lines, 264px tall.
         expect(
           row.titleHeight,
           `${row.title}: title wrapped to ${row.titleHeight}px`,
@@ -222,34 +244,6 @@ test.describe("Feed 'Needs you' row", () => {
           row.rowHeight,
           `${row.title}: row is ${row.rowHeight}px tall`,
         ).toBeLessThanOrEqual(120);
-      }
-
-      // THE REGRESSION PROOF, scoped to what a real circle-invite row can
-      // actually hit: it always renders with its two actions from the
-      // moment it's pending (never toggles from zero actions to two), so
-      // the real claim is narrower than "with vs without actions entirely"
-      // — it's "the CTAs rendering, whatever they say, must not move the
-      // timestamp". Same title, same (stacked) layout mode, only the action
-      // LABELS differ in width. Only meaningful below the `sm` breakpoint,
-      // where an actions row actually stacks onto its own line (at ≥640px
-      // the action column still borrows from the text column by design,
-      // same as it always has — a separate, pre-existing SettingsRow
-      // characteristic this fix does not change).
-      if (width < 640) {
-        const narrow = rows.find((r) => r.descText === "Narrow action labels.");
-        const wide = rows.find((r) => r.descText === "Wide action labels.");
-        expect(narrow, "consistency-narrow-actions row not found in fixture").toBeTruthy();
-        expect(wide, "consistency-wide-actions row not found in fixture").toBeTruthy();
-        if (narrow && wide) {
-          expect(
-            wide.stampLeft,
-            `timestamp left moved from ${narrow.stampLeft.toFixed(1)}px (narrow actions) to ${wide.stampLeft.toFixed(1)}px (wide actions)`,
-          ).toBeCloseTo(narrow.stampLeft, 0);
-          expect(
-            wide.stampRight,
-            `timestamp right moved from ${narrow.stampRight.toFixed(1)}px (narrow actions) to ${wide.stampRight.toFixed(1)}px (wide actions)`,
-          ).toBeCloseTo(narrow.stampRight, 0);
-        }
       }
     });
   }

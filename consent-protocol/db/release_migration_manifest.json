@@ -135,10 +135,7 @@
     "154_one_location_access_request_duration.sql",
     "155_one_location_grant_ceiling.sql",
     "156_one_location_grant_ceiling_insert_default.sql",
-    "157_hussh_crm_delete_operation.sql",
-    "158_one_location_circle_member_limit_100.sql",
-    "159_one_location_circle_invite_max_uses_100.sql",
-    "160_one_location_system_circles.sql"
+    "157_hussh_crm_delete_operation.sql"
   ],
   "groups": {
     "iam": [
@@ -226,10 +223,7 @@
       "152_feed_events_recipient_fanout.sql",
       "153_one_location_duration_changed_event.sql",
       "154_one_location_access_request_duration.sql",
-      "155_one_location_grant_ceiling.sql",
-      "158_one_location_circle_member_limit_100.sql",
-      "159_one_location_circle_invite_max_uses_100.sql",
-      "160_one_location_system_circles.sql"
+      "155_one_location_grant_ceiling.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

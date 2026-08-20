@@ -183,7 +183,7 @@ function requireUnlockedVault(
   vaultOwnerToken: string;
 } {
   if (!context.userId || !context.vaultKey || !context.vaultOwnerToken) {
-    throw new Error("Unlock before managing saved locations.");
+    throw new Error("Unlock your vault before managing saved locations.");
   }
 }
 
@@ -263,7 +263,7 @@ async function mutateSavedLocations(params: {
   });
 
   if (!result.success) {
-    throw new Error(result.message || "Could not save your locations.");
+    throw new Error(result.message || "Could not save locations to your vault.");
   }
   return persistedLocations;
 }

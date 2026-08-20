@@ -58,7 +58,7 @@ export function humanizeConsentScope(scope: string | null | undefined): string {
       .replace(/\b\w/g, (char) => char.toUpperCase());
   }
 
-  if (normalized === "vault.owner") return "Full private access";
+  if (normalized === "vault.owner") return "Full vault access";
   if (normalized === "pkm.read") return "Personal Knowledge Model access";
   if (normalized === "pkm.write") return "Personal Knowledge Model updates";
 
@@ -84,23 +84,10 @@ export function resolveCompactConsentSummary(input: ConsentDisplayInput): string
   return humanizeConsentScope(input.scope);
 }
 
-/**
- * The first candidate that actually names a person, or `null` when none does.
- *
- * Split out of `resolveConsentRequesterLabel` so notification copy can share the
- * exact same ladder and technical-identity filter while supplying its own
- * terminal fallback ("Someone" reads correctly in a sentence; "Requester" does
- * not). One ladder, two endings — rather than a second hand-rolled `||` chain,
- * which is how the connection-request toast ended up rendering "Someone" even
- * when a name was available. See issue #5422.
- *
- * Returning `null` rather than a placeholder is the point: it lets the caller
- * distinguish "we have no name" from "the name is literally that placeholder".
- */
-export function resolveRequesterDisplayName(
+export function resolveConsentRequesterLabel(
   input: ConsentRequesterLabelInput
-): string | null {
-  return firstNonEmptyLabel(
+): string {
+  const friendlyLabel = firstNonEmptyLabel(
     [
       input.requesterLabel,
       input.counterpartLabel,
@@ -109,12 +96,6 @@ export function resolveRequesterDisplayName(
       input.counterpartSecondaryLabel,
     ].filter((value) => !isTechnicalRequesterIdentity(value))
   );
-}
-
-export function resolveConsentRequesterLabel(
-  input: ConsentRequesterLabelInput
-): string {
-  const friendlyLabel = resolveRequesterDisplayName(input);
   if (friendlyLabel) return friendlyLabel;
 
   if (

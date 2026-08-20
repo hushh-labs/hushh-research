@@ -96,8 +96,9 @@ export function KaiMarketHubPage() {
     <AppPageShell
       as="div"
       fitContent
+
       width="reading"
-      className="relative !px-0"
+      className="relative !px-0 pb-32"
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -113,8 +114,6 @@ export function KaiMarketHubPage() {
         onSelectionChange={(value) => setVisibleTab(value as PortfolioTab)}
         onSelectionCommit={(value) => setActiveTab(value as PortfolioTab)}
         panelInset="page"
-        heightMode="active"
-        viewportMinHeight="0px"
       >
         <div className="h-full w-full">
           <AppPageContentRegion>

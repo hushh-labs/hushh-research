@@ -5,8 +5,8 @@ import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 
 export default function PkmAgentLabLayout({ children }: { children: ReactNode }) {
   return (
-    <PhoneMandateGuard>
-      <VaultLockGuard>{children}</VaultLockGuard>
-    </PhoneMandateGuard>
+    <VaultLockGuard>
+      <PhoneMandateGuard>{children}</PhoneMandateGuard>
+    </VaultLockGuard>
   );
 }

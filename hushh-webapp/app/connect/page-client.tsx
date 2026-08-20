@@ -54,8 +54,6 @@ import {
 } from "@/lib/voice/voice-action-card";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { getDirectoryPersonDescription } from "./directory-person-label";
-import { filterPeopleByQuery } from "@/lib/one-location/people-search";
-import { shouldRevealListControls } from "@/lib/one-location/contact-picker-controls";
 import {
   CONNECT_SEARCH_INPUT_CLASSNAME,
   CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME,
@@ -63,13 +61,6 @@ import {
   CONNECT_SEARCH_PLACEHOLDER,
   CONNECT_SELECT_TOGGLE_CLASSNAME,
 } from "./connect-search-layout";
-import {
-  CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME,
-  CONNECT_PAGER_BUTTON_CLASSNAME,
-  CONNECT_PAGINATION_LEFT_CLASSNAME,
-  CONNECT_PAGINATION_RIGHT_CLASSNAME,
-  CONNECT_PAGINATION_ROW_CLASSNAME,
-} from "./connect-pagination-layout";
 import { cn } from "@/lib/utils";
 
 type ConnectTab = "people" | "advisors" | "nearby";
@@ -168,6 +159,8 @@ const PAGE_SIZE_OPTIONS = [8, 16, 24, 50] as const;
 const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
 const CONNECT_ROW_ACTION_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px]";
+const CONNECT_PAGER_BUTTON_CLASSNAME =
+  "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
 
@@ -322,7 +315,6 @@ export default function ConnectPageClient() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
-  const [connectionsQuery, setConnectionsQuery] = useState("");
   const [scopeDraft, setScopeDraft] = useState<{
     person: DirectoryPerson;
     catalog: ConnectionScopeCatalog;
@@ -985,30 +977,6 @@ export default function ConnectPageClient() {
     [connections, isAdvisorTab],
   );
 
-  // A synced roster can run to the low hundreds, so "My connections" gets the
-  // same word-beginning search every other people list on Location already
-  // uses (@/lib/one-location/people-search) rather than a third, one-off
-  // `includes()` filter. Filtered from the already-sorted list, never the
-  // reverse: `filterPeopleByQuery` preserves input order within each
-  // relevance tier, so the A-Z ordering survives inside "starts with" and
-  // "contains" alike.
-  const filteredConnections = useMemo(
-    () =>
-      filterPeopleByQuery(
-        sortedConnections,
-        connectionsQuery,
-        (connection) => connection.displayName || connection.userId,
-      ),
-    [sortedConnections, connectionsQuery],
-  );
-
-  // Same threshold the contact picker reveals its own search field at: below
-  // it the whole roster is one glance, and a search box is pure noise.
-  const showConnectionsSearch = shouldRevealListControls(
-    sortedConnections.length,
-    connectionsQuery.trim().length > 0,
-  );
-
   // Voice surface for Connect. Until this existed the route derived the
   // generic "app" screen, so One knew a person was somewhere in the app and
   // nothing more -- and Connect could not be named as a destination, which is
@@ -1454,13 +1422,7 @@ export default function ConnectPageClient() {
           <div className="space-y-4 sm:space-y-5">
             <SegmentedTabs
               value={tab}
-              onValueChange={(value) => {
-                setTab(value as ConnectTab);
-                // People and RIAs are two different underlying lists; a query
-                // that narrowed one to a name would silently zero out the
-                // other's tab instead of showing its full, unfiltered roster.
-                setConnectionsQuery("");
-              }}
+              onValueChange={(value) => setTab(value as ConnectTab)}
               options={CONNECT_TABS}
               // A third tab takes a third of the strip, and the option's own
               // 16px side padding then costs more than the widest label has
@@ -1487,37 +1449,7 @@ export default function ConnectPageClient() {
                   : `My connections (${sortedConnections.length})`
               }
               separatorInset
-              // A synced roster caps this list's height instead of letting it
-              // push the directory search section below off the first
-              // screenful. Same "bounded manager" extension point the Circle
-              // Members list and the Consent Center connections tab already
-              // use on SettingsGroup.
-              shellClassName="flex max-h-[60vh] flex-col"
-              contentClassName="min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
             >
-              {showConnectionsSearch ? (
-                <div className="border-b border-border/60 px-3 py-2.5">
-                  <label className="relative block">
-                    <span className="sr-only">
-                      {isAdvisorTab ? "Search my RIAs" : "Search my connections"}
-                    </span>
-                    <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      value={connectionsQuery}
-                      onChange={(event) =>
-                        setConnectionsQuery(event.target.value)
-                      }
-                      placeholder={
-                        isAdvisorTab ? "Search my RIAs" : "Search my connections"
-                      }
-                      autoComplete="off"
-                      className="h-11 w-full rounded-full border border-border bg-[color:var(--app-card-surface-default-solid)] pl-9 pr-4 text-sm outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
-                      data-testid="one-connect-my-connections-search"
-                    />
-                  </label>
-                </div>
-              ) : null}
-
               {sortedConnections.length === 0 ? (
                 <SettingsRow
                   // No description. "Connections appear here." explained what
@@ -1530,15 +1462,8 @@ export default function ConnectPageClient() {
                   density="compact"
                   disabled
                 />
-              ) : filteredConnections.length === 0 ? (
-                <SettingsRow
-                  title="No matches"
-                  description="Try a different name."
-                  density="compact"
-                  disabled
-                />
               ) : (
-                filteredConnections.map((connection) => (
+                sortedConnections.map((connection) => (
                   <SettingsRow
                     key={connection.connectionId}
                     // Same mark, same tone, same meaning as the results list
@@ -1920,17 +1845,15 @@ export default function ConnectPageClient() {
                   })
                 )}
                 {people.length > 0 || currentPage > 1 ? (
-                  <div
-                    className={cn(
-                      CONNECT_PAGINATION_ROW_CLASSNAME,
-                      "border-t border-[color:var(--app-card-border-standard)]"
-                    )}
-                  >
-                    <div className={CONNECT_PAGINATION_LEFT_CLASSNAME}>
-                      <span className="ui-text-helper-text tabular-nums whitespace-nowrap text-[color:var(--app-tertiary-label)]">
+                  <div className="flex flex-col gap-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-h-9 flex-wrap items-center gap-2.5">
+                      <span className="ui-text-helper-text tabular-nums text-[color:var(--app-secondary-label)]">
                         Page {currentPage}
                       </span>
-                      <span className="h-1 w-1 shrink-0 rounded-full bg-[color:var(--app-tertiary-label)]" />
+                      <span className="h-1 w-1 rounded-full bg-[color:var(--app-tertiary-label)]" />
+                      <span className="ui-text-helper-text text-[color:var(--app-secondary-label)]">
+                        Per page
+                      </span>
                       <Select
                         value={String(pageSize)}
                         onValueChange={(value) => setPageSize(Number(value))}
@@ -1938,7 +1861,7 @@ export default function ConnectPageClient() {
                         <SelectTrigger
                           size="sm"
                           aria-label="People per page"
-                          className={CONNECT_PAGE_SIZE_TRIGGER_CLASSNAME}
+                          className="h-8 min-h-8 w-[74px] rounded-2xl text-[15px] font-medium leading-5"
                         >
                           <SelectValue />
                         </SelectTrigger>
@@ -1952,7 +1875,7 @@ export default function ConnectPageClient() {
                       </Select>
                     </div>
                     <div
-                      className={CONNECT_PAGINATION_RIGHT_CLASSNAME}
+                      className="flex min-h-9 items-center justify-end gap-2"
                       aria-live="polite"
                     >
                       <Button

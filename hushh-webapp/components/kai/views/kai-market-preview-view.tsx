@@ -1168,7 +1168,7 @@ function toBreadthMetric(
       eyebrow: "Overview",
       title: "Advancers vs decliners",
       summary:
-        "Breadth shows whether participation is broad or concentrated across the names being tracked right now.",
+        "Breadth shows whether participation is broad or concentrated across the names Kai is tracking right now.",
       value,
       delta:
         trackedCount > 0
@@ -1184,7 +1184,7 @@ function toBreadthMetric(
           lines: [
             trackedCount > 0
               ? `${gainers} of ${trackedCount} tracked names are higher today.`
-              : "No fresh breadth snapshot yet.",
+              : "Kai does not have a fresh breadth snapshot yet.",
             trackedCount > 0
               ? `${losers} tracked names are lower today.`
               : "The breadth feed is still warming.",
@@ -1281,7 +1281,7 @@ function toSectorLeadershipMetric(
           lines: [
             leader?.sector
               ? `${leader.sector} is leading the current sector board.`
-              : "No clean sector leader resolved yet.",
+              : "Kai has not resolved a clean sector leader yet.",
             typeof leader?.change_pct === "number" &&
             Number.isFinite(leader.change_pct)
               ? `Move: ${leader.change_pct >= 0 ? "+" : ""}${leader.change_pct.toFixed(2)}%`
@@ -2048,7 +2048,7 @@ export function KaiMarketPreviewView() {
               id: "route.kai_dashboard",
               label: "Connect portfolio",
               purpose:
-                "Opens portfolio setup to personalize this market surface.",
+                "Opens portfolio setup so Kai can personalize this market surface.",
               voiceAliases: ["connect portfolio", "open portfolio"],
             },
           ]
@@ -2339,7 +2339,7 @@ export function KaiMarketPreviewView() {
                       </span>
                     </span>
                     <span className="mt-0.5 block truncate text-[13px] text-muted-foreground">
-                      Watch our analysts debate a stock and get a clear
+                      Watch Kai&apos;s analysts debate a stock and get a clear
                       recommendation.
                     </span>
                   </span>

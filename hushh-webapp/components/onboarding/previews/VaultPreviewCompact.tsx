@@ -38,7 +38,7 @@ export function VaultPreviewCompact() {
     >
       <div className="morphy-theme-content relative flex flex-col gap-3 p-4">
         <div className="flex items-center justify-between gap-4">
-          <span className="type-caption text-muted-foreground">Your private place</span>
+          <span className="type-caption text-muted-foreground">Your vault</span>
           <span className="type-caption inline-flex items-center rounded-full bg-emerald-500/12 px-2.5 py-0.5 text-emerald-600 dark:text-emerald-300">
             Private
           </span>

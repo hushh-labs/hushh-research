@@ -92,12 +92,10 @@ describe("Request location wires the take-back to the pending ask", () => {
     expect(ask).toContain("const pendingRequestId = status.pendingRequestId");
   });
 
-  it("no longer wires a live grant's X to revoke on this screen", () => {
-    // Ending a share you're receiving already has a home: Shared with me's
-    // own X calls the same vm.onStopGrant. A second X here was a redundant
-    // entry point to the identical action, so Request location's X is now
-    // only ever the pending-request withdrawal.
-    expect(ask).not.toContain("vm.onStopGrant(activeGrant.id)");
+  it("keeps the live-share revoke on rows that have a grant", () => {
+    // One control, two acts, decided by which state the row is in. Losing the
+    // grant branch would turn every "stop sharing" into a request withdrawal.
+    expect(ask).toContain("vm.onStopGrant(activeGrant.id)");
   });
 
   it("spins on the request being taken back, not on a grant id", () => {
