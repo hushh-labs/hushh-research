@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 
 import type { TopShellTabSet } from "@/lib/navigation/top-shell-tabs";
 import {
+  hasTopShellTabPager,
   requestTopShellTabSelection,
   setTopShellTabSwipeState,
   topShellTabSwipePositionVariable,
@@ -95,13 +96,13 @@ export function TopShellTabs({
   // persisted position variable can retain the PREVIOUS index. The transform
   // only falls back to `activeIndex` while that variable is unset, so a stale
   // value would leave the underline resting under the wrong tab until the next
-  // tap. Re-sync here (never mid-drag) so the resting indicator always matches
-  // the selected tab. Inert during drags and no-op when already aligned.
+  // tap. Re-sync here (never while the pager owns the variable) so the resting
+  // indicator always matches the selected tab, and no-op when already aligned.
   useEffect(() => {
-    if (tabSwipeState.isDragging) return;
+    if (tabSwipeState.pagerOwned) return;
     if (Math.abs(tabSwipeState.position - activeIndex) < 0.001) return;
     setTopShellTabSwipeState(tabSet.id, activeIndex, false);
-  }, [activeIndex, tabSet.id, tabSwipeState.isDragging, tabSwipeState.position]);
+  }, [activeIndex, tabSet.id, tabSwipeState.pagerOwned, tabSwipeState.position]);
 
   const selectIndex = useCallback(
     (index: number, focus: boolean) => {
@@ -113,7 +114,18 @@ export function TopShellTabs({
       // Move the shared compositor indicator at pointer/keyboard time. The
       // query-backed route remains the semantic authority, but it must not
       // delay or replay the visible tab response.
-      setTopShellTabSwipeState(tabSet.id, index, false);
+      //
+      // Skipped where a pager is mounted, because there this write was the
+      // first half of a two-writer race: it set the destination and started a
+      // 240ms transition, and the pager then overwrote the same variable with
+      // live scroll progress on every frame of it. The panel landed at ~400ms
+      // and the pill was still creeping at ~600ms. `requestTopShellTabSelection`
+      // below reaches the pager in this same tick, so the pill still starts
+      // moving on the very next frame -- it just starts from the panel's real
+      // position and stays welded to it.
+      if (!hasTopShellTabPager(tabSet.id)) {
+        setTopShellTabSwipeState(tabSet.id, index, false);
+      }
       requestTopShellTabSelection(tabSet.id, tab.value);
       beginRouteTransition(
         tab.href,
@@ -240,7 +252,11 @@ export function TopShellTabs({
               isLocationTabs
                 ? "inset-y-0.5 z-0"
                 : "bottom-0 z-20",
-              tabSwipeState.isDragging
+              // While the pager owns the variable -- a finger on it, or a
+              // tapped panel in flight -- the pill IS the panel's position and
+              // must track it frame for frame. A transition here would be a
+              // second animation chasing the first, retargeted every frame.
+              tabSwipeState.pagerOwned
                 ? "transition-none"
                 : "transition-transform duration-[240ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
             )}

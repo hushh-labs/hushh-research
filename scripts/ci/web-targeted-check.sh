@@ -103,6 +103,36 @@ if has_match '^hushh-webapp/(components/one-location/|__tests__/components/one-l
   ran=1
 fi
 
+# The accent identity.
+#
+# `lib/theme/accent.ts` owns the one switchable accent, and now also
+# `resolvedAccentHex()` -- the accent as a LITERAL, for a consumer that cannot
+# resolve a CSS custom property at all. The static token scan in Web Core
+# catches a raw hex in a component; nothing ran the behaviour of the resolver
+# those components now depend on, and getting it wrong is silent: an
+# unparseable colour reaching @capacitor/google-maps draws Google's own default
+# on web and flat blue on iOS, both of which look deliberate.
+if has_match '^hushh-webapp/(lib/theme/|__tests__/lib/theme-accent)'; then
+  run_check "accent identity" npm run verify:accent
+  ran=1
+fi
+
+# The shared bottom-sheet primitive.
+#
+# `components/ui/sheet.tsx` is imported by ten surfaces and matched NO pack at
+# all, so a change to the one component that decides whether a phone sheet can
+# be dragged away -- and whether its close button is reachable underneath the
+# drag handle -- ran zero tests on a pull request. Both of those have been real
+# defects.
+#
+# `shared-sheet-consumers.contract.test.tsx` is reachable from the One Location
+# pack too, but only when a file under components/one-location/ changes. A
+# change confined to the primitive itself reaches it only through here.
+if has_match '^hushh-webapp/(components/ui/sheet\.tsx|__tests__/components/(bottom-sheet-drag-dismiss|shared-sheet-consumers))'; then
+  run_check "bottom sheet" npm run verify:bottom-sheet
+  ran=1
+fi
+
 # The browser-measured layout contracts.
 #
 # Until this pack, `test:layout-contracts` was referenced in exactly one place in

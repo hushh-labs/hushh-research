@@ -1,0 +1,306 @@
+name: "Rollback"
+
+# Standalone, manually-dispatchable rollback: repoints UAT/production Cloud
+# Run traffic to a known-good revision without going through a git revert
+# PR first. Before this workflow existed, rollback only happened as an
+# automatic side effect inside deploy-uat.yml / deploy-production.yml, and
+# only when the post-deploy health classifier failed — a revert to code that
+# was itself previously shipped and working passes those health checks
+# cleanly, so it would never trigger. This closes that gap.
+#
+# This IS the governed mechanism the "no ad hoc gcloud run deploy /
+# update-traffic" rule in admin-release-sop.md refers to — see the doc
+# update landed alongside this file. It is not the ad hoc command that rule
+# prohibits: it is actor-gated by the same allowlist that already gates
+# deploy dispatch, authenticates the same way (Workload Identity
+# Federation), and calls the same, unmodified scripts/ci/cloudrun-rollback.sh
+# the automatic path already uses.
+#
+# Two separate jobs, not one dynamic `environment:`, deliberately — this
+# mirrors deploy-uat.yml (no environment: key, repo-level vars) and
+# deploy-production.yml (environment: production, environment-scoped vars)
+# exactly, rather than introducing an unproven dynamic-environment pattern.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which environment to roll back"
+        required: true
+        type: choice
+        options:
+          - uat
+          - production
+      scope:
+        description: "Which service(s) to roll back"
+        required: true
+        type: choice
+        default: all
+        options:
+          - backend
+          - frontend
+          - all
+      backend_revision:
+        description: "Backend revision to restore (blank = last known-good tag)"
+        required: false
+        type: string
+      frontend_revision:
+        description: "Frontend revision to restore (blank = last known-good tag)"
+        required: false
+        type: string
+      reason:
+        description: "Why this rollback is needed (audit trail)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  rollback-uat:
+    name: "Rollback — UAT"
+    if: github.event.inputs.environment == 'uat'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: deploy-uat
+      cancel-in-progress: false
+    env:
+      GCP_PROJECT_ID: hushh-pda-uat
+      GCP_REGION: us-central1
+      BACKEND_SERVICE: consent-protocol
+      FRONTEND_SERVICE: hushh-webapp
+    steps:
+      - name: Assert manual dispatch originates from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "Refusing UAT rollback from '${GITHUB_REF_NAME}'. Trigger this workflow from 'main' only."
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: main
+
+      - name: Assert manual UAT dispatch actor policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
+
+      - name: Fetch last-known-good deploy tags
+        run: git fetch origin 'refs/tags/deployed/*:refs/tags/deployed/*' 2>&1 || true
+
+      - name: Validate Google Cloud workload identity configuration
+        shell: bash
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$WIF_PROVIDER" || { echo "Missing environment variable GCP_WORKLOAD_IDENTITY_PROVIDER" >&2; exit 1; }
+          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing environment variable GCP_DEPLOY_SERVICE_ACCOUNT" >&2; exit 1; }
+
+      - name: Authenticate to Google Cloud
+        id: gcp-auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set GCP project context
+        run: gcloud config set project "${{ env.GCP_PROJECT_ID }}"
+
+      - name: Roll back backend
+        id: rollback-backend
+        if: github.event.inputs.scope == 'backend' || github.event.inputs.scope == 'all'
+        shell: bash
+        env:
+          ROLLBACK_VERIFY_SERVICE: ${{ env.BACKEND_SERVICE }}
+          ROLLBACK_VERIFY_REGION: ${{ env.GCP_REGION }}
+          ROLLBACK_VERIFY_PROJECT: ${{ env.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          REVISION="$(bash scripts/ci/resolve-rollback-target.sh uat backend "${{ github.event.inputs.backend_revision }}")"
+          echo "revision=${REVISION}" >> "$GITHUB_OUTPUT"
+          bash scripts/ci/cloudrun-rollback.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${REVISION}"
+
+      - name: Post-rollback backend health check
+        if: github.event.inputs.scope == 'backend' || github.event.inputs.scope == 'all'
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" --format='value(status.url)')"
+          bash scripts/ci/cloudrun-http-health.sh "$URL" "/health" 5 30 5 200
+
+      - name: Roll back frontend
+        id: rollback-frontend
+        if: github.event.inputs.scope == 'frontend' || github.event.inputs.scope == 'all'
+        shell: bash
+        env:
+          ROLLBACK_VERIFY_SERVICE: ${{ env.FRONTEND_SERVICE }}
+          ROLLBACK_VERIFY_REGION: ${{ env.GCP_REGION }}
+          ROLLBACK_VERIFY_PROJECT: ${{ env.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          REVISION="$(bash scripts/ci/resolve-rollback-target.sh uat frontend "${{ github.event.inputs.frontend_revision }}")"
+          echo "revision=${REVISION}" >> "$GITHUB_OUTPUT"
+          bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${REVISION}"
+
+      - name: Post-rollback frontend health check
+        if: github.event.inputs.scope == 'frontend' || github.event.inputs.scope == 'all'
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" --format='value(status.url)')"
+          bash scripts/ci/cloudrun-http-health.sh "$URL" "/" 3 30 5 200
+
+      - name: Rollback summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## UAT Rollback"
+            echo ""
+            echo "- Actor: \`${GITHUB_ACTOR}\`"
+            echo "- Reason: ${{ github.event.inputs.reason }}"
+            echo "- Scope: \`${{ github.event.inputs.scope }}\`"
+            echo "- Backend target revision: \`${{ steps.rollback-backend.outputs.revision || 'n/a (not in scope)' }}\`"
+            echo "- Frontend target revision: \`${{ steps.rollback-frontend.outputs.revision || 'n/a (not in scope)' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  rollback-production:
+    name: "Rollback — Production"
+    if: github.event.inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    concurrency:
+      group: deploy-production-${{ github.run_id }}
+      cancel-in-progress: false
+    env:
+      GCP_PROJECT_ID: hushh-pda
+      GCP_REGION: us-central1
+      BACKEND_SERVICE: consent-protocol
+      FRONTEND_SERVICE: hushh-webapp
+    steps:
+      - name: Assert manual dispatch originates from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "Refusing production rollback from '${GITHUB_REF_NAME}'. Trigger this workflow from 'main' only."
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: main
+
+      - name: Assert production dispatch actor policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"
+
+      - name: Fetch last-known-good deploy tags
+        run: git fetch origin 'refs/tags/deployed/*:refs/tags/deployed/*' 2>&1 || true
+
+      - name: Validate Google Cloud workload identity configuration
+        shell: bash
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$WIF_PROVIDER" || { echo "Missing environment variable GCP_WORKLOAD_IDENTITY_PROVIDER" >&2; exit 1; }
+          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing environment variable GCP_DEPLOY_SERVICE_ACCOUNT" >&2; exit 1; }
+
+      - name: Authenticate to Google Cloud
+        id: gcp-auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set GCP project context
+        run: gcloud config set project "${{ env.GCP_PROJECT_ID }}"
+
+      - name: Roll back backend
+        id: rollback-backend
+        if: github.event.inputs.scope == 'backend' || github.event.inputs.scope == 'all'
+        shell: bash
+        env:
+          ROLLBACK_VERIFY_SERVICE: ${{ env.BACKEND_SERVICE }}
+          ROLLBACK_VERIFY_REGION: ${{ env.GCP_REGION }}
+          ROLLBACK_VERIFY_PROJECT: ${{ env.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          REVISION="$(bash scripts/ci/resolve-rollback-target.sh production backend "${{ github.event.inputs.backend_revision }}")"
+          echo "revision=${REVISION}" >> "$GITHUB_OUTPUT"
+          bash scripts/ci/cloudrun-rollback.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${REVISION}"
+
+      - name: Post-rollback backend health check
+        if: github.event.inputs.scope == 'backend' || github.event.inputs.scope == 'all'
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" --format='value(status.url)')"
+          bash scripts/ci/cloudrun-http-health.sh "$URL" "/health" 5 30 5 200
+
+      - name: Roll back frontend
+        id: rollback-frontend
+        if: github.event.inputs.scope == 'frontend' || github.event.inputs.scope == 'all'
+        shell: bash
+        env:
+          ROLLBACK_VERIFY_SERVICE: ${{ env.FRONTEND_SERVICE }}
+          ROLLBACK_VERIFY_REGION: ${{ env.GCP_REGION }}
+          ROLLBACK_VERIFY_PROJECT: ${{ env.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          REVISION="$(bash scripts/ci/resolve-rollback-target.sh production frontend "${{ github.event.inputs.frontend_revision }}")"
+          echo "revision=${REVISION}" >> "$GITHUB_OUTPUT"
+          bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${REVISION}"
+
+      - name: Post-rollback frontend health check
+        if: github.event.inputs.scope == 'frontend' || github.event.inputs.scope == 'all'
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" --format='value(status.url)')"
+          bash scripts/ci/cloudrun-http-health.sh "$URL" "/" 3 30 5 200
+
+      - name: Rollback summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Production Rollback"
+            echo ""
+            echo "- Actor: \`${GITHUB_ACTOR}\`"
+            echo "- Reason: ${{ github.event.inputs.reason }}"
+            echo "- Scope: \`${{ github.event.inputs.scope }}\`"
+            echo "- Backend target revision: \`${{ steps.rollback-backend.outputs.revision || 'n/a (not in scope)' }}\`"
+            echo "- Frontend target revision: \`${{ steps.rollback-frontend.outputs.revision || 'n/a (not in scope)' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -359,7 +359,7 @@
     },
     {
       "name": "duration-cells-stay-compact-wherever-they-render",
-      "summary": "Every duration choice in Location renders at the 44px / 15px cell, including the nearby Check-in sheet's \"Stay visible for\" pills, which now reuse the ladder's exported class strings instead of a morphy Button.",
+      "summary": "Every duration choice in Location renders at the 44px / 15px cell, including the nearby Check-in sheet's \"Visible for\" pills, which now reuse the ladder's exported class strings instead of a morphy Button.",
       "fixed_by": "fix/location-polish-round3",
       "why_it_needs_a_lock": [
         "A morphy <Button> at size=\"default\" is 50px tall with a 17px label, and",
@@ -379,6 +379,54 @@
           "min_assertions": 20,
           "required_titles": [
             "Check-in duration pills reuse the ladder cell"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "check-out-is-never-a-destructive-action",
+      "summary": "The nearby Check-In panel ends a check-in with the neutral secondary button, never the destructive red one, and states the checked-in fact in three lines instead of six.",
+      "fixed_by": "fix/check-in-panel-plain-copy-redesign",
+      "why_it_needs_a_lock": [
+        "Checking out ends a presence that was always going to end on its own",
+        "timer: it flips status, destroys the anchor key, keeps the row, and can be",
+        "redone in three taps. `variant=\"destructive\"` is this product's signal for",
+        "SOS, delete, revoke and stop-sharing, so spending it here both dilutes the",
+        "one colour that means consequence and makes a calm state read as an alarm.",
+        "",
+        "It cannot be locked from JSDOM alone. Every button in this design system",
+        "carries `aria-invalid:ring-destructive/20` in its base class, so",
+        "`className.not.toContain(\"destructive\")` passes on a red button and proves",
+        "nothing. The browser contract compares the COMPUTED background against a",
+        "reference destructive button rendered beside it.",
+        "",
+        "The panel copy needs the same lock for a different reason: every line that",
+        "came off it -- the 500 m radius, the postal address, the two-sentence",
+        "privacy explanation under People nearby, the privacy paragraph under the",
+        "primary action, the auto-refresh promise in the empty state -- reads as a",
+        "helpful thing to add back one at a time."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/e2e/one-location-check-in-panel.layout.spec.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 20,
+          "required_titles": [
+            "Check out is not painted as destruction",
+            "Category chips stay on one usable row",
+            "Place rows survive the longest venue name",
+            "The desktop rail does not outgrow the map"
+          ]
+        },
+        {
+          "path": "hushh-webapp/components/one-location/nearby-check-in/__tests__/nearby-check-in-sheet.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 30,
+          "required_titles": [
+            "states the checked-in fact in three lines and nothing more",
+            "ends the check-in with a neutral action, not a destructive one",
+            "keeps the pre-check-in panel to where, how long, and check in",
+            "keeps the required consent visible and drops the optional preference a level"
           ]
         }
       ]
