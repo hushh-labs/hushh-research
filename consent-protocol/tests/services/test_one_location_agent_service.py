@@ -5087,3 +5087,36 @@ def test_identity_lookup_reads_the_column_the_name_ladder_needs() -> None:
 
     source = inspect.getsource(OneLocationAgentService._identity_row)
     assert "email" in source
+
+
+def test_only_the_relationship_scoped_list_may_show_an_email_handle() -> None:
+    """The privacy line through a projection two lists share.
+
+    `_recipient_payload` serves both `list_verified_recipients`, which admits a
+    person only on an active connection or a shared active Circle, and
+    `search_directory_candidates`, which admits any phone-verified account so
+    people can be found before they are connected.
+
+    An email's local part is a name to the first group and an identifier about
+    the second. Turning the rung on by default -- or reaching for it in the
+    directory -- would answer "who is this account" for anyone who can open
+    Connect at all, which is everyone.
+    """
+
+    import inspect
+
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    payload = inspect.getsource(OneLocationAgentService._recipient_payload)
+    # Off unless a caller asks. A default of True would make the directory leak
+    # by omission, which is the failure nobody would notice in review.
+    assert "allow_email_handle: bool = False" in payload
+
+    recipients = inspect.getsource(OneLocationAgentService.list_verified_recipients)
+    assert "allow_email_handle=True" in recipients
+
+    directory = inspect.getsource(OneLocationAgentService.search_directory_candidates)
+    assert "allow_email_handle" not in directory, (
+        "the discovery directory must not opt into the email handle: it lists "
+        "phone-verified strangers, not the viewer's connections"
+    )

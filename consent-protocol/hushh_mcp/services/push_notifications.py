@@ -293,6 +293,58 @@ def send_circle_code_joined_push(
     )
 
 
+def send_circle_member_added_push(
+    *,
+    member_user_id: str,
+    added_by_user_id: str,
+    added_by_display_name: str,
+    circle_id: str,
+    circle_name: str,
+) -> int:
+    """Tell someone they are in a Circle, and who put them there.
+
+    Being added is not being invited: there was no card to tap and no decision
+    to make, so this is the only moment they learn about it. That makes naming
+    the person non-negotiable -- "You were added to a Circle" reads as an
+    intrusion by nobody in particular, and the one thing that turns it back
+    into an ordinary social act is knowing whose Circle it is.
+
+    ``added_by_display_name`` comes from the caller's ``_lookup_display_name``
+    so the same resolved name reaches the banner, the toast and the feed.
+    """
+
+    adder = str(added_by_display_name or "").strip()
+    circle = str(circle_name or "").strip()
+    if adder and circle:
+        body = f'{adder} added you to "{circle}".'
+    elif adder:
+        body = f"{adder} added you to their Circle."
+    elif circle:
+        body = f'You were added to "{circle}".'
+    else:
+        body = "You were added to a Circle."
+    deep_link = f"/one/location?tab=people&circleId={circle_id}"
+    return send_user_data_push(
+        member_user_id,
+        notification_type="location_circle_member_added",
+        title="Added to a Circle",
+        body=body,
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-added:{circle_id}",
+        notification_category="ONE_LOCATION",
+        # The in-app toast reads only this map, never `body` -- the same reason
+        # send_connection_accepted_push carries approver_label (see #5422).
+        # Without added_by_label here the toast says "Someone" while the OS
+        # banner two inches above it has the name right.
+        data={
+            "circle_id": circle_id,
+            "circle_name": circle,
+            "added_by_user_id": added_by_user_id,
+            "added_by_label": adder,
+        },
+    )
+
+
 def send_circle_member_invite_push(
     *,
     invitee_user_id: str,
