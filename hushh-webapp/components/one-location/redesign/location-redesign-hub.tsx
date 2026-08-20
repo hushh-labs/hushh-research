@@ -1485,7 +1485,7 @@ function NowHub({
             actionId: "location.open_check_in",
           },
           {
-            title: "Send SOS",
+            title: "SMS",
             icon: <Shield />,
             tone: "red",
             onClick: onSos,
@@ -1596,23 +1596,25 @@ type LocationActionGridItem = {
 
 function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
   return (
-    <section className="space-y-2" data-testid="one-location-now-actions">
+    <section className="space-y-2.5" data-testid="one-location-now-actions">
       <LocationNowGroupLabel>Actions</LocationNowGroupLabel>
       <div
         data-ui-role="grouped-card"
-        className="grid grid-cols-2 overflow-hidden rounded-[20px] bg-[color:var(--app-card-surface-default-solid)] shadow-none"
+        data-one-location-action-grid=""
+        className="grid grid-cols-2 overflow-hidden rounded-[22px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]"
       >
         {items.map((item, index) => (
           <button
             key={item.controlId}
             type="button"
             data-testid={item.testId}
+            data-one-location-action-cell=""
             data-voice-control-id={item.controlId}
             data-voice-action-id={item.actionId}
             data-voice-label={item.title}
             onClick={item.onClick}
             className={cn(
-              "group flex min-h-[76px] min-w-0 items-center gap-3 bg-transparent px-4 py-3 text-left transition-colors [-webkit-tap-highlight-color:transparent] active:bg-[rgba(120,120,128,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+              "group flex min-h-[116px] min-w-0 flex-col items-center justify-center gap-3 bg-transparent px-3 py-5 text-center transition-colors [-webkit-tap-highlight-color:transparent] hover:bg-[rgba(0,0,0,0.025)] active:bg-[rgba(120,120,128,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] sm:min-h-[126px]",
               index % 2 === 0 &&
                 "border-r border-[color:var(--app-separator)]",
               index < 2 &&
@@ -1621,11 +1623,12 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
           >
             <span
               aria-hidden
+              data-one-location-action-icon=""
               className={cn(
-                "inline-flex h-8 w-8 shrink-0 items-center justify-center [&_svg]:h-6 [&_svg]:w-6 [&_svg]:stroke-[1.9]",
+                "inline-flex h-12 w-12 shrink-0 items-center justify-center [&_svg]:h-8 [&_svg]:w-8 [&_svg]:stroke-[1.95]",
                 item.tone === "red"
                   ? "text-[color:var(--app-destructive)]"
-                  : "text-[color:var(--app-accent)]",
+                  : "text-[color:var(--app-accent-deep)]",
               )}
             >
               {item.icon}
@@ -1633,7 +1636,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             <RowLabel
               as="span"
               className={cn(
-                "min-w-0 text-[15px] font-medium leading-5",
+                "min-w-0 text-[15px] font-semibold leading-5",
                 item.tone === "red" && "text-[color:var(--app-destructive)]",
               )}
             >

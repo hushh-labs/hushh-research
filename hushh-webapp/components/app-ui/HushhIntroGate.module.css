@@ -1,14 +1,9 @@
 /* components/app-ui/HushhIntroGate.module.css
  * The `/one` section's real first screen, and its only splash: a slow
- * mist of blurred purple/pink/blue blobs travels from below the screen,
- * through the centre, and out past the top over ~2.5s (Zomato-referenced
- * motion, an original organic-cloud treatment). The 🤫 mark and
- * "Hussh One." reveal gradually through the still-moving, still-visible
- * mist, hold for 1.5s, then slowly cross-dissolve — with a soft blur and
- * a light upward drift, never an instant swap — into "Hi, {name}" /
- * "Welcome to One.", hold for another 1.5s, and the whole screen fades —
- * gently, never a hard cut or a white flash — to reveal the vault screen,
- * which only mounts once this finishes (see HushhIntroGate.tsx).
+ * mist of blurred purple/pink/blue blobs supports the one greeting screen:
+ * the 🤫 mark and "Hi, {name}" / "Welcome to One." appear together, hold
+ * briefly, and fade gently to reveal the vault screen, which only mounts once
+ * this finishes (see HushhIntroGate.tsx).
  *
  * Follows the app's own light/dark theme: white background + dark ink in
  * light mode, the app's near-black elevated surface + light ink in dark
@@ -35,10 +30,9 @@
  *   via `:not([data-phase="idle"])` (a selector that keeps matching
  *   uninterrupted across every later phase, so the animation is never
  *   re-triggered or reset by the phase changes driving the rest of the
- *   scene — it just plays through once on its own clock, and stays fully
- *   visible well past the point the mark and "Hussh One." start
- *   appearing through it, rather than fading out beforehand).
- * - Everything else (halo, mark, both text labels) is driven by a single
+ *   scene — it just plays through once on its own clock while the greeting is
+ *   visible, rather than flashing a separate brand card beforehand).
+ * - Everything else (halo, mark, greeting text) is driven by a single
  *   `data-phase` attribute on the root via plain `transition`s: every
  *   property there has exactly one transition rule, and phase changes
  *   simply retarget it. That sidesteps the classic bug where two
@@ -68,7 +62,7 @@
   background: var(--foundation-surface, #ffffff);
   pointer-events: none;
   opacity: 1;
-  transition: opacity 420ms var(--motion-ease-accelerate);
+  transition: opacity 340ms var(--motion-ease-accelerate);
 
   --sweep-pink: #ec6a90;
   --sweep-purple: #9a6fd9;
@@ -138,15 +132,15 @@
    enough to keep the three blobs from moving in perfect lockstep, not
    enough to read as a pause before anything happens. */
 .root:not([data-phase="idle"]) .blobPurple {
-  animation: blob-purple-drift 2500ms var(--motion-ease-standard) forwards;
+  animation: blob-purple-drift 1500ms var(--motion-ease-standard) forwards;
 }
 
 .root:not([data-phase="idle"]) .blobPink {
-  animation: blob-pink-drift 2600ms var(--motion-ease-standard) 40ms forwards;
+  animation: blob-pink-drift 1520ms var(--motion-ease-standard) 40ms forwards;
 }
 
 .root:not([data-phase="idle"]) .blobBlue {
-  animation: blob-blue-drift 2400ms var(--motion-ease-standard) 80ms forwards;
+  animation: blob-blue-drift 1460ms var(--motion-ease-standard) 80ms forwards;
 }
 
 /* Purple: the primary, most central blob. Position (via `translate3d`,
@@ -261,8 +255,7 @@
     transform 680ms var(--motion-ease-decelerate);
 }
 
-.root[data-phase="greet1"] .halo,
-.root[data-phase="greet2"] .halo,
+.root[data-phase="greet"] .halo,
 .root[data-phase="exit"] .halo {
   opacity: 1;
   transform: scale(1);
@@ -288,21 +281,13 @@
     transform 640ms var(--motion-ease-decelerate);
 }
 
-.root[data-phase="greet1"] .icon,
-.root[data-phase="greet2"] .icon,
+.root[data-phase="greet"] .icon,
 .root[data-phase="exit"] .icon {
   opacity: 1;
   transform: translateY(0);
 }
 
-/* ── Text stack: label1 ("Hussh One.") and label2 ("Hi, {name}" / "Welcome
-   to One.") occupy the same spot and cross-dissolve — never both fully
-   visible at once, so the transition reads as one label slowly becoming
-   the other (with a soft blur and a light upward drift, like an iOS
-   cross-dissolve) rather than an instant swap. Three explicit states per
-   label — not-yet-shown, shown, and shown-then-retired — give the
-   entrance and the retirement their own distinct motion instead of
-   sharing one generic "hidden" look. ── */
+/* ── Text stack: one concise greeting, with no separate brand/title screen. ── */
 .textStack {
   position: relative;
   z-index: 1;
@@ -312,54 +297,8 @@
   place-items: start center;
 }
 
-.label1,
 .label2 {
   grid-area: 1 / 1;
-}
-
-.label1 {
-  font-family: var(--font-app-display);
-  font-size: 28px;
-  font-weight: 400;
-  color: var(--intro-ink);
-  letter-spacing: -0.2px;
-  text-align: center;
-  /* Not-yet-shown: sharp (no blur — the blur belongs to the retirement
-     cross-dissolve, not the first entrance), waiting just below. */
-  opacity: 0;
-  transform: translateY(10px);
-  filter: blur(0);
-  /* Arriving: decelerate — settles in rather than coasting to a stop. */
-  transition:
-    opacity 620ms var(--motion-ease-decelerate),
-    transform 620ms var(--motion-ease-decelerate),
-    filter 620ms var(--motion-ease-decelerate);
-}
-
-.root[data-phase="greet1"] .label1 {
-  opacity: 1;
-  transform: translateY(0);
-  filter: blur(0);
-  transition-delay: 200ms;
-}
-
-/* Shown-then-retired: drifts further up and softens into a blur as it
-   fades, rather than just reversing its entrance. Leaving: accelerate —
-   the mirror of the decelerated arrival above, not the same curve run
-   backwards. */
-.root[data-phase="greet2"] .label1,
-.root[data-phase="exit"] .label1 {
-  opacity: 0;
-  transform: translateY(-16px);
-  filter: blur(10px);
-  transition-duration: 750ms;
-  transition-delay: 0ms;
-  transition-timing-function: var(--motion-ease-accelerate);
-}
-
-.label1Accent {
-  font-weight: 700;
-  color: var(--app-accent);
 }
 
 .label2 {
@@ -376,21 +315,18 @@
   font-weight: 400;
   color: var(--intro-ink);
   letter-spacing: -0.2px;
-  /* Not-yet-shown: arriving out of a soft blur from just below, matching
-     label1's retirement so the cross-dissolve reads as one continuous
-     motion rather than two unrelated animations. */
+  /* Not-yet-shown: arriving out of a soft blur from just below. */
   opacity: 0;
   transform: translateY(14px);
   filter: blur(10px);
-  /* Arriving out of the blur: decelerate, same family as label1's own
-     entrance, so the cross-dissolve reads as one motion, not two. */
+  /* Arriving out of the blur: decelerate, so it settles softly. */
   transition:
     opacity 750ms var(--motion-ease-decelerate),
     transform 750ms var(--motion-ease-decelerate),
     filter 750ms var(--motion-ease-decelerate);
 }
 
-.root[data-phase="greet2"] .greetingLine,
+.root[data-phase="greet"] .greetingLine,
 .root[data-phase="exit"] .greetingLine {
   opacity: 1;
   transform: translateY(0);
@@ -399,12 +335,12 @@
 
 /* Delay values intentionally kept short — only the durations above (and
    the hold before this phase) carry the pacing. */
-.root[data-phase="greet2"] .greetingLineFirst,
+.root[data-phase="greet"] .greetingLineFirst,
 .root[data-phase="exit"] .greetingLineFirst {
   transition-delay: 60ms;
 }
 
-.root[data-phase="greet2"] .greetingLineSecond,
+.root[data-phase="greet"] .greetingLineSecond,
 .root[data-phase="exit"] .greetingLineSecond {
   transition-delay: 170ms;
 }
@@ -431,7 +367,6 @@
     filter: blur(48px);
   }
 
-  .label1,
   .greetingLine {
     font-size: 23px;
   }
@@ -444,7 +379,6 @@
   .blobBlue,
   .halo,
   .icon,
-  .label1,
   .greetingLine {
     transition: none !important;
     animation: none !important;

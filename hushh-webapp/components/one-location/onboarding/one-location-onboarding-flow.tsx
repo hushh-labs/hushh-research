@@ -402,7 +402,7 @@ function WelcomeScreen({
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(var(--app-safe-area-top-effective,0px),10px)] text-white dark:bg-[#073d78]">
       <span className="pointer-events-none absolute -right-24 -top-32 h-72 w-72 rounded-full bg-white/[0.05]" />
       <span className="pointer-events-none absolute -bottom-28 -left-32 h-72 w-72 rounded-full bg-[#006bd9]/55" />
-      <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-[560px] flex-1 flex-col">
+      <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-[700px] flex-1 flex-col">
         <OnboardingNavigation
           inverse
           onBack={onBack}
@@ -634,13 +634,13 @@ function TwoLineFeatureTitle({
 function ShareLocationFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[1.72/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#f2f5f8] [container-type:inline-size] dark:bg-[#171d27]"
+      className="relative flex aspect-[1.72/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
       data-testid="location-use-case-trip"
       data-one-use-case-card
       data-one-feature-card="share"
     >
       <MapBackdrop tone="share" />
-      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#f2f5f8] from-[35%] via-[#f2f5f8]/95 via-[51%] to-transparent dark:from-[#171d27] dark:via-[#171d27]/95" />
+      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[color:var(--app-primary-surface)] from-[35%] via-[color:var(--app-primary-surface)] via-[51%] to-transparent" />
       <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
         <span
           className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)]"
@@ -712,7 +712,7 @@ function ShareLocationFeatureCard() {
 function CheckInFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#f4f6f8] [container-type:inline-size] dark:bg-[#171d27]"
+      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
       data-testid="location-use-case-checkin"
       data-one-use-case-card
       data-one-feature-card="checkin"
@@ -736,12 +736,18 @@ function CheckInFeatureCard() {
         </p>
       </div>
       <div
-        className="absolute inset-x-0 bottom-0 h-[47%]"
-        data-one-use-case-art
+        className="absolute inset-0"
+        data-one-checkin-map-backdrop
         aria-hidden="true"
       >
         <MapBackdrop tone="checkin" />
-        <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#f4f6f8] to-transparent dark:from-[#171d27]" />
+      </div>
+      <div
+        className="absolute inset-x-0 bottom-0 h-[52%]"
+        data-one-use-case-art
+        aria-hidden="true"
+      >
+        <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[color:var(--app-primary-surface)] to-transparent" />
         {/* Green location-pin overlay removed: the check-in card now shows the
             clean building artwork on its own. The [data-one-checkin-pin]
             responsive rules below are harmless no-ops now. */}
@@ -773,7 +779,7 @@ function CheckInFeatureCard() {
 function SaveMySoulFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#fff3f2] [container-type:inline-size] dark:bg-[#2a191c]"
+      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
       data-testid="location-use-case-sos"
       data-one-use-case-card
       data-one-feature-card="sms"
@@ -793,7 +799,7 @@ function SaveMySoulFeatureCard() {
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#c2aeb2]"
           data-one-feature-body
         >
-          Send an SOS with your location in seconds.
+          Send an SMS with your location in seconds.
         </p>
       </div>
       <div
@@ -886,7 +892,7 @@ function FeaturesScreen({
 
   return (
     <div
-      className="mx-auto flex h-full min-h-0 w-full max-w-[430px] max-[431px]:max-w-none flex-1 flex-col overflow-hidden bg-white px-5 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] dark:bg-[#0c1017] sm:px-8 md:max-w-none md:px-10 lg:px-14"
+      className="mx-auto flex h-full min-h-0 w-full max-w-[430px] max-[431px]:max-w-none flex-1 flex-col overflow-hidden bg-[color:var(--app-grouped-background)] px-5 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] sm:px-8 md:max-w-none md:px-10 lg:px-14"
       data-one-feature-screen
     >
       <OnboardingNavigation
@@ -901,7 +907,7 @@ function FeaturesScreen({
            the viewport edges while everything else stayed in the column. Passed
            here rather than inside OnboardingNavigation: the welcome screen's
            copy of that nav is already railed at 560 by its parent. */
-        className="mx-auto w-full max-w-[700px]"
+        className="mx-auto w-full max-w-[1040px]"
       />
       <div
         className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
@@ -959,8 +965,8 @@ function FeaturesScreen({
           [data-one-onboarding-motion] { animation: none !important; }
         }
         [data-one-feature-heading] {
-          --foundation-title1-size: 34px;
-          --foundation-title1-line: 1.08;
+          --type-agent-title-size: 34px;
+          --type-agent-title-line: 1.08;
         }
         [data-one-feature-copy] {
           --one-feature-copy-gap: 12px;
@@ -993,7 +999,7 @@ function FeaturesScreen({
           }
           [data-one-onboarding-navigation] { height: 52px; }
           [data-one-feature-header] { margin-top: 8px; }
-          [data-one-feature-heading] { --foundation-title1-size: 32px; }
+          [data-one-feature-heading] { --type-agent-title-size: 32px; }
           [data-one-feature-subtitle] { margin-top: 9px; font-size: 15px; line-height: 21px; }
           [data-one-feature-grid] { margin-top: 14px; gap: 12px; }
           [data-one-feature-lower-grid] { gap: 12px; }
@@ -1007,7 +1013,7 @@ function FeaturesScreen({
           }
           [data-one-onboarding-navigation] { height: 44px; }
           [data-one-feature-header] { margin-top: 4px; }
-          [data-one-feature-heading] { --foundation-title1-size: 30px; }
+          [data-one-feature-heading] { --type-agent-title-size: 30px; }
           [data-one-feature-subtitle] {
             margin-top: 6px;
             font-size: 13px;
@@ -1025,7 +1031,7 @@ function FeaturesScreen({
         }
         @media (max-width: 431px) {
           [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
-          [data-one-feature-heading] { --foundation-title1-size: 34px; }
+          [data-one-feature-heading] { --type-agent-title-size: 34px; }
           [data-one-feature-subtitle] { font-size: 15px; line-height: 22px; }
           [data-one-feature-grid] {
             gap: 12px;
@@ -1048,7 +1054,7 @@ function FeaturesScreen({
             max-width: 1040px;
           }
           [data-one-feature-heading] {
-            --foundation-title1-size: 34px;
+            --type-agent-title-size: 34px;
           }
           [data-one-feature-grid] {
             display: grid;
@@ -1112,7 +1118,7 @@ function FeaturesScreen({
           [data-one-feature-card="checkin"] [data-one-use-case-art] {
             inset: auto 0 42px 0;
             width: 100%;
-            height: 46%;
+            height: 54%;
           }
           [data-one-feature-card="checkin"] [data-one-checkin-art] {
             left: 50%;
@@ -1144,7 +1150,7 @@ function FeaturesScreen({
         }
         @media (max-width: 340px) {
           [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
-          [data-one-feature-heading] { --foundation-title1-size: 31px; }
+          [data-one-feature-heading] { --type-agent-title-size: 31px; }
           [data-one-feature-grid] { gap: 10px; }
           [data-one-feature-lower-grid] { gap: 8px; }
           [data-one-feature-card] { border-radius: 20px; }
@@ -1315,7 +1321,7 @@ function FeaturesScreen({
           [data-one-sms-core] { width: 32px; height: 32px; font-size: 13px; }
         }
         @media (max-width: 431px) and (max-height: 680px) {
-          [data-one-feature-heading] { --foundation-title1-size: 30px; }
+          [data-one-feature-heading] { --type-agent-title-size: 30px; }
           [data-one-feature-subtitle] {
             margin-top: 6px;
             font-size: 13px;
@@ -1348,7 +1354,7 @@ function FeaturesScreen({
           }
           [data-one-onboarding-navigation] { height: 38px; }
           [data-one-feature-header] { margin-top: 2px; }
-          [data-one-feature-heading] { --foundation-title1-size: 28px; }
+          [data-one-feature-heading] { --type-agent-title-size: 28px; }
           [data-one-feature-subtitle] {
             margin-top: 4px;
             font-size: 11.5px;
@@ -1514,7 +1520,7 @@ function ContactsScreen({
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]"
+      className="flex min-h-0 flex-1 flex-col bg-[color:var(--app-grouped-background)]"
       data-testid="one-location-onboarding-contacts-surface"
     >
       {/* pt clears the status bar and notch. A bare pt-2 put Back and Skip
@@ -2228,6 +2234,11 @@ export function OneLocationOnboardingFlow({
   }, [requestMissingPermissions, startAt]);
 
   useEffect(() => {
+    if (screen !== "features" || !requireLocationToComplete) return;
+    requestMissingPermissions();
+  }, [requestMissingPermissions, requireLocationToComplete, screen]);
+
+  useEffect(() => {
     if (screen !== "features" || !locationGranted) return;
     void prepareSavedLocation();
   }, [locationGranted, prepareSavedLocation, screen]);
@@ -2552,7 +2563,8 @@ export function OneLocationOnboardingFlow({
       // pending confirmation or an interactive voice layer -- at which point it
       // tied with this overlay and won on DOM order, drawing "Talk to One"
       // across the primary CTA. Onboarding is modal; nothing belongs over it.
-      className="fixed inset-0 z-[560] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[#eef3f8] text-[#171d28] dark:bg-[#070a0f] dark:text-[#f4f7fb]"
+      className="fixed inset-0 z-[560] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] [--type-agent-title-size:34px] dark:text-[#f4f7fb] sm:[--type-agent-title-size:44px]"
+      data-one-onboarding-design="location-agent-v2"
       data-no-route-swipe
       data-testid="one-location-onboarding"
       data-location-onboarding-screen={screen}
