@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import logging
 import os
 import secrets
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator
@@ -22,7 +23,11 @@ from hushh_mcp.consent.token import issue_token, validate_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.location.policy import (
     LOCATION_CAPABILITY_SCOPES,
+    TIMED_LOCATION_SHARE_DURATION_MODE,
+    UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
+    format_duration_label,
     normalize_duration_hours,
+    normalize_duration_mode,
     normalize_source_platform,
 )
 from hushh_mcp.types import AgentID, UserID
@@ -74,16 +79,6 @@ COORDINATE_METADATA_KEYS = {
 LOCATION_TERMINAL_RETENTION_HOURS = 12
 ATOMIC_LOCATION_SHARE_NAMESPACE = uuid.UUID("ef983dac-5044-49b0-9d35-c523b3437a54")
 
-# Provenance marker written to grant metadata (`metadata.source`) when the
-# Auto-share fan-out or an auto-start hook creates a grant. Toggle-off tears down
-# ONLY grants carrying this marker, so a manually created share is never touched.
-AUTO_SHARE_GRANT_SOURCE = "auto_share"
-
-# Duration for an auto-created share. The owner keeps sharing live location for
-# this window; while Auto-share stays on, the frontend live-update pipeline keeps
-# each share fresh and the owner can extend or revoke any of them manually.
-AUTO_SHARE_DURATION_HOURS = 24.0
-
 
 def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
     try:
@@ -122,6 +117,7 @@ ONE_LOCATION_ACTIVITY_EVENT_TYPES = {
     "location_access_request",
     "location_access_approved",
     "location_access_denied",
+    "location_access_request_withdrawn",
     "location_referral_invite",
     "location_public_invite_created",
     "location_public_invite_revoked",
@@ -141,6 +137,7 @@ ONE_LOCATION_REQUEST_ACTIVITY_TYPES = {
     "location_access_request",
     "location_access_approved",
     "location_access_denied",
+    "location_access_request_withdrawn",
     "location_referral_invite",
 }
 ONE_LOCATION_PUBLIC_ACTIVITY_TYPES = {
@@ -265,7 +262,8 @@ def _private_share_operation_fingerprint(
     *,
     recipient_user_id: str,
     recipient_key_id: str,
-    duration_hours: float,
+    duration_hours: float | None,
+    duration_mode: str,
     reason: str | None,
     share_kind: str,
     confirmed_at: datetime,
@@ -278,6 +276,7 @@ def _private_share_operation_fingerprint(
             "recipient_user_id": recipient_user_id,
             "recipient_key_id": recipient_key_id,
             "duration_hours": duration_hours,
+            "duration_mode": duration_mode,
             "reason": reason or "",
             "share_kind": share_kind,
             "confirmed_at": confirmed_at.isoformat(),
@@ -455,6 +454,27 @@ def _circle_invite_url(token: str) -> str:
     return f"/one/location/invite/{token}"
 
 
+#: Characters that separate one word of a name from the next, folded to spaces
+#: before a directory search compares anything. Names are not stored tidily --
+#: "Abdul-Rashid", "Abdul R.", "O'Brien" -- and a reader treats all of these as
+#: two words, so the search has to as well.
+#:
+#: Both sides of the comparison MUST use this one list: the stored name is
+#: folded by ``_DIRECTORY_SEPARATOR_SQL`` inside the statement, the typed query
+#: by ``_DIRECTORY_SEPARATOR_FOLD`` in Python. When only one side was folded,
+#: every name carrying punctuation became unsearchable.
+_DIRECTORY_SEPARATORS = "-'._/,"
+_DIRECTORY_SEPARATOR_FOLD = str.maketrans(_DIRECTORY_SEPARATORS, " " * len(_DIRECTORY_SEPARATORS))
+#: The SQL half of the same fold, written out so a test can assert the
+#: statement below still contains exactly this and nothing has drifted.
+_DIRECTORY_SEPARATOR_SQL = (
+    "TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '{}', '{}')".format(
+        _DIRECTORY_SEPARATORS.replace("'", "''"),
+        " " * len(_DIRECTORY_SEPARATORS),
+    )
+)
+
+
 def _identity_display_label(row: dict[str, Any] | None, fallback: str = "A trusted person") -> str:
     if not row:
         return fallback
@@ -526,6 +546,174 @@ def _classify_share_kind(reason: str | None) -> str:
     if not text or text in {"owner_approved", "request_approved"}:
         return "share"
     return "check_in"
+
+
+def _is_until_stopped_share(duration_mode: str | None) -> bool:
+    return duration_mode == UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+
+
+def _resolve_share_duration(
+    *,
+    duration_hours: float | None,
+    duration_mode: str | None,
+    share_kind: str,
+    now: datetime,
+) -> tuple[float | None, datetime | None, str]:
+    try:
+        mode = normalize_duration_mode(duration_mode)
+    except ValueError as exc:
+        raise OneLocationAgentError(
+            "LOCATION_DURATION_MODE_INVALID",
+            str(exc),
+            status_code=422,
+        ) from exc
+    if _is_until_stopped_share(mode):
+        if share_kind in {"sos", "check_in"}:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_MODE_NOT_ALLOWED",
+                "Until I stop is only available for trusted live shares.",
+                status_code=422,
+            )
+        return None, None, mode
+    try:
+        duration = normalize_duration_hours(duration_hours)
+    except ValueError as exc:
+        raise OneLocationAgentError(
+            "LOCATION_DURATION_INVALID",
+            str(exc),
+            status_code=422,
+        ) from exc
+    return duration, now + timedelta(hours=duration), TIMED_LOCATION_SHARE_DURATION_MODE
+
+
+def _duration_metadata_value(duration_hours: float | None) -> float | None:
+    return float(duration_hours) if duration_hours is not None else None
+
+
+# What an approval falls back to when neither the owner nor the requester named
+# a duration. Kept here rather than inline in the route default so approve_request
+# can tell "the owner deliberately chose an hour" apart from "nobody said".
+DEFAULT_APPROVAL_DURATION_HOURS = 1.0
+
+
+def _normalized_requested_duration(
+    *,
+    duration_hours: Any,
+    duration_mode: Any,
+) -> tuple[float | None, str | None]:
+    """Validate a requester's asked-for duration into (hours, mode).
+
+    Returns ``(None, None)`` when the requester expressed no preference, which
+    is the pre-existing behaviour every older client still has: the owner picks
+    the number, exactly as before. An until-stopped ask carries no hours. A
+    timed ask is bounded by the same policy that bounds a grant, so a request
+    can never carry an amount an approval could not honour.
+    """
+    if duration_mode is None and duration_hours is None:
+        return None, None
+    try:
+        mode = normalize_duration_mode(duration_mode)
+    except ValueError as exc:
+        raise OneLocationAgentError(
+            "LOCATION_DURATION_MODE_INVALID", str(exc), status_code=422
+        ) from exc
+    if _is_until_stopped_share(mode):
+        return None, mode
+    if duration_hours is None:
+        return None, None
+    try:
+        return normalize_duration_hours(duration_hours), mode
+    except ValueError as exc:
+        raise OneLocationAgentError("LOCATION_DURATION_INVALID", str(exc), status_code=422) from exc
+
+
+def _remaining_label(expires_at: Any, *, now: datetime | None = None) -> str:
+    """ "45 minutes"/"2 hours" of a live share still to run, or "" if none."""
+    if expires_at is None:
+        return ""
+    try:
+        parsed = _parse_datetime(expires_at, field_name="expires_at")
+    except OneLocationAgentError:
+        return ""
+    remaining = (parsed - (now or _utcnow())).total_seconds()
+    if remaining <= 0:
+        return ""
+    return format_duration_label(remaining / 3600.0)
+
+
+def _access_ask_summary(
+    *,
+    requested_duration_hours: float | None,
+    requested_duration_mode: str | None,
+    is_extension: bool,
+    remaining_label: str = "",
+) -> str:
+    """The one sentence that says WHAT was asked for, used everywhere.
+
+    The owner's push notification, the feed line, and the Consent Center row all
+    read from this, so the amount the owner is asked to approve is never worded
+    one way in the popup and another way in the feed. The extension wording
+    ("3 hours MORE") is deliberately different from the fresh-share wording
+    ("for 3 hours") -- they are different questions, and an owner skimming a
+    lock screen has to be able to tell them apart without opening anything.
+    """
+    amount = (
+        "as long as they need"
+        if requested_duration_mode == UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+        else format_duration_label(requested_duration_hours)
+    )
+    if is_extension:
+        if not amount:
+            return "is asking for more time on your live location."
+        tail = f" They have {remaining_label} left." if remaining_label else ""
+        return f"is asking for {amount} more of your live location.{tail}"
+    if not amount:
+        return "is asking to view your location."
+    return f"is asking to view your location for {amount}."
+
+
+def _share_duration_change_direction(
+    *,
+    previous_expires_at: Any,
+    new_expires_at: datetime | None,
+    new_mode: str,
+) -> str:
+    """Which way the owner moved a running share's end time.
+
+    One event type carries both directions so the ledger keeps a single row
+    shape, which means the direction has to be recorded rather than implied by
+    the name.
+
+    A share that ran until stopped and now ends at a fixed time has no previous
+    expiry to compare against, and it has been *shortened*: an open-ended share
+    was just given an end.
+    """
+    if _is_until_stopped_share(new_mode):
+        return "until_stopped"
+    if new_expires_at is None:
+        return "until_stopped"
+    if previous_expires_at is None:
+        return "shortened"
+    previous = previous_expires_at
+    if previous.tzinfo is None:
+        previous = previous.replace(tzinfo=timezone.utc)
+    return "extended" if new_expires_at > previous else "shortened"
+
+
+def _grant_expires_at_is_past(row: dict[str, Any]) -> bool:
+    expires_at_raw = row.get("expires_at")
+    if expires_at_raw is None:
+        return str(row.get("duration_mode") or "") != UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+    expires_at = _parse_datetime(expires_at_raw, field_name="expires_at")
+    return expires_at <= _utcnow()
+
+
+def _payload_expires_at_is_past(grant: dict[str, Any]) -> bool:
+    expires_at_raw = grant.get("expiresAt")
+    if not expires_at_raw:
+        return str(grant.get("durationMode") or "") != UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+    expires_at = _parse_datetime(expires_at_raw, field_name="expiresAt")
+    return expires_at <= _utcnow()
 
 
 def _visible_share_message(reason: str | None) -> str | None:
@@ -668,6 +856,57 @@ class OneLocationAgentService:
             return [dict(row) for row in rows]
         result = get_db().execute_raw(sql, params or {})
         return result.data or []
+
+    def _run_read_queries_parallel(
+        self,
+        tasks: list[tuple[str, str, dict[str, Any]]],
+        *,
+        max_workers: int = 8,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Run several independent, read-only SQL queries concurrently.
+
+        The DB is Cloud SQL in us-central1, so every round trip here is a
+        cross-continent hop -- roughly ~900ms dominated by RTT, not query
+        cost. A read path that fires N independent, unrelated queries (no
+        query here depends on another's result) pays N times that latency
+        for no reason. This collapses it to about one round trip's worth of
+        wall time instead.
+
+        Never used for the bound single-connection writer path
+        (`_key_writer_connection`): every task here calls `_execute_many`,
+        which checks out its own pooled connection per call via
+        `get_db().execute_raw`, so concurrent calls are safe -- there is no
+        shared connection/cursor state across tasks.
+
+        A failing task degrades to `[]` and is logged rather than raised --
+        the same resilience a sequential per-section try/except gave before
+        this existed. One bad section must never fail the rest of the page.
+        Each worker runs inside a copy of the
+        caller's context so `db.query_telemetry`'s ContextVar-based
+        counters still attribute every round trip to the request that
+        issued it, instead of silently under-counting once queries move
+        off the request's own thread.
+        """
+        if not tasks:
+            return {}
+        results: dict[str, list[dict[str, Any]]] = {}
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(tasks))) as pool:
+            future_to_key = {
+                pool.submit(contextvars.copy_context().run, self._execute_many, sql, params): key
+                for key, sql, params in tasks
+            }
+            for future in as_completed(future_to_key):
+                key = future_to_key[future]
+                try:
+                    results[key] = future.result()
+                except Exception as exc:  # noqa: BLE001 - degrade, never fail the page
+                    logger.warning(
+                        "one_location.parallel_query_failed section=%s error=%s",
+                        key,
+                        exc,
+                    )
+                    results[key] = []
+        return results
 
     def _execute_atomic_private_share(
         self,
@@ -954,6 +1193,100 @@ class OneLocationAgentService:
             data=data or {},
         )
 
+    def list_sos_email_recipients(
+        self,
+        *,
+        owner_user_id: str,
+        grant_ids: list[str],
+    ) -> dict[str, Any]:
+        """Who One may email for this Save my Soul alert.
+
+        Resolution and authorization only — the message is rendered and sent by
+        One through `hushh-mail-api`, the same service every other product mail
+        uses. A second sender identity is a deliverability risk, and an
+        emergency mail is the worst place to find that out.
+
+        Returns the owner's display label plus one entry per reachable contact.
+        Addresses are returned to One's server route, never to a browser: a
+        sender does not necessarily know their contacts' email addresses and
+        this must not be where they learn them.
+        """
+        from hushh_mcp.services.one_location_sos_email_service import (
+            select_emailable_recipients,
+        )
+
+        cleaned_ids = [str(value).strip() for value in grant_ids if str(value or "").strip()]
+        if not cleaned_ids:
+            return {"ownerDisplayName": "", "openInOneUrl": "", "recipients": []}
+
+        rows = self._execute_many(
+            """
+            SELECT
+              g.id::TEXT             AS grant_id,
+              g.owner_user_id        AS owner_user_id,
+              g.recipient_user_id    AS recipient_user_id,
+              g.status               AS status,
+              g.expires_at           AS expires_at,
+              EXTRACT(EPOCH FROM g.created_at) AS created_at_epoch,
+              COALESCE(g.metadata ->> 'share_kind', '') AS share_kind,
+              recipient.email        AS recipient_email,
+              recipient.display_name AS recipient_display_name
+            FROM one_location_share_grants g
+            LEFT JOIN actor_identity_cache recipient
+              ON recipient.user_id = g.recipient_user_id
+            WHERE g.id = ANY(CAST(:grant_ids AS UUID[]))
+              AND g.owner_user_id = :owner_user_id
+            """,
+            {"grant_ids": cleaned_ids, "owner_user_id": owner_user_id},
+        )
+
+        now_epoch = datetime.now(timezone.utc).timestamp()
+        selected = select_emailable_recipients(
+            rows, owner_user_id=owner_user_id, now_epoch_seconds=now_epoch
+        )
+
+        # Who this alert could NOT reach by mail, and why. Skipping them
+        # silently is what made a broken email channel look like a working one:
+        # the sender saw "Emailed 0" with nothing to act on. A phone-only
+        # contact has no address anywhere, and the only fix is for them to add
+        # one -- which the sender can only ask for if they are told.
+        emailable_ids = {str(row.get("recipient_user_id") or "") for row in selected}
+        without_email = [
+            str(row.get("recipient_display_name") or "").strip() or "A contact"
+            for row in rows
+            if str(row.get("recipient_user_id") or "") not in emailable_ids
+            and str(row.get("share_kind") or "") == "sos"
+            and "@" not in str(row.get("recipient_email") or "")
+        ]
+
+        if not selected:
+            return {
+                "ownerDisplayName": "",
+                "openInOneUrl": "",
+                "recipients": [],
+                "withoutEmail": without_email,
+            }
+
+        owner_label = _identity_notification_label(self._identity_row(owner_user_id))
+        return {
+            "ownerDisplayName": owner_label,
+            # Same builder the push notification uses, so the email link and the
+            # notification link cannot drift and the frontend origin has exactly
+            # one reader (the runtime-config contract requires that).
+            "openInOneUrl": _one_location_url(section="shared"),
+            "recipients": [
+                {
+                    "grantId": str(row.get("grant_id") or ""),
+                    "recipientUserId": str(row.get("recipient_user_id") or ""),
+                    "email": str(row.get("recipient_email") or ""),
+                    "displayName": str(row.get("recipient_display_name") or ""),
+                    "expiresAt": _iso(row.get("expires_at")),
+                }
+                for row in selected
+            ],
+            "withoutEmail": without_email,
+        }
+
     def _identity_row(self, user_id: str) -> dict[str, Any] | None:
         try:
             return self._execute_one(
@@ -1021,23 +1354,6 @@ class OneLocationAgentService:
             "keyRegisteredAt": _iso(row.get("key_created_at") or row.get("created_at")),
             "canReceiveLocation": bool(row.get("key_id")),
         }
-
-    def _optional_signal_rows(
-        self,
-        *,
-        signal_name: str,
-        sql: str,
-        params: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        try:
-            return self._execute_many(sql, params or {})
-        except Exception as exc:
-            logger.debug(
-                "one.location.kai_circle_signal_unavailable signal=%s error=%s",
-                signal_name,
-                exc,
-            )
-            return []
 
     @staticmethod
     def _recommendation_signal() -> dict[str, Any]:
@@ -1167,19 +1483,10 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        grant_rows: list[dict[str, Any]],
+        request_rows: list[dict[str, Any]],
+        referral_rows: list[dict[str, Any]],
     ) -> None:
-        grant_rows = self._optional_signal_rows(
-            signal_name="one_location_grants",
-            sql="""
-            SELECT owner_user_id, recipient_user_id, status, created_at, updated_at,
-                   expires_at, revoked_at
-            FROM one_location_share_grants
-            WHERE owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id
-            ORDER BY created_at DESC
-            LIMIT 100
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in grant_rows:
             other_user_id = (
                 str(row.get("recipient_user_id") or "")
@@ -1223,18 +1530,6 @@ class OneLocationAgentService:
                 row.get("revoked_at"),
             )
 
-        request_rows = self._optional_signal_rows(
-            signal_name="one_location_requests",
-            sql="""
-            SELECT owner_user_id, requester_user_id, referred_by_user_id, status,
-                   requested_at, resolved_at
-            FROM one_location_access_requests
-            WHERE owner_user_id = :owner_user_id OR requester_user_id = :owner_user_id
-            ORDER BY requested_at DESC
-            LIMIT 100
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in request_rows:
             current_user_is_owner = row.get("owner_user_id") == owner_user_id
             other_user_id = (
@@ -1274,20 +1569,6 @@ class OneLocationAgentService:
                 signal["trusted"] = True
             self._remember_signal_time(signal, row.get("resolved_at"), row.get("requested_at"))
 
-        referral_rows = self._optional_signal_rows(
-            signal_name="one_location_referrals",
-            sql="""
-            SELECT owner_user_id, referring_user_id, referred_user_id, status,
-                   created_at, resolved_at
-            FROM one_location_referrals
-            WHERE owner_user_id = :owner_user_id
-               OR referring_user_id = :owner_user_id
-               OR referred_user_id = :owner_user_id
-            ORDER BY created_at DESC
-            LIMIT 100
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in referral_rows:
             for candidate_field in ("owner_user_id", "referring_user_id", "referred_user_id"):
                 candidate_id = str(row.get(candidate_field) or "")
@@ -1310,18 +1591,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        rows: list[dict[str, Any]],
     ) -> None:
-        rows = self._optional_signal_rows(
-            signal_name="consent_audit",
-            sql="""
-            SELECT user_id, agent_id, action, issued_at
-            FROM consent_audit
-            WHERE user_id = :owner_user_id OR agent_id = :owner_user_id
-            ORDER BY issued_at DESC
-            LIMIT 100
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in rows:
             if row.get("user_id") == owner_user_id:
                 other_user_id = str(row.get("agent_id") or "")
@@ -1353,19 +1624,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        rows: list[dict[str, Any]],
     ) -> None:
-        rows = self._optional_signal_rows(
-            signal_name="trusted_connections",
-            sql="""
-            SELECT owner_user_id, trusted_user_id, status, created_at, updated_at
-            FROM trusted_connections
-            WHERE status = 'active'
-              AND owner_user_id = :owner_user_id
-            ORDER BY created_at DESC
-            LIMIT 200
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in rows:
             other_user_id = str(row.get("trusted_user_id") or "")
             if other_user_id not in recipient_ids:
@@ -1388,29 +1648,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        rows: list[dict[str, Any]],
     ) -> None:
-        rows = self._optional_signal_rows(
-            signal_name="mutual_kai_relationships",
-            sql="""
-            SELECT rel.investor_user_id, rel.created_at, rel.updated_at,
-                   rp.user_id AS ria_user_id
-            FROM advisor_investor_relationships rel
-            JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
-            JOIN relationship_share_grants share
-              ON share.relationship_id = rel.id
-             AND share.grant_key = 'ria_active_picks_feed_v1'
-             AND share.status = 'active'
-             AND share.connection_scope_proposal_id IS NOT NULL
-            JOIN connection_scope_proposals proposal
-              ON proposal.id = share.connection_scope_proposal_id
-             AND proposal.status = 'active'
-             AND proposal.capability_key = 'ria_active_picks_feed_v1'
-            WHERE rel.status = 'approved'
-            ORDER BY COALESCE(rel.updated_at, rel.created_at) DESC
-            LIMIT 500
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         adjacency: dict[str, set[str]] = {}
         latest_by_pair: dict[tuple[str, str], Any] = {}
         for row in rows:
@@ -1455,40 +1694,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        rows: list[dict[str, Any]],
     ) -> None:
-        rows = self._optional_signal_rows(
-            signal_name="advisor_investor_relationships",
-            sql="""
-            SELECT
-              rel.investor_user_id,
-              rel.status,
-              rel.granted_scope,
-              rel.consent_granted_at,
-              rel.created_at,
-              rel.updated_at,
-              rp.user_id AS ria_user_id,
-              rp.display_name AS ria_display_name,
-              rp.verification_status AS ria_verification_status,
-              share.status AS relationship_share_status,
-              share.granted_at AS relationship_share_granted_at
-            FROM advisor_investor_relationships rel
-            JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
-            JOIN relationship_share_grants share
-              ON share.relationship_id = rel.id
-             AND share.grant_key = 'ria_active_picks_feed_v1'
-             AND share.status = 'active'
-             AND share.connection_scope_proposal_id IS NOT NULL
-            JOIN connection_scope_proposals proposal
-              ON proposal.id = share.connection_scope_proposal_id
-             AND proposal.status = 'active'
-             AND proposal.capability_key = 'ria_active_picks_feed_v1'
-            WHERE rel.investor_user_id = :owner_user_id
-               OR rp.user_id = :owner_user_id
-            ORDER BY COALESCE(rel.consent_granted_at, rel.updated_at, rel.created_at) DESC
-            LIMIT 100
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in rows:
             if row.get("investor_user_id") == owner_user_id:
                 other_user_id = str(row.get("ria_user_id") or "")
@@ -1530,32 +1737,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        rows: list[dict[str, Any]],
     ) -> None:
-        rows = self._optional_signal_rows(
-            signal_name="ria_firm_memberships",
-            sql="""
-            SELECT
-              peer_rp.user_id AS peer_user_id,
-              firm.legal_name AS firm_name,
-              peer_membership.role_title AS peer_role_title,
-              owner_membership.updated_at AS owner_membership_updated_at,
-              peer_membership.updated_at AS peer_membership_updated_at
-            FROM ria_profiles owner_rp
-            JOIN ria_firm_memberships owner_membership
-              ON owner_membership.ria_profile_id = owner_rp.id
-             AND owner_membership.membership_status = 'active'
-            JOIN ria_firm_memberships peer_membership
-              ON peer_membership.firm_id = owner_membership.firm_id
-             AND peer_membership.membership_status = 'active'
-            JOIN ria_profiles peer_rp ON peer_rp.id = peer_membership.ria_profile_id
-            JOIN ria_firms firm ON firm.id = owner_membership.firm_id
-            WHERE owner_rp.user_id = :owner_user_id
-              AND peer_rp.user_id <> :owner_user_id
-            ORDER BY COALESCE(peer_membership.updated_at, owner_membership.updated_at) DESC
-            LIMIT 100
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in rows:
             peer_user_id = str(row.get("peer_user_id") or "")
             if peer_user_id not in recipient_ids:
@@ -1588,19 +1771,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        rows: list[dict[str, Any]],
     ) -> None:
-        rows = self._optional_signal_rows(
-            signal_name="marketplace_public_profiles",
-            sql="""
-            SELECT user_id, profile_type, headline, strategy_summary,
-                   verification_badge, metadata, updated_at, created_at
-            FROM marketplace_public_profiles
-            WHERE is_discoverable = TRUE
-            ORDER BY updated_at DESC
-            LIMIT 200
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         owner_terms: set[str] = set()
         for row in rows:
             if str(row.get("user_id") or "") == owner_user_id:
@@ -1657,18 +1829,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_ids: set[str],
         signals: dict[str, dict[str, Any]],
+        rows: list[dict[str, Any]],
     ) -> None:
-        rows = self._optional_signal_rows(
-            signal_name="runtime_persona_state",
-            sql="""
-            SELECT user_id, last_active_persona, updated_at
-            FROM runtime_persona_state
-            WHERE user_id <> :owner_user_id
-            ORDER BY updated_at DESC
-            LIMIT 200
-            """,
-            params={"owner_user_id": owner_user_id},
-        )
         for row in rows:
             user_id = str(row.get("user_id") or "")
             if user_id not in recipient_ids:
@@ -1691,7 +1853,21 @@ class OneLocationAgentService:
         *,
         owner_user_id: str,
         recipients: list[dict[str, Any]],
+        preserve_order: bool = False,
     ) -> list[dict[str, Any]]:
+        """Annotate recipients with Kai recommendation signals.
+
+        ``preserve_order`` keeps the caller's incoming order instead of
+        re-ranking by score. The Location screen wants the ranking -- "who
+        should I share with" is exactly a recommendation question. A paged
+        directory search does not: its order was decided by SQL, ahead of
+        LIMIT, and re-sorting the slice here would reorder rows *within* a page
+        while the page boundaries stayed alphabetical. That inconsistency was
+        survivable only while the Connect client re-sorted the page itself;
+        the moment that client sort was removed, the A-Z index the reader was
+        promised became recommendation-score order wearing alphabetical page
+        breaks.
+        """
         if not recipients:
             return []
         recipient_ids = {str(recipient.get("userId") or "") for recipient in recipients}
@@ -1718,45 +1894,233 @@ class OneLocationAgentService:
                     weight=4,
                 )
 
+        # All 10 of these are independent, unrelated reads keyed only by
+        # `owner_user_id` -- nothing here depends on another section's
+        # result, so fetching them one cross-continent round trip at a time
+        # was pure serialized RTT. This was the single largest contributor
+        # to `list_state`'s (and, through it, the consent summary's) query
+        # latency: roughly half of the ~23 queries a Location load measured
+        # at came from this one enrichment step alone. Each function below
+        # keeps its own unchanged row-processing logic; only WHERE the rows
+        # come from changed.
+        _signal_rows = self._run_read_queries_parallel(
+            [
+                (
+                    "one_location_grants",
+                    """
+                    SELECT owner_user_id, recipient_user_id, status, created_at, updated_at,
+                           expires_at, revoked_at
+                    FROM one_location_share_grants
+                    WHERE owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id
+                    ORDER BY created_at DESC
+                    LIMIT 100
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "one_location_requests",
+                    """
+                    SELECT owner_user_id, requester_user_id, referred_by_user_id, status,
+                           requested_at, resolved_at
+                    FROM one_location_access_requests
+                    WHERE owner_user_id = :owner_user_id OR requester_user_id = :owner_user_id
+                    ORDER BY requested_at DESC
+                    LIMIT 100
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "one_location_referrals",
+                    """
+                    SELECT owner_user_id, referring_user_id, referred_user_id, status,
+                           created_at, resolved_at
+                    FROM one_location_referrals
+                    WHERE owner_user_id = :owner_user_id
+                       OR referring_user_id = :owner_user_id
+                       OR referred_user_id = :owner_user_id
+                    ORDER BY created_at DESC
+                    LIMIT 100
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "consent_audit",
+                    """
+                    SELECT user_id, agent_id, action, issued_at
+                    FROM consent_audit
+                    WHERE user_id = :owner_user_id OR agent_id = :owner_user_id
+                    ORDER BY issued_at DESC
+                    LIMIT 100
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "trusted_connections",
+                    """
+                    SELECT owner_user_id, trusted_user_id, status, created_at, updated_at
+                    FROM trusted_connections
+                    WHERE status = 'active'
+                      AND owner_user_id = :owner_user_id
+                    ORDER BY created_at DESC
+                    LIMIT 200
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "mutual_kai_relationships",
+                    """
+                    SELECT rel.investor_user_id, rel.created_at, rel.updated_at,
+                           rp.user_id AS ria_user_id
+                    FROM advisor_investor_relationships rel
+                    JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
+                    JOIN relationship_share_grants share
+                      ON share.relationship_id = rel.id
+                     AND share.grant_key = 'ria_active_picks_feed_v1'
+                     AND share.status = 'active'
+                     AND share.connection_scope_proposal_id IS NOT NULL
+                    JOIN connection_scope_proposals proposal
+                      ON proposal.id = share.connection_scope_proposal_id
+                     AND proposal.status = 'active'
+                     AND proposal.capability_key = 'ria_active_picks_feed_v1'
+                    WHERE rel.status = 'approved'
+                    ORDER BY COALESCE(rel.updated_at, rel.created_at) DESC
+                    LIMIT 500
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "advisor_investor_relationships",
+                    """
+                    SELECT
+                      rel.investor_user_id,
+                      rel.status,
+                      rel.granted_scope,
+                      rel.consent_granted_at,
+                      rel.created_at,
+                      rel.updated_at,
+                      rp.user_id AS ria_user_id,
+                      rp.display_name AS ria_display_name,
+                      rp.verification_status AS ria_verification_status,
+                      share.status AS relationship_share_status,
+                      share.granted_at AS relationship_share_granted_at
+                    FROM advisor_investor_relationships rel
+                    JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
+                    JOIN relationship_share_grants share
+                      ON share.relationship_id = rel.id
+                     AND share.grant_key = 'ria_active_picks_feed_v1'
+                     AND share.status = 'active'
+                     AND share.connection_scope_proposal_id IS NOT NULL
+                    JOIN connection_scope_proposals proposal
+                      ON proposal.id = share.connection_scope_proposal_id
+                     AND proposal.status = 'active'
+                     AND proposal.capability_key = 'ria_active_picks_feed_v1'
+                    WHERE rel.investor_user_id = :owner_user_id
+                       OR rp.user_id = :owner_user_id
+                    ORDER BY COALESCE(rel.consent_granted_at, rel.updated_at, rel.created_at) DESC
+                    LIMIT 100
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "ria_firm_memberships",
+                    """
+                    SELECT
+                      peer_rp.user_id AS peer_user_id,
+                      firm.legal_name AS firm_name,
+                      peer_membership.role_title AS peer_role_title,
+                      owner_membership.updated_at AS owner_membership_updated_at,
+                      peer_membership.updated_at AS peer_membership_updated_at
+                    FROM ria_profiles owner_rp
+                    JOIN ria_firm_memberships owner_membership
+                      ON owner_membership.ria_profile_id = owner_rp.id
+                     AND owner_membership.membership_status = 'active'
+                    JOIN ria_firm_memberships peer_membership
+                      ON peer_membership.firm_id = owner_membership.firm_id
+                     AND peer_membership.membership_status = 'active'
+                    JOIN ria_profiles peer_rp ON peer_rp.id = peer_membership.ria_profile_id
+                    JOIN ria_firms firm ON firm.id = owner_membership.firm_id
+                    WHERE owner_rp.user_id = :owner_user_id
+                      AND peer_rp.user_id <> :owner_user_id
+                    ORDER BY COALESCE(peer_membership.updated_at, owner_membership.updated_at) DESC
+                    LIMIT 100
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "marketplace_public_profiles",
+                    """
+                    SELECT user_id, profile_type, headline, strategy_summary,
+                           verification_badge, metadata, updated_at, created_at
+                    FROM marketplace_public_profiles
+                    WHERE is_discoverable = TRUE
+                    ORDER BY updated_at DESC
+                    LIMIT 200
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+                (
+                    "runtime_persona_state",
+                    """
+                    SELECT user_id, last_active_persona, updated_at
+                    FROM runtime_persona_state
+                    WHERE user_id <> :owner_user_id
+                    ORDER BY updated_at DESC
+                    LIMIT 200
+                    """,
+                    {"owner_user_id": owner_user_id},
+                ),
+            ]
+        )
+
         self._add_one_location_history_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            grant_rows=_signal_rows["one_location_grants"],
+            request_rows=_signal_rows["one_location_requests"],
+            referral_rows=_signal_rows["one_location_referrals"],
         )
         self._add_prior_consent_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            rows=_signal_rows["consent_audit"],
         )
         self._add_one_network_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            rows=_signal_rows["trusted_connections"],
         )
         self._add_mutual_kai_relationship_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            rows=_signal_rows["mutual_kai_relationships"],
         )
         self._add_professional_network_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            rows=_signal_rows["advisor_investor_relationships"],
         )
         self._add_organization_membership_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            rows=_signal_rows["ria_firm_memberships"],
         )
         self._add_marketplace_profile_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            rows=_signal_rows["marketplace_public_profiles"],
         )
         self._add_persona_signals(
             owner_user_id=owner_user_id,
             recipient_ids=recipient_ids,
             signals=signals,
+            rows=_signal_rows["runtime_persona_state"],
         )
 
         enriched: list[dict[str, Any]] = []
@@ -1832,14 +2196,15 @@ class OneLocationAgentService:
                 }
             )
 
-        enriched.sort(
-            key=lambda item: (
-                -int(item.get("recommendationScore") or 0),
-                0 if item.get("canReceiveLocation") else 1,
-                str(item.get("displayName") or "").lower(),
-                str(item.get("userId") or ""),
+        if not preserve_order:
+            enriched.sort(
+                key=lambda item: (
+                    -int(item.get("recommendationScore") or 0),
+                    0 if item.get("canReceiveLocation") else 1,
+                    str(item.get("displayName") or "").lower(),
+                    str(item.get("userId") or ""),
+                )
             )
-        )
         for index, recipient in enumerate(enriched, start=1):
             recipient["recommendationRank"] = index
         return enriched
@@ -1856,6 +2221,11 @@ class OneLocationAgentService:
         metadata = _loads_json(row.get("metadata"))
         reason = metadata.get("reason") if isinstance(metadata, dict) else None
         stored_kind = metadata.get("share_kind") if isinstance(metadata, dict) else None
+        duration_mode = str(
+            row.get("duration_mode")
+            or (metadata.get("duration_mode") if isinstance(metadata, dict) else "")
+            or TIMED_LOCATION_SHARE_DURATION_MODE
+        )
         share_kind = stored_kind or _classify_share_kind(reason)
         share_message = _visible_share_message(reason)
         return {
@@ -1870,7 +2240,10 @@ class OneLocationAgentService:
             "status": str(row.get("status") or ""),
             "consentScope": str(row.get("consent_scope") or "cap.location.live.view"),
             "capabilityScopes": _loads_json(row.get("capability_scopes")) or [],
-            "durationHours": float(row.get("duration_hours") or 0),
+            "durationMode": duration_mode,
+            "durationHours": (
+                float(row.get("duration_hours")) if row.get("duration_hours") is not None else None
+            ),
             "expiresAt": _iso(row.get("expires_at")),
             "createdAt": _iso(row.get("created_at")),
             "updatedAt": _iso(row.get("updated_at")),
@@ -1906,6 +2279,18 @@ class OneLocationAgentService:
     def _request_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not row:
             return None
+        # How much time was asked for, and whether the ask is about time on a
+        # share that is already running. Every surface that has to say what the
+        # request IS -- the owner's approvals list and Approve control, the
+        # requester's own people row, the notification copy -- reads these
+        # rather than parsing the free-text message, which is why "Requesting
+        # more time." used to be the only trace of an extension anywhere.
+        extends_grant_id = str(row.get("extends_grant_id") or "") or None
+        requested_duration_hours = (
+            float(row["requested_duration_hours"])
+            if row.get("requested_duration_hours") is not None
+            else None
+        )
         return {
             "id": str(row.get("id") or ""),
             "ownerUserId": str(row.get("owner_user_id") or ""),
@@ -1918,6 +2303,15 @@ class OneLocationAgentService:
             "requestedAt": _iso(row.get("requested_at")),
             "resolvedAt": _iso(row.get("resolved_at")),
             "approvedGrantId": str(row.get("approved_grant_id") or "") or None,
+            "requestedDurationHours": requested_duration_hours,
+            "requestedDurationMode": str(row.get("requested_duration_mode") or "") or None,
+            "extendsGrantId": extends_grant_id,
+            "isExtension": bool(extends_grant_id),
+            # The live share's own expiry, joined in by the request reads so a
+            # surface can say "3 more hours on top of the 45 minutes left"
+            # without a second round trip per row.
+            "extendsGrantExpiresAt": _iso(row.get("extends_grant_expires_at")),
+            "requestRevision": int(row.get("request_revision") or 1),
         }
 
     @staticmethod
@@ -2202,6 +2596,12 @@ class OneLocationAgentService:
                 f"Denied request from {recipient_label or actor_label}"
                 if owner_user_id == user_id
                 else f"{owner_label} denied your request"
+            )
+        elif event_type == "location_access_request_withdrawn":
+            title = (
+                f"{actor_label} took back their request"
+                if owner_user_id == user_id
+                else f"You took back your request to {owner_label}"
             )
         elif event_type == "location_referral_invite":
             title = f"Referral added for {recipient_label}"
@@ -3060,12 +3460,35 @@ class OneLocationAgentService:
         page: int = 1,
         limit: int = 20,
         candidate_user_id: str | None = None,
+        audience: str = "all",
     ) -> dict[str, Any]:
         """Search the eligible Connect directory before pagination.
+
+        ``audience`` splits the same eligible directory in two: ``"ria"`` keeps
+        only people holding a capability-bearing RIA profile, ``"people"`` keeps
+        only those who do not, and ``"all"`` (the default, and what every
+        pre-existing caller gets) keeps both. It is applied HERE, in the same
+        statement, for the same reason the matching is -- see below.
 
         This preserves the existing discovery policy while preventing callers
         from being limited by an in-memory first page.  The result remains a
         safe profile projection; it is not an all-account directory.
+
+        Matching, ranking and ordering all happen HERE, in one statement, ahead
+        of ``LIMIT``.  That placement is the contract, not an implementation
+        detail: this used to match any substring (``LIKE '%n%'``) and leave the
+        caller to narrow the result, so Connect asked for 8 rows for "n", got
+        the 8 alphabetically-first names that merely CONTAIN an n -- Anand,
+        Ankit, Arun -- and then discarded all 8 client-side because none of
+        them START with n.  Nilesh and Nirmal existed and were real, and were
+        several pages further into a result set nobody could reach.  A filter
+        applied after ``LIMIT`` can only ever subtract from a page that was
+        already chosen wrongly, so no caller-side rule could have fixed it.
+
+        The order is: name-prefix matches first, then word-prefix matches, and
+        A-Z (case-insensitively) within each tier.  Paging is therefore paging
+        through one stable, fully-ranked list, and ``hasMore`` describes the
+        same rows the reader is looking at.
         """
         page = max(1, int(page or 1))
         # Keep the legacy Ready People caller's 100-item ceiling intact. The
@@ -3073,8 +3496,59 @@ class OneLocationAgentService:
         # here, so it cannot use this to request an unbounded directory.
         limit = max(1, min(int(limit or 20), 100))
         offset = (page - 1) * limit
-        needle = (query or "").strip().lower()
+        # Fold the typed query exactly the way the stored name is folded.
+        #
+        # Only one side of the comparison used to be folded. The statement
+        # below rewrites a stored name's separators to spaces, so "O'Brien" is
+        # matched as "o brien" -- but the query kept its punctuation, and
+        # "o'brien%" cannot match "o brien". Typing a name the way it is
+        # actually spelled returned nothing, and every apostrophe, hyphen and
+        # initial did it: O'Brien, D'Souza, Jean-Luc, Smith-Jones, "K.R.".
+        # Deleting the punctuation instead ("obrien") failed too, so the search
+        # box looked broken for these names with no way to type around it.
+        #
+        # Fold first, then escape. "_" is on both lists -- a separator here and
+        # a LIKE wildcard below -- and folding settles which one it is: the
+        # stored side has already turned it into a space, so matching it as a
+        # literal could only ever return nothing. Once folded it is a space, so
+        # it reaches LIKE as a space and cannot act as a wildcard either.
+        needle = (query or "").strip().lower().translate(_DIRECTORY_SEPARATOR_FOLD).strip()
         target = (candidate_user_id or "").strip() or None
+        # An unrecognised audience widens to "all" rather than narrowing: a typo
+        # in a caller must not silently hide people who are really there.
+        requested_audience = (audience or "all").strip().lower()
+        if requested_audience not in ("all", "people", "ria"):
+            requested_audience = "all"
+        # LIKE metacharacters in a typed name are literal characters, not
+        # wildcards. Unescaped, a single "%" typed into Connect matches every
+        # row in the directory, so the escape is what keeps the pattern
+        # describing the name the person actually typed.
+        #
+        # "!" is the escape character rather than the conventional backslash on
+        # purpose: a backslash would have to survive both Python's string
+        # escaping and Postgres' standard_conforming_strings, and getting
+        # either wrong degrades silently into a pattern that still runs.
+        escaped_needle = needle.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        # Two patterns, because a directory search is answered in two tiers.
+        #   name_prefix -- the name STARTS with what was typed. Typing "n" is
+        #     an index request: every N person, A-Z. This is the tier the
+        #     Connect screen exists to serve.
+        #   word_prefix -- some later word starts with it, so "rashid" still
+        #     finds "Abdul Rashid". An earlier version matched surnames with no
+        #     ranking at all, which is why "r" felt random; here the tier is
+        #     strictly below name_prefix, so a first-name hit always outranks a
+        #     surname hit and the list never reads as shuffled.
+        #
+        # Both patterns are applied to a name that has been trimmed, lowered,
+        # and had its separators folded to spaces (see the TRANSLATE in the
+        # statement). Names are not stored tidily: " Nilesh" with a leading
+        # space would fail a `n%` test and get demoted to the surname tier,
+        # and "Abdul-Rashid" or "Abdul R." would put their second word behind
+        # a character that `% r%` cannot see. Fold once, match once, and the
+        # tier a person lands in is about their name rather than about the
+        # punctuation someone typed into a profile field.
+        name_prefix_pattern = f"{escaped_needle}%"
+        word_prefix_pattern = f"% {escaped_needle}%"
         rows = self._execute_many(
             """
             SELECT
@@ -3132,15 +3606,41 @@ class OneLocationAgentService:
               )
               AND (
                 :query = ''
-                OR LOWER(COALESCE(a.display_name, '')) LIKE '%' || :query || '%'
+                OR TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')
+                     LIKE :name_prefix ESCAPE '!'
+                OR TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')
+                     LIKE :word_prefix ESCAPE '!'
               )
-            ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
+              AND (
+                :audience = 'all'
+                OR (
+                  :audience = 'ria'
+                ) = EXISTS (
+                  SELECT 1
+                  FROM ria_profiles rp_audience
+                  WHERE rp_audience.user_id = a.user_id
+                    AND rp_audience.verification_status
+                          IN ('active', 'verified', 'finra_verified')
+                )
+              )
+            ORDER BY
+              CASE
+                WHEN :query = '' THEN 0
+                WHEN TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')
+                       LIKE :name_prefix ESCAPE '!' THEN 0
+                ELSE 1
+              END,
+              LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id)),
+              a.user_id
             LIMIT :fetch_limit OFFSET :offset
             """,
             {
                 "owner_user_id": owner_user_id,
                 "candidate_user_id": target,
                 "query": needle,
+                "name_prefix": name_prefix_pattern,
+                "word_prefix": word_prefix_pattern,
+                "audience": requested_audience,
                 "fetch_limit": limit + 1,
                 "offset": offset,
             },
@@ -3151,6 +3651,11 @@ class OneLocationAgentService:
         items = self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,
+            # The SQL above already decided rank and A-Z, across the whole
+            # matched set rather than this slice of it. Re-sorting here would
+            # only ever shuffle one page against boundaries drawn by a
+            # different ordering.
+            preserve_order=True,
         )
         return {"items": items, "page": page, "hasMore": has_more}
 
@@ -3528,7 +4033,7 @@ class OneLocationAgentService:
         grant: dict[str, Any],
         owner_user_id: str,
         recipient_user_id: str,
-        duration: float,
+        duration: float | None,
         reason: str | None,
         resolved_kind: str,
     ) -> bool:
@@ -3541,7 +4046,11 @@ class OneLocationAgentService:
         owner_label = _identity_notification_label(owner_identity)
         share_message = _visible_share_message(reason)
         if resolved_kind == "sos":
-            notification_title = "SMS · Save my soul"
+            # Titled for what this actually is. It read "SMS · Save my soul",
+            # but no SMS is sent anywhere in this flow -- this push IS the
+            # alert. Naming a channel that does not exist tells a recipient
+            # their phone will buzz by text when it will not.
+            notification_title = "Save my Soul"
             notification_body = (
                 f"{owner_label}: {share_message}"
                 if share_message
@@ -3585,7 +4094,10 @@ class OneLocationAgentService:
                 "grant_id": grant["id"],
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
-                "duration_hours": str(duration),
+                "duration_hours": str(duration) if duration is not None else "",
+                "duration_mode": str(
+                    grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE
+                ),
                 "expires_at": grant.get("expiresAt"),
                 "share_kind": resolved_kind,
                 **(
@@ -3773,7 +4285,13 @@ class OneLocationAgentService:
                     recipient_user_id=recipient_user_id,
                     requested_circle_id=requested_circle_id,
                 )
-                params = {**grant_params, "source_circle_id": source_circle_id}
+                params = {
+                    **grant_params,
+                    "duration_mode": grant_params.get(
+                        "duration_mode", TIMED_LOCATION_SHARE_DURATION_MODE
+                    ),
+                    "source_circle_id": source_circle_id,
+                }
                 conn.execute(
                     text(
                         """
@@ -3793,13 +4311,14 @@ class OneLocationAgentService:
                             INSERT INTO one_location_share_grants (
                               owner_user_id, recipient_user_id, recipient_key_id, status,
                               consent_scope, capability_scopes, duration_hours, expires_at,
-                              source_circle_id, created_at, updated_at, metadata
+                              duration_mode, source_circle_id, created_at, updated_at, metadata
                             )
                             VALUES (
                               :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                               'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                              :duration_hours, :expires_at, CAST(:source_circle_id AS UUID),
-                              NOW(), NOW(), CAST(:metadata_json AS JSONB)
+                              :duration_hours, :expires_at, :duration_mode,
+                              CAST(:source_circle_id AS UUID), NOW(), NOW(),
+                              CAST(:metadata_json AS JSONB)
                             )
                             RETURNING *,
                               :recipient_display_name AS recipient_display_name,
@@ -3833,6 +4352,7 @@ class OneLocationAgentService:
                         "event_metadata_json": _json_param(
                             {
                                 "duration_hours": params["duration_hours"],
+                                "duration_mode": params["duration_mode"],
                                 "counterpart_label": str(
                                     params.get("recipient_display_name") or ""
                                 ).strip()
@@ -3858,7 +4378,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_user_id: str,
         recipient_key_id: str | None,
-        duration_hours: float,
+        duration_hours: float | None,
+        duration_mode: str = TIMED_LOCATION_SHARE_DURATION_MODE,
         reason: str | None = None,
         share_kind: str | None = None,
         source_circle_id: str | None = None,
@@ -3883,6 +4404,7 @@ class OneLocationAgentService:
                     recipient_user_id=recipient_user_id,
                     recipient_key_id=recipient_key_id,
                     duration_hours=duration_hours,
+                    duration_mode=duration_mode,
                     reason=reason,
                     share_kind=share_kind,
                     source_circle_id=source_circle_id,
@@ -3898,7 +4420,7 @@ class OneLocationAgentService:
                     grant=grant,
                     owner_user_id=owner_user_id,
                     recipient_user_id=recipient_user_id,
-                    duration=float(grant.get("durationHours") or duration_hours),
+                    duration=_duration_metadata_value(grant.get("durationHours")),
                     reason=reason,
                     resolved_kind=resolved_kind,
                 )
@@ -3919,15 +4441,13 @@ class OneLocationAgentService:
                 LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
                 status_code=403,
             )
-        try:
-            duration = normalize_duration_hours(duration_hours)
-        except ValueError as exc:
-            raise OneLocationAgentError(
-                "LOCATION_DURATION_INVALID",
-                str(exc),
-                status_code=422,
-            ) from exc
         resolved_kind = share_kind or _classify_share_kind(reason)
+        duration, expires_at, resolved_duration_mode = _resolve_share_duration(
+            duration_hours=duration_hours,
+            duration_mode=duration_mode,
+            share_kind=resolved_kind,
+            now=_utcnow(),
+        )
         if resolved_kind == "sos" and not self._is_sms_contact(
             owner_user_id=owner_user_id, contact_user_id=recipient_user_id
         ):
@@ -3942,12 +4462,23 @@ class OneLocationAgentService:
             require_phone_verified=require_recipient_phone_verified,
         )
         key_id = str(recipient.get("key_id") or "")
-        expires_at = _utcnow() + timedelta(hours=duration)
-        capability = self._mint_grant_capability_token(
-            owner_user_id=owner_user_id,
-            recipient_user_id=recipient_user_id,
-            duration_hours=duration,
+        capability = (
+            self._mint_grant_capability_token(
+                owner_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+                duration_hours=duration,
+            )
+            if duration is not None
+            else None
         )
+        metadata = {
+            "reason": reason or "owner_approved",
+            "share_kind": resolved_kind,
+            "duration_mode": resolved_duration_mode,
+            "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
+        }
+        if capability is not None:
+            metadata["capability_token"] = capability["token"]
         grant_params = {
             "owner_user_id": owner_user_id,
             "recipient_user_id": recipient_user_id,
@@ -3955,15 +4486,9 @@ class OneLocationAgentService:
             "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
             "duration_hours": duration,
             "expires_at": expires_at,
+            "duration_mode": resolved_duration_mode,
             "source_circle_id": source_circle_id,
-            "metadata_json": _json_param(
-                {
-                    "reason": reason or "owner_approved",
-                    "share_kind": resolved_kind,
-                    "capability_token": capability["token"],
-                    "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
-                }
-            ),
+            "metadata_json": _json_param(metadata),
             "recipient_display_name": recipient.get("display_name"),
             "recipient_phone_number": recipient.get("phone_number"),
         }
@@ -3994,13 +4519,14 @@ class OneLocationAgentService:
                 INSERT INTO one_location_share_grants (
                   owner_user_id, recipient_user_id, recipient_key_id, status,
                   consent_scope, capability_scopes, duration_hours, expires_at,
-                  source_circle_id, created_at, updated_at, metadata
+                  duration_mode, source_circle_id, created_at, updated_at, metadata
                 )
                 VALUES (
                   :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                   'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                  :duration_hours, :expires_at, CAST(:source_circle_id AS UUID),
-                  NOW(), NOW(), CAST(:metadata_json AS JSONB)
+                  :duration_hours, :expires_at, :duration_mode,
+                  CAST(:source_circle_id AS UUID), NOW(), NOW(),
+                  CAST(:metadata_json AS JSONB)
                 )
                 RETURNING *,
                   :recipient_display_name AS recipient_display_name,
@@ -4023,7 +4549,18 @@ class OneLocationAgentService:
                 recipient_user_id=recipient_user_id,
                 grant_id=grant["id"],
                 event_type="location_share_created",
-                metadata={"duration_hours": duration, "counterpart_label": recipient_label},
+                metadata={
+                    "duration_hours": _duration_metadata_value(duration),
+                    "duration_mode": resolved_duration_mode,
+                    "counterpart_label": recipient_label,
+                    # Why this grant exists. The audit ledger keeps the row
+                    # either way; the Feed fan-out trigger reads this to drop
+                    # the duplicate. Approving a request already writes
+                    # `location_access_approved` right after this call, and one
+                    # tap that produces two Feed rows reads as two things
+                    # happening. Same rule the notification below applies.
+                    "reason": reason or "",
+                },
             )
         # Request approval has its own richer notification immediately after
         # this call. Sending share-created as well produces two alerts for one
@@ -4034,7 +4571,7 @@ class OneLocationAgentService:
                 grant=grant,
                 owner_user_id=owner_user_id,
                 recipient_user_id=recipient_user_id,
-                duration=duration,
+                duration=_duration_metadata_value(duration),
                 reason=reason,
                 resolved_kind=resolved_kind,
             )
@@ -4046,10 +4583,11 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_user_id: str,
         recipient_key_id: str | None,
-        duration_hours: float,
+        duration_hours: float | None,
         client_operation_id: str,
         confirmed_at: datetime | str,
         envelope: dict[str, Any],
+        duration_mode: str = TIMED_LOCATION_SHARE_DURATION_MODE,
         reason: str | None = None,
         share_kind: str | None = None,
         source_circle_id: str | None = None,
@@ -4085,15 +4623,13 @@ class OneLocationAgentService:
                 "The approved recipient key is required.",
                 status_code=422,
             )
-        try:
-            duration = normalize_duration_hours(duration_hours)
-        except ValueError as exc:
-            raise OneLocationAgentError(
-                "LOCATION_DURATION_INVALID",
-                str(exc),
-                status_code=422,
-            ) from exc
         resolved_kind = share_kind or _classify_share_kind(reason)
+        duration, expires_at, resolved_duration_mode = _resolve_share_duration(
+            duration_hours=duration_hours,
+            duration_mode=duration_mode,
+            share_kind=resolved_kind,
+            now=_utcnow(),
+        )
         # Record which relationship authorized this share. When the caller names
         # a Circle it must be that Circle; otherwise a Circle-only peer still
         # gets its source Circle stamped, so revoking the Circle later revokes
@@ -4140,6 +4676,7 @@ class OneLocationAgentService:
             recipient_user_id=recipient_user_id,
             recipient_key_id=key_id,
             duration_hours=duration,
+            duration_mode=resolved_duration_mode,
             reason=stored_reason,
             share_kind=resolved_kind,
             confirmed_at=confirmed_at_value,
@@ -4150,23 +4687,27 @@ class OneLocationAgentService:
             recipient_user_id=recipient_user_id,
             client_operation_id=operation_id,
         )
-        expires_at = now + timedelta(hours=duration)
-        capability = self._mint_grant_capability_token(
-            owner_user_id=owner_user_id,
-            recipient_user_id=recipient_user_id,
-            duration_hours=duration,
+        capability = (
+            self._mint_grant_capability_token(
+                owner_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+                duration_hours=duration,
+            )
+            if duration is not None
+            else None
         )
-        metadata_json = _json_param(
-            {
-                "reason": stored_reason or "owner_approved",
-                "share_kind": resolved_kind,
-                "capability_token": capability["token"],
-                "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
-                "client_operation_id": operation_id,
-                "client_operation_fingerprint": operation_fingerprint,
-                "confirmed_at": confirmed_at_value.isoformat(),
-            }
-        )
+        metadata = {
+            "reason": stored_reason or "owner_approved",
+            "share_kind": resolved_kind,
+            "duration_mode": resolved_duration_mode,
+            "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
+            "client_operation_id": operation_id,
+            "client_operation_fingerprint": operation_fingerprint,
+            "confirmed_at": confirmed_at_value.isoformat(),
+        }
+        if capability is not None:
+            metadata["capability_token"] = capability["token"]
+        metadata_json = _json_param(metadata)
         row = self._execute_atomic_private_share(
             recipient_key_lock_key=f"one-location-recipient-key:{recipient_user_id}",
             pair_lock_key=f"one-location-grant:{owner_user_id}:{recipient_user_id}",
@@ -4283,13 +4824,13 @@ class OneLocationAgentService:
               INSERT INTO one_location_share_grants (
                 id, owner_user_id, recipient_user_id, recipient_key_id,
                 status, consent_scope, capability_scopes, duration_hours,
-                expires_at, source_circle_id, created_at, updated_at, metadata
+                expires_at, duration_mode, source_circle_id, created_at, updated_at, metadata
               )
               SELECT
                 CAST(:grant_id AS UUID),
                 :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                 'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                :duration_hours, :expires_at,
+                :duration_hours, :expires_at, :duration_mode,
                 CAST(:source_circle_id AS UUID), NOW(), NOW(),
                 CAST(:metadata_json AS JSONB)
               FROM eligible_recipient
@@ -4330,6 +4871,7 @@ class OneLocationAgentService:
                 'location_share_created',
                 jsonb_build_object(
                   'duration_hours', g.duration_hours,
+                  'duration_mode', g.duration_mode,
                   'counterpart_label', COALESCE(NULLIF(e.display_name, ''), 'A trusted person')
                 ),
                 NOW()
@@ -4396,6 +4938,7 @@ class OneLocationAgentService:
                 "recipient_key_id": key_id,
                 "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
                 "duration_hours": duration,
+                "duration_mode": resolved_duration_mode,
                 "expires_at": expires_at,
                 "metadata_json": metadata_json,
                 "freshness_valid": freshness_error is None,
@@ -4486,11 +5029,7 @@ class OneLocationAgentService:
                 "The recipient's secure location key changed. Review and share again.",
                 status_code=409,
             )
-        grant_expires_at = _parse_datetime(
-            grant.get("expiresAt"),
-            field_name="expiresAt",
-        )
-        if grant_expires_at <= _utcnow():
+        if _payload_expires_at_is_past(grant):
             # Expiry is lazily materialized elsewhere. Never report a stale
             # deterministic replay as active; normalize it before failing.
             self._expire_stale_grants(recipient_user_id)
@@ -4601,8 +5140,7 @@ class OneLocationAgentService:
                 "LOCATION_GRANT_NOT_ACTIVE", "Location share is not active.", status_code=409
             )
         is_first_envelope = not bool(grant_row.get("latest_envelope_id"))
-        expires_at = _parse_datetime(grant_row.get("expires_at"), field_name="expires_at")
-        if expires_at <= _utcnow():
+        if _grant_expires_at_is_past(grant_row):
             self._expire_stale_grants(owner_user_id)
             raise OneLocationAgentError(
                 "LOCATION_GRANT_EXPIRED", "Location share has expired.", status_code=410
@@ -4697,7 +5235,9 @@ class OneLocationAgentService:
                 )
         return envelope_payload
 
-    def view_latest_envelope(self, *, recipient_user_id: str, grant_id: str) -> dict[str, Any]:
+    def view_latest_envelope(
+        self, *, recipient_user_id: str, grant_id: str, allow_empty: bool = False
+    ) -> dict[str, Any]:
         self._expire_stale_grants(recipient_user_id)
         grant_row = self._execute_one(
             """
@@ -4746,6 +5286,18 @@ class OneLocationAgentService:
             {"recipient_user_id": recipient_user_id, "grant_id": grant_id},
         )
         if not row:
+            # "The share is live, the owner just hasn't published a point yet"
+            # is a normal state on the happy path — the recipient opens One the
+            # moment they are granted access, before the owner's first GPS fix
+            # lands. Callers that opt in get that as a success with a null
+            # envelope so it never surfaces as a failed request; callers that
+            # do not keep the original 404 contract they already branch on.
+            if allow_empty:
+                return {
+                    "grant": self._grant_payload(grant_row),
+                    "envelope": None,
+                    "status": "awaiting_first_publish",
+                }
             raise OneLocationAgentError(
                 "LOCATION_ENVELOPE_MISSING",
                 "The owner has not published an encrypted location envelope yet.",
@@ -4763,6 +5315,7 @@ class OneLocationAgentService:
         return {
             "grant": self._grant_payload(grant_row),
             "envelope": self._envelope_payload(row),
+            "status": "published",
         }
 
     def get_map_preferences(self, *, user_id: str) -> dict[str, Any]:
@@ -4774,53 +5327,19 @@ class OneLocationAgentService:
         """
         row = self._execute_one(
             """
-            SELECT presence_mode, renderer_consent_version, auto_share_enabled, updated_at
+            SELECT presence_mode, renderer_consent_version, updated_at
             FROM one_location_map_preferences
             WHERE user_id = :user_id
             LIMIT 1
             """,
             {"user_id": user_id},
         )
-        # A missing row (never opened the preference) defaults to auto-share ON,
-        # matching the shipped frontend default. The `is None` guard preserves an
-        # explicit stored FALSE rather than coercing it back to the default.
-        auto_share_value = (row or {}).get("auto_share_enabled")
         return {
             "presenceMode": str((row or {}).get("presence_mode") or "ghost"),
             "rendererConsentVersion": str((row or {}).get("renderer_consent_version") or "")
             or None,
-            "autoShareEnabled": True if auto_share_value is None else bool(auto_share_value),
             "updatedAt": _iso((row or {}).get("updated_at")),
         }
-
-    def get_auto_share_enabled(self, *, user_id: str) -> bool:
-        """Owner-scoped source of truth for the Auto-share toggle.
-
-        Fails open to the shipped default (ON) when the preference row or the
-        additive column is missing, so an environment a migration behind keeps
-        the pre-existing behavior instead of silently disabling auto-share.
-        """
-        try:
-            row = self._execute_one(
-                """
-                SELECT auto_share_enabled
-                FROM one_location_map_preferences
-                WHERE user_id = :user_id
-                LIMIT 1
-                """,
-                {"user_id": user_id},
-            )
-        except Exception as exc:  # noqa: BLE001 - additive column rollout
-            logger.warning(
-                "one_location.auto_share_flag_read_failed user=%s error=%s",
-                redact_log_field("user_id", user_id),
-                exc,
-            )
-            return True
-        if not row:
-            return True
-        value = row.get("auto_share_enabled")
-        return True if value is None else bool(value)
 
     def update_map_preferences(
         self,
@@ -4933,7 +5452,7 @@ class OneLocationAgentService:
             ) envelope ON TRUE
             WHERE g.recipient_user_id = :user_id
               AND g.status = 'active'
-              AND g.expires_at > NOW()
+              AND (g.expires_at IS NULL OR g.expires_at > NOW())
             ORDER BY envelope.captured_at DESC
             LIMIT 100
             """,
@@ -4989,8 +5508,7 @@ class OneLocationAgentService:
         """Project wall-clock expiry for read models without mutating storage."""
         if not row or str(row.get("status") or "") != "active":
             return row
-        expires_at = _parse_datetime(row.get("expires_at"), field_name="expires_at")
-        return {**row, "status": "expired"} if expires_at <= _utcnow() else row
+        return {**row, "status": "expired"} if _grant_expires_at_is_past(row) else row
 
     def _expire_circle_invite(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not row or str(row.get("status") or "") != "active":
@@ -5626,22 +6144,13 @@ class OneLocationAgentService:
         # Resilience: one failing auxiliary section (e.g. schema drift on a
         # rarely-used table) must NOT 500 the whole endpoint. A 500 here cascades
         # into the consent-center contributor (which then returns empty buckets)
-        # AND breaks the One Location page on every load. Each section is wrapped
-        # so a partial failure degrades to an empty list, logged for triage,
-        # while the rest of the state still loads. The backend still enforces
-        # real access on every read/write path.
-        def _safe_many(label: str, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
-            try:
-                return self._execute_many(sql, params)
-            except Exception as exc:  # noqa: BLE001 - degrade, never 500 the page
-                logger.warning(
-                    "one_location.list_state.section_failed section=%s user=%s error=%s",
-                    label,
-                    user_id,
-                    exc,
-                )
-                return []
-
+        # AND breaks the One Location page on every load. Each section below is
+        # fetched by `_run_read_queries_parallel`, which gives every task the
+        # same per-section degrade-to-`[]`-and-log resilience a sequential
+        # `_safe_many` call gave it before, while running the 10 independent
+        # reads concurrently instead of one cross-continent round trip at a
+        # time -- this loop used to be most of why this endpoint was slow.
+        #
         # An explicit ``read_only=True`` caller (the pod data-door reader) forces
         # read-only regardless of env, so a read that must not mutate the owner's
         # DB -- the door's headline guarantee -- holds structurally rather than
@@ -5698,166 +6207,185 @@ class OneLocationAgentService:
                 exc,
             )
             circle_member_invites = []
-        owner_grants = _safe_many(
-            "owner_grants",
-            """
-            SELECT
-              g.*,
-              r.display_name AS recipient_display_name,
-              r.phone_number AS recipient_phone_number
-            FROM one_location_share_grants g
-            LEFT JOIN actor_identity_cache r ON r.user_id = g.recipient_user_id
-            WHERE g.owner_user_id = :user_id
-            ORDER BY g.created_at DESC
-            LIMIT 50
-            """,
-            {"user_id": user_id},
-        )
-        received_grants = _safe_many(
-            "received_grants",
-            """
-            SELECT
-              g.*,
-              o.display_name AS owner_display_name,
-              o.phone_number AS owner_phone_number
-            FROM one_location_share_grants g
-            LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
-            WHERE g.recipient_user_id = :user_id
-            ORDER BY g.created_at DESC
-            LIMIT 50
-            """,
-            {"user_id": user_id},
-        )
-        requests = _safe_many(
-            "requests",
-            """
-            SELECT
-              req.*,
-              requester.display_name AS requester_display_name,
-              requester.phone_number AS requester_phone_number
-            FROM one_location_access_requests req
-            LEFT JOIN actor_identity_cache requester ON requester.user_id = req.requester_user_id
-            WHERE req.owner_user_id = :user_id OR req.requester_user_id = :user_id
-            ORDER BY req.requested_at DESC
-            LIMIT 50
-            """,
-            {"user_id": user_id},
-        )
-        referrals = _safe_many(
-            "referrals",
-            """
-            SELECT *
-            FROM one_location_referrals
-            WHERE owner_user_id = :user_id
-               OR referring_user_id = :user_id
-               OR referred_user_id = :user_id
-            ORDER BY created_at DESC
-            LIMIT 50
-            """,
-            {"user_id": user_id},
-        )
-        public_invites = _safe_many(
-            "public_invites",
-            """
-            SELECT *
-            FROM one_location_public_invites
-            WHERE owner_user_id = :user_id
-            ORDER BY created_at DESC
-            LIMIT 20
-            """,
-            {"user_id": user_id},
-        )
-        circle_invites = _safe_many(
-            "circle_invites",
-            """
-            SELECT *
-            FROM one_location_circle_invites
-            WHERE owner_user_id = :user_id
-               OR claimed_by_user_id = :user_id
-            ORDER BY created_at DESC
-            LIMIT 20
-            """,
-            {"user_id": user_id},
-        )
-        network_connections = _safe_many(
-            "network_connections",
-            """
-            SELECT id, owner_user_id, trusted_user_id, status, created_at, updated_at, revoked_at
-            FROM trusted_connections
-            WHERE status = 'active'
-              AND owner_user_id = :user_id
-            ORDER BY created_at DESC
-            LIMIT 50
-            """,
-            {"user_id": user_id},
-        )
-        sms_contacts = _safe_many(
-            "sms_contacts",
-            """
-            SELECT sms.contact_user_id
-            FROM one_location_sms_contacts sms
-            WHERE sms.owner_user_id = :user_id
-              AND EXISTS (
-                SELECT 1 WHERE EXISTS (
-                  SELECT 1
-                  FROM connections c
-                  WHERE c.status = 'active'
-                    AND (
-                      (c.user_a_id = :user_id AND c.user_b_id = sms.contact_user_id)
-                      OR
-                      (c.user_b_id = :user_id AND c.user_a_id = sms.contact_user_id)
-                    )
-                )
-                OR EXISTS (
-                  SELECT 1
-                  FROM one_location_circle_memberships mine
-                  JOIN one_location_circle_memberships theirs
-                    ON theirs.circle_id = mine.circle_id
-                   AND theirs.user_id = sms.contact_user_id
-                   AND theirs.status = 'active'
-                  JOIN one_location_circles circle
-                    ON circle.id = mine.circle_id
-                   AND circle.status = 'active'
-                  WHERE mine.user_id = :user_id
-                    AND mine.status = 'active'
-                )
-              )
-            ORDER BY sms.created_at, sms.contact_user_id
-            """,
-            {"user_id": user_id},
-        )
-        public_submissions = _safe_many(
-            "public_submissions",
-            """
-            SELECT
-              submission.*,
-              req.status AS request_status
-            FROM one_location_public_invite_submissions submission
-            LEFT JOIN one_location_access_requests req ON req.id = submission.request_id
-            WHERE submission.owner_user_id = :user_id
-               OR submission.matched_user_id = :user_id
-            ORDER BY submission.submitted_at DESC
-            LIMIT 50
-            """,
-            {"user_id": user_id},
-        )
         # The caller's OWN active recipient key, including the opaque
         # vault-key-encrypted private blob. Scoped to this user_id and returned only
         # here (never in the `recipients` list shown to other users), so a device the
         # user signs into can recover the shared keypair after vault unlock.
-        my_recipient_key_rows = _safe_many(
-            "my_recipient_key",
-            """
-            SELECT key_id, public_key_jwk, algorithm, encrypted_private_key_jwk,
-                   created_at AS key_created_at
-            FROM one_location_recipient_keys
-            WHERE user_id = :user_id
-              AND status = 'active'
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            {"user_id": user_id},
+        _sections = self._run_read_queries_parallel(
+            [
+                (
+                    "owner_grants",
+                    """
+                    SELECT
+                      g.*,
+                      r.display_name AS recipient_display_name,
+                      r.phone_number AS recipient_phone_number
+                    FROM one_location_share_grants g
+                    LEFT JOIN actor_identity_cache r ON r.user_id = g.recipient_user_id
+                    WHERE g.owner_user_id = :user_id
+                    ORDER BY g.created_at DESC
+                    LIMIT 50
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "received_grants",
+                    """
+                    SELECT
+                      g.*,
+                      o.display_name AS owner_display_name,
+                      o.phone_number AS owner_phone_number
+                    FROM one_location_share_grants g
+                    LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
+                    WHERE g.recipient_user_id = :user_id
+                    ORDER BY g.created_at DESC
+                    LIMIT 50
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "requests",
+                    """
+                    SELECT
+                      req.*,
+                      requester.display_name AS requester_display_name,
+                      requester.phone_number AS requester_phone_number,
+                      extended.expires_at AS extends_grant_expires_at
+                    FROM one_location_access_requests req
+                    LEFT JOIN actor_identity_cache requester ON requester.user_id = req.requester_user_id
+                    -- The live share an extra-time ask is about. Joined here so both
+                    -- sides can render "3 more hours on top of the 45 minutes left"
+                    -- from the state they already load, with no per-row round trip.
+                    LEFT JOIN one_location_share_grants extended ON extended.id = req.extends_grant_id
+                    WHERE req.owner_user_id = :user_id OR req.requester_user_id = :user_id
+                    ORDER BY req.requested_at DESC
+                    LIMIT 50
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "referrals",
+                    """
+                    SELECT *
+                    FROM one_location_referrals
+                    WHERE owner_user_id = :user_id
+                       OR referring_user_id = :user_id
+                       OR referred_user_id = :user_id
+                    ORDER BY created_at DESC
+                    LIMIT 50
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "public_invites",
+                    """
+                    SELECT *
+                    FROM one_location_public_invites
+                    WHERE owner_user_id = :user_id
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "circle_invites",
+                    """
+                    SELECT *
+                    FROM one_location_circle_invites
+                    WHERE owner_user_id = :user_id
+                       OR claimed_by_user_id = :user_id
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "network_connections",
+                    """
+                    SELECT id, owner_user_id, trusted_user_id, status, created_at, updated_at, revoked_at
+                    FROM trusted_connections
+                    WHERE status = 'active'
+                      AND owner_user_id = :user_id
+                    ORDER BY created_at DESC
+                    LIMIT 50
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "sms_contacts",
+                    """
+                    SELECT sms.contact_user_id
+                    FROM one_location_sms_contacts sms
+                    WHERE sms.owner_user_id = :user_id
+                      AND EXISTS (
+                        SELECT 1 WHERE EXISTS (
+                          SELECT 1
+                          FROM connections c
+                          WHERE c.status = 'active'
+                            AND (
+                              (c.user_a_id = :user_id AND c.user_b_id = sms.contact_user_id)
+                              OR
+                              (c.user_b_id = :user_id AND c.user_a_id = sms.contact_user_id)
+                            )
+                        )
+                        OR EXISTS (
+                          SELECT 1
+                          FROM one_location_circle_memberships mine
+                          JOIN one_location_circle_memberships theirs
+                            ON theirs.circle_id = mine.circle_id
+                           AND theirs.user_id = sms.contact_user_id
+                           AND theirs.status = 'active'
+                          JOIN one_location_circles circle
+                            ON circle.id = mine.circle_id
+                           AND circle.status = 'active'
+                          WHERE mine.user_id = :user_id
+                            AND mine.status = 'active'
+                        )
+                      )
+                    ORDER BY sms.created_at, sms.contact_user_id
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "public_submissions",
+                    """
+                    SELECT
+                      submission.*,
+                      req.status AS request_status
+                    FROM one_location_public_invite_submissions submission
+                    LEFT JOIN one_location_access_requests req ON req.id = submission.request_id
+                    WHERE submission.owner_user_id = :user_id
+                       OR submission.matched_user_id = :user_id
+                    ORDER BY submission.submitted_at DESC
+                    LIMIT 50
+                    """,
+                    {"user_id": user_id},
+                ),
+                (
+                    "my_recipient_key",
+                    """
+                    SELECT key_id, public_key_jwk, algorithm, encrypted_private_key_jwk,
+                           created_at AS key_created_at
+                    FROM one_location_recipient_keys
+                    WHERE user_id = :user_id
+                      AND status = 'active'
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    {"user_id": user_id},
+                ),
+            ]
         )
+        owner_grants = _sections["owner_grants"]
+        received_grants = _sections["received_grants"]
+        requests = _sections["requests"]
+        referrals = _sections["referrals"]
+        public_invites = _sections["public_invites"]
+        circle_invites = _sections["circle_invites"]
+        network_connections = _sections["network_connections"]
+        sms_contacts = _sections["sms_contacts"]
+        public_submissions = _sections["public_submissions"]
+        my_recipient_key_rows = _sections["my_recipient_key"]
         my_recipient_key = None
         if my_recipient_key_rows:
             _mrk = my_recipient_key_rows[0]
@@ -5934,157 +6462,6 @@ class OneLocationAgentService:
             "capabilityScopes": LOCATION_CAPABILITY_SCOPES,
         }
 
-    def _has_active_grant(self, *, owner_user_id: str, recipient_user_id: str) -> bool:
-        """True when the owner already has any active grant to this recipient."""
-        try:
-            row = self._execute_one(
-                """
-                SELECT 1
-                FROM one_location_share_grants
-                WHERE owner_user_id = :owner_user_id
-                  AND recipient_user_id = :recipient_user_id
-                  AND status = 'active'
-                LIMIT 1
-                """,
-                {
-                    "owner_user_id": owner_user_id,
-                    "recipient_user_id": recipient_user_id,
-                },
-            )
-        except Exception as exc:  # noqa: BLE001 - duplicate-avoidance fails closed
-            logger.warning(
-                "one_location.auto_share_active_grant_lookup_failed owner=%s error=%s",
-                redact_log_field("owner_user_id", owner_user_id),
-                exc,
-            )
-            return True
-        return row is not None
-
-    def _create_auto_share_grant(
-        self, *, owner_user_id: str, recipient_user_id: str
-    ) -> dict[str, Any] | None:
-        """Create one relationship-gated, provenance-tagged auto-share grant."""
-        try:
-            return self.create_grant(
-                owner_user_id=owner_user_id,
-                recipient_user_id=recipient_user_id,
-                recipient_key_id=None,
-                duration_hours=AUTO_SHARE_DURATION_HOURS,
-                reason="owner_approved",
-                share_kind="share",
-                enforce_connection=True,
-                source=AUTO_SHARE_GRANT_SOURCE,
-            )
-        except OneLocationAgentError as exc:
-            logger.info(
-                "one_location.auto_share_grant_skipped owner=%s code=%s",
-                redact_log_field("owner_user_id", owner_user_id),
-                exc.code,
-            )
-            return None
-        except Exception as exc:  # noqa: BLE001 - one peer cannot fail the fan-out
-            logger.warning(
-                "one_location.auto_share_grant_failed owner=%s error=%s",
-                redact_log_field("owner_user_id", owner_user_id),
-                exc,
-            )
-            return None
-
-    def _auto_share_fan_out(self, *, owner_user_id: str) -> int:
-        """Fan an auto-share grant out to every eligible, key-ready peer."""
-        created = 0
-        for recipient in self.list_verified_recipients(owner_user_id=owner_user_id):
-            recipient_user_id = str(recipient.get("userId") or "").strip()
-            if not recipient_user_id or recipient_user_id == owner_user_id:
-                continue
-            if not recipient.get("canReceiveLocation"):
-                continue
-            if self._has_active_grant(
-                owner_user_id=owner_user_id, recipient_user_id=recipient_user_id
-            ):
-                continue
-            if self._create_auto_share_grant(
-                owner_user_id=owner_user_id, recipient_user_id=recipient_user_id
-            ):
-                created += 1
-        return created
-
-    def _auto_share_teardown(self, *, owner_user_id: str) -> int:
-        """Revoke ONLY this account active auto-created shares (source == auto_share)."""
-        rows = self._execute_many(
-            """
-            SELECT id
-            FROM one_location_share_grants
-            WHERE owner_user_id = :owner_user_id
-              AND status = 'active'
-              AND metadata->>'source' = :auto_share_source
-            """,
-            {
-                "owner_user_id": owner_user_id,
-                "auto_share_source": AUTO_SHARE_GRANT_SOURCE,
-            },
-        )
-        revoked = 0
-        for row in rows:
-            grant_id = str(row.get("id") or "").strip()
-            if not grant_id:
-                continue
-            try:
-                self.revoke_grant(owner_user_id=owner_user_id, grant_id=grant_id)
-                revoked += 1
-            except Exception as exc:  # noqa: BLE001 - one failure cannot block teardown
-                logger.warning(
-                    "one_location.auto_share_teardown_revoke_failed owner=%s error=%s",
-                    redact_log_field("owner_user_id", owner_user_id),
-                    exc,
-                )
-        return revoked
-
-    def set_auto_share_enabled(self, *, user_id: str, enabled: bool) -> dict[str, Any]:
-        """Persist the Auto-share toggle and reconcile auto-created shares."""
-        if not user_id:
-            raise OneLocationAgentError(
-                "LOCATION_AUTH_REQUIRED", "A user is required.", status_code=401
-            )
-        self._execute_one(
-            """
-            INSERT INTO one_location_map_preferences (
-              user_id, auto_share_enabled, created_at, updated_at
-            ) VALUES (:user_id, :auto_share_enabled, NOW(), NOW())
-            ON CONFLICT (user_id) DO UPDATE SET
-              auto_share_enabled = :auto_share_enabled,
-              updated_at = NOW()
-            """,
-            {"user_id": user_id, "auto_share_enabled": bool(enabled)},
-        )
-        if enabled:
-            affected = self._auto_share_fan_out(owner_user_id=user_id)
-            action = "fan_out"
-        else:
-            affected = self._auto_share_teardown(owner_user_id=user_id)
-            action = "teardown"
-        return {
-            "autoShareEnabled": bool(enabled),
-            "action": action,
-            "affectedShareCount": affected,
-        }
-
-    def auto_start_share_for_new_peer(
-        self, *, owner_user_id: str, peer_user_id: str
-    ) -> dict[str, Any] | None:
-        """Start an auto-share to a peer that just became eligible."""
-        owner_user_id = str(owner_user_id or "").strip()
-        peer_user_id = str(peer_user_id or "").strip()
-        if not owner_user_id or not peer_user_id or owner_user_id == peer_user_id:
-            return None
-        if not self.get_auto_share_enabled(user_id=owner_user_id):
-            return None
-        if self._has_active_grant(owner_user_id=owner_user_id, recipient_user_id=peer_user_id):
-            return None
-        return self._create_auto_share_grant(
-            owner_user_id=owner_user_id, recipient_user_id=peer_user_id
-        )
-
     def revoke_grant(self, *, owner_user_id: str, grant_id: str) -> dict[str, Any]:
         row = self._execute_one(
             """
@@ -6156,6 +6533,296 @@ class OneLocationAgentService:
         )
         return self._grant_payload(row) or {}
 
+    def shorten_grant(
+        self, *, caller_user_id: str, grant_id: str, duration_hours: float
+    ) -> dict[str, Any]:
+        """Bring a grant's expiry earlier. Either side may do this; neither may extend.
+
+        Shortening only ever reduces exposure, so it needs no fresh consent
+        from the other party -- the owner already agreed to be seen at least
+        this long, and the recipient giving back time early is just an
+        early, partial revoke. Extending is a different question: it grows
+        how long the recipient can see the owner, and that is the owner's
+        consent to give again, not something either side can hand
+        themselves through this endpoint. A person who wants more time goes
+        through request_access instead, and the owner approves it like any
+        other request.
+        """
+        row = self._execute_one(
+            """
+            SELECT id, owner_user_id, recipient_user_id, expires_at, status
+            FROM one_location_share_grants
+            WHERE id = CAST(:grant_id AS UUID)
+              AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
+            LIMIT 1
+            """,
+            {"grant_id": grant_id, "owner_user_id": caller_user_id},
+        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_GRANT_NOT_FOUND", "Location share was not found.", status_code=404
+            )
+        if str(row.get("status") or "") != "active":
+            return self._grant_payload(row) or {}
+
+        try:
+            duration = normalize_duration_hours(duration_hours)
+        except ValueError as exc:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_INVALID",
+                str(exc),
+                status_code=422,
+            ) from exc
+        candidate_expires_at = datetime.now(timezone.utc) + timedelta(hours=duration)
+        current_expires_at = row.get("expires_at")
+        if current_expires_at is not None:
+            if current_expires_at.tzinfo is None:
+                current_expires_at = current_expires_at.replace(tzinfo=timezone.utc)
+            if candidate_expires_at >= current_expires_at:
+                raise OneLocationAgentError(
+                    "LOCATION_GRANT_SHORTEN_ONLY",
+                    "This can only make a share end sooner, not later.",
+                    status_code=422,
+                )
+
+        updated = self._execute_one(
+            """
+            UPDATE one_location_share_grants
+            SET duration_mode = 'timed',
+                duration_hours = :duration_hours,
+                expires_at = :new_expires_at,
+                updated_at = NOW()
+            WHERE id = CAST(:grant_id AS UUID)
+              AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
+              AND status = 'active'
+            RETURNING *
+            """,
+            {
+                "grant_id": grant_id,
+                "owner_user_id": caller_user_id,
+                "duration_hours": duration,
+                "new_expires_at": candidate_expires_at,
+            },
+        )
+        if not updated:
+            # Revoked between the read above and this write -- report the
+            # grant as it now stands rather than raising on a race.
+            existing_row = self._execute_one(
+                """
+                SELECT * FROM one_location_share_grants
+                WHERE id = CAST(:grant_id AS UUID)
+                LIMIT 1
+                """,
+                {"grant_id": grant_id},
+            )
+            return self._grant_payload(existing_row) or {}
+
+        actor_is_owner = str(row.get("owner_user_id") or "") == caller_user_id
+        recipient_user_id = str(row.get("recipient_user_id") or "") or None
+        owner_identity = self._identity_row(str(row.get("owner_user_id") or caller_user_id))
+        owner_label = _identity_notification_label(owner_identity)
+        recipient_identity = self._identity_row(recipient_user_id or "")
+        recipient_label = _identity_notification_label(recipient_identity)
+        self._insert_event(
+            owner_user_id=str(row.get("owner_user_id") or caller_user_id),
+            actor_user_id=caller_user_id,
+            recipient_user_id=recipient_user_id,
+            grant_id=grant_id,
+            event_type="location_share_shortened",
+            metadata={
+                "reason": "owner_shorten" if actor_is_owner else "recipient_shorten",
+                "counterpart_label": recipient_label,
+            },
+        )
+        notification_user_id = (
+            recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")
+        )
+        self._send_metadata_notification(
+            user_id=notification_user_id,
+            notification_type="location_share_shortened",
+            title="Location access shortened",
+            body=(
+                f"{owner_label} shortened your location access."
+                if actor_is_owner
+                else f"{recipient_label} gave back some of their remaining time early."
+            ),
+            notification_tag=f"one-location-shortened:{grant_id}",
+            request_url=_one_location_url(
+                grantId=grant_id, section="shared" if actor_is_owner else "people"
+            ),
+            data={
+                "grant_id": grant_id,
+                "owner_user_id": str(row.get("owner_user_id") or caller_user_id),
+                "owner_display_label": owner_label,
+                "recipient_user_id": recipient_user_id,
+                "recipient_display_label": recipient_label,
+            },
+        )
+        return self._grant_payload(updated) or {}
+
+    def _active_grant_between(
+        self, *, owner_user_id: str, recipient_user_id: str
+    ) -> dict[str, Any] | None:
+        """The live share from owner to recipient, if there is one right now."""
+        return self._execute_one(
+            """
+            SELECT id, expires_at, duration_mode, duration_hours
+            FROM one_location_share_grants
+            WHERE owner_user_id = :owner_user_id
+              AND recipient_user_id = :recipient_user_id
+              AND status = 'active'
+              AND (expires_at IS NULL OR expires_at > NOW())
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {"owner_user_id": owner_user_id, "recipient_user_id": recipient_user_id},
+        )
+
+    def set_grant_duration(
+        self,
+        *,
+        owner_user_id: str,
+        grant_id: str,
+        duration_hours: float | None,
+        duration_mode: str = TIMED_LOCATION_SHARE_DURATION_MODE,
+    ) -> dict[str, Any]:
+        """Set a new end time on a share that is already running. Owner only.
+
+        `shorten_grant` refuses to move an expiry later, and that refusal is
+        right for the person being shared *with*: more of somebody else's
+        location is not a thing you hand yourself. It was wrong for the person
+        doing the sharing. Picking 30 minutes and then wanting 45 is the owner
+        revising their own consent about their own location, and there is no
+        second party whose approval is missing -- so the app offered Stop and
+        nothing else, and "make it a bit longer" meant ending the share and
+        starting a new one.
+
+        The invariant is unchanged and now stated where it belongs: only the
+        owner may lengthen, and only ever their own share. The row is mutated
+        in place rather than revoked-and-recreated, because the grant id is
+        what the recipient's subscription, the stored envelope, and the SOS
+        teardown set are all keyed on -- replacing it to add fifteen minutes
+        blanks the recipient's map and sends them a share-ended alert for a
+        share that never ended.
+        """
+        row = self._execute_one(
+            """
+            SELECT id, owner_user_id, recipient_user_id, expires_at, status, metadata
+            FROM one_location_share_grants
+            WHERE id = CAST(:grant_id AS UUID)
+              AND owner_user_id = :owner_user_id
+            LIMIT 1
+            """,
+            {"grant_id": grant_id, "owner_user_id": owner_user_id},
+        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_GRANT_NOT_FOUND", "Location share was not found.", status_code=404
+            )
+        if str(row.get("status") or "") != "active":
+            return self._grant_payload(row) or {}
+
+        metadata = row.get("metadata")
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except (TypeError, ValueError):
+                metadata = {}
+        share_kind = str((metadata or {}).get("share_kind") or "") or "trusted"
+        # Reuses the create path's rules verbatim: the same 15-minute floor and
+        # 24-hour ceiling, and the same refusal to put an SOS or a check-in
+        # share on "until I stop". A share must not become, by editing, a shape
+        # it could never have been created in.
+        duration, expires_at, resolved_mode = _resolve_share_duration(
+            duration_hours=duration_hours,
+            duration_mode=duration_mode,
+            share_kind=share_kind,
+            now=_utcnow(),
+        )
+        # Read before the write, not after. Which way the owner moved the end
+        # time is a comparison against the expiry that is about to be replaced,
+        # and holding the row is not the same as holding its value.
+        previous_expires_at = row.get("expires_at")
+
+        updated = self._execute_one(
+            """
+            UPDATE one_location_share_grants
+            SET duration_mode = :duration_mode,
+                duration_hours = :duration_hours,
+                expires_at = :new_expires_at,
+                updated_at = NOW()
+            WHERE id = CAST(:grant_id AS UUID)
+              AND owner_user_id = :owner_user_id
+              AND status = 'active'
+            RETURNING *
+            """,
+            {
+                "grant_id": grant_id,
+                "owner_user_id": owner_user_id,
+                "duration_mode": resolved_mode,
+                "duration_hours": duration,
+                "new_expires_at": expires_at,
+            },
+        )
+        if not updated:
+            # Stopped between the read above and this write -- report the grant
+            # as it now stands rather than raising on a race.
+            existing_row = self._execute_one(
+                """
+                SELECT * FROM one_location_share_grants
+                WHERE id = CAST(:grant_id AS UUID)
+                LIMIT 1
+                """,
+                {"grant_id": grant_id},
+            )
+            return self._grant_payload(existing_row) or {}
+
+        direction = _share_duration_change_direction(
+            previous_expires_at=previous_expires_at,
+            new_expires_at=expires_at,
+            new_mode=resolved_mode,
+        )
+        recipient_user_id = str(row.get("recipient_user_id") or "") or None
+        owner_identity = self._identity_row(owner_user_id)
+        owner_label = _identity_notification_label(owner_identity)
+        recipient_identity = self._identity_row(recipient_user_id or "")
+        recipient_label = _identity_notification_label(recipient_identity)
+        self._insert_event(
+            owner_user_id=owner_user_id,
+            actor_user_id=owner_user_id,
+            recipient_user_id=recipient_user_id,
+            grant_id=grant_id,
+            event_type="location_share_duration_changed",
+            metadata={
+                "direction": direction,
+                "duration_hours": _duration_metadata_value(duration),
+                "duration_mode": resolved_mode,
+                "counterpart_label": recipient_label,
+            },
+        )
+        self._send_metadata_notification(
+            user_id=recipient_user_id or "",
+            notification_type="location_share_duration_changed",
+            title="Sharing time changed",
+            body=(
+                f"{owner_label} is sharing until they stop."
+                if direction == "until_stopped"
+                else f"{owner_label} gave you more time."
+                if direction == "extended"
+                else f"{owner_label} shortened your location access."
+            ),
+            notification_tag=f"one-location-duration:{grant_id}",
+            request_url=_one_location_url(grantId=grant_id, section="people"),
+            data={
+                "grant_id": grant_id,
+                "owner_user_id": owner_user_id,
+                "owner_display_label": owner_label,
+                "recipient_user_id": recipient_user_id,
+                "recipient_display_label": recipient_label,
+            },
+        )
+        return self._grant_payload(updated) or {}
+
     def request_access(
         self,
         *,
@@ -6165,7 +6832,25 @@ class OneLocationAgentService:
         referred_by_user_id: str | None = None,
         notify_owner: bool = True,
         require_requester_key_material: bool = False,
+        requested_duration_hours: float | None = None,
+        requested_duration_mode: str | None = None,
+        extends_grant_id: str | None = None,
     ) -> dict[str, Any]:
+        """Ask an owner for location access -- optionally for a named duration.
+
+        A request now carries the amount of time the requester actually wants,
+        and, when they are already being shared with, the grant that time would
+        be added to. Neither widens access by itself: this still writes nothing
+        but a pending row, and only ``approve_request`` mints a grant. What they
+        buy is that the owner is asked a question with a number in it, and the
+        requester finds out which number they were given.
+
+        When the requester is already inside a live share, the ask is an
+        EXTENSION whether or not the caller says so -- detected from the grant,
+        not from the client -- so an older client that only sends a duration
+        still produces "asking for 3 hours more" rather than a second, confusing
+        "asking to view your location" for a person who is already visible.
+        """
         if requester_user_id == owner_user_id:
             raise OneLocationAgentError(
                 "LOCATION_REQUEST_SELF", "Request a different person's location.", status_code=422
@@ -6176,6 +6861,31 @@ class OneLocationAgentService:
                 require_phone_verified=False,
             )
         message_value = (message or "").strip()[:500] or None
+        duration_hours_value, duration_mode_value = _normalized_requested_duration(
+            duration_hours=requested_duration_hours,
+            duration_mode=requested_duration_mode,
+        )
+
+        # Resolve which live share (if any) this ask is about. A client-supplied
+        # id is a hint that must be verified -- it is only honoured when the
+        # grant really is this owner's live share with this requester, so a
+        # crafted id cannot attach an ask to somebody else's grant. When it does
+        # not check out we fall back to the real active grant rather than
+        # failing: the person is asking for time either way.
+        active_grant = self._active_grant_between(
+            owner_user_id=owner_user_id, recipient_user_id=requester_user_id
+        )
+        active_grant_id = str(active_grant.get("id") or "") if active_grant else ""
+        requested_grant_id = str(extends_grant_id or "").strip()
+        extends_grant_value = active_grant_id or None
+        if requested_grant_id and requested_grant_id != active_grant_id:
+            logger.info(
+                "one.location.extend_request_grant_mismatch owner=%s",
+                redact_log_field("user_id", owner_user_id),
+            )
+        remaining_label = _remaining_label(active_grant.get("expires_at")) if active_grant else ""
+        is_extension = bool(extends_grant_value)
+
         row = self._execute_one(
             """
             SELECT *
@@ -6198,11 +6908,15 @@ class OneLocationAgentService:
                 """
                 INSERT INTO one_location_access_requests (
                   owner_user_id, requester_user_id, referred_by_user_id, status,
-                  message, requested_at, metadata
+                  message, requested_at, metadata,
+                  requested_duration_hours, requested_duration_mode, extends_grant_id,
+                  request_revision
                 )
                 VALUES (
                   :owner_user_id, :requester_user_id, :referred_by_user_id, 'pending',
-                  :message, NOW(), '{}'::jsonb
+                  :message, NOW(), '{}'::jsonb,
+                  :requested_duration_hours, :requested_duration_mode,
+                  CAST(:extends_grant_id AS UUID), 1
                 )
                 RETURNING *
                 """,
@@ -6211,21 +6925,55 @@ class OneLocationAgentService:
                     "requester_user_id": requester_user_id,
                     "referred_by_user_id": referred_by_user_id,
                     "message": message_value,
+                    "requested_duration_hours": duration_hours_value,
+                    "requested_duration_mode": duration_mode_value,
+                    "extends_grant_id": extends_grant_value,
                 },
             )
-        elif message_value and str(row.get("message") or "") != message_value:
-            refreshed = self._execute_one(
-                """
-                UPDATE one_location_access_requests
-                SET message = :message,
-                    requested_at = NOW()
-                WHERE id = CAST(:request_id AS UUID)
-                  AND status = 'pending'
-                RETURNING *
-                """,
-                {"request_id": str(row.get("id") or ""), "message": message_value},
+        else:
+            # A pending ask already exists. Asking again for a DIFFERENT amount
+            # is a new question, not a duplicate: the row is updated in place
+            # (one pending ask per pair stays the invariant) and its revision is
+            # bumped so the owner's client treats the re-ask as a fresh event
+            # instead of de-duplicating it against the number it already showed.
+            existing_hours = (
+                float(row["requested_duration_hours"])
+                if row.get("requested_duration_hours") is not None
+                else None
             )
-            row = refreshed or row
+            existing_mode = str(row.get("requested_duration_mode") or "") or None
+            existing_grant = str(row.get("extends_grant_id") or "") or None
+            existing_message = str(row.get("message") or "") or None
+            ask_changed = (
+                existing_hours != duration_hours_value
+                or existing_mode != duration_mode_value
+                or existing_grant != extends_grant_value
+            )
+            message_changed = bool(message_value) and existing_message != message_value
+            if ask_changed or message_changed:
+                refreshed = self._execute_one(
+                    """
+                    UPDATE one_location_access_requests
+                    SET message = COALESCE(:message, message),
+                        requested_duration_hours = :requested_duration_hours,
+                        requested_duration_mode = :requested_duration_mode,
+                        extends_grant_id = CAST(:extends_grant_id AS UUID),
+                        request_revision = request_revision + CASE WHEN :ask_changed THEN 1 ELSE 0 END,
+                        requested_at = NOW()
+                    WHERE id = CAST(:request_id AS UUID)
+                      AND status = 'pending'
+                    RETURNING *
+                    """,
+                    {
+                        "request_id": str(row.get("id") or ""),
+                        "message": message_value,
+                        "requested_duration_hours": duration_hours_value,
+                        "requested_duration_mode": duration_mode_value,
+                        "extends_grant_id": extends_grant_value,
+                        "ask_changed": ask_changed,
+                    },
+                )
+                row = refreshed or row
         request = self._request_payload(row)
         if not request:
             raise OneLocationAgentError(
@@ -6233,8 +6981,21 @@ class OneLocationAgentService:
                 "Could not create the access request.",
                 status_code=500,
             )
+        # The joined column is absent on INSERT/UPDATE RETURNING, so fill the
+        # live share's expiry from the grant we already read. Surfaces render
+        # "3 more hours on top of the 45 minutes left" straight off the created
+        # request, without waiting for the next state refresh.
+        if is_extension and active_grant is not None:
+            request["extendsGrantExpiresAt"] = _iso(active_grant.get("expires_at"))
         requester_identity = self._identity_row(requester_user_id)
         requester_label = _identity_notification_label(requester_identity, fallback="Someone")
+        owner_label_for_feed = _identity_notification_label(self._identity_row(owner_user_id))
+        ask_summary = _access_ask_summary(
+            requested_duration_hours=request["requestedDurationHours"],
+            requested_duration_mode=request["requestedDurationMode"],
+            is_extension=is_extension,
+            remaining_label=remaining_label,
+        )
         self._insert_event(
             owner_user_id=owner_user_id,
             actor_user_id=requester_user_id,
@@ -6244,14 +7005,27 @@ class OneLocationAgentService:
             metadata={
                 "referred": bool(referred_by_user_id),
                 "counterpart_label": requester_label,
+                # The feed fan-out writes this row to BOTH parties and swaps
+                # counterpart_label for the requester's copy, so neither side
+                # reads its own name back as the other person.
+                "owner_label": owner_label_for_feed,
+                # The feed reads these to say "Asked for 3 hours more" instead
+                # of a subjectless "Requested your location".
+                "requested_duration_hours": request["requestedDurationHours"],
+                "requested_duration_mode": request["requestedDurationMode"],
+                "is_extension": is_extension,
+                "extends_grant_id": extends_grant_value,
+                "request_revision": request["requestRevision"],
             },
         )
         if notify_owner:
             self._send_metadata_notification(
                 user_id=owner_user_id,
                 notification_type="location_access_request",
-                title="Location access request",
-                body=f"{requester_label} is asking to view your location.",
+                title=(
+                    "More location time requested" if is_extension else "Location access request"
+                ),
+                body=f"{requester_label} {ask_summary}",
                 notification_tag=f"one-location-request:{request['id']}",
                 request_url=_one_location_url(requestId=request["id"], section="approvals"),
                 data={
@@ -6259,6 +7033,15 @@ class OneLocationAgentService:
                     "requester_user_id": requester_user_id,
                     "requester_display_label": requester_label,
                     "referred_by_user_id": referred_by_user_id,
+                    "requested_duration_hours": request["requestedDurationHours"],
+                    "requested_duration_mode": request["requestedDurationMode"],
+                    "is_extension": "true" if is_extension else None,
+                    "extends_grant_id": extends_grant_value,
+                    "extends_grant_expires_at": request.get("extendsGrantExpiresAt"),
+                    # Distinguishes a re-ask from the ask the client already
+                    # showed, so a raised number is never swallowed by the
+                    # client's per-request notification de-dup.
+                    "notification_revision": str(request["requestRevision"]),
                 },
             )
         return request
@@ -6268,8 +7051,19 @@ class OneLocationAgentService:
         *,
         owner_user_id: str,
         request_id: str,
-        duration_hours: float,
+        duration_hours: float | None,
+        duration_mode: str | None = None,
     ) -> dict[str, Any]:
+        """Grant the access that was asked for, defaulting to the amount asked.
+
+        ``duration_hours``/``duration_mode`` left as ``None`` means "give them
+        what they asked for" -- the owner approved a request that named a
+        number, and re-deriving a different number from a control they never
+        touched is how an approval used to silently hand out an hour to someone
+        who had asked for four. An explicitly supplied duration still wins: the
+        owner is always free to grant less (or more) than was asked, and the
+        approve control sends one whenever they adjust it.
+        """
         request_row = self._execute_one(
             """
             SELECT *
@@ -6288,11 +7082,31 @@ class OneLocationAgentService:
                 status_code=404,
             )
         requester_user_id = str(request_row.get("requester_user_id") or "")
+        requested_hours, requested_mode = _normalized_requested_duration(
+            duration_hours=request_row.get("requested_duration_hours"),
+            duration_mode=request_row.get("requested_duration_mode"),
+        )
+        was_extension = bool(str(request_row.get("extends_grant_id") or "").strip())
+        if duration_hours is None and duration_mode is None:
+            resolved_mode = requested_mode or TIMED_LOCATION_SHARE_DURATION_MODE
+            resolved_hours = (
+                None
+                if _is_until_stopped_share(resolved_mode)
+                else (
+                    requested_hours
+                    if requested_hours is not None
+                    else DEFAULT_APPROVAL_DURATION_HOURS
+                )
+            )
+        else:
+            resolved_mode = duration_mode or TIMED_LOCATION_SHARE_DURATION_MODE
+            resolved_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
         grant = self.create_grant(
             owner_user_id=owner_user_id,
             recipient_user_id=requester_user_id,
             recipient_key_id=None,
-            duration_hours=duration_hours,
+            duration_hours=resolved_hours,
+            duration_mode=resolved_mode,
             reason="request_approved",
             require_recipient_phone_verified=False,
         )
@@ -6308,6 +7122,15 @@ class OneLocationAgentService:
             {"request_id": request_id, "grant_id": grant["id"]},
         )
         requester_label = _identity_notification_label(self._identity_row(requester_user_id))
+        owner_identity = self._identity_row(owner_user_id)
+        owner_label = _identity_notification_label(owner_identity)
+        granted_hours = _duration_metadata_value(grant.get("durationHours"))
+        granted_mode = grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE
+        granted_label = (
+            "for as long as you need"
+            if _is_until_stopped_share(str(granted_mode))
+            else format_duration_label(granted_hours)
+        )
         self._insert_event(
             owner_user_id=owner_user_id,
             actor_user_id=owner_user_id,
@@ -6316,17 +7139,30 @@ class OneLocationAgentService:
             request_id=request_id,
             event_type="location_access_approved",
             metadata={
-                "duration_hours": normalize_duration_hours(duration_hours),
+                "duration_hours": granted_hours,
+                "duration_mode": granted_mode,
                 "counterpart_label": requester_label,
+                # Swapped in for the requester's copy of this feed row, so they
+                # read the owner's name rather than their own.
+                "owner_label": owner_label,
+                # Kept so the feed can say "You gave them 3 more hours" rather
+                # than reporting an extension as a brand-new share.
+                "is_extension": was_extension,
+                "requested_duration_hours": requested_hours,
+                "requested_duration_mode": requested_mode,
             },
         )
-        owner_identity = self._identity_row(owner_user_id)
-        owner_label = _identity_notification_label(owner_identity)
+        if granted_label and was_extension:
+            approved_body = f"{owner_label} gave you {granted_label} more of their live location."
+        elif granted_label:
+            approved_body = f"{owner_label} shared their live location with you {granted_label}."
+        else:
+            approved_body = f"{owner_label} approved your location request."
         self._send_metadata_notification(
             user_id=requester_user_id,
             notification_type="location_access_approved",
-            title="Location request approved",
-            body=f"{owner_label} approved your location request.",
+            title=("More location time approved" if was_extension else "Location request approved"),
+            body=approved_body,
             notification_tag=f"one-location-approved:{request_id}",
             request_url=_one_location_url(
                 requestId=request_id,
@@ -6339,6 +7175,10 @@ class OneLocationAgentService:
                 "grant_id": grant["id"],
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
+                "duration_hours": granted_hours,
+                "duration_mode": granted_mode,
+                "expires_at": grant.get("expiresAt"),
+                "is_extension": "true" if was_extension else None,
             },
         )
         return {"request": self._request_payload(resolved), "grant": grant}
@@ -6363,27 +7203,111 @@ class OneLocationAgentService:
             )
         requester_user_id = str(row.get("requester_user_id") or "") or None
         requester_label = _identity_notification_label(self._identity_row(requester_user_id or ""))
+        # Which ask was refused. Someone who asked for an hour, then for four,
+        # and is refused, is otherwise told only "denied" -- with no way to know
+        # whether they still hold the time they already had.
+        denied_hours, denied_mode = _normalized_requested_duration(
+            duration_hours=row.get("requested_duration_hours"),
+            duration_mode=row.get("requested_duration_mode"),
+        )
+        was_extension = bool(str(row.get("extends_grant_id") or "").strip())
+        owner_identity = self._identity_row(owner_user_id)
+        owner_label = _identity_notification_label(owner_identity)
         self._insert_event(
             owner_user_id=owner_user_id,
             actor_user_id=owner_user_id,
             recipient_user_id=requester_user_id,
             request_id=request_id,
             event_type="location_access_denied",
-            metadata={"counterpart_label": requester_label},
+            metadata={
+                "counterpart_label": requester_label,
+                "owner_label": owner_label,
+                "requested_duration_hours": denied_hours,
+                "requested_duration_mode": denied_mode,
+                "is_extension": was_extension,
+            },
         )
-        owner_identity = self._identity_row(owner_user_id)
-        owner_label = _identity_notification_label(owner_identity)
         self._send_metadata_notification(
             user_id=str(row.get("requester_user_id") or ""),
             notification_type="location_access_denied",
-            title="Location request denied",
-            body=f"{owner_label} denied your location request.",
+            title=("Extra time declined" if was_extension else "Location request denied"),
+            body=(
+                f"{owner_label} declined the extra time. Any access you already have is unchanged."
+                if was_extension
+                else f"{owner_label} denied your location request."
+            ),
             notification_tag=f"one-location-denied:{request_id}",
             request_url=_one_location_url(requestId=request_id, section="my_requests"),
             data={
                 "request_id": request_id,
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
+                "requested_duration_hours": denied_hours,
+                "requested_duration_mode": denied_mode,
+                "is_extension": "true" if was_extension else None,
+            },
+        )
+        return self._request_payload(row) or {}
+
+    def withdraw_request(self, *, requester_user_id: str, request_id: str) -> dict[str, Any]:
+        """The asker takes back their own pending request.
+
+        Approve and deny are the owner's verbs and both are keyed on
+        ``owner_user_id``. This one is keyed on ``requester_user_id`` instead,
+        which is the whole safety property: it can only ever end a request the
+        caller themselves sent, and it can never touch a request sent TO them.
+        Ending an ask you received is still ``deny_request``.
+
+        Only ``pending`` moves. An approved request has already produced a
+        grant, and taking the ask back would not take the access back -- that
+        is ``revoke_grant``, a different act on a different object. A request
+        already denied or already withdrawn has nothing left to end, so a
+        second call is a 404 rather than a silent success.
+        """
+        row = self._execute_one(
+            """
+            UPDATE one_location_access_requests
+            SET status = 'cancelled', resolved_at = NOW()
+            WHERE id = CAST(:request_id AS UUID)
+              AND requester_user_id = :requester_user_id
+              AND status = 'pending'
+            RETURNING *
+            """,
+            {"requester_user_id": requester_user_id, "request_id": request_id},
+        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_NOT_FOUND",
+                "Pending location access request was not found.",
+                status_code=404,
+            )
+        owner_user_id = str(row.get("owner_user_id") or "")
+        requester_label = _identity_notification_label(
+            self._identity_row(requester_user_id), fallback="Someone"
+        )
+        self._insert_event(
+            owner_user_id=owner_user_id,
+            actor_user_id=requester_user_id,
+            recipient_user_id=requester_user_id,
+            request_id=request_id,
+            event_type="location_access_request_withdrawn",
+            metadata={"counterpart_label": requester_label},
+        )
+        # Same notification tag as the original ask, so on the owner's device
+        # this REPLACES "X is asking to view your location" instead of stacking
+        # a second card under it. Leaving the first one in the tray is how
+        # somebody taps through to approve a request that no longer exists.
+        self._send_metadata_notification(
+            user_id=owner_user_id,
+            notification_type="location_access_request_withdrawn",
+            title="Location request taken back",
+            body=f"{requester_label} took back their location request.",
+            notification_tag=f"one-location-request:{request_id}",
+            request_url=_one_location_url(requestId=request_id, section="approvals"),
+            data={
+                "request_id": request_id,
+                "requester_user_id": requester_user_id,
+                "requester_display_label": requester_label,
             },
         )
         return self._request_payload(row) or {}
@@ -6403,7 +7327,7 @@ class OneLocationAgentService:
             WHERE id = CAST(:grant_id AS UUID)
               AND recipient_user_id = :referring_user_id
               AND status = 'active'
-              AND expires_at > NOW()
+              AND (expires_at IS NULL OR expires_at > NOW())
             LIMIT 1
             """,
             {"grant_id": grant_id, "referring_user_id": referring_user_id},

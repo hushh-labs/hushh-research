@@ -202,4 +202,9 @@ consent-protocol/agent-validation-*.json
 .backend-*.log
 .frontend-run.log
 .frontend-*.log
+.proxy-run.log
+.proxy-*.log
 *.log.cold.bak
+
+# Local working artifacts (founder evidence registers etc.) — never repo content.
+outputs/

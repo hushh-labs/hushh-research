@@ -19,15 +19,30 @@ describe("Connect page layout contract", () => {
     expect(source).not.toContain('eyebrow="One"');
   });
 
-  it("stacks connection actions below labels on narrow screens", () => {
+  it("keeps a connection's action beside its name, not stacked below it", () => {
+    // This assertion used to require the opposite, and shipped the defect QA
+    // reported as "remove neeche aa rha". `stackTrailingOnMobile` moves the
+    // trailing control onto its own line below `sm:` -- which is 640px, so on
+    // every iPhone -- and it was doing that for a single 72px "Remove" that had
+    // room to sit inline the whole time. A connection read as two rows, and the
+    // People list directly beneath it on the same screen never stacked, so the
+    // two halves of Connect disagreed about their own geometry.
+    //
+    // Measured, not asserted from a class name:
+    // `e2e/connect-circle-cta.layout.spec.ts` renders both SettingsRow
+    // geometries in a real browser and confirms the stacking one really does
+    // push the action below the name at 320-430px.
     const source = fs.readFileSync(
       path.join(WEBAPP_ROOT, "app/connect/page-client.tsx"),
       "utf8",
     );
 
-    expect(source).toMatch(
-      /sortedConnections\.map[\s\S]*?<SettingsRow[\s\S]*?stackTrailingOnMobile[\s\S]*?title=\{connection\.displayName \|\| connection\.userId\}/,
-    );
+    const connectionRow = source.match(
+      /sortedConnections\.map[\s\S]*?<SettingsRow[\s\S]*?\/>/,
+    )?.[0];
+    expect(connectionRow, "the connections list still renders a SettingsRow").toBeTruthy();
+    expect(connectionRow).not.toMatch(/^\s*stackTrailingOnMobile\s*$/m);
+    expect(connectionRow).toContain("trailing=");
   });
 
   it("hard-gates Connect and the private agent on live in-memory vault state", () => {

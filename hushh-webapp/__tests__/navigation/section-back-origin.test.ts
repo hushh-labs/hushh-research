@@ -98,6 +98,7 @@ describe("back leaves a destination by its origin", () => {
     expect(resolveTopShellBackAction({ pathname: CONNECT })).toEqual({
       href: LOCATION_PEOPLE,
       mode: "push",
+      transitionMode: "full",
     });
   });
 
@@ -115,6 +116,7 @@ describe("back leaves a destination by its origin", () => {
     expect(resolveTopShellBackAction({ pathname: "/ria/onboarding" })).toEqual({
       href: ONE_HOME,
       mode: "push",
+      transitionMode: "full",
     });
   });
 
@@ -127,6 +129,7 @@ describe("back leaves a destination by its origin", () => {
     expect(navigate).toHaveBeenCalledWith({
       href: LOCATION_PEOPLE,
       mode: "push",
+      transitionMode: "full",
     });
     expect(readDestinationOrigin(CONNECT)).toBeNull();
   });
@@ -142,7 +145,11 @@ describe("back leaves a destination by its origin", () => {
       navigate,
     });
 
-    expect(navigate).toHaveBeenCalledWith({ href: LOCATION, mode: "replace" });
+    expect(navigate).toHaveBeenCalledWith({
+      href: `${LOCATION}?view=now`,
+      mode: "replace",
+      transitionMode: "contextual",
+    });
     // The overlay closed; the origin is still owed for when they actually go.
     expect(readDestinationOrigin(LOCATION)).toBe(KAI);
   });

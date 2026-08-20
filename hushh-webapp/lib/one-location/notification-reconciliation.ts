@@ -1,4 +1,5 @@
 import type {
+  OneLocationAccessRequest,
   OneLocationNetworkConnection,
   OneLocationRecipient,
   OneLocationState,
@@ -26,6 +27,31 @@ function addValue(
 ): void {
   const normalized = String(value ?? "").trim();
   if (normalized) payload[key] = normalized;
+}
+
+/**
+ * Copy the ask — how much time, whether it is extra time on a live share, and
+ * how much of that share is left — onto a notification payload.
+ *
+ * `notification_revision` is what makes a raised ask a NEW notification. The
+ * provider de-duplicates by (type, id), so a person who asked for an hour and
+ * then for four would otherwise have their second ask silently swallowed and
+ * the owner would sit looking at the first number.
+ */
+function addAskValues(
+  payload: OneLocationNotificationPayload,
+  request: OneLocationAccessRequest,
+): void {
+  addValue(payload, "requested_duration_hours", request.requestedDurationHours);
+  addValue(payload, "requested_duration_mode", request.requestedDurationMode);
+  addValue(payload, "extends_grant_id", request.extendsGrantId);
+  addValue(payload, "extends_grant_expires_at", request.extendsGrantExpiresAt);
+  if (request.isExtension || request.extendsGrantId) {
+    addValue(payload, "is_extension", "true");
+  }
+  if (Number(request.requestRevision) > 1) {
+    addValue(payload, "notification_revision", request.requestRevision);
+  }
 }
 
 function recipientLabel(
@@ -102,6 +128,7 @@ export function buildOneLocationNotificationPayloads(
     );
     addValue(payload, "expires_at", grant.expiresAt);
     addValue(payload, "duration_hours", grant.durationHours);
+    addValue(payload, "duration_mode", grant.durationMode);
     addValue(payload, "share_kind", grant.shareKind);
     addValue(payload, "share_message", grant.shareMessage);
     if (grant.shareKind === "sos") {
@@ -135,6 +162,9 @@ export function buildOneLocationNotificationPayloads(
         request.requesterDisplayName ||
           recipientLabel(recipients, request.requesterUserId, "Someone"),
       );
+      // The ask itself. Without these the owner's popup says only that somebody
+      // wants their location, whether they asked for fifteen minutes or a day.
+      addAskValues(payload, request);
       payloads.push(payload);
       continue;
     }
@@ -159,6 +189,18 @@ export function buildOneLocationNotificationPayloads(
       addValue(payload, "grant_id", request.approvedGrantId);
       addValue(payload, "owner_user_id", request.ownerUserId);
       addValue(payload, "owner_display_label", ownerLabel);
+      addAskValues(payload, request);
+      // What was actually granted, read off the grant the approval produced —
+      // which is the only number that is true. The requested amount is what was
+      // asked for, and an owner is free to give less.
+      const approvedGrant = (state.receivedGrants ?? []).find(
+        (grant) => grant.id === request.approvedGrantId,
+      );
+      if (approvedGrant) {
+        addValue(payload, "duration_hours", approvedGrant.durationHours);
+        addValue(payload, "duration_mode", approvedGrant.durationMode);
+        addValue(payload, "expires_at", approvedGrant.expiresAt);
+      }
       payloads.push(payload);
     } else if (request.status === "denied") {
       const payload: OneLocationNotificationPayload = {
@@ -167,6 +209,7 @@ export function buildOneLocationNotificationPayloads(
       addValue(payload, "request_id", request.id);
       addValue(payload, "owner_user_id", request.ownerUserId);
       addValue(payload, "owner_display_label", ownerLabel);
+      addAskValues(payload, request);
       payloads.push(payload);
     }
   }

@@ -4,6 +4,7 @@ import {
   ensureLocationRecipientKey,
   ensureVaultSyncedRecipientKey,
 } from "@/lib/one-location/encryption";
+import { LocationBus } from "@/lib/one-location/location-bus";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
 
@@ -26,6 +27,21 @@ export async function bootstrapCurrentUserLocationRecipientKey(params: {
   const vaultKey = String(params.vaultKey || "").trim();
   if (!userId) throw new Error("Current user is required for One Location setup.");
   if (!vaultOwnerToken) throw new Error("Vault owner token required for One Location setup.");
+
+  // Bind the shared bus to this account, so a fix survives the page.
+  //
+  // Here rather than in a component because this is the one function that
+  // already runs on every signed-in Location surface — the hub, the invite
+  // page, the chat, and the unlock warm path — which is what makes the memory
+  // global instead of one screen's private cache.
+  //
+  // Deliberately not awaited, and deliberately before the key work below. The
+  // sealing key is read from IndexedDB, where any device that has something to
+  // restore already has it, so hydration usually resolves without waiting for
+  // registration. If it does lose the race it simply restores nothing this
+  // time: `readLastKnownFix` treats an unopenable record as absent rather than
+  // deleting it, so nothing is lost either way.
+  void LocationBus.attachUser(userId);
 
   if (vaultKey) {
     let remoteBackup = null;

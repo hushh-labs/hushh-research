@@ -70,6 +70,13 @@ const ALLOWLIST = new Set([
   // var(--app-accent); the remaining rainbow stops (incl. one warm gold) are
   // atmosphere, not the accent identity.
   "components/agent/agent-voice-edge-glow.tsx",
+  // Email HTML, not app UI. Mail clients do not resolve CSS custom
+  // properties -- Gmail and Outlook strip or ignore them -- so a token here
+  // renders as no colour at all. The accent has to be a literal hex in a
+  // message body, and the message is inlined-style-only for the same reason.
+  // Keep this entry limited to the mail renderer; nothing that paints a
+  // screen belongs on this list.
+  "app/api/one/location/sos-email/route.ts",
 ]);
 
 function isAllowed(repoPath) {

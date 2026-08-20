@@ -395,6 +395,21 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             }
         }
 
+        // A revocation that lands while a watch is already running answers none
+        // of the pending calls above, so it used to fall straight through the
+        // guard below and return. CoreLocation just stops delivering and JS is
+        // never told: the last known point stays on the map and the Location
+        // switch stays ON for someone the OS has already cut off. Every active
+        // watch has to hear about it, and it has to hear it in the same words
+        // the start path uses so isLocationPermissionDeniedError() matches on
+        // the JS side. failWatches is a no-op when nothing is watching.
+        switch manager.authorizationStatus {
+        case .denied, .restricted:
+            failWatches("Location permission was not granted.")
+        default:
+            break
+        }
+
         guard let call = pendingLocationCall else { return }
 
         switch manager.authorizationStatus {
@@ -443,6 +458,17 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         let message = "Precise location unavailable: \(error.localizedDescription)"
         if let call = clearPendingLocationCall() {
             call.reject(message)
+        }
+        // kCLErrorLocationUnknown is TRANSIENT. CoreLocation is saying "not
+        // right now", it keeps trying on its own, and Apple's guidance is to
+        // wait it out. Ending the watch on it meant failWatches() released every
+        // saved call and called stopUpdatingLocation(), so a single blip — a
+        // lift, a tunnel, a moment indoors — permanently stopped live sharing
+        // until the person toggled Location off and on again. The one-shot path
+        // above still rejects, because it is bounded by its own timeout.
+        if let locationError = error as? CLError,
+           locationError.code == .locationUnknown {
+            return
         }
         failWatches(message)
     }

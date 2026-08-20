@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import logging
 from contextlib import contextmanager
 from typing import Any, Callable
@@ -27,6 +28,40 @@ from hushh_mcp.services.feed_service import FeedService
 logger = logging.getLogger(__name__)
 
 _RIA_ACTIVE_PICKS_CAPABILITY = "ria_active_picks_feed_v1"
+
+# The SQL predicate for "this RIA profile is real enough to carry a capability".
+#
+# One string, interpolated into every statement that asks the question, because
+# THREE things now have to agree on it: the capability catalog, the directory's
+# advisor/people split, and the `isRia` annotation on each directory row. If the
+# Connect advisor tab used a looser rule than the catalog, that tab would list
+# people whose only possible outcome is an empty capability sheet -- an advisor
+# directory whose rows cannot advise.
+#
+# Must track ria_iam_service._RIA_VERIFIED_STATUSES; the test suite asserts each
+# of those statuses appears literally in the emitted SQL. The verification
+# success path writes 'verified' (migration 028 retired 'finra_verified' and
+# 'active' is never written), so omitting 'verified' hands a genuinely verified
+# RIA an empty catalog and silently blocks RIA Picks.
+#
+# Static text under our control, never user input -- it is interpolated, not
+# bound, because a bound array would erase those literals from the SQL text.
+_RIA_VERIFIED_STATUS_SQL = "verification_status IN ('active', 'verified', 'finra_verified')"
+
+# Who a directory search is asking about.
+#
+# The split is server-side and not a client-side filter on purpose: filtering a
+# page after LIMIT can only subtract from a page that was already chosen wrongly,
+# so "page 2 of advisors" would be page 2 of everyone with the non-advisors
+# removed -- pages of varying size, and advisors past the first page unreachable.
+DIRECTORY_AUDIENCE_ALL = "all"
+DIRECTORY_AUDIENCE_PEOPLE = "people"
+DIRECTORY_AUDIENCE_RIA = "ria"
+DIRECTORY_AUDIENCES = (
+    DIRECTORY_AUDIENCE_ALL,
+    DIRECTORY_AUDIENCE_PEOPLE,
+    DIRECTORY_AUDIENCE_RIA,
+)
 
 # Single source of truth for connection-capability display metadata. Both the
 # offer catalog and the receiver-facing proposal list read from here so the two
@@ -79,7 +114,12 @@ def _default_directory_lookup(owner_user_id: str) -> list[dict[str, Any]]:
 
 
 def _default_directory_search(
-    owner_user_id: str, *, query: str, page: int, limit: int
+    owner_user_id: str,
+    *,
+    query: str,
+    page: int,
+    limit: int,
+    audience: str = DIRECTORY_AUDIENCE_ALL,
 ) -> dict[str, Any]:
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
@@ -88,6 +128,7 @@ def _default_directory_search(
         query=query,
         page=page,
         limit=limit,
+        audience=audience,
     )
 
 
@@ -246,18 +287,17 @@ class ConnectionsService:
         return f"scp_{hashlib.sha256(material).hexdigest()[:32]}"
 
     def _scope_catalog_for_owner(self, owner_user_id: str) -> list[dict[str, str]]:
-        # Must track ria_iam_service._RIA_VERIFIED_STATUSES. The verification
-        # success path writes 'verified' (migration 028 retired 'finra_verified'
-        # and 'active' is never written), so omitting 'verified' here would hand a
-        # genuinely verified RIA an empty catalog and silently block RIA Picks.
+        # Gate text lives in _RIA_VERIFIED_STATUS_SQL so this, the directory
+        # audience split, and the row-level `isRia` annotation cannot drift.
         ria = self._execute_one(
-            """
+            f"""
             SELECT id
             FROM ria_profiles
             WHERE user_id = :user_id
-              AND verification_status IN ('active', 'verified', 'finra_verified')
+              AND {_RIA_VERIFIED_STATUS_SQL}
             LIMIT 1
-            """,
+            """,  # nosec B608 - _RIA_VERIFIED_STATUS_SQL is a module constant of
+            # static text; the only caller-supplied value here is bound.
             {"user_id": owner_user_id},
         )
         if not ria:
@@ -1582,26 +1622,14 @@ class ConnectionsService:
             except Exception:  # noqa: BLE001 - feed projection cannot roll back consent
                 logger.exception("connections.accepted_feed_projection_failed")
 
-        # Auto-share hook: a newly accepted connection makes both people
-        # mutually location-eligible. Honor each account persisted Auto-share
-        # flag. Best-effort, post-commit: the connection is already durable so
-        # an auto-share failure never undoes it. Gated per owner inside
-        # auto_start_share_for_new_peer, and only ever creates the
-        # metadata.source=auto_share grant a later toggle-off tears down.
-        try:
-            from hushh_mcp.services.one_location_agent_service import (
-                OneLocationAgentService,
-            )
-
-            location_service = OneLocationAgentService()
-            location_service.auto_start_share_for_new_peer(
-                owner_user_id=user_id, peer_user_id=requester
-            )
-            location_service.auto_start_share_for_new_peer(
-                owner_user_id=requester, peer_user_id=user_id
-            )
-        except Exception:  # noqa: BLE001 - auto-share cannot roll back the connection
-            logger.warning("connections.accepted_auto_share_failed", exc_info=True)
+        # Accepting a connection grants nothing on its own. Location sharing is
+        # opt-in and one-directional: it starts only when a person explicitly
+        # requests the other's location and that request is approved (see
+        # OneLocationAgentService.request_access / approve_request). A prior
+        # "auto-share on connect" hook lived here and silently granted both
+        # people mutual live location on every accepted connection with no
+        # request involved -- removed; see OneLocationAgentService.approve_request
+        # for the only path that may create a share grant.
         return {
             "status": "accepted",
             "requestId": req.get("id"),
@@ -1803,32 +1831,180 @@ class ConnectionsService:
             for r in rows
         ]
 
+    @staticmethod
+    def _call_directory_search(
+        directory_search: Callable[..., dict[str, Any]],
+        owner_user_id: str,
+        *,
+        query: str,
+        page: int,
+        limit: int,
+        audience: str,
+    ) -> tuple[dict[str, Any], bool]:
+        """Call the injected directory search, with or without `audience`.
+
+        Returns the page and whether the split was applied at the source.
+
+        `_directory_search` is a documented injection point -- tests and the
+        Location caller replace it with their own callables. Passing a keyword
+        those older callables never declared would turn an added tab into a
+        TypeError on the default People tab, so the parameter is offered only to
+        implementations that actually accept it. A double that does not is asked
+        the question it already understood, and the audience split is then
+        applied in Python below.
+        """
+        try:
+            accepts_audience = "audience" in inspect.signature(directory_search).parameters
+        except (TypeError, ValueError):  # builtins / C callables expose no signature
+            accepts_audience = False
+        if accepts_audience:
+            return (
+                directory_search(
+                    owner_user_id, query=query, page=page, limit=limit, audience=audience
+                ),
+                True,
+            )
+        return directory_search(owner_user_id, query=query, page=page, limit=limit), False
+
+    def _filter_people_by_audience(
+        self, people: list[dict[str, Any]], audience: str
+    ) -> list[dict[str, Any]]:
+        """Keep only the advisors, or only the people who are not advisors.
+
+        The two audiences partition the directory: everyone appears in exactly
+        one of them, so separating advisors never makes a person unreachable.
+        """
+        if audience == DIRECTORY_AUDIENCE_ALL:
+            return people
+        ria_user_ids = self._verified_ria_user_ids([str(p.get("userId") or "") for p in people])
+        want_ria = audience == DIRECTORY_AUDIENCE_RIA
+        return [p for p in people if (str(p.get("userId") or "") in ria_user_ids) is want_ria]
+
+    def _verified_ria_user_ids(self, user_ids: list[str]) -> set[str]:
+        """Which of these people hold a capability-bearing RIA profile.
+
+        One statement for the whole page rather than one per row: the caller is
+        annotating up to 50 rows, and a per-row lookup would put 50 round trips
+        behind a single directory read.
+        """
+        candidates = [uid for uid in {*user_ids} if uid]
+        if not candidates:
+            return set()
+        rows = self._execute_many(
+            f"""
+            SELECT user_id
+            FROM ria_profiles
+            WHERE user_id = ANY(:user_ids)
+              AND {_RIA_VERIFIED_STATUS_SQL}
+            """,  # nosec B608 - _RIA_VERIFIED_STATUS_SQL is a module constant of
+            # static text; the user ids are bound as an array parameter.
+            {"user_ids": candidates},
+        )
+        return {str(row.get("user_id") or "") for row in rows}
+
     def search_directory(
-        self, user_id: str, *, query: str | None = None, page: int = 1, limit: int = 20
+        self,
+        user_id: str,
+        *,
+        query: str | None = None,
+        page: int = 1,
+        limit: int = 20,
+        audience: str = DIRECTORY_AUDIENCE_ALL,
     ) -> dict[str, Any]:
         user_id = (user_id or "").strip()
         page = max(1, int(page or 1))
         limit = max(1, min(int(limit or 20), 50))
         needle = (query or "").strip().lower()
+        # An unknown audience widens rather than narrows: a typo in a caller
+        # must not silently hide people who are really there.
+        audience = (audience or DIRECTORY_AUDIENCE_ALL).strip().lower()
+        if audience not in DIRECTORY_AUDIENCES:
+            audience = DIRECTORY_AUDIENCE_ALL
 
         # Reuse the One Location "Ready people" directory (list_verified_recipients)
         # as the source of people, so display names resolve exactly as they do on
         # the Location screen (never a raw user id). The connection-graph
         # relationship is annotated on top.
+        # Set when the page was cut without knowing the audience, so the split
+        # still has to happen in Python below.
+        audience_pending = audience != DIRECTORY_AUDIENCE_ALL
         directory_search = getattr(self, "_directory_search", None)
         if directory_search is not None:
-            directory_page = directory_search(user_id, query=needle, page=page, limit=limit)
+            directory_page, audience_applied = self._call_directory_search(
+                directory_search,
+                user_id,
+                query=needle,
+                page=page,
+                limit=limit,
+                audience=audience,
+            )
             people = directory_page.get("items") or []
             has_more = bool(directory_page.get("hasMore"))
+            if audience_applied:
+                audience_pending = False
         else:
+            # The in-memory fallback has to answer the same question the SQL
+            # path answers, or the two disagree about who is findable depending
+            # on which one a deployment happens to take. Same two tiers, same
+            # A-Z within each, and the same rule that ranking and matching
+            # finish BEFORE the page is cut.
             people = self._directory_lookup(user_id) or []
             if needle:
-                people = [
-                    p for p in people if needle in str(p.get("displayName") or "").strip().lower()
-                ]
+                # Same separator folding as the SQL path's TRANSLATE. Without
+                # it the two paths disagree about "Abdul-Rashid": Python's
+                # bare split() sees one word, the SQL sees two, and whether a
+                # person is findable comes down to which branch a deployment
+                # happened to take.
+                def _folded(value: str) -> str:
+                    folded = value.strip().lower()
+                    for separator in "-'._/,":
+                        folded = folded.replace(separator, " ")
+                    return folded
+
+                def _tier(person: dict[str, Any]) -> int | None:
+                    name = _folded(str(person.get("displayName") or ""))
+                    if name.startswith(needle):
+                        return 0
+                    if any(word.startswith(needle) for word in name.split()):
+                        return 1
+                    return None
+
+                ranked = [(tier, p) for p in people if (tier := _tier(p)) is not None]
+                ranked.sort(
+                    key=lambda entry: (
+                        entry[0],
+                        str(entry[1].get("displayName") or "").strip().lower(),
+                        str(entry[1].get("userId") or ""),
+                    )
+                )
+                people = [p for _, p in ranked]
+            else:
+                people = sorted(
+                    people,
+                    key=lambda p: (
+                        str(p.get("displayName") or "").strip().lower(),
+                        str(p.get("userId") or ""),
+                    ),
+                )
+            # Split BEFORE the page is cut, exactly as the SQL path does. A
+            # filter applied after LIMIT can only subtract from a page that was
+            # already chosen wrongly: pages of uneven size, and every advisor
+            # past the first page unreachable.
+            if audience_pending:
+                people = self._filter_people_by_audience(people, audience)
+                audience_pending = False
             offset = (page - 1) * limit
             has_more = offset + limit < len(people)
             people = people[offset : offset + limit]
+
+        if audience_pending:
+            # The page was cut by a directory implementation that predates the
+            # audience split, so the only remaining option is to filter what it
+            # returned. This narrows a page rather than paging the narrowed set,
+            # so `hasMore` still describes the unsplit list. Reachable only via
+            # an injected `_directory_search` double; the shipped implementation
+            # accepts `audience` and splits in SQL.
+            people = self._filter_people_by_audience(people, audience)
 
         # Load the caller's pending requests (both directions) and active
         # connections once, then classify each person in Python.
@@ -1873,6 +2049,12 @@ class ConnectionsService:
                 return "pending_incoming"
             return "none"
 
+        # Annotated on the row, not inferred from which tab asked. The row has
+        # to be able to say what it is even when the audience is "all" -- voice
+        # name-resolution searches across everyone, and a row that only knew its
+        # kind from its tab would go back to being unlabelled there.
+        ria_user_ids = self._verified_ria_user_ids([str(p.get("userId") or "") for p in people])
+
         return {
             "items": [
                 {
@@ -1883,11 +2065,13 @@ class ConnectionsService:
                     "maskedEmail": p.get("maskedEmail"),
                     "maskedPhone": p.get("maskedPhone"),
                     "relationship": relationship(str(p.get("userId") or "")),
+                    "isRia": str(p.get("userId") or "") in ria_user_ids,
                 }
                 for p in people
             ],
             "page": page,
             "hasMore": has_more,
+            "audience": audience,
         }
 
     def list_connections(self, user_id: str) -> list[dict[str, Any]]:
@@ -1906,6 +2090,14 @@ class ConnectionsService:
             """,
             {"user_id": user_id},
         )
+        # The same annotation `search_directory` puts on every row, for the same
+        # reason. The RIAs tab lists your existing connections above its search
+        # results, and without this flag it had nothing to filter them by -- so
+        # it listed every connection you have, advisor or not, and someone who
+        # never finished RIA onboarding showed up under "RIAs". One statement
+        # for the whole list, not one lookup per row; no statement at all when
+        # you have no connections.
+        ria_user_ids = self._verified_ria_user_ids([str(r.get("user_id") or "") for r in rows])
         return [
             {
                 "connectionId": str(r.get("connection_id") or ""),
@@ -1913,6 +2105,7 @@ class ConnectionsService:
                 "displayName": r.get("display_name"),
                 "photoUrl": r.get("photo_url"),
                 "createdAt": r.get("created_at"),
+                "isRia": str(r.get("user_id") or "") in ria_user_ids,
             }
             for r in rows
         ]

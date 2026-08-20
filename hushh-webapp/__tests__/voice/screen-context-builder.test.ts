@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  ACTION_ID_SCREEN_SEGMENT_CAP,
   ARRAY_DIMENSION_CAP_ERROR,
   INVALID_ARRAY_TYPE_ERROR,
   STRUCTURED_CONTEXT_ARRAY_CAP,
@@ -1009,6 +1010,35 @@ describe("buildStructuredScreenContext", () => {
     expect(snapshot.cache.freshness).toBe("locked");
   });
 
+  it("defaults voice_settings to today's exact behavior when none is provided", () => {
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/kai", "kai"),
+    });
+
+    expect(snapshot.voice_settings).toEqual({
+      voice_enabled: true,
+      require_tap_confirmation: false,
+      disabled_domains: [],
+    });
+  });
+
+  it("carries the person's own voice restrictions into the live snapshot", () => {
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/kai", "kai"),
+      voiceSettings: {
+        voiceEnabled: false,
+        requireTapConfirmation: true,
+        disabledDomains: ["location", "location", "kyc"],
+      },
+    });
+
+    expect(snapshot.voice_settings).toEqual({
+      voice_enabled: false,
+      require_tap_confirmation: true,
+      disabled_domains: ["location", "kyc"],
+    });
+  });
+
   it("carries only bounded onboarding progress into the live snapshot", () => {
     const snapshot = buildOneVoiceContextSnapshot({
       appRuntimeState: makeRuntimeState("/one/setup/kai", "one_setup"),
@@ -1154,12 +1184,76 @@ describe("a surface that declares more controls than the context can carry", () 
     expect(snapshot.available_action_ids).toContain("location.pause_updates");
     // Still bounded -- this fixes an ordering bug, it does not lift the cap.
     expect(snapshot.available_action_ids.length).toBeLessThanOrEqual(
-      STRUCTURED_CONTEXT_ARRAY_CAP,
+      ACTION_ID_SCREEN_SEGMENT_CAP,
     );
     // And the openers are what yields, since navigation is admitted from any
     // screen whether or not this surface submitted it.
     expect(snapshot.available_action_ids).not.toContain(
       "location.open_join_circle",
+    );
+  });
+
+  it("fits every one of Location's real local handlers, not just three of them", () => {
+    // The scenario above used 3 local handlers as a stand-in. Location's
+    // actual published contract has grown to 12 (add_to_circle and
+    // remove_from_circle are the newest), which is more than the generic
+    // STRUCTURED_CONTEXT_ARRAY_CAP (10) even after ranking puts every local
+    // handler ahead of every route opener. Two of the twelve fell off the
+    // end and came back `action_unavailable` -- indistinguishable from a
+    // broken feature -- for as long as the segment cap stayed at 10.
+    window.history.pushState({}, "", "/one/location");
+    const openers = [
+      "location.open_now",
+      "location.open_people",
+      "location.open_links",
+      "location.open_share",
+      "location.open_ask",
+      "location.open_invite",
+      "location.open_create_circle",
+      "location.open_join_circle",
+      "location.open_temporary_link",
+      "location.open_check_in",
+      "location.open_sos",
+      "location.open_sms_contacts",
+      "location.open_settings",
+      "location.open_active_shares",
+      "location.open_shared_with_me",
+      "location.open_needs_review",
+      "location.add_connections",
+      "location.open_map",
+    ];
+    const localHandlers = [
+      "location.refresh",
+      "location.pause_updates",
+      "location.select_share_recipient",
+      "location.share_selected",
+      "location.stop_sos",
+      "location.set_auto_share",
+      "location.add_emergency_contact",
+      "location.remove_emergency_contact",
+      "location.resume_updates",
+      "location.create_circle",
+      "location.add_to_circle",
+      "location.remove_from_circle",
+    ];
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "one_location",
+      controls: [...openers, ...localHandlers].map((actionId) => ({
+        id: actionId,
+        actionId,
+        label: actionId,
+      })),
+    });
+
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/location", "one_location"),
+    });
+
+    for (const actionId of localHandlers) {
+      expect(snapshot.available_action_ids).toContain(actionId);
+    }
+    expect(snapshot.available_action_ids.length).toBeLessThanOrEqual(
+      ACTION_ID_SCREEN_SEGMENT_CAP,
     );
   });
 });

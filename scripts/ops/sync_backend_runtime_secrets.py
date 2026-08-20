@@ -191,9 +191,27 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "advisors_api_base_url": args.advisors_api_base_url,
         "insurance_agents_api_base_url": args.insurance_agents_api_base_url,
         "nws_nearby_api_base_url": args.nws_nearby_api_base_url,
+        "nws_nearby_v4_api_base_url": args.nws_nearby_v4_api_base_url,
+        # The lane's own registered consumer identity upstream. Derived from the
+        # deploy target rather than taken as a flag: a per-lane value with a
+        # default is the shape that silently ships one lane's identity to
+        # another, and a mismatch here is refused upstream as a project
+        # mismatch — which reads like an outage, not a config error.
+        "nws_nearby_v4_project_id": args.project,
         "one_places_directory_enabled": args.one_places_directory_enabled,
     }
     return _drop_empty(config)
+
+
+# One NWS v4 credential per lane, because the upstream registry binds each key
+# to exactly one consumer and one project. An unlisted lane resolves to blank,
+# which skips the mirror and leaves the surface reporting "not set up" — the
+# right answer for a lane with no registered consumer, and better than handing
+# it another lane's identity.
+_NWS_V4_KEY_SOURCE_BY_PROJECT: dict[str, str] = {
+    "hushh-pda-uat": "nws-hushh-research-v4-api-key-uat",
+    "hushh-pda": "nws-hushh-research-v4-api-key-prod",
+}
 
 
 def _mirror_directory_key(
@@ -316,7 +334,30 @@ def main() -> int:
     )
     parser.add_argument("--nws-nearby-api-key-source-project", default="hushh-tech-prod")
     parser.add_argument("--nws-nearby-api-key-source-secret", default="nws-nearby-api-key")
+    # NWS v4 net-worth contract. Same single deployed service, so the base URL
+    # carries a real default for the same reason as the v2 one above. The v4
+    # credential is a per-consumer key rather than the shared service key, so it
+    # is mirrored from its own source secret and never falls back to the v2 one:
+    # presenting the v2 key to v4 is refused as invalid credentials, and sharing
+    # one key across two consumers is exactly what the upstream registry exists
+    # to prevent.
+    parser.add_argument(
+        "--nws-nearby-v4-api-base-url",
+        default="https://nws-nearby-intelligence-fro3hygenq-uc.a.run.app",
+    )
+    parser.add_argument("--nws-nearby-v4-api-key-source-project", default="hushh-tech-prod")
+    # Blank by default and resolved from the lane below. Unlike the v2 key,
+    # which is one shared service credential every lane may use, a v4 key is
+    # bound in the upstream registry to a single consumer with a single
+    # project. Mirroring one key into every lane would hand production UAT's
+    # credential, and the upstream would refuse it as a project mismatch.
+    parser.add_argument("--nws-nearby-v4-api-key-source-secret", default="")
     args = parser.parse_args()
+
+    if not str(args.nws_nearby_v4_api_key_source_secret or "").strip():
+        args.nws_nearby_v4_api_key_source_secret = _NWS_V4_KEY_SOURCE_BY_PROJECT.get(
+            args.project, ""
+        )
 
     sync_summary: list[str] = []
 
@@ -335,6 +376,11 @@ def main() -> int:
             "NWS_NEARBY_API_KEY",
             args.nws_nearby_api_key_source_project,
             args.nws_nearby_api_key_source_secret,
+        ),
+        (
+            "NWS_NEARBY_V4_API_KEY",
+            args.nws_nearby_v4_api_key_source_project,
+            args.nws_nearby_v4_api_key_source_secret,
         ),
     ):
         status = _mirror_directory_key(

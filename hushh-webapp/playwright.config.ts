@@ -35,6 +35,27 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      // The product ships inside an iOS WKWebView, so Safari's engine is the
+      // one that matters for layout contracts -- Chromium passing proves
+      // nothing about the shipped container.
+      //
+      // Scoped to the specs written against it. The existing suite has never
+      // run on WebKit and two of its assertions do not hold there yet (the
+      // root layout's `interactive-widget` viewport key, which WebKit logs as
+      // an error, and a profile redirect that behaves differently). Widening
+      // this project to `e2e/**` would turn those red without fixing them.
+      // Opt specs in as they are made WebKit-clean.
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+      // `gemini-endpoint-fields.layout` is opted in deliberately and is the
+      // reason this project matters: a native <select> under WebKit's
+      // `appearance: menulist` ignores the author's border-radius, so the
+      // radius defect it covers is INVISIBLE in Chromium. A Chromium-only run
+      // passes the broken control.
+      testMatch:
+        /(circle-join-responsive-contract|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout)\.spec\.ts/,
+    },
+    {
       name: "firefox",
       use: { ...devices["Desktop Firefox"] },
     },

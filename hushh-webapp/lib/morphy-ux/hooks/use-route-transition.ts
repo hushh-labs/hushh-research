@@ -119,6 +119,11 @@ export function beginRouteTransition(
       activeRouteIntentId = intent.id;
       clearRouteTimers();
       if (transitionMode === "contextual" || reducedMotion()) {
+        // clearRouteTimers() above has just removed whatever would have
+        // restored a `pending` exit left latched by an interrupted full
+        // navigation. A contextual commit is instantaneous, so nothing may
+        // stay faded out — `pending` holds the entire app shell at opacity 0.
+        setRouteState("idle");
         appInteractionCoordinator.markNavigationCommitting(intent.id);
         transitionInFlight = true;
         try {
@@ -376,39 +381,49 @@ export function useRouteTransition() {
     const activeIntent = appInteractionCoordinator
       .getSnapshot()
       .find((intent) => intent.id === activeRouteIntentId);
-    const activeTarget = activeIntent?.target
-      ? new URL(activeIntent.target, window.location.origin)
-      : null;
-    const targetRouteKey = activeTarget
-      ? `${activeTarget.pathname}${activeTarget.search}`
-      : null;
     const isContextualIntent = activeIntent?.transitionMode === "contextual";
 
+    /**
+     * Settle the navigation that has already handed its href to the router.
+     *
+     * A resolved route key reaching this effect IS the app reporting that it
+     * moved, and that is the only authority worth trusting. Settlement used to
+     * require the route key to string-match the intent's target, which it
+     * routinely does not: a target is hand-built ("/one/location?view=links")
+     * while the key is re-serialised from Next's parsed params, and Location's
+     * own effects rewrite the query as the hub mounts. Every mismatch left the
+     * navigation active forever, and an active navigation swallows the next
+     * tap to the same place.
+     *
+     * Only a committed navigation settles. One still waiting out its exit beat
+     * has a commit timer pending that checks it is still current, so retiring
+     * it here would drop the navigation entirely.
+     */
+    const settleCommittedIntent = (reason: string) => {
+      if (!activeRouteIntentId) return;
+      if (activeIntent?.status !== "committing") return;
+      appInteractionCoordinator.settleNavigation(activeRouteIntentId, reason);
+      activeRouteIntentId = null;
+    };
+
     if (isContextualIntent) {
-      if (targetRouteKey === routeKey && activeRouteIntentId) {
-        appInteractionCoordinator.settleNavigation(
-          activeRouteIntentId,
-          "contextual_route_key_settled",
-        );
-        activeRouteIntentId = null;
+      settleCommittedIntent("contextual_route_key_settled");
+      // A contextual commit plays no enter beat, but it must never inherit a
+      // `pending` exit from an interrupted full navigation and leave the shell
+      // invisible.
+      if (document.documentElement.dataset.routeTransition === "pending") {
+        clearRouteTimers();
+        setRouteState("idle");
       }
       return;
     }
 
     if (reducedMotion()) {
-      if (activeRouteIntentId && targetRouteKey === routeKey) {
-        appInteractionCoordinator.settleNavigation(
-          activeRouteIntentId,
-          "route_key_settled",
-        );
-        activeRouteIntentId = null;
-      }
+      settleCommittedIntent("route_key_settled");
+      setRouteState("idle");
       return;
     }
     playEnter();
-    if (activeRouteIntentId && targetRouteKey === routeKey) {
-      appInteractionCoordinator.settleNavigation(activeRouteIntentId, "route_key_settled");
-      activeRouteIntentId = null;
-    }
+    settleCommittedIntent("route_key_settled");
   }, [pathname, routeKey]);
 }

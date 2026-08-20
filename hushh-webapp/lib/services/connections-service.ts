@@ -3,6 +3,16 @@ import { ApiService } from "@/lib/services/api-service";
 export type ConnectionRelationship =
   "none" | "pending_outgoing" | "pending_incoming" | "connected";
 
+/**
+ * Which half of the directory a search is asking about.
+ *
+ * The two named audiences partition it: every findable person is in exactly
+ * one, so separating advisors never makes anyone unreachable. `"all"` is what
+ * every caller that predates the split still gets, and is what spoken-name
+ * resolution uses -- someone saying a name is not saying which tab it is in.
+ */
+export type DirectoryAudience = "all" | "people" | "ria";
+
 export interface DirectoryPerson {
   userId: string;
   displayName: string | null;
@@ -11,12 +21,19 @@ export interface DirectoryPerson {
   maskedEmail?: string | null;
   maskedPhone?: string | null;
   relationship: ConnectionRelationship;
+  /**
+   * Whether this person holds an RIA profile verified far enough to carry a
+   * capability. Server-annotated on the row rather than inferred from which tab
+   * asked, so a search across everyone can still label what it found.
+   */
+  isRia?: boolean;
 }
 
 export interface DirectoryPage {
   items: DirectoryPerson[];
   page: number;
   hasMore: boolean;
+  audience?: DirectoryAudience;
 }
 
 export interface ConnectionSummaryEntry {
@@ -25,6 +42,15 @@ export interface ConnectionSummaryEntry {
   displayName: string | null;
   photoUrl: string | null;
   createdAt: string | null;
+  /**
+   * Whether this connection holds a verified RIA profile — the same
+   * server-annotated flag `DirectoryPerson` carries, from the same helper, so
+   * the two lists on the RIAs tab can never disagree about who is an advisor.
+   * Optional so a cached page written before the field existed still parses;
+   * absent reads as "not an advisor", which is the safe direction — it hides a
+   * row from the RIAs tab rather than claiming someone is verified.
+   */
+  isRia?: boolean;
 }
 
 export interface ConnectionRequest {
@@ -123,11 +149,17 @@ export class ConnectionsService {
     query?: string;
     page?: number;
     limit?: number;
+    audience?: DirectoryAudience;
   }): Promise<DirectoryPage> {
     const params = new URLSearchParams();
     if (opts.query) params.set("query", opts.query);
     params.set("page", String(opts.page ?? 1));
     if (typeof opts.limit === "number") params.set("limit", String(opts.limit));
+    // Omitted rather than sent as "all", so the request a pre-split caller
+    // makes stays byte-identical to the one it made before.
+    if (opts.audience && opts.audience !== "all") {
+      params.set("audience", opts.audience);
+    }
     const response = await ApiService.apiFetch(
       `/api/one/connections/directory?${params.toString()}`,
       {

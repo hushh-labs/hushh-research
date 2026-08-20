@@ -38,6 +38,7 @@ export type FeedEventType =
   | "consent_revoked"
   | "location_share_created"
   | "location_share_revoked"
+  | "location_share_shortened"
   | "location_share_expired"
   | "location_access_request"
   | "location_access_approved"
@@ -146,7 +147,7 @@ export class FeedService {
     return count;
   }
 
-  static async markRead(options: { idToken: string; upToId?: string | null }): Promise<void> {
+  static async markRead(options: { idToken: string; upToId?: string | null; userId?: string }): Promise<void> {
     const response = await ApiService.apiFetch("/api/one/feed/read", {
       method: "POST",
       headers: {
@@ -160,6 +161,10 @@ export class FeedService {
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as ErrorPayload;
       throw new Error(payload.detail || payload.error || `Request failed: ${response.status}`);
+    }
+    if (options.userId) {
+      CacheService.getInstance().invalidate(CACHE_KEYS.FEED_LIST(options.userId));
+      CacheService.getInstance().invalidate(CACHE_KEYS.FEED_UNREAD_COUNT(options.userId));
     }
   }
 }

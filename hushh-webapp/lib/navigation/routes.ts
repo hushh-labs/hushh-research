@@ -74,6 +74,8 @@ export const ROUTES = {
   PROFILE_PREFERENCES_KAI: "/one/profile/preferences/kai",
   PROFILE_PREFERENCES_GEMINI: "/one/profile/preferences/gemini",
   PROFILE_PREFERENCES_DEVICE: "/one/profile/preferences/device",
+  PROFILE_PREFERENCES_VOICE: "/one/profile/preferences/voice",
+  PROFILE_PREFERENCES_VOICE_CHANGELOG: "/one/profile/preferences/voice/changelog",
   PROFILE_SECURITY: "/one/profile/security",
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",

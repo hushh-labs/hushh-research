@@ -41,14 +41,80 @@ function buildingColorSegment(value: string): string {
     : `${value} building`;
 }
 
-/** Extract a likely PIN/postal code for a helpful, editable form prefill. */
+/**
+ * An Open Location Code (a Google "plus code") such as `FVJ7+JR2` or the full
+ * `7JVW52GR+2V`. Google returns one as the leading segment whenever it has no
+ * street address for the pinned point, which is common on unmapped lanes and
+ * inside large campuses.
+ *
+ * It is a coordinate in disguise, not an address. It must never be offered as
+ * a house number, and it is stripped from the line we show and save.
+ */
+const PLUS_CODE_ALPHABET = "23456789CFGHJMPQRVWX";
+const PLUS_CODE_PATTERN = new RegExp(
+  `^[${PLUS_CODE_ALPHABET}]{2,8}\\+[${PLUS_CODE_ALPHABET}]{2,3}$`,
+  "i",
+);
+
+export function isPlusCode(value: string | null | undefined): boolean {
+  return PLUS_CODE_PATTERN.test(String(value || "").trim());
+}
+
+/**
+ * Drop a leading plus code so the person reads "Teliarganj, Prayagraj, Uttar
+ * Pradesh 211004, India" instead of "FVJ7+JR2, Teliarganj, ...". The code is
+ * kept when it is the ONLY thing Google returned -- a coordinate in disguise
+ * still beats a blank line.
+ */
+export function stripPlusCodeSegment(
+  address: string | null | undefined,
+): string | null {
+  const value = String(address || "").trim();
+  if (!value) return null;
+  const segments = value.split(",").map((segment) => segment.trim());
+  const kept = segments.filter((segment) => segment && !isPlusCode(segment));
+  if (kept.length === 0) return value;
+  if (kept.length === segments.filter(Boolean).length) return value;
+  return kept.join(", ");
+}
+
+/**
+ * Extract a likely PIN/postal code for a helpful, editable form prefill.
+ *
+ * Ordered most-specific first so a six-digit Indian PIN is never beaten by a
+ * four-digit fragment, and so an alphanumeric UK/Canadian/Dutch code is found
+ * at all -- `isValidPostalCode` has always accepted those, but nothing ever
+ * detected them, so people outside the 5/6-digit world got an empty field on
+ * an address that plainly carried one.
+ */
 export function inferPostalCode(address: string | null | undefined): string {
   const value = String(address || "");
-  return (
+  const direct =
+    // India / China / Singapore and friends.
     value.match(/\b\d{6}\b/)?.[0] ??
+    // US ZIP and ZIP+4.
     value.match(/\b\d{5}(?:-\d{4})?\b/)?.[0] ??
-    ""
-  );
+    // UK: SW1A 1AA, M1 1AE, CR2 6XH.
+    value.match(/\b[A-Z]{1,2}\d[A-Z\d]?\s+\d[A-Z]{2}\b/i)?.[0] ??
+    // Canada: K1A 0B1.
+    value.match(/\b[A-Z]\d[A-Z]\s?\d[A-Z]\d\b/i)?.[0] ??
+    // Netherlands: 1012 AB.
+    value.match(/\b\d{4}\s?[A-Z]{2}\b/)?.[0] ??
+    null;
+  if (direct) return cleanText(direct, MAX_POSTAL_CODE_LENGTH);
+
+  // A bare four-digit code (AU, NZ, much of Europe) only counts when it sits
+  // in the tail of the address, where a postal code lives. Taken anywhere it
+  // would happily lift a house number or a road number instead.
+  const segments = value
+    .split(",")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  for (const segment of segments.slice(-2)) {
+    const match = segment.match(/\b\d{4}\b/)?.[0];
+    if (match) return match;
+  }
+  return "";
 }
 
 /** The part before the first comma, which is where a house number sits. */
@@ -63,19 +129,24 @@ function firstAddressSegment(address: string | null | undefined): string {
  *
  * Deliberately narrow. It accepts a first segment with no spaces that contains
  * a digit ("B-284/3", "42", "A-12"), or one that names itself ("Flat 4B",
- * "Plot 22"). It will not take "12 MG Road", which is a street that happens to
- * carry a number -- putting that in the House-flat box would be wrong, and a
- * wrong prefill is worse than an empty one because people trust prefilled
- * fields and stop reading them.
+ * "Qtr. No.- 123/2", "Plot 22"). It will not take "12 MG Road", which is a
+ * street that happens to carry a number -- putting that in the House-flat box
+ * would be wrong, and a wrong prefill is worse than an empty one because
+ * people trust prefilled fields and stop reading them.
+ *
+ * Nor will it take a plus code. `FVJ7+JR2` has no spaces and carries digits,
+ * so the old shape rule accepted it and put a coordinate in the House-flat
+ * box -- exactly the "address is not populating" the form was reported for.
  */
+const HOUSE_DESIGNATOR_PATTERN =
+  /^(flat|plot|house|apartment|apt|qtr|quarter|no\.?|h\.?\s?no|d\.?\s?no|#|door|shop|unit|block|villa|bungalow|survey|khasra|gala|room|suite|ste)\b/i;
+
 export function inferHouseOrFlat(address: string | null | undefined): string {
   const segment = firstAddressSegment(address);
   if (!segment || segment.length > MAX_HOUSE_OR_FLAT_LENGTH) return "";
   if (!/\d/.test(segment)) return "";
-  const namesItself =
-    /^(flat|plot|house|apartment|apt|no\.?|#|door|shop|unit|block)\b/i.test(
-      segment,
-    );
+  if (isPlusCode(segment)) return "";
+  const namesItself = HOUSE_DESIGNATOR_PATTERN.test(segment);
   if (!namesItself && /\s/.test(segment)) return "";
   return cleanText(segment, MAX_HOUSE_OR_FLAT_LENGTH);
 }
@@ -88,9 +159,12 @@ export function inferHouseOrFlat(address: string | null | undefined): string {
 export function inferSavedLocationAddressDetails(
   address: string | null | undefined,
 ): Pick<SavedLocationAddressDetails, "houseOrFlat" | "postalCode"> {
+  // A leading plus code hides the real opening segment. "FVJ7+JR2, Qtr. No.-
+  // 123/2, Teliarganj, ..." carries a house number; it is just not first.
+  const readable = stripPlusCodeSegment(address);
   return {
-    houseOrFlat: inferHouseOrFlat(address),
-    postalCode: inferPostalCode(address),
+    houseOrFlat: inferHouseOrFlat(readable),
+    postalCode: inferPostalCode(readable),
   };
 }
 
@@ -129,8 +203,10 @@ export function buildSavedLocationAddress(
   details: SavedLocationAddressDetails,
 ): string | null {
   const normalized = normalizeSavedLocationAddressDetails(details);
+  // Saved exactly as it was shown: the plus code is dropped on screen, so it
+  // must not reappear inside the stored line.
   const baseAddress = cleanText(
-    String(mapAddress || ""),
+    String(stripPlusCodeSegment(mapAddress) || ""),
     MAX_SAVED_ADDRESS_LENGTH,
   );
   // The house number is now prefilled FROM the address, so on most saves it is

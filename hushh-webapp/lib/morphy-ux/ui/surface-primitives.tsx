@@ -23,7 +23,7 @@ import {
   ACCENT_ICON_BUBBLE,
   AVATAR_BUBBLE,
   CARD_SURFACE,
-  EYEBROW,
+  SCREEN_EYEBROW,
   MUTED_TEXT,
   PILL_LIVE,
   PILL_NEUTRAL,
@@ -54,19 +54,21 @@ export function TaskFlowHeader({
 }) {
   return (
     <header className="space-y-1.5">
-      <div className="flex items-center gap-2">
-        {onBack ? (
-          <button
-            type="button"
-            onClick={onBack}
-            className="-ml-1 flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-            aria-label="Back"
-          >
-            <ChevronRight className="h-5 w-5 rotate-180" />
-          </button>
-        ) : null}
-        {eyebrow ? <p className={EYEBROW}>{eyebrow}</p> : null}
-      </div>
+      {onBack || eyebrow ? (
+        <div className="flex items-center gap-2">
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="-ml-1 flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+              aria-label="Back"
+            >
+              <ChevronRight className="h-5 w-5 rotate-180" />
+            </button>
+          ) : null}
+          {eyebrow ? <p className={SCREEN_EYEBROW}>{eyebrow}</p> : null}
+        </div>
+      ) : null}
       <h1 className={SCREEN_TITLE}>{title}</h1>
       {description ? <p className="ui-text-page-subtitle">{description}</p> : null}
     </header>
@@ -208,14 +210,14 @@ export function TrustNoteCard({
   title,
   description,
 }: {
-  title: string;
+  title?: string;
   description: string;
 }) {
   return (
     <div className={cn(TRUST_SURFACE, "flex gap-3 p-3.5")}>
       <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
       <div>
-        <p className="ui-text-row-label-emphasized">{title}</p>
+        {title ? <p className="ui-text-row-label-emphasized">{title}</p> : null}
         <p className={MUTED_TEXT}>{description}</p>
       </div>
     </div>

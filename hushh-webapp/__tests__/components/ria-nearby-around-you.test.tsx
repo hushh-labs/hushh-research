@@ -366,3 +366,178 @@ describe("what the screen claims about completeness", () => {
     expect(screen.queryByText(/not a complete list/i)).not.toBeInTheDocument();
   });
 });
+
+describe("national index", () => {
+  it("heads the pane with what the advisor typed, not the index name", async () => {
+    // Every US postcode now resolves, and the label that comes back is the
+    // name of the national index rather than anywhere recognisable.
+    mockDiscover.mockResolvedValue({
+      ...COVERED,
+      coverage: {
+        ...COVERED.coverage,
+        reasonCode: "APPROVED_NATIONAL_INDEX",
+        marketId: "us-national-public-association",
+        marketLabel: "United States national public-association index",
+      },
+    });
+
+    render(<NearbyAroundYou />);
+    fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
+    fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "94010" } });
+    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
+
+    await waitFor(() => expect(screen.getByText("94010 US")).toBeInTheDocument());
+    expect(
+      screen.queryByText(/United States national public-association index/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("says the list is partial when a source is down", async () => {
+    // The index answers with whatever the healthy registry held, and that
+    // shorter list is indistinguishable from a complete one.
+    mockDiscover.mockResolvedValue({
+      ...COVERED,
+      sourceHealth: {
+        status: "DEGRADED",
+        queriedSourceCount: 2,
+        successfulSources: ["SEC_SECTION16"],
+        degradedSources: ["CMS_NPPES"],
+      },
+    });
+
+    render(<NearbyAroundYou />);
+    fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
+    fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "94010" } });
+    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
+
+    await waitFor(() => expect(screen.getByText(/Partial — a source is down/i)).toBeInTheDocument());
+  });
+
+  it("stays quiet when every source answered", async () => {
+    mockDiscover.mockResolvedValue({
+      ...COVERED,
+      sourceHealth: {
+        status: "HEALTHY",
+        queriedSourceCount: 2,
+        successfulSources: ["SEC_SECTION16", "CMS_NPPES"],
+        degradedSources: [],
+      },
+    });
+
+    render(<NearbyAroundYou />);
+    fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
+    fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "94010" } });
+    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
+
+    await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
+    expect(screen.queryByText(/Partial —/i)).not.toBeInTheDocument();
+  });
+
+  it("blames the postcode, not the country, when a ZIP is unmapped", async () => {
+    // Thousands of real deliverable US ZIPs are not census areas. An advisor
+    // whose own mail ZIP is one of them should not be told the US is unmapped.
+    mockDiscover.mockResolvedValue({
+      ...NOT_COVERED,
+      coverage: {
+        ...NOT_COVERED.coverage,
+        status: "LOCATION_UNRESOLVED",
+        reasonCode: "POSTAL_CODE_NOT_IN_GEOGRAPHY_INDEX",
+        countryCode: "US",
+      },
+    });
+
+    render(<NearbyAroundYou />);
+    fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
+    fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "20500" } });
+    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/That postcode isn't mapped/i)).toBeInTheDocument(),
+    );
+  });
+});
+
+describe("score regime", () => {
+  // Values taken from the two live markets: a registry-discovered record leaves
+  // the four graph-backed components at zero, a reviewed one populates them.
+  function breakdown(graphBacked: number) {
+    return {
+      components: [
+        { key: "graph_authority", label: "Graph authority", value: graphBacked, weight: 0.3, contribution: 0 },
+        { key: "institutional_influence", label: "Institutional influence", value: 0.746, weight: 0.2, contribution: 0.149 },
+        { key: "verified_track_record", label: "Verified track record", value: graphBacked, weight: 0.2, contribution: 0 },
+        { key: "capital_access", label: "Capital access", value: graphBacked, weight: 0.1, contribution: 0 },
+        { key: "evidence_confidence", label: "Evidence confidence", value: 0.81, weight: 0.08, contribution: 0.065 },
+        { key: "trusted_reach", label: "Trusted reach", value: graphBacked, weight: 0.07, contribution: 0 },
+        { key: "freshness", label: "Freshness", value: 0.98, weight: 0.05, contribution: 0.049 },
+      ],
+      evidenceCount: 5,
+      coverageMultiplier: 1,
+      integrityPenalty: 0,
+      localRelevance: 1,
+      method: "m",
+    };
+  }
+
+  async function openFirstRecord(over: Record<string, unknown>) {
+    mockDiscover.mockResolvedValue({
+      ...COVERED,
+      results: [record({ personId: "b1", displayName: "Builder One", ...over })],
+    });
+
+    render(<NearbyAroundYou />);
+    fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
+    fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "94010" } });
+    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
+
+    await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Builder One"));
+  }
+
+  it("says what a registry-discovered score actually measured", async () => {
+    // Two thirds of the weighting has nothing to read for these records, so
+    // they land far below a reviewed one. Unlabelled, that reads as a weaker
+    // person rather than a thinner source.
+    await openFirstRecord({ scoreBreakdown: breakdown(0) });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/From public registry role and recency only/i),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("stays silent for a reviewed record even though both call themselves provisional", async () => {
+    // The live service reports score_kind PROFESSIONAL_NETWORK_PROVISIONAL for
+    // reviewed and registry records alike, so the label cannot be the
+    // discriminator — claiming a reviewed record has no relationship evidence
+    // would be false.
+    await openFirstRecord({
+      scoreKind: "PROFESSIONAL_NETWORK_PROVISIONAL",
+      scoreBreakdown: breakdown(0.6788),
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText(/Network strength, not net worth/i)).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/From public registry role and recency only/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("claims nothing when there is no breakdown to read", async () => {
+    await openFirstRecord({ scoreBreakdown: null });
+
+    await waitFor(() =>
+      expect(screen.getByText(/Network strength, not net worth/i)).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/From public registry role and recency only/i),
+    ).not.toBeInTheDocument();
+  });
+});

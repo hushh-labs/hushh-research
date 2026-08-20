@@ -33,6 +33,54 @@ _ALIAS_CODE_PATTERN = re.compile(r"\s+")
 _ALIAS_VERIFICATION_TTL_SECONDS = 15 * 60
 
 
+def resolve_firebase_email(user_record: Any) -> str | None:
+    """The best email Firebase knows for this account.
+
+    The identity shadow used to read `user_record.email` and nothing else, so
+    an account whose top-level email was empty was cached with no address at
+    all. That is not an edge case here: people sign in with Google, with Apple,
+    and with a phone number, and only the first reliably populates the
+    top-level field.
+
+    - Apple, especially with Hide My Email, frequently leaves the top-level
+      email empty while the provider entry carries the relay address.
+    - A phone-first account that later links Google has the address on the
+      provider entry before the top-level field catches up.
+
+    Every downstream feature that needs to reach someone by email inherited
+    that blank -- including the Save my Soul alert, which silently skipped any
+    contact with no address and reported "Emailed 0" without saying why.
+
+    Order: the top-level field, then Google, then Apple, then any provider that
+    has one. Providers are only consulted when the field above is empty, so a
+    verified top-level address always wins.
+
+    Returns None when the account genuinely has no email anywhere -- a
+    phone-only signup. That case is real and cannot be papered over; the caller
+    has to handle "this person is not reachable by mail".
+    """
+    direct = str(getattr(user_record, "email", "") or "").strip()
+    if direct:
+        return direct
+
+    providers = getattr(user_record, "provider_data", None) or []
+    by_provider: dict[str, str] = {}
+    for entry in providers:
+        email = str(getattr(entry, "email", "") or "").strip()
+        if not email or "@" not in email:
+            continue
+        provider_id = str(getattr(entry, "provider_id", "") or "").strip().lower()
+        by_provider.setdefault(provider_id, email)
+
+    for provider_id in ("google.com", "apple.com"):
+        if by_provider.get(provider_id):
+            return by_provider[provider_id]
+
+    for email in by_provider.values():
+        return email
+    return None
+
+
 class ActorIdentityAliasError(RuntimeError):
     def __init__(
         self,
@@ -546,74 +594,98 @@ class ActorIdentityService:
         pool = await get_pool()
         try:
             async with pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    """
-                    INSERT INTO actor_identity_cache (
-                      user_id,
-                      display_name,
-                      email,
-                      phone_number,
-                      photo_url,
-                      email_verified,
-                      phone_verified,
-                      source,
-                      last_synced_at,
-                      created_at,
-                      updated_at
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        INSERT INTO actor_profiles (
+                          user_id,
+                          personas,
+                          last_active_persona,
+                          investor_marketplace_opt_in,
+                          created_at,
+                          updated_at
+                        )
+                        VALUES (
+                          $1,
+                          ARRAY['investor']::text[],
+                          'investor',
+                          FALSE,
+                          NOW(),
+                          NOW()
+                        )
+                        ON CONFLICT (user_id) DO NOTHING
+                        """,
+                        normalized_user_id,
                     )
-                    VALUES (
-                      $1,
-                      $2,
-                      $3,
-                      $4,
-                      $5,
-                      COALESCE($6, FALSE),
-                      COALESCE($7, FALSE),
-                      $8,
-                      NOW(),
-                      NOW(),
-                      NOW()
+                    row = await conn.fetchrow(
+                        """
+                        INSERT INTO actor_identity_cache (
+                          user_id,
+                          display_name,
+                          email,
+                          phone_number,
+                          photo_url,
+                          email_verified,
+                          phone_verified,
+                          source,
+                          last_synced_at,
+                          created_at,
+                          updated_at
+                        )
+                        VALUES (
+                          $1,
+                          $2,
+                          $3,
+                          $4,
+                          $5,
+                          COALESCE($6, FALSE),
+                          COALESCE($7, FALSE),
+                          $8,
+                          NOW(),
+                          NOW(),
+                          NOW()
+                        )
+                        ON CONFLICT (user_id) DO UPDATE SET
+                          display_name = COALESCE(EXCLUDED.display_name, actor_identity_cache.display_name),
+                          email = COALESCE(EXCLUDED.email, actor_identity_cache.email),
+                          phone_number = COALESCE(EXCLUDED.phone_number, actor_identity_cache.phone_number),
+                          photo_url = COALESCE(EXCLUDED.photo_url, actor_identity_cache.photo_url),
+                          email_verified = COALESCE($6, actor_identity_cache.email_verified),
+                          phone_verified = COALESCE($7, actor_identity_cache.phone_verified),
+                          source = CASE
+                            WHEN EXCLUDED.source IS NULL OR EXCLUDED.source = '' THEN actor_identity_cache.source
+                            ELSE EXCLUDED.source
+                          END,
+                          last_synced_at = NOW(),
+                          updated_at = NOW()
+                        RETURNING
+                          user_id,
+                          display_name,
+                          email,
+                          phone_number,
+                          COALESCE(custom_photo_url, photo_url) AS photo_url,
+                          email_verified,
+                          phone_verified,
+                          source,
+                          last_synced_at,
+                          created_at,
+                          updated_at
+                        """,
+                        normalized_user_id,
+                        str(display_name or "").strip() or None,
+                        str(email or "").strip().lower() or None,
+                        str(phone_number or "").strip() or None,
+                        str(photo_url or "").strip() or None,
+                        email_verified,
+                        phone_verified,
+                        str(source or "").strip() or "unknown",
                     )
-                    ON CONFLICT (user_id) DO UPDATE SET
-                      display_name = COALESCE(EXCLUDED.display_name, actor_identity_cache.display_name),
-                      email = COALESCE(EXCLUDED.email, actor_identity_cache.email),
-                      phone_number = COALESCE(EXCLUDED.phone_number, actor_identity_cache.phone_number),
-                      photo_url = COALESCE(EXCLUDED.photo_url, actor_identity_cache.photo_url),
-                      email_verified = COALESCE($6, actor_identity_cache.email_verified),
-                      phone_verified = COALESCE($7, actor_identity_cache.phone_verified),
-                      source = CASE
-                        WHEN EXCLUDED.source IS NULL OR EXCLUDED.source = '' THEN actor_identity_cache.source
-                        ELSE EXCLUDED.source
-                      END,
-                      last_synced_at = NOW(),
-                      updated_at = NOW()
-                    RETURNING
-                      user_id,
-                      display_name,
-                      email,
-                      phone_number,
-                      COALESCE(custom_photo_url, photo_url) AS photo_url,
-                      email_verified,
-                      phone_verified,
-                      source,
-                      last_synced_at,
-                      created_at,
-                      updated_at
-                    """,
-                    normalized_user_id,
-                    str(display_name or "").strip() or None,
-                    str(email or "").strip().lower() or None,
-                    str(phone_number or "").strip() or None,
-                    str(photo_url or "").strip() or None,
-                    email_verified,
-                    phone_verified,
-                    str(source or "").strip() or "unknown",
-                )
         except Exception as exc:
-            logger.debug(
-                "actor_identity_cache upsert skipped for %s: %s",
+            logger.error(
+                "actor_identity_cache upsert failed for %s: %s",
                 normalized_user_id,
                 exc,
+                exc_info=True,
             )
             return None
 
@@ -1241,7 +1313,7 @@ class ActorIdentityService:
         updated = await self.upsert_identity(
             user_id=normalized_user_id,
             display_name=getattr(user_record, "display_name", None),
-            email=getattr(user_record, "email", None),
+            email=resolve_firebase_email(user_record),
             phone_number=firebase_phone_number,
             photo_url=getattr(user_record, "photo_url", None),
             email_verified=getattr(user_record, "email_verified", None),

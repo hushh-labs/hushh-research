@@ -163,6 +163,10 @@ describe("destructive voice actions can explain themselves", () => {
     "connect.remove_connection",
     "location.remove_emergency_contact",
     "location.remove_from_circle",
+    "location.leave_circle",
+    "location.delete_circle",
+    "location.delete_saved_location",
+    "location.trigger_sos",
   ] as const;
 
   it.each(CONFIRMED_BY_CARD)("%s carries the words its card shows", (actionId) => {

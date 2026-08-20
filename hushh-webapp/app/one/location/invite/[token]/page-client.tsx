@@ -18,6 +18,10 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  roleClasses,
+  type SemanticRole,
+} from "@/lib/morphy-ux/tokens/semantic-roles";
+import {
   buildPhoneMandateRoute,
   buildProfileVaultRoute,
 } from "@/lib/navigation/routes";
@@ -28,6 +32,13 @@ import { ApiError } from "@/lib/services/api-client";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { ConnectionsService } from "@/lib/services/connections-service";
 import { useVault } from "@/lib/vault/vault-context";
+
+/**
+ * A claim that threw is a hard failure, not something to look at later. The
+ * warning family means pending / expiring / needs review, so painting a
+ * failure with it told the reader the opposite of what happened.
+ */
+const CLAIM_FAILURE_TONE = roleClasses("danger");
 
 function formatDateTime(value?: string | null): string {
   if (!value) return "Not set";
@@ -210,6 +221,19 @@ export default function OneLocationCircleInvitePageClient() {
     }
   }, [auth.user, auth.userId, inviteToken, router, vaultOwnerToken, vaultKey]);
 
+  // The glyph in this bubble already switches between three opposite
+  // meanings; the bubble itself used to stay action-blue through all of
+  // them, so an unusable link and a completed join were painted as the
+  // same "do this" colour. Colour now says what the glyph says.
+  // The resting state stays `action`: an open invitation to a Location
+  // surface is exactly the map/CTA affordance that owns accent blue.
+  const headerRole: SemanticRole = error
+    ? "danger"
+    : claimed
+      ? "success"
+      : "action";
+  const headerTone = roleClasses(headerRole);
+
   const signedIn = Boolean(auth.userId && auth.isAuthenticated);
   const canClaim =
     signedIn &&
@@ -223,7 +247,9 @@ export default function OneLocationCircleInvitePageClient() {
       <div className="mx-auto flex min-h-screen w-full max-w-[720px] flex-col px-5 pb-10 pt-[max(48px,calc(env(safe-area-inset-top)+28px))] sm:px-6 sm:pt-[max(64px,calc(env(safe-area-inset-top)+40px))]">
         <div className="space-y-6 rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-none sm:p-6">
           <div className="flex items-start gap-4">
-            <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+            <div
+              className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] ${headerTone.tile} ${headerTone.glyph}`}
+            >
               {error ? (
                 <AlertTriangle className="h-[17px] w-[17px]" aria-hidden="true" />
               ) : claimed ? (
@@ -276,14 +302,16 @@ export default function OneLocationCircleInvitePageClient() {
                 </div>
               ) : null}
 
-              <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-accent)]/10 p-4 text-[15px] leading-5 text-foreground">
+              <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-accent-tint)] p-4 text-[15px] leading-5 text-foreground">
                 Accepting connects both of you on One. Live location still starts only
                 when someone taps Share Location, confirms permission, and sends an
                 encrypted share from Location.
               </div>
 
               {claimError ? (
-                <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-warning)]/10 p-4 text-[15px] leading-5 text-[color:var(--app-warning)]">
+                <div
+                  className={`rounded-[var(--app-card-radius-compact)] p-4 text-[15px] leading-5 ${CLAIM_FAILURE_TONE.tile} ${CLAIM_FAILURE_TONE.glyph}`}
+                >
                   {claimError}
                 </div>
               ) : null}

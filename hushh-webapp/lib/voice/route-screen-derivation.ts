@@ -81,6 +81,20 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_SETUP_CONNECTED_SYSTEMS) {
     return { screen: "one_setup_connected_systems", subview: null };
   }
+  if (normalizedPath === ROUTES.ONE_SETUP_CALENDAR) {
+    return { screen: "one_setup_calendar", subview: null };
+  }
+  // The standalone Calendar feature page, plus the OAuth return and
+  // integrations routes that only exist to land back on it -- all four are
+  // one screen in the orchestration index.
+  if (
+    normalizedPath === ROUTES.CALENDAR ||
+    normalizedPath === ROUTES.PROFILE_INTEGRATIONS ||
+    normalizedPath === ROUTES.PROFILE_GOOGLE_OAUTH_RETURN ||
+    normalizedPath === "/profile/google/oauth/return"
+  ) {
+    return { screen: "calendar", subview: null };
+  }
   if (normalizedPath === ROUTES.ONE_SETUP_KAI) {
     return { screen: "one_setup_finance", subview: "legacy" };
   }
@@ -250,6 +264,9 @@ export function deriveVoiceRouteScreen(
   }
   if (normalizedPath === ROUTES.ONE_LOCATION_MAP) {
     return { screen: "one_location_map", subview: null };
+  }
+  if (normalizedPath === ROUTES.ONE_LOCATION_CHECK_IN) {
+    return { screen: "one_location_check_in", subview: null };
   }
   if (normalizedPath === ROUTES.ONE_LOCATION) {
     // Location's hub owns two query params, and neither is `tab`: `view`

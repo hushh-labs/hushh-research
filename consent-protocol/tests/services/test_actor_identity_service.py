@@ -494,3 +494,74 @@ async def test_email_alias_verification_blocks_existing_verified_owner(
         )
 
     assert exc.value.code == "EMAIL_ALIAS_ALREADY_VERIFIED"
+
+
+@pytest.mark.asyncio
+async def test_upsert_identity_ensures_actor_profile_spine_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed_statements: list[str] = []
+
+    class FakeTx:
+        async def __aenter__(self) -> None:
+            return None
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class FakeConn:
+        def transaction(self) -> FakeTx:
+            return FakeTx()
+
+        async def execute(self, query: str, *args: object) -> str:
+            executed_statements.append(query)
+            return "INSERT 0 1"
+
+        async def fetchrow(self, query: str, *args: object) -> dict[str, object]:
+            executed_statements.append(query)
+            now = datetime.now(timezone.utc)
+            return {
+                "user_id": args[0],
+                "display_name": args[1],
+                "email": args[2],
+                "phone_number": args[3],
+                "photo_url": args[4],
+                "email_verified": bool(args[5]),
+                "phone_verified": bool(args[6]),
+                "source": args[7],
+                "last_synced_at": now,
+                "created_at": now,
+                "updated_at": now,
+            }
+
+    class FakeAcquire:
+        async def __aenter__(self) -> FakeConn:
+            return FakeConn()
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class FakePool:
+        def acquire(self) -> FakeAcquire:
+            return FakeAcquire()
+
+    async def fake_get_pool() -> FakePool:
+        return FakePool()
+
+    monkeypatch.setattr(actor_identity_service, "get_pool", fake_get_pool)
+
+    service = ActorIdentityService()
+    identity = await service.upsert_identity(
+        user_id="new-signup-user-9999",
+        display_name="New Signup User",
+        email="newuser@example.com",
+        phone_number="+15559990000",
+        phone_verified=True,
+    )
+
+    assert identity is not None
+    assert identity["user_id"] == "new-signup-user-9999"
+    assert identity["phone_verified"] is True
+    assert len(executed_statements) == 2
+    assert "INSERT INTO actor_profiles" in executed_statements[0]
+    assert "INSERT INTO actor_identity_cache" in executed_statements[1]

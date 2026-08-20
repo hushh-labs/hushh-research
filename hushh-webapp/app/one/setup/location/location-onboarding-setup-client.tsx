@@ -61,14 +61,14 @@ export function LocationOnboardingCompletedScreen({
   return (
     <FullscreenFlowShell
       width="reading"
-      className="min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] justify-start px-[var(--page-inline-gutter-standard)] pb-10 pt-[max(56px,calc(env(safe-area-inset-top)+36px))]"
+      className="min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] justify-start px-[var(--page-inline-gutter-standard)] pb-10 pt-[max(56px,calc(env(safe-area-inset-top)+36px))] [--type-agent-title-line:37px] [--type-agent-title-size:34px] [--type-agent-title-tracking:-0.9px] [--type-agent-title-weight:600] sm:[--type-agent-title-line:48px] sm:[--type-agent-title-size:44px] sm:[--type-agent-title-tracking:-1.1px]"
       data-testid="location-onboarding-completed"
     >
       <section
         className="motion-step-enter mx-auto flex w-full max-w-[34rem] flex-col items-center text-center"
         aria-labelledby="location-onboarding-completed-title"
       >
-        <span className="flex h-[52px] w-[52px] items-center justify-center rounded-[16px] bg-[color:var(--app-success)]/12 text-[color:var(--app-success)]">
+        <span className="flex h-[52px] w-[52px] items-center justify-center rounded-[var(--app-radius-md)] bg-[color:var(--app-success)]/12 text-[color:var(--app-success)]">
           <CheckCircle2 className="h-7 w-7" aria-hidden="true" />
         </span>
         <p className="mt-5 text-[13px] font-normal leading-[18px] text-muted-foreground">

@@ -37,10 +37,10 @@ describe("setup catalog voice parity", () => {
       "Connect Gmail",
       "Connect your calendar",
       "Set up location",
-      "KYC",
-      "Set up your finances",
-      "Set up RIA",
-      "CRM",
+      "Identity checks",
+      "Set up your money",
+      "Set up your advisor profile",
+      "Connect your CRM",
     ]);
     expect(
       hubContract.actions
@@ -48,7 +48,7 @@ describe("setup catalog voice parity", () => {
         .map((action) => action.label),
     ).toEqual([
       "Set up your cloud",
-      "Set up AI access",
+      "Choose your AI",
       ...CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ]);
     expect(actions.get("setup.open_connections")?.execution_target).toMatchObject({

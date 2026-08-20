@@ -22,6 +22,15 @@
 @source "../components/one-location/live-map.tsx";
 @source "../components/one-location/location-immersive-map.tsx";
 
+/*
+ * The semantic role layer holds class strings that exist in no .tsx file at
+ * all — a component asks for a role and renders whatever the layer returns —
+ * so the scanner has nothing in the mounted tree to infer them from. Without
+ * this entry the wash and hairline utilities it owns are never emitted and a
+ * status pill loses its fill entirely.
+ */
+@source "../lib/morphy-ux/tokens/semantic-roles.ts";
+
 /* ============================================================================
  * MOBILE UX & ACCESSIBILITY FIXES
  * ============================================================================ */
@@ -79,7 +88,7 @@ body {
 }
 
 html body[data-scroll-locked] {
-  overflow: visible !important;
+  overflow: hidden !important;
   margin-right: 0 !important;
 }
 
@@ -338,6 +347,11 @@ textarea {
   --app-accent-deep: #007aff; /* TEXT / icons on light = same system blue */
   --app-accent-bright: #4a9eff; /* dark-mode solid partner */
   --app-accent-tint: rgba(0, 122, 255, 0.1);
+  /* Soft accent well behind an accent glyph. Eight call sites across Location
+     have asked for this since the redesign landed and it was defined nowhere,
+     so every one of those wells rendered unpainted in BOTH themes. Aliased to
+     the tint rather than given its own literal, so it tracks the accent. */
+  --app-accent-soft: var(--app-accent-tint);
   --app-accent-surface: #e6f0ff; /* Location's active-pill fill */
   --app-accent-surface-strong: #d4e5ff;
   --app-accent-border: rgba(0, 122, 255, 0.32);
@@ -377,7 +391,99 @@ textarea {
   --system-red: var(--app-destructive);
   --system-orange: var(--app-warning);
   --app-purple: #af52de;
+  /* People, circles, private sharing. Sits beside the other five semantic
+     hues rather than inline in a component, and gives the profile screens'
+     existing [data-icon-tone="indigo"] rules something to reference. */
+  --app-indigo: #5856d6;
   --app-info: var(--app-accent);
+
+  /* ── Semantic role families (light) ──────────────────────────────
+     Derived partners for the FLAT status roles above. They use the
+     slot names the --app-accent-* family already uses, and match its
+     -tint / -border alphas value-for-value, so a semantic role tile
+     composes the way an accent tile does. -surface is the one slot
+     that does not line up; the bullet below says why.
+
+     Why they exist: without them each component hand-rolls a one-off
+     alpha (bg-[color:var(--app-success)]/12, border-...(--app-success)/30,
+     raw bg-emerald-500/15), so the SAME status renders a slightly
+     different wash on every screen.
+
+     Slot contract (identical for every role, accent included):
+     - -tint    the quiet wash behind an icon glyph or a compact pill.
+                Value-for-value the accent's tint alpha (0.10 light /
+                0.15 dark), so an `action` tile and a `success` tile
+                sitting in the same row read at the same strength.
+     - -surface the one step up from -tint, for a selected control or a
+                status banner that has to hold its own against the card
+                behind it. NOTE the one place this family does not
+                follow the accent: --app-accent-surface is an opaque
+                hex (#e6f0ff) that predates these roles, so it
+                composites differently from the alphas here. Do not
+                read the two as interchangeable, and do not flood a
+                whole card with either.
+     - -border  the hairline that pairs with -tint or -surface. Same
+                alpha as --app-accent-border (0.32 light / 0.35 dark).
+     - -deep    the TEXT/glyph-legible tone on LIGHT surfaces, exactly
+                as --app-accent-deep is. The flat role token is a FILL
+                tone and must not paint a glyph: #34c759 measures
+                2.22:1 on white and 2.04:1 on its own tint, below even
+                the 3:1 non-text floor. Each -deep below clears 4.5:1
+                on white, on the grouped canvas, and on its own tint
+                over both.
+     - -bright  the same legible tone for DARK surfaces, exactly as
+                --app-accent-bright is. Green and orange already clear
+                4.5:1 on dark washes, so their -bright IS the dark flat
+                token; red (4.23:1) and indigo (2.91:1) do not, so
+                those two lift to a brighter partner.
+     - -fg      text sitting ON the SOLID role colour — the same
+                contract as --app-accent-fg, and NOT the tone for a
+                tint (that is -deep / -bright). Green and orange carry
+                DARK -fg because white on them measures ~2.2:1; red and
+                indigo carry white. This follows the file's own
+                precedent, where the gold accent sets
+                --app-accent-fg: #1d1d1f for the same reason.
+
+     These roles are deliberately ACCENT-INVARIANT: the gold accent
+     preference must repaint only the --app-accent family, so success /
+     warning / danger / people are intentionally NOT overridden in the
+     html[data-accent="gold"] blocks below.
+
+     Alpha form for the washes is used on purpose: they sit on white
+     cards, on the grouped #f2f2f7 canvas and on elevated surfaces
+     alike, so they have to composite with whatever is behind them. */
+  --app-success-tint: rgba(52, 199, 89, 0.1);
+  --app-success-surface: rgba(52, 199, 89, 0.18);
+  --app-success-border: rgba(52, 199, 89, 0.32);
+  --app-success-deep: #137a35;
+  --app-success-bright: #30d158;
+  --app-success-fg: #1d1d1f;
+  --app-warning-tint: rgba(255, 149, 0, 0.1);
+  --app-warning-surface: rgba(255, 149, 0, 0.18);
+  --app-warning-border: rgba(255, 149, 0, 0.32);
+  --app-warning-deep: #9a5b00;
+  --app-warning-bright: #ff9f0a;
+  --app-warning-fg: #1d1d1f;
+  --app-destructive-tint: rgba(255, 59, 48, 0.1);
+  --app-destructive-surface: rgba(255, 59, 48, 0.18);
+  --app-destructive-border: rgba(255, 59, 48, 0.32);
+  --app-destructive-deep: #c31d13;
+  --app-destructive-bright: #ff6961;
+  --app-destructive-fg: #ffffff;
+
+  /* People / circles / trusted groups / private sharing.
+     iOS systemIndigo. Deliberately NOT --app-purple (#af52de,
+     systemPurple), which already carries the link/share tile meaning —
+     reusing it would make "a person" and "a shared link" the same
+     colour. */
+  --app-people: #5856d6;
+  --app-people-tint: rgba(88, 86, 214, 0.1);
+  --app-people-surface: rgba(88, 86, 214, 0.18);
+  --app-people-border: rgba(88, 86, 214, 0.32);
+  --app-people-deep: #4340b8;
+  --app-people-bright: #a5a3ff;
+  --app-people-fg: #ffffff;
+
   --app-focus-ring: rgba(0, 122, 255, 0.25);
   --app-glass-surface: rgba(255, 255, 255, 0.78);
   --app-glass-border: rgba(60, 60, 67, 0.18);
@@ -534,6 +640,25 @@ textarea {
   --app-bottom-content-clearance: calc(
     var(--bottom-chrome-stack-height, var(--app-bottom-inset)) + 24px
   );
+  /*
+   * The gap a PAGE leaves under its last row — a reading gap, not a reserve for
+   * the fixed bars.
+   *
+   * The scroll root in `app/providers.tsx` already reserves the bottom chrome,
+   * and its comment says why: it owns that clearance "so feature routes do not
+   * need to guess at device safe areas or bar geometry". Every page carrying
+   * `.app-page-shell` guessed at it anyway and reserved a second one, which is
+   * the wide empty band under the last card on every screen.
+   *
+   * The second reserve was not even the right number. Substituting a custom
+   * property uses the values present where it is DECLARED, and
+   * `--bottom-chrome-stack-height` is declared on the route shell, not on
+   * `:root` — so `--app-bottom-content-clearance` resolves here against the
+   * `--app-bottom-inset` fallback and freezes that, ignoring the height the
+   * bottom shell actually measured. Held at 24px by
+   * e2e/app-shell-bottom-clearance.layout.spec.ts.
+   */
+  --app-page-content-bottom-gap: 24px;
   --app-top-safe-offset: 0px;
   --app-safe-area-top-probe: 0px;
   --app-safe-area-top: var(
@@ -641,19 +766,28 @@ textarea {
   --settings-row-py: 11px;
   --settings-row-gap: 12px;
   --settings-row-stack-gap: 10px;
-  --ios-account-screen-background: #f2f2f7;
-  --ios-account-card-background: #ffffff;
-  --ios-account-label: #1d1d1f;
-  --ios-account-secondary-label: #8e8e93;
+  /* Profile surface tokens are ALIASES onto the app-wide design system, not a
+   * second palette. They used to hardcode their own hexes (#007aff accent,
+   * #f2f2f7/#000 canvases), which meant Profile silently opted out of the
+   * accent preference — Molten Gold changed every screen except this one —
+   * and painted card surfaces the One Location screens do not use. Keeping the
+   * token NAMES lets the existing Profile rules stay untouched while the
+   * VALUES now resolve through --app-* exactly like SurfaceCard and the
+   * morphy-ux surface primitives. Fallbacks preserve the old values if a
+   * token is ever missing. Never reintroduce a literal accent hex here. */
+  --ios-account-screen-background: var(--background, #f2f2f7);
+  --ios-account-card-background: var(--app-card-surface-default-solid, #ffffff);
+  --ios-account-label: var(--foreground, #1d1d1f);
+  --ios-account-secondary-label: var(--muted-foreground, #8e8e93);
   --ios-account-tertiary-label: #aeaeb2;
-  --ios-account-separator: rgba(60, 60, 67, 0.1);
+  --ios-account-separator: var(--app-card-border-standard, rgba(60, 60, 67, 0.1));
   --ios-account-icon-tile-background: rgba(120, 120, 128, 0.12);
-  --ios-account-utility-icon-tile-background: #8e8e93;
-  --ios-account-utility-icon-glyph: #ffffff;
+  --ios-account-utility-icon-tile-background: var(--app-icon-tile-background, #8e8e93);
+  --ios-account-utility-icon-glyph: var(--app-icon-tile-foreground, #ffffff);
   --ios-account-service-icon-tile-background: #1c1c1e;
   --ios-account-service-icon-glyph: #ffffff;
-  --ios-account-accent: #007aff;
-  --ios-account-destructive: #ff3b30;
+  --ios-account-accent: var(--app-accent, #007aff);
+  --ios-account-destructive: var(--app-destructive, #ff3b30);
   --ios-account-on-accent: #ffffff;
   --ios-account-title-size: var(--type-page-title-size);
   --ios-account-title-line: var(--type-page-title-line);
@@ -679,8 +813,8 @@ textarea {
   --ios-account-row-min-height: 58px;
   --ios-account-row-vertical-pad: 11px;
   --ios-account-separator-thickness: 0.5px;
-  --ios-account-section-header-bottom-gap: 8px;
-  --ios-account-section-gap: 18px;
+  --ios-account-section-header-bottom-gap: 4px;
+  --ios-account-section-gap: 12px;
   --ios-account-icon-tile-size: 34px;
   --ios-account-icon-tile-radius: 8px;
   --ios-account-icon-glyph-size: 20px;
@@ -944,24 +1078,76 @@ textarea {
   --app-success: #30d158;
   --app-warning: #ff9f0a;
   --app-purple: #bf5af2;
+  /* Brightened for dark exactly like --app-warning and --app-destructive are.
+     The raw system value (#5e5ce6) measures 2.77:1 on the 20% tile — the only
+     tone in the map under 3:1 — where every sibling sits above 4.7. */
+  --app-indigo: #7d7aff;
   --app-info: var(--app-accent);
+
+  /* ── Semantic role families (dark) ───────────────────────────────
+     Dark partners of the light families defined in :root. Same names,
+     same MEANING (see the light block for the full contract); the wash
+     strengths lift (tint 0.10 -> 0.15 and border 0.32 -> 0.35, the
+     accent family's own dark values; surface 0.18 -> 0.24) because a
+     low-alpha colour disappears against the near-black canvas.
+
+     Each role is seeded from the DARK base tone declared just above
+     (#30d158 / #ff9f0a / #ff453a), not the light one, so the wash and
+     its solid partner stay the same hue.
+
+     -deep is the LIGHT-surface text tone, so it is not restated here;
+     it is inherited unchanged and the `dark:` half of a glyph class
+     selects -bright instead. Green and orange keep the flat dark token
+     as their -bright (6.36:1 / 6.22:1 on their own washes); red and
+     indigo lift, because #ff453a measures 4.23:1 and #5e5ce6 only
+     2.91:1 on theirs.
+
+     Accent-invariant, exactly as in light: no gold override. */
+  --app-success-tint: rgba(48, 209, 88, 0.15);
+  --app-success-surface: rgba(48, 209, 88, 0.24);
+  --app-success-border: rgba(48, 209, 88, 0.35);
+  --app-success-bright: #30d158;
+  --app-success-fg: #1d1d1f;
+  --app-warning-tint: rgba(255, 159, 10, 0.15);
+  --app-warning-surface: rgba(255, 159, 10, 0.24);
+  --app-warning-border: rgba(255, 159, 10, 0.35);
+  --app-warning-bright: #ff9f0a;
+  --app-warning-fg: #1d1d1f;
+  --app-destructive-tint: rgba(255, 69, 58, 0.15);
+  --app-destructive-surface: rgba(255, 69, 58, 0.24);
+  --app-destructive-border: rgba(255, 69, 58, 0.35);
+  --app-destructive-bright: #ff6961;
+  --app-destructive-fg: #ffffff;
+
+  /* iOS systemIndigo (dark). Same people/circles meaning as light. */
+  --app-people: #5e5ce6;
+  --app-people-tint: rgba(94, 92, 230, 0.15);
+  --app-people-surface: rgba(94, 92, 230, 0.24);
+  --app-people-border: rgba(94, 92, 230, 0.35);
+  --app-people-bright: #a5a3ff;
+  --app-people-fg: #ffffff;
+
   --app-focus-ring: rgba(10, 132, 255, 0.3);
   --app-glass-surface: rgba(28, 28, 30, 0.78);
   --app-glass-border: rgba(84, 84, 88, 0.65);
   --app-glass-shadow: 0 12px 32px -24px rgba(0, 0, 0, 0.85);
-  --ios-account-screen-background: #000000;
-  --ios-account-card-background: #1c1c1e;
-  --ios-account-label: #ffffff;
-  --ios-account-secondary-label: #98989d;
+  /* Dark Profile aliases — same rule as the light block above. The literals
+   * here were the visible dark-mode divergence: a pure #000 canvas with
+   * #1c1c1e cards, where every One Location screen uses the shared
+   * --app-card-surface-default-solid (#2c2c2e) on the app canvas. */
+  --ios-account-screen-background: var(--background, #000000);
+  --ios-account-card-background: var(--app-card-surface-default-solid, #1c1c1e);
+  --ios-account-label: var(--foreground, #ffffff);
+  --ios-account-secondary-label: var(--muted-foreground, #98989d);
   --ios-account-tertiary-label: #636366;
-  --ios-account-separator: rgba(84, 84, 88, 0.65);
+  --ios-account-separator: var(--app-card-border-standard, rgba(84, 84, 88, 0.65));
   --ios-account-icon-tile-background: rgba(120, 120, 128, 0.24);
-  --ios-account-utility-icon-tile-background: #636366;
-  --ios-account-utility-icon-glyph: #ffffff;
+  --ios-account-utility-icon-tile-background: var(--app-icon-tile-background, #636366);
+  --ios-account-utility-icon-glyph: var(--app-icon-tile-foreground, #ffffff);
   --ios-account-service-icon-tile-background: #3a3a3c;
   --ios-account-service-icon-glyph: #ffffff;
-  --ios-account-accent: #0a84ff;
-  --ios-account-destructive: #ff453a;
+  --ios-account-accent: var(--app-accent, #0a84ff);
+  --ios-account-destructive: var(--app-destructive, #ff453a);
   --ios-account-on-accent: #ffffff;
   --ios-account-nav-material-background: rgba(28, 28, 30, 0.82);
   --ios-account-nav-material-border: rgba(84, 84, 88, 0.65);
@@ -996,16 +1182,19 @@ textarea {
   font-optical-sizing: auto;
 }
 
+/* The account screen no longer overrides the shared measure or the header gap.
+ * It used to force a 560px column and `padding-top: 0`, so it sat at a
+ * different width and header offset than every sibling Profile screen; the
+ * navigator now supplies the 720px measure, the header gap, and the bottom
+ * clearance uniformly. Only the inline gutter stays pinned here. */
 [data-profile-stack-screen="account"] [data-profile-stack-content],
 [data-profile-stack-screen="panel:account"] [data-profile-stack-content] {
-  max-width: 720px !important;
-  padding-inline: var(--page-inline-gutter-standard) !important;
-  padding-top: 0 !important;
+  padding-inline: var(--page-inline-gutter-standard);
 }
 
 [data-profile-stack-screen="account"] [data-profile-stack-header],
 [data-profile-stack-screen="panel:account"] [data-profile-stack-header] {
-  max-width: 720px !important;
+  max-width: 560px !important;
   padding-inline: var(--page-inline-gutter-standard) !important;
   padding-top: 18px !important;
 }
@@ -1120,18 +1309,29 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-account-content {
-  --settings-group-stack-gap: var(--ios-account-section-header-bottom-gap);
+  --settings-group-stack-gap: 4px;
   --settings-heading-stack-gap: 4px;
-  --settings-row-px: var(--ios-account-card-leading-inset);
-  --settings-row-py: var(--ios-account-row-vertical-pad);
+  --settings-row-px: 16px;
+  --settings-row-py: 9px;
   display: flex;
   flex-direction: column;
-  gap: var(--ios-account-section-gap);
+  flex: 1;
+  min-height: auto;
+  gap: 10px;
   margin-top: 0;
 }
 
 .profile-account-content [data-testid="settings-group"] {
   margin-inline: var(--ios-account-card-outer-offset);
+}
+
+.profile-account-content [data-testid="settings-group"] > div:first-child {
+  margin-bottom: 8px;
+  margin-top: 14px;
+}
+
+.profile-account-content [data-testid="settings-group"]:first-child > div:first-child {
+  margin-top: 8px;
 }
 
 .profile-account-content [data-slot="settings-group-heading"] {
@@ -1149,7 +1349,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 [data-profile-stack-screen="account"] [data-slot="settings-group-shell"],
 [data-profile-stack-screen="panel:account"] [data-slot="settings-group-shell"],
 .profile-account-content [data-slot="settings-group-shell"] {
-  --settings-group-radius: var(--ios-account-card-radius);
+  --settings-group-radius: 22px;
   background: var(--ios-account-card-background);
   border-color: transparent;
   box-shadow: none;
@@ -1159,7 +1359,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 [data-profile-stack-screen="panel:account"] [data-testid="settings-row"],
 .profile-account-content [data-testid="settings-row"] {
   background: var(--ios-account-card-background);
-  min-height: var(--ios-account-row-min-height);
+  min-height: 56px;
 }
 
 [data-profile-stack-screen="account"] [data-testid="settings-row"]::after,
@@ -1174,19 +1374,19 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 [data-profile-stack-screen="panel:account"] [data-slot="settings-row-icon"],
 .profile-account-content [data-slot="settings-row-icon"] {
   background: var(--ios-account-utility-icon-tile-background) !important;
-  border-radius: var(--ios-account-icon-tile-radius) !important;
+  border-radius: 8px !important;
   color: var(--ios-account-utility-icon-glyph) !important;
-  height: var(--ios-account-icon-tile-size) !important;
-  width: var(--ios-account-icon-tile-size) !important;
+  height: 32px !important;
+  width: 32px !important;
 }
 
 [data-profile-stack-screen="account"] [data-slot="settings-row-icon"] svg,
 [data-profile-stack-screen="panel:account"] [data-slot="settings-row-icon"] svg,
 .profile-account-content [data-slot="settings-row-icon"] svg {
   color: var(--ios-account-utility-icon-glyph) !important;
-  height: var(--ios-account-icon-glyph-size) !important;
+  height: 17px !important;
   stroke-width: 1.65 !important;
-  width: var(--ios-account-icon-glyph-size) !important;
+  width: 17px !important;
 }
 
 [data-profile-stack-screen="account"] [data-icon-tone="blue"],
@@ -1208,6 +1408,13 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-account-content [data-icon-tone="orange"],
 .profile-home-content [data-icon-tone="orange"] {
   background: var(--app-warning) !important;
+}
+
+[data-profile-stack-screen="account"] [data-icon-tone="indigo"],
+[data-profile-stack-screen="panel:account"] [data-icon-tone="indigo"],
+.profile-account-content [data-icon-tone="indigo"],
+.profile-home-content [data-icon-tone="indigo"] {
+  background: var(--app-indigo) !important;
 }
 
 [data-profile-stack-screen="account"] [data-icon-tone="purple"],
@@ -1316,7 +1523,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-account-content
   .profile-account-reset-row
   [data-slot="settings-row-icon"] {
-  background: var(--app-warning) !important;
+  background: var(--ios-account-utility-icon-tile-background) !important;
+  color: #ffffff !important;
 }
 
 .profile-account-content
@@ -1404,28 +1612,26 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-screen {
   --settings-group-stack-gap: 8px;
   --settings-heading-stack-gap: 4px;
-  --settings-row-px: 20px;
-  --settings-row-py: 10px;
+  --settings-row-px: 16px;
+  --settings-row-py: 9px;
   --settings-row-gap: 12px;
   color: var(--ios-account-label);
   display: flex;
   flex-direction: column;
-  min-height: calc(100dvh - var(--top-shell-reserved-height, 0px));
-  /* Was a hardcoded `env(safe-area-inset-bottom) + 2rem` on main (uat had its
-   * own stale `7.5rem`), sized only for the bottom nav bar. That left the
-   * last "Your settings" rows (Account access → Sign out) tucked under the
-   * separate fixed "Talk to One" Agent Bar that floats above the nav. Use the
-   * shared, runtime-measured clearance token (see --bottom-chrome-stack-height
-   * in app/providers.tsx) so this page reserves space for both fixed bars,
-   * the same as every other route. */
-  padding-bottom: var(--app-bottom-content-clearance);
+  min-height: auto;
+  /* No bottom reserve of its own. This block sits INSIDE `.app-page-shell`,
+   * which sits inside the scroll root that already reserves the fixed bars, so
+   * a clearance here was the third copy of the same band — the reason Profile
+   * had the deepest empty tail in the app. It keeps the shell's reading gap
+   * like every other page. */
+  padding-bottom: 0;
 }
 
-.profile-home-screen .app-page-header-region {
-  margin-inline: auto;
-  max-width: 720px;
-}
-
+/* Measure is owned by AppPageShell (width="reading" → 720px) so the Profile
+ * root, the pushed Profile screens, and the One Location screens all share one
+ * column. These used to re-cap themselves at 520px, which made Profile a
+ * visibly narrower page than every other route on the same breakpoint. */
+.profile-home-screen .app-page-header-region,
 .profile-home-screen .app-page-content-region {
   margin-inline: auto;
   max-width: 720px;
@@ -1433,22 +1639,34 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-hero {
-  gap: 10px !important;
-  padding-top: 10px;
+  gap: 8px !important;
+  padding-top: 0;
 }
 
 .profile-home-screen [data-profile-avatar-frame="true"] {
-  background: #d1d1d6 !important;
+  /* Was a literal #d1d1d6, which stayed a light-grey disc in dark mode. Uses
+   * the same muted surface token as AVATAR_BUBBLE in surface-primitives. */
+  background: var(--app-card-surface-muted, #d1d1d6) !important;
   box-shadow: none !important;
   display: inline-flex;
-  height: 96px !important;
+  height: 88px !important;
   justify-content: center;
   padding: 0 !important;
   position: relative;
-  width: 96px !important;
+  width: 88px !important;
 }
 
 .profile-home-screen [data-profile-avatar-display="true"] {
+  align-items: center;
+  background: var(--ios-account-accent) !important;
+  color: var(--ios-account-on-accent) !important;
+  display: inline-flex;
+  font-family: var(--font-app-display);
+  font-size: 34px !important;
+  font-weight: 600 !important;
+  justify-content: center;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
   overflow: hidden;
   transition:
     opacity 180ms ease,
@@ -1466,8 +1684,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   background: var(--ios-account-accent) !important;
   box-shadow: none !important;
   color: var(--ios-account-on-accent) !important;
-  height: 26px !important;
-  width: 26px !important;
+  height: 24px !important;
+  width: 24px !important;
 }
 
 .profile-home-screen [data-profile-avatar-camera="true"]:active {
@@ -1484,28 +1702,41 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   border-radius: 9999px;
 }
 
+.profile-home-screen
+  [data-profile-avatar-frame="true"]
+  [data-slot="avatar-fallback"] {
+  background: var(--ios-account-accent) !important;
+  color: var(--ios-account-on-accent) !important;
+  font-family: var(--font-app-display);
+  font-size: 34px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+}
+
 .profile-home-copy {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px !important;
 }
 
 .profile-home-name {
   color: var(--ios-account-label) !important;
   font-family: var(--font-app-display);
-  font-size: 32px !important;
+  font-size: 27px !important;
   font-weight: 700 !important;
   letter-spacing: 0 !important;
-  line-height: 1.12 !important;
+  line-height: 32px !important;
 }
 
 .profile-home-meta {
   color: var(--ios-account-secondary-label) !important;
   font-family: var(--font-app-body);
-  font-size: var(--type-row-description-size) !important;
+  font-size: 15px !important;
+  margin-top: 0 !important;
   font-weight: 400;
   letter-spacing: 0 !important;
-  line-height: var(--type-row-description-line) !important;
+  line-height: 20px !important;
 }
 
 .profile-home-meta svg {
@@ -1523,8 +1754,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-content {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-top: 14px;
+  gap: 10px;
+  margin-top: 2px;
   width: 100%;
 }
 
@@ -1533,7 +1764,12 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-content [data-testid="settings-group"] > div:first-child {
-  margin-top: 0;
+  margin-bottom: 7px;
+  margin-top: 18px;
+}
+
+.profile-home-content [data-testid="settings-group"]:first-child > div:first-child {
+  margin-top: 8px;
 }
 
 .profile-home-content [data-slot="settings-group-heading"] {
@@ -1548,7 +1784,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-content [data-slot="settings-group-shell"] {
-  --settings-group-radius: var(--ios-account-card-radius);
+  --settings-group-radius: 22px;
   background: var(--ios-account-card-background);
   border-color: transparent;
   box-shadow: none;
@@ -1556,7 +1792,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 
 .profile-home-content [data-testid="settings-row"] {
   background: var(--ios-account-card-background);
-  min-height: 60px;
+  min-height: 56px;
 }
 
 .profile-home-content [data-testid="settings-row"]::after {
@@ -1567,17 +1803,17 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 
 .profile-home-content [data-slot="settings-row-icon"] {
   background: var(--ios-account-utility-icon-tile-background) !important;
-  border-radius: var(--ios-account-icon-tile-radius) !important;
+  border-radius: 8px !important;
   color: var(--ios-account-utility-icon-glyph) !important;
-  height: var(--ios-account-icon-tile-size) !important;
-  width: var(--ios-account-icon-tile-size) !important;
+  height: 32px !important;
+  width: 32px !important;
 }
 
 .profile-home-content [data-slot="settings-row-icon"] svg {
   color: var(--ios-account-utility-icon-glyph) !important;
-  height: var(--ios-account-icon-glyph-size) !important;
+  height: 17px !important;
   stroke-width: 1.65 !important;
-  width: var(--ios-account-icon-glyph-size) !important;
+  width: 17px !important;
 }
 
 .profile-home-content [data-icon-tone="blue"] {
@@ -1593,7 +1829,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-content [data-icon-tone="purple"] {
-  background: var(--app-purple) !important;
+  background: var(--ios-account-utility-icon-tile-background) !important;
 }
 
 .profile-home-content [data-icon-tone="red"] {
@@ -1637,38 +1873,19 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color: var(--ios-account-secondary-label) !important;
 }
 
-body:has(.profile-home-screen) {
-  background: var(--ios-account-screen-background);
+html:has(.profile-home-screen),
+html:has(.profile-account-content),
+html:has([data-profile-stack="true"]),
+body:has(.profile-home-screen),
+body:has(.profile-account-content),
+body:has([data-profile-stack="true"]) {
+  background: var(--ios-account-screen-background) !important;
+  min-height: 100dvh;
 }
 
-body:has(.profile-home-screen) .foundation-public-ambient {
-  display: none;
-}
-
-@media (min-width: 768px) {
-  .profile-home-hero {
-    padding-top: 16px;
-  }
-
-  .profile-home-screen [data-profile-avatar-frame="true"] {
-    height: 112px !important;
-    width: 112px !important;
-  }
-
-  .profile-home-name {
-    font-size: 34px !important;
-  }
-
-  .profile-home-content {
-    margin-top: 18px;
-  }
-}
-
-body:has(.profile-account-content) {
-  background: var(--ios-account-screen-background);
-}
-
-body:has(.profile-account-content) .foundation-public-ambient {
+body:has(.profile-home-screen) .foundation-public-ambient,
+body:has(.profile-account-content) .foundation-public-ambient,
+body:has([data-profile-stack="true"]) .foundation-public-ambient {
   display: none;
 }
 
@@ -1885,7 +2102,9 @@ html.kb-open .ambient-chrome-mask--bottom {
   width: 100%;
   padding-left: var(--page-inline-gutter-standard);
   padding-right: var(--page-inline-gutter-standard);
-  padding-bottom: var(--app-bottom-content-clearance);
+  /* A reading gap only. The scroll root reserves the fixed bottom bars — see
+     --app-page-content-bottom-gap. */
+  padding-bottom: var(--app-page-content-bottom-gap);
 }
 
 /* Sparse screens (empty states, short lists) let their height fit content
@@ -2019,11 +2238,15 @@ html.kb-open .ambient-chrome-mask--bottom {
   ) !important;
 }
 
-/* Anchor clearance: hash-targeted elements must clear the fixed top shell */
+/* Anchor clearance: hash-targeted elements must clear the fixed top shell.
+   Against the VISIBLE height, not the reserved one -- the mask is solid to
+   --top-shell-reserved-height and then dissolves over --top-fade-active, so
+   reserving only the solid part landed every jumped-to heading inside the
+   dissolve. See safe-changes R21. */
 [id]:target,
 [data-page-primary][id],
 [data-section-header][id] {
-  scroll-margin-top: var(--top-shell-reserved-height, 60px);
+  scroll-margin-top: var(--top-shell-mask-visible-height, 82px);
 }
 
 .fullscreen-flow-shell {
@@ -3312,6 +3535,7 @@ html.native-ios [data-testid="one-location-onboarding"] {
   --app-accent-deep: #007aff; /* TEXT / icons = same system blue */
   --app-accent-bright: #4a9eff;
   --app-accent-tint: rgba(0, 122, 255, 0.15);
+  --app-accent-soft: var(--app-accent-tint);
   --app-accent-surface: rgba(0, 122, 255, 0.15);
   --app-accent-surface-strong: rgba(0, 122, 255, 0.24);
   --app-accent-border: rgba(0, 122, 255, 0.35);
@@ -3693,6 +3917,21 @@ html.native-ios [data-testid="one-location-onboarding"] {
     text-transform: none !important;
   }
 
+  .app-page-shell
+    .profile-home-content
+    [data-slot="settings-group-heading"],
+  .app-page-shell
+    .profile-home-content
+    [data-slot="settings-group-heading"][role="heading"][aria-level="2"] {
+    font-family: var(--font-app-body);
+    font-size: var(--ios-account-section-header-size) !important;
+    line-height: var(--ios-account-section-header-line) !important;
+    font-weight: var(--ios-account-medium-weight) !important;
+    letter-spacing: -0.01em !important;
+    color: #6e6e73 !important;
+    text-transform: none !important;
+  }
+
   .app-page-shell .profile-account-content [data-slot="settings-row-title"] {
     font-family: var(--font-app-body);
     font-size: var(--ios-account-row-title-size) !important;
@@ -3842,6 +4081,8 @@ html.native-ios [data-testid="one-location-onboarding"] {
    * The pin, "Selected spot" card, and buttons keep their own backgrounds and
    * stay readable on top. Scoped to the save-location modal so no other dialog
    * is affected. */
+  /* The sheet has to stay transparent: its own background would paint UNDER the
+   * map box and the hole would show the sheet rather than the map. */
   html.one-location-map-native [data-testid="save-location-modal"],
   html.one-location-map-native
     [data-testid="save-location-modal"]
@@ -3854,6 +4095,30 @@ html.native-ios [data-testid="one-location-onboarding"] {
     box-shadow: none !important;
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
+  }
+
+  /* And the page behind it has to be HIDDEN, not merely transparent.
+   *
+   * That distinction is the whole bug. The native map draws below the entire
+   * WebView, so the hole only reaches it if every layer above is clear -- which
+   * means the scrim has to go too. But the scrim was the only thing concealing
+   * the screen the picker opened on top of, so clearing it left the onboarding
+   * features screen and the picker drawn over each other.
+   *
+   * Transparent backgrounds do not hide content. While the picker is mounted the
+   * page behind is hidden outright, leaving the sheet, the map inside its box,
+   * and nothing else. The dialog is portalled to <body>, so it is untouched.
+   *
+   * Both surfaces are body-level portals, so this cannot go through the app
+   * scroll root: onboarding deliberately portals to <body> at z-560 to clear the
+   * shell's stacking context, and the saved-places list renders in the shell. */
+  html.one-location-map-native
+    body:has([data-testid="save-location-modal"])
+    [data-testid="one-location-onboarding"],
+  html.one-location-map-native
+    body:has([data-testid="save-location-modal"])
+    [data-app-scroll-root="true"] {
+    visibility: hidden !important;
   }
 
   html {
@@ -4415,11 +4680,17 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .bottom-chrome-surface,
 .kai-bottom-nav-pill {
   color: var(--foreground);
-  border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent) !important;
-  background: color-mix(in srgb, var(--background) 74%, transparent) !important;
+  border: 0.5px solid rgba(60, 60, 67, 0.18) !important;
+  background: rgba(255, 255, 255, 0.78) !important;
   box-shadow: none !important;
-  -webkit-backdrop-filter: blur(12px) saturate(130%);
-  backdrop-filter: blur(12px) saturate(130%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+}
+
+.dark .bottom-chrome-surface,
+.dark .kai-bottom-nav-pill {
+  border-color: rgba(84, 84, 88, 0.58) !important;
+  background: rgba(28, 28, 30, 0.78) !important;
 }
 
 .kai-bottom-nav-pill [data-segment-indicator] {
@@ -4445,7 +4716,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .kai-bottom-nav-pill [role="radio"] {
-  color: color-mix(in srgb, var(--foreground) 70%, transparent) !important;
+  color: #6e6e73 !important;
   min-height: 44px;
   gap: 3px !important;
   padding: 4px 2px !important;
@@ -4453,8 +4724,16 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
-  color: var(--app-accent) !important;
+  color: var(--app-accent-deep) !important;
   font-weight: 500;
+}
+
+.dark .kai-bottom-nav-pill [role="radio"] {
+  color: #98989d !important;
+}
+
+.dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
+  color: var(--app-accent-bright) !important;
 }
 
 .kai-bottom-nav-pill [role="radio"] svg {
@@ -4905,6 +5184,103 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 .animate-stage-pulse {
   animation: stage-pulse 1.5s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------------------
+ * One Location · SOS surface tokens
+ *
+ * The SOS screen's own palette, transcribed from the Save my Soul design. The
+ * design is authored on a near-black canvas, so the dark values below ARE the
+ * design; the light values are the same relationships inverted, so the screen
+ * stays legible for a light-theme user instead of rendering white-on-white.
+ * The component consumes only these names — never a raw hex.
+ * ------------------------------------------------------------------------- */
+:root {
+  --sos-core-from: #ff4c42;
+  --sos-core-to: #e42d24;
+  /* Space-separated channels so the component can vary alpha per layer. */
+  --sos-glow-rgb: 255 59 48;
+  --sos-ring-track: rgba(0, 0, 0, 0.12);
+  --sos-control-surface: rgba(0, 0, 0, 0.05);
+  --sos-control-surface-hover: rgba(0, 0, 0, 0.08);
+  --sos-control-surface-active: rgba(0, 0, 0, 0.12);
+  --sos-control-text: rgba(0, 0, 0, 0.82);
+  --sos-label: rgba(0, 0, 0, 0.45);
+  --sos-placeholder: rgba(0, 0, 0, 0.3);
+  --sos-live-face: #f2f2f7;
+  --sos-live-face-ring: rgba(0, 0, 0, 0.08);
+}
+
+.dark {
+  --sos-core-from: #ff4c42;
+  --sos-core-to: #e42d24;
+  --sos-glow-rgb: 255 59 48;
+  --sos-ring-track: rgba(255, 255, 255, 0.09);
+  --sos-control-surface: rgba(255, 255, 255, 0.06);
+  --sos-control-surface-hover: rgba(255, 255, 255, 0.1);
+  --sos-control-surface-active: rgba(255, 255, 255, 0.14);
+  --sos-control-text: rgba(255, 255, 255, 0.82);
+  --sos-label: rgba(255, 255, 255, 0.45);
+  --sos-placeholder: rgba(255, 255, 255, 0.3);
+  --sos-live-face: #141416;
+  --sos-live-face-ring: rgba(255, 255, 255, 0.08);
+}
+
+/* ---------------------------------------------------------------------------
+ * One Location · SOS radar
+ *
+ * The alarm rings and the breathing core of the SOS hold control. These used to
+ * live in an inline <style> block inside sos-panel.tsx, which made the SOS
+ * screen the only surface in the app running its own motion engine (see the
+ * "one driver per concern" rule in lib/morphy-ux/README.md). They are declared
+ * here so the SOS screen shares the app's single motion source, and so the
+ * reduced-motion guard below cannot be forgotten by a future edit.
+ * ------------------------------------------------------------------------- */
+@keyframes sosRadarPulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  80% {
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.62);
+    opacity: 0;
+  }
+}
+
+@keyframes sosCorePulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.045);
+  }
+}
+
+/* The two expanding outlines around the live "alert sent" face. */
+@keyframes sosHalo {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.4;
+  }
+  70%,
+  100% {
+    transform: scale(1.34);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-sos-pulse] {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+  [data-sos-core] {
+    animation: none !important;
+  }
 }
 
 /* Ensure spinner utilities always rotate in runtime (vault/auth/load states). */

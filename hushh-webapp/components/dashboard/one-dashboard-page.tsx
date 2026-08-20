@@ -20,7 +20,7 @@ export function OneDashboardPage({
     <AppPageShell
       as="main"
       width="standard"
-      className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)]"
       nativeTest={{
         routeId: "/one",
         marker: "native-route-one-home",

@@ -74,6 +74,11 @@ describe("circle actions are authored and wired", () => {
     ["location.create_circle", ["name"]],
     ["location.add_to_circle", ["person", "circle"]],
     ["location.remove_from_circle", ["person", "circle"]],
+    ["location.rename_circle", ["circle", "name"]],
+    ["location.leave_circle", ["circle"]],
+    ["location.delete_circle", ["circle"]],
+    ["location.accept_circle_invite", ["circle"]],
+    ["location.decline_circle_invite", ["circle"]],
   ] as const;
 
   it.each(expected)("%s runs a local handler", (actionId) => {
@@ -102,6 +107,30 @@ describe("circle actions are authored and wired", () => {
       expect(person?.required).toBe(true);
       expect(circle?.required).toBe(false);
     }
+  });
+
+  it("never requires the circle slot on a circle-only action", () => {
+    // Naming the circle is only needed to disambiguate; a person with one
+    // circle should never be stalled on "which circle?"
+    for (const actionId of [
+      "location.leave_circle",
+      "location.delete_circle",
+      "location.accept_circle_invite",
+      "location.decline_circle_invite",
+    ]) {
+      const inputs = getKaiActionById(actionId)?.goal?.required_inputs ?? [];
+      const circle = inputs.find((input) => input.slot === "circle");
+      expect(circle?.required).toBe(false);
+    }
+  });
+
+  it("requires the new name on rename, but not which circle", () => {
+    const inputs =
+      getKaiActionById("location.rename_circle")?.goal?.required_inputs ?? [];
+    const circle = inputs.find((input) => input.slot === "circle");
+    const name = inputs.find((input) => input.slot === "name");
+    expect(circle?.required).toBe(false);
+    expect(name?.required).toBe(true);
   });
 
   it("keeps the navigate-only create-circle action separate from the acting one", () => {

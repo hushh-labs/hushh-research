@@ -1,0 +1,452 @@
+/* components/app-ui/HushhIntroGate.module.css
+ * The `/one` section's real first screen, and its only splash: a slow
+ * mist of blurred purple/pink/blue blobs travels from below the screen,
+ * through the centre, and out past the top over ~2.5s (Zomato-referenced
+ * motion, an original organic-cloud treatment). The 🤫 mark and
+ * "Hussh One." reveal gradually through the still-moving, still-visible
+ * mist, hold for 1.5s, then slowly cross-dissolve — with a soft blur and
+ * a light upward drift, never an instant swap — into "Hi, {name}" /
+ * "Welcome to One.", hold for another 1.5s, and the whole screen fades —
+ * gently, never a hard cut or a white flash — to reveal the vault screen,
+ * which only mounts once this finishes (see HushhIntroGate.tsx).
+ *
+ * Follows the app's own light/dark theme: white background + dark ink in
+ * light mode, the app's near-black elevated surface + light ink in dark
+ * mode — never pure black, never a jarring flash either way. Nothing else
+ * is mounted in the tree while this is up (the component that owns this
+ * CSS gates `VaultLockGuard` and everything below it out entirely until
+ * its own animation completes).
+ *
+ * The mist's `translate3d(vw, vh, 0)` keyframes are authored in viewport
+ * units, not `%` (which is relative to each blob's *own* huge size and
+ * would only ever graze the very bottom edge of the screen with the
+ * blob's faint outer edge — its dense, colourful centre never actually
+ * entering the viewport). `translateY(0vh)` unambiguously means "this
+ * blob's natural top edge is at the screen's top edge", so the journey
+ * from fully-below to centred to fully-above is exact — and unlike
+ * animating `top`/`left` directly, a `transform` never forces layout, so
+ * this stays GPU/compositor-only, no layout thrash, for smooth mobile
+ * performance.
+ *
+ * Two animation mechanisms are used, deliberately kept apart:
+ *
+ * - The mist blobs use one `@keyframes` animation each, covering their
+ *   entire rise → drift → recede arc as a single timeline, applied once
+ *   via `:not([data-phase="idle"])` (a selector that keeps matching
+ *   uninterrupted across every later phase, so the animation is never
+ *   re-triggered or reset by the phase changes driving the rest of the
+ *   scene — it just plays through once on its own clock, and stays fully
+ *   visible well past the point the mark and "Hussh One." start
+ *   appearing through it, rather than fading out beforehand).
+ * - Everything else (halo, mark, both text labels) is driven by a single
+ *   `data-phase` attribute on the root via plain `transition`s: every
+ *   property there has exactly one transition rule, and phase changes
+ *   simply retarget it. That sidesteps the classic bug where two
+ *   `@keyframes` animations on the *same* property fight over priority
+ *   (the later one's "not started yet" delay silently cancels the
+ *   earlier one's fade-in) — mixing the two mechanisms on one property
+ *   would reintroduce exactly that trap, so each property only ever has
+ *   one animation source, full stop.
+ *
+ * Easing direction is deliberate throughout: arrivals use
+ * `--motion-ease-decelerate` (settle in, don't coast to a stop), and
+ * departures use `--motion-ease-accelerate` (leave with intent) — a
+ * mirrored pair, not the same curve played backwards. */
+
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: 9990;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  /* Light mode: the app's own light surface. Dark mode overrides this
+     below to the app's near-black elevated surface — never pure black,
+     never a jarring flash either way. */
+  background: var(--foundation-surface, #ffffff);
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 420ms var(--motion-ease-accelerate);
+
+  --sweep-pink: #ec6a90;
+  --sweep-purple: #9a6fd9;
+  --sweep-blue: #7f8de0;
+  --intro-ink: #1d1d1f;
+  /* Mix percentages tuned for a white backdrop; dark mode brightens them
+     so the mist still reads as a glow instead of a faint smudge. */
+  --sweep-purple-mix: 55%;
+  --sweep-pink-mix: 52%;
+  --sweep-blue-mix: 50%;
+}
+
+.root[data-phase="exit"] {
+  opacity: 0;
+}
+
+:global(.dark) .root {
+  --intro-ink: #f5f5f7;
+  --sweep-purple-mix: 76%;
+  --sweep-pink-mix: 74%;
+  --sweep-blue-mix: 72%;
+}
+
+/* ── Mist: three large, heavily blurred radial blobs (purple, pink, soft
+   blue), each with its own size and drift path, so the rise reads as
+   organic weather, not a mechanical wipe. No blob ever shows a hard
+   edge: each radial gradient fades to transparent well inside its own
+   box, and the blur softens whatever's left. ── */
+.mist {
+  position: absolute;
+  inset: 0;
+}
+
+.blob {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 50%;
+  opacity: 0;
+  filter: blur(70px);
+  will-change: transform, opacity;
+}
+
+.blobPurple {
+  width: 100vmax;
+  height: 100vmax;
+  background: radial-gradient(circle, color-mix(in oklab, var(--sweep-purple) var(--sweep-purple-mix), transparent) 0%, transparent 64%);
+}
+
+.blobPink {
+  width: 88vmax;
+  height: 88vmax;
+  background: radial-gradient(circle, color-mix(in oklab, var(--sweep-pink) var(--sweep-pink-mix), transparent) 0%, transparent 64%);
+}
+
+.blobBlue {
+  width: 82vmax;
+  height: 82vmax;
+  background: radial-gradient(circle, color-mix(in oklab, var(--sweep-blue) var(--sweep-blue-mix), transparent) 0%, transparent 64%);
+}
+
+/* Applied once, the moment the phase leaves "idle", and never reassigned
+   afterwards (every later phase value still matches `:not([data-phase=
+   "idle"])`), so each blob plays its whole rise/drift/recede arc on its
+   own ~2.5s clock instead of being cut short or restarted by the phase
+   changes driving the mark and text. Delays are small (0/40/80ms) — just
+   enough to keep the three blobs from moving in perfect lockstep, not
+   enough to read as a pause before anything happens. */
+.root:not([data-phase="idle"]) .blobPurple {
+  animation: blob-purple-drift 2500ms var(--motion-ease-standard) forwards;
+}
+
+.root:not([data-phase="idle"]) .blobPink {
+  animation: blob-pink-drift 2600ms var(--motion-ease-standard) 40ms forwards;
+}
+
+.root:not([data-phase="idle"]) .blobBlue {
+  animation: blob-blue-drift 2400ms var(--motion-ease-standard) 80ms forwards;
+}
+
+/* Purple: the primary, most central blob. Position (via `translate3d`,
+   in `vw`/`vh`) and scale do almost all of the work — opacity only fades
+   briefly at each end and stays elevated through the whole middle
+   stretch, so this never reads as an opacity fade with incidental
+   movement. The rise into view is front-loaded (most of the opacity/
+   position change happens in the first quarter of the timeline) so
+   colour is visibly on screen within a couple hundred milliseconds — no
+   blank pause after the intro starts — while the 0%→10% step is still a
+   real, eased transition rather than an instant pop. */
+@keyframes blob-purple-drift {
+  0% {
+    opacity: 0;
+    transform: translate3d(26vw, 120vh, 0) scale(0.86);
+  }
+  10% {
+    opacity: 0.4;
+    transform: translate3d(23vw, 68vh, 0) scale(0.92);
+  }
+  28% {
+    opacity: 0.58;
+    transform: translate3d(30vw, 28vh, 0) scale(1);
+  }
+  45% {
+    opacity: 0.62;
+    transform: translate3d(24vw, 2vh, 0) scale(1.05);
+  }
+  70% {
+    opacity: 0.5;
+    transform: translate3d(29vw, -40vh, 0) scale(1.1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(25vw, -100vh, 0) scale(1.15);
+  }
+}
+
+@keyframes blob-pink-drift {
+  0% {
+    opacity: 0;
+    transform: translate3d(0vw, 128vh, 0) scale(0.86);
+  }
+  10% {
+    opacity: 0.34;
+    transform: translate3d(5vw, 78vh, 0) scale(0.92);
+  }
+  28% {
+    opacity: 0.48;
+    transform: translate3d(-2vw, 38vh, 0) scale(0.98);
+  }
+  45% {
+    opacity: 0.52;
+    transform: translate3d(4vw, 12vh, 0) scale(1.03);
+  }
+  70% {
+    opacity: 0.42;
+    transform: translate3d(-1vw, -32vh, 0) scale(1.08);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(5vw, -95vh, 0) scale(1.12);
+  }
+}
+
+@keyframes blob-blue-drift {
+  0% {
+    opacity: 0;
+    transform: translate3d(46vw, 124vh, 0) scale(0.86);
+  }
+  10% {
+    opacity: 0.3;
+    transform: translate3d(49vw, 74vh, 0) scale(0.92);
+  }
+  28% {
+    opacity: 0.44;
+    transform: translate3d(42vw, 36vh, 0) scale(0.98);
+  }
+  45% {
+    opacity: 0.48;
+    transform: translate3d(48vw, 10vh, 0) scale(1.02);
+  }
+  70% {
+    opacity: 0.38;
+    transform: translate3d(43vw, -30vh, 0) scale(1.07);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(47vw, -90vh, 0) scale(1.1);
+  }
+}
+
+/* ── Halo: a soft accent-gradient bloom behind the mark, reusing the app's
+   own hero-gradient tokens (blue by default, gold under the Molten Gold
+   accent) instead of introducing a one-off palette. ── */
+.halo {
+  position: absolute;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklab, var(--app-accent-hero-mid) 50%, transparent) 0%,
+    color-mix(in oklab, var(--app-accent-hero-to) 30%, transparent) 46%,
+    transparent 72%
+  );
+  filter: blur(28px);
+  opacity: 0;
+  transform: scale(0.6);
+  transition:
+    opacity 680ms var(--motion-ease-decelerate),
+    transform 680ms var(--motion-ease-decelerate);
+}
+
+.root[data-phase="greet1"] .halo,
+.root[data-phase="greet2"] .halo,
+.root[data-phase="exit"] .halo {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ── Mark: rises from just below its resting spot while fading in through
+   the still-moving mist, then stays put (settled) through the rest of the
+   sequence. ── */
+.iconWrap {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+}
+
+.icon {
+  font-size: 64px;
+  line-height: 1;
+  opacity: 0;
+  transform: translateY(30px);
+  transition:
+    opacity 640ms var(--motion-ease-decelerate),
+    transform 640ms var(--motion-ease-decelerate);
+}
+
+.root[data-phase="greet1"] .icon,
+.root[data-phase="greet2"] .icon,
+.root[data-phase="exit"] .icon {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Text stack: label1 ("Hussh One.") and label2 ("Hi, {name}" / "Welcome
+   to One.") occupy the same spot and cross-dissolve — never both fully
+   visible at once, so the transition reads as one label slowly becoming
+   the other (with a soft blur and a light upward drift, like an iOS
+   cross-dissolve) rather than an instant swap. Three explicit states per
+   label — not-yet-shown, shown, and shown-then-retired — give the
+   entrance and the retirement their own distinct motion instead of
+   sharing one generic "hidden" look. ── */
+.textStack {
+  position: relative;
+  z-index: 1;
+  margin-top: 30px;
+  min-height: 84px;
+  display: grid;
+  place-items: start center;
+}
+
+.label1,
+.label2 {
+  grid-area: 1 / 1;
+}
+
+.label1 {
+  font-family: var(--font-app-display);
+  font-size: 28px;
+  font-weight: 400;
+  color: var(--intro-ink);
+  letter-spacing: -0.2px;
+  text-align: center;
+  /* Not-yet-shown: sharp (no blur — the blur belongs to the retirement
+     cross-dissolve, not the first entrance), waiting just below. */
+  opacity: 0;
+  transform: translateY(10px);
+  filter: blur(0);
+  /* Arriving: decelerate — settles in rather than coasting to a stop. */
+  transition:
+    opacity 620ms var(--motion-ease-decelerate),
+    transform 620ms var(--motion-ease-decelerate),
+    filter 620ms var(--motion-ease-decelerate);
+}
+
+.root[data-phase="greet1"] .label1 {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+  transition-delay: 200ms;
+}
+
+/* Shown-then-retired: drifts further up and softens into a blur as it
+   fades, rather than just reversing its entrance. Leaving: accelerate —
+   the mirror of the decelerated arrival above, not the same curve run
+   backwards. */
+.root[data-phase="greet2"] .label1,
+.root[data-phase="exit"] .label1 {
+  opacity: 0;
+  transform: translateY(-16px);
+  filter: blur(10px);
+  transition-duration: 750ms;
+  transition-delay: 0ms;
+  transition-timing-function: var(--motion-ease-accelerate);
+}
+
+.label1Accent {
+  font-weight: 700;
+  color: var(--app-accent);
+}
+
+.label2 {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.greetingLine {
+  font-family: var(--font-app-display);
+  font-size: 26px;
+  font-weight: 400;
+  color: var(--intro-ink);
+  letter-spacing: -0.2px;
+  /* Not-yet-shown: arriving out of a soft blur from just below, matching
+     label1's retirement so the cross-dissolve reads as one continuous
+     motion rather than two unrelated animations. */
+  opacity: 0;
+  transform: translateY(14px);
+  filter: blur(10px);
+  /* Arriving out of the blur: decelerate, same family as label1's own
+     entrance, so the cross-dissolve reads as one motion, not two. */
+  transition:
+    opacity 750ms var(--motion-ease-decelerate),
+    transform 750ms var(--motion-ease-decelerate),
+    filter 750ms var(--motion-ease-decelerate);
+}
+
+.root[data-phase="greet2"] .greetingLine,
+.root[data-phase="exit"] .greetingLine {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+/* Delay values intentionally kept short — only the durations above (and
+   the hold before this phase) carry the pacing. */
+.root[data-phase="greet2"] .greetingLineFirst,
+.root[data-phase="exit"] .greetingLineFirst {
+  transition-delay: 60ms;
+}
+
+.root[data-phase="greet2"] .greetingLineSecond,
+.root[data-phase="exit"] .greetingLineSecond {
+  transition-delay: 170ms;
+}
+
+.greetingAccent {
+  font-weight: 700;
+  color: var(--app-accent);
+}
+
+@media (max-width: 420px) {
+  .icon {
+    font-size: 54px;
+  }
+
+  .halo {
+    width: 220px;
+    height: 220px;
+  }
+
+  /* A blur radius tuned for a desktop-sized viewport reads as an
+     undifferentiated haze on a small phone screen. Tighten it so the
+     blobs still read as soft, distinct clouds rather than a flat wash. */
+  .blob {
+    filter: blur(48px);
+  }
+
+  .label1,
+  .greetingLine {
+    font-size: 23px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root,
+  .blobPurple,
+  .blobPink,
+  .blobBlue,
+  .halo,
+  .icon,
+  .label1,
+  .greetingLine {
+    transition: none !important;
+    animation: none !important;
+  }
+}

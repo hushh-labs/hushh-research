@@ -21,10 +21,7 @@ import { CacheProvider } from "@/lib/cache/cache-context";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
-import {
-  resolveAppRouteLayout,
-  shouldSuppressPersistentChromeForRouteState,
-} from "@/lib/navigation/app-route-layout";
+import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { AppTopShell } from "@/components/app-ui/top-app-bar";
 import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
@@ -61,8 +58,12 @@ import {
   isRiaRoute,
 } from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
+import { LocationBus } from "@/lib/one-location/location-bus";
 import { PersonaProvider } from "@/lib/persona/persona-context";
-import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
+import {
+  resolveSignedInShellContentOffset,
+  resolveTopShellGeometryStyle,
+} from "@/components/app-ui/signed-in-shell-content-offset";
 import { NativeTestRouter } from "@/components/app-ui/native-test-router";
 import { RiaSurfaceScopeSync } from "@/components/ria/ria-surface-scope-sync";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
@@ -80,6 +81,29 @@ interface ProvidersProps {
 function readCustomVar(style: CSSProperties, key: string): string {
   const value = (style as Record<string, string | number | undefined>)[key];
   return value === undefined || value === null ? "" : String(value).trim();
+}
+
+/**
+ * Give the shared position store an account, once, for the whole app.
+ *
+ * The store can keep a fix across a reload, but only for somebody: a
+ * coordinate has to belong to an account before it can be sealed to their key.
+ * That attach used to happen in two places and effectively neither. The hook
+ * only attached when a caller passed a `userId` and no caller did; key
+ * bootstrap needs a vault token, so it landed after the Location page had
+ * already taken — and failed — its first capture. The restored fix was
+ * therefore missing at exactly the moment it existed to cover: the cold start.
+ *
+ * Here it runs for every signed-in route, before any surface asks. Idempotent,
+ * so key bootstrap's call stays harmless; and attaching null on sign-out is
+ * what clears one person's position before the next person's session.
+ */
+function LocationBusAccountBridge() {
+  const { userId } = useAuth();
+  useEffect(() => {
+    void LocationBus.attachUser(userId ?? null);
+  }, [userId]);
+  return null;
 }
 
 function AppShellFrame({ children }: ProvidersProps) {
@@ -124,12 +148,10 @@ function AppShellFrame({ children }: ProvidersProps) {
     [shellPathname],
   );
   const routeLayoutMode = routeLayout.mode;
-  const hidesPersistentChrome =
-    routeLayout.persistentChrome === "none" ||
-    shouldSuppressPersistentChromeForRouteState(
-      shellPathname,
-      searchParams?.get("action"),
-    );
+  // Chrome visibility is a property of the ROUTE, not of the `?action=` flow
+  // open inside it. Every Location task flow keeps the shell's back control,
+  // breadcrumb and avatar.
+  const hidesPersistentChrome = routeLayout.persistentChrome === "none";
   const topShellRouteProfile = useMemo(() => {
     const query = searchParams?.toString() ?? "";
     return resolveTopShellRouteProfile(
@@ -184,41 +206,14 @@ function AppShellFrame({ children }: ProvidersProps) {
         "--page-top-local-offset": topShellMetrics.hasTabs
           ? routeLayout.pageTopLocalOffset || "0px"
           : routeLayout.pageTopLocalOffset || "0px",
-        "--top-tabs-gap": "var(--kai-route-tabs-content-gap)",
-        "--top-tabs-total": topShellMetrics.hasTabs
-          ? "calc(var(--top-tabs-h) + var(--top-tabs-gap))"
-          : "0px",
-        "--top-subnav-total": "0px",
-        "--top-systembar-row-gap": "4px",
-        // These derived values must be declared at the route-shell scope.
-        // CSS custom-property substitution happens before inheritance, so a
-        // root-only definition would keep resolving the root's `0px` tabs.
-        "--top-shell-reserved-height":
-          "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) + var(--top-tabs-total))",
-        "--top-shell-visual-height":
-          "calc(var(--top-shell-reserved-height) + var(--top-fade-active))",
-        "--top-shell-live-height":
-          "calc(var(--top-shell-visual-height) - var(--top-chrome-collapse-px, 0px))",
-        // The route-body tab gap is deliberate reading space, not a chrome
-        // extension. Keep it out of the mask so dark mode cannot form a band
-        // beneath the tab underline.
-        "--top-shell-mask-tabs-gap": topShellMetrics.hasTabs
-          ? "var(--top-tabs-gap)"
-          : "0px",
-        "--top-shell-mask-solid-height":
-          "calc(var(--top-shell-reserved-height) - var(--top-shell-mask-tabs-gap) - var(--top-chrome-collapse-px, 0px))",
-        "--top-shell-mask-visible-height":
-          "calc(var(--top-shell-mask-solid-height) + var(--top-fade-active))",
-        "--top-shell-h": "var(--top-shell-reserved-height)",
-        "--top-glass-h": "var(--top-shell-visual-height)",
-        // The mask owns the entire resolved shell plus a short,
-        // context-sensitive tail. Tabs stay fully solid through their
-        // underline, but the dissolve must finish before the first bounded
-        // route surface so its text remains readable.
-        "--top-fade-active": topShellMetrics.hasTabs ? "20px" : "22px",
+        // Derived top-shell geometry, declared at route-shell scope. It lives
+        // in one exported function because CSS substitutes a custom property
+        // with the values present where it is DECLARED -- so a root-only
+        // definition bakes in the root's `0px` tabs and 8px fade and keeps
+        // them. Anything reproducing the shell (the layout contract) reads the
+        // same function rather than copying a subset.
+        ...resolveTopShellGeometryStyle({ hasTabs: topShellMetrics.hasTabs }),
         "--top-ambient-tab-tail-midpoint": "8px",
-        "--top-content-pad":
-          "calc(var(--top-shell-visual-height) + var(--top-subnav-total, 0px) + var(--top-content-safe-gap))",
         "--kai-route-content-gap": topShellMetrics.hasTabs ? "28px" : "20px",
         "--kai-route-content-gap-sm": topShellMetrics.hasTabs ? "32px" : "24px",
         "--app-top-shell-visible": topShellMetrics.shellVisible ? "1" : "0",
@@ -475,6 +470,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                 app. Keeping it outside the route Suspense boundary prevents
                 fallback/resolved remounts from launching the same sync twice. */}
               <PostAuthOnboardingSyncBridge />
+              <LocationBusAccountBridge />
               <Suspense
                 fallback={
                   <>

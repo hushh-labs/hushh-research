@@ -36,6 +36,16 @@ vi.mock("@/lib/vault/vault-context", () => ({
 
 vi.mock("@/lib/one-location/saved-locations", () => ({
   DuplicateSavedLocationError: class DuplicateSavedLocationError extends Error {},
+  // Real behaviour, not a stub: the modal opens on whatever this returns, and
+  // a stub would hide a label being pre-selected over a saved place.
+  defaultSavedLocationCategory: (
+    existing: ReadonlyArray<{ category: string }> = [],
+  ) => {
+    const taken = new Set(existing.map((location) => location.category));
+    if (!taken.has("home")) return "home";
+    if (!taken.has("work")) return "work";
+    return "other";
+  },
   duplicateSavedLocationMessage: (location: {
     category: string;
     label: string;
@@ -297,7 +307,7 @@ describe("SavedLocationsSection", () => {
   it("captures, resolves, and saves a new place through encrypted PKM", async () => {
     mocks.loadSavedLocations.mockResolvedValueOnce([]);
     render(<SavedLocationsSection />);
-    await screen.findByText(/no saved places yet/i);
+    await screen.findByText(/no places yet/i);
 
     fireEvent.click(screen.getByRole("button", { name: /add place/i }));
     expect(
@@ -315,10 +325,10 @@ describe("SavedLocationsSection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
     expect(
-      await screen.findByRole("heading", { name: "Add your address details" }),
+      await screen.findByRole("heading", { name: "Address details" }),
     ).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B, Tower 2" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -366,9 +376,9 @@ describe("SavedLocationsSection", () => {
       }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    await screen.findByRole("heading", { name: "Add your address details" });
+    await screen.findByRole("heading", { name: "Address details" });
 
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
@@ -379,7 +389,7 @@ describe("SavedLocationsSection", () => {
       "This place is already saved as Home. Choose a different place or remove it first.",
     );
     expect(
-      screen.getByRole("dialog", { name: "Add your address details" }),
+      screen.getByRole("dialog", { name: "Address details" }),
     ).toBeInTheDocument();
   });
 
@@ -391,16 +401,16 @@ describe("SavedLocationsSection", () => {
       ),
     );
     render(<SavedLocationsSection />);
-    await screen.findByText(/no saved places yet/i);
+    await screen.findByText(/no places yet/i);
 
     fireEvent.click(screen.getByRole("button", { name: /add place/i }));
     await screen.findByRole("dialog", {
       name: /pin your entrance|before google maps opens/i,
     });
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    await screen.findByRole("heading", { name: "Add your address details" });
+    await screen.findByRole("heading", { name: "Address details" });
 
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
@@ -412,7 +422,7 @@ describe("SavedLocationsSection", () => {
       ),
     );
     expect(
-      screen.getByRole("dialog", { name: "Add your address details" }),
+      screen.getByRole("dialog", { name: "Address details" }),
     ).toBeInTheDocument();
   });
 

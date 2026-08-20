@@ -240,7 +240,7 @@ def test_sms_emergency_uses_distinct_cross_platform_alert_profile() -> None:
     }
     common = {
         "data": data,
-        "title": "SMS · Save my soul",
+        "title": "Save my Soul",
         "body": "Alex: Come get me",
         "request_url": "/one/location?section=shared",
         "notification_tag": "one-location-share:sms-1",

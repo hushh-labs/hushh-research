@@ -45,7 +45,13 @@ import {
   TaskFlowHeader,
   TrustNoteCard,
 } from "@/components/one-location/redesign/primitives";
-import { MUTED_TEXT, SECTION_TITLE } from "@/components/one-location/redesign/tokens";
+import { MUTED_TEXT } from "@/components/one-location/redesign/tokens";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
+import {
+  CIRCLE_NAME_ACTION_CLASSNAME,
+  CIRCLE_NAME_INPUT_CLASSNAME,
+  CIRCLE_NAME_ROW_CLASSNAME,
+} from "@/components/one-location/redesign/circles/circle-name-row-layout";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnection,
@@ -57,7 +63,35 @@ import type {
   OneLocationCircleMemberInvite,
   OneLocationCircleSummary,
 } from "@/lib/one-location/types";
+import {
+  filterPeopleByQuery,
+  sortPeopleByName,
+} from "@/lib/one-location/people-search";
+import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { cn } from "@/lib/utils";
+
+const CIRCLES_GROUP_SURFACE =
+  "[--settings-group-radius:var(--app-radius-md)] !rounded-[var(--app-radius-md)] !bg-[color:var(--app-primary-surface)] !shadow-[var(--app-card-shadow-standard)]";
+
+const CIRCLES_EMPTY_STATE_WRAPPER =
+  "[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)]";
+
+/**
+ * A circle is a group of trusted people, so its glyph carries the PEOPLE role
+ * rather than the accent used for things you can DO. The action controls that
+ * sit alongside it (New circle, Join, Share, Add people) stay accent, which is
+ * what keeps "this is a group" and "this is a button" from looking alike.
+ *
+ * Glyph only. The wells this sits in ask for `--app-accent-soft`, a token that
+ * is defined nowhere, so they have always rendered unpainted — giving them a
+ * tint would add painted area rather than recolour it, so the recolour stops
+ * at the icon.
+ *
+ * Used on the two surfaces where the viewer is NOT yet a member (an incoming
+ * invite, a join preview), so the "nobody but you in here" neutral state the
+ * circle LIST applies cannot arise and there is nothing to resolve.
+ */
+const CIRCLE_PEOPLE_GLYPH = roleClasses("people").glyph;
 
 function circleInitials(value: string): string {
   return value
@@ -69,29 +103,25 @@ function circleInitials(value: string): string {
     .toUpperCase();
 }
 
-function circleKindLabel(kind: OneLocationCircleKind): string {
-  if (kind === "family") return "Family";
-  if (kind === "friends") return "Friends";
-  return "Other";
-}
-
 /**
- * Subtitle for the "Your circles" list row, e.g. "Friends · 2 members".
+ * Subtitle for the "Your circles" list row, e.g. "2 members".
  *
  * Counts OTHER members (everyone except the viewer) so it matches the Circle
  * Detail subtitle, which filters out the current user. The backend
  * `memberCount` includes the viewer — always a member of a circle shown in
  * their own list — so subtracting one yields the same number both places.
  * `Math.max(0, ...)` guards a transient zero.
+ *
+ * The kind used to lead this line — "Family · 0 members". Reported from QA:
+ * the circle created during onboarding is filed under Family by default and
+ * the person was never asked, so the row opened by telling them a category
+ * they had not picked, ahead of the only number on the line that was true.
+ * There are three kinds and nothing on this screen acts on any of them, so
+ * the word was decoration in front of the fact. The count stands alone.
  */
-function circleListMemberCountLabel(
-  kind: OneLocationCircleKind,
-  memberCount: number,
-): string {
+function circleListMemberCountLabel(memberCount: number): string {
   const others = Math.max(0, memberCount - 1);
-  return `${circleKindLabel(kind)} · ${others} ${
-    others === 1 ? "member" : "members"
-  }`;
+  return `${others} ${others === 1 ? "member" : "members"}`;
 }
 
 function circleFlowErrorMessage(error: unknown, fallback: string): string {
@@ -184,35 +214,58 @@ export function CirclesSection({
   };
 
   return (
-    <div className="space-y-3" data-testid="one-location-named-circles">
-      <div className="flex items-center justify-between gap-3 px-1">
-        <div>
-          <h2 className={SECTION_TITLE}>
-            Your circles
-          </h2>
-          <p className={cn(MUTED_TEXT, "mt-1")}>
-            Family and friends you choose to group together.
-          </p>
+    <div className="space-y-[14px]" data-testid="one-location-named-circles">
+      <div className="flex items-baseline justify-between gap-4">
+        <h2 className="text-[13px] font-normal leading-[17px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
+          Circles
+        </h2>
+
+        {/* The static phone reference omits Join, but it remains a shipped
+            action. Both controls keep their handlers and voice IDs while the
+            quiet treatment matches the reference hierarchy. */}
+        <div className="flex flex-wrap items-baseline justify-end gap-x-4 gap-y-2 sm:gap-x-6">
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            onClick={onCreate}
+            data-voice-control-id="one-location-action-create-circle"
+            className="relative !h-auto !min-h-0 !rounded-none !px-0 !py-0 text-[16px] font-normal leading-5 tracking-[-0.24px] after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] sm:text-[15px]"
+          >
+            New circle
+          </Button>
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            onClick={onJoin}
+            data-voice-control-id="one-location-action-join-circle"
+            className="relative !h-auto !min-h-0 !rounded-none !px-0 !py-0 text-[16px] font-normal leading-5 tracking-[-0.24px] text-[color:var(--app-secondary-label)] after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] hover:text-foreground sm:text-[15px]"
+          >
+            Join with code
+          </Button>
         </div>
       </div>
 
       {incomingInvitesError ? (
-        <EmptyState
-          title="Circle invitations unavailable"
-          description={incomingInvitesError}
-          action={
-            <Button
-              type="button"
-              variant="outline"
-              disabled={incomingInvitesLoading}
-              isLoading={incomingInvitesLoading}
-              onClick={onRetryInvites}
-              className="h-11 rounded-full px-5"
-            >
-              Retry
-            </Button>
-          }
-        />
+        <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
+          <EmptyState
+            title="Circle invitations unavailable"
+            description={incomingInvitesError}
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                disabled={incomingInvitesLoading}
+                isLoading={incomingInvitesLoading}
+                onClick={onRetryInvites}
+                className="h-11 rounded-full px-5"
+              >
+                Retry
+              </Button>
+            }
+          />
+        </div>
       ) : null}
 
       {incomingInvitesLoading &&
@@ -220,7 +273,7 @@ export function CirclesSection({
       !incomingInvitesError ? (
         <div
           role="status"
-          className="flex min-h-16 items-center justify-center gap-2 rounded-2xl bg-muted/35 text-sm text-muted-foreground"
+          className="flex min-h-16 items-center justify-center gap-2 rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] text-sm text-[color:var(--app-secondary-label)] shadow-[var(--app-card-shadow-standard)]"
         >
           <Loader2 className="h-5 w-5 animate-spin" />
           Checking Circle invitations…
@@ -231,6 +284,7 @@ export function CirclesSection({
         <SettingsGroup
           title="Circle invitations"
           description="Join first. Sharing stays private."
+          shellClassName={CIRCLES_GROUP_SURFACE}
           testId="one-location-circle-member-invites"
         >
           {incomingInvites.map((invite) => {
@@ -249,7 +303,12 @@ export function CirclesSection({
                 data-focused={isFocused || undefined}
                 data-testid={`one-location-circle-invite-${invite.id}`}
               >
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+                <span
+                  className={cn(
+                    "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[color:var(--app-accent-soft)]",
+                    CIRCLE_PEOPLE_GLYPH,
+                  )}
+                >
                   <UsersRound className="h-5 w-5" />
                 </span>
                 <div className="min-w-0 flex-1">
@@ -291,81 +350,77 @@ export function CirclesSection({
       !focusedInvite &&
       !incomingInvitesLoading &&
       !incomingInvitesError ? (
-        <EmptyState
-          title="Circle invitation no longer available"
-          description="It may have expired, been cancelled or already been answered."
-          action={
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onDismissFocusedInvite}
-              className="h-11 rounded-full px-5"
-            >
-              Dismiss
-            </Button>
-          }
-        />
+        <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
+          <EmptyState
+            title="Circle invitation no longer available"
+            description="It may have expired, been cancelled or already been answered."
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onDismissFocusedInvite}
+                className="h-11 rounded-full px-5"
+              >
+                Dismiss
+              </Button>
+            }
+          />
+        </div>
       ) : null}
 
       {circles.length ? (
-        <SettingsGroup separatorInset testId="one-location-circle-list">
-          {circles.map((circle) => (
+        <SettingsGroup
+          separatorInset
+          shellClassName={CIRCLES_GROUP_SURFACE}
+          testId="one-location-circle-list"
+        >
+          {circles.map((circle) => {
+            // STATE BEATS CATEGORY: a circle is the people role, but one
+            // holding nobody except the viewer has nothing to report and
+            // stays neutral. `memberCount` includes the viewer, so the
+            // count that decides this is `memberCount - 1` — the same
+            // test the check-in flow and the SMS contacts list apply.
+            const circleRole = roleClasses("people", {
+              inactive: Math.max(0, circle.memberCount - 1) === 0,
+            });
+            return (
             <SettingsRow
               key={circle.id}
               leading={
                 <span
                   className={cn(
-                    "flex h-10 w-10 items-center justify-center rounded-xl",
-                    circle.kind === "family"
-                      ? "bg-violet-500/12 text-violet-700 dark:text-violet-200"
-                      : circle.kind === "friends"
-                        ? "bg-sky-500/12 text-sky-700 dark:text-sky-200"
-                        : "bg-emerald-500/12 text-emerald-700 dark:text-emerald-200",
+                    "flex h-11 w-11 items-center justify-center rounded-[12px]",
+                    circleRole.tile,
+                    circleRole.glyph,
                   )}
                 >
                   <UsersRound className="h-5 w-5" />
                 </span>
               }
               title={circle.name}
-              description={circleListMemberCountLabel(
-                circle.kind,
-                circle.memberCount,
-              )}
+              description={circleListMemberCountLabel(circle.memberCount)}
               trailing={circle.role === "owner" ? "Owner" : "Member"}
               chevron
               onClick={() => onOpen(circle.id)}
+              className={cn(
+                "[--settings-row-gap:16px] [--settings-row-px:20px] [--settings-row-py:20px] sm:[--settings-row-gap:18px] sm:[--settings-row-px:24px] sm:[--settings-row-py:22px]",
+                "[&>button]:min-h-[84px] sm:[&>button]:min-h-[92px]",
+                "[&_[data-slot=settings-row-title]]:!text-[18px] [&_[data-slot=settings-row-title]]:!font-semibold [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.35px] sm:[&_[data-slot=settings-row-title]]:!text-[19px] sm:[&_[data-slot=settings-row-title]]:!leading-6 sm:[&_[data-slot=settings-row-title]]:!tracking-[-0.4px]",
+                "[&_[data-slot=settings-row-description]]:!text-[14px] [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px] sm:[&_[data-slot=settings-row-description]]:!text-[15px] sm:[&_[data-slot=settings-row-description]]:!leading-5 sm:[&_[data-slot=settings-row-description]]:!tracking-[-0.24px]",
+              )}
               testId={`one-location-circle-${circle.id}`}
             />
-          ))}
+            );
+          })}
         </SettingsGroup>
       ) : (
-        <EmptyState
-          title="No circles yet"
-          description="Create one for family or friends, or join with a code."
-        />
+        <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
+          <EmptyState
+            title="No circles yet"
+            description="Create one for family or friends, or join with a code."
+          />
+        </div>
       )}
-
-      <div className="grid grid-cols-2 gap-2">
-        <Button
-          type="button"
-          onClick={onCreate}
-          data-voice-control-id="one-location-action-create-circle"
-          className="h-11 rounded-full font-semibold"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Create
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onJoin}
-          data-voice-control-id="one-location-action-join-circle"
-          className="h-11 rounded-full font-semibold"
-        >
-          <KeyRound className="mr-2 h-4 w-4" />
-          Join with code
-        </Button>
-      </div>
     </div>
   );
 }
@@ -401,7 +456,9 @@ export function CreateCircleFlow({
 }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<OneLocationCircleKind>("family");
-  const canSubmit = name.trim().length >= 2 && !busy;
+  // One typed character is a name. Requiring two silently withheld the button
+  // from anyone naming a circle "A", with nothing on screen saying why.
+  const canSubmit = name.trim().length >= 1 && !busy;
 
   const submit = async () => {
     try {
@@ -440,6 +497,13 @@ export function CreateCircleFlow({
         {CIRCLE_KIND_OPTIONS.map((option) => (
           <SettingsRow
             key={option.value}
+            // Stays on SettingsRow's own `icon` slot: that slot is what carries
+            // `data-slot="settings-row-icon"` (global CSS thins the glyph
+            // stroke through it), the `data-ui-role`/`data-icon-tone` hooks,
+            // and the group's density switch. A people tone is missing from the
+            // shared tone map, so the row keeps the tones it already had and
+            // the missing entry is recorded as deferred rather than worked
+            // around by re-implementing the slot here.
             icon={UsersRound}
             iconTone={option.value === "family" ? "purple" : "blue"}
             title={option.label}
@@ -465,7 +529,10 @@ export function CreateCircleFlow({
         disabled={!canSubmit}
         isLoading={busy}
         onClick={() => void submit()}
-        className="h-12 w-full rounded-full text-base font-semibold"
+        className={cn(
+          "h-12 w-full rounded-full text-base font-semibold",
+          BLOCKED_CTA,
+        )}
       >
         Create circle
       </Button>
@@ -576,7 +643,12 @@ export function JoinCircleFlow({
       {preview ? (
         <div className="rounded-[22px] border border-border bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-sm">
           <div className="flex items-center gap-3">
-            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+            <span
+              className={cn(
+                "flex h-12 w-12 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)]",
+                CIRCLE_PEOPLE_GLYPH,
+              )}
+            >
               <UsersRound className="h-6 w-6" />
             </span>
             <div className="min-w-0 flex-1">
@@ -611,16 +683,14 @@ export function JoinCircleFlow({
           disabled={normalizedLength !== 12 || busy}
           isLoading={busy}
           onClick={() => void resolve()}
-          className="h-12 w-full rounded-full text-base font-semibold"
+          className={cn(
+            "h-12 w-full rounded-full text-base font-semibold",
+            BLOCKED_CTA,
+          )}
         >
           Preview circle
         </Button>
       )}
-
-      <TrustNoteCard
-        title="No request wait"
-        description="Join the Circle. Location stays explicit."
-      />
     </div>
   );
 }
@@ -861,7 +931,7 @@ export function CircleDetailFlow({
   const circleNameDirty =
     Boolean(circle) && trimmedCircleName !== circle?.name;
   const canSaveCircleName =
-    circleNameDirty && trimmedCircleName.length >= 2 && !savingName && !busy;
+    circleNameDirty && trimmedCircleName.length >= 1 && !savingName && !busy;
   const canInviteMembers =
     circle?.viewerCapabilities?.canInviteMembers ?? Boolean(isOwner);
   const canViewInviteCode =
@@ -884,13 +954,19 @@ export function CircleDetailFlow({
     [members, currentUserId],
   );
 
-  const filteredEligibleConnections = useMemo(() => {
-    const query = peopleSearch.trim().toLocaleLowerCase();
-    if (!query) return eligibleConnections;
-    return eligibleConnections.filter((connection) =>
-      connection.displayName.toLocaleLowerCase().includes(query),
-    );
-  }, [eligibleConnections, peopleSearch]);
+  const filteredEligibleConnections = useMemo(
+    () =>
+      // Sorted before filtering, like every other people picker in Location.
+      // These two sheets were rendering whatever order the server returned, so
+      // the same two connections could swap places between two openings and a
+      // long list had nowhere to start looking.
+      filterPeopleByQuery(
+        sortPeopleByName(eligibleConnections, (connection) => connection.displayName),
+        peopleSearch,
+        (connection) => connection.displayName,
+      ),
+    [eligibleConnections, peopleSearch],
+  );
 
   const loadEligibleConnections = async () => {
     if (!circle || !canInviteMembers) return;
@@ -1021,7 +1097,7 @@ export function CircleDetailFlow({
   // waiting for a refetch.
   const renameCircle = async () => {
     const nextName = circleName.trim();
-    if (!circle || savingName || nextName.length < 2 || nextName === circle.name)
+    if (!circle || savingName || nextName.length < 1 || nextName === circle.name)
       return;
     setSavingName(true);
     try {
@@ -1080,7 +1156,10 @@ export function CircleDetailFlow({
         title={circle?.name ?? "Circle"}
         description={
           circle
-            ? `${circleKindLabel(circle.kind)} · ${externalMembersCount} ${
+            ? // Same line as the list row this screen was opened from, so the
+              // count does not change wording between the two. The kind is
+              // dropped here for the same reason it is dropped there.
+              `${externalMembersCount} ${
                 externalMembersCount === 1 ? "member" : "members"
               }`
             : "Loading Circle…"
@@ -1090,7 +1169,11 @@ export function CircleDetailFlow({
       {loadError ? (
         <div
           role="alert"
-          className="rounded-2xl border border-destructive/25 bg-destructive/10 p-4 text-sm text-destructive"
+          // Wash and hairline move onto the destructive family; the message
+          // itself keeps `text-destructive`, which is the dark red this size
+          // needs. The flat --app-destructive is the glyph tone and measures
+          // ~3.5:1 here, under the 4.5:1 a 14px sentence requires.
+          className="rounded-2xl border border-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)] p-4 text-sm text-destructive"
         >
           {loadError}
           <Button
@@ -1115,7 +1198,7 @@ export function CircleDetailFlow({
               >
                 Circle name
               </label>
-              <div className="mt-2 flex gap-2">
+              <div className={CIRCLE_NAME_ROW_CLASSNAME}>
                 <input
                   id={CIRCLE_NAME_INPUT_ID}
                   ref={nameInputRef}
@@ -1132,39 +1215,39 @@ export function CircleDetailFlow({
                   }}
                   maxLength={80}
                   autoComplete="off"
-                  className="h-11 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-base outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+                  className={CIRCLE_NAME_INPUT_CLASSNAME}
                 />
                 {circleNameDirty ? (
                   <Button
                     type="button"
+                    size="sm"
                     disabled={!canSaveCircleName}
                     isLoading={savingName}
                     onClick={() => void renameCircle()}
-                    className="h-11 shrink-0 rounded-xl px-4 font-semibold"
+                    className={CIRCLE_NAME_ACTION_CLASSNAME}
                     data-testid="one-location-circle-name-save"
                   >
-                    <Check className="mr-1.5 h-4 w-4" />
                     Save
                   </Button>
                 ) : (
                   <Button
                     type="button"
+                    size="sm"
                     variant="outline"
-                    size="icon"
                     aria-label="Edit Circle name"
                     onClick={() => nameInputRef.current?.focus()}
-                    className="h-11 w-11 shrink-0 rounded-xl"
+                    className={CIRCLE_NAME_ACTION_CLASSNAME}
                   >
                     <Pencil className="h-4 w-4" />
                   </Button>
                 )}
               </div>
               <p className={cn(MUTED_TEXT, "mt-2")}>
-                {circleNameDirty && trimmedCircleName.length < 2
-                  ? "Use at least 2 characters."
+                {circleNameDirty && trimmedCircleName.length < 1
+                  ? "Enter a name."
                   : circleNameDirty
-                    ? "Tap Save — everyone in this Circle will see the new name."
-                    : "Everyone in this Circle sees this name."}
+                    ? "Tap Save to rename."
+                    : "Circle members see this."}
               </p>
             </div>
           ) : null}
@@ -1292,7 +1375,19 @@ export function CircleDetailFlow({
           >
             <SheetContent
               side="bottom"
-              className="mx-auto flex max-h-[88dvh] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
+              // Swiping down through the results is how a phone scrolls a list
+              // back up. Left on, it drags the sheet away instead and can close
+              // it outright, losing the query and every person already ticked.
+              dragDismiss={false}
+              // The keyboard height MUST stay in this max-height. SheetContent's
+              // default is `max-h-[calc(85dvh-var(--kb-height,0px))]` paired with
+              // `bottom-[var(--kb-height,0px)]`: the sheet lifts above the
+              // keyboard and shrinks by the same amount. A bare dvh max-height
+              // wins the tailwind-merge and drops only the shrink — so the sheet
+              // still lifts, and the title and the search field the person just
+              // tapped slide off the top of the screen. They then type into a
+              // field they cannot see.
+              className="mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
             >
               <SheetHeader className="text-left">
                 <SheetTitle>Add people to {circle.name}</SheetTitle>
@@ -1433,7 +1528,8 @@ export function CircleDetailFlow({
                             <SettingsRow
                               key={invite.id}
                               icon={Send}
-                              iconTone="blue"
+                              // Awaiting acceptance is PENDING, not an action.
+                              iconTone="orange"
                               title={
                                 invite.inviteeDisplayName || "One connection"
                               }
@@ -1471,7 +1567,10 @@ export function CircleDetailFlow({
                   }
                   isLoading={peopleSubmitting}
                   onClick={() => void sendMemberInvites()}
-                  className="h-12 w-full shrink-0 rounded-full text-base font-semibold"
+                  className={cn(
+                    "h-12 w-full shrink-0 rounded-full text-base font-semibold",
+                    BLOCKED_CTA,
+                  )}
                 >
                   {selectedConnectionIds.size
                     ? `Invite ${selectedConnectionIds.size} ${

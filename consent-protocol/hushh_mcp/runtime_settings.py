@@ -128,6 +128,12 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # rather than the lane project, so its key is mirrored across projects by
     # scripts/ops/sync_backend_runtime_secrets.py before the deploy runs.
     "nws_nearby_api_base_url": "NWS_NEARBY_API_BASE_URL",
+    # NWS v4 net-worth contract. The base URL is the same service; the project
+    # id is this lane's registered consumer identity upstream and must differ
+    # between UAT and production, so it is derived from the deploy target rather
+    # than carrying a default that one lane would inherit from another.
+    "nws_nearby_v4_api_base_url": "NWS_NEARBY_V4_API_BASE_URL",
+    "nws_nearby_v4_project_id": "NWS_NEARBY_V4_PROJECT_ID",
     # Places directory switch. Deliberately its own key rather than reusing the
     # nearby-presence mode: that flag governs co-presence, and closing
     # co-presence in production must not also close a business directory.

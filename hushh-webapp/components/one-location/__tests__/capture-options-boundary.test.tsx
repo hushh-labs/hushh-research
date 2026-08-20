@@ -138,10 +138,40 @@ describe("One Location CTA latency contract", () => {
     expect(source).toContain('if (permission?.state !== "granted") return;');
   });
 
-  it("live publishing never serves a recipient a reused fix", () => {
+  it("live publishing never serves a recipient a remembered fix", () => {
     const source = page();
-    expect(source).toContain(
+    // The rule is unchanged; its evidence moved. Forcing an acquisition per
+    // tick used to be how the publisher stayed current, and it stopped being
+    // that once a continuous watch fed the shared store: the one-shot raced
+    // the watch for the device and reported a location failure every time it
+    // lost. Reading the store is both fresher and quieter, and
+    // publishPointFrom is a stronger guarantee than an age ever was — it
+    // rejects anything not measured this session, by provenance rather than
+    // by clock.
+    expect(source).toContain("const point = await liveHeartbeatPoint();");
+    expect(source).toContain("return publishPointFrom(LocationBus.getState());");
+    expect(source).not.toContain(
       "const point = await OneLocationService.captureCurrentPosition({\n          maxAgeMs: 0,\n        });",
+    );
+  });
+
+  it("the heartbeat's reuse window is one tick, not a hand-picked number", () => {
+    const source = page();
+    // A recipient calls a share stale at three publish periods, so a ceiling
+    // of one period keeps the published point inside the window the receiving
+    // side is already written against.
+    expect(source).toContain(
+      "const LIVE_HEARTBEAT_MAX_AGE_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS;",
+    );
+  });
+
+  it("a publish failure is reported only when the owner can act on it", () => {
+    const source = page();
+    expect(source).toContain("shouldWarnOnPublishFailure({");
+    // Re-reading permission after every failed GPS read cost a platform round
+    // trip every twenty seconds for a value nothing on this path consumes.
+    expect(source).not.toContain(
+      'void refreshLocationPermission();\n        console.warn(\n          "[OneLocationAgent] Foreground live update skipped:",',
     );
   });
 });

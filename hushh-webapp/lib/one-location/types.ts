@@ -5,6 +5,8 @@ export type LocationSourcePlatform =
   | "native"
   | "unknown";
 
+export type OneLocationShareDurationMode = "timed" | "until_stopped";
+
 export type OneLocationRecommendationTier =
   | "needs_action"
   | "trusted_circle"
@@ -145,7 +147,8 @@ export type OneLocationGrant = {
   status: "active" | "expired" | "revoked" | string;
   consentScope: string;
   capabilityScopes: string[];
-  durationHours: number;
+  durationMode?: OneLocationShareDurationMode | string | null;
+  durationHours: number | null;
   expiresAt?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
@@ -178,6 +181,28 @@ export type OneLocationAccessRequest = {
   requestedAt?: string | null;
   resolvedAt?: string | null;
   approvedGrantId?: string | null;
+  /**
+   * How much time the requester actually asked for. A request, never an
+   * authorization — the grant is still written only when the owner approves.
+   * Null means they expressed no preference and the owner picks the amount.
+   */
+  requestedDurationHours?: number | null;
+  requestedDurationMode?: OneLocationShareDurationMode | string | null;
+  /**
+   * The live grant this ask wants lengthened. Present makes the ask "3 hours
+   * MORE" rather than "3 hours"; the backend resolves it from the real grant
+   * between the two people, so it is trustworthy on both sides.
+   */
+  extendsGrantId?: string | null;
+  /** True exactly when `extendsGrantId` is set; carried so surfaces read one flag. */
+  isExtension?: boolean;
+  /** Expiry of the share being extended, for "on top of the 45 minutes left". */
+  extendsGrantExpiresAt?: string | null;
+  /**
+   * Bumped whenever a still-pending ask changes (1 hour re-asked as 4). Keeps
+   * the client's per-request notification de-dup from swallowing the new ask.
+   */
+  requestRevision?: number | null;
 };
 
 export type OneLocationReferral = {

@@ -4,10 +4,13 @@ import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import {
   canAttemptLocation,
   canPromptForLocation,
+  fixAgeLabel,
   isLocationPermissionDeniedError,
+  isUsableFixAge,
   locationBlockReason,
   locationReadiness,
   locationStatusLabel,
+  shouldSurfaceLocationError,
 } from "@/lib/one-location/location-readiness";
 
 function permission(
@@ -181,5 +184,127 @@ describe("status label", () => {
         accuracyLimited: false,
       }),
     ).toBe("Location on");
+  });
+
+  it("names what the switch controls in every state, at every width", () => {
+    // The compact form exists because the phone header puts this text under a
+    // 28px title that already says Location: the long string measured two title
+    // lines at 320/360/375/390. It must agree with the full form on every
+    // state, or the same switch would report differently on a phone and a
+    // laptop.
+    const cases = [
+      [{ readiness: "askable", previewOn: false, paused: false, accuracyLimited: false }, "Location off"],
+      [{ readiness: "blocked", previewOn: false, paused: false, accuracyLimited: false }, "Location blocked"],
+      [{ readiness: "blocked", previewOn: true, paused: true, accuracyLimited: true }, "Location paused"],
+      [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: true }, "Location limited"],
+      [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: false }, "Location on"],
+    ] as const;
+
+    for (const [params, full] of cases) {
+      expect(locationStatusLabel(params)).toBe(full);
+      // Every state names the thing being switched. The one-word form this
+      // used to also return is gone: it fit beside the switch and told an iOS
+      // user nothing, which is how the header ended up reading just "On".
+      expect(full.startsWith("Location ")).toBe(true);
+    }
+  });
+});
+
+describe("when a location failure is worth showing", () => {
+  // The rule this replaces: toast on every capture failure, including the ones
+  // where a perfectly good position was already on screen. That is how "turn
+  // on location" ended up in front of people whose location was working.
+  it("says nothing about a failed refresh while a usable fix is held", () => {
+    expect(
+      shouldSurfaceLocationError({
+        hasUsableFix: true,
+        observedDenial: false,
+        blockReason: null,
+        blocksUserIntent: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("speaks up for an observed denial even while a fix is held", () => {
+    // The owner is cut off from every future fix until they change a setting.
+    // Holding a position does not make that less true, and only saying so
+    // gets them to the screen that fixes it.
+    expect(
+      shouldSurfaceLocationError({
+        hasUsableFix: true,
+        observedDenial: true,
+        blockReason: null,
+        blocksUserIntent: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("speaks up for a platform block even while a fix is held", () => {
+    expect(
+      shouldSurfaceLocationError({
+        hasUsableFix: true,
+        observedDenial: false,
+        blockReason: "services-off",
+        blocksUserIntent: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("speaks up when the owner pressed something and got nothing", () => {
+    expect(
+      shouldSurfaceLocationError({
+        hasUsableFix: false,
+        observedDenial: false,
+        blockReason: null,
+        blocksUserIntent: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("stays quiet about background work the owner never asked for", () => {
+    // A screen warming a position does not get to interrupt somebody about it.
+    expect(
+      shouldSurfaceLocationError({
+        hasUsableFix: false,
+        observedDenial: false,
+        blockReason: null,
+        blocksUserIntent: false,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("how a position's age is judged and described", () => {
+  it("accepts a position from within the usable window", () => {
+    const capturedAt = new Date(Date.now() - 20 * 60_000).toISOString();
+    expect(isUsableFixAge(capturedAt)).toBe(true);
+  });
+
+  it("rejects a position older than the usable window", () => {
+    const capturedAt = new Date(Date.now() - 90 * 60_000).toISOString();
+    expect(isUsableFixAge(capturedAt)).toBe(false);
+  });
+
+  it("rejects a future timestamp as a clock change, not a fresh fix", () => {
+    const capturedAt = new Date(Date.now() + 10 * 60_000).toISOString();
+    expect(isUsableFixAge(capturedAt)).toBe(false);
+  });
+
+  it("says nothing about a position recent enough to need no qualifier", () => {
+    expect(fixAgeLabel(new Date(Date.now() - 30_000).toISOString())).toBe("");
+  });
+
+  it("labels an older position honestly rather than replacing it with an error", () => {
+    expect(fixAgeLabel(new Date(Date.now() - 20 * 60_000).toISOString())).toBe(
+      " · 20 min ago",
+    );
+    expect(fixAgeLabel(new Date(Date.now() - 60 * 60_000).toISOString())).toBe(
+      " · 1 hr ago",
+    );
+  });
+
+  it("says nothing when there is no timestamp to describe", () => {
+    expect(fixAgeLabel(null)).toBe("");
+    expect(fixAgeLabel("not-a-date")).toBe("");
   });
 });
