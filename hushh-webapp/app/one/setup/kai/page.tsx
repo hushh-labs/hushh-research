@@ -582,6 +582,7 @@ function KaiOnboardingPageContent({
               capabilityId="finance"
               isOperationallyReady={false}
               coordinator={financeSetupCoordinator}
+              supportingText="You can return any time."
             />
           ) : null}
         </div>
@@ -639,6 +640,7 @@ function KaiOnboardingPageContent({
             capabilityId="finance"
             isOperationallyReady={false}
             coordinator={financeSetupCoordinator}
+            supportingText="You can return any time."
           />
         ) : null}
       </>
@@ -665,6 +667,7 @@ function KaiOnboardingPageContent({
                 capabilityId="finance"
                 isOperationallyReady={false}
                 coordinator={financeSetupCoordinator}
+                supportingText="You can return any time."
               />
             ) : null
           }
