@@ -487,10 +487,25 @@ def _identity_notification_label(
     row: dict[str, Any] | None,
     fallback: str = "A trusted person",
 ) -> str:
-    """Return a lock-screen-safe identity label without phone-derived data."""
-    if not row:
-        return fallback
-    return str(row.get("display_name") or "").strip() or fallback
+    """Return a lock-screen-safe identity label without phone-derived data.
+
+    Delegates the ladder to `resolve_requester_label` -- the resolver #5442
+    added when connection-request pushes were reading "Someone wants to connect
+    with you". It tries the display name, rejects values that are identifiers
+    rather than names (a UUID, the raw user id, an opaque token), and falls back
+    to the handle from the account's email.
+
+    `fallback` survives as the last resort, for an account that genuinely
+    resolves to nothing. That is the one case where a generic phrase is the
+    truthful answer rather than a missing one.
+    """
+
+    # Run against the row already in hand rather than through
+    # `resolve_requester_label`, which would re-query the same row for its
+    # email rung. Same ladder, one read instead of two.
+    from hushh_mcp.services.requester_identity import label_from_identity_row
+
+    return label_from_identity_row(row, fallback=fallback)
 
 
 def _notification_safe_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -1339,7 +1354,7 @@ class OneLocationAgentService:
         try:
             return self._execute_one(
                 """
-                SELECT user_id, display_name, phone_number, phone_verified
+                SELECT user_id, display_name, email, phone_number, phone_verified
                 FROM actor_identity_cache
                 WHERE user_id = :user_id
                 LIMIT 1
@@ -1383,13 +1398,40 @@ class OneLocationAgentService:
             return None
 
     @staticmethod
-    def _recipient_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _recipient_payload(
+        row: dict[str, Any] | None,
+        *,
+        allow_email_handle: bool = False,
+    ) -> dict[str, Any] | None:
+        """Project one person for a client list.
+
+        ``allow_email_handle`` is a privacy boundary, not a default. This same
+        projection serves two lists: the recipients list, scoped to people the
+        viewer is connected to or shares a Circle with, and the discovery
+        directory, which includes phone-verified strangers. An email's local
+        part is a name to the first group and an identifier about the second,
+        so only the relationship-scoped caller opts in.
+
+        Off, the behaviour is exactly what it was: the masked phone, then
+        "Verified user".
+        """
+
         if not row:
             return None
-        display_name = str(row.get("display_name") or "").strip()
+        from hushh_mcp.services.requester_identity import label_from_identity_row
+
         email = str(row.get("email") or "").strip()
         masked_phone = _mask_phone(row.get("phone_number"))
         user_id = str(row.get("user_id") or "")
+        # The masked phone stays a rung, below the name and the handle. It is
+        # the one the client rejects on sight (MASKED_PHONE_ONLY_PATTERN) and
+        # replaces with "A trusted person", so anything resolvable above it is
+        # the difference between a name and a generic line.
+        display_name = label_from_identity_row(
+            row,
+            allow_email_handle=allow_email_handle,
+            fallback="",
+        )
         return {
             "userId": user_id,
             "displayName": display_name or masked_phone or "Verified user",
@@ -2616,11 +2658,27 @@ class OneLocationAgentService:
                 else f"You viewed {owner_label}'s update"
             )
         elif event_type == "location_share_revoked":
-            title = (
-                f"Sharing stopped with {recipient_label}"
-                if owner_user_id == user_id
-                else f"{owner_label} stopped sharing"
+            # The feed lists both lanes together, so an entry that does not say
+            # which one ended reads as ambiguous next to a still-live share
+            # with the same person.
+            revoked_via_sms = (
+                str((_loads_json(row.get("metadata")) or {}).get("share_kind") or "")
+                .strip()
+                .lower()
+                == "sos"
             )
+            if revoked_via_sms:
+                title = (
+                    f"SMS sharing stopped with {recipient_label}"
+                    if owner_user_id == user_id
+                    else f"{owner_label} stopped SMS location sharing"
+                )
+            else:
+                title = (
+                    f"Sharing stopped with {recipient_label}"
+                    if owner_user_id == user_id
+                    else f"{owner_label} stopped sharing"
+                )
         elif event_type == "location_share_expired":
             title = (
                 f"Share expired for {recipient_label}"
@@ -3402,7 +3460,11 @@ class OneLocationAgentService:
                 "This secure key id is already bound to different key material.",
                 status_code=409,
             )
-        return self._recipient_payload(row) or {}
+        # The caller's own record, handed straight back to them. There is no
+        # privacy line to draw against yourself, and withholding it here would
+        # show a person their own masked phone where every other surface now
+        # shows their name.
+        return self._recipient_payload(row, allow_email_handle=True) or {}
 
     def list_verified_recipients(
         self, *, owner_user_id: str, limit: int = 50
@@ -3470,7 +3532,14 @@ class OneLocationAgentService:
             {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
         )
 
-        recipients = [payload for row in rows if (payload := self._recipient_payload(row))]
+        # Relationship-scoped: the statement above admits a person only on an
+        # active connection or a shared active Circle, so a name resolved from
+        # their email handle is a name about someone the viewer already knows.
+        recipients = [
+            payload
+            for row in rows
+            if (payload := self._recipient_payload(row, allow_email_handle=True))
+        ]
         return self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,
@@ -6584,6 +6653,12 @@ class OneLocationAgentService:
         owner_label = _identity_notification_label(owner_identity)
         recipient_identity = self._identity_row(recipient_user_id or "")
         recipient_label = _identity_notification_label(recipient_identity)
+        # Which lane ended. #5552 made `share_kind` the discriminator between
+        # the emergency (SMS / Save My Soul) lane and every other share, and a
+        # person can hold one of each at the same time -- so "a share ended"
+        # without naming the lane is genuinely ambiguous to the recipient.
+        revoked_share_kind = str(row.get("share_kind") or "").strip().lower()
+        revoked_via_sms = revoked_share_kind == "sos"
         self._insert_event(
             owner_user_id=str(row.get("owner_user_id") or owner_user_id),
             actor_user_id=owner_user_id,
@@ -6593,6 +6668,7 @@ class OneLocationAgentService:
             metadata={
                 "reason": "owner_revoke" if actor_is_owner else "recipient_revoke",
                 "counterpart_label": recipient_label,
+                "share_kind": revoked_share_kind or "standard",
             },
         )
         notification_user_id = (
@@ -6601,11 +6677,24 @@ class OneLocationAgentService:
         self._send_metadata_notification(
             user_id=notification_user_id,
             notification_type="location_share_revoked",
-            title="Location access revoked",
+            # "SMS location sharing" is the recipient's name for this, not
+            # "SOS" -- an SMS alert is how it reached them, and the phrase has
+            # to match what they remember receiving.
+            title=(
+                "SMS location sharing stopped" if revoked_via_sms else "Location access revoked"
+            ),
             body=(
-                f"{owner_label} removed your location access."
+                (
+                    f"{owner_label} stopped sharing their location with you over SMS."
+                    if revoked_via_sms
+                    else f"{owner_label} removed your location access."
+                )
                 if actor_is_owner
-                else f"{recipient_label} stopped receiving your location share."
+                else (
+                    f"{recipient_label} stopped receiving your SMS location sharing."
+                    if revoked_via_sms
+                    else f"{recipient_label} stopped receiving your location share."
+                )
             ),
             notification_tag=f"one-location-revoked:{grant_id}",
             request_url=_one_location_url(
@@ -6617,6 +6706,10 @@ class OneLocationAgentService:
                 "owner_display_label": owner_label,
                 "recipient_user_id": recipient_user_id,
                 "recipient_display_label": recipient_label,
+                # Carried so the client's own fallback copy can name the same
+                # lane instead of re-deriving it from a grant it may no longer
+                # be holding -- the grant is revoked by the time this arrives.
+                "share_kind": revoked_share_kind or "standard",
             },
         )
         return self._grant_payload(row) or {}

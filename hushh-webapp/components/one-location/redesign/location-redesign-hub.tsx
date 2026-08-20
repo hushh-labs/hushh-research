@@ -43,9 +43,13 @@ import {
   ShieldCheck,
   UserPlus,
   UsersRound,
+  ChevronRight,
 } from "lucide-react";
 
-import { requestRecipientStatus } from "@/lib/one-location/request-recipient-status";
+import {
+  requestRecipientStatus,
+  type RequestRecipientStatus,
+} from "@/lib/one-location/request-recipient-status";
 import {
   locationApproveActionLabel,
   locationAskPromptLine,
@@ -129,6 +133,12 @@ import { SavedLocationsSection } from "@/components/one-location/saved-locations
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
+import {
+  SelectedContactsPill,
+  SelectedContactsSheet,
+} from "@/components/one-location/redesign/contact-picker/selected-review-sheet";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveSmsContactsBackAction } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
@@ -3525,6 +3535,41 @@ function AskFlow({
   onClose: () => void;
 }) {
   const filtered = vm.visibleRecipients;
+  /**
+   * The field is local; the FILTER is debounced.
+   *
+   * `setRecipientSearch` drives `visibleRecipients`, which re-runs
+   * `filterPeopleByQuery` over the whole roster and re-renders every row. Wired
+   * straight to `onChange` that happened once per keystroke, which is what a
+   * hundred connections cannot afford. Typing stays instant because the input
+   * reads local state; only the query that does the work is delayed.
+   *
+   * 250ms, close to Connect's 300: long enough to swallow a burst of typing,
+   * short enough that the list feels answerable rather than laggy.
+   */
+  const [searchDraft, setSearchDraft] = useState(vm.recipientSearch);
+  const debouncedSearch = useDebouncedValue(searchDraft, 250);
+  useEffect(() => {
+    if (debouncedSearch !== vm.recipientSearch) {
+      vm.setRecipientSearch(debouncedSearch);
+    }
+    // `vm` is rebuilt every render; depending on it would re-fire this on every
+    // render and defeat the debounce entirely.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
+
+  // Selection is only ever readable by scrolling the roster and counting the
+  // rows wearing "Selected". The pill answers "who is on this list" without
+  // the scroll, and the sheet is where that answer gets edited.
+  const [selectionSheetOpen, setSelectionSheetOpen] = useState(false);
+  const selectedRecipients = useMemo(
+    () =>
+      vm.recipients.filter((recipient) =>
+        vm.selectedRequestOwnerIds.includes(recipient.userId),
+      ),
+    [vm.recipients, vm.selectedRequestOwnerIds],
+  );
+
   // Keep the person on this screen after sending so the confirmation is tied to
   // the specific request they just made, rather than popping straight back to
   // the hub.
@@ -3561,10 +3606,86 @@ function AskFlow({
   // Coarse on purpose: these labels move in minutes, so a 30s tick keeps them
   // honest without re-rendering a list of people every second.
   const [statusNowMs, setStatusNowMs] = useState(() => Date.now());
+
+  /**
+   * Every live grant with each owner, indexed once.
+   *
+   * The row used to run `receivedGrants.find(...)` for itself, so a roster of R
+   * people scanned the grant list R times per render. Worse, `find` was written
+   * when a person and a grant were the same thing: an owner can now hold an
+   * ordinary share and an SMS (SOS) one at the same time, and `find` bound the
+   * row to whichever happened to come first.
+   *
+   * `groupGrantsByCounterpart` is the shared answer the People directory and
+   * Shared-with-me already use, and its `primaryGrant` is `grants[0]` in the
+   * caller's order -- the same grant `find` returned. So this indexes the work
+   * without moving the answer, and the other lane is now reachable rather than
+   * silently dropped.
+   */
+  const receivedGroupsByOwner = useMemo(() => {
+    const byOwner = new globalThis.Map<string, OneLocationGrantLaneGroup>();
+    // `"recipient"` -- the side argument names WHICH SIDE I AM, so for grants
+    // shared WITH me the counterpart to key on is the owner. Passing "owner"
+    // here keys every group by my own id and the lookup finds nothing; the
+    // Shared-with-me list a few hundred lines up passes "recipient" for the
+    // same array, for the same reason.
+    for (const group of groupGrantsByCounterpart(
+      vm.receivedGrants,
+      "recipient",
+    )) {
+      byOwner.set(group.counterpartUserId, group);
+    }
+    return byOwner;
+  }, [vm.receivedGrants]);
+
+  /**
+   * What each visible row says, computed once per data change.
+   *
+   * `requestRecipientStatus` filters AND sorts `requestedByMe` on every call,
+   * so calling it inside the render loop cost R x O(G log G) per render -- and
+   * a 30-second tick paid it again whether or not anything had happened. The
+   * inputs are the same for every row; only the recipient id differs.
+   */
+  const statusByRecipient = useMemo(() => {
+    const byRecipient = new globalThis.Map<string, RequestRecipientStatus>();
+    for (const recipient of filtered) {
+      byRecipient.set(
+        recipient.userId,
+        requestRecipientStatus({
+          recipientUserId: recipient.userId,
+          requestedByMe: vm.requestedByMe,
+          receivedGrants: vm.receivedGrants,
+          nowMs: statusNowMs,
+        }),
+      );
+    }
+    return byRecipient;
+  }, [filtered, vm.requestedByMe, vm.receivedGrants, statusNowMs]);
+
+  /**
+   * Whether anything on screen is actually measured against the clock.
+   *
+   * "Asked 6m ago" and "Sharing with you, 29 more min" go stale; "Ready for
+   * private sharing" does not. A roster of people you have never asked and who
+   * are not sharing has nothing that ages, and re-rendering it every 30 seconds
+   * is CPU spent to redraw identical text -- battery, on a phone.
+   */
+  const hasTimeRelativeRow = useMemo(
+    () =>
+      [...statusByRecipient.values()].some(
+        (status) =>
+          status.statusLabel !== undefined ||
+          status.pendingRequestId !== undefined ||
+          status.tone !== "ready",
+      ),
+    [statusByRecipient],
+  );
+
   useEffect(() => {
+    if (!hasTimeRelativeRow) return;
     const timer = window.setInterval(() => setStatusNowMs(Date.now()), 30_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [hasTimeRelativeRow]);
   return (
     <div className="space-y-5">
       <TaskFlowHeader
@@ -3588,34 +3709,55 @@ function AskFlow({
 
       <section className="space-y-3">
         <AppSectionLabel as="h2">People</AppSectionLabel>
-        <PersonSearchInput
-          value={vm.recipientSearch}
-          onChange={vm.setRecipientSearch}
-        />
+        <PersonSearchInput value={searchDraft} onChange={setSearchDraft} />
+        {vm.selectedRequestOwnerIds.length ? (
+          <SelectedContactsPill
+            count={vm.selectedRequestOwnerIds.length}
+            onOpen={() => setSelectionSheetOpen(true)}
+          />
+        ) : null}
         {filtered.length ? (
-          <div className={cn("mt-3", PEOPLE_LIST_SCROLL_CLASS)}>
-            {filtered.map((r) => {
+          /* Windowed above the picker's own threshold, plain DOM below it.
+             The rule is `shouldVirtualizeList`, imported rather than
+             re-implemented, so this list and the contact picker cannot drift
+             apart on where "too long to render whole" begins.
+
+             `presentation="cards"` because these rows are already cards: the
+             grouped shell would put a card inside a card and draw a divider
+             between two things that have their own edges. */
+          <VirtualContactList
+            items={filtered}
+            getKey={(r) => r.userId}
+            scrollClassName={cn("mt-3", PEOPLE_LIST_SCROLL_CLASS)}
+            itemClassName="pb-2.5 last:pb-0"
+            presentation="cards"
+            testId="one-location-ask-recipients"
+            ariaLabel="People you can ask"
+            renderItem={(r) => {
               const selected = vm.selectedRequestOwnerIds.includes(r.userId);
               // Every row used to read "Ready for private sharing" with Select
               // as the only affordance, whoever the person was and whatever had
               // already happened with them -- so there was no active status to
               // read, and somebody who had just asked came back to a row
               // offering to ask again.
-              const status = requestRecipientStatus({
-                recipientUserId: r.userId,
-                requestedByMe: vm.requestedByMe,
-                receivedGrants: vm.receivedGrants,
-                nowMs: statusNowMs,
-              });
+              // Both read from an index built once above, not recomputed per
+              // row. `statusByRecipient` always has this id: it is built from
+              // the same `filtered` array being mapped here.
+              const status =
+                statusByRecipient.get(r.userId) ??
+                requestRecipientStatus({
+                  recipientUserId: r.userId,
+                  requestedByMe: vm.requestedByMe,
+                  receivedGrants: vm.receivedGrants,
+                  nowMs: statusNowMs,
+                });
               // A row already Live is the one place this list had no way off
               // it: the person keeps showing up "already sharing" with
               // nothing to do about that but wait it out or leave the screen
               // entirely to find the Shared with me / Requests sent list
               // that could end or shorten it.
-              const activeGrant = vm.receivedGrants.find(
-                (grant) =>
-                  grant.ownerUserId === r.userId && grant.status === "active",
-              );
+              const activeGrant =
+                receivedGroupsByOwner.get(r.userId)?.primaryGrant;
               const isEditingThis =
                 Boolean(activeGrant) && vm.editingGrantId === activeGrant?.id;
               // The unanswered ask this row is reporting, if any. The row used
@@ -3704,8 +3846,8 @@ function AskFlow({
                   }
                 />
               );
-            })}
-          </div>
+            }}
+          />
         ) : (
           <div className="mt-3">
             {vm.recipientSearch.trim() ? (
@@ -3721,7 +3863,31 @@ function AskFlow({
             )}
           </div>
         )}
+        {/* The way out. This list is everyone you are already connected to, so
+            "they are not here" has exactly one answer, and it lives on another
+            screen. Without this the empty state was a dead end and a search
+            that found nobody was worse -- it proved the person was missing and
+            offered nothing to do about it. */}
+        <a
+          href={ROUTES.CONNECT}
+          data-testid="one-location-ask-manage-connections"
+          className="mt-3 inline-flex min-h-11 items-center gap-1 rounded-full px-1 text-[15px] font-medium text-[color:var(--app-accent)]"
+        >
+          Don&apos;t see someone? Manage connections
+          <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+        </a>
       </section>
+
+      <SelectedContactsSheet
+        open={selectionSheetOpen}
+        onOpenChange={setSelectionSheetOpen}
+        recipients={selectedRecipients}
+        busyUserId={null}
+        onRemove={(recipientUserId) =>
+          vm.toggleRequestOwner(recipientUserId, "ask_flow")
+        }
+        recipientLabel={vm.recipientLabel}
+      />
 
       {/* Ask and Share are the same decision pointed in opposite directions,
           so they are now the same card: one surface, "How long" over the

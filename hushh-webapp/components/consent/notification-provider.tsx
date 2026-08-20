@@ -427,7 +427,8 @@ function isOneLocationWorkflowNotificationType(
     value === "location_referral_invite" ||
     value === "location_public_invite_submitted" ||
     value === "location_one_network_joined" ||
-    value === "location_circle_member_invite"
+    value === "location_circle_member_invite" ||
+    value === "location_circle_member_added"
   );
 }
 
@@ -464,7 +465,12 @@ function oneLocationNetworkLabel(data: Record<string, string>): string {
   return privacySafeOneLocationNotificationLabel(
     String(data.network_display_label || "").trim() ||
       String(data.invitee_display_label || "").trim() ||
-      String(data.inviter_display_label || "").trim(),
+      String(data.inviter_display_label || "").trim() ||
+      // Being added to a Circle names the person who did it. The key differs
+      // because nobody was invited here -- and if this ladder cannot see it,
+      // the toast says "A trusted person" while the banner beside it says the
+      // name, which is the #5422 split all over again.
+      String(data.added_by_label || "").trim(),
   );
 }
 
@@ -907,6 +913,9 @@ export function ConsentNotificationProvider({
         referringLabel: oneLocationReferringLabel(data),
         visitorLabel: oneLocationVisitorLabel(data),
         networkLabel: oneLocationNetworkLabel(data),
+        // Which Circle they were added to. Only the added-to-a-Circle line
+        // uses it; everything else ignores it.
+        circleName: data.circle_name || null,
         // How much time the ask is about. Both delivery paths carry these —
         // the FCM payload from the service, and the reconciliation payload
         // built from state — so the popup names the same number the feed and
@@ -917,6 +926,10 @@ export function ConsentNotificationProvider({
         extendsGrantExpiresAt: data.extends_grant_expires_at || null,
         grantedDurationHours: data.duration_hours || null,
         grantedDurationMode: data.duration_mode || null,
+        // Which lane ended. Stamped by the service on the revoke payload,
+        // because the grant is gone by the time this arrives -- the client
+        // cannot look the kind up from a share that no longer exists.
+        shareKind: data.share_kind || null,
       });
       const copy = {
         title:

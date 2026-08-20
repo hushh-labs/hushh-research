@@ -1,15 +1,11 @@
 "use client";
 
-import { Shield, Target, TrendingUp, type LucideIcon } from "lucide-react";
+import { Shield, TrendingUp, LineChart, type LucideIcon } from "lucide-react";
 
 import type { RiskProfile } from "@/lib/services/kai-profile-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
-import {
-  kaiAppBodyClassName,
-  kaiAppDisplayTitleClassName,
-} from "@/components/kai/shared/kai-typography";
 
 const PERSONA_CONFIG: Record<
   RiskProfile,
@@ -33,13 +29,13 @@ const PERSONA_CONFIG: Record<
     icon: Shield,
   },
   balanced: {
-    pill: "Balanced growth",
+    pill: "Stability first",
     title: "You like progress with discipline.",
     headline: "You can accept some movement when the long-term path is clear.",
     support: "Kai will balance opportunity, concentration, and timing before suggesting action.",
     footerTagline: "Progress without overexposure.",
-    accent: "text-primary bg-primary/10 dark:text-primary dark:bg-primary/12",
-    icon: Target,
+    accent: "text-blue-600 bg-blue-500/10 dark:text-blue-400 dark:bg-blue-400/12",
+    icon: LineChart,
   },
   aggressive: {
     pill: "Growth focused",
@@ -56,6 +52,7 @@ export function KaiPersonaScreen(props: {
   riskProfile: RiskProfile;
   onLaunchDashboard: () => void;
   onEditAnswers?: () => void;
+  terminalFooter?: React.ReactNode;
 }) {
   const cfg = PERSONA_CONFIG[props.riskProfile];
   const icon = cfg.icon;
@@ -65,8 +62,8 @@ export function KaiPersonaScreen(props: {
       data-top-content-anchor="true"
       className="flex min-h-[100dvh] w-full flex-col bg-transparent px-5 pt-[var(--top-content-pad)] pb-[var(--app-screen-footer-pad)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
     >
-      <div className="mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[28rem] flex-1 items-center py-6">
-        <section className="w-full text-center">
+      <div className="mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[25rem] flex-1 flex-col justify-between py-2 sm:py-4">
+        <section className="my-auto w-full text-center">
           <div className="mx-auto flex w-full flex-col items-center">
             <div
               className={`grid h-[52px] w-[52px] place-items-center rounded-[17px] ${cfg.accent}`}
@@ -75,27 +72,15 @@ export function KaiPersonaScreen(props: {
               <Icon icon={icon} size={26} />
             </div>
 
-            <div className="mt-5 space-y-3">
-              <p className="type-caption text-muted-foreground">
+            <div className="mt-4 flex flex-col items-center text-center">
+              <span className="type-caption text-muted-foreground">
                 {cfg.pill}
-              </p>
-              <h1 className={`text-balance ${kaiAppDisplayTitleClassName} text-foreground`}>
+              </span>
+              <h1 className="mt-3 text-balance text-2xl font-bold tracking-tight text-foreground sm:text-3xl leading-snug">
                 {cfg.title}
               </h1>
-              <p className={`mx-auto max-w-[30rem] ${kaiAppBodyClassName} text-muted-foreground`}>
+              <p className="mt-4 max-w-[22rem] text-sm leading-relaxed text-muted-foreground text-balance">
                 {cfg.support}
-              </p>
-            </div>
-
-            <div className="mt-8 w-full border-y border-[color:var(--foundation-hairline)] py-5 text-left">
-              <p className="type-caption text-muted-foreground">
-                Kai profile
-              </p>
-              <p className="mt-2 type-title3 text-foreground">
-                {cfg.headline}
-              </p>
-              <p className="mt-3 type-subhead text-muted-foreground">
-                {cfg.footerTagline}
               </p>
             </div>
 
@@ -135,6 +120,9 @@ export function KaiPersonaScreen(props: {
             </div>
           </div>
         </section>
+        {props.terminalFooter ? (
+          <div className="w-full shrink-0">{props.terminalFooter}</div>
+        ) : null}
       </div>
     </main>
   );
