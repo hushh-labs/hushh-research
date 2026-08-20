@@ -26,12 +26,12 @@ import type { OneLocationRecipient } from "@/lib/one-location/types";
 import { cn } from "@/lib/utils";
 
 /**
- * The sticky counter, and the sheet it opens.
+ * The selection summary, and the sheet it opens.
  *
  * Selection used to be readable only by scrolling the whole screen and
  * counting the rows wearing a Remove button -- across two sections, and soon
- * across two tabs. The pill answers "who is on this list" from anywhere in the
- * flow, and the sheet is where that answer gets edited.
+ * across two tabs. The pill answers "who is on this list" before the tabs are
+ * reached, and the sheet is where that answer gets edited.
  *
  * Vaul's drawer rather than a dialog, because this is a review surface a thumb
  * should be able to drag away: it is not a decision, and dismissing it must
@@ -46,26 +46,21 @@ export function SelectedContactsPill({
   onOpen: () => void;
 }) {
   // Nothing selected, nothing to review. An empty pill would be a permanent
-  // "0 people added" hovering over a screen whose whole job is to stop being 0.
+  // "0 people added" sitting under the title of a screen whose whole job is to
+  // stop being 0.
   if (count <= 0) return null;
   return (
-    // Sits above the app's own bottom chrome by reading the height the shell
-    // publishes (`--bottom-chrome-full-height`, set in app-bottom-shell) rather
-    // than guessing an offset that breaks the moment the nav changes height or
-    // the keyboard opens.
-    <div
-      className="pointer-events-none sticky z-40 flex justify-center px-4"
-      style={{
-        bottom:
-          "calc(var(--bottom-chrome-full-height, 0px) + var(--kb-height, 0px) + max(12px, env(safe-area-inset-bottom)))",
-      }}
-    >
+    // Reads as part of the header block: who is already on the list, answered
+    // once on the way down into the tabs. Floating it over the bottom of the
+    // screen instead meant that on a list short enough not to scroll it came to
+    // rest on top of the first contact row.
+    <div className="mt-6 flex justify-center px-4">
       <button
         type="button"
         onClick={onOpen}
         data-testid="sms-selected-pill"
         aria-label={"Review " + peoplePillLabel(count)}
-        className="press-scale pointer-events-auto flex h-11 max-w-full items-center gap-2 rounded-full bg-[color:var(--app-accent)] px-5 text-[15px] font-semibold text-[color:var(--app-accent-fg)] shadow-lg"
+        className="press-scale flex h-11 max-w-full items-center gap-2 rounded-full bg-[color:var(--app-accent)] px-5 text-[15px] font-semibold text-[color:var(--app-accent-fg)] shadow-lg"
       >
         <UsersRound className="h-4 w-4 shrink-0" aria-hidden />
         <span className="truncate">{peoplePillLabel(count)}</span>
