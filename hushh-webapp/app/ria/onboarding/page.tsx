@@ -1067,7 +1067,7 @@ export default function RiaOnboardingPage({
     if (!suggestion) {
       toast.info("Verify your licence first", {
         description:
-          "Kai needs regulator-backed details before drafting a bio.",
+          "The research agent needs regulator-backed details before drafting a bio.",
       });
       return;
     }
@@ -1084,9 +1084,9 @@ export default function RiaOnboardingPage({
 
   function handleAskKaiUpdateAnything() {
     openKaiCommandBar();
-    toast.info("Kai command opened", {
+    toast.info("Command bar opened", {
       description:
-        "Ask Kai what to update, or use Edit on any section for direct changes.",
+        "Ask the research agent what to update, or use Edit on any section for direct changes.",
     });
   }
 

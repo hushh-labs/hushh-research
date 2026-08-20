@@ -234,6 +234,10 @@ function portfolioViewHelper(status?: string | null) {
 function requestTemplateLabel(template: RiaRequestScopeTemplate) {
   const value = String(template.template_name || "").trim();
   if (!value) return "Client information";
+  // Kept after the label itself stopped saying "Kai": the server now sends
+  // "Portfolio + data" directly, but grants issued before that change still
+  // carry the old template_name in the database, and this is the only thing
+  // standing between a stored row and the word "Kai" reaching an advisor.
   if (/kai/i.test(value)) return "Portfolio + data";
   return value;
 }

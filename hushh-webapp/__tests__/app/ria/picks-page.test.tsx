@@ -434,17 +434,17 @@ describe("RiaPicksPage", () => {
     });
   });
 
-  it("keeps upload and template actions out of Kai list and exposes them in My list", async () => {
+  it("keeps upload and template actions out of the suggested list and exposes them in My list", async () => {
     render(<RiaPicksPage />);
 
     await screen.findByText("NVDA");
-    expect(screen.queryByRole("button", { name: /copy from kai/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /copy suggested list/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^upload$/i })).toBeNull();
     expect(screen.queryByRole("link", { name: /template/i })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
 
-    expect(screen.getByRole("button", { name: /copy from kai/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /copy suggested list/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^upload$/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /^template$/i })).toBeTruthy();
     expect(screen.queryByText("List source")).toBeNull();
@@ -465,7 +465,7 @@ describe("RiaPicksPage", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: /^edit$/i })).toBeTruthy();
     expect(
-      screen.getAllByRole("button", { name: /copy from kai/i }),
+      screen.getAllByRole("button", { name: /copy suggested list/i }),
     ).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: /^upload$/i })).toHaveLength(
       1,
@@ -484,12 +484,12 @@ describe("RiaPicksPage", () => {
     ).toBeTruthy();
   });
 
-  it("copies Kai into the draft editor before save", async () => {
+  it("copies the suggested list into the draft editor before save", async () => {
     render(<RiaPicksPage />);
 
     await screen.findByText("NVDA");
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
-    fireEvent.click(screen.getByRole("button", { name: /copy from kai/i }));
+    fireEvent.click(screen.getByRole("button", { name: /copy suggested list/i }));
 
     expect(mocks.riaService.savePickPackage).not.toHaveBeenCalled();
     expect(mocks.riaService.importPickCsv).not.toHaveBeenCalled();
@@ -502,7 +502,7 @@ describe("RiaPicksPage", () => {
     expect(screen.getByRole("button", { name: /discard/i })).toBeTruthy();
   });
 
-  it("copies top picks, avoid rows, and screening rules from Kai into My list", async () => {
+  it("copies top picks, avoid rows, and screening rules from the suggested list into My list", async () => {
     mocks.riaService.getRenaissanceAvoid.mockResolvedValue({
       items: [
         {
@@ -531,7 +531,7 @@ describe("RiaPicksPage", () => {
 
     await screen.findByText("NVDA");
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
-    fireEvent.click(screen.getByRole("button", { name: /copy from kai/i }));
+    fireEvent.click(screen.getByRole("button", { name: /copy suggested list/i }));
 
     expect(
       await screen.findByText(

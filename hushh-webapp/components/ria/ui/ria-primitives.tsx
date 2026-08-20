@@ -234,7 +234,7 @@ export function RiaBanner({
 }
 
 /**
- * "Ask Kai" action pill (white + gold sparkle). Forwards all button props so the
+ * "Ask the research agent" action pill (white + gold sparkle). Forwards all button props so the
  * caller can attach onClick / data-voice-control-id / testid.
  */
 export function RiaAiActionPill({

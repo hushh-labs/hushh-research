@@ -220,8 +220,8 @@ function RiaRegulatoryProfileSummary({
         <SettingsRow
           icon={MessageCircle}
           iconTone="blue"
-          title="Ask Kai to update anything"
-          description="Open Kai and describe what should change in this profile."
+          title="Ask the research agent to update anything"
+          description="Open the research agent and describe what should change in this profile."
           onClick={onAskKaiUpdateAnything}
           chevron
           testId="ria-profile-ask-kai"
@@ -782,8 +782,8 @@ export function RiaProfileSection({
 
   const handleAskKai = useCallback(() => {
     openKaiCommandBar();
-    toast.info("Kai command opened", {
-      description: "Ask Kai what to update, or use Edit on any section.",
+    toast.info("Command bar opened", {
+      description: "Ask the research agent what to update, or use Edit on any section.",
     });
   }, []);
 
@@ -793,7 +793,7 @@ export function RiaProfileSection({
       const suggestion = buildRiaOnboardingBioSuggestion(current);
       if (!suggestion) {
         toast.info("Add more details first", {
-          description: "Kai needs services or firm details to draft a bio.",
+          description: "The research agent needs services or firm details to draft a bio.",
         });
         return current;
       }

@@ -235,7 +235,7 @@ export function buildRiaOnboardingSteps(
       id: "license_number",
       eyebrow: "Licence",
       title: "Enter your licence",
-      description: "Kai verifies it with your regulator.",
+      description: "The research agent verifies it with your regulator.",
     },
     {
       id: "license_details",

@@ -228,7 +228,7 @@ vi.mock("@/components/ria/onboarding/onboarding-step-services", () => ({
     <div data-testid="step-services">
       <span data-testid="services-bio">{bio}</span>
       <button data-testid="draft-bio" onClick={onDraftBio}>
-        Ask Kai to draft a bio
+        Ask the research agent to draft a bio
       </button>
       <span data-testid="services-city">{city}</span>
       <span data-testid="services-area">{areaLocality}</span>
@@ -266,7 +266,7 @@ vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
         Edit Services
       </button>
       <button data-testid="ask-kai-update" onClick={onAskKaiUpdateAnything}>
-        Ask Kai to update anything
+        Ask the research agent to update anything
       </button>
     </div>
   ),
@@ -915,7 +915,7 @@ describe("RiaOnboardingPage", () => {
 
     expect(mocks.openKaiCommandBar).toHaveBeenCalledTimes(1);
     expect(mocks.toast.info).toHaveBeenCalledWith(
-      "Kai command opened",
+      "Command bar opened",
       expect.any(Object),
     );
   });
