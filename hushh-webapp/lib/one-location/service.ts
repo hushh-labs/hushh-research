@@ -419,6 +419,22 @@ export class OneLocationService {
     return response.circle;
   }
 
+  /**
+   * Find-or-create the SMS/Emergency Circle and migrate legacy contacts in.
+   *
+   * Safe to call on every bootstrap: the second and every later call return the
+   * same Circle, and a contact the owner has since removed is not re-added.
+   */
+  static async ensureSmsSystemCircle(params: {
+    vaultOwnerToken: string;
+  }): Promise<OneLocationCircleDetail> {
+    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
+      "/api/one/location/circles/sms-system",
+      { method: "POST", headers: authHeaders(params.vaultOwnerToken) },
+    );
+    return response.circle;
+  }
+
   static async createNamedCircle(params: {
     vaultOwnerToken: string;
     name: string;
