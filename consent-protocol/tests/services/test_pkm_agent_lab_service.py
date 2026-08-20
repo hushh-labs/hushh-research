@@ -1647,6 +1647,63 @@ async def test_generate_structure_preview_splits_multi_intent_into_cards(monkeyp
     assert result["context_plan"]["candidate_domains"] == ["health", "food"]
 
 
+def test_fallback_segmentation_supports_eight_distinct_memory_candidates():
+    service = PKMAgentLabService()
+
+    segments = service._fallback_segmented_messages(
+        "I prefer tea and I prefer coffee and I enjoy hiking and I enjoy cycling "
+        "and I like museums and I like beaches and I prefer aisle seats and I read nonfiction"
+    )
+
+    assert len(segments) == 8
+
+
+@pytest.mark.asyncio
+async def test_generate_structure_preview_keeps_eight_segment_imports(monkeypatch):
+    service = PKMAgentLabService()
+    segments = [
+        {
+            "source_text": f"I have durable preference number {index}.",
+            "confidence": 0.9,
+            "reason": "Independent preference.",
+        }
+        for index in range(1, 9)
+    ]
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(return_value={"segments": segments, "contract_version": 1}),
+    )
+    monkeypatch.setattr(
+        service,
+        "_generate_single_structure_preview",
+        AsyncMock(
+            return_value={
+                "routing_decision": "non_financial_or_ephemeral",
+                "intent_frame": {"save_class": "durable", "intent_class": "preference"},
+                "merge_decision": {"merge_mode": "create_entity"},
+                "candidate_payload": {"preferences": {"value": "saved"}},
+                "structure_decision": {"target_domain": "preferences"},
+                "write_mode": "can_save",
+                "primary_json_path": "preferences",
+                "target_entity_scope": "preferences",
+                "manifest_draft": {"domain": "preferences", "segment_ids": []},
+            }
+        ),
+    )
+
+    result = await service.generate_structure_preview(
+        user_id="user-8",
+        message="A profile import with eight independent preferences.",
+        current_domains=[],
+    )
+
+    assert len(result["preview_cards"]) == 8
+    assert result["preview_summary"]["card_count"] == 8
+    assert result["preview_summary"]["total_segments_detected"] == 8
+    assert result["preview_summary"]["split_recommended"] is False
+
+
 @pytest.mark.asyncio
 async def test_generate_structure_preview_dedupes_inflight_requests(monkeypatch):
     service = PKMAgentLabService()

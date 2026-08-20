@@ -70,6 +70,15 @@ def _build_app() -> FastAPI:
     return app
 
 
+def test_memory_proposal_request_accepts_a_long_imported_profile():
+    request = pkm.PKMAgentLabStructureRequest(
+        user_id="user_123",
+        message="x" * 12001,
+    )
+
+    assert len(request.message) == 12001
+
+
 @pytest.mark.parametrize(
     ("method", "path", "payload"),
     [
