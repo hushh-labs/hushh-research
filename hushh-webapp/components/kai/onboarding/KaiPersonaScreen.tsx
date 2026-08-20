@@ -1,15 +1,11 @@
 "use client";
 
-import { Shield, Target, TrendingUp, LineChart, type LucideIcon } from "lucide-react";
+import { Shield, TrendingUp, LineChart, type LucideIcon } from "lucide-react";
 
 import type { RiskProfile } from "@/lib/services/kai-profile-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
-import {
-  kaiAppBodyClassName,
-  kaiAppDisplayTitleClassName,
-} from "@/components/kai/shared/kai-typography";
 
 const PERSONA_CONFIG: Record<
   RiskProfile,
