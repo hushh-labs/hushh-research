@@ -45,7 +45,7 @@ Operational commands:
   db report-prod-posture [--json]
   compose <subcommand>
   protocol <subcommand>
-  sync <main|check-main>
+  sync <main|verify-merge|check-main>
 
 Run:
   ./bin/hushh compose --help
@@ -90,6 +90,7 @@ sync_usage() {
   cat <<'EOF'
 Usage:
   ./bin/hushh sync main
+  ./bin/hushh sync verify-merge
   ./bin/hushh sync check-main
 EOF
 }
@@ -400,6 +401,10 @@ run_sync() {
     main)
       shift
       exec bash "$REPO_ROOT/scripts/git/sync-main.sh" "$@"
+      ;;
+    verify-merge)
+      shift
+      exec bash "$REPO_ROOT/scripts/git/verify-merge.sh" "$@"
       ;;
     check-main)
       shift
