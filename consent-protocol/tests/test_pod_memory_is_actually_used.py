@@ -76,10 +76,15 @@ def test_the_memory_tool_is_pod_conditional() -> None:
     service itself checks.
     """
     source = _AGENT_TREE.read_text()
-    guard = source.find("if pod_mode() and pod_agent_memory_enabled():")
+    # The guard is the RESOLVED service, not the flags. The flags said "memory
+    # should exist"; the resolver says whether it actually does (identity, key,
+    # log all buildable) and embeds the pod_mode + flag checks itself. A BYOC pod
+    # whose key resolution failed used to pass the flag check and ship a recall
+    # tool that always errored -- the exact failure this test exists to prevent.
+    guard = source.find("if resolve_pod_memory_service() is not None:")
     assert guard != -1, (
-        "no pod-mode + memory-enabled guard exists, so the memory tool is bound "
-        "unconditionally and would always fail on the hub"
+        "no resolved-service guard exists, so the memory tool is bound "
+        "unconditionally (or on flags alone) and can always-fail at runtime"
     )
     # The IMPORT of the tool, not the prose about it -- searching from the top would
     # match the comment above the guard and pass while the binding sat outside it.

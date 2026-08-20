@@ -187,6 +187,13 @@ def _mounted_paths() -> list[str]:
 @app.get("/pod/info", tags=["pod"])
 def pod_info() -> dict:
     """Identify this process as a slim pod and report its mounted surface."""
+    # Memory state is reported from the RESOLVER, not the flags: "memoryEnabled"
+    # answers "would a turn on this pod actually get a memory service", which is
+    # the one question an operator probing a silent pod needs answered with one
+    # authenticated GET (a BYOC pod once served for days with memory silently
+    # broken and nothing observable saying so).
+    from hushh_mcp.services.pod_memory_service import resolve_pod_memory_service
+
     return {
         "role": "sovereign-pod",
         "podMode": pod_mode(),
@@ -194,6 +201,8 @@ def pod_info() -> dict:
         "spaceId": os.getenv("HUSSH_SPACE_ID") or None,
         "controlPlane": "central@hushh (consent issuance + audit not hosted here)",
         "mounts": _mounted_paths(),
+        "storageBackend": (os.getenv("POD_STORAGE_BACKEND") or "null").strip() or "null",
+        "memoryEnabled": resolve_pod_memory_service() is not None,
     }
 
 

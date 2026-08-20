@@ -877,13 +877,6 @@ def pod_agent_memory_enabled() -> bool:
     return _bool_from_value(_clean_env("POD_AGENT_MEMORY_ENABLED"), default=False)
 
 
-def crm_registry_db_enabled() -> bool:
-    """Feature flag: resolve Connected Systems from the DB-backed enterprise CRM
-    registry (decrypting credentials with VAULT_DATA_KEY) instead of the
-    hardcoded in-code definition. Defaults off until cutover."""
-    return _bool_from_value(_clean_env("CRM_REGISTRY_DB_ENABLED"), default=False)
-
-
 def consent_audit_chain_enabled() -> bool:
     """Kill-switch for the tamper-evident consent-audit receipt chain (AU-9/AU-10).
 

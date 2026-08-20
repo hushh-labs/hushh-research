@@ -64,6 +64,14 @@ BACKEND_VOICE_REQUIRED = (
 BACKEND_CONNECTED_SYSTEMS_REQUIRED = (
     "OMNIGATEWAY_CLIENT_ID",
     "OMNIGATEWAY_CLIENT_SECRET",
+    # The external_crm credential profile. Migration 149 forces this profile for
+    # dynamic_registry-mode rows, and its absence is exactly the confirmed
+    # 2026-08-12 UAT 401 (CONNECTED_SYSTEM_MCP_AUTH_FAILED): the deploy attaches
+    # secrets with `append_optional_secret`, which SKIPS a missing one silently,
+    # so without this line an environment can pass every gate and still refuse
+    # every CRM read. Absence must fail loud here instead.
+    "OMNIGATEWAY_EXT_CRM_CLIENT_ID",
+    "OMNIGATEWAY_EXT_CRM_CLIENT_SECRET",
 )
 
 BACKEND_REVIEWER_SMOKE_REQUIRED = (

@@ -1503,9 +1503,17 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
     # real, a memory_service was resolved and handed to the Runner, and no tool could
     # read it and nothing ever wrote to it. Every component passed its tests.
     memory_tools: list = []
-    from hushh_mcp.runtime_settings import pod_agent_memory_enabled  # noqa: PLC0415
+    # Bind on the RESOLVED service, not the flags. The flags said "memory should
+    # exist"; the resolver says whether it actually does (identity present, key
+    # resolvable, log buildable). A BYOC pod whose key resolution failed used to
+    # pass the flag check and ship a recall tool with nothing behind it -- the
+    # exact tool-that-always-errors this comment block promises not to offer.
+    # The resolver embeds the pod_mode + flag checks, so nothing is lost.
+    from hushh_mcp.services.pod_memory_service import (  # noqa: PLC0415
+        resolve_pod_memory_service,
+    )
 
-    if pod_mode() and pod_agent_memory_enabled():
+    if resolve_pod_memory_service() is not None:
         from google.adk.tools import load_memory  # noqa: PLC0415
 
         memory_tools = [load_memory]

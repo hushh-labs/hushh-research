@@ -220,11 +220,11 @@ def resolve_pod_storage() -> PodStorage:
     if selected in ("", BACKEND_NULL):
         return NullPodStorage()
     if selected == BACKEND_COMMIT_LOG:
+        from hushh_mcp.services.byoc_key_custody import resolve_pod_log_key
         from hushh_mcp.services.pod_commit_log import (
             GcsObjectStore,
             LocalObjectStore,
             PodCommitLog,
-            log_key_from_env,
         )
 
         local_root = (os.getenv(_LOCAL_ROOT_ENV) or "").strip()
@@ -239,5 +239,13 @@ def resolve_pod_storage() -> PodStorage:
             if local_root
             else GcsObjectStore(bucket, (os.getenv(_GCS_PREFIX_ENV) or "").strip())
         )
-        return CommitLogPodStorage(PodCommitLog(store, log_key_from_env()))
+        # The TIER-AGNOSTIC resolver, deliberately. `log_key_from_env()` here was
+        # the defect that made every BYOC pod forget: a BYOC pod is provisioned
+        # with `HUSSH_POD_KMS_KEY` + a wrapped key object and never carries
+        # `HUSSH_POD_LOG_KEY`, so the env-only read raised, the memory build
+        # swallowed it, and the pod served turns with `memory_service=None`
+        # (observed live: a CMEK bucket a BYOC pod never wrote to).
+        # `resolve_pod_log_key` reads the env key for managed pods and unwraps
+        # from the user's KMS for BYOC pods -- one call, both custody models.
+        return CommitLogPodStorage(PodCommitLog(store, resolve_pod_log_key()))
     raise NotImplementedError(f"pod storage backend {selected!r} is not wired yet")

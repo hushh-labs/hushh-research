@@ -557,6 +557,17 @@ def build_pod_memory_service(*, hushh_id: str, pod_key: bytes, log: Any = None) 
             hits = store.search(
                 hushh_id=self.hushh_id if user_id in ("", self.hushh_id) else user_id, query=query
             )
+            # The observable recall signal. The north star accepts only an observed
+            # recall TOOL CALL as proof the agent evolved; until this line, a live
+            # `load_memory` call left no trace anywhere, so the proof was
+            # unassertable against a running pod. Query text is the person's own
+            # words — log length and hit count, never content.
+            logger.info(
+                "pod_memory.recall hushh_id=%s query_chars=%d hits=%d",
+                self.hushh_id,
+                len(query or ""),
+                len(hits),
+            )
             return SearchMemoryResponse(
                 memories=[
                     MemoryEntry(

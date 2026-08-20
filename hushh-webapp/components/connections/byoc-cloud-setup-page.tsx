@@ -52,11 +52,20 @@ export function ByocCloudSetupPage() {
     setError(null);
     try {
       setSaved(await ApiService.saveByocProject({ projectId }));
-    } catch {
+    } catch (err) {
       // The project is not recorded, so the step is genuinely incomplete. Say that
       // rather than advancing: a false "done" here surfaces much later, in their own
-      // cloud, as a provisioning failure with nothing naming the cause.
-      setError("We could not save your cloud just now. Try again in a moment.");
+      // cloud, as a provisioning failure with nothing naming the cause. When the
+      // server sent a real reason (the 409 "verify your phone first" is a normal
+      // step of this journey, not a fault), show that reason verbatim — one status
+      // line, the actual next action (Restraint Charter: earn every element).
+      const serverReason =
+        err instanceof Error && err.message && err.message !== "BYOC_SAVE_FAILED"
+          ? err.message
+          : null;
+      setError(
+        serverReason ?? "We could not save your cloud just now. Try again in a moment.",
+      );
     } finally {
       setSaving(false);
     }
