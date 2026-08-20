@@ -31,7 +31,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ApiService } from "@/lib/services/api-service";
@@ -47,7 +46,6 @@ type Availability = boolean | null;
 export function ByocCloudCard({ onProjectNamed, testId }: ByocCloudCardProps) {
   const [projectId, setProjectId] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [rationale, setRationale] = useState("");
   const [valid, setValid] = useState(true);
   const [available, setAvailable] = useState<Availability>(null);
   const [reason, setReason] = useState("");
@@ -67,11 +65,9 @@ export function ByocCloudCard({ onProjectNamed, testId }: ByocCloudCardProps) {
         if (cancelled) return;
         setProjectId(suggestion.projectId);
         setDisplayName(suggestion.displayName);
-        setRationale(suggestion.rationale);
       } catch {
         // A missing suggestion must not block the field. Someone who already has a
-        // project can type its name, which is the common case anyway.
-        if (!cancelled) setRationale("Type the name of the project you want to use.");
+        // project just types its name, which is the common case anyway.
       }
     })();
     return () => {
@@ -130,130 +126,93 @@ export function ByocCloudCard({ onProjectNamed, testId }: ByocCloudCardProps) {
   const canContinue = valid && available !== false && projectId.length > 0;
 
   return (
-    <SettingsGroup
-      title="Run your agent in your own cloud"
-      description="Your compute, your storage, your bill. Hushh never holds a key to it."
-      testId={testId ?? "connections-byoc-cloud"}
-    >
-      <div className="flex flex-col gap-3 p-4">
-        {canContinue ? (
-          <div>
-            <Badge variant="secondary">Ready</Badge>
-          </div>
-        ) : null}
-        <label className="text-sm font-medium" htmlFor="byoc-project-id">
-          Name your cloud
-        </label>
-        <Input
-          id="byoc-project-id"
-          value={projectId}
-          onChange={(event) => setProjectId(event.target.value.trim())}
-          aria-invalid={!valid}
-          aria-describedby="byoc-project-status"
-          data-testid="byoc-project-id-input"
-          spellCheck={false}
-          autoComplete="off"
-        />
-        <p
-          id="byoc-project-status"
-          data-testid="byoc-project-status"
-          className={
-            status.tone === "error"
-              ? "text-sm text-destructive"
-              : status.tone === "ok"
-                ? "text-sm text-muted-foreground"
+    // No title here on purpose: the page header already says "Your cloud". A single
+    // card must not restate the screen's heading (Restraint Charter: one title per
+    // screen). This renders the grouped-card shell only.
+    <SettingsGroup testId={testId ?? "connections-byoc-cloud"}>
+      <div className="flex flex-col gap-4 p-4">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium" htmlFor="byoc-project-id">
+            Name your cloud
+          </label>
+          <Input
+            id="byoc-project-id"
+            value={projectId}
+            onChange={(event) => setProjectId(event.target.value.trim())}
+            aria-invalid={!valid}
+            aria-describedby="byoc-project-status"
+            data-testid="byoc-project-id-input"
+            spellCheck={false}
+            autoComplete="off"
+          />
+          <p
+            id="byoc-project-status"
+            data-testid="byoc-project-status"
+            className={
+              status.tone === "error"
+                ? "text-sm text-destructive"
                 : "text-sm text-muted-foreground"
-          }
-        >
-          {status.label}
-        </p>
-        {rationale ? (
-          <p className="text-xs text-muted-foreground">{rationale}</p>
-        ) : null}
-
-        {!expanded ? (
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={!canContinue}
-            onClick={() => void showCreationRoutes()}
-            data-testid="byoc-project-continue"
+            }
           >
-            I need to create this project
-          </Button>
-        ) : null}
+            {status.label}
+          </p>
+        </div>
 
+        {/* Progressive disclosure: creating a project is the rare path, so it stays a
+            quiet link until asked for, not a competing button. */}
         {expanded && plan ? (
-          <div className="flex flex-col gap-3 rounded-md border p-3">
-            <div>
-              <p className="text-sm font-medium">Create it yourself — recommended</p>
-              <p className="text-xs text-muted-foreground">
-                It is yours from the moment it exists, and hushh holds nothing over it.{" "}
-                {plan.guided.whatHushhGets}
-              </p>
-              <div className="mt-2 flex flex-col gap-2">
-                <a
-                  className="text-sm underline"
-                  href={plan.guided.consoleUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  data-testid="byoc-console-link"
-                >
-                  Open Google Cloud and create it
-                </a>
-                <code className="overflow-x-auto rounded bg-muted p-2 text-xs">
-                  {plan.guided.cliCommand}
-                </code>
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                {plan.guided.billingNote}
-              </p>
-            </div>
-
-            {/* The larger permission, shown next to the alternative rather than
-                instead of it. `meaning` says it is not scoped to this one project. */}
+          <div className="flex flex-col gap-3 rounded-xl border border-border/60 p-3">
+            <p className="text-sm text-muted-foreground">
+              Create it in your own Google Cloud, then continue below. It is yours from
+              the moment it exists, and {plan.guided.whatHushhGets}
+            </p>
+            <a
+              className="text-sm underline underline-offset-4"
+              href={plan.guided.consoleUrl}
+              target="_blank"
+              rel="noreferrer"
+              data-testid="byoc-console-link"
+            >
+              Open Google Cloud and create it
+            </a>
+            <code className="overflow-x-auto rounded bg-muted p-2 text-xs">
+              {plan.guided.cliCommand}
+            </code>
+            <p className="text-xs text-muted-foreground">{plan.guided.billingNote}</p>
             {plan.delegated?.grant ? (
               <details data-testid="byoc-delegated-disclosure">
-                <summary className="cursor-pointer text-sm">
+                <summary className="cursor-pointer text-sm text-muted-foreground">
                   Or let hushh create it for you
                 </summary>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  {plan.delegated.meaning}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {plan.delegated.why_this_is_larger}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
+                  {plan.delegated.meaning} {plan.delegated.why_this_is_larger}{" "}
                   {plan.delegated.revocation}
                 </p>
               </details>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {plan.delegated?.unavailable}
-              </p>
-            )}
-
-            <Button
-              type="button"
-              onClick={() => void onProjectNamed?.(projectId)}
-              data-testid="byoc-project-done"
-            >
-              I have created it — continue
-            </Button>
+            ) : null}
           </div>
-        ) : null}
-
-        {!expanded ? (
-          <Button
+        ) : (
+          <button
             type="button"
-            variant="ghost"
+            className="self-start text-sm text-muted-foreground underline underline-offset-4 disabled:opacity-50"
             disabled={!canContinue}
-            onClick={() => void onProjectNamed?.(projectId)}
-            data-testid="byoc-project-existing"
+            onClick={() => void showCreationRoutes()}
+            data-testid="byoc-project-help"
           >
-            I already have this project — continue
-          </Button>
-        ) : null}
+            I need to create this project
+          </button>
+        )}
+
+        {/* One primary action. Whether the project is new or already theirs, the
+            server probes it the same way. */}
+        <Button
+          type="button"
+          disabled={!canContinue}
+          onClick={() => void onProjectNamed?.(projectId)}
+          data-testid="byoc-project-continue"
+        >
+          Continue
+        </Button>
       </div>
     </SettingsGroup>
   );
