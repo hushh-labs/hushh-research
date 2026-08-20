@@ -500,21 +500,12 @@ def _identity_notification_label(
     truthful answer rather than a missing one.
     """
 
-    if not row:
-        return fallback
-    # The ladder is run against the row already in hand rather than through
-    # `resolve_requester_label`, which would re-query the same row for its email
-    # rung. Same helpers, same order, one read instead of two.
-    from hushh_mcp.services.requester_identity import (
-        _email_handle,
-        looks_technical_label,
-    )
+    # Run against the row already in hand rather than through
+    # `resolve_requester_label`, which would re-query the same row for its
+    # email rung. Same ladder, one read instead of two.
+    from hushh_mcp.services.requester_identity import label_from_identity_row
 
-    user_id = str(row.get("user_id") or "")
-    display_name = str(row.get("display_name") or "").strip()
-    if display_name and not looks_technical_label(display_name, user_id=user_id):
-        return display_name
-    return _email_handle(row.get("email")) or fallback
+    return label_from_identity_row(row, fallback=fallback)
 
 
 def _notification_safe_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -1407,13 +1398,40 @@ class OneLocationAgentService:
             return None
 
     @staticmethod
-    def _recipient_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _recipient_payload(
+        row: dict[str, Any] | None,
+        *,
+        allow_email_handle: bool = False,
+    ) -> dict[str, Any] | None:
+        """Project one person for a client list.
+
+        ``allow_email_handle`` is a privacy boundary, not a default. This same
+        projection serves two lists: the recipients list, scoped to people the
+        viewer is connected to or shares a Circle with, and the discovery
+        directory, which includes phone-verified strangers. An email's local
+        part is a name to the first group and an identifier about the second,
+        so only the relationship-scoped caller opts in.
+
+        Off, the behaviour is exactly what it was: the masked phone, then
+        "Verified user".
+        """
+
         if not row:
             return None
-        display_name = str(row.get("display_name") or "").strip()
+        from hushh_mcp.services.requester_identity import label_from_identity_row
+
         email = str(row.get("email") or "").strip()
         masked_phone = _mask_phone(row.get("phone_number"))
         user_id = str(row.get("user_id") or "")
+        # The masked phone stays a rung, below the name and the handle. It is
+        # the one the client rejects on sight (MASKED_PHONE_ONLY_PATTERN) and
+        # replaces with "A trusted person", so anything resolvable above it is
+        # the difference between a name and a generic line.
+        display_name = label_from_identity_row(
+            row,
+            allow_email_handle=allow_email_handle,
+            fallback="",
+        )
         return {
             "userId": user_id,
             "displayName": display_name or masked_phone or "Verified user",
@@ -3442,7 +3460,11 @@ class OneLocationAgentService:
                 "This secure key id is already bound to different key material.",
                 status_code=409,
             )
-        return self._recipient_payload(row) or {}
+        # The caller's own record, handed straight back to them. There is no
+        # privacy line to draw against yourself, and withholding it here would
+        # show a person their own masked phone where every other surface now
+        # shows their name.
+        return self._recipient_payload(row, allow_email_handle=True) or {}
 
     def list_verified_recipients(
         self, *, owner_user_id: str, limit: int = 50
@@ -3510,7 +3532,14 @@ class OneLocationAgentService:
             {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
         )
 
-        recipients = [payload for row in rows if (payload := self._recipient_payload(row))]
+        # Relationship-scoped: the statement above admits a person only on an
+        # active connection or a shared active Circle, so a name resolved from
+        # their email handle is a name about someone the viewer already knows.
+        recipients = [
+            payload
+            for row in rows
+            if (payload := self._recipient_payload(row, allow_email_handle=True))
+        ]
         return self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,

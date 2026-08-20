@@ -593,7 +593,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /Neel Shah Connected on One/i }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Invite 2 people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 2 people" }));
 
     await waitFor(() =>
       expect(onInviteConnections).toHaveBeenCalledWith("circle-1", [
@@ -677,7 +677,7 @@ describe("named Circle flows", () => {
         name: /Friend User Connected on One/i,
       }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
     await waitFor(() =>
       expect(onInviteConnections).toHaveBeenCalledWith("circle-1", [
         "friend-user",
@@ -780,7 +780,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Add people" }),
     );
-    expect(await screen.findByText(/invite 1 more person right now/i)).toBeTruthy();
+    expect(await screen.findByText(/add 1 more person right now/i)).toBeTruthy();
 
     const asha = screen.getByRole("button", {
       name: /Asha Meena Connected on One/i,
@@ -793,7 +793,7 @@ describe("named Circle flows", () => {
     expect(asha).toHaveAttribute("aria-pressed", "true");
     expect(neel).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Invite 1 person" }),
+      screen.getByRole("button", { name: "Add 1 person" }),
     ).toBeEnabled();
   });
 
@@ -819,7 +819,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Add people" }),
     );
-    expect(await screen.findByText("No invitation slots available")).toBeTruthy();
+    expect(await screen.findByText("No room left in this Circle")).toBeTruthy();
     expect(screen.queryByText("Stale Candidate")).toBeNull();
   });
 
@@ -867,7 +867,7 @@ describe("named Circle flows", () => {
       name: /Asha Meena Connected on One/i,
     });
     fireEvent.click(asha);
-    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
       expect(onLoadEligibleConnections).toHaveBeenCalledTimes(2),
@@ -1070,7 +1070,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Asha Meena Connected on One/i }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
       expect(onInviteConnections).toHaveBeenCalledWith("circle-1", [
@@ -1089,7 +1089,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /Neel Shah Connected on One/i }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Invite 2 people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 2 people" }));
 
     await waitFor(() =>
       expect(onInviteConnections).toHaveBeenLastCalledWith("circle-1", [
@@ -1130,7 +1130,7 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Asha Meena Connected on One/i }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith("Circle capacity changed."),
@@ -1193,7 +1193,7 @@ describe("named Circle flows", () => {
         name: /Friend User Connected on One/i,
       }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Add people" })).toBeNull(),
