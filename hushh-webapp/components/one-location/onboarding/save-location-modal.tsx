@@ -1556,6 +1556,11 @@ export function SaveLocationModal({
    * `preventDefault()` the scroll it was meant to be. The header row is the
    * drag surface instead -- see `SheetDragRegion`.
    *
+   * It is off for the map pane too, and there the reason is stronger: dragging
+   * DOWN on a map is how you move the pin north. A body-origin dismissal would
+   * take that gesture and close the sheet instead, on the one screen whose
+   * whole job is moving the pin. One drag surface, and it is the rail.
+   *
    * No `max-w` and no `mx-auto`: a bottom sheet spans the bottom of the screen.
    * See `SHEET_SURFACE_CLASSNAME`.
    */

@@ -62,8 +62,7 @@ export const SHEET_SURFACE_CLASSNAME =
  * The height is capped in `dvh` rather than left to the primitive so a tall
  * desktop window does not stretch the form to the full window.
  */
-export const DIALOG_SURFACE_CLASSNAME =
-  "mx-auto w-full max-h-[min(92dvh,760px)]";
+export const DIALOG_SURFACE_CLASSNAME = "w-full max-h-[min(92dvh,760px)]";
 
 /**
  * The width at which this surface stops being a bottom sheet and becomes a
