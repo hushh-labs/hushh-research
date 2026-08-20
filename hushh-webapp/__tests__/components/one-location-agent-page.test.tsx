@@ -1262,6 +1262,26 @@ describe("OneLocationAgentPage", () => {
     expect(within(actions).getByText("Check-In")).toBeTruthy();
     expect(within(actions).getByText("Send SOS")).toBeTruthy();
 
+    const actionGrid = actions.querySelector("[data-one-location-action-grid]");
+    expect(actionGrid?.className).toContain("grid-cols-2");
+    expect(actionGrid?.className).toContain("rounded-[22px]");
+    expect(actionGrid?.className).toContain(
+      "shadow-[var(--app-card-shadow-standard)]",
+    );
+
+    const actionCells = actionGrid?.querySelectorAll(
+      "[data-one-location-action-cell]",
+    );
+    expect(actionCells).toHaveLength(4);
+    actionCells?.forEach((cell) => {
+      expect(cell.className).toContain("items-center");
+      expect(cell.className).toContain("text-center");
+      expect(cell.className).toContain("min-h-[116px]");
+    });
+    expect(
+      actionGrid?.querySelector("[data-one-location-action-icon]")?.className,
+    ).toContain("[&_svg]:h-8");
+
     const activity = screen.getByTestId("one-location-now-activity");
     expect(within(activity).getByText("Active shares")).toBeTruthy();
     expect(within(activity).getByText("Shared with me")).toBeTruthy();
