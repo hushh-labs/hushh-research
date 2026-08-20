@@ -244,6 +244,7 @@ import {
   loadLiveShareEntries,
   pruneLiveShareEntries,
   reconcileLiveShareEntries,
+  resolveStoppableGrantId,
   saveLiveShareEntries,
   summarizeLiveShareEntries,
   type LiveShareSessionEntry,
@@ -3060,16 +3061,25 @@ export function OneLocationAgentPageContent({
       // Names come from the server state only. The device record stays
       // coordinate- and identity-free, so a cold start shows "2 people" rather
       // than inventing who they are.
-      names: activeOwnerGrants
-        .filter((grant) => liveGrantIds.has(grant.id))
-        .map((grant) => grantCounterpartyLabel(grant))
-        .filter(Boolean),
+      //
+      // One name per PERSON, matching the count beside it. A pair can hold two
+      // live grants at once, and mapping the grant list straight to labels put
+      // the same friend in here twice -- which the card turns into "Sharing
+      // with 2 people" via `Math.max(names.length, count)`, a headline that
+      // names one person and counts two.
+      names: Array.from(
+        new Map(
+          activeOwnerGrants
+            .filter((grant) => liveGrantIds.has(grant.id))
+            .map((grant) => [
+              grant.recipientUserId || grant.id,
+              grantCounterpartyLabel(grant),
+            ]),
+        ).values(),
+      ).filter(Boolean),
       startedAt: shareWindow.startedAt,
       endsAt: shareWindow.endsAt,
-      stoppableGrantId:
-        liveShareEntries.length === 1
-          ? (liveShareEntries[0]?.grantId ?? null)
-          : null,
+      stoppableGrantId: resolveStoppableGrantId(liveShareEntries),
     };
   }, [activeOwnerGrants, liveShareEntries]);
 
