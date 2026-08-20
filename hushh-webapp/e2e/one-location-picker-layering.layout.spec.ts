@@ -40,7 +40,7 @@ function builtStylesheet(): string {
 
 const PAGE = `
   <div data-app-scroll-root="true"><p>saved places behind</p></div>
-  <div data-testid="one-location-onboarding"><h1>Need to keep people updated?</h1></div>
+  <div data-testid="one-location-onboarding"><h1>Keep your people updated.</h1></div>
   <div id="dialog-portal"></div>
 `;
 

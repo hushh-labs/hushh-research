@@ -72,7 +72,7 @@ function renderFlow(
 /** welcome -> features -> contacts. */
 function openContactsScreen() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-  fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 }
 
 /** ...and on to the invite screen, declining the contacts step. */
@@ -139,7 +139,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     const advance = [
       ["one-location-onboarding-welcome", "Get started"],
-      ["one-location-onboarding-features", "Find my people"],
+      ["one-location-onboarding-features", "Continue"],
       ["one-location-onboarding-contacts", "Not now"],
       ["one-location-onboarding-invite", null],
     ] as const;
@@ -172,7 +172,7 @@ describe("OneLocationOnboardingFlow", () => {
     record("one-location-onboarding-welcome");
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
     record("one-location-onboarding-features");
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     record("one-location-onboarding-contacts");
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     record("one-location-onboarding-invite");
@@ -309,20 +309,17 @@ describe("OneLocationOnboardingFlow", () => {
           .getByTestId("location-use-case-checkin")
           .querySelectorAll("[data-one-feature-title-line]"),
       ).map((line) => line.textContent),
-    ).toEqual(["At the venue, but", "can\u2019t find each other?"]);
+    ).toEqual(["Stuck in the", "check-in line?"]);
     expect(
       Array.from(
         screen
           .getByTestId("location-use-case-sos")
           .querySelectorAll("[data-one-feature-title-line]"),
       ).map((line) => line.textContent),
-    ).toEqual(["Need help but can\u2019t", "call or speak?"]);
+    ).toEqual(["Need help but", "can\u2019t talk?"]);
 
     expect(
-      screen.getByRole("heading", { name: "Need to keep people updated?" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByText("Share location, check in, or send help in seconds."),
+      screen.getByRole("heading", { name: "Keep your people updated." }),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
@@ -330,17 +327,25 @@ describe("OneLocationOnboardingFlow", () => {
       }),
     ).toBeTruthy();
     expect(
-      screen.getByText("Share once. Your Circle can find you safely."),
+      screen.getByText("Share your live location with your Circle in one tap."),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "At the venue, but can\u2019t find each other?",
+        name: "Stuck in the check-in line?",
       }),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "Need help but can\u2019t call or speak?",
+        name: "Need help but can\u2019t talk?",
       }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Check in early, pick up your key, and skip the front desk.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Send an SOS with your location in seconds."),
     ).toBeTruthy();
 
     expect(screen.getByText("Share location")).toBeTruthy();
@@ -410,7 +415,7 @@ describe("OneLocationOnboardingFlow", () => {
     }
     expect(shareCard.querySelector('img[src*="/orbit-person-"]')).toBeNull();
 
-    expect(screen.getByRole("button", { name: "Find my people" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
     expect(screen.queryByText("Connected Person")).toBeNull();
@@ -424,7 +429,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onLocationReady).not.toHaveBeenCalled();
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
@@ -447,11 +452,11 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onRequestNotifications).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Find my people" }),
+        screen.getByRole("button", { name: "Continue" }),
       ).toBeEnabled(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onLocationReady).toHaveBeenCalledTimes(1);
   });
@@ -484,7 +489,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Find my people" }),
+        screen.getByRole("button", { name: "Continue" }),
       ).toBeEnabled(),
     );
   });
@@ -512,7 +517,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     await waitFor(() => expect(onLocationReady).toHaveBeenCalledTimes(1));
     expect(
-      screen.getByRole("button", { name: "Find my people" }),
+      screen.getByRole("button", { name: "Continue" }),
     ).toBeDisabled();
     expect(screen.queryByTestId("one-location-onboarding-people")).toBeNull();
 
@@ -522,7 +527,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Find my people" }),
+        screen.getByRole("button", { name: "Continue" }),
       ).toBeEnabled(),
     );
   });
@@ -531,8 +536,8 @@ describe("OneLocationOnboardingFlow", () => {
     const props = renderFlow({ requireLocationToComplete: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    expect(screen.getByRole("button", { name: "Find my people" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(props.onRequestLocation).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
@@ -613,7 +618,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
@@ -733,7 +738,7 @@ describe("OneLocationOnboardingFlow", () => {
       "bg-[color:var(--app-grouped-background)]",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     const contactsScreen = screen.getByTestId(
       "one-location-onboarding-contacts",
     );
@@ -1151,7 +1156,7 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ contactsStepAvailable: false, onSyncOnboardingContacts });
 
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
       expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
       expect(
@@ -1164,7 +1169,7 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ contactsStepAvailable: false });
 
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
       fireEvent.click(screen.getByRole("button", { name: "Go back" }));
 
       // Back must not land on a screen that was never shown.
@@ -1177,7 +1182,7 @@ describe("OneLocationOnboardingFlow", () => {
       const props = renderFlow({ contactsStepAvailable: false });
 
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
       fireEvent.click(finishButton());
 
       expect(props.onComplete).toHaveBeenCalledTimes(1);
