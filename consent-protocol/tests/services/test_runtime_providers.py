@@ -109,11 +109,11 @@ def test_is_known_provider_and_supported_set():
     assert is_known_provider("grok") is True
     assert is_known_provider("cohere") is False
     providers = supported_providers()
-    assert set(providers) == {"gemini", "anthropic", "openai", "grok"}
+    assert set(providers) == {"gemini", "anthropic", "openai", "grok", "musespark"}
 
 
 def test_default_model_per_provider_is_stable():
-    for provider in ("gemini", "anthropic", "openai", "grok"):
+    for provider in ("gemini", "anthropic", "openai", "grok", "musespark"):
         assert default_model_for_provider(provider)
 
 
@@ -131,6 +131,27 @@ def test_resolve_model_entry_empty_model_uses_default():
     entry = resolve_model_entry("gemini", "")
     assert entry.provider == "gemini"
     assert entry.model == default_model_for_provider("gemini")
+
+
+def test_muse_spark_resolves_from_the_names_a_person_actually_uses():
+    # The vendor and the model family are different words, and a caller may
+    # reach for either. Both resolve; a space-separated form does not, which
+    # matches every other alias in the registry rather than inventing a rule
+    # only this provider follows.
+    for alias in ("musespark", "muse-spark", "muse", "meta", "metaai", "MUSE"):
+        assert normalize_provider(alias) == "musespark"
+    assert default_model_for_provider("meta") == "muse-spark-1.1"
+
+
+def test_muse_spark_claims_only_capabilities_meta_documents():
+    # Structured output and parallel tool calling are documented for the Meta
+    # Model API. Prompt caching and native realtime are not, and borrowing the
+    # OpenAI wire format is not evidence of either — asserting them here would
+    # let the voice layer pick a transport the provider may not serve.
+    entry = resolve_model_entry("musespark", "muse-spark-1.1")
+    assert entry.supports_function_calling is True
+    assert entry.supports_prompt_caching is False
+    assert entry.supports_native_realtime is False
 
 
 def test_only_gemini_live_model_advertises_native_realtime():
@@ -254,6 +275,26 @@ def test_build_managed_non_gemini_runtime_client_requires_key():
 def test_factory_rejects_unknown_provider():
     with pytest.raises(ValueError, match="Unsupported runtime provider"):
         build_runtime_client("mistral", "key")
+
+
+def test_factory_sends_muse_spark_to_metas_host_not_openais(monkeypatch):
+    # Muse Spark reuses the OpenAI transport because it speaks that wire format.
+    # The base_url is therefore the ONLY thing separating it from OpenAI, and
+    # getting it wrong would post the user's Meta key to api.openai.com — a
+    # credential leak to a third party that no test above would catch.
+    captured: list[dict[str, Any]] = []
+
+    def fake_async_openai(**kwargs):
+        captured.append(kwargs)
+        return types.SimpleNamespace(kind="openai-compatible")
+
+    monkeypatch.setattr("openai.AsyncOpenAI", fake_async_openai)
+
+    build_runtime_client("meta", "user-supplied-meta-key")
+
+    assert len(captured) == 1
+    assert captured[0]["base_url"] == "https://api.meta.ai/v1"
+    assert captured[0]["api_key"] == "user-supplied-meta-key"
 
 
 def test_factory_gemini_uses_byok_and_managed_adc_clients(monkeypatch):
