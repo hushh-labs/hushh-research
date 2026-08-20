@@ -1,0 +1,44 @@
+#!/bin/sh
+# .githooks/pre-merge-commit
+#
+# Fires automatically for every CLEAN merge (git merge/pull with no
+# conflicts) regardless of which command or tool created it — unlike
+# scripts/git/sync-main.sh, this runs even if nobody remembers to use it.
+# See ~/.claude/skills/merge-regression-guard (2026-08-19 incident).
+#
+# Advisory by default: prints a report, never blocks the commit. The
+# detector (scripts/git/check-merge-regression.sh) has a demonstrated
+# false-positive AND false-negative rate — see the skill for specifics —
+# so failing a commit on it by default would be worse than doing nothing.
+# Opt into hard enforcement with HUSHH_MERGE_REGRESSION_BLOCK=1.
+#
+# NOTE what this does NOT cover: `git rebase` never reaches this hook (no
+# merge commit is created), and `git stash pop` has no git hook at all.
+# Both remain procedural-only — see the skill.
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+CHECKER="$REPO_ROOT/scripts/git/check-merge-regression.sh"
+# git-path, not "$REPO_ROOT/.git" — in a linked worktree (the norm in this
+# repo) .git is a FILE, so that path never resolves and this hook silently
+# no-ops. Caught by testing the hook end-to-end inside a real worktree.
+MERGE_HEAD_PATH=$(git rev-parse --git-path MERGE_HEAD 2>/dev/null) || exit 0
+
+[ -f "$CHECKER" ] || exit 0
+[ -f "$MERGE_HEAD_PATH" ] || exit 0
+
+BASE=$(git merge-base HEAD MERGE_HEAD 2>/dev/null) || exit 0
+UPSTREAM=$(git rev-parse MERGE_HEAD 2>/dev/null) || exit 0
+[ -n "$BASE" ] && [ -n "$UPSTREAM" ] || exit 0
+
+MODE="warn"
+[ "${HUSHH_MERGE_REGRESSION_BLOCK:-0}" = "1" ] && MODE="block"
+
+MERGE_REGRESSION_MODE="$MODE" bash "$CHECKER" "$BASE" "$UPSTREAM" --worktree
+STATUS=$?
+
+if [ "$STATUS" -ne 0 ] && [ "$MODE" = "block" ]; then
+  echo "" >&2
+  echo "[pre-merge-commit] Blocked: unset HUSHH_MERGE_REGRESSION_BLOCK or re-resolve." >&2
+fi
+
+exit "$STATUS"
