@@ -118,14 +118,22 @@ def classify_provider_error(error: BaseException) -> str:
         if name in _PROVIDER_STATUS_NAMES:
             return PROVIDER_UNAVAILABLE
 
+        text = _message(current)
+
+        # Account-enforcement wording is decisive on its OWN, whatever the
+        # transport carried it. The Live API is a websocket, so the same billing
+        # denial arrives as close code 1008 ("policy violation") rather than an
+        # HTTP 403 -- observed in the 2026-08-20 outage as
+        # "1008 None. Lightning dunning decision is deny for project: ...".
+        # Gating this on 403 alone let one websocket probe classify an outage as
+        # an application bug, and summarize() then escalated the whole release
+        # to blocking. The wording is unambiguous; the status code is not.
+        if any(marker in text for marker in _ACCOUNT_ENFORCEMENT_MARKERS):
+            return PROVIDER_UNAVAILABLE
+
         if status == 403:
-            text = _message(current)
-            # Enforcement wording is checked FIRST because it is the specific
-            # signal; permission wording is the generic fallback. Reversing
-            # these reads "403 PERMISSION_DENIED. Lightning dunning..." as a
-            # candidate fault and strands a healthy build.
-            if any(marker in text for marker in _ACCOUNT_ENFORCEMENT_MARKERS):
-                return PROVIDER_UNAVAILABLE
+            # Enforcement wording was already ruled out above, so a 403 reaching
+            # here is a permission or configuration fault -- ours to fix.
             if any(marker in text for marker in _PERMISSION_FAULT_MARKERS):
                 return CANDIDATE_MISCONFIGURED
             # An unexplained 403 is treated as ours. Blocking a release we may
