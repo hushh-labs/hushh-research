@@ -78,9 +78,14 @@ _MARKERS: list[tuple[str, str, str, bool]] = [
         True,
     ),
     (
+        # Strengthened 2026-08-20: the guard used to pin the FLAG check
+        # (`pod_mode() and pod_agent_memory_enabled()`), which a BYOC pod with a
+        # broken key resolution passed while shipping a recall tool that always
+        # errored. The marker is now the resolved-service check, which embeds the
+        # flags and adds "the memory actually built".
         "pod agent memory stays pod-conditional",
         "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
-        "pod_mode() and pod_agent_memory_enabled()",
+        "resolve_pod_memory_service() is not None",
         True,
     ),
     (
