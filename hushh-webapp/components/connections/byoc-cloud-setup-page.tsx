@@ -155,10 +155,11 @@ HUSHH_CALLER=${saved.hushhCaller} \\
         controlId="one-setup-cloud-terminal"
         actionId="setup.finish_cloud"
         purpose="Record the person's own cloud and return to setup."
+        // Only forward-looking copy earns a line here. The disabled reason is not
+        // restated (Restraint Charter: cut copy that repeats a control's own state);
+        // the authorize block above already says what is needed.
         supportingText={
-          authorized
-            ? "Your agent will be built in your own project."
-            : "Authorize your project above before continuing."
+          authorized ? "Your agent will be built in your own project." : undefined
         }
       />
     </AppPageShell>
