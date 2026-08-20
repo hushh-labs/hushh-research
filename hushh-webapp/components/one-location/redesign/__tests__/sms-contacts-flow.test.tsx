@@ -309,7 +309,7 @@ describe("SmsContactsFlow", () => {
     });
   });
 
-  describe("sticky review pill and sheet", () => {
+  describe("review pill and sheet", () => {
     it("counts the added people and opens a sheet listing them", async () => {
       render(<SmsContactsFlow {...baseProps} />);
 
@@ -323,15 +323,38 @@ describe("SmsContactsFlow", () => {
       expect(within(sheet).queryByText("Neelesh")).not.toBeInTheDocument();
     });
 
-    it("sits above the app's own bottom chrome rather than a guessed offset", () => {
+    it("reads under the header and above the tabs, in flow", () => {
       render(<SmsContactsFlow {...baseProps} />);
 
-      const anchor = screen.getByTestId("sms-selected-pill").parentElement!;
-      // The shell publishes its height; hard-coding one breaks the moment the
-      // nav changes size or the keyboard opens.
-      expect(anchor.style.bottom).toContain("--bottom-chrome-full-height");
-      expect(anchor.style.bottom).toContain("--kb-height");
-      expect(anchor.style.bottom).toContain("safe-area-inset-bottom");
+      const pill = screen.getByTestId("sms-selected-pill");
+      const title = screen.getByRole("heading", { name: "SMS contacts" });
+      const tablist = screen.getByRole("tablist", { name: "Contact sources" });
+
+      // The defect this guards: the pill used to be lifted out of the flow and
+      // pinned near the bottom of the screen, which on a list short enough not
+      // to scroll left it sitting on top of the first contact row.
+      expect(
+        title.compareDocumentPosition(pill) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        pill.compareDocumentPosition(tablist) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+
+      // In flow means in flow: no positioning, and no bottom offset left over
+      // from the version that floated.
+      const anchor = pill.parentElement!;
+      expect(anchor.className).not.toMatch(/\b(fixed|sticky|absolute)\b/);
+      expect(anchor.style.position).toBe("");
+      expect(anchor.style.bottom).toBe("");
+    });
+
+    it("renders the pill exactly once", () => {
+      render(<SmsContactsFlow {...baseProps} />);
+
+      // Moving it out of the footer slot is only a move if the old one went.
+      expect(screen.getAllByTestId("sms-selected-pill")).toHaveLength(1);
     });
 
     it("shows no pill at all when nobody is added", () => {
