@@ -63,7 +63,7 @@ export default defineConfig({
       // fixture is self-contained -- no app shell, so neither of the two
       // known WebKit failures above can reach it.
       testMatch:
-        /(circle-join-responsive-contract|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|one-location-map-consent-panel\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|one-location-map-consent-panel\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout|one-location-check-in-panel\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",

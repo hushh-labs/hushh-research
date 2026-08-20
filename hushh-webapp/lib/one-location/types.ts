@@ -278,6 +278,8 @@ export type OneLocationCircleViewerCapabilities = {
   canViewInviteCode: boolean;
   canRotateInviteCode: boolean;
   canManageCircle: boolean;
+  /** False for a system Circle: everything else an owner may do still applies. */
+  canDeleteCircle?: boolean;
   canModerateInvites: boolean;
 };
 
@@ -288,6 +290,11 @@ export type OneLocationCircleSummary = {
   role: OneLocationCircleRole;
   memberCount: number;
   memberLimit: number;
+  /**
+   * Provisioned and depended on by the product (today: the SMS/Emergency
+   * Circle). Members are managed normally; the Circle itself cannot be deleted.
+   */
+  isSystem?: boolean;
   createdAt?: string | null;
   updatedAt?: string | null;
   viewerCapabilities?: OneLocationCircleViewerCapabilities;
@@ -306,7 +313,24 @@ export type OneLocationCircleMember = {
   keyAlgorithm?: string | null;
   keyRegisteredAt?: string | null;
   canReceiveLocation?: boolean;
+  /**
+   * The viewer's relationship with this member.
+   *
+   * Sharing a Circle is not being connected -- a joiner is paired with whoever
+   * invited them and nobody else -- so the roster is where the introduction the
+   * Circle declines to make can be offered explicitly.
+   */
+  relationship?: OneLocationCircleMemberRelationship;
+  /** False when there is nothing to request: self, connected, or already pending. */
+  canConnect?: boolean;
 };
+
+export type OneLocationCircleMemberRelationship =
+  | "self"
+  | "none"
+  | "pending_outgoing"
+  | "pending_incoming"
+  | "connected";
 
 export type OneLocationCircleDetail = OneLocationCircleSummary & {
   members: OneLocationCircleMember[];
