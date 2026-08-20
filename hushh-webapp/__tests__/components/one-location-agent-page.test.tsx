@@ -3023,9 +3023,6 @@ describe("OneLocationAgentPage", () => {
     fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Tower 2, Floor 4" },
     });
-    fireEvent.change(screen.getByLabelText(/Building colour/), {
-      target: { value: "White gate" },
-    });
     fireEvent.change(screen.getByLabelText(/Landmark/), {
       target: { value: "India Gate" },
     });
@@ -3045,8 +3042,11 @@ describe("OneLocationAgentPage", () => {
           label: "",
           latitude: 28.6139,
           longitude: 77.209,
+          // No building colour: the form no longer asks for one. The PIN is
+          // still in the line because it was derived from the address rather
+          // than typed.
           address:
-            "Tower 2, Floor 4, White gate, Near India Gate, Kartavya Path, New Delhi, Delhi 110001, India",
+            "Tower 2, Floor 4, Near India Gate, Kartavya Path, New Delhi, Delhi 110001, India",
         },
       }),
     );
