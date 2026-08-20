@@ -416,3 +416,198 @@ async def test_reset_account_returns_failure_on_error(monkeypatch):
     assert result["success"] is False
     assert result["account_reset"] is False
     assert result["error"] == "account_reset_failed"
+
+
+def _owned_circle_conn(monkeypatch, service, *, circle_rows):
+    """A conn double shaped like the real owned-Circle cleanup queries.
+
+    Regression coverage for migration 160
+    (`one_location_circles_block_system_delete`): the hard
+    `DELETE FROM one_location_circles WHERE owner_user_id = :user_id` in
+    `_delete_owned_named_circles` is refused by that trigger for any row with
+    `is_system = true` (the SMS/Emergency Circle every user gets provisioned
+    on login), because the trigger's job is to stop an ordinary code path from
+    silently switching off SOS. Account-level cleanup is not an ordinary code
+    path -- it is the same owner's entire account being deleted or reset -- so
+    it must demote is_system before the hard delete instead of being blocked
+    by it. This reproduces the exact production failure
+    (psycopg2.errors.RestrictViolation, UAT 2026-08-19) and proves the fix.
+    """
+    conn = MagicMock()
+    circle_result = MagicMock()
+    circle_result.mappings.return_value.all.return_value = circle_rows
+    member_result = MagicMock()
+    member_result.mappings.return_value.all.return_value = []
+
+    def execute(query, _params=None):
+        sql = str(query)
+        if (
+            "circle.id" in sql
+            and "FROM one_location_circles circle" in sql
+            and "FOR UPDATE OF circle" in sql
+        ):
+            return circle_result
+        if "SELECT DISTINCT membership.user_id" in sql:
+            return member_result
+        return MagicMock()
+
+    conn.execute.side_effect = execute
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_column_exists", lambda _conn, _table, _column: True)
+    monkeypatch.setattr(
+        "hushh_mcp.services.one_location_circle_service."
+        "OneLocationCircleService._cleanup_ineligible_sms_contacts",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.connection_graph_service."
+        "ConnectionGraphService.revoke_named_circle_origins",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.one_location_circle_service."
+        "OneLocationCircleService._reconcile_circle_sourced_grants",
+        lambda *_a, **_k: None,
+    )
+    return conn
+
+
+def test_owned_circle_cleanup_demotes_system_circle_before_hard_delete(monkeypatch):
+    service = AccountService()
+    conn = _owned_circle_conn(
+        monkeypatch,
+        service,
+        circle_rows=[
+            {"id": "circle_system", "is_owner": True, "has_active_membership": True},
+            {"id": "circle_ordinary", "is_owner": True, "has_active_membership": True},
+        ],
+    )
+
+    results: dict[str, bool] = {}
+    service._delete_owned_named_circles(conn, user_id="owner", results=results)
+
+    executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
+    demote_index = next(
+        index
+        for index, sql in enumerate(executed_sql)
+        if "UPDATE one_location_circles" in sql and "SET is_system = FALSE" in sql
+    )
+    demote_params = conn.execute.call_args_list[demote_index].args[1]
+    delete_index = next(
+        index for index, sql in enumerate(executed_sql) if "DELETE FROM one_location_circles" in sql
+    )
+
+    # The demotion runs in the SAME transaction, scoped to this owner only,
+    # and strictly before the hard delete -- otherwise the trigger still fires.
+    assert demote_index < delete_index
+    assert "AND is_system" in executed_sql[demote_index]
+    assert demote_params == {"user_id": "owner"}
+    assert results["one_location_circles"] is True
+
+
+def test_owned_circle_cleanup_skips_is_system_demotion_when_column_missing(monkeypatch):
+    """Environments that have not yet run migration 160 must not regress.
+
+    `is_system` is a real column, not an optional-table cleanup entry, so this
+    guards the one case `_table_exists` alone would miss: the table is there
+    (migration 134) but migration 160 has not applied yet on that replica.
+    """
+    service = AccountService()
+    conn = _owned_circle_conn(
+        monkeypatch,
+        service,
+        circle_rows=[{"id": "circle_a", "is_owner": True, "has_active_membership": True}],
+    )
+    monkeypatch.setattr(service, "_column_exists", lambda _conn, _table, _column: False)
+
+    results: dict[str, bool] = {}
+    service._delete_owned_named_circles(conn, user_id="owner", results=results)
+
+    executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert not any("SET is_system = FALSE" in sql for sql in executed_sql)
+    assert any("DELETE FROM one_location_circles" in sql for sql in executed_sql)
+
+
+def test_owned_circle_cleanup_handles_owner_with_no_circles(monkeypatch):
+    """Legacy / already-cleaned accounts: zero owned Circles must not crash."""
+    service = AccountService()
+    conn = _owned_circle_conn(monkeypatch, service, circle_rows=[])
+
+    results: dict[str, bool] = {}
+    service._delete_owned_named_circles(conn, user_id="owner_no_circles", results=results)
+    # Idempotent: calling it again (e.g. a retried delete request) is also safe.
+    service._delete_owned_named_circles(conn, user_id="owner_no_circles", results=results)
+
+    assert results["one_location_circles"] is True
+
+
+@pytest.mark.asyncio
+async def test_full_account_deletion_demotes_system_circle_before_deleting_it(monkeypatch):
+    """End-to-end reproduction of the DELETE /api/account/delete regression."""
+    service = AccountService()
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_column_exists", lambda _conn, _table, _column: True)
+
+    conn = _owned_circle_conn(
+        monkeypatch,
+        service,
+        circle_rows=[{"id": "sms_circle", "is_owner": True, "has_active_membership": True}],
+    )
+
+    with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
+        result = await service._delete_full_account(
+            "user_with_system_circle", requested_target="both"
+        )
+
+    assert result["success"] is True
+    assert result["account_deleted"] is True
+
+    executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
+    demote_index = next(
+        index
+        for index, sql in enumerate(executed_sql)
+        if "UPDATE one_location_circles" in sql and "SET is_system = FALSE" in sql
+    )
+    delete_index = next(
+        index for index, sql in enumerate(executed_sql) if "DELETE FROM one_location_circles" in sql
+    )
+    assert demote_index < delete_index
+
+
+@pytest.mark.asyncio
+async def test_reset_account_demotes_system_circle_before_deleting_it(monkeypatch):
+    """End-to-end reproduction of the POST /api/account/reset regression."""
+    service = AccountService()
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_column_exists", lambda _conn, _table, _column: True)
+
+    conn = _owned_circle_conn(
+        monkeypatch,
+        service,
+        circle_rows=[{"id": "sms_circle", "is_owner": True, "has_active_membership": True}],
+    )
+
+    with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
+        result = await service.reset_account("user_with_system_circle")
+
+    assert result["success"] is True
+    assert result["account_reset"] is True
+
+    executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
+    demote_index = next(
+        index
+        for index, sql in enumerate(executed_sql)
+        if "UPDATE one_location_circles" in sql and "SET is_system = FALSE" in sql
+    )
+    delete_index = next(
+        index for index, sql in enumerate(executed_sql) if "DELETE FROM one_location_circles" in sql
+    )
+    assert demote_index < delete_index
+    # Reset keeps sign-in: the identity/vault spine is never deleted.
+    spine_fragments = [
+        "DELETE FROM actor_profiles",
+        "DELETE FROM vault_keys",
+        "DELETE FROM vault_key_wrappers",
+    ]
+    for fragment in spine_fragments:
+        assert fragment not in "\n".join(executed_sql)
