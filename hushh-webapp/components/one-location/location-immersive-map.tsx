@@ -31,7 +31,16 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import {
+  MAP_CONSENT_PANEL_BOTTOM_PADDING,
+  MAP_CONSENT_PANEL_CLASSNAME,
+  MAP_CONSENT_SUPPORTING_LINE,
+  MAP_CONSENT_TITLE,
+  MAP_RENDERER_CLASSNAME,
+  MAP_SURFACE_CLASSNAME,
+} from "@/components/one-location/map-consent-panel-layout";
 import { MapNameLabels } from "@/components/one-location/map-name-labels";
+import { MapSelfAvatarMarker } from "@/components/one-location/map-self-avatar-marker";
 import {
   NearbyCheckInSheet,
   type NearbyCheckInPlaceFocus,
@@ -44,6 +53,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useRequireAuth } from "@/hooks/use-auth";
+import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import {
   decryptLocationEnvelope,
   encryptLocationForRecipient,
@@ -67,6 +77,7 @@ import {
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
+import { neutralWorldCamera } from "@/lib/one-location/map-world-view";
 import {
   filterPeopleByQuery,
   sortPeopleByName,
@@ -369,6 +380,29 @@ function markerSignature(markers: RenderMarker[]): string {
     .join("|");
 }
 
+/**
+ * The box the renderer paints into, in CSS pixels.
+ *
+ * Falls back to the viewport when the element reports a degenerate box: the map
+ * is `absolute inset-0` inside an `h-[100dvh]` root, so the window is the same
+ * measurement by construction. jsdom is the case that always takes the
+ * fallback -- it reports every rect as zero -- and a zero box would otherwise
+ * hand `neutralWorldCamera` nothing to reason about.
+ */
+function measureMapBox(element: HTMLElement): {
+  width: number;
+  height: number;
+} {
+  const rect = element.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) {
+    return { width: rect.width, height: rect.height };
+  }
+  return {
+    width: typeof window === "undefined" ? 0 : window.innerWidth,
+    height: typeof window === "undefined" ? 0 : window.innerHeight,
+  };
+}
+
 function zoomForAccuracy(accuracyM: number | null | undefined): number {
   if (!Number.isFinite(accuracyM)) return 16;
   if (Number(accuracyM) <= 40) return 16;
@@ -512,6 +546,11 @@ export function LocationImmersiveMap({
   const searchParams = useSearchParams();
   const router = useRouter();
   const auth = useRequireAuth();
+  // The same avatar the top bar and the profile screen already render. Read
+  // from the app's existing identity cache — no request is made on behalf of
+  // the map, and none is added by drawing the owner's pin as their face.
+  const selfAvatarUrl = useEffectiveAvatarUrl();
+  const selfDisplayName = auth.user?.displayName ?? null;
   const { vaultOwnerToken } = useVault();
   const demoAvailable = isLocationMapDemoAvailable();
   const nearbyCheckInAvailable = isOneLocationNearbyCheckInAvailable();
@@ -597,6 +636,18 @@ export function LocationImmersiveMap({
    * the screen away from their pins. Web reports every frame and never sets it.
    */
   const [cameraMoving, setCameraMoving] = useState(false);
+  /**
+   * The renderer has reported its camera at least once, so a coordinate can be
+   * projected into the map box.
+   *
+   * Latches true and never goes back. It is what decides whether the owner's
+   * own position is drawn as their avatar in HTML or left to the renderer's
+   * generic pin: a renderer too old to emit `onBoundsChanged`/`onCameraIdle`
+   * (both wrapped in a try/catch at create) can project nothing, and losing the
+   * "you are here" marker entirely would be a far worse outcome than keeping
+   * the plain pin on that renderer.
+   */
+  const [cameraReported, setCameraReported] = useState(false);
   const [mapBox, setMapBox] = useState({
     width: 0,
     height: 0,
@@ -1208,6 +1259,13 @@ export function LocationImmersiveMap({
       if (superseded()) return;
       await waitForLaidOutBox(element);
       if (superseded()) return;
+      // The renderer is laid out by now (that is what the await above is for),
+      // so the neutral view can be derived from the box it will actually paint
+      // into instead of assuming one. A fixed `{ lat: 20, lng: 0 }, zoom: 2`
+      // showed Google's out-of-world backdrop as a blank strip above the map on
+      // any viewport taller than ~908 px — see `map-world-view.ts` for the
+      // arithmetic and why it fails per-device rather than per-build.
+      const worldView = neutralWorldCamera(measureMapBox(element));
       const map = await GoogleMap.create({
         id: MAP_ID,
         element,
@@ -1218,12 +1276,12 @@ export function LocationImmersiveMap({
             ? { lat: cachedPoint.latitude, lng: cachedPoint.longitude }
             : initialDemoModeRef.current
               ? { lat: 37.7749, lng: -122.4194 }
-              : { lat: 20, lng: 0 },
+              : worldView.center,
           zoom: cachedPoint
             ? zoomForAccuracy(cachedPoint.accuracyM)
             : initialDemoModeRef.current
               ? 11
-              : 2,
+              : worldView.zoom,
           disableDefaultUI: true,
           // `styles` is deliberately NOT passed.
           //
@@ -1275,6 +1333,7 @@ export function LocationImmersiveMap({
             const next = pendingCameraRef.current;
             if (!next) return;
             setMapCamera(next);
+            setCameraReported(true);
             // A fresh camera IS the end of the stale window, whether it
             // arrived from an idle event or from web's per-frame reports.
             setCameraMoving(false);
@@ -1316,6 +1375,7 @@ export function LocationImmersiveMap({
       }
       pendingCameraRef.current = null;
       setMapCamera(null);
+      setCameraReported(false);
       // Destroy the native map instance and drop the ref on teardown. Without
       // this, closing Your Map left the @capacitor/google-maps instance
       // (registered under MAP_ID) alive; re-opening then raced a fresh create()
@@ -1453,6 +1513,39 @@ export function LocationImmersiveMap({
   }, [isCheckInSurface, markers, nearbyPlaceMarker, selfMarker]);
 
   /**
+   * The owner's own position is drawn as their avatar in HTML, so the renderer
+   * must not also draw a pin under it — two markers on one coordinate.
+   *
+   * Three flags, none of which changes more than once per screen, so this does
+   * not churn the marker bridge: `rendererReady` is the consent gate,
+   * `cameraReported` is whether anything can be projected at all, and
+   * `isCheckInSurface` scopes this to Your Map.
+   *
+   * **Check-in deliberately keeps the renderer's pin.** It is a different
+   * question — "how far am I from the place I am checking in to?" — and it
+   * answers it with two pins, a connector between them, and a colour legend in
+   * the header whose swatches are `SELF_TINT` and the place tint. Swapping one
+   * of those two pins for a photo breaks the comparison and leaves the legend's
+   * blue dot standing for nothing on the map. Extending the avatar there means
+   * redesigning that legend too, which is not this change.
+   *
+   * Everything else about the self marker is unchanged — it stays in
+   * `visibleMarkers`, so initial framing, the people tray and the search index
+   * still count it.
+   */
+  const selfPinDrawnAsAvatar =
+    rendererReady && cameraReported && !isCheckInSurface;
+
+  /** What the renderer is asked to draw: everything except the owner's own pin. */
+  const rendererMarkers = useMemo(
+    () =>
+      selfPinDrawnAsAvatar
+        ? visibleMarkers.filter((marker) => marker.kind !== "self")
+        : visibleMarkers,
+    [selfPinDrawnAsAvatar, visibleMarkers],
+  );
+
+  /**
    * Past this many pins the renderer merges neighbours into cluster bubbles, so
    * a pin is no longer drawn at its own coordinate. Shared with the pill layer,
    * which has to spread its names further apart while that is true or it would
@@ -1471,7 +1564,12 @@ export function LocationImmersiveMap({
   const nameLabels = useMemo<PlacedMapNameLabel[]>(() => {
     if (!mapCamera || !rendererReady || status === "unavailable") return [];
     return layoutMapNameLabels({
-      labels: visibleMarkers.map((marker) => ({
+      // "My location" over the owner's own avatar is the same fact twice, and
+      // the pill is the half that carries no information the face does not.
+      labels: (selfPinDrawnAsAvatar
+        ? visibleMarkers.filter((marker) => marker.kind !== "self")
+        : visibleMarkers
+      ).map((marker) => ({
         key: marker.key,
         text: marker.shortLabel,
         kind: marker.kind,
@@ -1494,6 +1592,7 @@ export function LocationImmersiveMap({
     mapBox,
     mapCamera,
     rendererReady,
+    selfPinDrawnAsAvatar,
     staleClockMs,
     status,
     visibleMarkers,
@@ -1666,6 +1765,36 @@ export function LocationImmersiveMap({
     // the people tray are mounted at all, and the check-in panel changes which
     // edge of the map is spoken for, so all three have to re-run the measure.
   }, [isCheckInSurface, mapReady, nearbyCheckInOpen, rendererReady]);
+
+  /**
+   * Keep the neutral world view filling the box after the box changes size.
+   *
+   * The camera chosen at create is correct for the box that existed then. A
+   * rotation or a window resize changes the arithmetic, and a taller box at the
+   * same zoom is exactly how the blank strip above the map comes back.
+   *
+   * Deliberately narrow: it runs only while `rendererReady` is false — the
+   * consent screen, whose camera is a placeholder for a location the app has
+   * not been given and has not asked for. Once there is a real position to
+   * show, the camera belongs to the person and to `focusSelfPoint`, and nothing
+   * here may move it.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || rendererReady) return;
+    if (!(mapBox.width > 0) || !(mapBox.height > 0)) return;
+    const worldView = neutralWorldCamera({
+      width: mapBox.width,
+      height: mapBox.height,
+    });
+    void map
+      .setCamera({
+        coordinate: worldView.center,
+        zoom: worldView.zoom,
+        animate: false,
+      })
+      .catch(() => undefined);
+  }, [mapBox.height, mapBox.width, mapReady, rendererReady]);
 
   // The tray body's rendered box is height-clamped by its scroll container,
   // so its own size never reflects how tall its content actually is. Track
@@ -1856,7 +1985,7 @@ export function LocationImmersiveMap({
         await map.removeMarkers(stale).catch(() => undefined);
       }
       if (generation !== markerGenerationRef.current) return;
-      const mapMarkers: Marker[] = visibleMarkers.map((marker) => {
+      const mapMarkers: Marker[] = rendererMarkers.map((marker) => {
         // Labels stay in the local HTML tray/search index. The native Google
         // renderer receives coordinates and a generic accessibility title,
         // never the private recipient name.
@@ -1909,9 +2038,13 @@ export function LocationImmersiveMap({
         return;
       }
       markerIdsRef.current = ids;
+      // Indexed against `rendererMarkers`, not `visibleMarkers`: those two
+      // differ by the owner's own pin, and reading the wrong array here would
+      // shift every id by one and answer a tap on somebody else's pin with the
+      // marker next to it.
       markerByMapIdRef.current = new Map(
         ids.flatMap((id, index) => {
-          const marker = visibleMarkers[index];
+          const marker = rendererMarkers[index];
           return marker ? [[id, marker] as const] : [];
         }),
       );
@@ -1943,6 +2076,7 @@ export function LocationImmersiveMap({
     clusteringActive,
     entryLocationSettled,
     mapReady,
+    rendererMarkers,
     visibleMarkers,
     freshnessSeconds,
     staleClockMs,
@@ -2387,7 +2521,7 @@ export function LocationImmersiveMap({
 
   return (
     <main
-      className="one-location-map relative h-[100dvh] w-full overflow-hidden bg-muted"
+      className={MAP_SURFACE_CLASSNAME}
       data-testid="one-location-map"
       data-map-ready={mapReady && status === "ready" ? "true" : "false"}
       data-map-marker-count={markers.length}
@@ -2399,7 +2533,7 @@ export function LocationImmersiveMap({
         ref={(element: HTMLElement | null) => {
           mapElement.current = element;
         }}
-        className={`absolute inset-0 block h-full w-full ${
+        className={`${MAP_RENDERER_CLASSNAME} ${
           closing ? "pointer-events-none" : ""
         }`}
       />
@@ -2412,6 +2546,46 @@ export function LocationImmersiveMap({
       */}
       {rendererReady && mapReady && status !== "unavailable" && !closing ? (
         <MapNameLabels labels={nameLabels} stalePositions={cameraMoving} />
+      ) : null}
+      {/*
+        You, as yourself.
+
+        Rendered after the pills so it paints over a name that lands on the same
+        pixels, and only once the renderer has reported a camera to project
+        with. When it cannot draw, `selfPinDrawnAsAvatar` is false and the
+        renderer keeps its own pin — the marker is never simply missing.
+      */}
+      {selfPinDrawnAsAvatar &&
+      selfMarker &&
+      mapReady &&
+      status !== "unavailable" &&
+      !closing ? (
+        <MapSelfAvatarMarker
+          point={selfMarker.point}
+          camera={mapCamera}
+          viewport={mapBox}
+          avatarUrl={selfAvatarUrl}
+          displayName={selfDisplayName}
+          stale={isStaleAt(
+            selfMarker.capturedAt,
+            freshnessSeconds,
+            staleClockMs,
+          )}
+          stalePositions={cameraMoving}
+          onSelect={() => {
+            // Exactly what the renderer's marker-click listener did for this
+            // pin: select it, then move the camera in to street level.
+            setSelected(selfMarker);
+            void mapRef.current?.setCamera({
+              coordinate: {
+                lat: selfMarker.point.latitude,
+                lng: selfMarker.point.longitude,
+              },
+              zoom: 15,
+              animate: true,
+            });
+          }}
+        />
       ) : null}
       <header
         ref={topControlsRef}
@@ -2726,36 +2900,47 @@ export function LocationImmersiveMap({
           </p>
         </div>
       ) : null}
-      {!rendererReady ? (
+      {/*
+        `status !== "unavailable"` for the same reason as the branch below:
+        consenting to a renderer that cannot start is a decision with no
+        outcome. When the map is broken the screen says so and keeps its close
+        control, instead of offering a Continue that leads back to the same
+        blank canvas.
+      */}
+      {!rendererReady && status !== "unavailable" ? (
         <section
-          className="absolute inset-x-0 z-20 rounded-none border border-border/60 bg-background/95 p-5 shadow-2xl backdrop-blur md:left-1/2 md:right-auto md:w-[min(52rem,calc(100%-4rem))] md:-translate-x-1/2 md:rounded-3xl"
+          className={MAP_CONSENT_PANEL_CLASSNAME}
           data-testid="one-location-map-disclosure"
-          style={{ bottom: "max(1rem, env(safe-area-inset-bottom))" }}
+          style={{ paddingBottom: MAP_CONSENT_PANEL_BOTTOM_PADDING }}
         >
           <MapPin className="h-6 w-6 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
-          <h1 className="mt-3 text-xl font-semibold">Your Map</h1>
+          <h1 className="mt-3 text-xl font-semibold">{MAP_CONSENT_TITLE}</h1>
           {/*
             This is the renderer-consent gate: accepting it writes
-            GOOGLE_MAPS_RENDERER_CONSENT_VERSION. All three claims are
-            load-bearing and none may be dropped for brevity — private shares
-            are opened locally, Google Maps is told the minimum, and Nearby
-            Check-In is a separate opt-in.
+            GOOGLE_MAPS_RENDERER_CONSENT_VERSION. That record is unchanged —
+            what changed is how much of it this screen reads out.
 
-            Two words in the third claim are protected, and a previous trim of
-            this paragraph lost both:
-            - "only" is the exclusivity guarantee. The other two claims keep
-              theirs ("open only on this device", "gets only what it needs");
-              dropping it here alone said Check-In is separate without saying
-              nothing else can start it.
-            - "Nearby" is the feature's name, and the single word that says
-              this is the surface that shows you to people AROUND you rather
-              than to people you picked. Settings states the same strong form.
-            Shorten the connective tissue if you must; leave those two.
+            It used to carry three sentences: private shares are opened on this
+            device, Google Maps is told the minimum, and Nearby Check-In is a
+            separate opt-in. Two of those are not decisions a person standing
+            here can act on, and the third belongs to another feature:
+
+            - The renderer sentence describes how the map is fed. It is true and
+              it is architecture. Nothing on this screen changes because of it.
+            - The Nearby Check-In sentence explains a DIFFERENT feature's
+              consent on the screen before that feature. It is still stated, in
+              its strong form and with "Nearby" and "only" intact, on Location
+              Settings (`redesign/location-redesign-hub.tsx`) — the surface
+              where Check-In is actually turned on. Deleting it there would be a
+              real loss; deleting it here is not.
+
+            What survives is the promise the person is being asked to trust:
+            nothing on this map leaves until they share it. If a disclosure ever
+            has to grow again, it belongs on Location Settings beside the other
+            one, not back in this paragraph.
           */}
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Private shares open only on this device. Google Maps gets only what
-            it needs to draw them. Nearby Check-In is separate — it starts only
-            when you do.
+            {MAP_CONSENT_SUPPORTING_LINE}
           </p>
           <Button
             className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
@@ -2779,7 +2964,19 @@ export function LocationImmersiveMap({
           ) : null}
         </section>
       ) : null}
-      {rendererReady && status === "unavailable" ? (
+      {/*
+        Was `rendererReady && status === "unavailable"`, which left one state
+        with nothing in it: no Maps key AND consent not yet given rendered the
+        bare `bg-muted` canvas with the consent panel floating on it. The
+        loading overlay bails on `status === "unavailable"` and this branch
+        needed consent, so neither drew. A person met a blank screen asking
+        them to agree to a renderer that was never going to start.
+
+        The placeholder says nothing private -- it is a grid, a pin and "Maps
+        isn't available" -- so there is no reason it should have waited for
+        consent to say the map is broken.
+      */}
+      {status === "unavailable" ? (
         // Full-bleed styled fallback. Previously only a small bottom card sat
         // over the (blank) native canvas, so most of Your Map read as a blank
         // white screen when the Maps key was missing. Cover the whole surface
