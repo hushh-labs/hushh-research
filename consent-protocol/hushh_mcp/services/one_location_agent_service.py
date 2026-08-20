@@ -5560,19 +5560,12 @@ class OneLocationAgentService:
               envelope.created_at AS map_envelope_created_at,
               envelope.metadata AS map_envelope_metadata
             FROM one_location_share_grants g
-            -- Opt-in, and it stays opt-in.
-            --
-            -- `presence_mode` defaults to 'ghost', so appearing on somebody
-            -- else's map is something the sharer has to choose. Widening this
-            -- to "anyone who has not explicitly opted out" was considered and
-            -- rejected: it would have made every existing sharer visible
-            -- without asking them, which is not a default anyone gets to
-            -- change on their behalf. The answer was to make the choice
-            -- findable instead -- it now lives in Location settings rather
-            -- than only behind a Ghost toggle on the map screen.
-            JOIN one_location_map_preferences preference
-              ON preference.user_id = g.owner_user_id
-             AND preference.presence_mode = 'foreground_private'
+            -- Unconditional, not opt-in. A grant already IS the sharer's
+            -- consent -- they chose the recipient and the duration when they
+            -- created it. Gating map visibility behind a second, separate
+            -- `presence_mode` preference meant a share could exist, be
+            -- active, and still never appear where the recipient was most
+            -- likely to look for it. See #5425.
             LEFT JOIN actor_identity_cache owner ON owner.user_id = g.owner_user_id
             JOIN LATERAL (
               SELECT *
