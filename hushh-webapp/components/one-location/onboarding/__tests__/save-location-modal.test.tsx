@@ -1330,6 +1330,51 @@ describe("SaveLocationModal", () => {
     );
   });
 
+  describe("back and close are two different decisions", () => {
+    const detailProps = {
+      ...baseProps,
+      address: "Kartavya Path, New Delhi, Delhi 110001, India",
+      mapInitial: { latitude: 28.6139, longitude: 77.209 },
+      onPickExactLocation: vi.fn(),
+      startWithMapPicker: true,
+      collectAddressDetails: true,
+    };
+
+    it("sends Back to the pin, not out of the flow", () => {
+      render(<SaveLocationModal {...detailProps} />);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+      expect(
+        screen.getByRole("heading", { name: "Address details" }),
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Back to map" }));
+
+      expect(
+        screen.getByRole("button", { name: "Confirm pin" }),
+      ).toBeInTheDocument();
+      // Back is a step, not an exit. Nothing was abandoned.
+      expect(baseProps.onSkip).not.toHaveBeenCalled();
+    });
+
+    it("sends Close out of the flow, not back a step", () => {
+      render(<SaveLocationModal {...detailProps} />);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(baseProps.onSkip).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps both inert while a save is in flight", () => {
+      // Leaving mid-write is the one moment neither decision is safe.
+      render(<SaveLocationModal {...detailProps} saving />);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+
+      expect(screen.getByRole("button", { name: "Back to map" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
+    });
+  });
+
   describe("on a phone it is the app's own bottom sheet", () => {
     /**
      * The surface used to be a Radix Dialog wearing a sheet's corners at every

@@ -1050,10 +1050,11 @@ export function SaveLocationModal({
                 </button>
               </div>
               {/* The sentence that used to sit under the title. The card below
-                  shows the address and the group label below that says the
-                  fields are optional, so on screen it only repeated them. */}
+                  shows the address and each field carries its own Required or
+                  Optional badge, so on screen it only repeated them. Kept for
+                  screen readers, which do not have the badges in view. */}
               <p id={descriptionId} className="sr-only">
-                Optional details that help someone reach your door.
+                Check the address. The rest helps someone reach your door.
               </p>
             </header>
 
