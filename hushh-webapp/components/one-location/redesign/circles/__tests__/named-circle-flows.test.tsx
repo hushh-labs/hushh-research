@@ -18,6 +18,8 @@ import {
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { CIRCLE_NAME_ACTION_CLASSNAME } from "@/components/one-location/redesign/circles/circle-name-row-layout";
+import { CIRCLE_MEMBER_MENU_CLASSNAME } from "@/components/one-location/redesign/circles/circle-member-row-layout";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   OneLocationLockRequiredError,
   type OneLocationLockState,
@@ -85,6 +87,7 @@ function detailProps(
     })),
     onInviteConnections: vi.fn(),
     onCancelMemberInvite: vi.fn(),
+    onConnectMember: vi.fn(async () => undefined),
     onLeave: vi.fn(),
     onDelete: vi.fn(),
   };
@@ -1340,6 +1343,144 @@ describe("named Circle flows", () => {
     await waitFor(() =>
       expect(onRemoveMember).toHaveBeenCalledWith("circle-1", "friend-user"),
     );
+  });
+
+  it("spends a roster row's trailing edge only on relationships the viewer can act on", async () => {
+    const onConnectMember = vi.fn(async () => undefined);
+    const ownerCircle = {
+      ...circle("circle-1", "Meena Family"),
+      members: [
+        ...circle("circle-1", "Meena Family").members,
+        {
+          userId: "known-user",
+          displayName: "Divya Rajendran",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+          relationship: "connected" as const,
+        },
+        {
+          userId: "stranger-user",
+          displayName: "Sharu Khan",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+          relationship: "none" as const,
+        },
+        {
+          userId: "waiting-user",
+          displayName: "Asha Meena",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+          relationship: "pending_outgoing" as const,
+        },
+      ],
+    };
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => ownerCircle)}
+        onConnectMember={onConnectMember}
+      />,
+    );
+
+    await screen.findByText("Divya Rajendran");
+
+    // Already connected is the steady state of a roster, so it is said to the
+    // accessibility tree and to nothing else. A grey, disabled, button-shaped
+    // "Connected" beside every name was the report this row was rebuilt for.
+    expect(screen.queryByRole("button", { name: /^Connected$/ })).toBeNull();
+    expect(
+      screen.queryByTestId("circle-member-connect-known-user"),
+    ).toBeNull();
+
+    // Waiting on them is news, but nothing here can advance it: a status, not
+    // a control.
+    expect(
+      screen.getByTestId("circle-member-relationship-waiting-user").tagName,
+    ).toBe("SPAN");
+    expect(
+      screen.queryByTestId("circle-member-connect-waiting-user"),
+    ).toBeNull();
+
+    // The one row with something to ask for keeps a real, pressable control.
+    const connect = screen.getByTestId("circle-member-connect-stranger-user");
+    expect(connect).toHaveAccessibleName("Connect with Sharu Khan");
+    fireEvent.click(connect);
+    await waitFor(() =>
+      expect(onConnectMember).toHaveBeenCalledWith("circle-1", "stranger-user"),
+    );
+  });
+
+  it("sends an incoming request to where it can actually be answered", async () => {
+    const onConnectMember = vi.fn(async () => undefined);
+    const ownerCircle = {
+      ...circle("circle-1", "Meena Family"),
+      members: [
+        ...circle("circle-1", "Meena Family").members,
+        {
+          userId: "asked-user",
+          displayName: "Neel Shah",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+          relationship: "pending_incoming" as const,
+        },
+      ],
+    };
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => ownerCircle)}
+        onConnectMember={onConnectMember}
+      />,
+    );
+
+    // This used to be an ENABLED button whose handler ran only for
+    // `action === "connect"`, so the single row with something waiting on it
+    // offered the one control on the screen that did nothing at all.
+    const respond = await screen.findByTestId(
+      "circle-member-respond-asked-user",
+    );
+    expect(respond).toHaveAttribute("href", ROUTES.CONNECT);
+    fireEvent.click(respond);
+    expect(onConnectMember).not.toHaveBeenCalled();
+  });
+
+  it("holds the roster's action column open on rows that have no menu", async () => {
+    const ownerCircle = {
+      ...circle("circle-1", "Meena Family"),
+      members: [
+        ...circle("circle-1", "Meena Family").members,
+        {
+          userId: "ready-user",
+          displayName: "Ready Ronnie",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+      ],
+    };
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => ownerCircle)}
+      />,
+    );
+
+    await screen.findByText("Ready Ronnie");
+
+    // The viewer's own row has neither Share (self) nor Remove (owner), and
+    // used to render nothing at all there — so the kebab column stepped in and
+    // out by 44px from row to row down the list.
+    const spacers = screen.getAllByTestId("circle-member-menu-spacer");
+    expect(spacers).toHaveLength(1);
+    expect(spacers[0].className).toContain(CIRCLE_MEMBER_MENU_CLASSNAME);
+    expect(spacers[0]).toHaveAttribute("aria-hidden", "true");
   });
 
   it("scopes quick actions to the row's own member and hides actions that don't apply", async () => {
