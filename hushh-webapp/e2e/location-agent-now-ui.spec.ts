@@ -41,7 +41,7 @@ async function openReviewerLocation(page: Page) {
   }
 
   await page.goto("/one/location", { waitUntil: "domcontentloaded" });
-  await page.getByTestId("one-location-status-card").waitFor({
+  await page.getByRole("heading", { name: "Location Agent" }).waitFor({
     state: "visible",
     timeout: 90_000,
   });
@@ -77,25 +77,28 @@ test.describe("Location Agent Now visual contract", () => {
   }) => {
     await openReviewerLocation(page);
 
-    // The old "Location Agent" page title (a 34px/700 <h1>, agent-hero /
-    // agent-title roles) was removed for good by the Now-hub redesign, not
-    // renamed -- LocationStatusCard replaced it with a compact status row,
-    // and the top app bar's own breadcrumb title is a div, not a heading. The
-    // page carries no role="heading" title element anymore, so there is no
-    // equivalent locator to assert this contract against.
+    await expectTypography(
+      page.getByRole("heading", { name: "Location Agent" }),
+      {
+        fontSize: "34px",
+        fontWeight: "700",
+        lineHeight: "41px",
+        color: "rgb(29, 29, 31)",
+      },
+    );
 
-    await expectTypography(page.getByRole("heading", { name: "Quick actions" }), {
-      fontSize: "22px",
-      fontWeight: "600",
-      lineHeight: "27px",
-      color: "rgb(29, 29, 31)",
+    await expectTypography(page.getByRole("heading", { name: "Actions" }), {
+      fontSize: "15px",
+      fontWeight: "500",
+      lineHeight: "20px",
+      color: "rgb(110, 110, 115)",
     });
 
     const rowLabels = page.locator(
-      '[data-testid^="one-location-now"] [data-slot="settings-row-title"]',
+      '[data-testid="one-location-now-activity"] [data-slot="settings-row-title"], [data-testid="one-location-now-more"] [data-slot="settings-row-title"]',
     );
     const rowCount = await rowLabels.count();
-    expect(rowCount).toBeGreaterThanOrEqual(7);
+    expect(rowCount).toBe(5);
     for (let index = 0; index < rowCount; index += 1) {
       await expectTypography(rowLabels.nth(index), {
         fontSize: "17px",
@@ -105,35 +108,21 @@ test.describe("Location Agent Now visual contract", () => {
       });
     }
 
-    const cardTitles = page.locator(
-      '[data-voice-control-id^="one-location-action-"] .ui-text-card-title',
+    const actionTitles = page.locator(
+      '[data-testid="one-location-now-actions"] .ui-text-row-label',
     );
-    await expectTypography(cardTitles.filter({ hasText: "Check-In" }), {
-      fontSize: "17px",
-      fontWeight: "600",
-      lineHeight: "22px",
+    await expectTypography(actionTitles.filter({ hasText: "Check-In" }), {
+      fontSize: "15px",
+      fontWeight: "500",
+      lineHeight: "20px",
       color: "rgb(29, 29, 31)",
     });
-    await expectTypography(cardTitles.filter({ hasText: "SMS" }), {
-      fontSize: "17px",
-      fontWeight: "600",
-      lineHeight: "22px",
-      color: "rgb(29, 29, 31)",
+    await expectTypography(actionTitles.filter({ hasText: "Send SOS" }), {
+      fontSize: "15px",
+      fontWeight: "500",
+      lineHeight: "20px",
+      color: "rgb(255, 59, 48)",
     });
-
-    const cardDescriptions = page.locator(
-      '[data-voice-control-id^="one-location-action-"] .ui-text-row-description',
-    );
-    const descriptionCount = await cardDescriptions.count();
-    expect(descriptionCount).toBeGreaterThanOrEqual(2);
-    for (let index = 0; index < descriptionCount; index += 1) {
-      await expectTypography(cardDescriptions.nth(index), {
-        fontSize: "13px",
-        fontWeight: "400",
-        lineHeight: "18px",
-        color: "rgb(142, 142, 147)",
-      });
-    }
 
     await expect(page.locator("body")).toHaveCSS(
       "background-color",
@@ -157,18 +146,12 @@ test.describe("Location Agent Now visual contract", () => {
  * and the fix was originally proven by a manual Playwright session that never
  * landed in the repo. This is that measurement, committed, so it can fail.
  *
- * One invariant, at every supported width: the status is visible and has
- * text, and reads the same full string ("Location is on/off/paused/blocked/
- * limited", "Finding you…") everywhere — the compact one-word form this test
- * used to gate on was removed once the status moved out of the title row and
- * into its own group with the switch (#5404), where its width no longer
- * competes with the title.
- *
- * A second invariant used to live here: "Location Agent" stays on one line
- * at every width above 320px. That heading was removed for good by the
- * Now-hub redesign (LocationStatusCard replaced the old page title, and the
- * top app bar's breadcrumb title is a div, not a heading), so the page no
- * longer has a role="heading" title element to measure.
+ * Two invariants, at every supported width:
+ *  1. The status is visible and has text — a switch never survives alone.
+ *  2. "Location Agent" stays on one line. The full status string is wide
+ *     enough to push a 28px title onto a second line at 320-390px, which is
+ *     why the compact form exists; if someone drops the compact form this
+ *     assertion is what notices.
  */
 const HEADER_WIDTHS = [320, 360, 375, 390, 430, 639, 640, 768] as const;
 
@@ -198,21 +181,34 @@ test.describe("Location Agent header responsive contract", () => {
         page.locator(`[role="switch"][aria-describedby="${statusId}"]`),
       ).toHaveCount(1);
 
-      // Same full string at every width — no compact/abbreviated form. The
-      // status wrapper now also holds a second supporting line (added by the
-      // LocationStatusCard redesign), so the headline has to be read off its
-      // own paragraph rather than the wrapper's innerText -- two stacked <p>
-      // elements render on separate lines, which would otherwise put a line
-      // break before the end of the anchored string below.
-      const headline = status.locator("p").first();
-      const visibleText = (await headline.innerText()).trim();
-      expect(visibleText).toMatch(
-        /^(Location is (on|off|paused|blocked|limited)|Finding you…)$/,
-      );
+      // Below 640 the visible word is the compact form; at/above it is the
+      // full string. Neither may be empty, and they must not swap over.
+      const visibleText = (await status.innerText()).trim();
+      if (width < 640) {
+        expect(visibleText).not.toContain("Location ");
+      } else {
+        expect(visibleText).toContain("Location ");
+      }
 
-      // The former "Location Agent" page title no longer exists (removed by
-      // the Now-hub redesign, not renamed), so the one-line/never-clipped
-      // measurement that used to run against it has no target anymore.
+      // Product-owned title: one line, never clipped.
+      const heading = page.getByRole("heading", { name: "Location Agent" });
+      await expect(heading).toBeVisible();
+      const box = await heading.evaluate((node) => ({
+        clientHeight: node.clientHeight,
+        scrollHeight: node.scrollHeight,
+        scrollWidth: node.scrollWidth,
+        clientWidth: node.clientWidth,
+        lineHeight: parseFloat(getComputedStyle(node).lineHeight),
+      }));
+      expect(box.scrollHeight).toBeLessThanOrEqual(box.clientHeight);
+      expect(box.scrollWidth).toBeLessThanOrEqual(box.clientWidth + 1);
+      // 320px is the one width where a second line is accepted (it wrapped
+      // there before this work too); everywhere else it must stay single.
+      if (width > 320) {
+        expect(box.clientHeight).toBeLessThanOrEqual(
+          Math.ceil(box.lineHeight * 1.5),
+        );
+      }
 
       // And the page itself must never scroll sideways.
       const overflow = await page.evaluate(

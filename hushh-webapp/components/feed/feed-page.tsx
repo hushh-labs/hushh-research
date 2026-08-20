@@ -464,7 +464,7 @@ function SectionLabel({ children }: { children: ReactNode }) {
   return (
     <AppSectionLabel
       as="h2"
-      className="sticky top-[var(--top-shell-live-height)] z-10 bg-[color:var(--app-grouped-background)] px-[6px] pb-2 pt-7 backdrop-blur"
+      className="sticky top-[var(--top-shell-live-height)] z-10 bg-background/85 px-[6px] pb-2 pt-7 backdrop-blur-md"
     >
       {children}
     </AppSectionLabel>

@@ -67,12 +67,7 @@ export function SetupCompletionFooter({
   const isBlockedFilledAction = disabled && !busy && !isQuietSetupAction;
 
   return (
-    <div
-      className={cn(
-        "mt-4 sm:mt-6 pb-[var(--app-scroll-bottom-pad,var(--app-bottom-inset))]",
-        !isQuietSetupAction && "sm:pb-8",
-      )}
-    >
+    <div className="mt-6 pb-[var(--app-scroll-bottom-pad,var(--app-bottom-inset))] sm:mt-8 sm:pb-8">
       <div className="relative z-20 space-y-2 bg-transparent py-2">
         {supportingText ? (
           <p className="text-center text-xs text-muted-foreground">

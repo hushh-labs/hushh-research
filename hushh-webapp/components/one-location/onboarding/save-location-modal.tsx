@@ -1,19 +1,10 @@
 "use client";
 
-import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type PointerEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useId, useRef, useState, type PointerEvent } from "react";
 import {
   ArrowLeft,
   Briefcase,
   Check,
-  ChevronDown,
   Home,
   Loader2,
   Map as MapIcon,
@@ -24,24 +15,16 @@ import {
 } from "lucide-react";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Sheet, SheetContent, useSheetDragHandle } from "@/components/ui/sheet";
 import {
   LocationPickerMap,
   type LocationPickerMapHandle,
   type PickedLocation,
 } from "@/components/one-location/onboarding/location-picker-map";
 import {
-  ADDRESS_LABEL_ROW_CLASSNAME,
-  DOOR_DETAILS_TOGGLE_CLASSNAME,
-  OPTIONAL_BADGE_CLASSNAME,
-  REQUIRED_BADGE_CLASSNAME,
   SHEET_BODY_CLASSNAME,
   SHEET_DETAILS_SHELL_CLASSNAME,
   SHEET_FOOTER_CLASSNAME,
   SHEET_HEADER_CLASSNAME,
-  SHEET_INDICATOR_SLOT_CLASSNAME,
-  STEP_DOT_REACHED_CLASSNAME,
-  STEP_DOT_UPCOMING_CLASSNAME,
 } from "@/components/one-location/onboarding/save-location-sheet-layout";
 import { isNative } from "@/lib/capacitor/platform";
 import { cn } from "@/lib/utils";
@@ -105,40 +88,10 @@ function primaryActionClassName(enabled: boolean): string {
   );
 }
 
-/*
- * THE STEP INDICATOR SLOT (#5396).
- *
- * This sheet used to emit its indicator three different ways, one per pane:
- * nothing at all on "summary", a 44px-tall dot rail at the BOTTOM of "map",
- * and an 18px-tall rail at the TOP of "details" — or a plain grabber where
- * the carousel had collapsed. Same two steps, three different headers, so
- * the rail appeared to move and resize as the person advanced.
- *
- * `SHEET_INDICATOR_SLOT_CLASSNAME` is now the one slot every pane renders,
- * in the pinned-header position, at one height. It doubles as the iOS
- * grabber, which is why 18px is load-bearing: a taller rail reintroduces
- * the third stacked header row that e2e/save-location-sheet.layout.spec.ts
- * measures at six widths.
- *
- * The fills were the other half of the bug. The inactive pill was
- * --app-neutral-fill-strong, which composites to #E4E4E6 on the white sheet
- * (1.27:1) and #47474C on the dark one (1.51:1) — against the 3:1 WCAG 2.2
- * SC 1.4.11 sets for a control that carries state. And there were only two
- * states, so a step already finished looked exactly like one not reached.
- *
- * The three class constants live in save-location-sheet-layout.ts beside the
- * rest of this sheet's measured geometry, so the Playwright contract imports
- * the exact strings this file paints.
- */
-
 /**
  * Where you are in the pin-then-details pair, and a way to move without
  * hunting for the button. Replaces the "Step 1 of 2" / "Step 2 of 2" labels,
  * which announced the flow as longer than it is.
- *
- * Three visual states, not two — colour says "reached", width says "here":
- *
- *   completed  7px accent    upcoming  7px grey    active  24px accent
  */
 function CarouselDots({
   index,
@@ -146,12 +99,20 @@ function CarouselDots({
   labels,
   onSelect,
   canAdvance,
+  compact = false,
 }: {
   index: number;
   count: number;
   labels: string[];
   onSelect: (next: number) => void;
   canAdvance: boolean;
+  /**
+   * Sits where an iOS sheet's grabber sits, doing both jobs at once. Half the
+   * height, so the pinned header stays a header -- the touch target is given
+   * back vertically by the painted `::after` box, and the 44px of horizontal
+   * separation that keeps a tap off the wrong dot is untouched.
+   */
+  compact?: boolean;
 }) {
   return (
     <div
@@ -161,7 +122,6 @@ function CarouselDots({
     >
       {Array.from({ length: count }, (_, dot) => {
         const active = dot === index;
-        const completed = dot < index;
         const reachable = dot <= index || canAdvance;
         return (
           <button
@@ -172,26 +132,22 @@ function CarouselDots({
             aria-label={labels[dot]}
             disabled={!reachable}
             onClick={() => onSelect(dot)}
-            data-step-state={
-              active ? "active" : completed ? "completed" : "upcoming"
-            }
             // A real 44x44 each, laid out rather than faked, because two dots
             // sit side by side and overlapping hit regions would send a tap
-            // near the boundary to the wrong slide. The rail itself stays
-            // 18px so the pinned header stays a header; the rest of the
-            // target is given back vertically by the painted `::after` box.
+            // near the boundary to the wrong slide.
             className={cn(
-              "relative flex h-[18px] w-11 items-center justify-center after:h-11 after:w-11 disabled:cursor-not-allowed",
-              touchTargetClassName,
+              "flex w-11 items-center justify-center disabled:cursor-not-allowed",
+              compact
+                ? `relative h-[18px] after:h-11 after:w-11 ${touchTargetClassName}`
+                : "h-11",
             )}
           >
             <span
               className={cn(
                 "block h-[5px] rounded-full transition-all duration-200",
-                active ? "w-[24px]" : "w-[7px]",
-                active || completed
-                  ? STEP_DOT_REACHED_CLASSNAME
-                  : STEP_DOT_UPCOMING_CLASSNAME,
+                active
+                  ? "w-[24px] bg-[color:var(--app-accent)]"
+                  : "w-[7px] bg-[color:var(--app-neutral-fill-strong)]",
               )}
             />
           </button>
@@ -201,127 +157,12 @@ function CarouselDots({
   );
 }
 
-/**
- * The plain iOS grabber, for a sheet with only one slide to be on. Same slot
- * and same height as the dot rail, so a sheet with no steps has the identical
- * header geometry as one that has them.
- */
+/** The plain iOS grabber, for a sheet with only one slide to be on. */
 function SheetGrabber() {
   return (
-    <div className={SHEET_INDICATOR_SLOT_CLASSNAME} aria-hidden>
-      <span
-        className={cn(
-          "block h-[5px] w-9 rounded-full",
-          STEP_DOT_UPCOMING_CLASSNAME,
-        )}
-      />
+    <div className="flex h-[18px] items-center justify-center" aria-hidden>
+      <span className="block h-[5px] w-9 rounded-full bg-[color:var(--app-neutral-fill-strong)]" />
     </div>
-  );
-}
-
-/**
- * The single indicator every pane renders, in the same place, at the same
- * height — dots when there are steps, the grabber when there are not.
- */
-function SheetIndicator({
-  carouselMode,
-  index,
-  count,
-  labels,
-  onSelect,
-  canAdvance,
-}: {
-  carouselMode: boolean;
-  index: number;
-  count: number;
-  labels: string[];
-  onSelect: (next: number) => void;
-  canAdvance: boolean;
-}) {
-  if (!carouselMode) return <SheetGrabber />;
-  return (
-    <div className={SHEET_INDICATOR_SLOT_CLASSNAME}>
-      <CarouselDots
-        index={index}
-        count={count}
-        labels={labels}
-        onSelect={onSelect}
-        canAdvance={canAdvance}
-      />
-    </div>
-  );
-}
-
-/**
- * Makes the row it wraps the sheet's drag surface, so pulling down on the
- * grabber -- or on the slide indicator standing in for it -- dismisses the
- * sheet the way every other bottom sheet in the app does.
- *
- * Inert outside a bottom sheet: on a desktop-width screen this component sits
- * inside a centred dialog, `useSheetDragHandle` returns null, and the wrapper
- * is a plain div with no handlers and no `touch-none`.
- */
-function SheetDragRegion({
-  className,
-  children,
-}: {
-  className?: string;
-  children: ReactNode;
-}) {
-  const drag = useSheetDragHandle();
-  return (
-    <div
-      data-testid="save-location-sheet-grabber"
-      className={cn(drag && "touch-none select-none", className)}
-      onPointerDown={(event) => {
-        // A press that lands on a dot is a slide change. Letting it start a
-        // drag as well would both move the sheet and switch the pane from one
-        // gesture, and the pointer capture the drag takes would land the
-        // resulting click somewhere the person never pressed.
-        if ((event.target as HTMLElement).closest?.("button")) return;
-        drag?.onPointerDown(event);
-      }}
-      onPointerMove={drag?.onPointerMove}
-      onPointerUp={drag?.onPointerUp}
-      onPointerCancel={drag?.onPointerCancel}
-    >
-      {children}
-    </div>
-  );
-}
-
-/**
- * The width at which this surface stops being a bottom sheet and becomes a
- * centred dialog. The same 640px boundary its own `sm:` classes switch on --
- * one number, so the presentation and the styling can never disagree.
- */
-const SHEET_PRESENTATION_QUERY = "(max-width: 639.98px)";
-
-function sheetPresentationSupported(): boolean {
-  return (
-    typeof window !== "undefined" && typeof window.matchMedia === "function"
-  );
-}
-
-function subscribeToSheetPresentation(onChange: () => void): () => void {
-  if (!sheetPresentationSupported()) return () => {};
-  const query = window.matchMedia(SHEET_PRESENTATION_QUERY);
-  query.addEventListener("change", onChange);
-  return () => query.removeEventListener("change", onChange);
-}
-
-/**
- * Read on the first render rather than in an effect. An effect would paint one
- * frame of the centred dialog before swapping to the sheet, which on a phone
- * is a visible flash on every single open.
- */
-function useSheetPresentation(): boolean {
-  return useSyncExternalStore(
-    subscribeToSheetPresentation,
-    () =>
-      sheetPresentationSupported() &&
-      window.matchMedia(SHEET_PRESENTATION_QUERY).matches,
-    () => false,
   );
 }
 
@@ -552,9 +393,6 @@ export function SaveLocationModal({
   const rendererReady = rendererDisclosureReady || rendererDisclosureAccepted;
   const descriptionId = useId();
   const postalCodeErrorId = useId();
-  const addressHelpId = useId();
-  const addressLineErrorId = useId();
-  const doorDetailsId = useId();
   const mapTitleRef = useRef<HTMLHeadingElement | null>(null);
   const detailsTitleRef = useRef<HTMLHeadingElement | null>(null);
   // The pin, its settle state and its resolved address all live inside the
@@ -571,15 +409,6 @@ export function SaveLocationModal({
   // from it, so it is not governed by the "fill the fields below" checkbox.
   const addressLineEditedRef = useRef(false);
   const [addressLineValue, setAddressLineValue] = useState("");
-  /**
-   * An empty required field is not an error until the person has had a turn at
-   * it. Flipped by leaving the box, or by pressing Save -- so the sheet never
-   * opens already shouting, and never lets a press land on nothing.
-   */
-  const [addressTouched, setAddressTouched] = useState(false);
-  /** Progressive disclosure for the details that are polish, not address. */
-  const [doorDetailsOpen, setDoorDetailsOpen] = useState(false);
-  const sheetPresentation = useSheetPresentation();
 
   // Reset internal selection each time the modal (re)opens. When editing an
   // existing saved place, seed the category/label/detail fields from the
@@ -596,15 +425,6 @@ export function SaveLocationModal({
       );
       addressLineEditedRef.current = false;
       setAddressLineValue("");
-      setAddressTouched(false);
-      // Open the polish step only when it already holds an answer, so editing
-      // a saved place never hides something the person typed last time.
-      setDoorDetailsOpen(
-        Boolean(
-          initialDetails &&
-            (initialDetails.landmark || initialDetails.buildingColor),
-        ),
-      );
       // Editing keeps the place's own label; a new place opens on the first
       // label still free, so the primary button is live on arrival instead of
       // waiting behind "Pick Home, Work or Other first."
@@ -741,31 +561,17 @@ export function SaveLocationModal({
     ? addressLineValue
     : detectedAddress;
   /**
-   * The one field a saved place cannot do without. It is required, and it is
-   * marked required on screen -- an address box that quietly accepted nothing
-   * was read as optional, and the save then failed for a reason nobody could
-   * see.
-   *
-   * Requiring it is safe precisely because the box is editable. A pinned point
-   * does not always come back with an address: on the native build before the
-   * vault exists there is no server reverse-geocode and no browser geocoder
-   * either, so the lookup returns nothing however good the pin is. That person
-   * is not stuck -- they type the line themselves, in the box that is already
-   * in front of them, and the save unblocks.
+   * Something the person put in themselves. This matters because a pinned
+   * point does not always come back with an address: on the native build
+   * before the vault exists there is no server reverse-geocode and no browser
+   * geocoder either, so the lookup returns nothing however good the pin is.
+   * Blocking the save on a resolved STRING left that person pinned, correct,
+   * and permanently unable to finish.
    */
-  const addressLineMissing =
-    collectAddressDetails && effectiveAddressLine.trim().length === 0;
-  /**
-   * Shown beside the box. Immediately when the lookup settled on nothing --
-   * that is precisely the moment the person needs telling, and the box has
-   * been sitting empty in front of them since it opened. Only on leaving the
-   * box when THEY emptied it, so clearing the line to retype does not flash an
-   * error at every keystroke.
-   */
-  const addressLineError =
-    addressLineMissing &&
-    !loadingAddress &&
-    (addressTouched || !addressLineEditedRef.current);
+  const hasOwnAddressAnswer =
+    normalizedAddressDetails.houseOrFlat.length > 0 ||
+    normalizedAddressDetails.landmark.length > 0 ||
+    normalizedAddressDetails.postalCode.length > 0;
   const postalCodeInvalid =
     normalizedAddressDetails.postalCode.length > 0 &&
     !isValidPostalCode(normalizedAddressDetails.postalCode);
@@ -784,12 +590,15 @@ export function SaveLocationModal({
       ? null
       : category === null
         ? "Pick Home, Work or Other first."
-        : addressLineMissing
-          ? // Not the field's own wording. The empty Address box already says
-            // "Enter the address." right next to itself, and the same sentence
-            // twice on one screen reads as a stutter rather than as two places
-            // worth looking.
-            "Add the address above."
+        : collectAddressDetails &&
+            effectiveAddressLine.length === 0 &&
+            !hasOwnAddressAnswer
+          ? // The pin is fine; only its address lookup came back empty. Name
+            // the way out that is actually open, rather than sending someone
+            // back to a map they already got right. The line above already
+            // shows there is no address, so this only has to carry the action
+            // -- and it matches the shape of its two siblings.
+            "Add a house, landmark or PIN."
           : postalCodeInvalid
             ? // Not the field's own wording. The invalid PIN already says
               // "Enter a valid PIN or postcode." right next to itself, and
@@ -939,63 +748,69 @@ export function SaveLocationModal({
     setAddressDetails((current) => ({ ...current, [key]: value }));
   };
 
-  const handleSurfaceOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen && !interactionBusy) onSkip();
-  };
-
-  // Location onboarding is a full-screen takeover at z-560 with an OPAQUE
-  // background. The scrim used to sit at z-559 -- underneath it -- so the dim
-  // and the blur were painted where nothing could see them, and the sheet
-  // landed on a fully lit screen with no separation at all. That is the "it
-  // looks like a patch": not a missing blur, a buried one. Above the takeover,
-  // below the app's sheets/drawers at z-711 -- held at these values in BOTH
-  // presentations, so moving to the shared sheet primitive does not quietly
-  // move this surface to a different layer.
-  const surfaceOverlayClassName = cn(
-    "z-[600]",
-    nativeMapShowing
-      ? // The native map is not part of the page: @capacitor/google-maps draws
-        // it BELOW the WebView and the WebView is punched through to reveal
-        // it. This overlay is a Radix sibling of the sheet, so the rule that
-        // clears backgrounds inside [data-testid="save-location-modal"] never
-        // reached it -- and a 55% black scrim with a 10px blur sat over the
-        // whole screen, hiding the map while the HTML pin and cards stayed
-        // crisp on top. That is exactly the "no map behind it, just one pin"
-        // report: the map was rendering the whole time, behind the scrim.
-        "bg-transparent backdrop-blur-none [-webkit-backdrop-filter:none]"
-      : "bg-black/55 backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)]",
-  );
-
-  // A real edge and a real lift, so the surface reads as a layer above the
-  // screen rather than a rectangle pasted onto it.
-  const surfaceEdgeClassName =
-    "border border-black/[0.06] bg-[color:var(--app-card-surface-default-solid)] dark:border-white/[0.08]";
-  const surfacePaddingClassName = detailsPaneActive
-    ? SHEET_DETAILS_SHELL_CLASSNAME
-    : "gap-5 overflow-y-auto p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] sm:p-6 sm:pb-6";
-  // `!` because the arbitrary shadow does not merge away the primitive's own
-  // `shadow-[var(--app-card-shadow-feature)]`: tailwind-merge leaves both
-  // classes on the element and the base one wins on stylesheet order, so the
-  // lift never actually rendered.
-  const surfaceShadowClassName =
-    "!shadow-[0_24px_60px_-12px_rgba(16,24,40,0.35),0_8px_20px_-8px_rgba(16,24,40,0.24)] dark:!shadow-[0_24px_60px_-12px_rgba(0,0,0,0.7)]";
-
-  const surfaceChildren = (
-    <>
-      <style>{CAROUSEL_KEYFRAMES}</style>
+  return (
+    <Dialog
+      open={open}
+      modal
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !interactionBusy) onSkip();
+      }}
+    >
+      <DialogContent
+        showCloseButton={false}
+        data-testid="save-location-modal"
+        aria-describedby={descriptionId}
+        onPointerDown={handleSwipeStart}
+        onPointerUp={handleSwipeEnd}
+        onPointerCancel={() => {
+          swipeOriginRef.current = null;
+        }}
+        // Location onboarding is a full-screen takeover at z-560 with an OPAQUE
+        // background. The scrim used to sit at z-559 -- underneath it -- so the
+        // dim and the blur were painted where nothing could see them, and the
+        // sheet landed on a fully lit screen with no separation at all. That is
+        // the "it looks like a patch": not a missing blur, a buried one.
+        // Above the takeover, below the app's sheets/drawers at z-711.
+        overlayClassName={cn(
+          "z-[600]",
+          nativeMapShowing
+            ? // The native map is not part of the page: @capacitor/google-maps
+              // draws it BELOW the WebView and the WebView is punched through to
+              // reveal it. This overlay is a Radix sibling of the sheet, so the
+              // rule that clears backgrounds inside [data-testid=
+              // "save-location-modal"] never reached it -- and a 55% black scrim
+              // with a 10px blur sat over the whole screen, hiding the map while
+              // the HTML pin and cards stayed crisp on top. That is exactly the
+              // "no map behind it, just one pin" report: the map was rendering
+              // the whole time, behind the scrim.
+              "bg-transparent backdrop-blur-none [-webkit-backdrop-filter:none]"
+            : "bg-black/55 backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)]",
+        )}
+        onEscapeKeyDown={(event) => {
+          if (interactionBusy) event.preventDefault();
+        }}
+        onPointerDownOutside={(event) => {
+          if (interactionBusy || flowStep === "map") event.preventDefault();
+        }}
+        className={cn(
+          "z-[601] bottom-[var(--kb-height,0px)] top-auto max-h-[min(92dvh,760px)] w-full max-w-[420px] translate-y-0",
+          "rounded-b-none rounded-t-[24px] sm:bottom-auto sm:top-[50%] sm:translate-y-[-50%] sm:rounded-[20px]",
+          // A real edge and a real lift, so the sheet reads as a layer above
+          // the screen rather than a rectangle pasted onto it.
+          "border border-black/[0.06] bg-[color:var(--app-card-surface-default-solid)] dark:border-white/[0.08]",
+          detailsPaneActive
+            ? SHEET_DETAILS_SHELL_CLASSNAME
+            : "gap-5 overflow-y-auto p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] sm:p-6 sm:pb-6",
+          // `!` because the sheet's arbitrary shadow does not merge away the
+          // dialog primitive's own `shadow-[var(--app-card-shadow-feature)]`:
+          // tailwind-merge leaves both classes on the element and the base one
+          // wins on stylesheet order, so the lift never actually rendered.
+          "!shadow-[0_24px_60px_-12px_rgba(16,24,40,0.35),0_8px_20px_-8px_rgba(16,24,40,0.24)] dark:!shadow-[0_24px_60px_-12px_rgba(0,0,0,0.7)]",
+        )}
+      >
+        <style>{CAROUSEL_KEYFRAMES}</style>
         {flowStep === "map" && canPickOnMap ? (
           <div {...paneProps}>
-            {/* Top of the pane, same slot as every other pane. This rail used
-                to sit at the BOTTOM of this one pane and at twice the height,
-                so advancing a step appeared to move the indicator. */}
-            <SheetIndicator
-              carouselMode={carouselMode}
-              index={0}
-              count={2}
-              labels={carouselLabels}
-              canAdvance={mapReady}
-              onSelect={goToSlide}
-            />
             <DialogTitle ref={mapTitleRef} tabIndex={-1} className="sr-only">
               {rendererReady ? "Pin your entrance" : "Before Google Maps opens"}
             </DialogTitle>
@@ -1028,6 +843,15 @@ export function SaveLocationModal({
               }
               cancelLabel={startWithMapPicker ? "Skip for now" : "Cancel"}
             />
+            {carouselMode ? (
+              <CarouselDots
+                index={0}
+                count={2}
+                labels={carouselLabels}
+                canAdvance={mapReady}
+                onSelect={goToSlide}
+              />
+            ) : null}
           </div>
         ) : flowStep === "details" && collectAddressDetails ? (
           <div
@@ -1038,19 +862,18 @@ export function SaveLocationModal({
                 floated over it, which is what let a 36px button starting at
                 16px cover a header padded to 36px. */}
             <header className={SHEET_HEADER_CLASSNAME}>
-              {/* On a phone this row IS the sheet's grabber, so a pull down on
-                  it dismisses the sheet -- the dots sit exactly where an iOS
-                  grabber sits and were already doing that job visually. */}
-              <SheetDragRegion>
-                <SheetIndicator
-                  carouselMode={carouselMode}
+              {carouselMode ? (
+                <CarouselDots
+                  compact
                   index={1}
                   count={2}
                   labels={carouselLabels}
                   canAdvance
                   onSelect={goToSlide}
                 />
-              </SheetDragRegion>
+              ) : (
+                <SheetGrabber />
+              )}
               <div className="mt-1 flex items-center gap-2">
                 <button
                   type="button"
@@ -1123,108 +946,33 @@ export function SaveLocationModal({
                 ) : null}
               </div>
 
-              {/* The address itself is editable, because a pin that resolves
-                  to the wrong line left no way to correct it. It is also the
-                  one field a saved place cannot do without, so it is first and
-                  it is marked required -- an unmarked box that quietly
-                  accepted nothing read as optional right up until the save
-                  would not go. */}
+              {/* Added on main while this sheet was being rebuilt: the
+                  address itself is editable, because a pin that resolves to
+                  the wrong line left no way to correct it. */}
               <div>
-                {/* The badge is a sibling of the label, not inside it. Inside,
-                    it becomes part of the field's accessible name -- the box
-                    would announce as "Address Required" and stop matching a
-                    query for its own label. The requirement reaches assistive
-                    technology through `aria-required` instead, which is what
-                    that attribute is for. */}
-                <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                  <label
-                    htmlFor="saved-location-address-line"
-                    className={cn(controlLabelClassName, "mb-0")}
-                  >
-                    Address
-                  </label>
-                  {/* The word, not only a red asterisk: an asterisk is a
-                      convention people have to already know, and colour on its
-                      own carries nothing to anyone who cannot see it. */}
-                  <span aria-hidden className={REQUIRED_BADGE_CLASSNAME}>
-                    Required
-                  </span>
-                </div>
-                <p
-                  id={addressHelpId}
-                  className="mb-1.5 text-[13px] leading-[18px] text-muted-foreground"
+                <label
+                  htmlFor="saved-location-address-line"
+                  className={controlLabelClassName}
                 >
-                  Used to find your door.
-                </p>
+                  Address
+                </label>
                 <input
                   id="saved-location-address-line"
                   type="text"
-                  required
-                  aria-required="true"
-                  aria-invalid={addressLineError}
-                  aria-describedby={
-                    addressLineError
-                      ? `${addressHelpId} ${addressLineErrorId}`
-                      : addressHelpId
-                  }
                   value={effectiveAddressLine}
                   onChange={(event) => {
                     addressLineEditedRef.current = true;
                     setAddressLineValue(event.target.value);
                   }}
-                  onBlur={() => setAddressTouched(true)}
                   disabled={interactionBusy}
                   maxLength={300}
                   autoComplete={deferredUntilVault ? "off" : "street-address"}
                   placeholder={
                     loadingAddress ? "Finding address…" : "12 MG Road, Bengaluru"
                   }
-                  className={cn(
-                    controlInputClassName,
-                    "aria-[invalid=true]:border-[color:var(--app-destructive)]",
-                  )}
+                  className={controlInputClassName}
                 />
-                {addressLineError ? (
-                  <p
-                    id={addressLineErrorId}
-                    role="alert"
-                    className="mt-1.5 text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
-                  >
-                    Enter the address.
-                  </p>
-                ) : null}
               </div>
-
-              {/* Second, because naming the place is the other thing the save
-                  genuinely needs. It used to sit under four optional boxes, so
-                  the two required answers were separated by everything that
-                  was not one. */}
-              <SavedLocationCategoryPicker
-                value={category}
-                disabled={interactionBusy}
-                onChange={setCategory}
-              />
-
-              {category === "other" ? (
-                <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
-                  <label
-                    htmlFor="saved-location-details-custom-label"
-                    className={controlLabelClassName}
-                  >
-                    Name it
-                  </label>
-                  <input
-                    id="saved-location-details-custom-label"
-                    type="text"
-                    value={customLabel}
-                    onChange={(event) => setCustomLabel(event.target.value)}
-                    disabled={interactionBusy}
-                    maxLength={40}
-                    placeholder="Gym, parents' house"
-                    className={controlInputClassName}
-                  />
-                </div>
-              ) : null}
 
               {/* Ticked, the fields below are filled from that address and keep
                   following the pin. Unticked, they are cleared and left alone.
@@ -1256,49 +1004,62 @@ export function SaveLocationModal({
               </label>
 
               <div className="space-y-3.5">
+                {/* Said once, for the group, instead of an "(optional)" tag
+                    hanging off all four labels. */}
+                <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
+                  Optional — helps at the door.
+                </p>
+                <div>
+                  <label
+                    htmlFor="saved-location-house-or-flat"
+                    className={controlLabelClassName}
+                  >
+                    House or flat
+                  </label>
+                  <input
+                    id="saved-location-house-or-flat"
+                    type="text"
+                    value={addressDetails.houseOrFlat}
+                    onChange={(event) =>
+                      updateAddressDetail("houseOrFlat", event.target.value)
+                    }
+                    disabled={interactionBusy}
+                    maxLength={80}
+                    autoComplete={deferredUntilVault ? "off" : "address-line1"}
+                    placeholder="Flat 4B, Tower 2"
+                    className={controlInputClassName}
+                  />
+                </div>
+
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    {/* A badge on the field itself, the same place Address
-                        carries "Required" -- a box shaped exactly like the
-                        required Address box above it reads as required no
-                        matter what a sentence higher up the screen said. */}
-                    <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                      <label
-                        htmlFor="saved-location-house-or-flat"
-                        className={cn(controlLabelClassName, "mb-0")}
-                      >
-                        House or flat
-                      </label>
-                      <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
-                        Optional
-                      </span>
-                    </div>
+                    <label
+                      htmlFor="saved-location-building-color"
+                      className={controlLabelClassName}
+                    >
+                      Building colour
+                    </label>
                     <input
-                      id="saved-location-house-or-flat"
+                      id="saved-location-building-color"
                       type="text"
-                      value={addressDetails.houseOrFlat}
+                      value={addressDetails.buildingColor}
                       onChange={(event) =>
-                        updateAddressDetail("houseOrFlat", event.target.value)
+                        updateAddressDetail("buildingColor", event.target.value)
                       }
                       disabled={interactionBusy}
-                      maxLength={80}
-                      autoComplete={deferredUntilVault ? "off" : "address-line1"}
-                      placeholder="Flat 4B, Tower 2"
+                      maxLength={40}
+                      autoComplete="off"
+                      placeholder="Blue gate"
                       className={controlInputClassName}
                     />
                   </div>
                   <div>
-                    <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                      <label
-                        htmlFor="saved-location-postal-code"
-                        className={cn(controlLabelClassName, "mb-0")}
-                      >
-                        PIN / postcode
-                      </label>
-                      <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
-                        Optional
-                      </span>
-                    </div>
+                    <label
+                      htmlFor="saved-location-postal-code"
+                      className={controlLabelClassName}
+                    >
+                      PIN / postcode
+                    </label>
                     <input
                       id="saved-location-postal-code"
                       type="text"
@@ -1339,96 +1100,63 @@ export function SaveLocationModal({
                   </div>
                 </div>
 
-                {/* Behind a tap, not in front of one. Being asked the colour of
-                    your building before you have finished saying where it is
-                    reads as an odd question; asked later, of someone who chose
-                    to open this, it reads as care. Kept mounted so anything
-                    already typed survives collapsing, and opened on arrival
-                    when it holds an answer. */}
                 <div>
-                  <button
-                    type="button"
-                    onClick={() => setDoorDetailsOpen((shown) => !shown)}
+                  <label
+                    htmlFor="saved-location-landmark"
+                    className={controlLabelClassName}
+                  >
+                    Landmark
+                  </label>
+                  <input
+                    id="saved-location-landmark"
+                    type="text"
+                    value={addressDetails.landmark}
+                    onChange={(event) =>
+                      updateAddressDetail("landmark", event.target.value)
+                    }
                     disabled={interactionBusy}
-                    aria-expanded={doorDetailsOpen}
-                    aria-controls={doorDetailsId}
-                    data-testid="save-location-door-details-toggle"
-                    className={DOOR_DETAILS_TOGGLE_CLASSNAME}
-                  >
-                    <span className="text-[15px] font-semibold leading-5 text-foreground">
-                      More door details
-                    </span>
-                    <ChevronDown
-                      className={cn(
-                        "h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform duration-200",
-                        doorDetailsOpen && "rotate-180",
-                      )}
-                      strokeWidth={2.2}
-                      aria-hidden
-                    />
-                  </button>
-                  <div
-                    id={doorDetailsId}
-                    hidden={!doorDetailsOpen}
-                    className="mt-3.5 space-y-3.5"
-                  >
-                    <div>
-                      <label
-                        htmlFor="saved-location-landmark"
-                        className={controlLabelClassName}
-                      >
-                        Landmark
-                      </label>
-                      <input
-                        id="saved-location-landmark"
-                        type="text"
-                        value={addressDetails.landmark}
-                        onChange={(event) =>
-                          updateAddressDetail("landmark", event.target.value)
-                        }
-                        disabled={interactionBusy}
-                        maxLength={100}
-                        autoComplete={
-                          deferredUntilVault ? "off" : "address-line2"
-                        }
-                        placeholder="Opposite City Mall"
-                        className={controlInputClassName}
-                      />
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="saved-location-building-color"
-                        className={controlLabelClassName}
-                      >
-                        Building colour
-                      </label>
-                      <input
-                        id="saved-location-building-color"
-                        type="text"
-                        value={addressDetails.buildingColor}
-                        onChange={(event) =>
-                          updateAddressDetail("buildingColor", event.target.value)
-                        }
-                        disabled={interactionBusy}
-                        maxLength={40}
-                        autoComplete="off"
-                        placeholder="Blue gate"
-                        className={controlInputClassName}
-                      />
-                    </div>
-                  </div>
+                    maxLength={100}
+                    autoComplete={deferredUntilVault ? "off" : "address-line2"}
+                    placeholder="Opposite City Mall"
+                    className={controlInputClassName}
+                  />
                 </div>
               </div>
 
-              {/* Only shown pre-vault, where it is new information: the save
-                  is deferred. Once a vault exists the place saves right away,
-                  and "private to you" was already said on the summary pane --
-                  repeating it here answered a question nobody was asking. */}
-              {deferredUntilVault ? (
-                <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
-                  Saves once your lock is set.
-                </p>
+              <SavedLocationCategoryPicker
+                value={category}
+                disabled={interactionBusy}
+                onChange={setCategory}
+              />
+
+              {category === "other" ? (
+                <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
+                  <label
+                    htmlFor="saved-location-details-custom-label"
+                    className={controlLabelClassName}
+                  >
+                    Name it
+                  </label>
+                  <input
+                    id="saved-location-details-custom-label"
+                    type="text"
+                    value={customLabel}
+                    onChange={(event) => setCustomLabel(event.target.value)}
+                    disabled={interactionBusy}
+                    maxLength={40}
+                    placeholder="Gym, parents' house"
+                    className={controlInputClassName}
+                  />
+                </div>
               ) : null}
+
+              {/* A caption, not a card. It reassures; it is not a control, and
+                  the panel it used to sit in gave it a control's weight. */}
+              <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
+                {deferredUntilVault
+                  ? "Saves once your lock is set."
+                  : "Private to you."}
+              </p>
             </div>
 
             <div className={SHEET_FOOTER_CLASSNAME}>
@@ -1479,20 +1207,6 @@ export function SaveLocationModal({
             >
               <X className="h-4.5 w-4.5" strokeWidth={2.4} />
             </button>
-
-            {/* This pane rendered no indicator and no grabber at all, so the
-                sheet's header geometry changed the moment you advanced. It
-                is also the pane a cold start lands on most often: both call
-                sites pass `startWithMapPicker`, but `mapInitial` is null
-                until the GPS fix resolves, which collapses `carouselMode`. */}
-            <SheetIndicator
-              carouselMode={carouselMode}
-              index={0}
-              count={2}
-              labels={carouselLabels}
-              canAdvance={canPickOnMap}
-              onSelect={goToSlide}
-            />
 
             <header className="pr-8">
               <span className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
@@ -1706,82 +1420,7 @@ export function SaveLocationModal({
             </div>
           </div>
         )}
-    </>
-  );
 
-  /**
-   * On a phone this is the app's own bottom sheet -- the same component, drag
-   * handle and drag-to-dismiss the Market surfaces use -- rather than a
-   * dialog wearing a sheet's corners. Above 640px it stays the centred dialog
-   * it already was.
-   *
-   * `contentDragDismiss` is off because the details pane is a fixed frame with
-   * its own inner scroller: the outer surface never scrolls, so a body drag
-   * would engage on every downward swipe and cancel the scroll it was meant to
-   * be. The header row is the drag surface instead -- see `SheetDragRegion`.
-   */
-  if (sheetPresentation) {
-    return (
-      <Sheet open={open} modal onOpenChange={handleSurfaceOpenChange}>
-        <SheetContent
-          side="bottom"
-          showCloseButton={false}
-          showDragHandle={false}
-          contentDragDismiss={false}
-          data-testid="save-location-modal"
-          aria-describedby={descriptionId}
-          onPointerDown={handleSwipeStart}
-          onPointerUp={handleSwipeEnd}
-          onPointerCancel={() => {
-            swipeOriginRef.current = null;
-          }}
-          overlayClassName={surfaceOverlayClassName}
-          onEscapeKeyDown={(event) => {
-            if (interactionBusy) event.preventDefault();
-          }}
-          onPointerDownOutside={(event) => {
-            if (interactionBusy || flowStep === "map") event.preventDefault();
-          }}
-          className={cn(
-            "z-[601] mx-auto max-h-[min(92dvh,760px)] w-full max-w-[420px] rounded-t-[24px]",
-            surfaceEdgeClassName,
-            surfacePaddingClassName,
-            surfaceShadowClassName,
-          )}
-        >
-          {surfaceChildren}
-        </SheetContent>
-      </Sheet>
-    );
-  }
-
-  return (
-    <Dialog open={open} modal onOpenChange={handleSurfaceOpenChange}>
-      <DialogContent
-        showCloseButton={false}
-        data-testid="save-location-modal"
-        aria-describedby={descriptionId}
-        onPointerDown={handleSwipeStart}
-        onPointerUp={handleSwipeEnd}
-        onPointerCancel={() => {
-          swipeOriginRef.current = null;
-        }}
-        overlayClassName={surfaceOverlayClassName}
-        onEscapeKeyDown={(event) => {
-          if (interactionBusy) event.preventDefault();
-        }}
-        onPointerDownOutside={(event) => {
-          if (interactionBusy || flowStep === "map") event.preventDefault();
-        }}
-        className={cn(
-          "z-[601] bottom-[var(--kb-height,0px)] top-auto max-h-[min(92dvh,760px)] w-full max-w-[420px] translate-y-0",
-          "rounded-b-none rounded-t-[24px] sm:bottom-auto sm:top-[50%] sm:translate-y-[-50%] sm:rounded-[20px]",
-          surfaceEdgeClassName,
-          surfacePaddingClassName,
-          surfaceShadowClassName,
-        )}
-      >
-        {surfaceChildren}
       </DialogContent>
     </Dialog>
   );

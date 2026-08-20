@@ -442,10 +442,15 @@ test.describe("Connect search row", () => {
       const current = await page.evaluate(probePlaceholder, CONNECT_SEARCH_PLACEHOLDER);
       expect(current.fontSize, "field is at the app's real input type").toBe("17px");
 
+      // Sub-pixel tolerance, matching the 0.5px this file already allows on every
+      // other measured box. Text advance widths differ by a fraction between the
+      // Linux CI webkit and macOS webkit for the same pinned font -- "Search people"
+      // measures 116.0px locally and 116.15625px on the runner. 0.5px cannot mask a
+      // real clip: the mutation check below is a placeholder eight characters longer.
       expect(
         current.needed,
         `"${CONNECT_SEARCH_PLACEHOLDER}" needs ${current.needed.toFixed(1)}px of ${current.available.toFixed(1)}px`,
-      ).toBeLessThanOrEqual(current.available);
+      ).toBeLessThanOrEqual(current.available + 0.5);
 
       // Mutation check, against the row as it actually shipped -- the long
       // placeholder in a field that also reserved its clear gutter, beside a

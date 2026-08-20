@@ -140,7 +140,7 @@ export function AnalysisView({
         </div>
       </div>
 
-      <div className="mx-auto w-full space-y-6 pb-6" style={APP_MEASURE_STYLES.reading}>
+      <div className="mx-auto w-full space-y-6 pb-36" style={APP_MEASURE_STYLES.reading}>
 
       {/* Decision Card */}
       <SurfaceCard>

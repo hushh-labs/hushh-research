@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { Loader2, UsersRound } from "lucide-react";
 
 import {
   AlertDialog,
@@ -17,34 +17,19 @@ import type {
   OneLocationCircleSummary,
   OneLocationRecipient,
 } from "@/lib/one-location/types";
-import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
+import { SECTION_HEADING } from "@/components/one-location/redesign/tokens";
 import { TaskFlowHeader } from "@/components/one-location/redesign/primitives";
-import {
-  CONTACT_AVATAR_TONE,
-  ContactGroup,
-  ContactRow,
-  EmptyStateCard,
-  initials,
-} from "@/components/one-location/redesign/contact-picker/atoms";
-import { CircleMemberPicker } from "@/components/one-location/redesign/contact-picker/circle-member-picker";
-import { ContactListControls } from "@/components/one-location/redesign/contact-picker/list-controls";
-import {
-  SelectedContactsPill,
-  SelectedContactsSheet,
-} from "@/components/one-location/redesign/contact-picker/selected-review-sheet";
-import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
-import {
-  filterByContactQuery,
-  sortByContactMode,
-  type ContactSortMode,
-} from "@/lib/one-location/contact-picker-controls";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 
-type SmsContactsTab = "circles" | "all-contacts";
-
-const TABS: ReadonlyArray<{ value: SmsContactsTab; label: string }> = [
-  { value: "circles", label: "Circles" },
-  { value: "all-contacts", label: "All Contacts" },
-];
+/**
+ * A person avatar reports no state of its own — the initials identify, the
+ * trailing control acts. Keeping it neutral leaves exactly one accent per row
+ * (the Add button) instead of two blues competing across the same 58px.
+ */
+const CONTACT_AVATAR_TONE = cn(
+  roleClasses("neutral").tile,
+  roleClasses("neutral").glyph,
+);
 
 type SmsContactsFlowProps = {
   recipients: OneLocationRecipient[];
@@ -52,95 +37,123 @@ type SmsContactsFlowProps = {
   selectedUserIds: string[];
   busyKey: string | null;
   onAdd: (recipientUserId: string) => void;
-  /**
-   * Commit a hand-picked subset of one Circle's members in a single pass.
-   *
-   * Replaces the old all-or-nothing `onAddCircle`. The picker resolves the
-   * roster itself and hands back exactly the people who were ticked, so a
-   * hundred-member Circle can contribute four contacts.
-   */
-  onAddCircleMembers: (circleId: string, userIds: string[]) => Promise<void>;
-  /** Resolves a Circle into its SMS-ready members, lazily, on expand. */
-  onLoadCircleMembers: (circleId: string) => Promise<CircleRecipientSelection>;
+  onAddCircle: (circleId: string) => Promise<void>;
   onRemove: (recipientUserId: string) => Promise<boolean>;
   recipientLabel: (recipient: OneLocationRecipient) => string;
   recipientSubtitle: (recipient: OneLocationRecipient) => string;
   isRecipientShareReady: (recipient: OneLocationRecipient) => boolean;
 };
 
-/**
- * Who receives your emergency SMS.
- *
- * Two tabs, one selection. "Circles" is a roster of Circles that each expand
- * into their own member picker; "All Contacts" is the flat directory. Both
- * write to the same list, and the sticky pill above the bottom bar is how that
- * list stays readable from either of them -- previously the only way to see
- * who was on it was to scroll the whole screen counting rows wearing a Remove
- * button.
- *
- * Selection commits as it happens rather than staging behind a submit: this
- * screen has never had one, and a contact roster that silently discards edits
- * when you navigate away would be a worse trade than the one extra request.
- * The pill therefore counts what is actually saved, which is why it reads
- * "added" and not "selected".
- */
+function initials(value: string): string {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? ""))
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function ContactRow({
+  recipient,
+  selected,
+  busy,
+  ready,
+  onAdd,
+  onAskRemove,
+  recipientLabel,
+}: {
+  recipient: OneLocationRecipient;
+  selected: boolean;
+  busy: boolean;
+  ready: boolean;
+  onAdd: () => void;
+  onAskRemove: () => void;
+  recipientLabel: (recipient: OneLocationRecipient) => string;
+}) {
+  const label = recipientLabel(recipient);
+  return (
+    <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
+      <span
+        className={cn(
+          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[15px] font-semibold",
+          CONTACT_AVATAR_TONE,
+        )}
+        aria-hidden
+      >
+        {initials(label)}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
+          {label}
+        </span>
+      </span>
+      {selected ? (
+        <button
+          type="button"
+          onClick={onAskRemove}
+          disabled={busy}
+          className="press-scale flex h-8 min-w-[76px] items-center justify-center rounded-full bg-[color:var(--app-destructive-tint)] px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:opacity-45"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Remove"}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={busy || !ready}
+          aria-label={`Add ${label}`}
+          className="press-scale flex h-8 min-w-[58px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:text-muted-foreground"
+        >
+          {busy ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : ready ? (
+            "Add"
+          ) : (
+            "Setup"
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ContactGroup({ children }: { children: ReactNode }) {
+  return (
+    <div className="divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] shadow-none">
+      {children}
+    </div>
+  );
+}
+
+function EmptyStateCard({ message }: { message: string }) {
+  return (
+    <div className="flex min-h-[72px] w-full items-center justify-center rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-4 text-center text-[15px] font-normal leading-5 text-muted-foreground transition-all duration-200 ease-out shadow-none">
+      <p className="max-w-[280px]">{message}</p>
+    </div>
+  );
+}
+
 export function SmsContactsFlow({
   recipients,
   circles,
   selectedUserIds,
   busyKey,
   onAdd,
-  onAddCircleMembers,
-  onLoadCircleMembers,
+  onAddCircle,
   onRemove,
   recipientLabel,
-  recipientSubtitle,
   isRecipientShareReady,
 }: SmsContactsFlowProps) {
-  // Circles first, as the issue orders them -- unless there are none, in
-  // which case landing on an empty tab makes the screen look broken before
-  // the person has done anything.
-  const [tab, setTab] = useState<SmsContactsTab>(() =>
-    circles.length ? "circles" : "all-contacts",
-  );
   const [pendingRemoval, setPendingRemoval] =
     useState<OneLocationRecipient | null>(null);
   const [removing, setRemoving] = useState(false);
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [expandedCircleId, setExpandedCircleId] = useState<string | null>(null);
-
-  const [circleQuery, setCircleQuery] = useState("");
-  const [circleSort, setCircleSort] = useState<ContactSortMode>("default");
-  const [contactQuery, setContactQuery] = useState("");
-  const [contactSort, setContactSort] = useState<ContactSortMode>("default");
-
   const selectedIds = useMemo(
     () => new Set(selectedUserIds),
     [selectedUserIds],
   );
-  const selected = useMemo(
-    () => recipients.filter((recipient) => selectedIds.has(recipient.userId)),
-    [recipients, selectedIds],
+  const selected = recipients.filter((recipient) =>
+    selectedIds.has(recipient.userId),
   );
-
-  const visibleCircles = useMemo(
-    () =>
-      sortByContactMode(
-        filterByContactQuery(circles, circleQuery, (circle) => circle.name),
-        circleSort,
-        (circle) => circle.name,
-      ),
-    [circleQuery, circleSort, circles],
-  );
-
-  const visibleContacts = useMemo(
-    () =>
-      sortByContactMode(
-        filterByContactQuery(recipients, contactQuery, recipientLabel),
-        contactSort,
-        recipientLabel,
-      ),
-    [contactQuery, contactSort, recipientLabel, recipients],
+  const available = recipients.filter(
+    (recipient) => !selectedIds.has(recipient.userId),
   );
 
   const removePending = async () => {
@@ -154,29 +167,12 @@ export function SmsContactsFlow({
     }
   };
 
-  const askRemoveById = useCallback(
-    (recipientUserId: string) => {
-      const recipient = recipients.find(
-        (candidate) => candidate.userId === recipientUserId,
-      );
-      if (recipient) setPendingRemoval(recipient);
-    },
-    [recipients],
-  );
-
-  // The picker only ever passes ids it resolved from that Circle, so this is a
-  // pass-through -- but keeping it a stable callback means expanding a Circle
-  // does not re-run its roster effect on every parent render.
-  const addCircleMembers = useCallback(
-    (circleId: string, userIds: string[]) =>
-      onAddCircleMembers(circleId, userIds),
-    [onAddCircleMembers],
-  );
-
   return (
     // Renders inside the signed-in shell like every other Location task flow,
     // so the top bar keeps the single back control, the
-    // "Location > SMS contacts" trail and the profile avatar.
+    // "Location › SMS contacts" trail and the profile avatar. It used to pin
+    // itself over the whole viewport, which hid all three and left it drawing
+    // its own back arrow.
     <section data-testid="sms-contacts-screen">
       {/* 430px is a phone, not a layout. Held at every width it left most of a
           tablet or a desktop window as empty grey while the lists below scrolled
@@ -189,172 +185,127 @@ export function SmsContactsFlow({
           description="Emergency contacts."
         />
 
-        <SelectedContactsPill
-          count={selected.length}
-          onOpen={() => setReviewOpen(true)}
-        />
-
-        {/* Two sections, named for what they hold. "Add contacts" described the
-            button on each row rather than the list, which left the screen with
-            a "Contacts" list and an "Add contacts" list that were the same
-            people in two states. */}
-        <div
-          role="tablist"
-          aria-label="Contact sources"
-          className="mt-6 flex gap-1.5 rounded-full bg-[color:var(--app-neutral-fill-strong)] p-1"
-        >
-          {TABS.map((entry) => {
-            const active = entry.value === tab;
-            return (
-              <button
-                key={entry.value}
-                type="button"
-                role="tab"
-                id={"sms-tab-" + entry.value}
-                aria-selected={active}
-                aria-controls={"sms-panel-" + entry.value}
-                onClick={() => setTab(entry.value)}
-                className={cn(
-                  "press-scale h-10 flex-1 rounded-full text-[15px] font-semibold transition-colors",
-                  active
-                    ? "bg-[color:var(--app-card-surface-default-solid)] text-foreground shadow-sm"
-                    : "text-muted-foreground",
-                )}
-              >
-                {entry.label}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-4">
-          {tab === "circles" ? (
-            <div
-              role="tabpanel"
-              id="sms-panel-circles"
-              aria-labelledby="sms-tab-circles"
-              data-testid="sms-circles-panel"
-            >
-              <ContactListControls
-                sourceCount={circles.length}
-                query={circleQuery}
-                onQueryChange={setCircleQuery}
-                sortMode={circleSort}
-                onSortModeChange={setCircleSort}
-                placeholder="Search Circles"
-                resultCount={visibleCircles.length}
-                voiceControlId="one-location-sms-circle-search"
-              />
-              {visibleCircles.length ? (
-                <ContactGroup>
-                  {visibleCircles.map((circle, index) => (
-                    <div
-                      key={circle.id}
+        {circles.length ? (
+          <>
+            <p className={cn(SECTION_HEADING, "mb-2 mt-6 px-[6px]")}>
+              Circles
+            </p>
+            <ContactGroup>
+              {circles.map((circle, index) => {
+                const circleBusy = busyKey === `sms-circle:${circle.id}`;
+                // STATE BEATS CATEGORY: a circle is the people role, but one
+                // holding nobody except the viewer has nothing to report and
+                // stays neutral. `memberCount` includes the viewer, so the
+                // count that decides this is `memberCount - 1` — the same test
+                // the Circles list and the check-in flow apply.
+                const circleRole = roleClasses("people", {
+                  inactive: Math.max(0, circle.memberCount - 1) === 0,
+                });
+                return (
+                  <div
+                    key={circle.id}
+                    className={cn(
+                      "flex min-h-[58px] items-center gap-3 px-3.5 py-2",
+                      index < circles.length - 1 &&
+                        "border-b border-[color:var(--app-separator)]",
+                    )}
+                  >
+                    <span
                       className={cn(
-                        index < visibleCircles.length - 1 &&
-                          "border-b border-[color:var(--app-separator)]",
+                        "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px]",
+                        circleRole.tile,
+                        circleRole.glyph,
                       )}
                     >
-                      <CircleMemberPicker
-                        circle={circle}
-                        expanded={expandedCircleId === circle.id}
-                        onToggle={() =>
-                          setExpandedCircleId((current) =>
-                            current === circle.id ? null : circle.id,
-                          )
-                        }
-                        selectedUserIds={selectedIds}
-                        busy={Boolean(busyKey)}
-                        onLoadMembers={onLoadCircleMembers}
-                        onAddMembers={addCircleMembers}
-                        recipientLabel={(person) =>
-                          recipientLabel(person as OneLocationRecipient)
-                        }
-                      />
-                    </div>
-                  ))}
-                </ContactGroup>
-              ) : (
-                <EmptyStateCard
-                  message={
-                    circleQuery.trim()
-                      ? "No Circles match that name."
-                      : "No Circles yet."
-                  }
-                />
-              )}
-              {/* Growing a Circle deliberately does NOT live here. This screen
-                  answers one question -- who gets the alert -- and a per-Circle
-                  "Invite people / Share code" block for every Circle pushed that
-                  list below the fold and mixed a membership task into a
-                  contact-picking one. Growing a Circle stays on the People tab,
-                  which owns membership. */}
-            </div>
-          ) : (
-            <div
-              role="tabpanel"
-              id="sms-panel-all-contacts"
-              aria-labelledby="sms-tab-all-contacts"
-              data-testid="sms-all-contacts-panel"
-            >
-              <ContactListControls
-                sourceCount={recipients.length}
-                query={contactQuery}
-                onQueryChange={setContactQuery}
-                sortMode={contactSort}
-                onSortModeChange={setContactSort}
-                placeholder="Search contacts"
-                resultCount={visibleContacts.length}
-                voiceControlId="one-location-sms-contact-search"
-              />
-              {visibleContacts.length ? (
-                <VirtualContactList
-                  items={visibleContacts}
-                  getKey={(recipient) => recipient.userId}
-                  testId="sms-all-contacts-list"
-                  ariaLabel="All contacts"
-                  renderItem={(recipient) => {
-                    const label = recipientLabel(recipient);
-                    return (
-                      <ContactRow
-                        label={label}
-                        subtitle={recipientSubtitle(recipient)}
-                        selected={selectedIds.has(recipient.userId)}
-                        ready={isRecipientShareReady(recipient)}
-                        busy={busyKey === "sms-contact:" + recipient.userId}
-                        onAdd={() => onAdd(recipient.userId)}
-                        onRemove={() => setPendingRemoval(recipient)}
-                      />
-                    );
-                  }}
-                />
-              ) : (
-                <EmptyStateCard
-                  message={
-                    contactQuery.trim()
-                      ? "No contacts match that name."
-                      : "No contacts yet."
-                  }
-                />
-              )}
-            </div>
-          )}
+                      <UsersRound className="h-[17px] w-[17px]" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
+                        {circle.name}
+                      </span>
+                      <span className="mt-0.5 block text-[15px] leading-5 text-muted-foreground">
+                        {circle.memberCount} members
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      disabled={Boolean(busyKey)}
+                      onClick={() => void onAddCircle(circle.id)}
+                      aria-label={`Add ${circle.name}`}
+                      className="press-scale flex h-8 min-w-[58px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:opacity-45"
+                    >
+                      {circleBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        "Add"
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </ContactGroup>
+            {/* Growing a Circle deliberately does NOT live here. This screen
+                answers one question -- who gets the alert -- and a per-Circle
+                "Invite people / Share code" block for every Circle pushed that
+                list below the fold and mixed a membership task into a
+                contact-picking one. Growing a Circle stays on the People tab,
+                which owns membership. */}
+          </>
+        ) : null}
+
+
+        {/* Keep contacts in one column on every viewport. The previous desktop
+            split made a simple contact task feel scattered and disconnected. */}
+        <div className="mt-6 grid gap-6">
+          <div>
+            <p className={cn(SECTION_HEADING, "mb-2 px-[6px]")}>
+              Contacts
+            </p>
+            {selected.length ? (
+              <ContactGroup>
+                {selected.map((recipient) => (
+                  <ContactRow
+                    key={recipient.userId}
+                    recipient={recipient}
+                    selected
+                    ready={isRecipientShareReady(recipient)}
+                    busy={busyKey === `sms-contact:${recipient.userId}`}
+                    onAdd={() => onAdd(recipient.userId)}
+                    onAskRemove={() => setPendingRemoval(recipient)}
+                    recipientLabel={recipientLabel}
+                  />
+                ))}
+              </ContactGroup>
+            ) : (
+              <EmptyStateCard message="No contacts yet." />
+            )}
+          </div>
+
+          <div>
+            <p className={cn(SECTION_HEADING, "mb-2 px-[6px]")}>
+              Add contacts
+            </p>
+            {available.length ? (
+              <ContactGroup>
+                {available.map((recipient) => (
+                  <ContactRow
+                    key={recipient.userId}
+                    recipient={recipient}
+                    selected={false}
+                    ready={isRecipientShareReady(recipient)}
+                    busy={busyKey === `sms-contact:${recipient.userId}`}
+                    onAdd={() => onAdd(recipient.userId)}
+                    onAskRemove={() => setPendingRemoval(recipient)}
+                    recipientLabel={recipientLabel}
+                  />
+                ))}
+              </ContactGroup>
+            ) : (
+              <EmptyStateCard message="All contacts added." />
+            )}
+          </div>
         </div>
       </div>
-
-      <SelectedContactsSheet
-        open={reviewOpen}
-        onOpenChange={setReviewOpen}
-        recipients={selected}
-        busyUserId={
-          busyKey?.startsWith("sms-contact:")
-            ? busyKey.slice("sms-contact:".length)
-            : null
-        }
-        onRemove={askRemoveById}
-        recipientLabel={recipientLabel}
-        recipientSubtitle={recipientSubtitle}
-      />
 
       <AlertDialog
         open={Boolean(pendingRemoval)}
@@ -364,8 +315,8 @@ export function SmsContactsFlow({
       >
         {/* A sheet that rises from the thumb is right on a phone and odd on a
             desktop, where it lands far from the row that opened it and from the
-            pointer. Base classes stay exactly as they were -- the phone case is
-            the tested one -- and only wider viewports re-centre it. */}
+            pointer. Base classes stay exactly as they were — the phone case is
+            the tested one — and only wider viewports re-centre it. */}
         <AlertDialogContent
           size="sm"
           className="!bottom-0 !left-1/2 !top-auto !w-full !max-w-[430px] !-translate-x-1/2 !translate-y-0 !gap-0 !rounded-b-none !rounded-t-[24px] !border-0 !bg-[color:var(--app-card-surface-default-solid)] !px-4 !pb-[max(20px,env(safe-area-inset-bottom))] !pt-5 !shadow-none md:!bottom-auto md:!top-1/2 md:!max-w-[400px] md:!-translate-y-1/2 md:!rounded-b-[24px] md:!pb-5 md:!shadow-xl"

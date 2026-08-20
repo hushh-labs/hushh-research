@@ -140,7 +140,7 @@ export function useMarketplaceConsentActions(
   const requireToken = useCallback((): string | null => {
     const token = getVaultOwnerToken();
     if (!token) {
-      toast.error("Unlock to manage this marketplace request.");
+      toast.error("Unlock your vault to manage this marketplace request.");
       return null;
     }
     return token;
@@ -165,7 +165,7 @@ export function useMarketplaceConsentActions(
         { key: actionKey, kind: "approve", requestId },
         async () => {
           if (!userId || !vaultKey) {
-            toast.error("Unlock to approve this request.");
+            toast.error("Unlock your vault to approve this request.");
             return;
           }
           const vaultOwnerToken = requireToken();

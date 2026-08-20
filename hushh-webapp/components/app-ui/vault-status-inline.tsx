@@ -64,7 +64,7 @@ export function VaultStatusInline({
         )}
       >
         <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-        Unlocked
+        Vault ready
       </p>
     );
   }
@@ -79,7 +79,7 @@ export function VaultStatusInline({
         )}
       >
         <Lock className="h-3.5 w-3.5 shrink-0" />
-        Locked, unlock to continue
+        Vault locked, unlock to continue
       </p>
     );
   }
@@ -94,7 +94,7 @@ export function VaultStatusInline({
         )}
       >
         <Database className="h-3.5 w-3.5 shrink-0" />
-        Lock required
+        Vault setup required
       </p>
     );
   }
@@ -107,7 +107,7 @@ export function VaultStatusInline({
       )}
     >
       <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-      Checking…
+      Checking vault status…
     </p>
   );
 }

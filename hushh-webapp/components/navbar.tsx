@@ -416,7 +416,7 @@ export const Navbar = ({
 
   const navigateTo = (value: string) => {
     if (busyOperations["portfolio_save"]) {
-      toast.info("Saving. Please wait until encryption completes.");
+      toast.info("Saving to vault. Please wait until encryption completes.");
       return;
     }
 

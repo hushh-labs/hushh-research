@@ -39,7 +39,7 @@ export function DashboardRouteTabs({ embedded = false }: DashboardRouteTabsProps
   const handleTabChange = useCallback(
     (nextTab: string) => {
       if (busyOperations["portfolio_save"]) {
-        toast.info("Saving. Please wait until encryption completes.");
+        toast.info("Saving to vault. Please wait until encryption completes.");
         return;
       }
       const target = KAI_ROUTE_TABS.find((tab) => tab.id === nextTab);

@@ -68,51 +68,6 @@ const ROWS = [
       { id: "approve", label: "Approve 1 hour", tone: "primary", onSelect: () => {} },
     ],
   },
-  // A circle invitation — the row this bug report described. Long inviter
-  // name so the title track is under the same pressure the person's own name
-  // puts on it, next to two action buttons.
-  {
-    id: "circle-invite",
-    title: "Sharuk Khan Abdulrahman",
-    description: "Invited you to join Family Circle.",
-    displayTimestamp: Date.parse("2026-08-19T03:11:00Z"),
-    iconTone: "blue",
-    actions: [
-      { id: "decline", label: "Decline", tone: "neutral", onSelect: () => {} },
-      { id: "accept", label: "Accept", tone: "primary", onSelect: () => {} },
-    ],
-  },
-  // A same-title pair, both WITH actions but very different action-label
-  // widths (narrow "Decline"/"Accept" vs the widest label in the set,
-  // "Approve 4 hours more"). On a phone, an actions row always stacks to its
-  // own line below the title — so the title/timestamp row's width must be
-  // identical between these two regardless of what the action row below it
-  // holds. This is the actual regression proof for "the timestamp's position
-  // never depends on the CTAs" (a row's OWN buttons appearing/rendering)
-  // that a real circle invite can hit; a row that never has actions at all
-  // is a structurally different case, not this bug.
-  {
-    id: "consistency-narrow-actions",
-    title: "Consistency Check",
-    description: "Narrow action labels.",
-    displayTimestamp: Date.parse("2026-08-19T03:11:00Z"),
-    iconTone: "blue",
-    actions: [
-      { id: "decline", label: "Decline", tone: "neutral", onSelect: () => {} },
-      { id: "accept", label: "Accept", tone: "primary", onSelect: () => {} },
-    ],
-  },
-  {
-    id: "consistency-wide-actions",
-    title: "Consistency Check",
-    description: "Wide action labels.",
-    displayTimestamp: Date.parse("2026-08-19T03:11:00Z"),
-    iconTone: "blue",
-    actions: [
-      { id: "deny", label: "Deny", tone: "neutral", onSelect: () => {} },
-      { id: "approve", label: "Approve 4 hours more", tone: "primary", onSelect: () => {} },
-    ],
-  },
 ];
 
 it("captures the Needs you rows", () => {

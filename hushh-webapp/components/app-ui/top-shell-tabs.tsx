@@ -19,7 +19,6 @@ import {
 } from "@/lib/navigation/top-shell-tab-swipe-progress";
 import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
-import { useIndicatorSpring } from "@/lib/morphy-ux/hooks/use-indicator-spring";
 import { cn } from "@/lib/utils";
 
 function topShellTabDomId(
@@ -89,50 +88,20 @@ export function TopShellTabs({
     }
   }, [activeIndex, tabSet.tabs.length]);
 
-  // Drives the shared swipe-position variable with real spring physics
-  // instead of a CSS transition, so re-targeting mid-flight (rapid tab taps)
-  // carries velocity instead of restarting from rest. `onFrame` writes
-  // straight to the CSS var via the existing compositor-owned pathway --
-  // same DOM write `selectIndex` used to do instantly, just spread across
-  // frames -- so this never triggers a React re-render while settling.
-  const retarget = useIndicatorSpring(
-    useCallback(
-      (value: number) => setTopShellTabSwipeState(tabSet.id, value, false),
-      [tabSet.id],
-    ),
-  );
-  const didMountRef = useRef(false);
-  const wasDraggingRef = useRef(tabSwipeState.isDragging);
-
+  // Keep the shared swipe-position variable in sync with the committed active
+  // tab. Taps go through `selectIndex`, which already snaps the indicator, but
+  // when the active tab changes by any other path -- a deep link like
+  // `?tab=history`, a back/forward navigation, or external route state -- the
+  // persisted position variable can retain the PREVIOUS index. The transform
+  // only falls back to `activeIndex` while that variable is unset, so a stale
+  // value would leave the underline resting under the wrong tab until the next
+  // tap. Re-sync here (never mid-drag) so the resting indicator always matches
+  // the selected tab. Inert during drags and no-op when already aligned.
   useEffect(() => {
-    if (!didMountRef.current) {
-      didMountRef.current = true;
-      // No spring-in on first paint -- the SSR/initial transform already
-      // rests at `activeIndex` via the CSS var's calc() fallback.
-      retarget(activeIndex, { instant: true });
-      wasDraggingRef.current = tabSwipeState.isDragging;
-      return;
-    }
-
-    // A drag just ended: the finger-released position is the new authority.
-    // Re-sync the spring's own tracked value to it first, or the spring
-    // would incorrectly glide from its stale pre-drag position.
-    if (wasDraggingRef.current && !tabSwipeState.isDragging) {
-      retarget(tabSwipeState.position, { instant: true });
-    }
-    wasDraggingRef.current = tabSwipeState.isDragging;
-
-    // While actively dragging, the gesture owns the position 1:1 via the raw
-    // CSS var -- the spring must stay out of the way.
     if (tabSwipeState.isDragging) return;
-
-    // Keep the indicator's spring target in sync with the committed active
-    // tab. Taps go through `selectIndex`, which already retargets the spring
-    // immediately, but when the active tab changes by any other path -- a
-    // deep link like `?tab=history`, a back/forward navigation, or external
-    // route state -- this is what catches it up. No-op if already converged.
-    retarget(activeIndex);
-  }, [activeIndex, retarget, tabSwipeState.isDragging, tabSwipeState.position]);
+    if (Math.abs(tabSwipeState.position - activeIndex) < 0.001) return;
+    setTopShellTabSwipeState(tabSet.id, activeIndex, false);
+  }, [activeIndex, tabSet.id, tabSwipeState.isDragging, tabSwipeState.position]);
 
   const selectIndex = useCallback(
     (index: number, focus: boolean) => {
@@ -141,10 +110,10 @@ export function TopShellTabs({
       if (focus) tabRefs.current[index]?.focus();
       if (tab.value === selectedValue) return;
 
-      // Retarget the spring at pointer/keyboard time. The query-backed route
-      // remains the semantic authority, but the visible response must not
-      // wait for it -- the spring starts gliding on the very next frame.
-      retarget(index);
+      // Move the shared compositor indicator at pointer/keyboard time. The
+      // query-backed route remains the semantic authority, but it must not
+      // delay or replay the visible tab response.
+      setTopShellTabSwipeState(tabSet.id, index, false);
       requestTopShellTabSelection(tabSet.id, tab.value);
       beginRouteTransition(
         tab.href,
@@ -159,7 +128,7 @@ export function TopShellTabs({
         transitionMode,
       );
     },
-    [navigationMode, retarget, router, selectedValue, tabSet, transitionMode],
+    [navigationMode, router, selectedValue, tabSet, transitionMode],
   );
 
   return (
@@ -196,11 +165,7 @@ export function TopShellTabs({
               // tab sets take the underline arm and do not move. Do NOT
               // generalise this: the RIA workspace runs a 96rem shell, and an
               // 880px cap would leave its strip ~600px short per side.
-              //
-              // h-10 (40px), not h-9 (36px): the compact iOS segmented-control
-              // spec calls for a 40-44px control height. The outer bar row
-              // (--top-tabs-h) is tall enough to absorb this without moving.
-              "h-10 w-full max-w-[calc(var(--app-shell-agent)-2*var(--page-inline-gutter-standard))] rounded-[10px] bg-[color:var(--app-neutral-fill)] p-0.5"
+              "h-9 w-full max-w-[calc(var(--app-shell-agent)-2*var(--page-inline-gutter-standard))] rounded-[10px] bg-[color:var(--app-neutral-fill)] p-0.5"
             : "h-full w-full",
         )}
         role="tablist"
@@ -254,7 +219,7 @@ export function TopShellTabs({
                   "ui-text-agent-tab-label relative truncate transition-colors duration-150",
                   isLocationTabs
                     ? isActive
-                      ? "font-semibold text-[color:var(--app-accent)]"
+                      ? "font-semibold text-[color:var(--app-label)]"
                       : "font-medium text-[color:var(--app-secondary-label)] hover:text-[color:var(--app-label)]"
                     : isActive
                       ? "text-[color:var(--app-accent)]"
@@ -271,10 +236,13 @@ export function TopShellTabs({
             aria-hidden
             data-testid="top-shell-tab-indicator"
             className={cn(
-              "pointer-events-none absolute left-0 flex justify-center",
+              "pointer-events-none absolute left-0 flex justify-center motion-reduce:transition-none",
               isLocationTabs
                 ? "inset-y-0.5 z-0"
                 : "bottom-0 z-20",
+              tabSwipeState.isDragging
+                ? "transition-none"
+                : "transition-transform duration-[240ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
             )}
             style={{
               transform: indicatorTransform,

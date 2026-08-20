@@ -43,7 +43,7 @@ describe("profile security deletion contract", () => {
     expect(profilePageSource).toContain("executeVerifiedAccountDeletion");
     expect(topAppBarSource).toContain("executeVerifiedAccountDeletion");
     expect(topAppBarSource).toContain("requestDeleteAccount");
-    expect(topAppBarSource).toContain("Unlock to delete account");
+    expect(topAppBarSource).toContain("Unlock Vault to Delete Account");
     expect(topAppBarSource).toContain("skipFcmCleanup: true");
     expect(deleteFlowSource).toContain(
       'AccountService.deleteAccount(params.vaultOwnerToken, "both")',
@@ -56,15 +56,6 @@ describe("profile security deletion contract", () => {
     expect(profilePageSource).not.toContain("Delete Investor, RIA");
     expect(profilePageSource).not.toContain('"Yes, Delete Investor"');
     expect(profilePageSource).not.toContain('"Yes, Delete RIA"');
-  });
-
-  it("keeps the delete-account copy short and free of internal vault language", () => {
-    const dialogDescriptionLine =
-      "This can't be undone — it deletes your account, private data, and every connected service.";
-    expect(deleteFlowSource).toContain(dialogDescriptionLine);
-    expect(dialogDescriptionLine.toLowerCase()).not.toContain("vault");
-    expect(topAppBarSource).toContain("Unlock to delete account");
-    expect(topAppBarSource).not.toContain("Unlock Vault to Delete Account");
   });
 
   it("offers a reset-account path that keeps the account and re-runs setup", () => {

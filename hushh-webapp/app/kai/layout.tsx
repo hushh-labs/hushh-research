@@ -117,8 +117,8 @@ export default function KaiLayout({
   }
 
   return (
-    <PhoneMandateGuard>
-      <VaultLockGuard>{shell}</VaultLockGuard>
-    </PhoneMandateGuard>
+    <VaultLockGuard>
+      <PhoneMandateGuard>{shell}</PhoneMandateGuard>
+    </VaultLockGuard>
   );
 }

@@ -191,14 +191,10 @@ for (const repoPath of [
   }
 }
 
-// A person can already see how many agents there are; the heading no longer
-// spells out the count ("Agents (9)" -> "Your agents"). Sentence case is
-// deliberate here, not a regression: it's what `plain-product-copy` (rule 17)
-// requires for shipped UI strings, not a title-cased label.
 expectIncludes(
   "components/dashboard/one-agent-roster.tsx",
-  "Your agents",
-  "agents heading copy drifted from the approved 'Your agents' / 'Choose what you need.' pair",
+  "Agents ({modes.length})",
+  "agents heading is the page title and must use title casing",
 );
 
 expectNotIncludes(

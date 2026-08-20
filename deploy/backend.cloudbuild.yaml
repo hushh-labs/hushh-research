@@ -372,11 +372,81 @@ steps:
           --max-retries=0 \
           --task-timeout=90s \
           --quiet
+        set +e
         gcloud run jobs execute "${job_name}" \
           --project="$PROJECT_ID" \
           --region="${_REGION}" \
           --wait \
           --quiet
+        execute_status=$?
+        set -e
+        if [[ "${execute_status}" -eq 0 ]]; then
+          echo "Managed Vertex candidate probe passed."
+          exit 0
+        fi
+
+        # `gcloud run jobs execute` surfaces the execution's exit STATUS only --
+        # the probe's stdout lands in Cloud Logging, not in this build log. So
+        # the verdict has to be read back from the job's logs before we can tell
+        # a provider outage from a candidate defect.
+        #
+        # Scope the read to THIS execution. Filtering only by job name reads
+        # whichever line is newest at query time, and Cloud Logging ingestion
+        # lags the job's exit by seconds -- so the first attempt returned the
+        # PREVIOUS execution's verdict and the build acted on a stale answer.
+        # Observed 2026-08-20: a run whose 9 probes all classified
+        # provider_unavailable was failed on the prior run's application_broken.
+        execution_name="$(gcloud run jobs executions list \
+          --job="${job_name}" \
+          --project="$PROJECT_ID" \
+          --region="${_REGION}" \
+          --limit=1 \
+          --sort-by='~metadata.creationTimestamp' \
+          --format='value(metadata.name)' 2>/dev/null || true)"
+
+        probe_line=""
+        if [[ -n "${execution_name}" ]]; then
+          # Ingestion lag is normally a few seconds; wait bounded rather than
+          # guessing, because an empty read is treated as blocking below.
+          for _attempt in 1 2 3 4 5 6; do
+            probe_line="$(gcloud logging read \
+              "resource.type=cloud_run_job AND labels.\"run.googleapis.com/execution_name\"=\"${execution_name}\" AND textPayload:managed_vertex_probe_result" \
+              --project="$PROJECT_ID" \
+              --limit=1 \
+              --format='value(textPayload)' \
+              --freshness=1h 2>/dev/null || true)"
+            if [[ -n "${probe_line}" ]]; then
+              break
+            fi
+            sleep 10
+          done
+        fi
+        echo "Probe execution: ${execution_name:-unknown}"
+        classification="$(printf '%s' "${probe_line}" \
+          | sed -n 's/.*"classification":"\([a-z_]*\)".*/\1/p' | head -1)"
+
+        if [[ "${classification}" == "provider_unavailable" ]]; then
+          echo "::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::"
+          echo "WARNING  Managed Vertex is UNAVAILABLE (provider-side)."
+          echo "         The candidate image built and deployed correctly; the"
+          echo "         provider refused every probe. Release CONTINUES in"
+          echo "         degraded mode. Vertex-backed capabilities will not work"
+          echo "         until the provider recovers."
+          echo "         Probe verdict: ${probe_line}"
+          echo "         NOTE: a provider denial is returned before model"
+          echo "         validation, so this run did NOT clear the candidate's"
+          echo "         model configuration. Re-probe once the provider is back."
+          echo "::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::"
+          exit 0
+        fi
+
+        echo "Managed Vertex candidate probe FAILED and the cause is not a provider outage." >&2
+        if [[ -n "${probe_line}" ]]; then
+          echo "Probe verdict: ${probe_line}" >&2
+        else
+          echo "No probe verdict was recoverable from the job logs; treating as blocking." >&2
+        fi
+        exit 1
     id: "verify-managed-vertex-runtime"
 
 # NOTE: no top-level `images:` block — `docker buildx build --push` (Step 1) already

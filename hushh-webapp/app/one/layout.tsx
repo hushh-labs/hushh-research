@@ -4,12 +4,13 @@ import { OneAuthGate } from "./one-auth-gate";
 import { HushhIntroGate } from "@/components/app-ui/HushhIntroGate";
 
 export default function OneLayout({ children }: { children: ReactNode }) {
-  // HushhIntroGate sits one level above OneAuthGate and plays OVER it. The
-  // guards below mount and settle while the animation runs, so the screen the
-  // intro fades to has already resolved and has nothing left to flicker. It
-  // used to withhold them from the tree for the full three seconds, which left
-  // every guard resolving in the one frame after the fade — see that
-  // component's file header.
+  // HushhIntroGate sits one level above OneAuthGate (and therefore above
+  // VaultLockGuard and every other auth/vault guard). It does not just
+  // overlay them — it withholds `{children}` (OneAuthGate, VaultLockGuard,
+  // the eventual home page) from the tree entirely until its own intro
+  // animation finishes, so nothing below it can mount, re-render, or
+  // interrupt it mid-play, and there is exactly one splash trigger in the
+  // whole app. See that component's file header for the full rationale.
   return (
     <HushhIntroGate>
       <OneAuthGate>{children}</OneAuthGate>

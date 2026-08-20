@@ -141,31 +141,11 @@ def _default_directory_visible(owner_user_id: str, candidate_user_id: str) -> bo
     )
 
 
-def _default_notifier(
-    *,
-    addressee_user_id: str,
-    requester_user_id: str,
-    connection_request_id: str | None = None,
-) -> None:
-    """Best-effort real push (deferred import keeps Firebase off the import path).
-
-    ``connection_request_id`` is forwarded so the notification can deep-link
-    straight to the review sheet; without it a tap can only open the list.
-    """
+def _default_notifier(*, addressee_user_id: str, requester_user_id: str) -> None:
+    """Best-effort real push (deferred import keeps Firebase off the import path)."""
     from hushh_mcp.services.push_notifications import send_connection_request_push
 
-    send_connection_request_push(
-        addressee_user_id,
-        requester_user_id,
-        connection_request_id=connection_request_id,
-    )
-
-
-def _default_accept_notifier(*, requester_user_id: str, approver_user_id: str) -> None:
-    """Best-effort real push (deferred import keeps Firebase off the import path)."""
-    from hushh_mcp.services.push_notifications import send_connection_accepted_push
-
-    send_connection_accepted_push(requester_user_id, approver_user_id)
+    send_connection_request_push(addressee_user_id, requester_user_id)
 
 
 def _default_scope_entries_lookup(owner_user_id: str) -> list[dict[str, Any]]:
@@ -184,16 +164,12 @@ class ConnectionsService:
         directory_visible: Callable[[str, str], bool] | None = None,
         scope_entries_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
         notifier: Callable[..., Any] | None = None,
-        accept_notifier: Callable[..., Any] | None = None,
     ) -> None:
         self._directory_lookup = directory_lookup or _default_directory_lookup
         self._directory_search = directory_search or _default_directory_search
         self._directory_visible = directory_visible or _default_directory_visible
         self._scope_entries_lookup = scope_entries_lookup or _default_scope_entries_lookup
         self._notifier = notifier if notifier is not None else _default_notifier
-        self._accept_notifier = (
-            accept_notifier if accept_notifier is not None else _default_accept_notifier
-        )
 
     # ---- DB seam ----
     def _execute_one(self, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -816,7 +792,7 @@ class ConnectionsService:
                         event_type="PROPOSED",
                         actor_user_id=requester_user_id,
                     )
-        self._notify_new_request(target, requester_user_id, request_id)
+        self._notify_new_request(target, requester_user_id)
         # Avoid a redundant post-insert read for ordinary connections. Scoped
         # requests are hydrated from the canonical child rows on the next
         # request/list read; authority never comes from this response.
@@ -979,7 +955,7 @@ class ConnectionsService:
                         AND NOT EXISTS (SELECT 1 FROM connected)
                         AND NOT EXISTS (SELECT 1 FROM existing)
                       ON CONFLICT DO NOTHING
-                      RETURNING id, requester_user_id, addressee_user_id
+                      RETURNING requester_user_id, addressee_user_id
                     )
                     SELECT
                       e.addressee_user_id AS target_user_id,
@@ -993,11 +969,7 @@ class ConnectionsService:
                         WHEN EXISTS (SELECT 1 FROM existing) THEN 'pending_incoming'
                         ELSE 'pending_outgoing'
                       END AS relationship,
-                      EXISTS (SELECT 1 FROM inserted) AS created,
-                      -- The new row's id, so the nudge can deep-link to the
-                      -- review sheet. Without it this path could only ever send
-                      -- the unscoped Connections-list link.
-                      (SELECT i.id FROM inserted i LIMIT 1) AS created_request_id
+                      EXISTS (SELECT 1 FROM inserted) AS created
                     FROM eligible e
                     WHERE EXISTS (SELECT 1 FROM connected)
                        OR EXISTS (SELECT 1 FROM existing)
@@ -1016,7 +988,6 @@ class ConnectionsService:
             self._notify_new_request(
                 str(row.get("target_user_id") or ""),
                 requester,
-                str(row.get("created_request_id") or ""),
             )
         return {"relationship": str(row.get("relationship") or "")}
 
@@ -1052,22 +1023,8 @@ class ConnectionsService:
         """
         return (x, y) if x < y else (y, x)
 
-    def _notify_new_request(
-        self,
-        addressee_user_id: str,
-        requester_user_id: str,
-        connection_request_id: str | None = None,
-    ) -> None:
-        """Fire the (best-effort) addressee nudge. Never raises.
-
-        ``connection_request_id`` is what lets the notification deep-link to the
-        review sheet rather than the Connections list -- the Consent Center opens
-        that sheet purely from ``?requestId``. It is threaded through here rather
-        than re-queried in the notifier because both call sites already hold it.
-        The requester's display name is deliberately NOT looked up here: this
-        runs immediately after a write, and the notifier resolves it lazily so a
-        cosmetic read never sits on the request path.
-        """
+    def _notify_new_request(self, addressee_user_id: str, requester_user_id: str) -> None:
+        """Fire the (best-effort) addressee nudge. Never raises."""
         notifier = getattr(self, "_notifier", None)
         if notifier is None:
             return
@@ -1075,33 +1032,9 @@ class ConnectionsService:
             notifier(
                 addressee_user_id=addressee_user_id,
                 requester_user_id=requester_user_id,
-                connection_request_id=str(connection_request_id or "").strip() or None,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("connections.notify_failed error=%s", exc)
-
-    def _notify_accepted(self, requester_user_id: str, approver_user_id: str) -> None:
-        """Fire the (best-effort) requester nudge. Never raises.
-
-        Guarded even though `connection_requests` and `connections` both carry
-        a `requester != addressee` / `user_a != user_b` CHECK constraint that
-        already makes requester == approver impossible -- matching the
-        actor-exclusion pattern used by every other symmetric-event notifier
-        in this codebase (see one_location_circle_service.send_circle_code_joined_push
-        call site) rather than relying solely on the DB invariant.
-        """
-        notifier = getattr(self, "_accept_notifier", None)
-        if notifier is None:
-            return
-        if not requester_user_id or requester_user_id == approver_user_id:
-            return
-        try:
-            notifier(
-                requester_user_id=requester_user_id,
-                approver_user_id=approver_user_id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("connections.accept_notify_failed error=%s", exc)
 
     def _load_request(self, request_id: str, *, for_update: bool = False) -> dict[str, Any]:
         lock_clause = " FOR UPDATE" if for_update else ""
@@ -1688,13 +1621,6 @@ class ConnectionsService:
                 )
             except Exception:  # noqa: BLE001 - feed projection cannot roll back consent
                 logger.exception("connections.accepted_feed_projection_failed")
-
-        # Push is a best-effort, post-commit nudge, same as the feed
-        # projection above. Requester-only: `user_id` here is the approver
-        # who just tapped Accept and does not need a push confirming their
-        # own action (see #5423 -- this notification did not exist at all
-        # before, on either side).
-        self._notify_accepted(requester, user_id)
 
         # Accepting a connection grants nothing on its own. Location sharing is
         # opt-in and one-directional: it starts only when a person explicitly

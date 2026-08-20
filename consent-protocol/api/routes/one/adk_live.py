@@ -82,6 +82,11 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_VOICE_CONTEXT,
     build_one_live_runner,
 )
+from hushh_mcp.runtime_providers.capability_health import record_capability_failure
+from hushh_mcp.runtime_providers.dependency_health import (
+    PROVIDER_UNAVAILABLE,
+    classify_provider_error,
+)
 from hushh_mcp.services.action_directive_ledger import (
     ActionDirectiveAuthorityError,
     get_action_directive_store,
@@ -127,22 +132,6 @@ _ONBOARDING_SCREENS = frozenset(
 _INPUT_MIME_DEFAULT = "audio/pcm;rate=16000"
 _OUTPUT_MIME = "audio/pcm;rate=24000"
 _INITIAL_GREETING_IDLE_SECONDS = 1.5
-
-
-def _greeting_eligible(screen: str, is_fresh_visitor: bool) -> bool:
-    """Whether this session should get the relay's own proactive greeting.
-
-    A fresh (pre-auth) visitor or someone on an onboarding screen needs the
-    proactive nudge -- there is no other greeting for them. A returning,
-    authenticated visitor on an ordinary screen gets an instant, purely
-    local greeting from the browser the moment they tap the mic instead;
-    this relay-side cue would arrive 1.5s+ later than that and say
-    something redundant on top of it, so it is skipped entirely for them
-    rather than raced against.
-    """
-    return (screen in _ONBOARDING_SCREENS) or is_fresh_visitor
-
-
 # Bounded wait for the first app_context frame before run_live opens. Audio
 # is buffered by LiveRequestQueue during the wait; raising this trades a few
 # hundred ms of first-response latency on slow clients for a correct action
@@ -547,35 +536,37 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     session_started_at = time.monotonic()
 
     def _compose_greeting_prompt(screen: str, playbook: dict[str, Any] | None) -> str:
-        # Only ever called via _send_greeting, which only fires once
-        # _schedule_idle_greeting's _greeting_eligible gate has already
-        # passed -- so this is always the onboarding-flavored cue now. The
-        # plain "greet a returning visitor" text this used to fall back to
-        # is dead: a returning, authenticated visitor on an ordinary screen
-        # gets the instant local greeting instead and never reaches here.
         entry_cue = _bounded_text(playbook.get("entry_cue"), 240) if playbook else ""
         proactive = bool(playbook and playbook.get("proactivity") == "on_entry" and entry_cue)
-        return (
-            "[Session start - not user speech] This is a NEW visitor who is "
-            "just arriving to get set up. You are One, their private agent: "
-            "the relationship layer where they own their context, grant "
-            "consent, and summon specialists (like Kai for finance) to get "
-            "things done. Greet them warmly in one short sentence, welcome "
-            "them in for the first time, and gently invite them to begin "
-            "getting set up. Do NOT greet them as if they were returning (no "
-            "'welcome back', no 'back again'). If a screen is known, call "
-            "list_app_actions for the current screen first and name the one "
-            "next thing they can do here; ask for what you need in the same "
-            "breath. Do not list capabilities and do not ask more than one "
-            "light question. If their next reply is a short challenge or "
-            "follow-up such as 'so what?' or 'why?', answer the value "
-            "question directly before mentioning setup. "
-            + (
-                f"The checked-in route cue is: {entry_cue} Use that active-screen "
-                "guidance instead of an identity-only greeting."
-                if proactive
-                else ""
+        onboarding = (screen in _ONBOARDING_SCREENS) or is_fresh_visitor
+        if onboarding:
+            return (
+                "[Session start - not user speech] This is a NEW visitor who is "
+                "just arriving to get set up. You are One, their private agent: "
+                "the relationship layer where they own their context, grant "
+                "consent, and summon specialists (like Kai for finance) to get "
+                "things done. Greet them warmly in one short sentence, welcome "
+                "them in for the first time, and gently invite them to begin "
+                "getting set up. Do NOT greet them as if they were returning (no "
+                "'welcome back', no 'back again'). If a screen is known, call "
+                "list_app_actions for the current screen first and name the one "
+                "next thing they can do here; ask for what you need in the same "
+                "breath. Do not list capabilities and do not ask more than one "
+                "light question. If their next reply is a short challenge or "
+                "follow-up such as 'so what?' or 'why?', answer the value "
+                "question directly before mentioning setup. "
+                + (
+                    f"The checked-in route cue is: {entry_cue} Use that active-screen "
+                    "guidance instead of an identity-only greeting."
+                    if proactive
+                    else ""
+                )
             )
+        return (
+            "[Session start - not user speech] Greet the user right now in one "
+            "short, warm sentence as One. Vary your greeting naturally between "
+            "sessions; do not repeat a stock phrase, do not list capabilities, "
+            "and do not ask more than one light question."
         )
 
     def _send_greeting(screen: str, playbook: dict[str, Any] | None, epoch: int) -> None:
@@ -600,8 +591,6 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
 
     def _schedule_idle_greeting(screen: str, playbook: dict[str, Any] | None = None) -> None:
         nonlocal greeting_task
-        if not _greeting_eligible(screen, is_fresh_visitor):
-            return
         _cancel_pending_greeting()
         epoch = greeting_gate.schedule()
         if epoch is None:
@@ -1397,6 +1386,34 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             logger.warning("one_adk_live_unknown_tool_call error=%s", str(tool_error)[:160])
             await websocket.send_text(
                 json.dumps({"sessionEnded": {"reason": "unknown_tool_call", "resumable": True}})
+            )
+            return
+        except Exception as runtime_error:  # noqa: BLE001 - the browser must be told
+            # `setupComplete` was sent above, BEFORE run_live opened. So a
+            # provider failure arriving here reaches a browser that already
+            # believes the microphone is live: without a frame it shows an
+            # armed mic that silently does nothing, which is the worst possible
+            # degradation -- the person keeps talking to something that stopped
+            # listening. Always close with a reason.
+            classification = classify_provider_error(runtime_error)
+            record_capability_failure("voice", classification, runtime_error)
+            resumable = classification == PROVIDER_UNAVAILABLE
+            logger.warning(
+                "one_adk_live_runtime_failed classification=%s error=%s",
+                classification,
+                str(runtime_error)[:160],
+            )
+            # A wire reason code, not user copy. The browser maps it to plain
+            # language -- provider names and status codes never reach a person.
+            await websocket.send_text(
+                json.dumps(
+                    {
+                        "sessionEnded": {
+                            "reason": ("provider_unavailable" if resumable else "runtime_error"),
+                            "resumable": resumable,
+                        }
+                    }
+                )
             )
             return
 

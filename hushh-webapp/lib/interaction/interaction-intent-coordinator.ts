@@ -537,21 +537,6 @@ export function useActionRuns(): readonly ActionRun[] {
   );
 }
 
-/**
- * The app's own "active" / "background" verdict -- fed by both DOM
- * `visibilitychange` AND Capacitor's native `appStateChange`, because
- * visibility events alone are known to be unreliable inside the native
- * iOS/Android WebView shell. Prefer this over a raw `visibilitychange`
- * listener for anything that must reliably react to backgrounding on native.
- */
-export function useAppLifecycle(): Readonly<AppLifecycleSnapshot> {
-  return useSyncExternalStore(
-    appInteractionCoordinator.subscribeLifecycle,
-    appInteractionCoordinator.getLifecycleSnapshot,
-    appInteractionCoordinator.getLifecycleSnapshot,
-  );
-}
-
 export function useActiveActionRun(): ActionRun | null {
   const runs = useActionRuns();
   for (let index = runs.length - 1; index >= 0; index -= 1) {

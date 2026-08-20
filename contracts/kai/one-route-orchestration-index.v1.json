@@ -15,9 +15,9 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.intro",
-        "purpose": "Welcome a new person and help them get started with One.",
+        "purpose": "Welcome a new person and help them claim their private agent.",
         "screen": "one_intro",
-        "entry_cue": "Say ‘Get started’ whenever you are ready.",
+        "entry_cue": "Say ‘Claim your One’ whenever you are ready.",
         "proactivity": "on_entry",
         "primary_action_id": "onboarding.claim_one",
         "happy_path_action_ids": [

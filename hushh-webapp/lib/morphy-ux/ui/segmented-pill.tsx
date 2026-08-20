@@ -3,12 +3,7 @@
 import * as React from "react";
 
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
-import { useIndicatorSpring } from "@/lib/morphy-ux/hooks/use-indicator-spring";
 import { cn } from "@/lib/utils";
-
-function segmentIndicatorTransform(value: number): string {
-  return `translateX(calc(${value * 100}% + var(--segment-drag-x, 0px)))`;
-}
 
 export type SegmentedPillIcon = React.ElementType<
   React.SVGProps<SVGSVGElement> & { size?: number | string }
@@ -130,31 +125,6 @@ export const SegmentedPill = React.forwardRef<
       setActivePulseKey((current) => current + 1);
     }, [value]);
 
-    // Real spring physics (velocity carried across re-targets) instead of a
-    // fixed-duration CSS transition, so rapid segment taps glide toward the
-    // newest choice instead of restarting. Writes straight to the indicator
-    // node's transform every frame -- never to React state -- so a settling
-    // spring can't trigger a re-render.
-    const indicatorRef = React.useRef<HTMLDivElement>(null);
-    const retarget = useIndicatorSpring(
-      React.useCallback((current: number) => {
-        const node = indicatorRef.current;
-        if (node) node.style.transform = segmentIndicatorTransform(current);
-      }, []),
-    );
-    const didMountRef = React.useRef(false);
-
-    React.useEffect(() => {
-      if (!didMountRef.current) {
-        didMountRef.current = true;
-        // No spring-in on first paint -- the initial inline style already
-        // rests at `activeIndex`.
-        retarget(activeIndex, { instant: true });
-        return;
-      }
-      retarget(activeIndex);
-    }, [activeIndex, retarget]);
-
     return (
       <div
         ref={ref}
@@ -171,13 +141,12 @@ export const SegmentedPill = React.forwardRef<
         }}
       >
         <div
-          ref={indicatorRef}
           aria-hidden
           data-segment-indicator
-          className="pointer-events-none absolute left-2 top-2 bottom-2 overflow-hidden rounded-full bg-transparent shadow-none"
+          className="pointer-events-none absolute left-2 top-2 bottom-2 overflow-hidden rounded-full bg-transparent shadow-none transition-transform duration-[300ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]"
           style={{
             width: `calc((100% - 1rem) / ${resolvedSlotCount})`,
-            transform: segmentIndicatorTransform(activeIndex),
+            transform: `translateX(calc(${activeIndex * 100}% + var(--segment-drag-x, 0px)))`,
           }}
         >
           <span

@@ -17,6 +17,8 @@ import {
 import { App as CapacitorApp } from "@capacitor/app";
 import {
   ChevronDown,
+  Eye,
+  EyeOff,
   LocateFixed,
   Loader2,
   MapPin,
@@ -64,7 +66,6 @@ import {
   getBrowserMapsApiKey,
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
-import { neutralWorldCamera } from "@/lib/one-location/map-world-view";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import {
   filterPeopleByQuery,
@@ -81,6 +82,7 @@ import {
 import { OneLocationService } from "@/lib/one-location/service";
 import type {
   OneLocationMapMarker,
+  OneLocationMapPreferences,
   OneLocationGrant,
   OneLocationNearbyAttendee,
   OneLocationNearbyPresenceState,
@@ -96,8 +98,6 @@ import {
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { motionDurations, motionEasings } from "@/lib/morphy-ux/motion";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
-import { cn } from "@/lib/utils";
-import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   claimNativeMap,
@@ -220,14 +220,6 @@ type RenderMarker = {
 const STALE_TINT = { r: 142, g: 142, b: 147, a: 255 } as const;
 /** Location blue (--app-accent). The established map accent — never cyan. */
 const SELF_TINT = { r: 0, g: 122, b: 255, a: 255 } as const;
-/**
- * Indigo (--app-people). Circle members and private shares had no tint at
- * all before this — falling back to whatever the native SDK's default
- * marker color happens to be, with no guaranteed contrast against map tiles
- * and no visual link to the "people" role color used everywhere else this
- * relationship is shown (Circles, Connect, trusted-contact rows).
- */
-const PERSON_TINT = { r: 88, g: 86, b: 214, a: 255 } as const;
 /** Green (--app-success). A live check-in is a settled positive fact. */
 const PLACE_ACTIVE_TINT = { r: 52, g: 199, b: 89, a: 255 } as const;
 /**
@@ -507,13 +499,6 @@ export function LocationImmersiveMap({
   // undone on the next render.
   const checkInSheetDismissedRef = useRef(false);
   const entryLocationRequestedRef = useRef(false);
-  /**
-   * Whether this map instance is still showing the derived world view rather
-   * than a real position. Only a neutral camera may be re-framed by the resize
-   * pass below; once a coordinate has been applied the camera belongs to the
-   * entry-location, Locate and marker-tap paths.
-   */
-  const onNeutralWorldViewRef = useRef(false);
   const locationCaptureRef = useRef<Promise<PlainLocationPoint> | null>(null);
   const nearbyConnectInFlightRef = useRef(false);
   const nearbyConnectGenerationRef = useRef(0);
@@ -528,18 +513,9 @@ export function LocationImmersiveMap({
   const [acceptedRenderer, setAcceptedRenderer] = useState(() =>
     readCachedRendererConsentAccepted(auth.userId),
   );
-  // Once this owner has accepted in this session, nothing older may take it
-  // back. The bootstrap map-state read below is already in flight while the
-  // card is on screen, and it answers with the state from BEFORE the write --
-  // applying that answer put the dismissed card back up with nothing said.
-  const rendererConsentAcceptedRef = useRef(false);
-  // Accepting is a write. Without a busy state a second tap sends a second
-  // write, and the button spends the whole round trip looking untouched.
-  const [acceptingRenderer, setAcceptingRenderer] = useState(false);
-  // Shown when this account has no lock yet. There is then no owner token to
-  // write consent with, so the card asks for the lock instead of offering an
-  // action that cannot finish -- which is what it did: nothing, silently.
-  const [lockPromptOpen, setLockPromptOpen] = useState(false);
+  const [preferences, setPreferences] = useState<OneLocationMapPreferences>({
+    presenceMode: "ghost",
+  });
   const [markers, setMarkers] = useState<RenderMarker[]>([]);
   // The server's own definition of live, rather than a second copy of 90 in
   // the client that could drift away from it.
@@ -606,7 +582,7 @@ export function LocationImmersiveMap({
   const [unavailableReason, setUnavailableReason] = useState<
     "maps-key" | "renderer"
   >("maps-key");
-  const [busy, setBusy] = useState<"locate" | null>(null);
+  const [busy, setBusy] = useState<"presence" | "locate" | null>(null);
   const [nearbyConnectionBusyAlias, setNearbyConnectionBusyAlias] = useState<
     string | null
   >(null);
@@ -896,8 +872,6 @@ export function LocationImmersiveMap({
       };
       setSelfMarker(currentLocation);
       if (options.select) setSelected(currentLocation);
-      // A coordinate is on screen now, so the resize pass must stop re-framing.
-      onNeutralWorldViewRef.current = false;
       if (auth.userId) {
         const workspace = readLocationWorkspaceMemory(auth.userId);
         writeLocationWorkspaceMemory(auth.userId, {
@@ -971,7 +945,6 @@ export function LocationImmersiveMap({
               kind: "person",
               grantId: marker.grant.id,
               capturedAt: marker.envelope.capturedAt ?? null,
-              tint: PERSON_TINT,
             } satisfies RenderMarker;
           } catch {
             // A device without the recipient private key must not show a stale or
@@ -984,6 +957,7 @@ export function LocationImmersiveMap({
       const nextMarkers = resolved.filter(
         (item): item is RenderMarker => item !== null,
       );
+      setPreferences(state.preferences);
       if (Number.isFinite(state.freshnessSeconds) && state.freshnessSeconds > 0) {
         setFreshnessSeconds(state.freshnessSeconds);
       }
@@ -1062,6 +1036,7 @@ export function LocationImmersiveMap({
   useEffect(() => {
     if (!vaultOwnerToken || !auth.userId) return;
     if (demoMode) {
+      setPreferences({ presenceMode: "ghost" });
       return;
     }
     // Re-apply the cache on every userId change (covers the case where the
@@ -1074,13 +1049,10 @@ export function LocationImmersiveMap({
     void OneLocationService.getMapState(vaultOwnerToken)
       .then((state) => {
         if (cancelled) return;
+        setPreferences(state.preferences);
         const accepted =
           state.preferences.rendererConsentVersion ===
           GOOGLE_MAPS_RENDERER_CONSENT_VERSION;
-        // This read started before the accept write, so it cannot answer for
-        // it. Consent may only move forward here: an older snapshot never
-        // revives a card the owner has already dismissed.
-        if (!accepted && rendererConsentAcceptedRef.current) return;
         setAcceptedRenderer(accepted);
         writeCachedRendererConsentAccepted(auth.userId, accepted);
       })
@@ -1182,13 +1154,6 @@ export function LocationImmersiveMap({
       if (superseded()) return;
       await waitForLaidOutBox(element);
       if (superseded()) return;
-      // Derived from the element that has to be filled, not guessed. See
-      // `map-world-view` for why a fixed zoom cannot fill every container.
-      const neutralWorld = neutralWorldCamera(element.getBoundingClientRect());
-      // Only a neutral view may be re-framed on resize. A camera that is
-      // already showing a real position belongs to the entry-location and
-      // Locate effects, and must never be pulled back out to the world.
-      onNeutralWorldViewRef.current = !cachedPoint && !initialDemoModeRef.current;
       const map = await GoogleMap.create({
         id: MAP_ID,
         element,
@@ -1199,12 +1164,12 @@ export function LocationImmersiveMap({
             ? { lat: cachedPoint.latitude, lng: cachedPoint.longitude }
             : initialDemoModeRef.current
               ? { lat: 37.7749, lng: -122.4194 }
-              : neutralWorld.center,
+              : { lat: 20, lng: 0 },
           zoom: cachedPoint
             ? zoomForAccuracy(cachedPoint.accuracyM)
             : initialDemoModeRef.current
               ? 11
-              : neutralWorld.zoom,
+              : 2,
           disableDefaultUI: true,
           // `styles` is deliberately NOT passed.
           //
@@ -1273,7 +1238,6 @@ export function LocationImmersiveMap({
         const marker = markerByMapIdRef.current.get(event.markerId);
         if (!marker) return;
         setSelected(marker);
-        onNeutralWorldViewRef.current = false;
         void map.setCamera({
           coordinate: {
             lat: marker.point.latitude,
@@ -1323,61 +1287,6 @@ export function LocationImmersiveMap({
     // consent and a real position both land.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.userId]);
-
-  /**
-   * Keep the neutral world view filling its container when the container
-   * changes size.
-   *
-   * The zoom that covers a box is derived from that box, so a box that grows
-   * past a power-of-two boundary needs a new one -- otherwise a person who
-   * maximises the window, rotates the device, or opens the screen on an
-   * external display gets the out-of-world grey band back, on a camera that
-   * was correct when it was created.
-   *
-   * Deliberately limited to the pre-consent view. That is the only state in
-   * which the world camera is unambiguously decorative: there are no markers,
-   * nothing to explore, and the person is reading the disclosure over it. Once
-   * consent is given the camera means something, and re-framing it would fight
-   * whoever moved it -- including the person's own pan. `setCamera` is issued
-   * only when the derived zoom actually changes, so the constant small resizes
-   * a mobile browser emits (URL bar, safe-area settle) cost nothing.
-   */
-  useEffect(() => {
-    const element = mapElement.current;
-    if (!element || !mapReady || rendererReady) return;
-    if (!onNeutralWorldViewRef.current) return;
-    let frame: number | null = null;
-    let lastZoom = neutralWorldCamera(element.getBoundingClientRect()).zoom;
-    const reframe = () => {
-      frame = null;
-      const map = mapRef.current;
-      if (!map || !onNeutralWorldViewRef.current) return;
-      const next = neutralWorldCamera(element.getBoundingClientRect());
-      if (next.zoom === lastZoom) return;
-      lastZoom = next.zoom;
-      void map
-        .setCamera({
-          coordinate: next.center,
-          zoom: next.zoom,
-          animate: false,
-        })
-        .catch(() => undefined);
-    };
-    const schedule = () => {
-      if (frame !== null) return;
-      frame = window.requestAnimationFrame(reframe);
-    };
-    const observer = new ResizeObserver(schedule);
-    observer.observe(element);
-    window.addEventListener("resize", schedule);
-    window.addEventListener("orientationchange", schedule);
-    return () => {
-      if (frame !== null) window.cancelAnimationFrame(frame);
-      observer.disconnect();
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("orientationchange", schedule);
-    };
-  }, [mapReady, rendererReady]);
 
   useEffect(() => {
     if (
@@ -1985,34 +1894,58 @@ export function LocationImmersiveMap({
   ]);
 
   const acceptRenderer = useCallback(async () => {
-    // A write already in flight. Answering the second tap with a second write
-    // would create a second request for one decision.
-    if (acceptingRenderer) return;
-    // No lock on this account, so there is no owner token to store consent
-    // against. Every route under /one is normally held behind the lock, but an
-    // account that never created one is let through on purpose -- and arrives
-    // here with a null token. This used to `return` on that, which is why the
-    // button did nothing at all: no request, no state change, no message, on
-    // every tap, forever. Ask for the missing lock instead.
-    if (!vaultOwnerToken) {
-      setLockPromptOpen(true);
-      return;
-    }
-    setAcceptingRenderer(true);
+    if (!vaultOwnerToken) return;
     try {
-      await OneLocationService.updateMapPreferences({
+      const next = await OneLocationService.updateMapPreferences({
         vaultOwnerToken,
         rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
       });
-      rendererConsentAcceptedRef.current = true;
+      setPreferences(next);
       setAcceptedRenderer(true);
       writeCachedRendererConsentAccepted(auth.userId, true);
     } catch {
       toast.error("Your Map could not be prepared.");
-    } finally {
-      setAcceptingRenderer(false);
     }
-  }, [acceptingRenderer, auth.userId, vaultOwnerToken]);
+  }, [auth.userId, vaultOwnerToken]);
+
+  const setPresence = useCallback(async () => {
+    if (!vaultOwnerToken) return;
+    setBusy("presence");
+    try {
+      const nextMode =
+        preferences.presenceMode === "ghost" ? "foreground_private" : "ghost";
+      if (demoMode) {
+        setPreferences((current) => ({
+          ...current,
+          presenceMode: nextMode,
+        }));
+        toast.success(
+          nextMode === "ghost"
+            ? "Demo Ghost Mode is on."
+            : "Demo visibility is on.",
+        );
+        return;
+      }
+      const next = await OneLocationService.updateMapPreferences({
+        vaultOwnerToken,
+        presenceMode: nextMode,
+      });
+      setPreferences(next);
+      toast.success(
+        nextMode === "ghost"
+          ? "Ghost Mode is on. Nobody sees you on their map."
+          // "Tap Locate me to appear" was true while the locate button was the
+          // only thing that ever published a map-visible position. Sharing does
+          // it now, so telling somebody to go and tap something else would send
+          // them looking for a step that no longer exists.
+          : "You will appear on the map of anyone you share with.",
+      );
+    } catch {
+      toast.error("Map visibility could not be updated.");
+    } finally {
+      setBusy(null);
+    }
+  }, [demoMode, preferences.presenceMode, vaultOwnerToken]);
 
   const focusMarker = useCallback(async (marker: RenderMarker) => {
     setSelected(marker);
@@ -2054,6 +1987,12 @@ export function LocationImmersiveMap({
       await focusSelfPoint(point, { animate: true, select: true });
       if (demoMode) {
         toast.success("Centered on your device location.");
+        return;
+      }
+      if (preferences.presenceMode !== "foreground_private") {
+        toast.message(
+          "Ghost Mode is on. Only you can see this.",
+        );
         return;
       }
       const state = await OneLocationService.getState(vaultOwnerToken);
@@ -2101,7 +2040,13 @@ export function LocationImmersiveMap({
     } finally {
       setBusy(null);
     }
-  }, [captureCurrentLocation, demoMode, focusSelfPoint, vaultOwnerToken]);
+  }, [
+    captureCurrentLocation,
+    demoMode,
+    focusSelfPoint,
+    preferences.presenceMode,
+    vaultOwnerToken,
+  ]);
 
   // A–Z before the query, so the tray has somewhere to start looking; the
   // filter then keeps that order inside each of its relevance groups. Applied
@@ -2385,25 +2330,6 @@ export function LocationImmersiveMap({
     visibleMarkers,
   ]);
 
-  /**
-   * The drawer is on screen, so the drawer is the authority.
-   *
-   * Open, it already names the place, the radius, the time left and how far the
-   * owner has drifted from it -- in full sentences, at the top of its own
-   * scroll. Every one of those facts also had a copy in the map chrome above
-   * it, and on a phone that chrome is a strip barely 150px tall carrying a 56px
-   * control row, a centred "Sharing with N" row of its own, and a four-line
-   * legend card that the Sharing row landed *on top of* (header z-30 over
-   * legend z-20). Reported as, simply, "too busy after tapping check in".
-   *
-   * So while it is open the chrome keeps only what the drawer cannot say: the
-   * way out, the way to recentre, and which pin is which. Dropping the pill that
-   * re-opens an already-open drawer is what frees the phone header's second row,
-   * which is what lets Sharing ride up beside the controls instead of forming a
-   * band of its own -- and the collision goes with it.
-   */
-  const checkInDrawerOpen = isCheckInSurface && nearbyCheckInOpen;
-
   return (
     <main
       className="one-location-map relative h-[100dvh] w-full overflow-hidden bg-muted"
@@ -2464,26 +2390,7 @@ export function LocationImmersiveMap({
         // widths and drops Sharing onto its own full-width row beneath them.
         // Nothing truncates, and the Sharing popover gains the room it needs to
         // open without being clipped by the screen edge.
-        //
-        // With the check-in drawer open that second row is no longer needed:
-        // the Check-in pill is hidden (it re-opens what is already open), which
-        // gives the row back the ~95px that forced Sharing downward. A three
-        // column grid then reads the same at every width -- X, Sharing, Locate
-        // -- so the phone loses a whole band of chrome and the legend below can
-        // no longer be landed on by a row that used to sit at the same offset.
-        className={cn(
-          "pointer-events-none absolute inset-x-0 top-0 z-30 grid items-center gap-x-3 gap-y-2 p-4 pt-[max(1rem,env(safe-area-inset-top))]",
-          checkInDrawerOpen
-            ? "grid-cols-[auto_minmax(0,1fr)_auto]"
-            : "grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[1fr_auto_1fr]",
-          // From `md` up the drawer docks down the right edge as a portalled
-          // z-[712] panel -- above this z-30 header, and in a different stacking
-          // context, so no z-index here can win. Without this inset the Locate
-          // control renders underneath it: visible nowhere and tappable nowhere,
-          // for as long as the drawer is open. 27rem is the panel's own
-          // `md:w-[26rem]` plus the 1rem gutter this header already keeps.
-          nearbyCheckInOpen && "md:pr-[27rem]",
-        )}
+        className="pointer-events-none absolute inset-x-0 top-0 z-30 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:grid-cols-[1fr_auto_1fr]"
       >
         <div className="col-start-1 row-start-1 flex min-w-0 items-center">
           <ShellActionSurface
@@ -2501,14 +2408,7 @@ export function LocationImmersiveMap({
             <X className="h-5 w-5 stroke-[2.25]" />
           </ShellActionSurface>
         </div>
-        <div
-          className={cn(
-            "flex min-w-0 items-center justify-center",
-            checkInDrawerOpen
-              ? "col-start-2 row-start-1"
-              : "col-span-2 col-start-1 row-start-2 sm:col-span-1 sm:col-start-2 sm:row-start-1",
-          )}
-        >
+        <div className="col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center sm:col-span-1 sm:col-start-2 sm:row-start-1">
           {!demoMode && (activeShareCount ?? 0) > 0 ? (
             <Popover
               open={sharingPopoverOpen}
@@ -2605,12 +2505,7 @@ export function LocationImmersiveMap({
           ) : null}
         </div>
         {rendererReady ? (
-          <div
-            className={cn(
-              "row-start-1 flex min-w-0 items-center justify-end gap-3",
-              checkInDrawerOpen ? "col-start-3" : "col-start-2 sm:col-start-3",
-            )}
-          >
+          <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-3 sm:col-start-3">
             {/*
               Your Map keeps this control in the tray below, not up here. Two
               floating pills plus the Sharing status is a second row of chrome
@@ -2621,19 +2516,11 @@ export function LocationImmersiveMap({
               Check-in's own route still needs it here: that surface renders no
               tray (see the `!isCheckInSurface` gate on the tray section), and
               this pill is the only way back into the sheet after dismissing it.
-
-              "After dismissing it" is the whole of its job, so it is gated on
-              exactly that. While the drawer is open the pill is a control that
-              opens what is already open, and it spends its width saying
-              "Nearby 0" directly above a drawer whose own header counts the
-              same people. Hiding it is also what collapses the phone header to
-              a single row -- see the grid comment above.
             */}
             {rendererReady &&
             nearbyCheckInAvailable &&
             !demoMode &&
-            isCheckInSurface &&
-            !nearbyCheckInOpen ? (
+            isCheckInSurface ? (
               <ShellActionSurface
                 variant="pill"
                 // ShellActionSurface's own wrapper is shrink-0 by default (a
@@ -2688,107 +2575,74 @@ export function LocationImmersiveMap({
             ) : null}
           </div>
         ) : null}
-        {/*
-          Two pins on one map need naming, or the owner cannot tell which is
-          "me" and which is "the place I'm checking in to" -- and those are
-          routinely a street apart.
-
-          A row of the header's own grid, not a floating card at a hand-counted
-          `top: calc(... + 4.5rem)`. That constant was measured against a
-          one-row header, so the moment the phone header grew its second row for
-          "Sharing with N" the two occupied the same band -- and since the
-          header is z-30 and this was z-20, the Sharing pill was painted
-          *through* the legend card. Being a grid row instead makes the overlap
-          unrepresentable, and it lands the legend inside the element the camera
-          padding and the name-pill layer already measure, so neither can treat
-          the space it takes as free map.
-        */}
-        {rendererReady &&
-        (nearbyCheckInOpen || nearbyPlaceFocus?.active) &&
-        (nearbySearchPoint || nearbyPlaceFocus) ? (
-          <div
-            className={cn(
-              "pointer-events-none flex w-full max-w-[18rem] flex-col gap-1.5 justify-self-start rounded-2xl border border-[var(--app-accent-border)] bg-background/90 px-3 py-2 text-xs font-semibold shadow-lg backdrop-blur-md",
-              checkInDrawerOpen
-                ? "col-span-3 row-start-2"
-                : "col-span-2 row-start-3 sm:col-span-3 sm:row-start-2",
-            )}
-            data-testid="one-location-nearby-search-area-legend"
-          >
-            {nearbySearchPoint ? (
-              <span className="flex items-center gap-2">
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: tintCss(SELF_TINT) }}
-                  aria-hidden="true"
-                />
-                <span className="truncate text-foreground">You are here</span>
-              </span>
-            ) : null}
-            {nearbyPlaceFocus ? (
-              <span
-                className="flex items-center gap-2"
-                data-testid="one-location-nearby-place-legend"
-              >
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{
-                    backgroundColor: tintCss(
-                      nearbyPlaceFocus.active
-                        ? PLACE_ACTIVE_TINT
-                        : PLACE_PENDING_TINT,
-                    ),
-                  }}
-                  aria-hidden="true"
-                />
-                <span className="truncate text-foreground">
-                  {nearbyPlaceFocus.active
-                    ? "Checked in at "
-                    : "Checking in at "}
-                  {nearbyPlaceFocus.label}
-                </span>
-              </span>
-            ) : null}
-            {/*
-              The measurements, only when nothing else is saying them.
-
-              Open, the drawer states both a few centimetres below: the live
-              card reads "<place> · 500 m radius · 59 min left" and then "You've
-              moved about 451 m away", and the setup list is headed "Places
-              within 500 m". Printing them up here as well is the same two
-              numbers twice on the most crowded strip of a phone screen, which
-              is what turned a colour key into a four-line card.
-
-              Dismissed, this legend is the ONLY thing on screen describing a
-              live check-in, so it keeps its full form.
-            */}
-            {!nearbyCheckInOpen &&
-            nearbyPlaceFocus?.distanceMeters != null &&
-            nearbyPlaceFocus.distanceMeters >= 25 ? (
-              <span className="pl-[1.125rem] font-normal text-muted-foreground">
-                {nearbyPlaceFocus.distanceMeters < 1_000
-                  ? `${nearbyPlaceFocus.distanceMeters} m`
-                  : `${(nearbyPlaceFocus.distanceMeters / 1_000).toFixed(
-                      1,
-                    )} km`}{" "}
-                from you
-              </span>
-            ) : null}
-            {!nearbyCheckInOpen ? (
-              <span className="pl-[1.125rem] font-normal text-muted-foreground">
-                {/* "match" is the backend's word for how it pairs attendees, and
-                    it also hid a real difference: the live circle is drawn
-                    around the PLACE, the search circle around the PERSON (see
-                    the circle title at ~1396). Naming the anchor says both
-                    things in plain words. */}
-                {nearbyPlaceFocus?.active
-                  ? "500 m around your place"
-                  : "500 m around you"}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
       </header>
+      {/*
+        Two pins on one map need naming, or the owner cannot tell which is
+        "me" and which is "the place I'm checking in to" -- and those are
+        routinely a street apart.
+      */}
+      {rendererReady &&
+      (nearbyCheckInOpen || nearbyPlaceFocus?.active) &&
+      (nearbySearchPoint || nearbyPlaceFocus) ? (
+        <div
+          className="pointer-events-none absolute left-4 right-4 z-20 flex max-w-[18rem] flex-col gap-1.5 rounded-2xl border border-[var(--app-accent-border)] bg-background/90 px-3 py-2 text-xs font-semibold shadow-lg backdrop-blur-md md:right-auto"
+          style={{
+            top: "calc(max(1rem, env(safe-area-inset-top)) + 4.5rem)",
+          }}
+          data-testid="one-location-nearby-search-area-legend"
+        >
+          {nearbySearchPoint ? (
+            <span className="flex items-center gap-2">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: tintCss(SELF_TINT) }}
+                aria-hidden="true"
+              />
+              <span className="truncate text-foreground">You are here</span>
+            </span>
+          ) : null}
+          {nearbyPlaceFocus ? (
+            <span
+              className="flex items-center gap-2"
+              data-testid="one-location-nearby-place-legend"
+            >
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{
+                  backgroundColor: tintCss(
+                    nearbyPlaceFocus.active
+                      ? PLACE_ACTIVE_TINT
+                      : PLACE_PENDING_TINT,
+                  ),
+                }}
+                aria-hidden="true"
+              />
+              <span className="truncate text-foreground">
+                {nearbyPlaceFocus.active ? "Checked in at " : "Checking in at "}
+                {nearbyPlaceFocus.label}
+              </span>
+            </span>
+          ) : null}
+          {nearbyPlaceFocus?.distanceMeters != null &&
+          nearbyPlaceFocus.distanceMeters >= 25 ? (
+            <span className="pl-[1.125rem] font-normal text-muted-foreground">
+              {nearbyPlaceFocus.distanceMeters < 1_000
+                ? `${nearbyPlaceFocus.distanceMeters} m`
+                : `${(nearbyPlaceFocus.distanceMeters / 1_000).toFixed(1)} km`}{" "}
+              from you
+            </span>
+          ) : null}
+          <span className="pl-[1.125rem] font-normal text-muted-foreground">
+            {/* "match" is the backend's word for how it pairs attendees, and it
+                also hid a real difference: the live circle is drawn around the
+                PLACE, the search circle around the PERSON (see the circle title
+                at ~1396). Naming the anchor says both things in plain words. */}
+            {nearbyPlaceFocus?.active
+              ? "500 m around your place"
+              : "500 m around you"}
+          </span>
+        </div>
+      ) : null}
       {status !== "unavailable" && !mapReady ? (
         // The map now starts initializing as soon as this screen opens --
         // before consent it's a neutral world view with zero markers, no
@@ -2848,24 +2702,11 @@ export function LocationImmersiveMap({
             it needs to draw them. Nearby Check-In is separate — it starts only
             when you do.
           </p>
-          {/*
-            One button, two honest states. With a lock this writes the consent
-            version and the card goes; without one there is nothing to write it
-            against, so it says what is actually missing rather than offering a
-            "Continue" that cannot finish. The busy state is not decoration: it
-            is what stops the round trip from reading as a dead tap.
-          */}
           <Button
             className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
-            data-testid="one-location-map-disclosure-accept"
-            disabled={acceptingRenderer}
-            aria-busy={acceptingRenderer || undefined}
             onClick={() => void acceptRenderer()}
           >
-            {acceptingRenderer ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            ) : null}
-            {vaultOwnerToken ? "Continue" : "Set a lock"}
+            Continue
           </Button>
           {demoAvailable ? (
             <Button
@@ -2882,24 +2723,6 @@ export function LocationImmersiveMap({
             </Button>
           ) : null}
         </section>
-      ) : null}
-      {/*
-        Kept out of the card's own branch on purpose: the sheet has to survive
-        the moment consent lands and the card unmounts. Creating the lock here
-        does not also accept the disclosure -- they are two different decisions
-        by two different owners of the screen, and the map has no business
-        agreeing to the second one on somebody's behalf.
-      */}
-      {lockPromptOpen && auth.user ? (
-        <VaultUnlockDialog
-          user={auth.user}
-          open
-          onOpenChange={setLockPromptOpen}
-          title="Set a lock"
-          description="Your Map opens private shares on this device. Set a lock to turn it on."
-          allowVaultCreation
-          onSuccess={() => setLockPromptOpen(false)}
-        />
       ) : null}
       {rendererReady && status === "unavailable" ? (
         // Full-bleed styled fallback. Previously only a small bottom card sat
@@ -3321,7 +3144,7 @@ export function LocationImmersiveMap({
 
               <div
                 className={`mt-3 grid gap-2 ${
-                  demoAvailable ? "grid-cols-2" : "grid-cols-1"
+                  demoAvailable ? "grid-cols-3" : "grid-cols-2"
                 }`}
               >
                 {demoAvailable ? (
@@ -3340,6 +3163,28 @@ export function LocationImmersiveMap({
                     <span className="truncate">Demo</span>
                   </Button>
                 ) : null}
+                <Button
+                  className={`h-11 min-w-0 justify-between rounded-2xl px-2.5 ${
+                    preferences.presenceMode === "foreground_private"
+                      ? MAP_ACCENT_ACTIVE_CLASSNAME
+                      : ""
+                  }`}
+                  variant="secondary"
+                  aria-pressed={
+                    preferences.presenceMode === "foreground_private"
+                  }
+                  disabled={busy === "presence"}
+                  onClick={() => void setPresence()}
+                >
+                  <span className="truncate">
+                    {preferences.presenceMode === "ghost" ? "Ghost" : "Visible"}
+                  </span>
+                  {preferences.presenceMode === "ghost" ? (
+                    <EyeOff className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <Eye className="h-4 w-4 shrink-0" />
+                  )}
+                </Button>
                 <Button
                   className="h-11 min-w-0 rounded-2xl px-2"
                   variant="secondary"

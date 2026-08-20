@@ -66,11 +66,11 @@ export function shortAgo(fromMs: number, nowMs: number): string {
 }
 
 /**
- * "55 min", "1h 30m", "3 hours" -- how much access is left.
+ * "55 more min", "1h 30m more", "3 more hours" -- how much access is left.
  *
  * Delegates to the shared formatter so this row, the countdown on the share
  * card, and the notification copy cannot drift apart. The old local rounding
- * turned 90 minutes into "2 hours", which overstated the time left on the
+ * turned 90 minutes into "2 more hours", which overstated the time left on the
  * exact number people use to decide when to leave.
  */
 export function shortRemaining(untilMs: number, nowMs: number): string | null {

@@ -54,10 +54,7 @@ const TONE_STYLES: Record<QuickActionTone, { tile: string; icon: string }> = {
 export type QuickActionCardProps = {
   icon: ReactNode;
   title: string;
-  /** Omit for a title-only tile — the recommended default. Pass one only
-   * when it carries state the title and icon cannot (e.g. a live safety
-   * signal), not as a description of what the tile does. */
-  subtitle?: string;
+  subtitle: string;
   tone?: QuickActionTone;
   onClick?: () => void;
   /** Non-interactive treatment for actions that aren't wired up yet. */
@@ -70,7 +67,6 @@ export type QuickActionCardProps = {
    * person is looking at, rather than only the screen it sits on.
    */
   controlId?: string;
-  testId?: string;
 };
 
 export function QuickActionCard({
@@ -82,7 +78,6 @@ export function QuickActionCard({
   comingSoon = false,
   disabled = false,
   controlId,
-  testId,
 }: QuickActionCardProps) {
   const palette = TONE_STYLES[tone];
   const interactive = !comingSoon && !disabled;
@@ -91,7 +86,6 @@ export function QuickActionCard({
     <button
       type="button"
       data-ui-role="grouped-card"
-      data-testid={testId}
       onClick={interactive ? onClick : undefined}
       disabled={!interactive}
       aria-disabled={!interactive}
@@ -122,11 +116,9 @@ export function QuickActionCard({
         <RowLabel as="p" className="truncate !font-medium">
           {title}
         </RowLabel>
-        {subtitle ? (
-          <RowDescription as="span" className="mt-1 block truncate">
-            {subtitle}
-          </RowDescription>
-        ) : null}
+        <RowDescription as="span" className="mt-1 block truncate">
+          {subtitle}
+        </RowDescription>
       </div>
     </button>
   );

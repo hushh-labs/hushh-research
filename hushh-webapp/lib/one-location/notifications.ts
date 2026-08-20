@@ -7,7 +7,6 @@ import {
   formatLocationDurationLabel,
   locationAskFacts,
 } from "@/lib/one-location/duration-copy";
-import type { OneLocationGrant } from "@/lib/one-location/types";
 
 export const ONE_LOCATION_GRANT_OPENED_EVENT =
   "hushh:one-location-grant-opened";
@@ -546,19 +545,6 @@ export function oneLocationShareKindLabel(kind?: string | null): string {
 }
 
 /**
- * Whether a grant came from the Save My Soul panic flow -- the one thing in
- * this codebase the UI calls "SMS" (no real text message is ever sent; see
- * the `_classify_share_kind` comment on the backend). The single place that
- * decides "counts as SMS-triggered," so the "Shared with me" sort and its
- * badge can never disagree with each other.
- */
-export function isSmsTriggeredGrant(
-  grant: Pick<OneLocationGrant, "shareKind">,
-): boolean {
-  return normalizeOneLocationShareKind(grant.shareKind) === "sos";
-}
-
-/**
  * Kind-aware title + description for a received location share so the recipient
  * instantly sees WHAT it is (Save My Soul vs friendly Check-In vs plain share)
  * and WHY. Fixed SMS and Check-In messages are surfaced with the sender label.
@@ -620,15 +606,6 @@ export function locationWorkflowNotificationCopy(params: {
   /** The duration actually granted, for approval copy. */
   grantedDurationHours?: number | string | null;
   grantedDurationMode?: string | null;
-  /**
-   * Which lane the notification is about.
-   *
-   * A person can hold an ordinary share and an SMS/Save-My-Soul share with the
-   * same counterpart at once (see grant-lanes), so "your share ended" without
-   * naming the lane is ambiguous exactly when it matters most. `"sos"` is the
-   * emergency lane; anything else is an ordinary share.
-   */
-  shareKind?: string | null;
   /** Clock injected so a list of notifications agrees on "now". */
   nowMs?: number;
 }): { title: string; description: string } {
@@ -667,9 +644,6 @@ export function locationWorkflowNotificationCopy(params: {
       ? "for as long as you need"
       : formatLocationDurationLabel(params.grantedDurationHours);
 
-  const revokedViaSms =
-    normalizeOneLocationShareKind(params.shareKind) === "sos";
-
   switch (params.type) {
     case "location_share_created":
       return {
@@ -696,16 +670,6 @@ export function locationWorkflowNotificationCopy(params: {
         description: locationShareNotificationDescription(ownerLabel),
       };
     case "location_share_revoked":
-      // "SMS location sharing" is what the recipient calls this -- an SMS alert
-      // is how it reached them. Told only that "location access" was removed,
-      // someone who has never opened an ordinary share is being informed about
-      // something they do not know by that name.
-      if (revokedViaSms) {
-        return {
-          title: "SMS location sharing stopped",
-          description: `${ownerLabel} stopped sharing their location with you over SMS.`,
-        };
-      }
       return {
         title: copy.title,
         description: `${ownerLabel} removed your location access.`,

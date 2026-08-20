@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe("IntroStep voice contract", () => {
-  it("publishes and executes the same Get started control used by tapping", async () => {
+  it("publishes and executes the same Claim your One control used by tapping", async () => {
     const onLogin = vi.fn();
     render(<IntroStep onLogin={onLogin} />);
 
@@ -35,7 +35,7 @@ describe("IntroStep voice contract", () => {
       ).not.toBeNull();
     });
 
-    const button = screen.getByRole("button", { name: /get started/i });
+    const button = screen.getByRole("button", { name: /claim your one/i });
     expect(button).toHaveAttribute(
       "data-voice-control-id",
       "onboarding_claim_one",
@@ -55,20 +55,19 @@ describe("IntroStep voice contract", () => {
     });
   });
 
-  it("keeps every older spoken phrasing on the renamed control", async () => {
+  it("uses the standardized root quiet mark between the private-agent line and One", () => {
     render(<IntroStep onLogin={vi.fn()} />);
 
-    await waitFor(() => {
-      const metadata = getVoiceSurfaceMetadata();
-      expect(metadata?.controls?.[0]).toMatchObject({
-        label: "Get started",
-        voiceAliases: expect.arrayContaining([
-          "get started",
-          "claim your one",
-          "claim one",
-        ]),
-      });
-    });
+    const privateAgent = screen.getByText("Your private agent");
+    const quietMark = screen.getByText("🤫");
+    const one = screen.getByRole("heading", { name: "One" });
+
+    expect(privateAgent.compareDocumentPosition(quietMark)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(quietMark.compareDocumentPosition(one)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 
   it("keeps the root public navigation to Research, Blog, and Developers", () => {
@@ -88,89 +87,5 @@ describe("IntroStep voice contract", () => {
       "href",
       "/developers",
     );
-  });
-});
-
-describe("IntroStep welcome clarity", () => {
-  it("shows one message and one action, in reading order", () => {
-    const { container } = render(<IntroStep onLogin={vi.fn()} />);
-
-    const wordmark = screen.getByText("hussh");
-    const eyebrow = screen.getByText("Your private agent");
-    const one = screen.getByRole("heading", { name: "One" });
-    const supporting = screen.getByText("Your agents. Yours to own.");
-    const capabilities = screen.getByText(
-      "Listens · Remembers · Decides · Acts",
-    );
-    const cta = screen.getByRole("button", { name: /get started/i });
-    const privacy = screen.getByText(/You control what you share\./);
-    const nav = screen.getByRole("navigation", { name: "Explore Hussh" });
-
-    const order = [
-      wordmark,
-      eyebrow,
-      one,
-      supporting,
-      capabilities,
-      cta,
-      privacy,
-      nav,
-    ];
-    for (let i = 0; i < order.length - 1; i += 1) {
-      expect(order[i].compareDocumentPosition(order[i + 1])).toBe(
-        Node.DOCUMENT_POSITION_FOLLOWING,
-      );
-    }
-
-    // One heading, one button. A second primary action on a welcome screen is
-    // the failure this test exists to catch.
-    expect(container.querySelectorAll("h1")).toHaveLength(1);
-    expect(screen.getAllByRole("button")).toHaveLength(1);
-  });
-
-  it("keeps the quiet mark with the wordmark, as one brand lockup", () => {
-    render(<IntroStep onLogin={vi.fn()} />);
-
-    // The shush IS the brand — "hushh" is the word for it. It went missing in
-    // the first simplification pass and that is the regression this guards.
-    const quietMark = screen.getByText("🤫");
-    const wordmark = screen.getByText("hussh");
-    const one = screen.getByRole("heading", { name: "One" });
-
-    expect(wordmark.compareDocumentPosition(quietMark)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
-    expect(quietMark.compareDocumentPosition(one)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
-    // Decorative twin of the wordmark: it must not be announced twice.
-    expect(quietMark).toHaveAttribute("aria-hidden", "true");
-  });
-
-  it("restores the production positioning copy ahead of the decision", () => {
-    render(<IntroStep onLogin={vi.fn()} />);
-
-    expect(screen.getByText("Your private agent")).toBeInTheDocument();
-    expect(
-      screen.getByText("Your agents. Yours to own."),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Listens · Remembers · Decides · Acts"),
-    ).toBeInTheDocument();
-  });
-
-  it("still carries no privacy/consent paragraph ahead of the decision", () => {
-    render(<IntroStep onLogin={vi.fn()} />);
-
-    // The one line under the button ("You control what you share.") already
-    // says the thing that changes a person's decision — a second privacy
-    // section is what this test guards against reappearing.
-    for (const removed of [
-      /stays encrypted in your vault/i,
-      /Nothing moves without your consent/i,
-      /stays locked/i,
-    ]) {
-      expect(screen.queryByText(removed)).toBeNull();
-    }
   });
 });

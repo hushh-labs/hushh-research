@@ -648,7 +648,7 @@ function EmptyState() {
             No analyses yet
           </h3>
         <p className="max-w-md text-[15px] leading-6 text-muted-foreground">
-          Search for a stock ticker below and let the multi-agent
+          Search for a stock ticker below and let Agent Kai&apos;s multi-agent
           debate engine give you a data-driven recommendation.
         </p>
       </div>

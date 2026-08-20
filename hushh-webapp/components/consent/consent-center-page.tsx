@@ -3011,8 +3011,8 @@ export function ConsentCenterPage() {
               />
             ) : selectedRequestNeedsUnlock ? (
               <SettingsRow
-                title="Unlock to review"
-                description="Unlock to load this request securely."
+                title="Unlock vault to review"
+                description="Unlock your vault to load this request securely."
               />
             ) : selectedPendingLookupResource.error ? (
               <SettingsRow

@@ -90,7 +90,7 @@ describe("Top app bar responsive contract", () => {
     expect(tabs).toContain('event.key === "ArrowRight"');
     expect(tabs).toContain('event.key === "Home"');
     expect(tabs).toContain(
-      "setTopShellTabSwipeState(tabSet.id, value, false)",
+      "setTopShellTabSwipeState(tabSet.id, index, false);",
     );
     expect(tabs).toContain(
       "calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%)",
@@ -159,27 +159,6 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain('data-testid="top-app-bar-nav-slot"');
     expect(source).toContain("resolveCommonRouteBreadcrumb");
     expect(source).not.toContain("AgentSectionDropdown");
-  });
-
-  // A chain deeper than "parent > current page" (e.g. Profile > Security >
-  // Lock methods) has to drop its earliest ancestor rather than truncate
-  // everyone: `TopShellBreadcrumbTrail`'s ancestor crumbs used to have
-  // `min-w-0 shrink truncate max-w-[9rem]` with no floor, so a short word
-  // like "Location" or "Security" could get crushed to one or two characters
-  // even though it would trivially fit. See
-  // e2e/top-shell-breadcrumb-trail.layout.spec.ts for the pixel-level proof —
-  // this only pins the control-flow half a Playwright fixture can't measure.
-  it("collapses a breadcrumb chain to parent + current page, never truncates a short crumb", () => {
-    const source = read("components/app-ui/top-app-bar.tsx");
-
-    expect(source).toContain(
-      "return withoutRoot.length > 2 ? withoutRoot.slice(-2) : withoutRoot;",
-    );
-    expect(source).not.toContain("max-w-[9rem]");
-    expect(source).toContain('isLast ? "shrink-0" : "min-w-min shrink"');
-    expect(source).toContain(
-      'className="min-w-min shrink truncate text-[color:var(--app-secondary-label)] transition-colors hover:text-current"',
-    );
   });
 
   it("renders the One home brand in the left slot without duplicating navigation", () => {
@@ -256,7 +235,7 @@ describe("Top app bar responsive contract", () => {
 
     expect(source).toContain("showVaultUnlockAction");
     expect(source).toContain("VaultService.checkVault(user.uid)");
-    expect(source).toContain('aria-label="Unlock"');
+    expect(source).toContain('aria-label="Unlock vault"');
     expect(source).toContain("<KeyRound");
     expect(source).not.toContain(
       "Notifications unavailable until your vault is unlocked",

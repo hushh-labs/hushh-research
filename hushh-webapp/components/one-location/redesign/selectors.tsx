@@ -135,13 +135,7 @@ export function DurationSelector({
           <SelectTrigger
             aria-label={label || "Duration"}
             aria-labelledby={label ? labelId : undefined}
-            // `!h-11`, not `h-11`: SelectTrigger's own `data-[size=default]:h-9`
-            // compiles to a compound selector (class + [data-size]) that
-            // outranks a plain `.h-11` on specificity alone, regardless of
-            // source order -- this control was silently rendering at 36px,
-            // under the platform's 44px minimum touch target, on every
-            // screen already using this presentation.
-            className="!h-11 w-full rounded-[14px] border-border/70 bg-[color:var(--app-card-surface-compact)] text-sm shadow-none"
+            className="h-11 w-full rounded-[14px] border-border/70 bg-[color:var(--app-card-surface-compact)] text-sm shadow-none"
           >
             <SelectValue />
           </SelectTrigger>

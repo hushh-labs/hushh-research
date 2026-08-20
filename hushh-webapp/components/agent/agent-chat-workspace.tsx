@@ -28,6 +28,8 @@ import {
   Pencil,
   RotateCcw,
   Send,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -121,12 +123,6 @@ import {
   type SpecialistDirectiveEvent,
   type AgentSource,
 } from "@/lib/services/agent-chat-client";
-import { ActionDialog } from "@/components/agent/action-dialog";
-import {
-  isReadOnlyLocationQuery,
-  formatLocationQueryResponse,
-  type InlineSuggestionChip,
-} from "@/lib/agent/tools/location-tools";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
 import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
@@ -185,7 +181,6 @@ type AgentMessage = {
   streamEvents?: AgentVisibleStreamEvent[];
   thought?: string;
   sources?: AgentSource[];
-  suggestionChips?: InlineSuggestionChip[];
 };
 
 type AgentDebugEvent = {
@@ -835,7 +830,6 @@ function AgentBubble({
   onPendingConsentApprove,
   onPendingConsentDeny,
   onPendingConsentDetails,
-  onSuggestionChipClick,
 }: {
   message: AgentMessage;
   onRetry?: () => void;
@@ -847,9 +841,10 @@ function AgentBubble({
   onPendingConsentApprove?: (item: SpecialistPendingConsentRequestItem) => Promise<void> | void;
   onPendingConsentDeny?: (item: SpecialistPendingConsentRequestItem) => Promise<void> | void;
   onPendingConsentDetails?: (item: SpecialistPendingConsentRequestItem) => void;
-  onSuggestionChipClick?: (chip: InlineSuggestionChip) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [liked, setLiked] = useState(false);
+  const [disliked, setDisliked] = useState(false);
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
@@ -949,23 +944,7 @@ function AgentBubble({
               response={assistantText ? <AgentMarkdown text={assistantText} /> : null}
             />
           ) : assistantText ? (
-            <>
-              <AgentMarkdown text={assistantText} />
-              {message.suggestionChips && message.suggestionChips.length > 0 && (
-                <div className="mt-2.5 flex flex-wrap gap-2 pt-1.5 border-t border-border/40" data-testid="suggestion-chips">
-                  {message.suggestionChips.map((chip) => (
-                    <button
-                      key={chip.id}
-                      type="button"
-                      onClick={() => onSuggestionChipClick?.(chip)}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-background px-3 py-1 text-xs font-medium text-foreground shadow-sm transition hover:bg-muted hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                    >
-                      {chip.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
+            <AgentMarkdown text={assistantText} />
           ) : canRenderConsentActions || canRenderPendingConsentRequest ? (
             null
           ) : (
@@ -974,7 +953,7 @@ function AgentBubble({
         </div>
         <div
           className={cn(
-            "mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-400",
+            "mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500",
             isUser && "justify-end text-right"
           )}
         >
@@ -984,18 +963,56 @@ function AgentBubble({
               <button
                 type="button"
                 onClick={handleCopy}
-                className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
                 aria-label={copied ? "Response copied" : "Copy response"}
                 title={copied ? "Copied" : "Copy response"}
               >
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextLiked = !liked;
+                  setLiked(nextLiked);
+                  if (nextLiked) setDisliked(false);
+                }}
+                className={cn(
+                  "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                  liked
+                    ? "border-black/10 bg-black/[0.06] text-[#1d1d1f] dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100"
+                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                )}
+                aria-label="Like response"
+                aria-pressed={liked}
+                title="Like response"
+              >
+                <ThumbsUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextDisliked = !disliked;
+                  setDisliked(nextDisliked);
+                  if (nextDisliked) setLiked(false);
+                }}
+                className={cn(
+                  "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                  disliked
+                    ? "border-black/10 bg-black/[0.06] text-[#1d1d1f] dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100"
+                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                )}
+                aria-label="Dislike response"
+                aria-pressed={disliked}
+                title="Dislike response"
+              >
+                <ThumbsDown className="h-3.5 w-3.5" />
               </button>
               {onRetry ? (
                 <button
                   type="button"
                   onClick={onRetry}
                   disabled={retryDisabled}
-                  className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-400 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                  className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
                   aria-label="Try again"
                   title="Try again"
                 >
@@ -1990,7 +2007,7 @@ export function AgentChatWorkspace({
       if (nextConversationId === conversationId || historyInteractionDisabled) return;
       const token = getVaultOwnerToken();
       if (!token) {
-        toast.error("Locked. Unlock again to continue.");
+        toast.error("Vault access expired. Unlock again to continue.");
         return;
       }
       abortAgentTurnWork();
@@ -2012,27 +2029,6 @@ export function AgentChatWorkspace({
     ]
   );
 
-  const handleSuggestionChipClick = useCallback(
-    (chip: InlineSuggestionChip) => {
-      if (chip.kind === "navigation" && chip.actionUrl) {
-        router.push(chip.actionUrl);
-      } else if (chip.kind === "action" && chip.actionId) {
-        void executeAgentGatewayAction({
-          actionId: chip.actionId,
-          userId: user?.uid ?? "",
-          router,
-          appRuntimeState: appRuntimeStateRef.current,
-          surfaceMetadata: getVoiceSurfaceMetadata(),
-          hasPortfolioData,
-          busyOperations,
-          setAnalysisParams,
-          switchPersona,
-        });
-      }
-    },
-    [router, user?.uid, hasPortfolioData, busyOperations, setAnalysisParams, switchPersona],
-  );
-
   const handleSidebarCreateNewChat = useCallback(() => {
     setIsHistoryDrawerOpen(false);
     handleCreateNewChat();
@@ -2050,7 +2046,7 @@ export function AgentChatWorkspace({
     async (targetConversationId: string, title: string) => {
       const token = getVaultOwnerToken();
       if (!token) {
-        toast.error("Locked. Unlock again to continue.");
+        toast.error("Vault access expired. Unlock again to continue.");
         return;
       }
       setHistoryActionPendingId(targetConversationId);
@@ -2081,7 +2077,7 @@ export function AgentChatWorkspace({
       if (historyInteractionDisabled) return;
       const token = getVaultOwnerToken();
       if (!token || !user?.uid) {
-        toast.error("Locked. Unlock again to continue.");
+        toast.error("Vault access expired. Unlock again to continue.");
         return;
       }
       if (conversationId === targetConversationId) {
@@ -2146,7 +2142,7 @@ export function AgentChatWorkspace({
       const review = pkmReviews.find((item) => item.id === reviewId);
       const token = getVaultOwnerToken();
       if (!review || !user?.uid || !vaultKey || !token) {
-        toast.error("Unlock before saving to Memory.");
+        toast.error("Unlock your vault before saving to Memory.");
         return;
       }
 
@@ -2499,7 +2495,7 @@ export function AgentChatWorkspace({
           reason: !vaultKey ? "vault_key_unavailable" : "vault_owner_token_unavailable",
           tool: toolEvent,
         });
-        upsertPkmStatusMessage("Unlock before saving to Memory.", "error");
+        upsertPkmStatusMessage("Unlock your vault before saving to Memory.", "error");
         return;
       }
 
@@ -2883,7 +2879,7 @@ export function AgentChatWorkspace({
       });
       updateMessage(assistantMessageId, (message) => ({
         ...message,
-        text: "Locked. Unlock again to continue.",
+        text: "Vault access expired. Unlock again to continue.",
         status: "error",
         streamEvents: [],
       }));
@@ -2977,7 +2973,7 @@ export function AgentChatWorkspace({
         });
         updateMessage(assistantMessageId, (message) => ({
           ...message,
-          text: "One couldn't load your private memory for this turn. Keep it unlocked and try again.",
+          text: "One couldn't load your private memory for this turn. Keep your vault unlocked and try again.",
           status: "error",
           streamEvents: [],
         }));
@@ -3054,32 +3050,13 @@ export function AgentChatWorkspace({
           onSpecialistDirective: (event) => {
             if (streamAbortController.signal.aborted) return;
             specialistDirectiveReceived = true;
+            // Store the directive as a pending card in the current message
+            // stream. Security-sensitive: never auto-run an "action"; require
+            // an explicit click on the rendered card.
             appendDebugEvent(debugTurnId, "specialist_directive", event);
             flushAssistantDelta();
             setIsChatLoading(false);
             setIsStreaming(false);
-
-            const payload = (event.directive?.payload ?? {}) as Record<string, unknown>;
-            const directiveType = String(payload.type ?? payload.kind ?? "");
-
-            if (isReadOnlyLocationQuery(directiveType)) {
-              const token = getVaultOwnerToken() || "";
-              void runLocationDirective(event.directive, token, user?.uid ?? null).then((result) => {
-                const formatted = formatLocationQueryResponse(directiveType, payload);
-                const chatText = result.detail || formatted.chatAnswer;
-                updateMessage(assistantMessageId, (message) => ({
-                  ...message,
-                  text: chatText,
-                  status: "done",
-                  specialistDirective: null,
-                  streamEvents: [],
-                  suggestionChips: formatted.suggestionChips,
-                }));
-                enqueueDelegateResult(result);
-              });
-              return;
-            }
-
             if (getConsentActionsPayload(event)) {
               updateMessage(assistantMessageId, (message) => ({
                 ...message,
@@ -3197,7 +3174,7 @@ export function AgentChatWorkspace({
     const userId = user.uid;
     const token = getVaultOwnerToken();
     if (!token) {
-      addErrorMessage("Locked. Unlock again to continue.");
+      addErrorMessage("Vault access expired. Unlock again to continue.");
       return;
     }
 
@@ -3769,9 +3746,9 @@ export function AgentChatWorkspace({
   const accessMessage = authLoading
     ? null
     : !user?.uid
-      ? "You're chatting with One. Sign in and unlock for personalized help."
+      ? "You're chatting with One. Sign in and unlock your vault for personalized help."
       : needsVaultUnlock
-        ? "You're chatting with One. Unlock to work with your private information."
+        ? "You're chatting with One. Unlock your vault to work with your private information."
         : null;
   const accessAction = authLoading
     ? null
@@ -3783,7 +3760,7 @@ export function AgentChatWorkspace({
         }
       : needsVaultUnlock
         ? {
-            label: "Unlock",
+            label: "Unlock vault",
             icon: KeyRound,
             // Just-in-time unlock in place via the shared dialog, instead of
             // navigating away to /one/profile and losing the agent context.
@@ -4218,7 +4195,6 @@ export function AgentChatWorkspace({
                         `${ROUTES.CONSENTS}?tab=pending&requestId=${encodeURIComponent(item.id)}&from=${pathname || ROUTES.ONE_HOME}`,
                       );
                     }}
-                    onSuggestionChipClick={handleSuggestionChipClick}
                   />
                 ),
               )}
@@ -4518,7 +4494,7 @@ export function AgentChatWorkspace({
                       }
                       const token = getVaultOwnerToken();
                       if (!token || !user?.uid) {
-                        addErrorMessage("Locked. Unlock again to continue.");
+                        addErrorMessage("Vault access expired. Unlock again to continue.");
                         return;
                       }
                       enqueueCalendarDirective(directive, token, user.uid);
@@ -4545,7 +4521,7 @@ export function AgentChatWorkspace({
                       try {
                         const token = getVaultOwnerToken();
                         if (!token) {
-                          addErrorMessage("Locked. Unlock again to continue.");
+                          addErrorMessage("Vault access expired. Unlock again to continue.");
                           return;
                         }
                         const confirmLabel = String(
@@ -4599,9 +4575,21 @@ export function AgentChatWorkspace({
                     }}
                   />
                 ) : (
-                  // ── Action / write / navigation mode ───────
-                  <ActionDialog
-                    directiveEvent={pendingSpecialistDirective}
+                  // ── Action / crypto mode (existing path, unchanged) ───────
+                  <SpecialistDirectiveCard
+                    summary={String(
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .summary ?? pendingSpecialistDirective.message,
+                    )}
+                    confirmLabel={
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .type === "sos_panic"
+                        ? "Send SMS"
+                        : (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                              .type === "request_device_location_permission"
+                          ? "Allow location"
+                          : "Share"
+                    }
                     busy={specialistBusy}
                     onConfirm={async () => {
                       const directive = pendingSpecialistDirective;
@@ -4620,7 +4608,7 @@ export function AgentChatWorkspace({
                         // other authed call uses (never hardcoded/invented).
                         const token = getVaultOwnerToken();
                         if (!token) {
-                          addErrorMessage("Locked. Unlock again to continue.");
+                          addErrorMessage("Vault access expired. Unlock again to continue.");
                           return;
                         }
                         appendMessage({
@@ -4891,8 +4879,8 @@ export function AgentChatWorkspace({
           user={user}
           open={vaultDialogOpen}
           onOpenChange={setVaultDialogOpen}
-          title="Unlock to use Agent"
-          description="Unlock so the agent can work with your private information."
+          title="Unlock Vault to use Agent"
+          description="Unlock your Vault so the agent can work with your private information."
           onSuccess={() => setVaultDialogOpen(false)}
         />
       ) : null}

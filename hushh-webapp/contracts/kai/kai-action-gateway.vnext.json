@@ -504,7 +504,7 @@
     {
       "schema_version": "kai.local_action_contract.v1",
       "surface_id": "one_intro",
-      "surface_title": "Welcome",
+      "surface_title": "Claim your One",
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md",
         "docs/reference/one/one-voice-onboarding-journey.md"
@@ -5670,7 +5670,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/location?action=temp-link&view=links"
+        "target": "/one/location?action=temp-link"
       },
       "control_ids": [
         "one-location-action-temp-link"
@@ -5685,7 +5685,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/location?action=temp-link&view=links"
+          "current route becomes /one/location?action=temp-link"
         ],
         "backend_effects": []
       },
@@ -5710,7 +5710,7 @@
             "label": "Create a temporary link",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/location?action=temp-link&view=links",
+              "route": "/one/location?action=temp-link",
               "screen": "one_location"
             }
           }
@@ -13184,7 +13184,7 @@
     {
       "action_id": "onboarding.claim_one",
       "surface_id": "one_intro",
-      "label": "Get started",
+      "label": "Claim your One",
       "aliases": [
         "claim your one",
         "claim my one",
@@ -13268,7 +13268,7 @@
         "workflow_steps": [
           {
             "type": "action",
-            "label": "Get started",
+            "label": "Claim your One",
             "failure_behavior": "stop",
             "action_id": "onboarding.claim_one",
             "settlement_target": {

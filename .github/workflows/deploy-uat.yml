@@ -907,6 +907,10 @@ jobs:
               frontend_failure = True
 
           semantic_failures = set(semantic_report.get("failures") or [])
+          # Checks the verifier itself classified as an EXTERNAL provider outage.
+          # They are reported and alerted on, but they do not block: a provider
+          # being down is not evidence that this candidate is bad.
+          semantic_degraded = sorted(semantic_report.get("degraded") or [])
           advisory_semantic_failures = sorted(
               item for item in semantic_failures if item.startswith("signed_in_routes:")
           )
@@ -979,6 +983,14 @@ jobs:
                   "failures": sorted(semantic_failures),
                   "blocking_failures": sorted(blocking_semantic_failures),
                   "advisory_failures": advisory_semantic_failures,
+                  "degraded_capabilities": semantic_degraded,
+              },
+              "dependency_health": {
+                  # A release can be simultaneously correct and not fully
+                  # functional. Saying so is more useful than forcing that state
+                  # into either "success" or "failure".
+                  "degraded": bool(semantic_degraded),
+                  "degraded_capabilities": semantic_degraded,
               },
               "db_contract": {
                   "outcome": db_outcome,
@@ -1222,6 +1234,19 @@ jobs:
             echo "- Frontend deployed SHA before run: \`${{ steps.predeploy-state.outputs.frontend_sha || 'unknown' }}\`"
             echo "- Status: \`$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")\`"
             echo "- Blocking classifications: \`${{ steps.classify-uat-release.outputs.blocking_classifications || 'none' }}\`"
+            # Degradation is reported next to the status, not buried in the JSON.
+            # A release that deployed correctly while a provider was down must be
+            # readable as exactly that -- neither a clean success nor a failure.
+            degraded_capabilities="$(python3 -c "import json; from pathlib import Path; print(','.join(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8')).get('dependency_health', {}).get('degraded_capabilities') or []))" 2>/dev/null || true)"
+            if [[ -n "${degraded_capabilities}" ]]; then
+              echo "- **Dependency health: DEGRADED**"
+              echo "- Degraded capabilities: \`${degraded_capabilities}\`"
+              echo "  > The application deployed correctly. One or more external"
+              echo "  > providers are unavailable, so these capabilities will not"
+              echo "  > work until the provider recovers. This is not a code defect."
+            else
+              echo "- Dependency health: \`healthy\`"
+            fi
             echo "- Backend URL: \`${{ steps.final-state.outputs.backend_url }}\`"
             echo "- Frontend URL: \`${{ env.APP_FRONTEND_ORIGIN }}\`"
             echo "- Backend revision: \`${{ steps.final-state.outputs.backend_revision }}\`"

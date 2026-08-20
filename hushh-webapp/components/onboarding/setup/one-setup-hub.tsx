@@ -18,11 +18,9 @@ import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-compl
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
-import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
-import { useOnboardingEntry } from "@/lib/onboarding/onboarding-entry-context";
 import {
   isOneSetupSurfaceRoute,
   normalizeInternalRouteHref,
@@ -74,7 +72,6 @@ export function OneSetupHub() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const { beginFunnelExit } = useOnboardingEntry();
   const { byId, isLoading, isEnriching } = useCapabilitySetupStates({
     enrichVault: true,
     enrichOauth: true,
@@ -242,35 +239,13 @@ export function OneSetupHub() {
       });
       notifyGeminiRuntimeConfigurationChanged(user.uid);
 
-      // Completion is written durably below, and the app-wide decision follows
-      // it within the same frame. Claim the move first so the guard does not
-      // eject this hub before the navigation two blocks down can run — that
-      // destination is sometimes the portfolio-import step, which only this
-      // component knows about.
-      beginFunnelExit();
-
-      try {
-        await acknowledgeOneSetupExit({
-          userId: user.uid,
-          skipped: false,
-          isVaultUnlocked: true,
-          vaultKey,
-          vaultOwnerToken,
-        });
-      } catch (exitSyncError) {
-        // acknowledgeOneSetupExit primes the local completion latch
-        // SYNCHRONOUSLY, before it ever awaits the durable cross-device
-        // write (see one-setup-exit-service.ts) -- a flaky retry of that
-        // write rejecting here must not trap the person behind the
-        // undismissable lock dialog. That is exactly the "glitch, then
-        // setup comes up again" report: the dialog can't be dismissed while
-        // the recovery key is showing, so an error thrown past this point
-        // froze the screen with no visible way out.
-        console.warn(
-          "[OneSetupHub] Setup exit durable write did not land yet:",
-          exitSyncError,
-        );
-      }
+      await acknowledgeOneSetupExit({
+        userId: user.uid,
+        skipped: false,
+        isVaultUnlocked: true,
+        vaultKey,
+        vaultOwnerToken,
+      });
       setVaultDialogOpen(false);
       setVaultInvitationOpen(false);
       // Finance source intents intentionally remain process-memory-only until
@@ -286,24 +261,18 @@ export function OneSetupHub() {
     try {
       await finalize;
     } catch (error) {
-      const message =
+      setFinalizationError(
         error instanceof Error
           ? error.message
-          : "Couldn't save your setup. Try again.";
-      setFinalizationError(message);
-      // The retry banner this sets lives on the hub page, underneath the
-      // still-open (and, while the recovery key shows, undismissable) lock
-      // dialog -- so it is invisible exactly when it matters most. A toast
-      // renders above the dialog and is the only way the person learns
-      // anything went wrong instead of the screen just going quiet.
-      toast.error(message);
+          : "Couldn't save your setup. Try again.",
+      );
       throw error;
     } finally {
       if (finalizationInFlightRef.current === finalize) {
         finalizationInFlightRef.current = null;
       }
     }
-  }, [beginFunnelExit, completionTarget, router, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [completionTarget, router, user?.uid, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     if (
@@ -415,7 +384,7 @@ export function OneSetupHub() {
   const summary = hubStateLoading
     ? "One moment…"
     : allReady
-      ? "All set."
+      ? "Add more any time."
       : !runtimeChoiceComplete
         ? "Choose your AI first."
         : `${remaining} left.`;

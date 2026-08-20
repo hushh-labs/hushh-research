@@ -195,6 +195,7 @@ export function CalendarAgentPage({
   };
 
   return (
+<<<<<<< HEAD
     <AppPageShell
       width="reading"
       className="motion-step-enter fixed inset-x-0 top-[64px] bottom-[115px] z-10 m-auto flex w-full max-w-[720px] flex-col items-center justify-center overflow-hidden px-4"
@@ -211,6 +212,33 @@ export function CalendarAgentPage({
           <SurfaceCardHeader className="pb-3 pt-5 flex flex-col items-center text-center space-y-0.5">
             <div className="flex size-11 items-center justify-center rounded-[12px] bg-primary/10 text-primary mb-2">
               <CalendarDays className="size-5" aria-hidden />
+=======
+    <AppPageShell width="reading" className="motion-step-enter">
+      <AppPageHeaderRegion>
+        <PageHeader
+          title="Calendar"
+          description="Plan your schedule with One."
+          icon={CalendarDays}
+        />
+      </AppPageHeaderRegion>
+      <AppPageContentRegion>
+        <SurfaceCard className="overflow-hidden">
+          <SurfaceCardHeader className="pb-4 sm:pb-5">
+            <div className="flex items-start gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-primary/10 text-primary sm:size-11">
+                <CalendarDays className="size-5" aria-hidden />
+              </div>
+              <div className="min-w-0">
+                <SurfaceCardTitle>
+                  {connected
+                    ? "Google Calendar is connected"
+                    : "Connect Google Calendar"}
+                </SurfaceCardTitle>
+                <SurfaceCardDescription className="mt-1.5 max-w-2xl">
+                  {detail}
+                </SurfaceCardDescription>
+              </div>
+>>>>>>> origin/main
             </div>
             <SurfaceCardTitle className="text-lg font-semibold tracking-tight">
               {connected
@@ -264,25 +292,39 @@ export function CalendarAgentPage({
                 </div>
               </div>
             ) : shouldShowSetup ? (
+<<<<<<< HEAD
               <div className="border-t border-border/60 pt-4 pb-1">
                 <div className="flex flex-col items-center justify-center text-center space-y-3 w-full">
                   <Button
                     disabled={busy}
                     onClick={() => void connect()}
                     className="w-full justify-center h-11 text-base font-semibold shadow-sm"
+=======
+              <div className="border-t border-border/60 pt-4 sm:pt-5">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                  <Button
+                    disabled={busy}
+                    onClick={() => void connect()}
+                    className="w-full sm:w-auto"
+>>>>>>> origin/main
                     data-voice-control-id="open_calendar_connector"
                     data-voice-action-id={
                       journeyVariant === "onboarding"
                         ? "setup.connect_calendar"
                         : undefined
                     }
-                    data-voice-label={connectLabel}
+                    data-voice-label="Connect Calendar"
                     data-voice-purpose="starts Google Calendar authorization from this Calendar agent."
                   >
                     {connectLabel}
                   </Button>
+<<<<<<< HEAD
                   <p className="text-xs text-muted-foreground text-center">
                     Private by default. Disconnect anytime.
+=======
+                  <p className="text-sm leading-5 text-muted-foreground">
+                    Private by default. You can disconnect at any time.
+>>>>>>> origin/main
                   </p>
                 </div>
               </div>
@@ -313,7 +355,7 @@ export function CalendarAgentPage({
 
         {journeyVariant === "onboarding" && onFinishSetup && onSkipSetup ? (
           <SetupCompletionFooter
-            label={connected ? "Finish setup" : "Skip for now"}
+            label={connected ? "Finish Calendar setup" : "Skip Calendar setup"}
             onComplete={connected ? onFinishSetup : onSkipSetup}
             busy={connected ? finishingSetup : skippingSetup}
             disabled={busy}
@@ -333,7 +375,7 @@ export function CalendarAgentPage({
             supportingText={
               connected
                 ? undefined
-                : "You can connect Calendar whenever you are ready."
+                : "You can connect Calendar from setup whenever you are ready."
             }
           />
         ) : null}

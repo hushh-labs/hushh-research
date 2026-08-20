@@ -89,7 +89,7 @@ describe("One Voice Login onboarding contracts", () => {
     );
 
     expect(claim).toMatchObject({
-      label: "Get started",
+      label: "Claim your One",
       aliases: expect.arrayContaining([
         "claim your one",
         "claim my one",
