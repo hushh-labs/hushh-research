@@ -270,6 +270,12 @@ export const SETUP_CAPABILITY_ROUTES: Readonly<Record<string, string>> = {
  * generated voice action.
  */
 export const SETUP_NAVIGATION_ROUTES: readonly string[] = [
+  // The hub itself is a browsable home for "what's left to set up" — its own
+  // header contract says a person who has finished onboarding can still browse
+  // here without being trapped. Ejecting the setup-complete owner from the hub
+  // stranded exactly the person the pod-provisioning journey needs: they could
+  // deep-link to the cloud step but never reach it through the product.
+  ROUTES.ONE_SETUP,
   // Product order: the cloud is named and authorized before AI access is chosen.
   ROUTES.ONE_SETUP_CLOUD,
   ROUTES.ONE_SETUP_CONNECTIONS,
