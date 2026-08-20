@@ -113,7 +113,7 @@ describe("LocationPickerMap", () => {
     ).toBeNull();
 
     // The map surface renders and Google Maps initializes immediately.
-    expect(screen.getByText(/Pin your entrance on the map/i)).toBeTruthy();
+    expect(screen.getByText(/^Pin your entrance$/i)).toBeTruthy();
     await waitFor(() => expect(mapConstructor).toHaveBeenCalledTimes(1));
     expect(mapsHookMock).toHaveBeenLastCalledWith({ enabled: true });
   });
