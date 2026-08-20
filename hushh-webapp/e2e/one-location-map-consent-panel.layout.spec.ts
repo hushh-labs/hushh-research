@@ -219,6 +219,40 @@ test.describe("Your Map consent panel layout", () => {
     });
   }
 
+  test("spends extra screen height on map, not on panel", async ({ page }) => {
+    // "A taller phone should generally show more map." The panel is sized by
+    // its content, so the whole difference between an SE and a Pro Max goes to
+    // the map -- rather than a content region that stretches with the viewport.
+    const measurements: Array<{ height: number; map: number; panel: number }> =
+      [];
+
+    for (const height of HEIGHTS) {
+      await page.setViewportSize({ width: 390, height });
+      await page.goto(await buildFixture());
+      await awaitProductFont(page);
+
+      const panel = await page
+        .getByTestId("one-location-map-disclosure")
+        .evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          return { top: box.top, height: box.height };
+        });
+      measurements.push({ height, map: panel.top, panel: panel.height });
+    }
+
+    for (let index = 1; index < measurements.length; index += 1) {
+      const previous = measurements[index - 1];
+      const current = measurements[index];
+      // Every extra pixel of viewport becomes a pixel of map.
+      expect(
+        current.map - previous.map,
+        `${previous.height}px -> ${current.height}px`,
+      ).toBeCloseTo(current.height - previous.height, 0);
+      // And the panel does not grow with the screen.
+      expect(Math.abs(current.panel - previous.panel)).toBeLessThanOrEqual(1);
+    }
+  });
+
   test("keeps the supporting copy to one rendered line at the narrowest width", async ({
     page,
   }) => {
