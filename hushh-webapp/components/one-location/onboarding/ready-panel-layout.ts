@@ -20,7 +20,7 @@
 
 /** Full-bleed surface the map and panel sit in. Owns the positioning context. */
 export const READY_SURFACE_CLASSNAME =
-  "relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white dark:bg-[#14171d] md:bg-[#eef3f8] md:dark:bg-[#070a0f]";
+  "relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--app-grouped-background)]";
 
 /** A band of its own on phones; the full backdrop from `md:` up. */
 export const READY_MAP_CLASSNAME =
@@ -32,7 +32,7 @@ export const READY_MAP_CLASSNAME =
  * `md:` up the panel becomes a fixed-width dialog centred on both axes.
  */
 export const READY_PANEL_CLASSNAME =
-  "relative z-10 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-[28px] bg-white shadow-[0_-8px_24px_rgba(24,57,91,0.10)] dark:bg-[#14171d] md:absolute md:left-1/2 md:top-1/2 md:mt-0 md:h-auto md:max-h-[calc(100dvh-96px)] md:w-[430px] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-[30px] md:shadow-[0_24px_80px_rgba(24,57,91,0.22)]";
+  "relative z-10 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-[28px] bg-[color:var(--app-primary-surface)] shadow-[0_-8px_24px_rgba(24,57,91,0.10)] md:absolute md:left-1/2 md:top-1/2 md:mt-0 md:h-auto md:max-h-[calc(100dvh-96px)] md:w-[430px] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-[30px] md:shadow-[0_24px_80px_rgba(24,57,91,0.22)]";
 
 /** Tailwind's `md:` breakpoint -- where the sheet becomes a centred dialog. */
 export const READY_PANEL_DIALOG_MIN_WIDTH_PX = 768;

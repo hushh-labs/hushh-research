@@ -1553,7 +1553,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             data-voice-label={item.title}
             onClick={item.onClick}
             className={cn(
-              "group flex min-h-[76px] min-w-0 items-center gap-3 bg-transparent px-4 py-3 text-left transition-colors [-webkit-tap-highlight-color:transparent] active:bg-[rgba(120,120,128,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+              "group flex min-h-[88px] min-w-0 flex-col items-start justify-center gap-2 bg-transparent px-4 py-3 text-left transition-colors [-webkit-tap-highlight-color:transparent] active:bg-[rgba(120,120,128,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
               index % 2 === 0 &&
                 "border-r border-[color:var(--app-separator)]",
               index < 2 &&
@@ -1563,7 +1563,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             <span
               aria-hidden
               className={cn(
-                "inline-flex h-8 w-8 shrink-0 items-center justify-center [&_svg]:h-6 [&_svg]:w-6 [&_svg]:stroke-[1.9]",
+                "inline-flex h-7 w-7 shrink-0 items-center justify-center [&_svg]:h-6 [&_svg]:w-6 [&_svg]:stroke-[1.85]",
                 item.tone === "red"
                   ? "text-[color:var(--app-destructive)]"
                   : "text-[color:var(--app-accent)]",

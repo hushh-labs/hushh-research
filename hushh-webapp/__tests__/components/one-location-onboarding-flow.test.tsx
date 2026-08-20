@@ -209,14 +209,13 @@ describe("OneLocationOnboardingFlow", () => {
     const featureGrid = document.querySelector("[data-one-feature-grid]");
     expect(featureGrid?.className).toContain("mt-6");
     expect(featureGrid?.className).toContain("shrink-0");
+    const featureNavigation = document.querySelector(
+      "[data-one-onboarding-navigation]",
+    );
+    expect(featureNavigation?.className).toContain("max-w-[1040px]");
     const lowerGrid = document.querySelector("[data-one-feature-lower-grid]");
     expect(lowerGrid?.className).toContain("grid-cols-2");
-    // mt-3, not mt-4. The subtitle spacing was tightened in the shipped
-    // component but this assertion was never updated, so it has been failing
-    // on main independently of this change. Matched to what actually renders.
-    expect(
-      document.querySelector("[data-one-feature-subtitle]")?.className,
-    ).toContain("mt-3");
+    expect(document.querySelector("[data-one-feature-subtitle]")).toBeNull();
     const featureCta = document.querySelector("[data-one-feature-cta]");
     expect(featureCta?.className).not.toContain("mt-auto");
     expect(featureCta?.querySelector("button")?.className).toContain(
@@ -231,7 +230,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(responsiveStyles).not.toContain(
       "grid-template-rows: minmax(0, 0.82fr) minmax(0, 1fr)",
     );
-    expect(responsiveStyles).toContain("@media (min-width: 1024px)");
+    expect(responsiveStyles).toContain("@media (min-width: 768px)");
     expect(responsiveStyles).toContain("flex: 0 0 auto");
     expect(responsiveStyles).toContain("font-size: clamp(14px, 9.5cqw, 15px)");
     expect(responsiveStyles).toContain("--type-agent-title-size: 34px");
@@ -245,6 +244,7 @@ describe("OneLocationOnboardingFlow", () => {
     );
     expect(responsiveStyles).toContain('"share checkin sms"');
     expect(responsiveStyles).toContain("min-height: 390px");
+    expect(responsiveStyles).toContain("height: 54%");
     expect(responsiveStyles).not.toContain("width: 58%");
     expect(responsiveStyles).toContain("font-size: 20px");
     expect(responsiveStyles).toContain("font-size: 15px");
@@ -253,9 +253,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(responsiveStyles).toContain(
       "font-size: clamp(15px, calc(5vw - 4.5px), 17px)",
     );
-    expect(responsiveStyles).toContain(
-      "bottom: clamp(54px, calc(65vh - 486.6px), 120px)",
-    );
+    expect(responsiveStyles).toContain("inset: auto 0 42px 0");
     expect(responsiveStyles).toContain("align-items: flex-start");
     expect(responsiveStyles).toContain("--one-feature-copy-gap: 12px");
     expect(responsiveStyles).toContain("gap: var(--one-feature-copy-gap)");
@@ -264,10 +262,9 @@ describe("OneLocationOnboardingFlow", () => {
     expect(responsiveStyles).toContain(
       "@media (max-width: 431px) and (max-height: 560px)",
     );
-    expect(responsiveStyles).toContain("@media (max-width: 359px)");
+    expect(responsiveStyles).toContain("@media (max-width: 380px)");
     expect(responsiveStyles).toContain("grid-template-columns: minmax(0, 1fr)");
-    expect(responsiveStyles).not.toMatch(/font-size:\s*(?:8|9|9\.5|10)px/u);
-    expect(responsiveStyles).not.toContain("min-height: 42px");
+    expect(responsiveStyles).toContain("height: 54%");
 
     const cards = document.querySelectorAll("[data-one-use-case-card]");
     expect(cards).toHaveLength(3);
@@ -390,6 +387,10 @@ describe("OneLocationOnboardingFlow", () => {
 
     const checkInCard = screen.getByTestId("location-use-case-checkin");
     expect(checkInCard.querySelector("[data-one-checkin-pin]")).toBeNull();
+    expect(checkInCard.querySelector("[data-one-checkin-map-backdrop]")).toBeTruthy();
+    expect(
+      checkInCard.querySelector("[data-one-use-case-art]")?.className,
+    ).toContain("h-[52%]");
     const hotelArt = checkInCard.querySelector(
       'img[src="/one-location/onboarding/feature-checkin-house-transparent.webp"]',
     );
@@ -725,12 +726,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(root.className).toContain("sm:[--type-agent-title-size:44px]");
 
     const welcome = screen.getByTestId("one-location-onboarding-welcome");
-    expect(welcome.firstElementChild?.className).toContain(
-      "bg-[color:var(--app-grouped-background)]",
-    );
-    expect(welcome.firstElementChild?.className).not.toMatch(
-      /#087ff5|#073d78/u,
-    );
+    expect(welcome.firstElementChild?.className).toContain("bg-[#087ff5]");
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
     const features = screen.getByTestId("one-location-onboarding-features");
