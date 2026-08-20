@@ -399,16 +399,23 @@ describe("SaveLocationModal", () => {
     expect(
       screen.getByRole("heading", { name: "Address details" }),
     ).toHaveFocus();
-    expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("110001");
+    // The PIN is worked out, not asked for. There is no box for it, and the
+    // address line it comes from is already on screen.
+    expect(screen.queryByLabelText(/PIN \/ postcode/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Building colour/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/Fill from this address/),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByText(/Saves once your lock is set/i),
     ).toBeInTheDocument();
-    // The detected address is shown, and the fields below were filled from
-    // it -- here only the PIN, since "Kartavya Path" is a street rather than
-    // a house number.
+    // The detected address is shown, and the Address box is filled from it.
     expect(
       screen.getByText("Kartavya Path, New Delhi, Delhi 110001, India"),
     ).toBeInTheDocument();
+    expect(screen.getByLabelText("Address")).toHaveValue(
+      "Kartavya Path, New Delhi, Delhi 110001, India",
+    );
 
     const saveButton = screen.getByRole("button", { name: "Save location" });
     // Live on arrival: nothing is saved yet, so it opens on Home and the one
@@ -420,9 +427,6 @@ describe("SaveLocationModal", () => {
 
     fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: " Flat 4B, Tower 2 " },
-    });
-    fireEvent.change(screen.getByLabelText(/Building colour/), {
-      target: { value: "Blue gate" },
     });
     fireEvent.change(screen.getByLabelText(/Landmark/), {
       target: { value: "Opposite City Mall" },
@@ -438,12 +442,17 @@ describe("SaveLocationModal", () => {
     // The address line is passed alongside the details, not folded into them,
     // so the caller composes from parts instead of layering this save on top
     // of whatever the previous one produced.
+    //
+    // `postalCode` still reaches the caller even though nobody was asked for
+    // it -- that is the whole point of deriving it. `buildingColor` is empty
+    // because the form no longer offers it, not because it was dropped from
+    // the contract.
     expect(baseProps.onSave).toHaveBeenCalledWith(
       "other",
       "Parents' home",
       {
         houseOrFlat: "Flat 4B, Tower 2",
-        buildingColor: "Blue gate",
+        buildingColor: "",
         landmark: "Opposite City Mall",
         postalCode: "110001",
       },
@@ -512,7 +521,10 @@ describe("SaveLocationModal", () => {
     );
   });
 
-  it("keeps an invalid postal code from being submitted", () => {
+  it("cannot be given an invalid postal code, because it never asks for one", () => {
+    // There used to be a PIN box, a format validator on it, and a blocked
+    // reason in the footer explaining the validator. All three existed to
+    // police an answer the address line already contained.
     render(
       <SaveLocationModal
         {...baseProps}
@@ -521,22 +533,24 @@ describe("SaveLocationModal", () => {
       />,
     );
 
+    expect(screen.queryByLabelText(/PIN \/ postcode/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Enter a valid PIN or postcode/),
+    ).not.toBeInTheDocument();
+
     fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "12A" },
     });
-    fireEvent.change(screen.getByLabelText(/PIN \/ postcode/), {
-      target: { value: "!" },
-    });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save location" }));
 
-    expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveAttribute(
-      "aria-invalid",
-      "true",
+    // No postal code anywhere in the line, so none is invented.
+    expect(baseProps.onSave).toHaveBeenCalledWith(
+      "home",
+      "",
+      expect.objectContaining({ houseOrFlat: "12A", postalCode: "" }),
+      "Address without a postal code",
     );
-    expect(
-      screen.getByRole("button", { name: "Save location" }),
-    ).toBeDisabled();
-    expect(baseProps.onSave).not.toHaveBeenCalled();
   });
 
   it("saves with just a pinned address, so the button is never dead with nothing to fix", () => {
@@ -578,28 +592,27 @@ describe("SaveLocationModal", () => {
     );
 
     // Home is already selected, so the only way to a dead button now is
-    // something the person actually typed.
+    // something the person actually did.
     expect(
       screen.getByRole("button", { name: "Save location" }),
     ).toBeEnabled();
 
-    fireEvent.change(screen.getByLabelText(/PIN \/ postcode/), {
-      target: { value: "!" },
-    });
+    fireEvent.change(screen.getByLabelText("Address"), { target: { value: "" } });
 
-    // Distinct from the field's own inline error, which says "Enter a valid
-    // PIN or postal code." right beside the input. Two places worth looking,
-    // not the same sentence twice.
+    // Distinct from the field's own inline error, which says "Enter the
+    // address." right beside the input. Two places worth looking, not the same
+    // sentence twice.
+    expect(screen.getByText("Add the address above.")).toBeInTheDocument();
     expect(
-      screen.getByText("Check the PIN or postcode above."),
-    ).toBeInTheDocument();
+      screen.getByRole("button", { name: "Save location" }),
+    ).toBeDisabled();
   });
 
   describe("filling the fields from the detected address", () => {
     const HOUSE_NUMBER_ADDRESS =
       "B-284/3, Rd Number 1, Chhatarpur Enclave Phase 2, New Delhi, Delhi 110074, India";
 
-    it("puts the house number and PIN into their own fields", () => {
+    it("puts the house number into its own field", () => {
       // The address was on screen the whole time and only its postal code was
       // ever mined, so a person looking at "B-284/3, ..." still had to retype
       // B-284/3 into the box directly underneath it.
@@ -611,10 +624,7 @@ describe("SaveLocationModal", () => {
         />,
       );
 
-      expect(screen.getByLabelText(/House or flat/)).toHaveValue(
-        "B-284/3",
-      );
-      expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("110074");
+      expect(screen.getByLabelText(/House or flat/)).toHaveValue("B-284/3");
       // And the address itself is still shown, as it was before.
       expect(screen.getByText(HOUSE_NUMBER_ADDRESS)).toBeInTheDocument();
     });
@@ -631,10 +641,7 @@ describe("SaveLocationModal", () => {
         />,
       );
 
-      expect(screen.getByLabelText(/House or flat/)).toHaveValue(
-        "",
-      );
-      expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("560001");
+      expect(screen.getByLabelText(/House or flat/)).toHaveValue("");
     });
 
     it("never overwrites a field the person typed in", () => {
@@ -662,11 +669,16 @@ describe("SaveLocationModal", () => {
       expect(screen.getByLabelText(/House or flat/)).toHaveValue(
         "Flat 9, Rear block",
       );
-      // The untouched field still follows the pin.
-      expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("110088");
+      // The address line itself, which nobody typed over, still follows the pin.
+      expect(screen.getByLabelText("Address")).toHaveValue(
+        "C-11/2, Somewhere Else, Delhi 110088, India",
+      );
     });
 
-    it("clears the filled fields when unticked, and refills them when ticked again", () => {
+    it("asks for nothing the address line already answers", () => {
+      // Four boxes became two. The two that went were the two an address can
+      // answer on its own (the PIN) or that nothing downstream reads (the
+      // building colour), plus the checkbox that existed to govern them.
       render(
         <SaveLocationModal
           {...baseProps}
@@ -675,22 +687,18 @@ describe("SaveLocationModal", () => {
         />,
       );
 
-      const checkbox = screen.getByRole("checkbox", {
-        name: /fill from this address/i,
-      });
-      expect(checkbox).toBeChecked();
+      expect(screen.getByLabelText("Address")).toBeInTheDocument();
+      expect(screen.getByLabelText(/House or flat/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Landmark/)).toBeInTheDocument();
 
-      fireEvent.click(checkbox);
-      expect(screen.getByLabelText(/House or flat/)).toHaveValue(
-        "",
-      );
-      expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("");
-
-      fireEvent.click(checkbox);
-      expect(screen.getByLabelText(/House or flat/)).toHaveValue(
-        "B-284/3",
-      );
-      expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("110074");
+      expect(screen.queryByLabelText(/PIN \/ postcode/)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/Building colour/)).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("checkbox", { name: /fill from this address/i }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/Optional — helps at the door/),
+      ).not.toBeInTheDocument();
     });
 
     it("does not save the house number twice when it came from the address", () => {
@@ -717,75 +725,93 @@ describe("SaveLocationModal", () => {
     });
   });
 
-  it("refreshes an inferred postal code when the confirmed pin moves", () => {
-    render(
-      <SaveLocationModal
-        {...baseProps}
-        address="Kartavya Path, New Delhi, Delhi 110001, India"
-        mapInitial={{ latitude: 28.6139, longitude: 77.209 }}
-        onPickExactLocation={vi.fn()}
-        startWithMapPicker
-        collectAddressDetails
-      />,
-    );
+  describe("the PIN is derived, never requested", () => {
+    it("follows the pin when the confirmed point moves", () => {
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address="Kartavya Path, New Delhi, Delhi 110001, India"
+          mapInitial={{ latitude: 28.6139, longitude: 77.209 }}
+          onPickExactLocation={vi.fn()}
+          startWithMapPicker
+          collectAddressDetails
+        />,
+      );
 
-    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("110001");
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
 
-    mapPickerMockState.picked = {
-      latitude: 12.9716,
-      longitude: 77.5946,
-      address: "Kasturba Road, Bengaluru, Karnataka 560001, India",
-    };
-    fireEvent.click(screen.getByRole("button", { name: "Edit pin" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+      mapPickerMockState.picked = {
+        latitude: 12.9716,
+        longitude: 77.5946,
+        address: "Kasturba Road, Bengaluru, Karnataka 560001, India",
+      };
+      fireEvent.click(screen.getByRole("button", { name: "Edit pin" }));
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save location" }));
 
-    expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("560001");
-  });
-
-  it("preserves a manually corrected postal code when the pin moves", () => {
-    render(
-      <SaveLocationModal
-        {...baseProps}
-        address="Kartavya Path, New Delhi, Delhi 110001, India"
-        mapInitial={{ latitude: 28.6139, longitude: 77.209 }}
-        onPickExactLocation={vi.fn()}
-        startWithMapPicker
-        collectAddressDetails
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText(/PIN \/ postcode/), {
-      target: { value: "110002" },
+      expect(baseProps.onSave).toHaveBeenCalledWith(
+        "home",
+        "",
+        expect.objectContaining({ postalCode: "560001" }),
+        "Kasturba Road, Bengaluru, Karnataka 560001, India",
+      );
     });
 
-    mapPickerMockState.picked = {
-      latitude: 12.9716,
-      longitude: 77.5946,
-      address: "Kasturba Road, Bengaluru, Karnataka 560001, India",
-    };
-    fireEvent.click(screen.getByRole("button", { name: "Edit pin" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+    it("follows the address line the person typed, not the one the pin found", () => {
+      // The old field could not do this: it was seeded from the pin and then
+      // stopped listening the moment anyone touched it, so correcting the
+      // address left a stale PIN attached to it.
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address="Kartavya Path, New Delhi, Delhi 110001, India"
+          collectAddressDetails
+        />,
+      );
 
-    expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("110002");
-  });
+      fireEvent.change(screen.getByLabelText("Address"), {
+        target: { value: "Kasturba Road, Bengaluru, Karnataka 560001, India" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Save location" }));
 
-  it("restores the inferred postal code when the same modal reopens", () => {
-    const props = {
-      ...baseProps,
-      address: "Kartavya Path, New Delhi, Delhi 110001, India",
-      collectAddressDetails: true,
-    };
-    const { rerender } = render(<SaveLocationModal {...props} />);
-
-    fireEvent.change(screen.getByLabelText(/PIN \/ postcode/), {
-      target: { value: "110002" },
+      expect(baseProps.onSave).toHaveBeenCalledWith(
+        "home",
+        "",
+        expect.objectContaining({ postalCode: "560001" }),
+        "Kasturba Road, Bengaluru, Karnataka 560001, India",
+      );
     });
-    rerender(<SaveLocationModal {...props} open={false} />);
-    rerender(<SaveLocationModal {...props} open />);
 
-    expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("110001");
+    it("keeps the code an edited place was saved with when the new line has none", () => {
+      // The form stopped asking for the PIN. That must not mean a place that
+      // already carried one loses it the next time somebody renames it.
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address="Kartavya Path, New Delhi"
+          collectAddressDetails
+          initialDetails={{
+            houseOrFlat: "",
+            buildingColor: "Blue gate",
+            landmark: "",
+            postalCode: "110001",
+          }}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+
+      expect(baseProps.onSave).toHaveBeenCalledWith(
+        "home",
+        "",
+        expect.objectContaining({
+          postalCode: "110001",
+          // Same rule, same reason: no longer collected, still not discarded.
+          buildingColor: "Blue gate",
+        }),
+        "Kartavya Path, New Delhi",
+      );
+    });
   });
 
   it("maps Escape to the same safe skip action on the map step", () => {
@@ -989,32 +1015,45 @@ describe("SaveLocationModal", () => {
       }
     });
 
-    it("gives each carousel dot a real 44x44 instead of a grown one", () => {
-      // Two dots sit side by side, so faking the horizontal region with a
-      // `::after` box would overlap them and send an edge tap to the wrong
-      // slide. Width therefore stays laid out on both variants.
-      render(<SaveLocationModal {...detailProps} />);
+    it("gives every dot the same 44x44, on every slide", () => {
+      // ONE geometry, not two. The rail used to be 44px tall on the map slide
+      // and 18px in the details header, so it appeared to resize as a person
+      // advanced. 18px is what a grabber is, and the rail doubles as one.
+      //
+      // Width stays LAID OUT while height comes back through the painted
+      // `::after` box: two dots sit side by side, so faking the horizontal
+      // region would overlap them and send an edge tap to the wrong slide.
+      const geometryOfEveryDot = () => {
+        const dots = screen.getAllByRole("tab");
+        expect(dots.length).toBe(2);
+        for (const dot of dots) {
+          expect(dot.className).toContain("w-11");
+          expect(dot.className).toContain("h-[18px]");
+          expect(dot.className).toContain("after:h-11");
+          expect(dot.className).toContain("after:w-11");
+        }
+      };
 
-      for (const dot of screen.getAllByRole("tab")) {
-        expect(dot.className).toContain("h-11");
-        expect(dot.className).toContain("w-11");
-        expect(dot.className).not.toContain("after:");
-      }
+      render(<SaveLocationModal {...detailProps} />);
+      geometryOfEveryDot();
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+      geometryOfEveryDot();
     });
 
-    it("shrinks the dots into the sheet grabber on the details slide", () => {
-      // In the pinned header they take the grabber's place rather than adding
-      // a third stacked row to the footer, so the height comes back through
-      // the painted box while the 44px of horizontal separation stays real.
+    it("says which step is finished, not only which one you are on", () => {
+      // Two states could not distinguish "done" from "not reached yet", and
+      // the upcoming fill was a translucent neutral that composites to 1.27:1
+      // on the light sheet -- under the 3:1 WCAG 2.2 SC 1.4.11 asks of a
+      // control carrying state.
       render(<SaveLocationModal {...detailProps} />);
-      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+      expect(
+        screen.getAllByRole("tab").map((dot) => dot.dataset.stepState),
+      ).toEqual(["active", "upcoming"]);
 
-      for (const dot of screen.getAllByRole("tab")) {
-        expect(dot.className).toContain("w-11");
-        expect(dot.className).toContain("h-[18px]");
-        expect(dot.className).toContain("after:h-11");
-        expect(dot.className).toContain("after:w-11");
-      }
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+      expect(
+        screen.getAllByRole("tab").map((dot) => dot.dataset.stepState),
+      ).toEqual(["completed", "active"]);
     });
   });
 
@@ -1110,14 +1149,14 @@ describe("SaveLocationModal", () => {
 
       // A dimmed blue still reads as the live primary action and earns a dead
       // tap, so a blocked CTA must not be blue at all.
-      fireEvent.change(screen.getByLabelText(/PIN \/ postcode/), {
-        target: { value: "!" },
+      fireEvent.change(screen.getByLabelText("Address"), {
+        target: { value: "" },
       });
       expect(save).toBeDisabled();
       expect(save.className).not.toContain("var(--app-accent)");
 
-      fireEvent.change(screen.getByLabelText(/PIN \/ postcode/), {
-        target: { value: "110001" },
+      fireEvent.change(screen.getByLabelText("Address"), {
+        target: { value: "12 MG Road, Bengaluru" },
       });
       expect(save).toBeEnabled();
       expect(save.className).toContain("var(--app-accent)");
@@ -1139,31 +1178,33 @@ describe("SaveLocationModal", () => {
       render(<SaveLocationModal {...strandedProps} />);
       fireEvent.click(screen.getByRole("button", { name: "Home" }));
 
-      expect(
-        screen.getByText("Add a house, landmark or PIN."),
-      ).toBeInTheDocument();
+      expect(screen.getByText("Add the address above.")).toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: "Save location" }),
       ).toBeDisabled();
+      // And the box it is pointing at says so itself, in its own words.
+      expect(screen.getByText("Enter the address.")).toBeInTheDocument();
+      expect(screen.getByLabelText("Address")).toHaveAttribute(
+        "aria-invalid",
+        "true",
+      );
     });
 
-    it("saves once the person supplies it themselves", () => {
+    it("does not let a landmark stand in for the address", () => {
+      // The optional boxes are enrichment. A place saved with "Opposite City
+      // Mall" and nothing else is not findable, so filling one must not read
+      // as having answered the question the save actually needs.
       render(<SaveLocationModal {...strandedProps} />);
       fireEvent.click(screen.getByRole("button", { name: "Home" }));
       fireEvent.change(screen.getByLabelText(/Landmark/), {
         target: { value: "Opposite City Mall" },
       });
 
-      const save = screen.getByRole("button", { name: "Save location" });
-      expect(save).toBeEnabled();
-      fireEvent.click(save);
-
-      expect(baseProps.onSave).toHaveBeenCalledWith(
-        "home",
-        "",
-        expect.objectContaining({ landmark: "Opposite City Mall" }),
-        null,
-      );
+      expect(
+        screen.getByRole("button", { name: "Save location" }),
+      ).toBeDisabled();
+      expect(screen.getByText("Add the address above.")).toBeInTheDocument();
+      expect(baseProps.onSave).not.toHaveBeenCalled();
     });
 
     it("unblocks the save once the person types an address line themselves", () => {
@@ -1274,6 +1315,150 @@ describe("SaveLocationModal", () => {
     ).toBeInTheDocument();
     // And it is not offered as a house number.
     expect(screen.getByLabelText(/House or flat/)).toHaveValue("");
-    expect(screen.getByLabelText(/PIN \/ postcode/)).toHaveValue("211004");
+    // The Address box carries the readable line, not the coordinate.
+    expect(screen.getByLabelText("Address")).toHaveValue(
+      "Teliarganj, Prayagraj, Uttar Pradesh 211004, India",
+    );
+
+    // The PIN inside that line still reaches the caller, without a box.
+    fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+    expect(baseProps.onSave).toHaveBeenCalledWith(
+      "home",
+      "",
+      expect.objectContaining({ postalCode: "211004" }),
+      "Teliarganj, Prayagraj, Uttar Pradesh 211004, India",
+    );
+  });
+
+  describe("on a phone it is the app's own bottom sheet", () => {
+    /**
+     * The surface used to be a Radix Dialog wearing a sheet's corners at every
+     * width, with an unconditional `mx-auto max-w-[420px]`. On a 375-430px
+     * phone that cap is invisible, which is how it survived; between 421px and
+     * 639px it painted a 420px card centred on a wider screen with a dead grey
+     * strip down each side -- a *bottom sheet* reading as a pad floating above
+     * the app. It also meant no drag-to-dismiss and no grabber, because the
+     * dialog primitive has neither.
+     *
+     * jsdom's `matchMedia` is stubbed to `matches: false` for every query, so
+     * the rest of this file exercises the >=640px dialog lane. These tests
+     * flip the one query that decides the presentation.
+     */
+    const asPhone = () => {
+      const original = window.matchMedia;
+      window.matchMedia = ((query: string) => ({
+        matches: query === "(max-width: 639.98px)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })) as unknown as typeof window.matchMedia;
+      return () => {
+        window.matchMedia = original;
+      };
+    };
+
+    const phoneProps = {
+      ...baseProps,
+      address: "Kartavya Path, New Delhi, Delhi 110001, India",
+      mapInitial: { latitude: 28.6139, longitude: 77.209 },
+      onPickExactLocation: vi.fn(),
+      startWithMapPicker: true,
+      collectAddressDetails: true,
+    };
+
+    it("renders the shared sheet primitive, not a centred dialog", () => {
+      const restore = asPhone();
+      try {
+        render(<SaveLocationModal {...phoneProps} />);
+        const surface = screen.getByTestId("save-location-modal");
+        expect(surface.dataset.slot).toBe("sheet-content");
+      } finally {
+        restore();
+      }
+    });
+
+    it("spans the viewport instead of floating in the middle of it", () => {
+      const restore = asPhone();
+      try {
+        render(<SaveLocationModal {...phoneProps} />);
+        const surface = screen.getByTestId("save-location-modal");
+
+        expect(surface.className).toContain("w-full");
+        // The whole defect, in one assertion. `inset-x-0` comes from the
+        // primitive's own bottom-sheet branch; a cap or a centring margin on
+        // top of it is what created the strips.
+        expect(surface.className).toContain("inset-x-0");
+        expect(surface.className).not.toMatch(/(^|\s)max-w-/);
+        expect(surface.className).not.toMatch(/(^|\s)mx-auto(\s|$)/);
+      } finally {
+        restore();
+      }
+    });
+
+    it("subtracts the on-screen keyboard from its own height", () => {
+      const restore = asPhone();
+      try {
+        render(<SaveLocationModal {...phoneProps} />);
+        const surface = screen.getByTestId("save-location-modal");
+
+        // Lifting by --kb-height without shrinking pushes the top of the sheet
+        // -- the step rail, back and title -- off the top of the screen the
+        // moment a field is focused.
+        expect(surface.className).toContain("bottom-[var(--kb-height,0px)]");
+        expect(surface.className).toContain(
+          "max-h-[calc((100dvh-var(--kb-height,0px))*0.92)]",
+        );
+      } finally {
+        restore();
+      }
+    });
+
+    it("makes the step rail the drag surface, without a second handle", () => {
+      const restore = asPhone();
+      try {
+        render(<SaveLocationModal {...phoneProps} />);
+
+        // The primitive's own 44px handle would stack a third row above a
+        // header that already looks exactly like a grabber.
+        expect(
+          screen.queryByRole("button", { name: "Drag down to close" }),
+        ).not.toBeInTheDocument();
+
+        const grabber = screen.getByTestId("save-location-sheet-grabber");
+        expect(grabber.className).toContain("touch-none");
+        expect(grabber).toContainElement(screen.getAllByRole("tab")[0]);
+      } finally {
+        restore();
+      }
+    });
+
+    it("keeps the rail inert as a drag surface in the desktop dialog", () => {
+      // Same component, no sheet around it: `useSheetDragHandle` returns null
+      // and the wrapper must not claim the pointer.
+      render(<SaveLocationModal {...phoneProps} />);
+      const grabber = screen.getByTestId("save-location-sheet-grabber");
+      expect(grabber.className).not.toContain("touch-none");
+    });
+
+    it("puts the same rail in the same slot on every slide", () => {
+      const restore = asPhone();
+      try {
+        render(<SaveLocationModal {...phoneProps} />);
+        const slotOnMap =
+          screen.getByTestId("save-location-sheet-grabber").firstElementChild;
+        expect(slotOnMap?.className).toContain("h-[18px]");
+
+        fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+        const slotOnDetails =
+          screen.getByTestId("save-location-sheet-grabber").firstElementChild;
+        expect(slotOnDetails?.className).toContain("h-[18px]");
+      } finally {
+        restore();
+      }
+    });
   });
 });

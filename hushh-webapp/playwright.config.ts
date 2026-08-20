@@ -52,8 +52,13 @@ export default defineConfig({
       // `appearance: menulist` ignores the author's border-radius, so the
       // radius defect it covers is INVISIBLE in Chromium. A Chromium-only run
       // passes the broken control.
+      // `save-location-sheet.layout` is opted in because the surface it
+      // measures is a bottom sheet that people meet on an iPhone. A Chromium
+      // pass says nothing about whether `dvh` inside a `clamp()`, or a sheet
+      // pinned to `bottom-[var(--kb-height)]`, behaves the same in the engine
+      // the app actually ships in.
       testMatch:
-        /(circle-join-responsive-contract|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|save-location-sheet\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",
