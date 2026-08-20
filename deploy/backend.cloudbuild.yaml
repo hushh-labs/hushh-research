@@ -278,11 +278,33 @@ steps:
           --max-retries=0 \
           --task-timeout=90s \
           --quiet
-        gcloud run jobs execute "${job_name}" \
+        if gcloud run jobs execute "${job_name}" \
           --project="$PROJECT_ID" \
           --region="${_REGION}" \
           --wait \
-          --quiet
+          --quiet; then
+          echo "Managed Vertex candidate probe: PASSED."
+        else
+          # Dev-lane ADVISORY, founder-directed (2026-08-20). Dev's managed fleet
+          # binding deliberately rides UAT's Vertex project, so an upstream
+          # failure THERE (observed: billing dunning denying GenAI) blocks every
+          # dev release -- including releases whose whole point is the BYOC path,
+          # which never touches the fleet binding. On dev the probe failure is
+          # reported loudly and the release proceeds; the managed-Gemini surface
+          # on dev is degraded until the fleet binding heals and this line says
+          # so in every build log. UAT and production remain fail-closed.
+          if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+            echo "###############################################################"
+            echo "# ADVISORY: managed Vertex probe FAILED on the dev lane.       #"
+            echo "# Managed-Gemini generation on dev is NOT verified. BYOC pods  #"
+            echo "# (user_adc) are unaffected. Fix the fleet Vertex project      #"
+            echo "# (billing/dunning?) to restore managed AI on dev.             #"
+            echo "###############################################################"
+            exit 0
+          fi
+          echo "Managed Vertex candidate probe FAILED; refusing the release." >&2
+          exit 1
+        fi
     id: "verify-managed-vertex-runtime"
 
 # NOTE: no top-level `images:` block — `docker buildx build --push` (Step 1) already
@@ -348,19 +370,10 @@ substitutions:
   _RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET: ""
   _RIA_IDENTITY_BASE_URL_SECRET: ""
   _RIA_IDENTITY_API_KEY_SECRET: ""
-  _INTELLIGENCE_API_BASE_URL_SECRET: ""
-  _INTELLIGENCE_API_KEY_SECRET: ""
-  _SUPPORT_EMAIL_TEST_TO_SECRET: ""
-  _SUPPORT_EMAIL_MODE_SECRET: ""
-  _SUPPORT_EMAIL_DELEGATED_USER_SECRET: ""
-  _SUPPORT_EMAIL_FROM_SECRET: ""
-  _GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET: ""
-  _GOOGLE_PRIVATE_KEY_SECRET: ""
   # Claim demo passcode allowlist. Never pass these in production lanes; the
   # regulated runtime guard refuses boot if they are set there.
   _RIA_CLAIM_TEST_NUMBERS_SECRET: ""
   _RIA_CLAIM_TEST_CODE_SECRET: ""
-  _RIA_CLAIM_TEST_EMAILS_SECRET: ""
   _ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET: ""
   # Caller key for the org-owned hushh-wallet-api. Empty => the optional
   # secret is skipped and the provider falls back to local signing.

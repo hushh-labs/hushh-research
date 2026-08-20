@@ -195,3 +195,66 @@ def test_the_webapp_actually_calls_it():
 
     assert "/api/one/runtime/managed/select" in api_service
     assert "selectManagedGeminiRuntime" in card
+
+
+async def test_a_proven_byoc_cloud_schedules_without_touching_the_fleet_probe(monkeypatch):
+    """A user-owned cloud's pod generates on the USER's Vertex ADC, so the fleet
+    probe answers nothing about their runtime -- and coupling their journey to it
+    couples them to hushh's billing state (observed 2026-08-20: fleet Vertex in
+    dunning denied every BYOC onboarding while every BYOC pod was unaffected).
+    Their validate-then-provision evidence is the PROVEN authorization: hushh
+    minted a real token against their bootstrap account, and the first pod turn
+    asserts runtimeMode=user_adc."""
+    from hushh_mcp.services.user_cloud_service import UserCloud
+
+    gate = _Gate()
+    # The fleet probe is DEAD (billing dunning). It must never be consulted.
+    monkeypatch.setattr(runtime_route, "_probe_managed_gemini", _not_ready())
+    monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
+
+    async def _byoc_cloud(_uid):
+        return UserCloud(
+            deployment_target="user_gcp",
+            model_credential_mode="user_adc",
+            project="hussh-one-kt3d9x",
+            region="us-central1",
+            bootstrap_sa="one-bootstrap@hussh-one-kt3d9x.iam.gserviceaccount.com",
+            authorized=True,
+        )
+
+    monkeypatch.setattr(runtime_route, "resolve_user_cloud", _byoc_cloud)
+
+    result = await runtime_route.select_managed_gemini(request=None, firebase_uid="u1")
+
+    assert result.status == "ready"
+    assert result.agentScheduled is True
+    assert result.location == "us-central1"
+    assert gate.calls[0]["provider"] == "hushh_managed_vertex"
+
+
+async def test_an_unauthorized_byoc_cloud_still_faces_the_fleet_probe(monkeypatch):
+    """Named-but-unauthorized is NOT proven. Until the grant is real, the person is
+    on the managed path and the fleet probe keeps its authority."""
+    from hushh_mcp.services.user_cloud_service import UserCloud
+
+    gate = _Gate()
+    monkeypatch.setattr(runtime_route, "_probe_managed_gemini", _not_ready())
+    monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
+
+    async def _named_only(_uid):
+        return UserCloud(
+            deployment_target="user_gcp",
+            model_credential_mode="user_adc",
+            project="hussh-one-kt3d9x",
+            region="us-central1",
+            bootstrap_sa="one-bootstrap@hussh-one-kt3d9x.iam.gserviceaccount.com",
+            authorized=False,
+        )
+
+    monkeypatch.setattr(runtime_route, "resolve_user_cloud", _named_only)
+
+    with pytest.raises(HTTPException) as exc:
+        await runtime_route.select_managed_gemini(request=None, firebase_uid="u1")
+
+    assert exc.value.status_code == 503
+    assert gate.calls == []

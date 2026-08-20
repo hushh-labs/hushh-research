@@ -23,6 +23,7 @@ from hushh_mcp.runtime_providers.factory import (
     build_runtime_client,
 )
 from hushh_mcp.services.ai_connection_gate import on_ai_connection_verified
+from hushh_mcp.services.user_cloud_service import resolve_user_cloud
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +153,33 @@ async def select_managed_gemini(
 
     A failed probe is a 503 and NO provisioning. That is the honest ordering: a
     person whose runtime cannot generate does not get a host that cannot serve.
+
+    THE BYOC EXCEPTION, WHICH IS THE SAME RULE
+    ------------------------------------------
+    A person with a PROVEN user-owned cloud never touches the fleet binding: their
+    pod generates on their own project's Vertex ADC (``user_adc``), so probing
+    hushh's fleet identity answers nothing about THEIR runtime -- and couples their
+    journey to hushh's billing state (observed 2026-08-20: fleet Vertex in dunning
+    denied every BYOC onboarding despite every BYOC pod being unaffected). Their
+    validate-then-provision evidence is the authorization proof itself: hushh
+    minted a real token against their bootstrap account (a form cannot set it),
+    and the first pod turn asserts ``runtimeMode=user_adc`` end-to-end.
     """
+    cloud = await resolve_user_cloud(firebase_uid)
+    if cloud is not None and cloud.is_user_owned and cloud.is_ready_to_provision:
+        verdict = await on_ai_connection_verified(
+            user_id=firebase_uid,
+            provider="hushh_managed_vertex",
+            transport="managed_vertex",
+        )
+        return ManagedGeminiSelectionResponse(
+            status="ready",
+            model=_ONE_RUNTIME_MODEL,
+            location=(cloud.region or "").strip() or "user-project",
+            agentScheduled=bool(verdict.get("scheduled")),
+            agentReason=str(verdict.get("reason") or ""),
+        )
+
     readiness = await _managed_readiness()
     verdict = await on_ai_connection_verified(
         user_id=firebase_uid,
