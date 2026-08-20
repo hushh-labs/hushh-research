@@ -627,7 +627,7 @@ async function openLocationFeatureStep() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
   expect(
     await screen.findByRole("heading", {
-      name: "Need to keep people updated?",
+      name: "Keep your people updated.",
     }),
   ).toBeTruthy();
 }
@@ -650,7 +650,7 @@ async function reachLocationOnboardingFinalStep() {
   await waitFor(() => {
     const savePrompt = screen.queryByTestId("save-location-modal");
     const continueButton = screen.queryByRole("button", {
-      name: /Find my people|Allow location/,
+      name: /Continue|Allow location/,
     });
     expect(savePrompt || continueButton).toBeTruthy();
   });
@@ -661,7 +661,7 @@ async function reachLocationOnboardingFinalStep() {
     );
   }
   const continueButton = await screen.findByRole("button", {
-    name: /Find my people|Allow location/,
+    name: /Continue|Allow location/,
   });
   await waitFor(() => expect(continueButton).toBeEnabled());
   fireEvent.click(continueButton);
@@ -683,7 +683,7 @@ async function leaveLocationFeatureStep() {
   await waitFor(() => {
     const savePrompt = screen.queryByTestId("save-location-modal");
     const continueButton = screen.queryByRole("button", {
-      name: /Find my people|Allow location/,
+      name: /Continue|Allow location/,
     });
     expect(savePrompt || continueButton).toBeTruthy();
   });
@@ -694,7 +694,7 @@ async function leaveLocationFeatureStep() {
     );
   }
   const continueButton = await screen.findByRole("button", {
-    name: /Find my people|Allow location/,
+    name: /Continue|Allow location/,
   });
   await waitFor(() => expect(continueButton).toBeEnabled());
   fireEvent.click(continueButton);
@@ -2380,7 +2380,7 @@ describe("OneLocationAgentPage", () => {
     await openLocationPermissionsStep();
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
-    expect(screen.getByRole("button", { name: "Find my people" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
     expect(onSetupComplete).not.toHaveBeenCalled();
   });
 
@@ -2695,7 +2695,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeLessThan(mockCaptureCurrentPosition.mock.invocationCallOrder[0]!);
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
@@ -2790,7 +2790,7 @@ describe("OneLocationAgentPage", () => {
       ),
     ).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await expectLocationInviteStep();
   });
 
@@ -2914,7 +2914,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockRequestLocationPermission).not.toHaveBeenCalled();
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
@@ -2958,7 +2958,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save location" }));
     await waitFor(() => expect(mockAddSavedLocation).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
@@ -3054,7 +3054,7 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
-          name: "Need to keep people updated?",
+          name: "Keep your people updated.",
         }),
       ).toBeNull();
       expect(

@@ -651,7 +651,7 @@ function ShareLocationFeatureCard() {
           className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Share once. Your Circle can find you safely.
+          Share your live location with your Circle in one tap.
         </p>
       </div>
       <div
@@ -720,14 +720,14 @@ function CheckInFeatureCard() {
           Check in
         </span>
         <TwoLineFeatureTitle
-          lines={["At the venue, but", "can\u2019t find each other?"]}
+          lines={["Stuck in the", "check-in line?"]}
           className="text-[19px]"
         />
         <p
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Check in anywhere. Your Circle knows you arrived.
+          Check in early, pick up your key, and skip the front desk.
         </p>
       </div>
       <div
@@ -781,14 +781,14 @@ function SaveMySoulFeatureCard() {
           SMS &middot; Save My Soul
         </span>
         <TwoLineFeatureTitle
-          lines={["Need help but can\u2019t", "call or speak?"]}
+          lines={["Need help but", "can\u2019t talk?"]}
           className="text-[19px]"
         />
         <p
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#c2aeb2]"
           data-one-feature-body
         >
-          Send your location when you need help fast.
+          Send an SOS with your location in seconds.
         </p>
       </div>
       <div
@@ -907,14 +907,8 @@ function FeaturesScreen({
             className="ui-text-agent-title text-[#111823] dark:!text-[#f6f8fc]"
             data-one-feature-heading
           >
-            Need to keep people updated?
+            Keep your people updated.
           </h1>
-          <p
-            className="mt-3 text-[15px] font-normal leading-[20px] text-[#737a84] dark:text-[#aeb8c7]"
-            data-one-feature-subtitle
-          >
-            Share location, check in, or send help in seconds.
-          </p>
         </header>
         <div className="mx-auto mt-6 grid w-full max-w-[700px] shrink-0 gap-4" data-one-feature-grid>
           <ShareLocationFeatureCard />
@@ -943,10 +937,7 @@ function FeaturesScreen({
           disabled={permissionBusy}
           className="h-[58px] min-h-[58px]"
         >
-          {/* Names the next screen, which is finding people you already know.
-              A deliberately distinct string also keeps the reviewer flow's
-              exact button match from colliding with a generic "Continue". */}
-          {locationPreparationRetry ? "Try again" : "Find my people"}
+          {locationPreparationRetry ? "Try again" : "Continue"}
         </PrimaryButton>
       </div>
       <style>{`
