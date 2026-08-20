@@ -13,6 +13,7 @@ import type {
   RealtimeVoiceTransport,
 } from "@/lib/voice/one-voice-transport";
 import { mapAgentVoiceStatusToOneVoiceState } from "@/lib/voice/voice-ui-state-machine";
+import { createVoiceTurnId, logVoiceMetric } from "@/lib/voice/voice-telemetry";
 
 /**
  * Browser client for Gemini Live full-duplex voice.
@@ -262,6 +263,10 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private visitorActivitySent = false;
   /** Real-time pacing guard for outbound audio; see sendRealtimeAudio. */
   private lastRealtimeAudioSentAt = 0;
+  /** `performance.now()` at the top of `start()`, for session-ready latency. */
+  private sessionStartRequestedAt = 0;
+  /** `Date.now()` of the first audio chunk of the currently open model turn, for turn-duration latency. */
+  private turnStartedAt: number | null = null;
   /** Frames discarded as backlog. Non-zero means the main thread stalled. */
   private droppedBacklogFrames = 0;
   private consecutiveSpeechFrames = 0;
@@ -335,6 +340,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
   async start(options?: OneVoiceTransportStartOptions): Promise<void> {
     if (this.ws) return;
+    this.sessionStartRequestedAt = performance.now();
     this.sessionId = createGeminiLiveSessionId();
     this.sourceSeq = 0;
     this.visitorActivitySent = false;
@@ -665,6 +671,12 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if ("setupComplete" in message) {
       this.setupComplete = true;
       this.clearSetupTimeout();
+      logVoiceMetric({
+        metric: "voice_session_ready_ms",
+        value: performance.now() - this.sessionStartRequestedAt,
+        turnId: this.sessionId ?? createVoiceTurnId(),
+        tags: { provider: this.provider },
+      });
       // Push the initial app context (screen + governed consent token) now
       // that the session is live; the relay never accepts these in the URL.
       // Do not expose a listening mic until the relay acknowledges it. The
@@ -825,6 +837,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
     if (serverContent.interrupted) {
       this.modelTurnOpen = false;
+      // Cut short by the person, not a real "how long did the model take"
+      // sample -- drop it rather than let it skew voice_turn_duration_ms.
+      this.turnStartedAt = null;
       this.stopPlayback();
       this.setState("listening");
       return;
@@ -836,6 +851,15 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       // When audio is still queued, the last node's onended settles instead.
       this.modelTurnOpen = false;
       this.suppressModelAudio = false;
+      if (this.turnStartedAt !== null) {
+        logVoiceMetric({
+          metric: "voice_turn_duration_ms",
+          value: Date.now() - this.turnStartedAt,
+          turnId: this.sessionId ?? createVoiceTurnId(),
+          tags: { provider: this.provider },
+        });
+        this.turnStartedAt = null;
+      }
       if (
         this.activeSources.size === 0 &&
         !this.closed &&
@@ -1279,6 +1303,12 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     node.start(startAt);
     this.playheadTime = startAt + buffer.duration;
     this.lastAudioEnqueueAt = Date.now();
+    if (!this.modelTurnOpen) {
+      // First chunk of a NEW model turn (the prior one closed with
+      // turnComplete/interrupted, or this is the first turn of the
+      // session) -- the reference point turnComplete measures duration from.
+      this.turnStartedAt = Date.now();
+    }
     this.modelTurnOpen = true;
     this.setState("speaking");
     this.activeSources.add(node);
@@ -1358,6 +1388,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (this.closed) return;
     this.closed = true;
     this.setupComplete = false;
+    // A turn left open by a mid-turn stop must not leak into the next
+    // session's first voice_turn_duration_ms sample.
+    this.turnStartedAt = null;
     this.clearSetupTimeout();
     this.initialContextReady = false;
     this.initialContextInFlight = false;
