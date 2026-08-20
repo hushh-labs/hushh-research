@@ -2479,8 +2479,7 @@ function LinksHub({
             Copy that described only the first was wrong for half the list,
             and neither told a new user what a "link" is here. */}
         <RowDescription as="p" className="mt-1">
-          Links you can send to anyone — to show where you are, or to invite
-          them to a Circle.
+          Send a link to share your location or invite someone to your Circle.
         </RowDescription>
       </div>
 
@@ -2525,8 +2524,7 @@ function LinksHub({
       <div className="flex items-start gap-2 px-1">
         <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <p className={MUTED_TEXT}>
-          You choose how long — up to 1 hour for a location link, 24 hours for
-          an invite.
+          Up to 1 hour for a location link, 24 hours for an invite.
         </p>
       </div>
     </div>
