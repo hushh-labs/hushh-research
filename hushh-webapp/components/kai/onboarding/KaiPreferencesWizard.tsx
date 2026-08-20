@@ -43,7 +43,7 @@ type WizardCompletePayload = WizardAnswers & {
 const QUESTIONS = [
   {
     id: "investment_horizon" as const,
-    prompt: "How long will this stay invested?",
+    prompt: "How long do you expect to keep this money invested?",
     options: [
       { value: "short_term" as const, label: "Less than 3 years" },
       { value: "medium_term" as const, label: "3–7 years" },
@@ -52,7 +52,7 @@ const QUESTIONS = [
   },
   {
     id: "drawdown_response" as const,
-    prompt: "If your portfolio drops 20%, what would you most likely do?",
+    prompt: "Portfolio down 20%, what's your move?",
     options: [
       { value: "reduce" as const, label: "Reduce investments to limit further losses" },
       { value: "stay" as const, label: "Stay invested and review the situation" },
@@ -329,7 +329,7 @@ export function KaiPreferencesWizard(props: {
                   isPageLayout ? "type-subhead" : "type-footnote"
                 )}
               >
-                We’ll tune Kai to you.
+                No right or wrong answers. We’ll tune Kai to your investing style.
               </p>
 
               <div
