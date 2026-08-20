@@ -389,12 +389,39 @@ steps:
         # the probe's stdout lands in Cloud Logging, not in this build log. So
         # the verdict has to be read back from the job's logs before we can tell
         # a provider outage from a candidate defect.
-        probe_line="$(gcloud logging read \
-          "resource.type=cloud_run_job AND resource.labels.job_name=${job_name} AND textPayload:managed_vertex_probe_result" \
+        #
+        # Scope the read to THIS execution. Filtering only by job name reads
+        # whichever line is newest at query time, and Cloud Logging ingestion
+        # lags the job's exit by seconds -- so the first attempt returned the
+        # PREVIOUS execution's verdict and the build acted on a stale answer.
+        # Observed 2026-08-20: a run whose 9 probes all classified
+        # provider_unavailable was failed on the prior run's application_broken.
+        execution_name="$(gcloud run jobs executions list \
+          --job="${job_name}" \
           --project="$PROJECT_ID" \
+          --region="${_REGION}" \
           --limit=1 \
-          --format='value(textPayload)' \
-          --freshness=30m 2>/dev/null || true)"
+          --sort-by='~metadata.creationTimestamp' \
+          --format='value(metadata.name)' 2>/dev/null || true)"
+
+        probe_line=""
+        if [[ -n "${execution_name}" ]]; then
+          # Ingestion lag is normally a few seconds; wait bounded rather than
+          # guessing, because an empty read is treated as blocking below.
+          for _attempt in 1 2 3 4 5 6; do
+            probe_line="$(gcloud logging read \
+              "resource.type=cloud_run_job AND labels.\"run.googleapis.com/execution_name\"=\"${execution_name}\" AND textPayload:managed_vertex_probe_result" \
+              --project="$PROJECT_ID" \
+              --limit=1 \
+              --format='value(textPayload)' \
+              --freshness=1h 2>/dev/null || true)"
+            if [[ -n "${probe_line}" ]]; then
+              break
+            fi
+            sleep 10
+          done
+        fi
+        echo "Probe execution: ${execution_name:-unknown}"
         classification="$(printf '%s' "${probe_line}" \
           | sed -n 's/.*"classification":"\([a-z_]*\)".*/\1/p' | head -1)"
 
