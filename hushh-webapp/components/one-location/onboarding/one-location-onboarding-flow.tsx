@@ -799,7 +799,7 @@ function SaveMySoulFeatureCard() {
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#c2aeb2]"
           data-one-feature-body
         >
-          Send an SOS with your location in seconds.
+          Send an SMS with your location in seconds.
         </p>
       </div>
       <div

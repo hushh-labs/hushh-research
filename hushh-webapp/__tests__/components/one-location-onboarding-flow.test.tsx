@@ -349,7 +349,7 @@ describe("OneLocationOnboardingFlow", () => {
       ),
     ).toBeTruthy();
     expect(
-      screen.getByText("Send an SOS with your location in seconds."),
+      screen.getByText("Send an SMS with your location in seconds."),
     ).toBeTruthy();
 
     expect(screen.getByText("Share location")).toBeTruthy();
@@ -1309,12 +1309,12 @@ describe("OneLocationOnboardingFlow", () => {
       expect(screen.queryByTestId("onboarding-ready-empty-seat")).toBeNull();
       expect(screen.queryByText(/show up here once they join/i)).toBeNull();
 
-      // And explicitly NOT a second telling of Share / Check in / SOS: the
+      // And explicitly NOT a second telling of Share / Check in / SMS: the
       // features screen already introduces those, and repeating them turns the
       // payoff into a summary slide.
       expect(screen.queryByText("Share where you are")).toBeNull();
       expect(screen.queryByText("Check in when you arrive")).toBeNull();
-      expect(screen.queryByText("Send an SOS")).toBeNull();
+      expect(screen.queryByText("Send an SMS")).toBeNull();
 
       // Nothing here blocks leaving.
       expect(props.onComplete).not.toHaveBeenCalled();

@@ -1426,7 +1426,7 @@ function NowHub({
             actionId: "location.open_check_in",
           },
           {
-            title: "Send SOS",
+            title: "SMS",
             icon: <Shield />,
             tone: "red",
             onClick: onSos,
