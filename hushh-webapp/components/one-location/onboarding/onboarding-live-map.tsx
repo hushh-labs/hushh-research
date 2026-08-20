@@ -145,6 +145,10 @@ export function OnboardingLiveMap({
           src={googleMapsLocationEmbedUrl({ lat, lng })}
           loading="lazy"
           referrerPolicy="no-referrer-when-downgrade"
+          // Out of the tab order. An iframe is focusable by default, and this
+          // one sits inside an `aria-hidden` container -- focusable content
+          // hidden from assistive technology is a trap, not a decoration.
+          tabIndex={-1}
           // A backdrop, exactly like the live map above it. The keyless embed
           // has no dark mode, so dark theme applies the same invert+hue-rotate
           // filter live-map uses to stop the surface glowing white.
