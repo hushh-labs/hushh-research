@@ -118,6 +118,10 @@ def main() -> int:
     }
 
     failures: list[str] = []
+    # Checks that failed because an EXTERNAL provider is unavailable, not because
+    # this release is bad. They are reported, never hidden, but they must not
+    # block: a Google billing hold is not a reason to withhold healthy code.
+    degraded: list[str] = []
 
     backend_probe = _http_probe(f"{args.backend_url.rstrip('/')}/health")
     report["checks"].append({"name": "backend_health", **backend_probe})
@@ -216,7 +220,16 @@ def main() -> int:
                 }
             )
             if not ria_stage1_ok:
-                failures.append("ria_stage1_query_only")
+                # The backend already distinguishes "the provider is down" from
+                # "this advisor is not verified" -- ria_verification.py emits
+                # provider_unavailable for a 5xx/denied upstream and not_verified
+                # for a genuine negative. Until now that distinction was recorded
+                # in the check and then thrown away here, so an upstream Gemini
+                # outage read as a release regression.
+                if str(ria_stage1.get("status") or "") == "provider_unavailable":
+                    degraded.append("ria_stage1_query_only")
+                else:
+                    failures.append("ria_stage1_query_only")
         except Exception as exc:  # pragma: no cover - exercised in live verification
             _record_exception(report, failures, name="ria_stage1_query_only", exc=exc)
 
@@ -244,9 +257,16 @@ def main() -> int:
             }
         )
 
+    # Three states, not two. A release whose own code is healthy but whose
+    # provider is down is neither "healthy" (AI does not work) nor "blocked"
+    # (nothing is wrong with the build) -- reporting either one is a lie.
+    report["degraded"] = degraded
     if failures:
         report["status"] = "blocked"
         report["failures"] = failures
+    elif degraded:
+        report["status"] = "degraded"
+        report["failures"] = []
 
     report_path = Path(args.report_path)
     report_path.parent.mkdir(parents=True, exist_ok=True)
