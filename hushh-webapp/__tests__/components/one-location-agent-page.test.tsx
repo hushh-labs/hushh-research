@@ -13,6 +13,7 @@ import { ApiError } from "@/lib/services/api-client";
 // The rungs themselves, not a copy of their labels: Ask and Share must offer
 // the same ladder, so the test reads the same list the component does.
 import { SHARE_DURATION_LADDER } from "@/components/one-location/redesign/duration-presets";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const {
   mockUseRequireAuth,
@@ -4397,6 +4398,45 @@ describe("OneLocationAgentPage", () => {
         extendsGrantId: "grant_from_request_live",
       }),
     );
+  });
+
+  it("offers a way to Connect when the person being looked for is not on the list", async () => {
+    // This roster is everyone you are already connected to, so "they are not
+    // here" has exactly one answer and it lives on another screen. Without
+    // this the empty state was a dead end, and a search that found nobody was
+    // worse: it proved the person was missing and offered nothing to do next.
+    mockGetState.mockResolvedValue(locationState());
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    const link = await screen.findByTestId(
+      "one-location-ask-manage-connections",
+    );
+    expect(link).toHaveAttribute("href", ROUTES.CONNECT);
+  });
+
+  it("keeps typing local so the roster is not refiltered on every keystroke", async () => {
+    // `setRecipientSearch` drives `visibleRecipients`, which re-runs the filter
+    // over the whole roster and re-renders every row. Wired straight to
+    // onChange that ran once per keystroke. The field now reads local state and
+    // only the debounced value reaches the view model -- so the character is on
+    // screen immediately while the work waits.
+    mockGetState.mockResolvedValue(locationState());
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    const field = screen.getByPlaceholderText(/search/i);
+    fireEvent.change(field, { target: { value: "Tru" } });
+
+    // The character is visible at once; the filter has not run yet.
+    expect((field as HTMLInputElement).value).toBe("Tru");
+    expect(screen.getByText("Trusted B")).toBeInTheDocument();
   });
 
   it("removes an already-live person's access from the Ask flow's own list", async () => {
