@@ -5,11 +5,25 @@ import type { EmblaCarouselType } from "embla-carousel";
 import useEmblaCarousel from "embla-carousel-react";
 
 import {
+  registerTopShellTabPager,
   setTopShellTabSwipeState,
   subscribeTopShellTabSelection,
 } from "@/lib/navigation/top-shell-tab-swipe-progress";
 import { VoiceSurfaceActivityBoundary } from "@/lib/voice/voice-surface-activity";
 import { cn } from "@/lib/utils";
+
+/**
+ * Read at call time rather than cached at module load: Reduce Motion can be
+ * switched on in system settings while the app is open, and a cached answer
+ * would keep animating panes for the rest of the session.
+ */
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
 
 /**
  * Marks an element whose horizontal drag must win over the workspace pager.
@@ -26,6 +40,14 @@ export const SWIPE_VIEWS_HORIZONTAL_SCROLL_ATTR =
 // `h-full` only inherited the content height and left empty areas unswipeable.
 const SWIPE_VIEWPORT_MIN_HEIGHT =
   "calc(100dvh - var(--app-top-content-offset, 0px))";
+
+/**
+ * How close the pager has to be to the selected pane before the outgoing one
+ * counts as gone. Two device pixels plus one for sub-pixel rounding; Embla
+ * overshoots its target by ~2px before easing back, so anything tighter waits
+ * out that whole tail.
+ */
+const ARRIVED_TOLERANCE_PX = 3;
 
 function isNestedHorizontalScrollTarget(target: EventTarget | null): boolean {
   return (
@@ -229,9 +251,55 @@ export function SwipeViews({
   const panelNodesRef = useRef<Record<string, HTMLDivElement | null>>({});
   const [activePanelHeight, setActivePanelHeight] = useState<number | null>(null);
   const isDraggingRef = useRef(false);
+  // True from the moment a tapped pane starts moving until Embla settles on it.
+  // Together with `isDraggingRef` this is what the strip reads as "the pager
+  // owns the indicator", so the pill tracks the pane instead of running its own
+  // 240ms transition against it.
+  const isAnimatingRef = useRef(false);
   const hasMovedSincePointerDownRef = useRef(false);
   const lastReportedValueRef = useRef(activeValue);
   const resizeFrameRef = useRef<number | null>(null);
+  // The height the viewport is currently rendering. Read when a transition
+  // begins so the outgoing pane is never clipped on its way out; see the
+  // measurement effect below.
+  const renderedHeightRef = useRef<number | null>(null);
+  const heightFloorRef = useRef<number | null>(null);
+  const measuredValueRef = useRef<string | null>(null);
+  const jumpReportFrameRef = useRef<number | null>(null);
+  /**
+   * A pane we moved to on purpose and told the consumer about, while its
+   * `activeValue` still names the pane we came from.
+   *
+   * The reconcile effect below treats any disagreement between the selected
+   * value and the rendered pane as drift to be repaired. Under Reduce Motion
+   * that repair fires against our own tap: the jump puts the pane on the new
+   * index in the same frame, the consumer's route has not committed yet, and
+   * the effect immediately drags it back -- so the person's tap visibly undoes
+   * itself and only sticks once the query string lands (measured: 700ms to 6s
+   * in dev). Holding until the prop moves is what makes the tap authoritative.
+   */
+  const pendingSelectionRef = useRef<{
+    value: string;
+    awaitedFrom: string;
+  } | null>(null);
+  const [heightSettling, setHeightSettling] = useState(false);
+  // Bumped on settle so the measurement effect re-runs and releases the floor.
+  const [heightSettleTick, setHeightSettleTick] = useState(0);
+
+  // One pager per tab set, declared for the whole time it is mounted. The strip
+  // asks before doing its own optimistic write on a tap -- see
+  // `registerTopShellTabPager`.
+  useEffect(() => registerTopShellTabPager(tabSetId), [tabSetId]);
+
+  useEffect(
+    () => () => {
+      if (jumpReportFrameRef.current !== null) {
+        window.cancelAnimationFrame(jumpReportFrameRef.current);
+        jumpReportFrameRef.current = null;
+      }
+    },
+    [],
+  );
   // Read by the measurement-reconciliation effect below, which must not itself
   // re-run on every selection change (re-subscribing its observer each time),
   // but still needs the CURRENT selection whenever it does fire.
@@ -242,8 +310,29 @@ export function SwipeViews({
     optionsRef.current = options;
   }, [activeValue, options]);
 
+  /**
+   * The viewport height, in `heightMode="active"`, follows the SELECTED pane.
+   * On its own that is a step change one frame after the selection flips --
+   * and the selection flips at the START of the pane motion, not the end.
+   *
+   * Measured on the Location hub at 390px: tapping People while standing on
+   * Menu took the viewport from 1400px to 520px at t=99ms, when the outgoing
+   * Menu pane was still at x=-43 -- 89% of it still on screen and now clipped
+   * to a third of its height. 880px of content the person was looking at
+   * disappeared while it was still in front of them, which is exactly what
+   * "the content disappears, then the next content appears" describes.
+   *
+   * So the height is floored at whatever was already rendered for as long as
+   * the pager is moving, and only comes down once it has settled. Growing
+   * early is harmless (the pager is the last element on the page, so a taller
+   * box just extends the scroll); shrinking early is the defect. The release
+   * eases over `--motion-duration-md`, and Reduce Motion drops that to a cut
+   * via `motion-reduce:transition-none` on the viewport.
+   */
   useEffect(() => {
     if (heightMode !== "active") {
+      heightFloorRef.current = null;
+      renderedHeightRef.current = null;
       setActivePanelHeight(null);
       return;
     }
@@ -251,12 +340,30 @@ export function SwipeViews({
     const activeNode = panelNodesRef.current[activeValue];
     if (!activeNode) return;
 
+    // Raise the floor to whatever is already on screen BEFORE the incoming
+    // panel is measured, in the same pass, so the two can never be ordered the
+    // wrong way round. Skipped on a settle tick, which re-runs this effect
+    // precisely in order to release the floor.
+    if (measuredValueRef.current !== activeValue) {
+      measuredValueRef.current = activeValue;
+      if (renderedHeightRef.current !== null) {
+        heightFloorRef.current = Math.max(
+          heightFloorRef.current ?? 0,
+          renderedHeightRef.current,
+        );
+        setHeightSettling(false);
+      }
+    }
+
     let frame = 0;
     const measure = () => {
       if (frame) window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         frame = 0;
-        const nextHeight = Math.ceil(activeNode.scrollHeight);
+        const measured = Math.ceil(activeNode.scrollHeight);
+        const floor = heightFloorRef.current;
+        const nextHeight = floor === null ? measured : Math.max(measured, floor);
+        renderedHeightRef.current = nextHeight;
         setActivePanelHeight((current) =>
           current === nextHeight ? current : nextHeight,
         );
@@ -279,7 +386,8 @@ export function SwipeViews({
       if (frame) window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [activeValue, heightMode]);
+  }, [activeValue, heightMode, heightSettleTick]);
+
 
   // Embla measures the container and slides synchronously at init, but only
   // attaches its own ResizeObserver a frame later. A width change inside that
@@ -337,9 +445,23 @@ export function SwipeViews({
         typeof engineSnapCount === "number" &&
         containerChildCount !== engineSnapCount;
 
-      const targetIdx = optionsRef.current.findIndex(
-        (opt) => opt.value === activeValueRef.current,
-      );
+      // A pane we moved to on purpose and have already reported upward is the
+      // truth until the consumer's own value moves, exactly as in the
+      // selection effect below. Without this, a resize landing inside that
+      // window repairs the pane back to the tab the person just left -- the
+      // same undo, arriving through the other door.
+      const pending = pendingSelectionRef.current;
+      const pendingIdx =
+        pending !== null && pending.awaitedFrom === activeValueRef.current
+          ? optionsRef.current.findIndex((opt) => opt.value === pending.value)
+          : -1;
+
+      const targetIdx =
+        pendingIdx !== -1
+          ? pendingIdx
+          : optionsRef.current.findIndex(
+              (opt) => opt.value === activeValueRef.current,
+            );
 
       // Where the pane is trying to go, against where the selected pane belongs.
       // Checking `target` instead of `offsetLocation` allows normal animations
@@ -371,8 +493,23 @@ export function SwipeViews({
     return () => observer.disconnect();
   }, [emblaApi]);
 
+  /**
+   * Lets the viewport come down to the pane the person is now looking at.
+   *
+   * Called the moment the outgoing pane is off screen -- NOT when Embla's
+   * spring finally converges. Those are ~400ms apart: the panes are visually
+   * in place by ~420ms and `settle` does not fire until ~850ms, so waiting for
+   * it left a tall empty area under a short tab for most of half a second.
+   */
+  const releaseHeightFloor = useCallback(() => {
+    if (heightFloorRef.current === null) return;
+    heightFloorRef.current = null;
+    setHeightSettling(true);
+    setHeightSettleTick((tick) => tick + 1);
+  }, []);
+
   const syncTabIndicator = useCallback(
-    (isDragging?: boolean) => {
+    (pagerOwned?: boolean) => {
       if (!emblaApi) return null;
       const scrollProgress = emblaApi.scrollProgress?.();
       const position =
@@ -382,11 +519,80 @@ export function SwipeViews({
       setTopShellTabSwipeState(
         tabSetId,
         position,
-        isDragging ?? isDraggingRef.current,
+        pagerOwned ?? (isDraggingRef.current || isAnimatingRef.current),
       );
       return position;
     },
     [emblaApi, options.length, tabSetId],
+  );
+
+  /**
+   * Moves the pager to a selection the person made somewhere else -- a shell
+   * tab tap, a deep link, a voice action -- and claims the shared indicator
+   * variable for the whole flight, so the pill is that same motion rather than
+   * a second animation racing it.
+   *
+   * Under Reduce Motion the pane is placed, not animated. Embla's own snap is
+   * a spring with no reduced-motion notion of its own, so without this a tap
+   * still travelled a full screen width; measured identical, frame for frame,
+   * with and without `prefers-reduced-motion: reduce`.
+   *
+   * A jump emits neither `select` nor `settle`, so this has to do their work
+   * itself: hand ownership back, drop the height floor, and report the new
+   * value upward. Reporting is not optional -- it is the consumer's only cue
+   * to update the route. Without it the panes moved while the query string
+   * stayed on the previous tab, so `aria-hidden`, `inert` and the URL all
+   * disagreed with what was on screen until an unrelated navigation caught up
+   * (measured on WebKit: ~700ms before, ~6s after).
+   *
+   * It is reported on the NEXT FRAME, which is where Embla's own `select`
+   * lands, and that timing is load-bearing rather than incidental. A shell tab
+   * press dispatches its selection synchronously and then opens its own
+   * navigation; reporting from inside that dispatch put a second
+   * `requestNavigation` for the same destination ahead of it in the same tick,
+   * and the coordinator supersedes rather than coalesces an intent that has
+   * already committed. Measured: the tap then produced no history write at all
+   * on Chromium. One frame later the tick is over and the report is either a
+   * no-op or the only navigation, which is the same shape the animated path
+   * has always had.
+   */
+  const scrollToSelection = useCallback(
+    (api: EmblaCarouselType, index: number) => {
+      if (prefersReducedMotion()) {
+        isAnimatingRef.current = false;
+        scrollToIndexSafely(api, index, true);
+        setTopShellTabSwipeState(tabSetId, Math.max(0, index), false);
+        releaseHeightFloor();
+        const nextValue = options[index]?.value;
+        if (nextValue && nextValue !== lastReportedValueRef.current) {
+          lastReportedValueRef.current = nextValue;
+          pendingSelectionRef.current = {
+            value: nextValue,
+            awaitedFrom: activeValueRef.current,
+          };
+          if (jumpReportFrameRef.current !== null) {
+            window.cancelAnimationFrame(jumpReportFrameRef.current);
+          }
+          jumpReportFrameRef.current = window.requestAnimationFrame(() => {
+            jumpReportFrameRef.current = null;
+            onSelectionChange?.(nextValue);
+            onSelectionCommit?.(nextValue);
+          });
+        }
+        return;
+      }
+      isAnimatingRef.current = true;
+      scrollToIndexSafely(api, index);
+      syncTabIndicator(true);
+    },
+    [
+      onSelectionChange,
+      onSelectionCommit,
+      options,
+      releaseHeightFloor,
+      syncTabIndicator,
+      tabSetId,
+    ],
   );
 
   // The route is the selection authority. Page swipes report their new value
@@ -395,14 +601,27 @@ export function SwipeViews({
     if (!emblaApi) return;
     const targetIdx = options.findIndex((opt) => opt.value === activeValue);
     const visualIdx = resolveVisualIndex(emblaApi, options.length);
+
+    // Never undo a selection we made and have already reported upward. It is
+    // released the moment the consumer's own value moves -- to our pane or to
+    // any other -- so a redirect still wins and this can never latch.
+    const pending = pendingSelectionRef.current;
+    if (pending) {
+      if (pending.awaitedFrom !== activeValue) {
+        pendingSelectionRef.current = null;
+      } else if (options[visualIdx]?.value === pending.value) {
+        lastReportedValueRef.current = pending.value;
+        return;
+      }
+    }
+
     if (targetIdx !== -1 && targetIdx !== visualIdx) {
-      scrollToIndexSafely(emblaApi, targetIdx);
-      setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
+      scrollToSelection(emblaApi, targetIdx);
     } else if (!isDraggingRef.current && !hasMovedSincePointerDownRef.current) {
       setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
     }
     lastReportedValueRef.current = activeValue;
-  }, [emblaApi, activeValue, options, tabSetId]);
+  }, [emblaApi, activeValue, options, scrollToSelection, tabSetId]);
 
   // Publish selection at Embla's `select` point. Waiting for `settle` made
   // query-backed tabs look stale on iOS and delayed the visible panel state.
@@ -425,8 +644,12 @@ export function SwipeViews({
     // bound to the same compositor progress through that settle phase instead
     // of letting it jump back to the route-selected index mid-pane motion.
     isDraggingRef.current = false;
+    isAnimatingRef.current = false;
     hasMovedSincePointerDownRef.current = false;
+    // Where the pager physically rests is now the truth; nothing is pending.
+    pendingSelectionRef.current = null;
     setTopShellTabSwipeState(tabSetId, currentIdx, false);
+    releaseHeightFloor();
     const newValue = options[currentIdx]?.value;
     if (newValue && newValue !== lastReportedValueRef.current) {
       lastReportedValueRef.current = newValue;
@@ -435,7 +658,14 @@ export function SwipeViews({
     if (newValue) {
       onSelectionCommit?.(newValue);
     }
-  }, [emblaApi, options, onSelectionChange, onSelectionCommit, tabSetId]);
+  }, [
+    emblaApi,
+    options,
+    onSelectionChange,
+    onSelectionCommit,
+    releaseHeightFloor,
+    tabSetId,
+  ]);
 
   useEffect(() => {
     if (!emblaApi) return;
@@ -505,9 +735,9 @@ export function SwipeViews({
         return;
       // A top-tab press starts the compositor motion immediately. Waiting for
       // Next searchParams made the tab ink update first and the pane lag behind.
-      scrollToIndexSafely(emblaApi, targetIndex);
+      scrollToSelection(emblaApi, targetIndex);
     });
-  }, [emblaApi, options, tabSetId]);
+  }, [emblaApi, options, scrollToSelection, tabSetId]);
 
   useEffect(() => {
     if (!emblaApi) return;
@@ -524,15 +754,32 @@ export function SwipeViews({
     if (!emblaApi) return;
     const onScroll = () => {
       const position = syncTabIndicator();
-      if (
-        typeof position === "number" &&
-        Math.abs(position - activeIndex) > 0.001
-      ) {
+      if (typeof position !== "number") return;
+      if (Math.abs(position - activeIndex) > 0.001) {
         hasMovedSincePointerDownRef.current = true;
+      }
+      // Release the height floor the moment the outgoing pane's trailing edge
+      // clears the viewport, which is what actually ends the clipping risk.
+      //
+      // Measured in px rather than in index units so the threshold means the
+      // same thing at 320px and at 1440px, and read from Embla's own cached
+      // slide width so this stays off the layout path on a per-frame handler.
+      // `settle` is only the backstop -- it does not fire until Embla's spring
+      // numerically converges at ~850ms, which is ~400ms after the panes are
+      // visually in place.
+      const slideWidth =
+        emblaApi.internalEngine?.().slideRects?.[0]?.width ?? 0;
+      const offsetPx =
+        Math.abs(position - activeIndex) * (slideWidth > 0 ? slideWidth : 0);
+      if (slideWidth > 0 && offsetPx <= ARRIVED_TOLERANCE_PX) {
+        releaseHeightFloor();
       }
     };
     const onPointerDown = () => {
       isDraggingRef.current = true;
+      // A finger landing mid-flight takes over from the tap that started it.
+      isAnimatingRef.current = false;
+      pendingSelectionRef.current = null;
       hasMovedSincePointerDownRef.current = false;
       syncTabIndicator(true);
     };
@@ -558,16 +805,28 @@ export function SwipeViews({
       emblaApi.off("pointerDown", onPointerDown);
       emblaApi.off("pointerUp", onPointerUp);
       isDraggingRef.current = false;
+      isAnimatingRef.current = false;
       hasMovedSincePointerDownRef.current = false;
     };
-  }, [activeIndex, emblaApi, syncTabIndicator]);
+  }, [activeIndex, emblaApi, releaseHeightFloor, syncTabIndicator]);
 
   return (
     <div
       data-swipe-views-root="true"
       data-swipe-views-height-mode={heightMode}
+      data-swipe-views-height-settling={
+        heightMode === "active" && heightSettling ? "true" : undefined
+      }
       data-no-auto-fade="true"
-      className={cn("w-full min-h-0 overflow-hidden", className)}
+      className={cn(
+        "w-full min-h-0 overflow-hidden",
+        // Only the release beat eases. Growing has to be instant or the
+        // incoming pane is the one that gets clipped instead.
+        heightMode === "active" &&
+          heightSettling &&
+          "transition-[height] duration-[var(--motion-duration-md)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none",
+        className,
+      )}
       ref={emblaRef}
       style={{
         minHeight: viewportMinHeight,
@@ -596,6 +855,15 @@ export function SwipeViews({
               role="tabpanel"
               aria-labelledby={`top-shell-${tabSetId}-tab-${safeValue}`}
               aria-hidden={!isActive}
+              // `aria-hidden` alone hid these panes from a screen reader while
+              // leaving every button and link inside them in the tab order.
+              // Measured: tabbing off the Location strip walked into the People
+              // and Links buttons while both panes sat off-screen. That is both
+              // the WCAG "no focusable content inside aria-hidden" rule and the
+              // reason a pane the person cannot see could still take a press.
+              // `inert` is what makes the DOM agree with what was already
+              // being announced.
+              inert={!isActive}
               tabIndex={isActive ? 0 : -1}
               data-swipe-panel-inset={panelInset}
               className={cn(
