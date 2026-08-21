@@ -487,16 +487,12 @@ export default function RiaClaimPage() {
   }, []);
 
   const handleBack = useCallback(() => {
-    if (step === "phone") {
-      router.push(returnTo || ROUTES.RIA_ONBOARDING);
-      return;
-    }
     if (step === "found") {
       resetToPhone();
       return;
     }
     setStep("found");
-  }, [resetToPhone, returnTo, router, step]);
+  }, [resetToPhone, step]);
 
   const outcome = lookup?.outcome ?? null;
   const candidates: RiaClaimCandidate[] = lookup?.candidates ?? [];
@@ -556,7 +552,7 @@ export default function RiaClaimPage() {
       />
       <FullscreenFlowShell width="reading" className="px-0">
         <div className="mx-auto flex w-full max-w-[34rem] flex-col gap-6 px-6 pb-[var(--app-scroll-bottom-pad)] pt-4">
-          {step !== "done" ? (
+          {step !== "phone" && step !== "done" ? (
             <button
               type="button"
               onClick={handleBack}
