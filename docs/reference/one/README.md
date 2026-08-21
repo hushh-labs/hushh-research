@@ -43,7 +43,7 @@ for finance-specialist runtime references, and keep future-only One plans under
 
 ## References
 
-- [one-voice-runtime-architecture.md](./one-voice-runtime-architecture.md): current One Voice runtime: ADK `Runner.run_live` over Vertex, One's root agent tree (google_search, open_screen, AgentTool Finance/RIA, specialist turn tools), the browser wire protocol, relay ticket auth, and the consent/directive boundary.
+- [one-voice-runtime-architecture.md](./one-voice-runtime-architecture.md): current One Voice runtime: ADK `Runner.run_live` over the model's declared transport (Gemini Developer API for the canonical live model; Vertex for the rollback), One's root agent tree (google_search, open_screen, AgentTool Finance/RIA, specialist turn tools), the browser wire protocol, relay ticket auth, and the consent/directive boundary.
 - [one-goal-framework.md](./one-goal-framework.md): governed goal planning and running across Gemini Live voice, Agent Chat, typed search, command bar, and UI action buttons.
 - [one-agent-hierarchy.md](./one-agent-hierarchy.md): current One-led app agent hierarchy, A2A/specialist registry, consent authority cascade, and Codex subagent boundary.
 - [gemini-runtime-configuration.md](./gemini-runtime-configuration.md): Connections-owned managed Gemini and Google AI Studio BYOK boundary for typed turns and live voice.

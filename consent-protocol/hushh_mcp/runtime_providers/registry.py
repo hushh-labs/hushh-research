@@ -71,6 +71,14 @@ _MODELS: tuple[ModelEntry, ...] = (
         model="gemini-live-2.5-flash-native-audio",
         supports_native_realtime=True,
     ),
+    # Canonical live model since 2026-08-21. Developer API transport only
+    # (not published on Vertex), so no supported_vertex_locations contract;
+    # the endpoint decision lives in GEMINI_LIVE_COMPATIBILITY (agent_tree).
+    ModelEntry(
+        provider="gemini",
+        model="gemini-3.1-flash-live-preview",
+        supports_native_realtime=True,
+    ),
     # Anthropic -- native SDK adapter; chained-only voice (no native realtime API).
     ModelEntry(
         provider="anthropic",
