@@ -43,8 +43,8 @@ export function OnboardingStepLicense({
             className={cn(
               "min-w-0 flex-1 bg-transparent py-3 text-right text-[17px] font-medium tabular-nums text-foreground placeholder:text-muted-foreground/50 outline-none",
               verificationStatus === "not_found" &&
-                "text-amber-600 dark:text-amber-300",
-              verificationStatus === "error" && "text-red-600 dark:text-red-300"
+                "text-[color:var(--ria-warning-text)]",
+              verificationStatus === "error" && "text-[color:var(--ria-danger-text)]"
             )}
           />
         </label>
@@ -115,10 +115,10 @@ export function OnboardingStepLicense({
           ) : null}
 
           {verificationStatus === "not_found" ? (
-            <div className="rounded-[18px] border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+            <div className="rounded-[18px] border border-[color:var(--ria-warning-border)] bg-[color:var(--ria-warning-bg)] px-4 py-3">
               <div className="flex items-center gap-3">
-                <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                <p className="text-[15px] font-medium text-amber-700 dark:text-amber-300">
+                <AlertCircle className="h-4 w-4 shrink-0 text-[color:var(--ria-warning-text)]" />
+                <p className="text-[15px] font-medium text-[color:var(--ria-warning-text)]">
                   No matching registration found.
                 </p>
               </div>
@@ -129,9 +129,9 @@ export function OnboardingStepLicense({
           ) : null}
 
           {verificationStatus === "error" ? (
-            <div className="flex items-center gap-3 rounded-[18px] border border-red-500/30 bg-red-500/10 px-4 py-3">
-              <AlertCircle className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
-              <p className="text-[15px] font-medium text-red-700 dark:text-red-300">
+            <div className="flex items-center gap-3 rounded-[18px] border border-[color:var(--ria-danger-border)] bg-[color:var(--ria-danger-bg)] px-4 py-3">
+              <AlertCircle className="h-4 w-4 shrink-0 text-[color:var(--ria-danger-text)]" />
+              <p className="text-[15px] font-medium text-[color:var(--ria-danger-text)]">
                 Something went wrong. Please try again.
               </p>
             </div>

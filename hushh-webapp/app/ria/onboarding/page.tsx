@@ -1120,7 +1120,7 @@ export default function RiaOnboardingPage({
 
     if (iamUnavailable) {
       return (
-        <div className="rounded-[var(--ria-card-radius)] border border-amber-200 bg-amber-50 px-4 py-6 text-sm text-foreground">
+        <div className="rounded-[var(--ria-card-radius)] border border-[color:var(--ria-warning-border)] bg-[color:var(--ria-warning-bg)] px-4 py-6 text-sm text-foreground">
           RIA onboarding is unavailable in this environment. The backend IAM
           schema has not been activated yet.
         </div>
@@ -1293,7 +1293,7 @@ export default function RiaOnboardingPage({
             {renderStep()}
 
             {error ? (
-              <div className="mt-4 rounded-[var(--ria-card-radius)] border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400">
+              <div className="mt-4 rounded-[var(--ria-card-radius)] border border-[color:var(--ria-danger-border)] bg-[color:var(--ria-danger-bg)] px-4 py-4 text-sm text-[color:var(--ria-danger-text)]">
                 {error}
               </div>
             ) : null}
