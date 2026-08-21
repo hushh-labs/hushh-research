@@ -246,6 +246,8 @@ jobs:
             --plaid-redirect-path "/kai/plaid/oauth/return" \
             --plaid-tx-history-days "730" \
             --hushh-trusted-device-enabled "false" \
+            --hushh-tech-client-enabled "false" \
+            --hushh-tech-allowed-consent-scopes "" \
             --one-location-nearby-presence-mode "${{ github.event.inputs.nearby_check_in_cohort && 'production' || '' }}" \
             --one-location-nearby-presence-cohort "${{ github.event.inputs.nearby_check_in_cohort }}" \
             > /tmp/prod-runtime-secret-sync.json
@@ -337,7 +339,9 @@ jobs:
 
           (
             cd consent-protocol
-            "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode replay
+            "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release \
+              --release-environment production \
+              --migration-mode replay
           )
 
       - name: Migration governance and DB drift gate
@@ -378,6 +382,7 @@ jobs:
           export DB_NAME="${{ env.PROD_DB_NAME }}"
           export DB_USER DB_PASSWORD
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
+            --release-environment production \
             --report-path /tmp/db-migration-guard-report.json
 
       - name: Generate production migration release manifest

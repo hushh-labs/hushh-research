@@ -447,15 +447,25 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             runtime_vertex_project=runtime_vertex_project,
             runtime_vertex_location=runtime_vertex_location,
         )
-    except ValueError as exc:
+    except (ValueError, RuntimeError) as exc:
         # Safe class-only close reasons. Never reflect the credential or a raw
         # provider response to the browser, logger, telemetry, or websocket.
+        # RuntimeError covers managed_live_key_missing from
+        # _build_one_live_model: the canonical live model rides the
+        # developer_api transport and cannot start without the Hussh-managed
+        # live key, so close cleanly instead of crashing the websocket.
         reason = str(exc)
         logger.info("one_adk_live_runtime_bootstrap_rejected reason=%s", reason)
         if reason == "byok_live_unsupported":
             await _close_quietly(
                 websocket, code=1008, reason="BYOK Live is unavailable. Use managed Gemini."
             )
+        elif reason.startswith("managed_live_key_missing"):
+            logger.error(
+                "one_adk_live_managed_key_missing: managed voice is not "
+                "provisioned in this environment (HUSHH_MANAGED_GEMINI_LIVE_API_KEY)"
+            )
+            await _close_quietly(websocket, code=1013, reason="Voice is temporarily unavailable.")
         else:
             await _close_quietly(
                 websocket, code=1008, reason="Voice session configuration was not accepted."
@@ -613,10 +623,11 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     _schedule_idle_greeting("")
 
     # Last screen injected as model-visible context. Screen changes arrive as
-    # app_context frames; sending content mid-generation PREEMPTS the model's
-    # current turn on the Live API, so screen text is injected only when the
-    # screen truly changed (never for the first frame; session state already
-    # carries it for tools).
+    # app_context frames; on 2.x live models, sending content mid-generation
+    # PREEMPTS the model's current turn on the Live API (on Gemini 3.x live
+    # models the frame rides send_realtime_input, which does not preempt), so
+    # screen text is injected only when the screen truly changed (never for
+    # the first frame; session state already carries it for tools).
     last_injected_route_key: Optional[str] = None
     last_injected_entry_key: Optional[str] = None
     first_app_context_seen = False
@@ -1258,9 +1269,13 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 )
                 # ONE frame for one settlement, continuation included.
                 #
-                # Each `send_content` closes a user turn on the Live API and
-                # elicits a full response, so a settlement that armed a
-                # continuation used to make One answer twice for a single
+                # Each `send_content` elicits a full model response: on 2.x
+                # live models it closes a user turn as client content, and on
+                # Gemini 3.x live models google-adk transposes the single-text
+                # frame into `send_realtime_input(text=...)`, which the
+                # 2026-08-21 ADK rehearsal verified also elicits a complete
+                # turn. Either way, a settlement that armed a continuation
+                # used to make One answer twice for a single
                 # event: once about the outcome, once about the continuation.
                 # That is a second, independent source of the repetition QA
                 # reported, on the journey path rather than the specialist one.

@@ -14,8 +14,8 @@
  * runner, because GCP has no macOS instances and local builds hang inside iCloud
  * Drive. This script is the thin, auditable dispatcher.
  *
- * BACKEND: the public App Store build ships the SAME UAT backend + UAT Firebase
- * (hushh-pda-uat) as TestFlight — the latest frontend+backend that is live on
+ * BACKEND: the public App Store build ships the SAME UAT backend + shared Firebase
+ * authority (hushh-pda; config stored in hushh-pda-uat) as TestFlight — the latest frontend+backend that is live on
  * UAT. It is NOT built against a separate production backend.
  *
  * SAFETY / IRREVERSIBILITY

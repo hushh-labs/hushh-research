@@ -141,6 +141,11 @@
     "160_one_location_system_circles.sql",
     "161_atomic_pkm_scope_exposure.sql"
   ],
+  "environment_overlays": {
+    "uat": [
+      "162_hushh_tech_uat_client_foundation.sql"
+    ]
+  },
   "groups": {
     "iam": [
       "020_ria_iam_foundation.sql",

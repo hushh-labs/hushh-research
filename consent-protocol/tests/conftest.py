@@ -34,7 +34,14 @@ os.environ.setdefault(
 
 @pytest.fixture(autouse=True)
 def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
+    # Local import: hushh_mcp.config resolves APP_SIGNING_KEY at import time,
+    # so importing this at module level (before the setdefault calls above
+    # run) breaks collection in any environment without a real .env -- e.g. a
+    # clean checkout with no dev secrets on disk.
+    from hushh_mcp.services.google_maps_service import clear_places_cache
+
     clear_runtime_settings_caches()
+    clear_places_cache()
     monkeypatch.setenv("TESTING", "true")
     monkeypatch.setenv("APP_SIGNING_KEY", "test_secret_key_for_pytest_only_32chars_min")
     monkeypatch.setenv(
@@ -50,6 +57,7 @@ def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv(key, raising=False)
     yield
     clear_runtime_settings_caches()
+    clear_places_cache()
 
 
 # ============================================================================

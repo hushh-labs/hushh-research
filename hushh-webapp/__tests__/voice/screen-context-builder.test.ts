@@ -16,7 +16,11 @@ import {
   publishVoiceSurfaceMetadata,
 } from "@/lib/voice/voice-surface-metadata";
 
-function makeRuntimeState(pathname: string, screen: string): AppRuntimeState {
+function makeRuntimeState(
+  pathname: string,
+  screen: string,
+  subview: string | null = null,
+): AppRuntimeState {
   return {
     auth: {
       signed_in: true,
@@ -30,7 +34,7 @@ function makeRuntimeState(pathname: string, screen: string): AppRuntimeState {
     route: {
       pathname,
       screen,
-      subview: null,
+      subview,
     },
     runtime: {
       analysis_active: false,
@@ -1250,6 +1254,78 @@ describe("a surface that declares more controls than the context can carry", () 
     });
 
     for (const actionId of localHandlers) {
+      expect(snapshot.available_action_ids).toContain(actionId);
+    }
+    expect(snapshot.available_action_ids.length).toBeLessThanOrEqual(
+      ACTION_ID_SCREEN_SEGMENT_CAP,
+    );
+  });
+
+  it("surfaces the circle actions someone is looking at when the local handlers outgrow even the ranked cap", () => {
+    // Location has grown again: 28 real screen-owned local handlers now, not
+    // the 12 above. Even with every route opener yielding first, that alone
+    // exceeds ACTION_ID_SCREEN_SEGMENT_CAP (14) -- an across-the-board
+    // ranking tie has to drop 14 of these 28 no matter what. Which 14 matters:
+    // on the People tab (subview "people"), it must be the circle-membership
+    // actions, not whichever eight happened to be declared first.
+    window.history.pushState({}, "", "/one/location?view=people");
+    const localHandlers = [
+      "location.accept_circle_invite",
+      "location.add_emergency_contact",
+      "location.add_to_circle",
+      "location.approve_request",
+      "location.change_share_duration",
+      "location.create_circle",
+      "location.decline_circle_invite",
+      "location.decline_request",
+      "location.delete_circle",
+      "location.delete_saved_location",
+      "location.leave_circle",
+      "location.pause_updates",
+      "location.refresh",
+      "location.remove_emergency_contact",
+      "location.remove_from_circle",
+      "location.rename_circle",
+      "location.resume_updates",
+      "location.save_current_location",
+      "location.select_ask_recipient",
+      "location.select_share_recipient",
+      "location.send_check_in",
+      "location.send_request",
+      "location.set_auto_share",
+      "location.share_selected",
+      "location.stop_share",
+      "location.stop_sos",
+      "location.trigger_sos",
+    ];
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "one_location",
+      controls: localHandlers.map((actionId) => ({
+        id: actionId,
+        actionId,
+        label: actionId,
+      })),
+    });
+
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState(
+        "/one/location?view=people",
+        "one_location",
+        "people",
+      ),
+    });
+
+    // What the People tab is for: managing circle membership.
+    const peopleTabActions = [
+      "location.add_to_circle",
+      "location.remove_from_circle",
+      "location.rename_circle",
+      "location.leave_circle",
+      "location.delete_circle",
+      "location.accept_circle_invite",
+      "location.decline_circle_invite",
+    ];
+    for (const actionId of peopleTabActions) {
       expect(snapshot.available_action_ids).toContain(actionId);
     }
     expect(snapshot.available_action_ids.length).toBeLessThanOrEqual(

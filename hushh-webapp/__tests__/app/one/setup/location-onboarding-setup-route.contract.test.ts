@@ -72,7 +72,8 @@ describe("Location setup route contract", () => {
       "enabled && routeReady && !settlementBlocked && !isAlreadyComplete",
     );
     expect(adapter).toContain("if (coordinator.isAlreadyComplete)");
-    expect(adapter).toContain("<LocationOnboardingCompletedScreen");
+    expect(adapter).toContain("<LocationSetupReturn");
+    expect(adapter).not.toContain("<LocationOnboardingCompletedScreen");
     expect(adapter).not.toContain("<CapabilityCinematicIntroGate");
     expect(adapter).not.toContain("<LocationPermissionPrimerGate");
     expect(adapter.indexOf("if (coordinator.isAlreadyComplete)")).toBeLessThan(

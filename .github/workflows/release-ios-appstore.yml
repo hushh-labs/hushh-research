@@ -2,8 +2,9 @@ name: Release iOS to App Store
 
 # Public App Store release for Hushh One iOS. Cuts a build from an exact green
 # `main` SHA and — by product decision — ships the SAME frontend + backend that
-# is live on UAT: it builds the Capacitor app against the UAT backend + UAT
-# Firebase (hushh-pda-uat), signs with Apple-managed signing via an App Store
+# is live on UAT: it builds the Capacitor app against the UAT backend + shared
+# Firebase authority (hushh-pda; config stored in hushh-pda-uat Secret Manager),
+# signs with Apple-managed signing via an App Store
 # Connect API key using the production APNs entitlement (AppRelease.entitlements,
 # required for any store binary), uploads to App Store Connect, sets the required
 # "What's New in This Version" notes, attaches the build, and — when asked — takes
@@ -17,7 +18,7 @@ name: Release iOS to App Store
 #
 # Backend note: this store build points at the UAT backend on purpose (latest
 # frontend + latest backend, matching UAT). Push on a store binary routes through
-# Apple's PRODUCTION APNs, so the UAT Firebase project must hold a production APNs
+# Apple's PRODUCTION APNs, so the shared Firebase project must hold a production APNs
 # key for notifications to deliver — see the runbook.
 #
 # TestFlight sibling: .github/workflows/ship-ios-testflight.yml
@@ -57,8 +58,9 @@ permissions:
 env:
   # This public App Store build ships the UAT frontend + UAT backend by product
   # decision (same as what's live on UAT / TestFlight), so it authenticates to
-  # and reads its contract from hushh-pda-uat, exactly like the TestFlight
-  # pipeline. The App Store vs TestFlight difference is only the submission layer.
+  # and reads its runtime contract from hushh-pda-uat Secret Manager, exactly
+  # like the TestFlight pipeline. Firebase identity remains on hushh-pda. The
+  # App Store vs TestFlight difference is only the submission layer.
   GCP_PROJECT_ID: hushh-pda-uat
   GCP_REGION: us-central1
   IOS_BUNDLE_ID: com.hushh.app
@@ -152,7 +154,8 @@ jobs:
         with:
           # UAT-scoped SA key (repo-level secret, inherited by the production
           # environment). This build's contract, Firebase config, and ASC key all
-          # live in hushh-pda-uat, so it authenticates there like TestFlight does.
+          # live in hushh-pda-uat Secret Manager; the Firebase config itself targets
+          # the shared hushh-pda identity authority.
           credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
 
       - name: Set up gcloud
@@ -249,7 +252,7 @@ jobs:
           put NEXT_PUBLIC_OBSERVABILITY_DEBUG "false"
           put NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE "1"
 
-          # Native GoogleService-Info.plist for the iOS target (UAT Firebase).
+          # Native GoogleService-Info.plist for the shared Firebase authority.
           PLIST_DEST="hushh-webapp/ios/App/App/GoogleService-Info.plist"
           if ! gcloud secrets describe IOS_GOOGLESERVICE_INFO_PLIST_B64 --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
             echo "Missing GCP secret IOS_GOOGLESERVICE_INFO_PLIST_B64 in ${GCP_PROJECT_ID}." >&2
@@ -373,7 +376,7 @@ jobs:
           # CODE_SIGN_ENTITLEMENTS override swaps aps-environment development ->
           # production for the released binary without editing the committed
           # pbxproj. A store binary must use production APNs regardless of which
-          # backend/Firebase it talks to (here UAT), so the UAT Firebase project
+          # backend/Firebase config it talks to, so the shared Firebase project
           # needs a production APNs key for push to deliver -- see the runbook.
           xcodebuild \
             -project "${XCODE_PROJECT}" \

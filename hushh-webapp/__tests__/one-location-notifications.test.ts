@@ -33,6 +33,7 @@ vi.mock("@/lib/services/app-background-task-service", () => ({
 import {
   buildOneLocationWorkflowHref,
   hasSeenOneLocationNotification,
+  locationWorkflowNotificationCopy,
   isOneLocationGrantUnwatched,
   locationShareNotificationCopy,
   markOneLocationGrantOpened,
@@ -210,6 +211,47 @@ describe("One-Location workflow deep-link sections", () => {
     expect(oneLocationSectionForWorkflowNotificationType("location_public_invite_submitted")).toBe("public_responses");
     expect(oneLocationSectionForWorkflowNotificationType("location_one_network_joined")).toBe("people");
     expect(oneLocationSectionForWorkflowNotificationType("location_circle_member_invite")).toBe("people");
+    expect(oneLocationSectionForWorkflowNotificationType("location_circle_member_added")).toBe("people");
+  });
+
+  it("names the person who added you, and never says nobody did", () => {
+    // Nobody accepted anything here, so this notification is the only moment
+    // the person finds out. "You were added to a Circle" is a stranger's hand
+    // on the shoulder; the name is what makes it an ordinary social act.
+    expect(
+      locationWorkflowNotificationCopy({
+        type: "location_circle_member_added",
+        networkLabel: "Neelesh",
+        circleName: "Family",
+      }).description,
+    ).toBe("Neelesh added you to Family.");
+
+    // Without the Circle name it still names the person.
+    expect(
+      locationWorkflowNotificationCopy({
+        type: "location_circle_member_added",
+        networkLabel: "Neelesh",
+      }).description,
+    ).toBe("Neelesh added you to their Circle.");
+
+    // And with nothing resolvable it degrades to the same neutral label every
+    // other One Location line uses -- not to "Someone".
+    const anonymous = locationWorkflowNotificationCopy({
+      type: "location_circle_member_added",
+      circleName: "Family",
+    });
+    expect(anonymous.title).toBe("Added to a Circle");
+    expect(anonymous.description).not.toContain("Someone");
+    expect(anonymous.description).toContain("Family");
+  });
+
+  it("deep links a Circle notification to the Circle it is about", () => {
+    const href = buildOneLocationWorkflowHref({
+      circleId: "circle_1",
+      section: "people",
+    });
+    expect(href).toContain("circleId=circle_1");
+    expect(href).toContain("section=people");
   });
 
   it("keeps a Circle invitation deep link on the People surface", () => {
