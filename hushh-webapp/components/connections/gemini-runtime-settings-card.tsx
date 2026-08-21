@@ -90,6 +90,24 @@ export function GeminiRuntimeSettingsCard({
   onPreVaultDraftCleared,
 }: GeminiRuntimeSettingsCardProps) {
   const [mode, setMode] = useState<RuntimeCredentialMode>("hushh_managed_vertex");
+  // The person's own recorded cloud, when one exists. For them "Use Hussh's
+  // AI" does NOT mean a shared runtime: their pod thinks with their own
+  // project's Vertex AI identity, and that linkage was invisible at the moment
+  // of choice (founder finding, 2026-08-21).
+  const [ownCloudProject, setOwnCloudProject] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void ApiService.getByocSetupStatus()
+      .then((status) => {
+        if (!cancelled && status.status === "recorded" && status.projectId) {
+          setOwnCloudProject(status.projectId);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [hasSavedKey, setHasSavedKey] = useState<boolean | null>(null);
   const [draftKey, setDraftKey] = useState("");
   const [transport, setTransport] = useState<GeminiRuntimeTransport>("developer_api");
@@ -526,7 +544,11 @@ export function GeminiRuntimeSettingsCard({
         asChild
         leading={<GeminiLogo className="h-8 w-8" />}
         title="Use Hussh's AI"
-        description="No key needed."
+        description={
+          ownCloudProject
+            ? `No key needed. Runs in your own project ${ownCloudProject}, on its own Vertex AI identity.`
+            : "No key needed."
+        }
         // The default we want people to take. Until it is chosen the row says
         // so out loud, so the fast path is the obvious one rather than the one
         // you work out by elimination.

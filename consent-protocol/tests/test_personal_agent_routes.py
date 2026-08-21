@@ -280,3 +280,34 @@ def test_status_state_vocabulary_is_closed():
         "failed",
     }
     assert pa._DEFAULT_STATE == "reserved"
+
+
+def test_status_names_the_pods_cloud_identity(monkeypatch):
+    # WHERE the agent lives and AS WHOM it thinks: the pod's public coordinates
+    # were invisible everywhere in the product (founder finding, 2026-08-21).
+    client = _status_client(
+        monkeypatch,
+        row={
+            "status": "provisioned",
+            "hushh_id": "ha1_abc",
+            "user_cloud_project": "hussh-one-kd8rb4",
+            "user_cloud_region": "us-central1",
+            "deployment_target": "user_gcp",
+            "model_credential_mode": "user_adc",
+        },
+        enabled=True,
+    )
+    body = client.get("/api/one/personal-agent/status").json()
+    assert body["cloudProject"] == "hussh-one-kd8rb4"
+    assert body["cloudRegion"] == "us-central1"
+    assert body["deploymentTarget"] == "user_gcp"
+    assert body["credentialMode"] == "user_adc"
+
+
+def test_status_omits_cloud_identity_when_unrecorded(monkeypatch):
+    client = _status_client(
+        monkeypatch, row={"status": "pending", "hushh_id": "ha1_abc"}, enabled=True
+    )
+    body = client.get("/api/one/personal-agent/status").json()
+    assert "cloudProject" not in body
+    assert "credentialMode" not in body

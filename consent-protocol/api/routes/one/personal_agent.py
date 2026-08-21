@@ -279,6 +279,25 @@ async def resolve_personal_agent_status(
     if hushh_id:
         result["hushhId"] = hushh_id
 
+    # WHERE the agent lives and AS WHOM it reaches its model -- the pod's public
+    # identity, which the interface previously never showed anywhere (founder
+    # finding, 2026-08-21: "the pod is not integrated end to end in the
+    # interface"). Coordinates only, present only when recorded on the row:
+    # project and region are the person's OWN, and `user_adc` is the fact that
+    # their project's own Vertex identity serves their agent.
+    cloud_project = str((row or {}).get("user_cloud_project") or "").strip()
+    if cloud_project:
+        result["cloudProject"] = cloud_project
+        cloud_region = str((row or {}).get("user_cloud_region") or "").strip()
+        if cloud_region:
+            result["cloudRegion"] = cloud_region
+    deployment_target = str((row or {}).get("deployment_target") or "").strip()
+    if deployment_target:
+        result["deploymentTarget"] = deployment_target
+    credential_mode = str((row or {}).get("model_credential_mode") or "").strip()
+    if credential_mode:
+        result["credentialMode"] = credential_mode
+
     # Health is reported ONLY when there is a host to have health and the liveness
     # sweep has actually reached a verdict. `unknown` (the column default, and the
     # state of every row until the sweep is switched on) is deliberately omitted

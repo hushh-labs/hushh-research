@@ -3770,6 +3770,10 @@ export class ApiService {
     hushhId?: string | null;
     health?: string | null;
     lastSeenAt?: string | null;
+    cloudProject?: string | null;
+    cloudRegion?: string | null;
+    deploymentTarget?: string | null;
+    credentialMode?: string | null;
   }> {
     const firebaseIdToken = await this.getFirebaseToken();
     const response = await ApiService.apiFetch("/api/one/personal-agent/status", {

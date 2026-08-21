@@ -104,6 +104,7 @@ export function useAgentDeploymentFollow(options?: {
   following: boolean;
   hushhId: string | null;
   health: string | null;
+  cloud: { project: string; region: string | null; credentialMode: string | null } | null;
 } {
   const enabled = options?.enabled ?? true;
   const userId = options?.userId ?? null;
@@ -116,6 +117,13 @@ export function useAgentDeploymentFollow(options?: {
   // Present only when the liveness sweep reached a real verdict. Absent means
   // absent; the backend deliberately does not default it to "healthy".
   const [health, setHealth] = useState<string | null>(null);
+  // WHERE the agent lives and AS WHOM it reaches its model. The pod had no
+  // visible identity anywhere in the product (founder finding, 2026-08-21).
+  const [cloud, setCloud] = useState<{
+    project: string;
+    region: string | null;
+    credentialMode: string | null;
+  } | null>(null);
   // Refs, not state: these drive the loop and must not themselves re-trigger it.
   const previousRef = useRef<string | null>(null);
   const startedAtRef = useRef<number>(Date.now());
@@ -142,6 +150,15 @@ export function useAgentDeploymentFollow(options?: {
           // would leave it unaddressable for exactly the people who have one.
           setHushhId(res?.hushhId ? String(res.hushhId) : null);
           setHealth(res?.health ? String(res.health) : null);
+          setCloud(
+            res?.cloudProject
+              ? {
+                  project: String(res.cloudProject),
+                  region: res?.cloudRegion ? String(res.cloudRegion) : null,
+                  credentialMode: res?.credentialMode ? String(res.credentialMode) : null,
+                }
+              : null,
+          );
         }
       } catch (error) {
         consecutiveFailuresRef.current += 1;
@@ -271,7 +288,7 @@ export function useAgentDeploymentFollow(options?: {
     // a fresh deadline and its own background-task card.
   }, [enabled, userId]);
 
-  return { state, following, hushhId, health };
+  return { state, following, hushhId, health, cloud };
 }
 
 export { DEPLOYMENT_POLL_INTERVAL_MS };

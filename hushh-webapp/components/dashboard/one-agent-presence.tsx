@@ -112,7 +112,7 @@ export function OneAgentPresence() {
   // No `userId` on purpose: the Feed owns registering the deployment in the
   // background-work rail, and one owner is better than two components agreeing.
   // The chip is a reader here, not a second reporter.
-  const { state: followed, health } = useAgentDeploymentFollow();
+  const { state: followed, health, cloud } = useAgentDeploymentFollow();
   const state: AgentState | null = toAgentState(followed);
 
   // Nothing known yet, so nothing claimed. Rendering the chip with a fabricated
@@ -164,6 +164,22 @@ export function OneAgentPresence() {
               ? "Asleep to save you money. It wakes the moment you use it."
               : copy.body}
         </span>
+        {/* WHERE it lives and AS WHOM it thinks. The pod had no visible
+            identity anywhere in the product (founder finding, 2026-08-21);
+            these are the person's OWN coordinates, so naming them is the
+            architecture speaking, not jargon. */}
+        {cloud ? (
+          <span
+            className="mt-0.5 block text-[12px] leading-snug text-muted-foreground/80"
+            data-testid="one-agent-cloud-identity"
+          >
+            In your project {cloud.project}
+            {cloud.region ? ` (${cloud.region})` : ""}
+            {cloud.credentialMode === "user_adc"
+              ? ", thinking with your own project's Vertex AI"
+              : ""}
+          </span>
+        ) : null}
       </span>
     </section>
   );
