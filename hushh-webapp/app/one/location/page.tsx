@@ -387,6 +387,9 @@ const SHARE_VOICE_DURATION_VALUES = new Set<string>([
   ...SHARE_DURATION_LADDER.map((rung) => rung.value),
   SHARE_DURATION_UNTIL_STOP_VALUE,
   "0.5",
+  "2",
+  "4",
+  "8",
   "24",
 ]);
 
