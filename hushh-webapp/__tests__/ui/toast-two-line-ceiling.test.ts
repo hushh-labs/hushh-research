@@ -103,4 +103,40 @@ describe("toast two-line ceiling", () => {
         `screen behind the toast:\n${offenders.join("\n")}`,
     ).toEqual([]);
   });
+
+  it("never stacks a description under the title", () => {
+    // Two clamped blocks stack, so a toast carrying both reaches three lines.
+    // Two is the rule, so a toast is one block: whatever matters goes in the
+    // title. 65 call sites were collapsed for this — 23 merged into their
+    // title, and 42 whose description was either generic ("Please try again.")
+    // or an unbounded server string, which is what made a four-line toast to
+    // begin with.
+    const offenders: string[] = [];
+
+    for (const dir of ["app", "components", "lib"]) {
+      for (const file of sourceFiles(join(WEBAPP, dir))) {
+        const src = readFileSync(file, "utf8");
+        for (const call of src.matchAll(/\btoast(?:\.\w+)?\s*\(/g)) {
+          // Only the options object of THIS call. A `description` in a type
+          // annotation or a nested object is none of this rule's business —
+          // searching for one without knowing its call is how the first
+          // attempt at this ate a function signature.
+          const rest = src.slice(call.index! + call[0].length);
+          const close = rest.indexOf(");");
+          const args = close === -1 ? rest.slice(0, 600) : rest.slice(0, close);
+          if (/^[^)]*,\s*\{[^}]*\bdescription\s*:/s.test(args)) {
+            const line = src.slice(0, call.index!).split("\n").length;
+            offenders.push(`${file.slice(WEBAPP.length + 1)}:${line}`);
+          }
+        }
+      }
+    }
+
+    expect(
+      offenders,
+      `These toasts pass a description, which stacks a second clamped block ` +
+        `under the title and takes the toast past two lines. Fold what ` +
+        `matters into the title instead:\n${offenders.join("\n")}`,
+    ).toEqual([]);
+  });
 });

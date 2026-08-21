@@ -113,9 +113,7 @@ export default function MarketplaceRiaProfilePageClient() {
         addresseeUserId: profile.user_id,
         message: "Would like to connect.",
       });
-      toast.success("Advisory request sent", {
-        description: "The advisor can review it in their pending connections.",
-      });
+      toast.success("Advisory request sent. The advisor can review it in their pending connections.");
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (requestError) {
       toast.error(
