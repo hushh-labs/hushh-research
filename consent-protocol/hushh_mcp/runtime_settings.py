@@ -103,6 +103,18 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "db_bulk_batching_enabled": "DB_BULK_BATCHING_ENABLED",
     "hushh_trusted_device_enabled": "HUSSH_TRUSTED_DEVICE_ENABLED",
     "hushh_trusted_device_uat_allowlist": "HUSSH_TRUSTED_DEVICE_UAT_ALLOWLIST",
+    # UAT-only Hushh Tech client. Non-secret policy lives in the structured
+    # config; the launch-code pepper remains a direct Secret Manager binding.
+    "hushh_tech_client_enabled": "HUSSH_TECH_CLIENT_ENABLED",
+    "hushh_tech_developer_app_id": "HUSSH_TECH_DEVELOPER_APP_ID",
+    "hushh_tech_allowed_audience": "HUSSH_TECH_ALLOWED_AUDIENCE",
+    "hushh_tech_allowed_redirect_uris": "HUSSH_TECH_ALLOWED_REDIRECT_URIS",
+    "hushh_tech_allowed_consent_scopes": "HUSSH_TECH_ALLOWED_CONSENT_SCOPES",
+    "hushh_tech_uat_firebase_uid_allowlist": "HUSSH_TECH_UAT_FIREBASE_UID_ALLOWLIST",
+    "hushh_tech_shadow_max_age_ms": "HUSSH_TECH_SHADOW_MAX_AGE_MS",
+    "hushh_tech_trusted_proxy_hops": "HUSSH_TECH_TRUSTED_PROXY_HOPS",
+    "hushh_tech_proxy_audience": "HUSSH_TECH_PROXY_AUDIENCE",
+    "hushh_tech_trusted_proxy_service_accounts": ("HUSSH_TECH_TRUSTED_PROXY_SERVICE_ACCOUNTS"),
     "one_wallet_card_enabled": "ONE_WALLET_CARD_ENABLED",
     "wallet_pass_team_identifier": "WALLET_PASS_TEAM_IDENTIFIER",
     "wallet_pass_type_identifier": "WALLET_PASS_TYPE_IDENTIFIER",

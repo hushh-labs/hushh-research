@@ -198,7 +198,12 @@ class ReferralRequest(_CamelModel):
 
 
 class CreatePublicInviteRequest(_CamelModel):
-    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=24)
+    # `le=1`, not `le=24`. A public link is readable by anyone holding it, which
+    # is a different promise from a private share to a named person who can be
+    # un-shared -- and 24 was the private ceiling, copied. The service checks it
+    # again (PUBLIC_INVITE_MAX_DURATION_HOURS): this stops the request at the
+    # edge with a field-level error, that one holds for every other caller.
+    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=1)
     location_snapshot: dict[str, Any] | None = Field(default=None, alias="locationSnapshot")
 
 
@@ -814,6 +819,37 @@ def bootstrap_named_location_circle(
         raise _handle_error(exc) from exc
 
 
+@router.post("/location/circles/sms-system")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def ensure_sms_system_circle_route(
+    request: Request,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Find-or-create the caller's SMS Circle and fold their contacts into it.
+
+    Called on bootstrap, so it is a find-or-create rather than a create: the
+    second and every later call return the same Circle, and a contact the owner
+    has since removed is not re-added (see `ensure_sms_system_circle`).
+
+    Vault-owner token, unlike the onboarding bootstrap route above, because this
+    one migrates real recipients rather than minting an empty Circle -- it reads
+    who the owner picked for emergency SMS, which is exactly the material the
+    vault gate exists to protect.
+    """
+
+    del request
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "circle": _circle_service().ensure_sms_system_circle(
+                owner_user_id=_user_id(token_data),
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.delete("/location/circles/{circle_id}/invite-code")
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def revoke_named_location_circle_code(
@@ -918,12 +954,17 @@ def create_named_circle_member_invites(
         actor_user_id = _user_id(token_data)
         service = _circle_service()
         invitee_user_ids = list(dict.fromkeys(payload.invitee_user_ids))
+        result = service.create_member_invites(
+            actor_user_id=actor_user_id,
+            circle_id=str(payload.circle_id),
+            invitee_user_ids=invitee_user_ids,
+        )
+        # `invites` is always empty now -- connections are added outright
+        # rather than invited -- and is kept so older clients parse the same
+        # shape. `added` is what actually happened.
         return {
-            "invites": service.create_member_invites(
-                actor_user_id=actor_user_id,
-                circle_id=str(payload.circle_id),
-                invitee_user_ids=invitee_user_ids,
-            )["invites"]
+            "invites": result.get("invites") or [],
+            "added": list(result.get("addedUserIds") or []),
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -1003,10 +1044,18 @@ def cancel_named_circle_member_invite(
 
 
 @router.post("/location/public-invites")
+# Every sibling mutation on this router is throttled and this one was not, so
+# nothing stood between a retry loop -- or a double tap on a slow connection --
+# and a run of simultaneously live public links. Same budget as the circle
+# mutations: minting a link people can watch you through is not something
+# anyone does six times a minute on purpose.
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def create_public_location_invite(
+    request: Request,
     payload: CreatePublicInviteRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
+    del request
     try:
         return _service().create_public_invite(
             owner_user_id=_user_id(token_data),
@@ -1044,10 +1093,13 @@ def submit_public_location_invite(
 
 
 @router.delete("/location/public-invites/{invite_id}")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def revoke_public_location_invite(
+    request: Request,
     invite_id: _InviteId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
+    del request
     try:
         return {
             "invite": _service().revoke_public_invite(

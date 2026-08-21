@@ -141,11 +141,24 @@ def _default_directory_visible(owner_user_id: str, candidate_user_id: str) -> bo
     )
 
 
-def _default_notifier(*, addressee_user_id: str, requester_user_id: str) -> None:
-    """Best-effort real push (deferred import keeps Firebase off the import path)."""
+def _default_notifier(
+    *,
+    addressee_user_id: str,
+    requester_user_id: str,
+    connection_request_id: str | None = None,
+) -> None:
+    """Best-effort real push (deferred import keeps Firebase off the import path).
+
+    ``connection_request_id`` is forwarded so the notification can deep-link
+    straight to the review sheet; without it a tap can only open the list.
+    """
     from hushh_mcp.services.push_notifications import send_connection_request_push
 
-    send_connection_request_push(addressee_user_id, requester_user_id)
+    send_connection_request_push(
+        addressee_user_id,
+        requester_user_id,
+        connection_request_id=connection_request_id,
+    )
 
 
 def _default_scope_entries_lookup(owner_user_id: str) -> list[dict[str, Any]]:
@@ -792,7 +805,7 @@ class ConnectionsService:
                         event_type="PROPOSED",
                         actor_user_id=requester_user_id,
                     )
-        self._notify_new_request(target, requester_user_id)
+        self._notify_new_request(target, requester_user_id, request_id)
         # Avoid a redundant post-insert read for ordinary connections. Scoped
         # requests are hydrated from the canonical child rows on the next
         # request/list read; authority never comes from this response.
@@ -955,7 +968,7 @@ class ConnectionsService:
                         AND NOT EXISTS (SELECT 1 FROM connected)
                         AND NOT EXISTS (SELECT 1 FROM existing)
                       ON CONFLICT DO NOTHING
-                      RETURNING requester_user_id, addressee_user_id
+                      RETURNING id, requester_user_id, addressee_user_id
                     )
                     SELECT
                       e.addressee_user_id AS target_user_id,
@@ -969,7 +982,11 @@ class ConnectionsService:
                         WHEN EXISTS (SELECT 1 FROM existing) THEN 'pending_incoming'
                         ELSE 'pending_outgoing'
                       END AS relationship,
-                      EXISTS (SELECT 1 FROM inserted) AS created
+                      EXISTS (SELECT 1 FROM inserted) AS created,
+                      -- The new row's id, so the nudge can deep-link to the
+                      -- review sheet. Without it this path could only ever send
+                      -- the unscoped Connections-list link.
+                      (SELECT i.id FROM inserted i LIMIT 1) AS created_request_id
                     FROM eligible e
                     WHERE EXISTS (SELECT 1 FROM connected)
                        OR EXISTS (SELECT 1 FROM existing)
@@ -988,6 +1005,7 @@ class ConnectionsService:
             self._notify_new_request(
                 str(row.get("target_user_id") or ""),
                 requester,
+                str(row.get("created_request_id") or ""),
             )
         return {"relationship": str(row.get("relationship") or "")}
 
@@ -1023,8 +1041,22 @@ class ConnectionsService:
         """
         return (x, y) if x < y else (y, x)
 
-    def _notify_new_request(self, addressee_user_id: str, requester_user_id: str) -> None:
-        """Fire the (best-effort) addressee nudge. Never raises."""
+    def _notify_new_request(
+        self,
+        addressee_user_id: str,
+        requester_user_id: str,
+        connection_request_id: str | None = None,
+    ) -> None:
+        """Fire the (best-effort) addressee nudge. Never raises.
+
+        ``connection_request_id`` is what lets the notification deep-link to the
+        review sheet rather than the Connections list -- the Consent Center opens
+        that sheet purely from ``?requestId``. It is threaded through here rather
+        than re-queried in the notifier because both call sites already hold it.
+        The requester's display name is deliberately NOT looked up here: this
+        runs immediately after a write, and the notifier resolves it lazily so a
+        cosmetic read never sits on the request path.
+        """
         notifier = getattr(self, "_notifier", None)
         if notifier is None:
             return
@@ -1032,6 +1064,7 @@ class ConnectionsService:
             notifier(
                 addressee_user_id=addressee_user_id,
                 requester_user_id=requester_user_id,
+                connection_request_id=str(connection_request_id or "").strip() or None,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("connections.notify_failed error=%s", exc)
@@ -1351,6 +1384,48 @@ class ConnectionsService:
                 actor_user_id=actor_user_id,
                 reason=reason,
             )
+
+    def _end_one_location_circle_memberships(
+        self,
+        *,
+        user_a_id: str,
+        user_b_id: str,
+    ) -> None:
+        """Take a disconnected pair out of each other's Circles.
+
+        Revoking the connection is not enough on its own. One Location decides
+        whether a location may be delivered by asking for an active non-Circle
+        connection origin OR a shared active Circle -- so a membership that
+        outlives the connection keeps the second arm of that OR true, and the
+        person who disconnected keeps receiving live location and, through the
+        system Circle's roster, an address in an emergency SMS.
+
+        Runs on this transaction's connection so it commits with the
+        disconnect, and AFTER the connection row is revoked: the grant
+        reconciliation inside asks whether an independent relationship still
+        supports each share, and would answer yes to a connection this
+        statement is in the middle of ending.
+        """
+
+        connection = getattr(self, "_transaction_connection", None)
+        if connection is None:
+            # Only reachable behind the lightweight doubles `_transaction`
+            # falls back to; a real runtime database always exposes
+            # `engine.begin`. Loud, because silently skipping this leaves a
+            # live location path open.
+            logger.warning(
+                "connections.disconnect_circle_cleanup_skipped_no_transaction",
+            )
+            return
+        from hushh_mcp.services.one_location_circle_service import (
+            OneLocationCircleService,
+        )
+
+        OneLocationCircleService.end_memberships_for_disconnected_pair(
+            connection,
+            user_a_id=user_a_id,
+            user_b_id=user_b_id,
+        )
 
     def _revoke_pair_capabilities(
         self,
@@ -2155,6 +2230,11 @@ class ConnectionsService:
                 """,
                 {"id": (connection_id or "").strip()},
             )
+            if conn:
+                self._end_one_location_circle_memberships(
+                    user_a_id=str(user_a or ""),
+                    user_b_id=str(user_b or ""),
+                )
         if conn:
             user_a_id = str(user_a or "")
             user_b_id = str(user_b or "")

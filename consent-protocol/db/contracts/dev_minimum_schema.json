@@ -1,9 +1,9 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 157,
+  "expected_migration_version": 161,
   "migration_version_policy": "minimum",
+
   "required_functions": [
-    "merge_domain_summary",
     "merge_pkm_domain_summary",
     "remove_domain_summary_key",
     "upsert_pkm_data_blob",
@@ -20,7 +20,9 @@
     "delete_pkm_domain_v2",
     "delete_pkm_domain_v3",
     "prune_expired_pkm_domain_revisions_v1",
-    "prune_expired_pkm_recovery_for_user_v1"
+    "prune_expired_pkm_recovery_for_user_v1",
+    "commit_pkm_scope_exposure_v1",
+    "repair_pkm_scope_exposure_revision_v1"
   ],
   "required_tables": {
     "vault_keys": [

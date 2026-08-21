@@ -24,19 +24,25 @@ def _release_versions(manifest: dict) -> list[int]:
 
 def test_kai_plaid_tables_are_registered_in_release_manifest_and_contracts():
     manifest = _json(ROOT / "db" / "release_migration_manifest.json")
-    release_versions = _release_versions(manifest)
+    base_versions = _release_versions(manifest)
+    uat_versions = base_versions + [
+        int(name.split("_", 1)[0])
+        for name in manifest["environment_overlays"]["uat"]
+        if name[:3].isdigit()
+    ]
 
     assert MIGRATION.exists()
     assert MIGRATION_NAME in manifest["ordered_migrations"]
     assert len(manifest["ordered_migrations"]) == len(set(manifest["ordered_migrations"]))
 
-    for contract_name in (
-        "dev_minimum_schema.json",
-        "uat_integrated_schema.json",
-        "prod_core_schema.json",
-    ):
+    expected_heads = {
+        "dev_minimum_schema.json": max(base_versions),
+        "prod_core_schema.json": max(base_versions),
+        "uat_integrated_schema.json": max(uat_versions),
+    }
+    for contract_name, expected_head in expected_heads.items():
         contract = _json(CONTRACTS / contract_name)
-        assert contract["expected_migration_version"] == max(release_versions)
+        assert contract["expected_migration_version"] == expected_head
         required_tables = contract["required_tables"]
         for table in (
             "kai_plaid_items",

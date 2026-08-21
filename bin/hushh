@@ -45,12 +45,14 @@ Operational commands:
   db report-prod-posture [--json]
   compose <subcommand>
   protocol <subcommand>
-  sync <main|check-main>
+  sync <main|verify-merge|check-main>
+  rollback <uat|production> [backend|frontend|all] --reason "<reason>"
 
 Run:
   ./bin/hushh compose --help
   ./bin/hushh protocol --help
   ./bin/hushh sync --help
+  ./bin/hushh rollback --help
   ./bin/hushh codex --help
 EOF
 }
@@ -90,6 +92,7 @@ sync_usage() {
   cat <<'EOF'
 Usage:
   ./bin/hushh sync main
+  ./bin/hushh sync verify-merge
   ./bin/hushh sync check-main
 EOF
 }
@@ -401,6 +404,10 @@ run_sync() {
       shift
       exec bash "$REPO_ROOT/scripts/git/sync-main.sh" "$@"
       ;;
+    verify-merge)
+      shift
+      exec bash "$REPO_ROOT/scripts/git/verify-merge.sh" "$@"
+      ;;
     check-main)
       shift
       exec sh "$REPO_ROOT/scripts/git/check-main-sync.sh" "$@"
@@ -412,6 +419,38 @@ run_sync() {
     *)
       sync_usage
       exit 1
+      ;;
+  esac
+}
+
+rollback_usage() {
+  cat <<'EOF'
+Usage:
+  ./bin/hushh rollback <uat|production> [backend|frontend|all] --reason "<reason>" \
+      [--backend-revision <revision>] [--frontend-revision <revision>]
+
+Dispatches .github/workflows/rollback.yml and watches it to completion. Moves
+Cloud Run traffic straight to a known-good revision, without a git revert PR
+first. Blank revision flags fall back to the deployed/<env>-latest tag.
+
+Requires `gh` authenticated as an actor already allowed to dispatch a deploy
+to that environment (config/ci-governance.json manual_dispatch_users) — this
+reuses that allowlist, it does not grant anything new.
+EOF
+}
+
+run_rollback() {
+  [ "$#" -ge 1 ] || {
+    rollback_usage
+    exit 1
+  }
+  case "${1:-}" in
+    -h|--help)
+      rollback_usage
+      exit 0
+      ;;
+    *)
+      exec bash "$REPO_ROOT/scripts/ci/dispatch-rollback.sh" "$@"
       ;;
   esac
 }
@@ -637,6 +676,7 @@ EOF
         --project hushh-pda-uat \
         --region us-central1 \
         --service consent-protocol \
+        --release-environment uat \
         --contract-file "$REPO_ROOT/consent-protocol/db/contracts/uat_integrated_schema.json")
       if [ -n "$report_path" ]; then
         cmd+=(--report-path "$report_path")
@@ -668,7 +708,8 @@ EOF
         --project "${DEV_PROJECT_ID:-hushh-pda-dev}" \
         --region us-central1 \
         --service consent-protocol \
-        --contract-file "$REPO_ROOT/consent-protocol/db/contracts/uat_integrated_schema.json")
+        --release-environment production \
+        --contract-file "$REPO_ROOT/consent-protocol/db/contracts/dev_minimum_schema.json")
       if [ -n "$report_path" ]; then
         cmd+=(--report-path "$report_path")
       fi
@@ -877,6 +918,9 @@ EOF
     ;;
   sync)
     run_sync "$@"
+    ;;
+  rollback)
+    run_rollback "$@"
     ;;
   *)
     main_usage

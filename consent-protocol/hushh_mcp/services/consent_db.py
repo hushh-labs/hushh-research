@@ -2365,6 +2365,9 @@ class ConsentDBService:
         """Atomically lease continuous-refresh jobs across tabs and devices."""
 
         db = self._get_db()
+        # ``DatabaseClient.rpc`` executes immediately and returns a QueryResult.
+        # Chaining ``.execute()`` here turns a successful refresh claim into an
+        # AttributeError, which makes the Memory surface report a 503.
         response = db.rpc(
             "claim_consent_export_refresh_jobs_v2",
             {
@@ -2372,7 +2375,7 @@ class ConsentDBService:
                 "p_limit": max(1, min(int(limit), 100)),
                 "p_lease_seconds": max(30, min(int(lease_seconds), 900)),
             },
-        ).execute()
+        )
         return [row for row in (response.data or []) if isinstance(row, dict)]
 
     async def get_claimed_consent_export_refresh_job(
@@ -2527,7 +2530,9 @@ class ConsentDBService:
 
         try:
             # Call the cleanup function
-            response = db.rpc("cleanup_expired_consent_exports").execute()
+            # ``rpc`` already returns the executed QueryResult; keep this
+            # maintenance path consistent with the refresh-claim contract.
+            response = db.rpc("cleanup_expired_consent_exports")
 
             if response.data is not None:
                 deleted_count = response.data

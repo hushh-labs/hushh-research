@@ -3,6 +3,35 @@
 # Wrapper that delegates to consent-protocol's shared monorepo hook logic.
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+
+# A conflicted merge (had conflicts, hand-resolved, concluded with an
+# explicit `git commit`) never fires pre-merge-commit -- git only calls that
+# hook for a merge that completed WITHOUT conflicts. This is the exact case
+# the 2026-08-19 incident review found most likely to hide a silently
+# dropped fix, so it gets checked here instead. See
+# ~/.claude/skills/merge-regression-guard and .githooks/pre-merge-commit,
+# which shares this same advisory-by-default / HUSHH_MERGE_REGRESSION_BLOCK
+# behavior.
+CHECKER="$REPO_ROOT/scripts/git/check-merge-regression.sh"
+# git-path, not "$REPO_ROOT/.git" — a linked worktree's .git is a FILE, so
+# that path silently never resolves. Caught by end-to-end hook testing.
+MERGE_HEAD_PATH=$(git rev-parse --git-path MERGE_HEAD 2>/dev/null)
+if [ -n "$MERGE_HEAD_PATH" ] && [ -f "$MERGE_HEAD_PATH" ] && [ -f "$CHECKER" ]; then
+  BASE=$(git merge-base HEAD MERGE_HEAD 2>/dev/null)
+  UPSTREAM=$(git rev-parse MERGE_HEAD 2>/dev/null)
+  if [ -n "$BASE" ] && [ -n "$UPSTREAM" ]; then
+    MODE="warn"
+    [ "${HUSHH_MERGE_REGRESSION_BLOCK:-0}" = "1" ] && MODE="block"
+    MERGE_REGRESSION_MODE="$MODE" bash "$CHECKER" "$BASE" "$UPSTREAM" --worktree
+    STATUS=$?
+    if [ "$STATUS" -ne 0 ] && [ "$MODE" = "block" ]; then
+      echo "" >&2
+      echo "[pre-commit] Blocked: unset HUSHH_MERGE_REGRESSION_BLOCK or re-resolve." >&2
+      exit "$STATUS"
+    fi
+  fi
+fi
+
 DELEGATE="$REPO_ROOT/consent-protocol/ops/monorepo/pre-commit.sh"
 
 if [ ! -f "$DELEGATE" ]; then

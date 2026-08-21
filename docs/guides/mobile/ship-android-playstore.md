@@ -11,7 +11,7 @@ Canonical visual owner: [Mobile Guide](../mobile.md).
 ## What this is
 
 One click cuts a Hussh One Android App Bundle (`.aab`) from an explicitly selected green `main` SHA,
-builds the Capacitor app against the **UAT backend + UAT Firebase**, signs it with the
+builds the Capacitor app against the **UAT backend + shared Firebase authority**, signs it with the
 **Android Release Upload Keystore**, and **uploads it to Google Play Console** (internal, alpha,
 beta, or production track).
 

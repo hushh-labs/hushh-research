@@ -23,20 +23,13 @@ import styles from "./HushhIntroGate.module.css";
  * own render fall through to `{children}` (the home page), with no splash
  * of any kind.
  *
- * Sequence — a soft splash, not a cinematic logo reveal: a slow mist of
- * blurred purple/pink/blue drifts up from below the screen through the
- * centre and out past the top (~2.5s, Zomato-referenced motion, an
- * original organic-cloud treatment); the 🤫 mark and "Hussh One." reveal
- * gradually through the still-moving mist; that holds for 1.5s; it then
- * slowly cross-dissolves over 750ms — with a soft blur and a light upward
- * drift, never an instant swap — into "Hi, {first name}" / "Welcome to
- * One." (the real signed-in user's first name — already available here
- * via Firebase auth, which resolves before the vault ever does; "Hi
- * there" is only a fallback for the rare case neither a display name nor
- * an email local-part exists); that holds for another 1.5s; the whole
- * screen then fades gently to reveal whatever's already mounted
- * underneath — and only THEN does `VaultLockGuard` mount for the first
- * time and reveal the vault screen.
+ * Sequence — a single soft greeting, not a two-screen cinematic reveal:
+ * the 🤫 mark and "Hi, {first name}" / "Welcome to One." appear together,
+ * hold briefly, then fade gently to reveal whatever's mounted underneath.
+ * The real signed-in user's first name is already available here via
+ * Firebase auth; "Hi there" is only a fallback for the rare case neither a
+ * display name nor an email local-part exists. Only THEN does
+ * `VaultLockGuard` mount for the first time and reveal the vault screen.
  *
  * Replay behaviour comes for free from how Next.js layouts work: this
  * component lives in the `/one` layout, which stays mounted across every
@@ -53,18 +46,14 @@ import styles from "./HushhIntroGate.module.css";
  * `{children}` mount immediately with no overlay at all.
  * ──────────────────────────────────────────────────────────── */
 
-type Phase = "idle" | "sweep" | "greet1" | "greet2" | "exit";
+type Phase = "idle" | "greet" | "exit";
 
 const SWEEP_DELAY_MS = 20;
-const MIST_TO_MARK_MS = 1250;
-const GREET1_HOLD_MS = 1500;
-const GREET2_HOLD_MS = 1500;
-const EXIT_DURATION_MS = 420;
+const GREETING_HOLD_MS = 1080;
+const EXIT_DURATION_MS = 340;
 const EXIT_BUFFER_MS = 80;
 
-const GREET1_AT_MS = SWEEP_DELAY_MS + MIST_TO_MARK_MS;
-const GREET2_AT_MS = GREET1_AT_MS + GREET1_HOLD_MS;
-const EXIT_AT_MS = GREET2_AT_MS + GREET2_HOLD_MS;
+const EXIT_AT_MS = SWEEP_DELAY_MS + GREETING_HOLD_MS;
 const TOTAL_DURATION_MS = EXIT_AT_MS + EXIT_DURATION_MS + EXIT_BUFFER_MS;
 
 function resolveFirstName(
@@ -98,9 +87,7 @@ export function HushhIntroGate({ children }: { children: ReactNode }) {
     }
 
     const timers: number[] = [];
-    timers.push(window.setTimeout(() => setPhase("sweep"), SWEEP_DELAY_MS));
-    timers.push(window.setTimeout(() => setPhase("greet1"), GREET1_AT_MS));
-    timers.push(window.setTimeout(() => setPhase("greet2"), GREET2_AT_MS));
+    timers.push(window.setTimeout(() => setPhase("greet"), SWEEP_DELAY_MS));
     timers.push(window.setTimeout(() => setPhase("exit"), EXIT_AT_MS));
     timers.push(
       window.setTimeout(() => {
@@ -126,7 +113,12 @@ export function HushhIntroGate({ children }: { children: ReactNode }) {
   const firstName = resolveFirstName(user?.displayName, user?.email);
 
   return (
-    <div aria-hidden="true" className={styles.root} data-phase={phase}>
+    <div
+      aria-hidden="true"
+      className={styles.root}
+      data-phase={phase}
+      data-testid="hushh-intro-gate"
+    >
       <div className={styles.mist}>
         <div className={`${styles.blob} ${styles.blobPurple}`} />
         <div className={`${styles.blob} ${styles.blobPink}`} />
@@ -137,9 +129,6 @@ export function HushhIntroGate({ children }: { children: ReactNode }) {
         <span className={styles.icon}>🤫</span>
       </div>
       <div className={styles.textStack}>
-        <p className={styles.label1}>
-          Hussh <span className={styles.label1Accent}>One.</span>
-        </p>
         <div className={styles.label2}>
           <p className={`${styles.greetingLine} ${styles.greetingLineFirst}`}>
             {firstName ? `Hi, ${firstName}` : "Hi there"}
