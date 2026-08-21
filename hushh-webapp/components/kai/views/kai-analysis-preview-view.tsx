@@ -30,7 +30,7 @@ import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 const analysisRootClassName = cn(
   marketSurfaceVariablesClassName,
-  "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
+  "relative isolate mx-auto flex min-h-0 w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
   "bg-[color:var(--one-bg)] font-sans text-[color:var(--one-fg)] antialiased",
   "[--one-bg:var(--background)] [--one-card:var(--app-card-surface-default-solid)] [--one-surface:var(--app-card-surface-compact)]",
   "[--one-hairline:var(--foundation-hairline)] [--one-line:var(--foundation-hairline)]",
@@ -527,8 +527,8 @@ export function KaiAnalysisPreviewView() {
       </style>
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-20 bg-[color:var(--one-bg)]" />
 
-      <div className="mx-auto flex min-h-screen w-full max-w-[1080px] flex-col">
-        <main className="min-h-0 flex-1 overflow-y-auto px-[var(--one-gutter)] pb-[calc(190px+env(safe-area-inset-bottom))] pt-5 sm:pt-7">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-col">
+        <main className="min-h-0 flex-1 overflow-y-auto px-[var(--one-gutter)] pb-[calc(32px+env(safe-area-inset-bottom))] pt-5 sm:pt-7">
           <header className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <span className={cn(kaiPreviewEyebrowClassName, "text-[color:var(--one-fg3)]")}>

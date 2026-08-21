@@ -28,7 +28,7 @@ describe("One Location settings placement", () => {
 
   it("offers Request Location inside the unified Actions grid", () => {
     // Request location is an action, not status or utility. It belongs beside
-    // Share location, Check-In, and Send SOS in the Actions grid, while
+    // Share location, Check-In, and SMS in the Actions grid, while
     // Settings stays quiet in More.
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
@@ -37,7 +37,7 @@ describe("One Location settings placement", () => {
     expect(nowSource).toContain('data-testid="one-location-now-actions"');
     expect(nowSource).toContain('testId: "one-location-request-row"');
     expect(nowSource).toContain('title: "Request location"');
-    expect(nowSource).toContain('title: "Send SOS"');
+    expect(nowSource).toContain('title: "SMS"');
 
     const actionsIndex = nowSource.indexOf("LocationActionGrid");
     const requestIndex = nowSource.indexOf('title: "Request location"');

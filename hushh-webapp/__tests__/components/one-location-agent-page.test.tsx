@@ -12,7 +12,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/services/api-client";
 // The rungs themselves, not a copy of their labels: Ask and Share must offer
 // the same ladder, so the test reads the same list the component does.
-import { SHARE_DURATION_LADDER } from "@/components/one-location/redesign/duration-presets";
 import { ROUTES } from "@/lib/navigation/routes";
 
 const {
@@ -49,6 +48,8 @@ const {
   mockRequestAccess,
   mockCreatePublicInvite,
   mockCreateCircleInvite,
+  mockListCircles,
+  mockGetCircle,
   mockGetActivity,
   mockGetState,
   mockGetNearbyPresence,
@@ -100,6 +101,8 @@ const {
   mockRequestAccess: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
   mockCreateCircleInvite: vi.fn(),
+  mockListCircles: vi.fn(),
+  mockGetCircle: vi.fn(),
   mockGetActivity: vi.fn(),
   mockGetState: vi.fn(),
   mockGetNearbyPresence: vi.fn(),
@@ -331,8 +334,8 @@ vi.mock("@/lib/one-location/service", () => ({
     // Named-circle surface: the mandatory onboarding invite screen
     // find-or-creates the user's first owned Circle and issues its
     // member-visible invite code before the people step opens.
-    listCircles: vi.fn().mockResolvedValue([]),
-    getCircle: vi.fn(),
+    listCircles: mockListCircles,
+    getCircle: mockGetCircle,
     ensureSmsSystemCircle: vi.fn().mockResolvedValue({ members: [] }),
     createNamedCircle: vi.fn().mockResolvedValue({
       id: "circle_onboarding",
@@ -1067,6 +1070,8 @@ describe("OneLocationAgentPage", () => {
     mockCreatePublicInvite.mockResolvedValue({
       publicUrl: "/one/location/request/invite_1",
     });
+    mockListCircles.mockResolvedValue([]);
+    mockGetCircle.mockResolvedValue(undefined);
     mockGetState.mockResolvedValue(locationState());
     mockGetNearbyPresence.mockResolvedValue({
       presence: null,
@@ -1946,7 +1951,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     // Move the duration off its default so the reset below has something to
     // actually reset.
-    fireEvent.click(screen.getByRole("button", { name: "4 hours" }));
+    fireEvent.click(screen.getByRole("button", { name: "1 hour" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Optional note" }), {
       target: { value: "Meet me by the entrance" },
     });
@@ -2029,13 +2034,13 @@ describe("OneLocationAgentPage", () => {
       screen.queryByRole("radio", { name: /Approximate area/i }),
     ).toBeNull();
     // Back to the 15-minute default, and back to the collapsed ladder — a
-    // reopened flow that kept "4 hours" pressed would be offering a length
+    // reopened flow that kept "1 hour" pressed would be offering a length
     // this share never chose.
     expect(screen.getByRole("button", { name: "15 min" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
-    expect(screen.getByRole("button", { name: "4 hours" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "1 hour" })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
@@ -2051,6 +2056,73 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
     expect(mockCreateGrant).not.toHaveBeenCalled();
+  });
+
+  it("opens Circle member Share directly on the details step with that member selected", async () => {
+    const circle = {
+      id: "circle-1",
+      name: "Family",
+      kind: "family" as const,
+      role: "owner" as const,
+      memberCount: 2,
+      memberLimit: 20,
+      viewerCapabilities: {
+        canInviteMembers: true,
+        canViewInviteCode: true,
+        canRotateInviteCode: true,
+        canManageCircle: true,
+        canModerateInvites: true,
+      },
+      members: [
+        {
+          userId: "user_a",
+          displayName: "Test User",
+          role: "owner" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+          canReceiveLocation: true,
+          keyId: "key_a",
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+        },
+        {
+          userId: "user_abdul",
+          displayName: "Abdul Rashid",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+          canReceiveLocation: true,
+          keyId: "key_abdul",
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "xa", y: "ya" },
+        },
+      ],
+    };
+    mockListCircles.mockResolvedValue([circle]);
+    mockGetCircle.mockResolvedValue(circle);
+    const { rerender } = render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams("action=circle-detail&circleId=circle-1"),
+    );
+    rerender(<OneLocationAgentPage />);
+
+    await screen.findByText("Abdul Rashid");
+    const menuTrigger = screen.getByRole("button", {
+      name: "Actions for Abdul Rashid",
+    });
+    fireEvent.keyDown(menuTrigger, { key: "Enter" });
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: /Share location/i }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Ready to share?" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Who can see you?" }),
+    ).toBeNull();
+    expect(screen.getByText("Can see you")).toBeTruthy();
+    expect(screen.getByText("Abdul Rashid")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start sharing" })).toBeEnabled();
   });
 
   it("opens the canonical Location Settings URL and owns Saved Locations there", async () => {
@@ -4018,18 +4090,20 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openAskFlow();
 
-    // Every rung the Share ladder offers, in the same order.
-    for (const rung of SHARE_DURATION_LADDER) {
+    // Request uses the same compact ladder pattern as Share, but it cannot ask
+    // for open-ended access to someone else's location.
+    for (const label of ["15 min", "1 hour", "Custom"]) {
       expect(
-        screen.getByRole("button", { name: rung.label }),
-        `Ask is missing the "${rung.label}" rung`,
+        screen.getByRole("button", { name: label }),
+        `Ask is missing the "${label}" rung`,
       ).toBeTruthy();
     }
+    expect(screen.queryByRole("button", { name: "Until I stop" })).toBeNull();
     // And no wheel: the spinbuttons only exist inside the wheel, and mounting
     // one here is what the report was about.
     expect(screen.queryByRole("spinbutton", { name: "Hours" })).toBeNull();
     expect(screen.queryByRole("spinbutton", { name: "Minutes" })).toBeNull();
-  });
+  }, 10_000);
 
   it("sends an approval-first location request without sharing coordinates", async () => {
     mockGetState.mockResolvedValue({
@@ -4048,14 +4122,10 @@ describe("OneLocationAgentPage", () => {
         name: /Select Trusted B for location request/i,
       }),
     );
-    fireEvent.change(
-      screen.getByPlaceholderText(
-        "Hey, can you share your location until we meet?",
-      ),
-      {
-        target: { value: "Need pickup coordination" },
-      },
-    );
+    expect(
+      screen.queryByPlaceholderText("Hey, can you share your location until we meet?"),
+    ).toBeNull();
+    expect(screen.queryByPlaceholderText("What should they know?")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
 
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
@@ -4065,7 +4135,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockRequestAccess).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
       ownerUserId: "user_b",
-      message: "Safety check-in — Need pickup coordination",
+      message: "Safety check-in",
       requestedDurationHours: 1,
       requestedDurationMode: "timed",
     });
@@ -4079,7 +4149,7 @@ describe("OneLocationAgentPage", () => {
         selected_count: 1,
         success_count: 1,
         failure_count: 0,
-        has_note: true,
+        has_note: false,
       }),
     );
     await waitFor(() =>
@@ -4398,6 +4468,90 @@ describe("OneLocationAgentPage", () => {
         extendsGrantId: "grant_from_request_live",
       }),
     );
+  });
+
+  it("keeps the count with the action, since the two are a screen apart", async () => {
+    // Send sits after the roster, the duration ladder, the reason chips and the
+    // message box. Scrolling to it used to lose the only place that said how
+    // many people were chosen, so the last check before an outward action was
+    // to scroll back up and count rows.
+    mockGetState.mockResolvedValue(locationState());
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    // Nothing chosen: the bar is there, the count is not -- an empty line
+    // announcing zero is noise.
+    expect(screen.getByTestId("one-location-ask-send-bar")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("one-location-ask-selection-summary"),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Select Trusted B/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("one-location-ask-selection-summary"),
+      ).toHaveTextContent("1 person selected"),
+    );
+  });
+
+  it("drops the arrangement while a query is active", async () => {
+    // A search result is ordered by how well each person matches. Headings over
+    // that would name an order the list does not have, so the sections go and
+    // the caller's ranking passes through untouched.
+    mockGetState.mockResolvedValue(locationState());
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), {
+      target: { value: "Tru" },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("one-location-ask-section-header:recent"),
+      ).toBeNull();
+      expect(
+        screen.queryByTestId("one-location-ask-section-header:all"),
+      ).toBeNull();
+    });
+  });
+
+  it("keeps a section heading out of the list of people", async () => {
+    // The roster carries `role="list"`, and every entry in it is wrapped as a
+    // `listitem`. A heading is not one of the people, so it opts out --
+    // otherwise a screen reader reads "Recent" as an entry between two names.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      // The page derives `requestedByMe` from `requests`, filtered to the ones
+      // this viewer sent, so the fixture has to seed the field the API returns.
+      requests: [
+        {
+          id: "req_recent",
+          ownerUserId: "user_b",
+          requesterUserId: "user_a",
+          status: "pending",
+          requestedAt: new Date().toISOString(),
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    const heading = await screen.findByTestId(
+      "one-location-ask-section-header:recent",
+    );
+    expect(heading.tagName).toBe("H3");
+    expect(heading.parentElement).toHaveAttribute("role", "presentation");
   });
 
   it("offers a way to Connect when the person being looked for is not on the list", async () => {

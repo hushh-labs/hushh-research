@@ -522,10 +522,8 @@ describe("PkmUpgradeOrchestrator", () => {
       expect(pkmValidatePreparedDomainStoreMock).not.toHaveBeenCalled();
       expect(pkmStoreMergedDomainMock).toHaveBeenCalledTimes(1);
       expect(toastSuccessMock).toHaveBeenCalledWith(
-        "Saved details updated",
-        expect.objectContaining({
-          description: "Your saved details are up to date.",
-        })
+        "Saved details updated. Your saved details are up to date.",
+        expect.objectContaining({ id: expect.any(String) })
       );
     });
 
@@ -643,10 +641,8 @@ describe("PkmUpgradeOrchestrator", () => {
         null
       );
       expect(toastSuccessMock).toHaveBeenCalledWith(
-        "Saved details updated",
-        expect.objectContaining({
-          description: "Your saved details are up to date.",
-        })
+        "Saved details updated. Your saved details are up to date.",
+        expect.objectContaining({ id: expect.any(String) })
       );
     });
 

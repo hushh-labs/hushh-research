@@ -811,6 +811,57 @@
       "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service"
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "hushh_tech_account_links",
+        "hushh_tech_shadow_records"
+      ],
+      "id": "hushh_tech_client_identity_state",
+      "lifecycle_status": "uat_synthetic",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "UAT-only HushhTech product linking and allowlisted compatibility metadata routes"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "hushh_tech_launch_authorizations"
+      ],
+      "id": "hushh_tech_client_launch_workflows",
+      "lifecycle_status": "uat_synthetic",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "single-use Hussh Research to HushhTech PKCE launch authorize and exchange"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "hushh_tech_link_events"
+      ],
+      "id": "hushh_tech_client_link_audit",
+      "lifecycle_status": "uat_synthetic",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "append-only synthetic link activation, conflict, relink, recovery, import, and revocation audit"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "hushh_tech_migration_events"
+      ],
+      "id": "hushh_tech_client_migration_audit",
+      "lifecycle_status": "uat_synthetic",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "append-only synthetic importer start, transactional per-record outcome, failure, and completion evidence"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "hushh_tech_migration_runs"
+      ],
+      "id": "hushh_tech_client_migration_workflows",
+      "lifecycle_status": "uat_synthetic",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "strict checked-in JSONL synthetic shadow importer dry-run, apply, checkpoint, and deterministic replay"
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "marketplace_recipient_keys",
@@ -4436,6 +4487,29 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/products/hushh-tech/launch/page.tsx",
+      "pathname": "/products/hushh-tech/launch",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.products.hushh.tech.launch"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "none",
         "refresh_trigger": "none",
         "resource_classes": [
@@ -4914,14 +4988,14 @@
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "5029b2033ec8fc9ca1976ad5e6cb426fc9958301d8892375b98b9ea90cc1a9d9",
-    "agent_registry": "a421da6c4298782fb21585d240f52d9a36b032a80ded56ec114107bb80a7b175",
-    "cache_manifest": "590437b754d2f4b9be78ee55d1854564044bd12f5adb4b44902338e405b70ea2",
-    "data_plane": "314c1b4e33e47c02b2438aade82b0b92d09f21404e7dbff62b45463b2f51d70c",
+    "agent_registry": "ee0eeb9ba4cdc177301df5ed35e03b93cdc8d116f4249d7ba6eb69b1362559a5",
+    "cache_manifest": "a920c21d5fd0aa406d20ce8a46b6aa88caf32c0cb033ff3a91e274ec6097258c",
+    "data_plane": "3b2f555c7835a04a7802b93e72df0014b6e5fbdbcae986e9d3cd019e4aa64846",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "e6e3e5388d1f1660d0f72c295fceb091116bbf66944f00b85454fa7d2c76d768",
-    "route_index": "41a8a70ead002b8c94715dcbbef48fa57c8abcc854643f0bd35d4bd108d1bdc9",
-    "route_layout": "94ff1b9220cfdf0e92a41b2312d7cbdbe2263c6bd25c348a32f2f5482f245dde",
-    "surface_map": "b725e354ef53ffcc075a7ab44385636de3723ae095033dc4c516c69c68081925",
+    "route_index": "f79cefbb2f233a0f6e56627ced99229bd92dc19733ddf02248f8cd79a1e191b1",
+    "route_layout": "eb6b7ee4e27a828a37aced9e26d0002c70d5e22ea1e4271722093e4e093e6d0b",
+    "surface_map": "bd6fca5b4da4add3c0c7f78c1c1ae3d41836feb8146be12e003243318d1b01fc",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -4933,8 +5007,8 @@
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 128,
+    "physical_routes": 129,
     "semantic_routes": 14,
-    "table_families": 46
+    "table_families": 51
   }
 }

@@ -15,12 +15,12 @@ normalize_tool_groups(raw_groups)
     - Falls back to DEFAULT_PUBLIC_TOOL_GROUPS for None / empty / all-unknown
 
 visible_tool_names_for_groups(tool_groups)
-    - Delegates to normalize_tool_groups, then maps groups → tool names via TOOL_CATALOG
+    - Delegates to normalize_tool_groups, then maps groups through the explicit group registry
     - Returns a deduplicated tuple of tool name strings
 
 Constants exercised
 -------------------
-KNOWN_TOOL_GROUPS = ("core_consent", "ria_read", "kai_voice")
+KNOWN_TOOL_GROUPS = ("core_consent", "ria_read", "kai_voice", "hushh_tech_client")
 DEFAULT_PUBLIC_TOOL_GROUPS = ("core_consent",)
 """
 
@@ -33,6 +33,7 @@ from hushh_mcp.services.developer_registry_service import (
     KNOWN_TOOL_GROUPS,
     TOOL_CATALOG,
     TOOL_GROUP_CORE_CONSENT,
+    TOOL_GROUP_HUSHH_TECH_CLIENT,
     TOOL_GROUP_KAI_VOICE,
     TOOL_GROUP_RIA_READ,
     normalize_tool_groups,
@@ -155,7 +156,7 @@ class TestNormalizeToolGroupsCommaSep:
         raw = ",".join(KNOWN_TOOL_GROUPS)
         result = normalize_tool_groups(raw)
         assert set(result) == set(KNOWN_TOOL_GROUPS)
-        assert len(result) == 3
+        assert len(result) == 4
 
 
 # ===========================================================================
@@ -308,6 +309,17 @@ class TestVisibleToolNamesForGroups:
         assert "kai_open_dashboard" in result
         assert "kai_navigate_back" in result
         assert "request_consent" not in result
+
+    def test_hushh_tech_group_returns_only_encrypted_consent_flow(self):
+        result = visible_tool_names_for_groups([TOOL_GROUP_HUSHH_TECH_CLIENT])
+        assert result == (
+            "request_consent",
+            "check_consent_status",
+            "get_encrypted_scoped_export",
+        )
+        assert "search_user_scopes" not in result
+        assert "prepare_campaign_context" not in result
+        assert "list_ria_profiles" not in result
 
     def test_removed_internal_group_cannot_expose_delegate_tool(self):
         result = visible_tool_names_for_groups(["internal_only"])

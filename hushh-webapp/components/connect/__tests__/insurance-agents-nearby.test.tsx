@@ -156,7 +156,7 @@ describe("InsuranceAgentsNearby", () => {
     await waitFor(() =>
       expect(screen.getByText("Auto · Commercial · Farm")).toBeTruthy(),
     );
-    expect(screen.getByText("~0.2 mi")).toBeTruthy();
+    expect(screen.getByText("~0.2 mi away")).toBeTruthy();
   });
 
   it("drops the status almost every agency shares, keeps the rare one", async () => {
@@ -287,6 +287,49 @@ describe("InsuranceAgentsNearby", () => {
     await waitFor(() => expect(mocks.searchNearby).toHaveBeenCalledTimes(1));
 
     fireEvent.click(screen.getByText("25 mi"));
+    await waitFor(() => expect(mocks.searchNearby).toHaveBeenCalledTimes(2));
+    expect(mocks.searchNearby.mock.calls[1][0]).toMatchObject({ radiusMi: 25 });
+  });
+
+  it("filters fetched agencies locally and can clear a no-match search", async () => {
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 1, longitude: 2 },
+      error: null,
+    };
+    render(<InsuranceAgentsNearby getIdToken={getIdToken} />);
+    await screen.findByText("B G I Agency Network Inc.");
+
+    fireEvent.change(screen.getByTestId("insurance-agents-search"), {
+      target: { value: "kirkland" },
+    });
+    await waitFor(() =>
+      expect(screen.getByText("B G I Agency Network Inc.")).toBeTruthy(),
+    );
+
+    fireEvent.change(screen.getByTestId("insurance-agents-search"), {
+      target: { value: "not a match" },
+    });
+    expect(await screen.findByTestId("insurance-agents-search-empty")).toBeTruthy();
+    expect(mocks.searchNearby).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByText("Clear search"));
+    expect(await screen.findByText("B G I Agency Network Inc.")).toBeTruthy();
+  });
+
+  it("widens an empty agency search from its helpful zero state", async () => {
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 1, longitude: 2 },
+      error: null,
+    };
+    mocks.searchNearby.mockResolvedValue(result({ items: [] }));
+    render(<InsuranceAgentsNearby getIdToken={getIdToken} />);
+    await screen.findByTestId("insurance-agents-empty");
+
+    fireEvent.click(screen.getByText("Search within 25 mi"));
     await waitFor(() => expect(mocks.searchNearby).toHaveBeenCalledTimes(2));
     expect(mocks.searchNearby.mock.calls[1][0]).toMatchObject({ radiusMi: 25 });
   });

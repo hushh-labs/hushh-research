@@ -8,7 +8,7 @@ import {
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
 
 function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return Uint8Array.from(bytes).buffer;
 }
 
 function joined(ciphertext: string, tag: string): ArrayBuffer {

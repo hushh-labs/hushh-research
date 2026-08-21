@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 161,
+  "expected_migration_version": 162,
   "migration_version_policy": "exact",
 
   "required_functions": [
@@ -1372,6 +1372,77 @@
       "revoked_at",
       "last_scanned_at",
       "scan_count"
+    ],
+    "hushh_tech_launch_authorizations": [
+      "authorization_id",
+      "code_hash",
+      "firebase_uid",
+      "audience",
+      "redirect_uri",
+      "code_challenge",
+      "code_challenge_method",
+      "firebase_valid_after_ms",
+      "created_at_ms",
+      "expires_at_ms",
+      "consumed_at_ms"
+    ],
+    "hushh_tech_account_links": [
+      "link_id",
+      "legacy_project",
+      "legacy_user_uuid",
+      "firebase_uid",
+      "status",
+      "linked_at_ms",
+      "revoked_at_ms",
+      "created_by_app_id",
+      "provenance"
+    ],
+    "hushh_tech_link_events": [
+      "event_id",
+      "link_id",
+      "firebase_uid",
+      "legacy_project",
+      "legacy_user_uuid",
+      "event_type",
+      "app_id",
+      "proof_session_id",
+      "metadata",
+      "created_at_ms"
+    ],
+    "hushh_tech_shadow_records": [
+      "record_id",
+      "legacy_project",
+      "legacy_user_uuid",
+      "record_type",
+      "payload",
+      "source_hash",
+      "source_deleted",
+      "imported_at_ms",
+      "updated_at_ms"
+    ],
+    "hushh_tech_migration_runs": [
+      "run_id",
+      "fixture_name",
+      "fixture_hash",
+      "status",
+      "record_count",
+      "applied_count",
+      "skipped_count",
+      "checkpoint_sequence",
+      "started_at_ms",
+      "completed_at_ms",
+      "updated_at_ms",
+      "error_code"
+    ],
+    "hushh_tech_migration_events": [
+      "event_id",
+      "run_id",
+      "fixture_hash",
+      "phase",
+      "outcome",
+      "sequence",
+      "event_at_ms",
+      "metadata"
     ]
   }
 }

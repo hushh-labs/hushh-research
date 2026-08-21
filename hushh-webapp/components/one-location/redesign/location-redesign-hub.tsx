@@ -34,7 +34,6 @@ import {
   Lock,
   Map,
   MapPin,
-  MessageCircleQuestionMark,
   Navigation,
   Plus,
   Send,
@@ -44,6 +43,7 @@ import {
   UserPlus,
   UsersRound,
   ChevronRight,
+  X,
 } from "lucide-react";
 
 import {
@@ -136,9 +136,10 @@ import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography"
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
 import {
-  SelectedContactsPill,
-  SelectedContactsSheet,
-} from "@/components/one-location/redesign/contact-picker/selected-review-sheet";
+  flattenRecipientSections,
+  lastInteractionByUserId,
+  sectionRecipients,
+} from "@/lib/one-location/recipient-sections";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveSmsContactsBackAction } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
@@ -164,6 +165,7 @@ import { useMediaQuery } from "@/lib/morphy-ux/use-media-query";
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
 export const ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS = "0.25";
+const ONE_LOCATION_REQUEST_REASON_MAX_LENGTH = 80;
 
 export type PrivateCheckInResult = {
   succeededRecipientIds: string[];
@@ -455,7 +457,10 @@ export type LocationHubViewModel = {
   onRetryNamedCircleMemberInvites: () => void;
   onLeaveNamedCircle: (circleId: string) => Promise<void>;
   onDeleteNamedCircle: (circleId: string) => Promise<void>;
-  prepareNamedCircleShare: (circleId: string, recipientUserId: string) => void;
+  prepareNamedCircleShare: (
+    circleId: string,
+    recipientUserId: string,
+  ) => Promise<boolean>;
   clearNamedCircleShareContext: () => void;
 
   /* Save My Soul (internal compatibility identifier remains SOS). */
@@ -1205,7 +1210,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             recipientSubtitle={vm.recipientSubtitle}
             isRecipientShareReady={vm.isRecipientShareReady}
           />
-
         ) : flow === "create-circle" ? (
           <CreateCircleFlow
             busy={vm.busy === "namedCircle"}
@@ -1241,13 +1245,18 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               vm.onConnectCircleMember(circleId, memberUserId)
             }
             onShareWithMember={(circleId, recipientUserId) => {
-              vm.prepareNamedCircleShare(circleId, recipientUserId);
-              openFlow("share");
+              void (async () => {
+                const prepared = await vm.prepareNamedCircleShare(
+                  circleId,
+                  recipientUserId,
+                );
+                if (!prepared) return;
+                setShareStep("details");
+                openFlow("share");
+              })();
             }}
             onRemoveMember={vm.onRemoveNamedCircleMember}
-            onLoadEligibleConnections={
-              vm.onLoadNamedCircleEligibleConnections
-            }
+            onLoadEligibleConnections={vm.onLoadNamedCircleEligibleConnections}
             onInviteConnections={vm.onInviteNamedCircleConnections}
             onCancelMemberInvite={vm.onCancelNamedCircleMemberInvite}
             onLeave={vm.onLeaveNamedCircle}
@@ -1318,7 +1327,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         onRetry={vm.onShowMyLocation}
         onOpenSettings={vm.onOpenLocationSettings}
       />
-
 
       <div className="-mx-[var(--page-inline-gutter-standard)]">
         <SwipeViews
@@ -1479,7 +1487,7 @@ function NowHub({
           },
           {
             title: "Request location",
-            icon: <MessageCircleQuestionMark />,
+            icon: <UserPlus />,
             tone: "blue",
             onClick: onRequestLocation,
             controlId: "one-location-action-ask",
@@ -1555,28 +1563,28 @@ function NowHub({
           testId="one-location-now-more"
           shellClassName={groupedShellClassName}
         >
-        <SettingsRow
-          icon={Map}
-          iconTone="gray"
-          title="Your Map"
-          density="compact"
-          chevron
-          onClick={onOpenMap}
-          testId="one-location-map-row"
-          voiceControlId="one-location-open-map"
-          voiceActionId="location.open_map"
-        />
-        <SettingsRow
-          icon={Lock}
-          iconTone="gray"
-          title="Settings"
-          density="compact"
-          chevron
-          onClick={onOpenSettings}
-          testId="one-location-settings-entry"
-          voiceControlId="one-location-action-settings"
-          voiceActionId="location.open_settings"
-        />
+          <SettingsRow
+            icon={Map}
+            iconTone="gray"
+            title="Your Map"
+            density="compact"
+            chevron
+            onClick={onOpenMap}
+            testId="one-location-map-row"
+            voiceControlId="one-location-open-map"
+            voiceActionId="location.open_map"
+          />
+          <SettingsRow
+            icon={Lock}
+            iconTone="gray"
+            title="Settings"
+            density="compact"
+            chevron
+            onClick={onOpenSettings}
+            testId="one-location-settings-entry"
+            voiceControlId="one-location-action-settings"
+            voiceActionId="location.open_settings"
+          />
         </SettingsGroup>
       </div>
     </div>
@@ -1705,7 +1713,10 @@ function LocationDetailFlow({
   // keyed by grant id + coordinates so a moved point re-resolves. The ref
   // dedupes in-flight/resolved coordinate pairs without re-triggering the effect.
   const [addressByGrant, setAddressByGrant] = useState<
-    Record<string, { key: string; status: "loading" | "done"; text: string | null }>
+    Record<
+      string,
+      { key: string; status: "loading" | "done"; text: string | null }
+    >
   >({});
   const resolvedAddressKeyRef = useRef<Record<string, string>>({});
   const reverseGeocodePoint = vm.reverseGeocodePoint;
@@ -1984,9 +1995,7 @@ function LocationDetailFlow({
                   removeBusy={vm.revokingGrantId === grant.id}
                   viewBusy={vm.busy === "view"}
                   message={
-                    point?.checkIn?.message ??
-                    grant.shareMessage ??
-                    undefined
+                    point?.checkIn?.message ?? grant.shareMessage ?? undefined
                   }
                   address={
                     addressEntry?.status === "done" ? addressEntry.text : null
@@ -2066,9 +2075,7 @@ function LocationDetailFlow({
             ))}
           </div>
         ) : (
-          <EmptyState
-            title="Nothing to review"
-          />
+          <EmptyState title="Nothing to review" />
         )
       ) : null}
     </div>
@@ -2428,9 +2435,7 @@ function PeopleHub({
             </Button>
 
             <div className="col-start-3 row-start-1 justify-self-end sm:col-start-4">
-              {isDesktopPeopleLayout
-                ? addPeopleAction
-                : syncContactsAction}
+              {isDesktopPeopleLayout ? addPeopleAction : syncContactsAction}
             </div>
 
             <div
@@ -2504,7 +2509,9 @@ function PeopleHub({
                         // tint, which is the whole reason "is this the same
                         // person or a different one" is hard to answer here.
                         subtitle={
-                          receiving ? "Sharing with you" : vm.recipientSubtitle(r)
+                          receiving
+                            ? "Sharing with you"
+                            : vm.recipientSubtitle(r)
                         }
                         active={sharing || receiving}
                         first={i === 0}
@@ -2778,7 +2785,9 @@ function LinksHub({
             <ActiveLinkRow
               first
               tileClass="bg-[color:var(--app-purple)]/12 dark:bg-[color:var(--app-purple)]/15"
-              icon={<LinkIcon className="h-[17px] w-[17px] text-[color:var(--app-purple)]" />}
+              icon={
+                <LinkIcon className="h-[17px] w-[17px] text-[color:var(--app-purple)]" />
+              }
               title="Live location link"
               subtitle={`${vm.expiresCountdownLabel(temp.expiresAt)} · anyone with the link`}
               onCopy={vm.onCopyPublicInvite}
@@ -2788,7 +2797,9 @@ function LinksHub({
             <ActiveLinkRow
               first={!temp}
               tileClass="bg-[color:var(--app-success)]/12 dark:bg-[color:var(--app-success)]/15"
-              icon={<ShieldCheck className="h-[17px] w-[17px] text-[color:var(--app-success)]" />}
+              icon={
+                <ShieldCheck className="h-[17px] w-[17px] text-[color:var(--app-success)]" />
+              }
               title="Invite link"
               subtitle={`${vm.expiresCountdownLabel(invite.expiresAt)} · one person`}
               onCopy={vm.onCopyCircleInvite}
@@ -2796,9 +2807,7 @@ function LinksHub({
           ) : null}
         </div>
       ) : (
-        <EmptyState
-          title="No active links"
-        />
+        <EmptyState title="No active links" />
       )}
 
       <Button
@@ -2873,9 +2882,7 @@ function SosFlow({
         recipientLabel={vm.recipientLabel}
         isRecipientShareReady={vm.isRecipientShareReady}
         emergency={lookupStartedForMount ? vm.sosEmergency : null}
-        emergencyStatus={
-          lookupStartedForMount ? vm.sosEmergencyStatus : "idle"
-        }
+        emergencyStatus={lookupStartedForMount ? vm.sosEmergencyStatus : "idle"}
         onResolveEmergencyNumber={onResolveSosLocation}
       />
     </>
@@ -3001,7 +3008,9 @@ function ShareFlow({
         density="compact"
         disabled={!ready}
         onClick={
-          ready ? () => vm.toggleShareRecipient(r.userId, "share_flow") : undefined
+          ready
+            ? () => vm.toggleShareRecipient(r.userId, "share_flow")
+            : undefined
         }
         ariaPressed={ready ? selected : undefined}
         ariaLabel={
@@ -3037,9 +3046,8 @@ function ShareFlow({
   );
   const selectedReady = vm.selectedRecipientIds
     .map((recipientId) => recipientById.get(recipientId))
-    .filter(
-      (recipient): recipient is OneLocationRecipient =>
-        Boolean(recipient && vm.isRecipientShareReady(recipient)),
+    .filter((recipient): recipient is OneLocationRecipient =>
+      Boolean(recipient && vm.isRecipientShareReady(recipient)),
     );
   const shareNoteLength = vm.shareMessage.length;
   const shareNoteLimitExceeded =
@@ -3066,10 +3074,6 @@ function ShareFlow({
     // Only claim the Circle while it is still whole. A partially deselected
     // roster is a hand-picked list of people, and this is the last surface that
     // may overstate who is included.
-    const selectedCircle = shareCircleFullySelected
-      ? vm.selectedShareCircleSelection
-      : null;
-    const peopleNoun = selectedReady.length === 1 ? "person" : "people";
     return (
       // A single-column consent form does not get wider just because the window
       // does. Measured at 1440 this step rendered an 824px card holding a 420px
@@ -3085,68 +3089,10 @@ function ShareFlow({
         {/* No description: the summary card directly below states who can see
             you, for how long and when it ends. Repeating that in prose above it
             is the design explaining itself. */}
-        <TaskFlowHeader eyebrow="Step 2 of 2 · Confirm" title="Ready to share?" />
-
-        <section className="space-y-3">
-          {/* Label and its Edit action on one line, group beneath. The card
-              this replaced carried the action inside its own header; a group
-              owns its title, so the affordance sits beside the label it edits
-              rather than inside the surface it edits. */}
-          <div className="flex items-end justify-between gap-3 px-1">
-            <div className="min-w-0">
-              <AppSectionLabel as="h2">Can see you</AppSectionLabel>
-              <p className={MUTED_TEXT}>
-                {selectedCircle
-                  ? `${selectedCircle.circle.name} · ${selectedReady.length} ${peopleNoun}`
-                  : `${selectedReady.length} ${peopleNoun}`}
-              </p>
-            </div>
-            {/* Raw <button>, not the morphy Button: that component's
-                `size.default` carries `min-h-[50px]`, which lives in a
-                different tailwind-merge group from `h-*` and therefore
-                survives `h-9`. The control rendered 36px tall against a
-                50px min-height — under Apple's 44pt tap target on one axis
-                and over the row's own height on the other. */}
-            <button
-              type="button"
-              onClick={backToPeople}
-              aria-label="Change who can see you"
-              className="flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)]"
-            >
-              Edit
-            </button>
-          </div>
-          {selectedReady.length ? (
-            /* A real <ul>, not a stack of divs: this is the read-back of who is
-               about to see you, and "list, 3 items" is exactly what a screen
-               reader should say here. Painted with the same surface, radius and
-               inset hairlines SettingsGroup uses, so it is the group shape with
-               the list semantics kept. */
-            <ul
-              aria-label="People who can see your location"
-              className="divide-y divide-border/60 overflow-hidden rounded-[var(--app-card-radius-standard,24px)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]"
-            >
-              {selectedReady.map((recipient) => (
-                <li
-                  key={recipient.userId}
-                  className="flex min-h-[56px] items-center gap-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]"
-                >
-                  <Avatar
-                    initials={initialsFrom(vm.recipientLabel(recipient))}
-                  />
-                  <RowLabel as="span" className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
-                    {vm.recipientLabel(recipient)}
-                  </RowLabel>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState
-              title="Nobody chosen yet"
-              description="Tap Edit to choose people."
-            />
-          )}
-        </section>
+        <TaskFlowHeader
+          eyebrow="Step 2 of 2 · Confirm"
+          title="Ready to share?"
+        />
 
         <SectionCard>
           <div className="space-y-5">
@@ -3180,9 +3126,7 @@ function ShareFlow({
                 <textarea
                   id="one-location-share-note"
                   value={vm.shareMessage}
-                  onChange={(event) =>
-                    vm.setShareMessage(event.target.value)
-                  }
+                  onChange={(event) => vm.setShareMessage(event.target.value)}
                   rows={2}
                   aria-invalid={shareNoteLimitExceeded}
                   aria-describedby={
@@ -3218,14 +3162,23 @@ function ShareFlow({
           </div>
         </SectionCard>
 
-        {/* No "Location type" row. It read back whichever option was picked,
-            which made the consent step the most convincing part of a promise
-            nothing kept — see the note above ShareFlow. */}
-        <TrustNoteCard
-          description={
-            vm.shareDurationHours === "until_stopped"
-              ? "Encrypted. Stop anytime."
-              : "Encrypted. Ends automatically."
+        <SelectedRecipientsRail
+          title="Can see you"
+          ariaLabel="People who can see your location"
+          recipients={selectedReady}
+          onRemove={(recipientUserId) =>
+            vm.toggleShareRecipient(recipientUserId, "share_flow")
+          }
+          recipientLabel={vm.recipientLabel}
+          trailing={
+            <button
+              type="button"
+              onClick={backToPeople}
+              aria-label="Change who can see you"
+              className="flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)]"
+            >
+              Edit
+            </button>
           }
         />
 
@@ -3299,21 +3252,6 @@ function ShareFlow({
               />
             );
           })}
-          {vm.selectedShareCircleSelection && shareCircleFullySelected ? (
-            <p className={cn(MUTED_TEXT, "mt-3")}>
-              Current ready members only; future members are never added
-              automatically.
-              {vm.selectedShareCircleSelection.excluded.filter(
-                (item) => item.reason !== "self",
-              ).length
-                ? ` ${
-                    vm.selectedShareCircleSelection.excluded.filter(
-                      (item) => item.reason !== "self",
-                    ).length
-                  } member(s) need Location setup and are not included.`
-                : ""}
-            </p>
-          ) : null}
         </SettingsGroup>
       ) : null}
       <PersonSearchInput
@@ -3339,7 +3277,10 @@ function ShareFlow({
               separatorInset
             >
               {alreadySharing.map((r) =>
-                renderShareRecipientRow(r, activeGrantByRecipientId.get(r.userId)),
+                renderShareRecipientRow(
+                  r,
+                  activeGrantByRecipientId.get(r.userId),
+                ),
               )}
             </SettingsGroup>
           ) : null}
@@ -3357,7 +3298,10 @@ function ShareFlow({
         // A typo used to be reported as "you have no contacts", which sends a
         // person with twenty of them off to invite people they already have.
         // The list being empty and the QUERY being empty are different facts.
-        <EmptyState title="No matching people" description="Try a different name." />
+        <EmptyState
+          title="No matching people"
+          description="Try a different name."
+        />
       ) : (
         <EmptyState
           title="No trusted people yet"
@@ -3513,7 +3457,10 @@ function SelectionDot({ selected }: { selected: boolean }) {
       )}
     >
       {selected ? (
-        <Check className="h-3 w-3 text-[color:var(--app-accent-fg)]" strokeWidth={3} />
+        <Check
+          className="h-3 w-3 text-[color:var(--app-accent-fg)]"
+          strokeWidth={3}
+        />
       ) : null}
     </span>
   );
@@ -3558,10 +3505,6 @@ function AskFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
-  // Selection is only ever readable by scrolling the roster and counting the
-  // rows wearing "Selected". The pill answers "who is on this list" without
-  // the scroll, and the sheet is where that answer gets edited.
-  const [selectionSheetOpen, setSelectionSheetOpen] = useState(false);
   const selectedRecipients = useMemo(
     () =>
       vm.recipients.filter((recipient) =>
@@ -3622,6 +3565,39 @@ function AskFlow({
    * without moving the answer, and the other lane is now reachable rather than
    * silently dropped.
    */
+  /**
+   * The roster, arranged.
+   *
+   * Recency comes from what this screen already holds -- a request you sent, a
+   * share they gave you, a share you gave them -- so no new storage and no
+   * invented "frequently contacted", which nothing in this product counts.
+   *
+   * While a query is active the arrangement is dropped: a search result is
+   * ordered by how well each person matches, and headings over that would name
+   * an order the list does not have.
+   */
+  const lastInteraction = useMemo(
+    () =>
+      lastInteractionByUserId({
+        requestedByMe: vm.requestedByMe,
+        receivedGrants: vm.receivedGrants,
+        ownerGrants: vm.activeOwnerGrants,
+      }),
+    [vm.requestedByMe, vm.receivedGrants, vm.activeOwnerGrants],
+  );
+  const rosterRows = useMemo(
+    () =>
+      flattenRecipientSections(
+        sectionRecipients({
+          recipients: filtered,
+          lastInteraction,
+          label: vm.recipientLabel,
+          querying: vm.recipientSearch.trim().length > 0,
+        }),
+      ),
+    [filtered, lastInteraction, vm.recipientLabel, vm.recipientSearch],
+  );
+
   const receivedGroupsByOwner = useMemo(() => {
     const byOwner = new globalThis.Map<string, OneLocationGrantLaneGroup>();
     // `"recipient"` -- the side argument names WHICH SIDE I AM, so for grants
@@ -3700,22 +3676,13 @@ function AskFlow({
           className="flex items-start gap-2.5 rounded-2xl border border-[color:var(--app-success)]/30 bg-[color:var(--app-success)]/10 px-3.5 py-3"
         >
           <ShieldCheck className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[color:var(--app-success)]" />
-          <p className="text-sm font-medium text-foreground">
-            Request sent.
-          </p>
+          <p className="text-sm font-medium text-foreground">Request sent.</p>
         </div>
       ) : null}
-
 
       <section className="space-y-3">
         <AppSectionLabel as="h2">People</AppSectionLabel>
         <PersonSearchInput value={searchDraft} onChange={setSearchDraft} />
-        {vm.selectedRequestOwnerIds.length ? (
-          <SelectedContactsPill
-            count={vm.selectedRequestOwnerIds.length}
-            onOpen={() => setSelectionSheetOpen(true)}
-          />
-        ) : null}
         {filtered.length ? (
           /* Windowed above the picker's own threshold, plain DOM below it.
              The rule is `shouldVirtualizeList`, imported rather than
@@ -3726,14 +3693,36 @@ function AskFlow({
              grouped shell would put a card inside a card and draw a divider
              between two things that have their own edges. */
           <VirtualContactList
-            items={filtered}
-            getKey={(r) => r.userId}
+            items={rosterRows}
+            getKey={(row) => row.key}
             scrollClassName={cn("mt-3", PEOPLE_LIST_SCROLL_CLASS)}
             itemClassName="pb-2.5 last:pb-0"
             presentation="cards"
             testId="one-location-ask-recipients"
             ariaLabel="People you can ask"
-            renderItem={(r) => {
+            // A section heading is not one of the people. Taking it out of the
+            // list stops a screen reader announcing "Recent" as an entry.
+            getItemRole={(row) =>
+              row.kind === "header" ? "presentation" : undefined
+            }
+            renderItem={(row) => {
+              // Headers ride the SAME windowed list as the rows, rather than a
+              // scroller per section: two capped scrollers stacked inside one
+              // screen is the shape this flow already rejected once.
+              if (row.kind === "header") {
+                return (
+                  // The screen's own section type, not a second one invented
+                  // here: "People" a few lines up is the same primitive.
+                  <AppSectionLabel
+                    as="h3"
+                    data-testid={`one-location-ask-section-${row.key}`}
+                    className="px-1 pt-1"
+                  >
+                    {row.title}
+                  </AppSectionLabel>
+                );
+              }
+              const r = row.recipient;
               const selected = vm.selectedRequestOwnerIds.includes(r.userId);
               // Every row used to read "Ready for private sharing" with Select
               // as the only affordance, whoever the person was and whatever had
@@ -3876,29 +3865,16 @@ function AskFlow({
           Don&apos;t see someone? Manage connections
           <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
         </a>
+        <SelectedRecipientsRail
+          title="Selected"
+          recipients={selectedRecipients}
+          onRemove={(recipientUserId) =>
+            vm.toggleRequestOwner(recipientUserId, "ask_flow")
+          }
+          recipientLabel={vm.recipientLabel}
+        />
       </section>
 
-      <SelectedContactsSheet
-        open={selectionSheetOpen}
-        onOpenChange={setSelectionSheetOpen}
-        recipients={selectedRecipients}
-        busyUserId={null}
-        onRemove={(recipientUserId) =>
-          vm.toggleRequestOwner(recipientUserId, "ask_flow")
-        }
-        recipientLabel={vm.recipientLabel}
-      />
-
-      {/* Ask and Share are the same decision pointed in opposite directions,
-          so they are now the same card: one surface, "How long" over the
-          ladder, then the next field. Ask used to put its duration in a
-          SettingsRow trailing slot as a two-column scroll wheel — a control
-          that needs 260px pinned to the right edge of a row, overlapping the
-          row it sat in and looking nothing like the screen people reach it
-          from.
-
-          Message keeps its own labelled block below: a two-row textarea is not
-          a row control. */}
       <SectionCard>
         <div className="space-y-5">
           <DurationSelector
@@ -3919,26 +3895,41 @@ function AskFlow({
           />
           <ReasonChips
             value={reason}
-            onChange={setReason}
+            onChange={(next) => {
+              setReason(next);
+              if (next !== "Other") vm.setRequestMessage("");
+            }}
             label="Reason"
             presentation="select"
           />
+          {reason === "Other" ? (
+            <div className="space-y-2.5">
+              <label
+                htmlFor="one-location-ask-other-reason"
+                className="text-sm font-semibold text-foreground"
+              >
+                Add reason
+              </label>
+              <textarea
+                id="one-location-ask-other-reason"
+                value={vm.requestMessage}
+                onChange={(e) =>
+                  vm.setRequestMessage(
+                    e.target.value.slice(
+                      0,
+                      ONE_LOCATION_REQUEST_REASON_MAX_LENGTH,
+                    ),
+                  )
+                }
+                rows={2}
+                maxLength={ONE_LOCATION_REQUEST_REASON_MAX_LENGTH}
+                placeholder="What should they know?"
+                className="block w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-compact)] px-3 pb-8 pt-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+              />
+            </div>
+          ) : null}
         </div>
       </SectionCard>
-
-      <section className="space-y-3">
-        <AppSectionLabel as="h2">Message</AppSectionLabel>
-        <textarea
-          value={vm.requestMessage}
-          onChange={(e) => vm.setRequestMessage(e.target.value)}
-          rows={2}
-          placeholder="Hey, can you share your location until we meet?"
-          /* bg-background is the light canvas colour, so on this screen the
-             field disappeared into the page exactly as the search input did.
-             Same surface as the group above it, in both themes. */
-          className="w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
-        />
-      </section>
 
       {/* Send is enabled once at least one recipient is chosen. Duration and
           reason default to sensible values, so gating Send on them too (added
@@ -3953,6 +3944,43 @@ function AskFlow({
         const isFormValid = vm.selectedRequestOwnerIds.length > 0;
         const sending = vm.busy === "request";
         return (
+          /**
+           * Pinned, because choosing someone and sending to them were never on
+           * screen together.
+           *
+           * Send sits after the roster, the duration ladder, the reason chips
+           * and the message box -- roughly a screen and a half below the person
+           * being picked. So the count travels with it: scrolling away from the
+           * roster used to lose the only place that said how many were chosen.
+           *
+           * `sticky`, not `fixed`. A fixed bar covers content and has to be
+           * paid for with page padding that is wrong at one end or the other.
+           * This one rides the page and settles into place at the bottom of the
+           * flow, so nothing is ever permanently underneath it.
+           *
+           * The offset is the app's own composed bottom inset plus the
+           * keyboard: on iOS the on-screen keyboard would otherwise sit over
+           * the action a person just reached for.
+           */
+          <div
+            data-testid="one-location-ask-send-bar"
+            className="sticky z-10 -mx-1 mt-1 space-y-2 rounded-2xl bg-[color:var(--app-card-surface-default-solid)] px-1 py-2"
+            style={{
+              bottom:
+                "calc(var(--app-bottom-inset, 0px) + var(--kb-height, 0px) + 0.5rem)",
+            }}
+          >
+            {isFormValid ? (
+              <p
+                aria-live="polite"
+                data-testid="one-location-ask-selection-summary"
+                className={cn(MUTED_TEXT, "px-1")}
+              >
+                {vm.selectedRequestOwnerIds.length === 1
+                  ? "1 person selected"
+                  : `${vm.selectedRequestOwnerIds.length} people selected`}
+              </p>
+            ) : null}
           <Button
             onClick={() => {
               // Never submit an incomplete form even if the click somehow
@@ -3978,6 +4006,7 @@ function AskFlow({
           >
             Send request
           </Button>
+          </div>
         );
       })()}
 
@@ -3990,6 +4019,63 @@ function AskFlow({
           Done
         </Button>
       ) : null}
+    </div>
+  );
+}
+
+function SelectedRecipientsRail({
+  title,
+  ariaLabel,
+  recipients,
+  onRemove,
+  recipientLabel,
+  trailing,
+}: {
+  title: string;
+  ariaLabel?: string;
+  recipients: OneLocationRecipient[];
+  onRemove: (recipientUserId: string) => void;
+  recipientLabel: (recipient: OneLocationRecipient) => string;
+  trailing?: ReactNode;
+}) {
+  if (!recipients.length) return null;
+
+  return (
+    <div className="space-y-2 pt-1">
+      <div className="flex items-end justify-between gap-3 px-1">
+        <AppSectionLabel as="h3">{title}</AppSectionLabel>
+        {trailing}
+      </div>
+      <div
+        aria-label={ariaLabel ?? title}
+        role="list"
+        className="max-h-[176px] overflow-y-auto rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/15"
+      >
+        {recipients.map((recipient) => {
+          const label = recipientLabel(recipient);
+          return (
+            <div key={recipient.userId} role="listitem">
+              <button
+                type="button"
+                onClick={() => onRemove(recipient.userId)}
+                aria-label={`Remove ${label}`}
+                className="group flex min-h-14 w-full items-center gap-3 border-b border-[color:var(--app-separator)] px-3 text-left last:border-b-0"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
+                  <UsersRound className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
+                  {label}
+                </span>
+                <X
+                  className="h-4 w-4 shrink-0 text-muted-foreground opacity-55 transition-opacity group-hover:opacity-100"
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -4092,16 +4178,16 @@ function InviteFlow({
           stackTrailingOnMobile
           trailing={
             <DurationSelector
-          value={vm.durationHours}
-          onChange={vm.setDurationHours}
-          label=""
-          // 24 hours is the ceiling, not a preference. The API rejects
-          // anything above it (`duration_hours … le=24` on
-          // CreateCircleInviteRequest) and `normalize_duration_hours` raises
-          // "between 15 minutes and 24 hours", so the "7 days" option that
-          // used to sit here could only ever return HTTP 422 — an invite the
-          // owner watched fail with no idea why.
-          options={[
+              value={vm.durationHours}
+              onChange={vm.setDurationHours}
+              label=""
+              // 24 hours is the ceiling, not a preference. The API rejects
+              // anything above it (`duration_hours … le=24` on
+              // CreateCircleInviteRequest) and `normalize_duration_hours` raises
+              // "between 15 minutes and 24 hours", so the "7 days" option that
+              // used to sit here could only ever return HTTP 422 — an invite the
+              // owner watched fail with no idea why.
+              options={[
                 { value: "1", label: "1 hour" },
                 { value: "24", label: "24 hours" },
               ]}

@@ -2,11 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
+
+
+def test_manual_rollback_jobs_bind_exact_deployment_environments() -> None:
+    workflow = yaml.safe_load(_read(".github/workflows/rollback.yml"))
+
+    assert workflow["jobs"]["rollback-uat"]["environment"] == "uat"
+    assert workflow["jobs"]["rollback-production"]["environment"] == "production"
 
 
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
@@ -28,6 +37,17 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     assert (
         'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then\n          cmd+=("--no-traffic")'
         in frontend_build
+    )
+
+
+def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
+    workflow_source = _read(".github/workflows/deploy-uat.yml")
+    workflow = yaml.safe_load(workflow_source)
+
+    assert workflow["env"]["UAT_FIREBASE_PROJECT_ID"] == "hushh-pda"
+    assert (
+        workflow_source.count('--expected-firebase-project "${{ env.UAT_FIREBASE_PROJECT_ID }}"')
+        == 2
     )
 
 
@@ -70,12 +90,18 @@ def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None
     assert "gcloud services describe" not in backend_build
 
 
-def test_cross_project_vertex_fallback_is_dev_only_and_shared_by_readiness() -> None:
+def test_cross_project_vertex_fallback_is_dev_or_exact_uat_bridge_only() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    production_workflow = _read(".github/workflows/deploy-production.yml")
 
     assert 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then' in backend_build
     assert 'genai_project_id="hushh-pda-uat"' in backend_build
-    assert '"${_DEPLOY_ENV}" != "dev"' in backend_build
+    assert backend_build.count('case "${_DEPLOY_ENV}:${genai_project_id}" in') == 1
+    assert "dev:hushh-pda-uat|uat:hushh-gemini-bridge)" in backend_build
+    assert "Cross-project managed Vertex target is not allowlisted." in backend_build
+    assert "##_GENAI_PROJECT_ID=hushh-gemini-bridge" in uat_workflow
+    assert "hushh-gemini-bridge" not in production_workflow
     assert "roles/serviceusage.serviceUsageConsumer" in backend_build
     assert '"GOOGLE_CLOUD_PROJECT=${genai_project_id}"' in backend_build
     assert backend_build.count('"GOOGLE_CLOUD_PROJECT=${genai_project_id}"') == 1

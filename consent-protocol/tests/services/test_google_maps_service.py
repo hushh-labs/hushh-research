@@ -738,3 +738,172 @@ async def test_resolve_postal_code_without_a_key_makes_no_call(monkeypatch):
     monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
     assert await gms.GoogleMapsService().resolve_postal_code(query="SANDY, UT") == ""
     assert called is False
+
+
+# --------------------------------------------------------------------------- #
+# Response cache -- repeat opens at a spot that has not moved must not re-bill
+# Google. See `_PLACES_CACHE_TTL_SECONDS` / `_geo_cell` in google_maps_service.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_nearby_places_reuses_a_cached_answer_for_the_same_cell(monkeypatch):
+    """A drawer reopened at home ten times a day must cost one provider call."""
+
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    {
+                        "id": "spot-a",
+                        "displayName": {"text": "Spot A"},
+                        "shortFormattedAddress": "Stanford, CA",
+                        "primaryType": "university",
+                        "primaryTypeDisplayName": {"text": "University"},
+                        "businessStatus": "OPERATIONAL",
+                        "location": {"latitude": 37.4276, "longitude": -122.1697},
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    svc = gms.GoogleMapsService()
+    first = await svc.nearby_places(lat=37.4275, lng=-122.1697, category="education")
+    second = await svc.nearby_places(lat=37.4275, lng=-122.1697, category="education")
+
+    assert calls == 1
+    assert first == second
+
+
+@pytest.mark.asyncio
+async def test_nearby_places_cache_misses_for_a_materially_different_cell(monkeypatch):
+    """A real move to a new area must still reach Google, not a stale cache."""
+
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"places": []})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    svc = gms.GoogleMapsService()
+    await svc.nearby_places(lat=37.4275, lng=-122.1697, category="education")
+    await svc.nearby_places(lat=37.9000, lng=-122.1697, category="education")
+
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_nearby_places_cache_expires_after_the_ttl(monkeypatch):
+    calls = 0
+    clock = {"t": 0.0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"places": []})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+    monkeypatch.setattr(gms, "_cache_clock", lambda: clock["t"])
+
+    svc = gms.GoogleMapsService()
+    await svc.nearby_places(lat=37.4275, lng=-122.1697, category="education")
+    clock["t"] += gms._PLACES_CACHE_TTL_SECONDS + 1
+    await svc.nearby_places(lat=37.4275, lng=-122.1697, category="education")
+
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_clear_places_cache_forces_a_fresh_lookup(monkeypatch):
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"places": []})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    svc = gms.GoogleMapsService()
+    await svc.nearby_places(lat=37.4275, lng=-122.1697, category="education")
+    gms.clear_places_cache()
+    await svc.nearby_places(lat=37.4275, lng=-122.1697, category="education")
+
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_search_directory_category_reuses_a_cached_answer(monkeypatch):
+    """Reopening the same directory category on the same visit costs one call."""
+
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    {
+                        "id": "hotel-a",
+                        "displayName": {"text": "Hotel A"},
+                        "location": {"latitude": 12.9716, "longitude": 77.5946},
+                        "businessStatus": "OPERATIONAL",
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    svc = gms.GoogleMapsService()
+    first = await svc.search_directory_category(
+        lat=12.9716, lng=77.5946, category="hotels_stays", radius_meters=8046.72, limit=8
+    )
+    second = await svc.search_directory_category(
+        lat=12.9716, lng=77.5946, category="hotels_stays", radius_meters=8046.72, limit=8
+    )
+
+    assert calls == 1
+    assert first == second
+
+
+@pytest.mark.asyncio
+async def test_search_directory_category_cache_key_includes_radius(monkeypatch):
+    """A different radius tier is a genuinely different answer, not a cache hit."""
+
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"places": []})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    svc = gms.GoogleMapsService()
+    await svc.search_directory_category(
+        lat=12.9716, lng=77.5946, category="hotels_stays", radius_meters=1_600.0, limit=8
+    )
+    await svc.search_directory_category(
+        lat=12.9716, lng=77.5946, category="hotels_stays", radius_meters=24_000.0, limit=8
+    )
+
+    assert calls == 2

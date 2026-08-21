@@ -1,17 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Building2, UserRound } from "lucide-react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { AdvisorDetailSurface } from "@/components/connect/advisor-detail-surface";
 import {
   DirectoryAttributionFooter,
   DirectoryLoadingRows,
+  ExpandRadiusButton,
   LocationPrompt,
+  NearbyDirectorySearch,
+  NearbyDistanceBadge,
+  NearbyTagBadge,
   PostalCodeForm,
   QuietBlock,
 } from "@/components/connect/nearby-directory-ui";
 import { OfficeDetailSurface } from "@/components/connect/office-detail-surface";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { Button } from "@/lib/morphy-ux/button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { useCurrentLocation } from "@/lib/one-location/use-current-location";
@@ -62,6 +68,8 @@ export function AdvisorsNearby({
   /** A failed extra page. Kept apart from `error` so it never hides the list. */
   const [pageError, setPageError] = useState<string | null>(null);
   const [selected, setSelected] = useState<AdvisorCard | null>(null);
+  const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, 200);
 
   const requestRef = useRef(0);
 
@@ -147,6 +155,24 @@ export function AdvisorsNearby({
     setAnchor({ kind: "postal", postalCode });
   }, []);
 
+  const filteredCards = useMemo(() => {
+    const needle = debouncedQuery.trim().toLowerCase();
+    if (!needle) return cards;
+    return cards.filter((card) =>
+      [
+        card.name,
+        card.firmName,
+        card.city,
+        card.state,
+        card.kind === "branch" ? "office" : "advisor",
+      ]
+        .filter((field): field is string => Boolean(field))
+        .some((field) => field.toLowerCase().includes(needle)),
+    );
+  }, [cards, debouncedQuery]);
+
+  const nextRadiusMi = ADVISOR_RADIUS_OPTIONS_MI.find((mi) => mi > radiusMi);
+
   if (!anchor) {
     return (
       <LocationPrompt
@@ -180,6 +206,15 @@ export function AdvisorsNearby({
 
       {narrowed ? (
         <p className="type-footnote text-muted-foreground">{narrowed}</p>
+      ) : null}
+
+      {!error && !loading && cards.length > 0 ? (
+        <NearbyDirectorySearch
+          value={query}
+          onChange={setQuery}
+          placeholder="Search advisors or firms"
+          testId="advisors-search"
+        />
       ) : null}
 
       {error && !loading ? (
@@ -218,19 +253,45 @@ export function AdvisorsNearby({
         // dead end.
         <QuietBlock
           title="Nothing nearby"
-          subtitle="Try a US ZIP."
+          subtitle="Try a US ZIP, or search a wider radius."
           testId="advisors-empty"
         >
-          <PostalCodeForm
-            busy={loading}
-            initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
-            onSearch={handlePostalCode}
-            testId="advisors-postal-input"
-          />
+          <div className="flex w-full flex-col items-center gap-4">
+            <PostalCodeForm
+              busy={loading}
+              initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
+              onSearch={handlePostalCode}
+              testId="advisors-postal-input"
+            />
+            <ExpandRadiusButton
+              nextRadiusMi={nextRadiusMi}
+              onExpand={setRadiusMi}
+            />
+          </div>
         </QuietBlock>
       ) : null}
 
-      {error || (!loading && cards.length === 0) ? null : (
+      {!error && !loading && cards.length > 0 && filteredCards.length === 0 ? (
+        <QuietBlock
+          title="No matches"
+          subtitle="Try a different name or firm."
+          testId="advisors-search-empty"
+        >
+          <Button
+            type="button"
+            variant="none"
+            effect="fill"
+            size="sm"
+            onClick={() => setQuery("")}
+          >
+            Clear search
+          </Button>
+        </QuietBlock>
+      ) : null}
+
+      {error ||
+      (!loading && cards.length === 0) ||
+      (!loading && filteredCards.length === 0) ? null : (
         <SettingsGroup
           title={meta?.grouped ? "Offices" : "Advisors"}
           separatorInset
@@ -238,14 +299,19 @@ export function AdvisorsNearby({
           {loading ? (
             <DirectoryLoadingRows testId="advisors-loading" />
           ) : (
-            cards.map((card) => {
+            filteredCards.map((card) => {
               const distance = formatDistance(card.distanceMiles);
               return (
                 <SettingsRow
                   key={`${card.kind}-${card.id}`}
+                  icon={card.kind === "branch" ? Building2 : UserRound}
+                  iconTone="blue"
                   title={
                     <span className="flex min-w-0 items-center gap-2">
                       <span className="truncate">{card.name ?? "Advisor"}</span>
+                      <NearbyTagBadge>
+                        {card.kind === "branch" ? "Office" : "Advisor"}
+                      </NearbyTagBadge>
                       {card.hasDisclosures ? (
                         <span
                           className="size-1.5 shrink-0 rounded-full bg-amber-500"
@@ -259,13 +325,7 @@ export function AdvisorsNearby({
                   density="compact"
                   chevron
                   onClick={() => setSelected(card)}
-                  trailing={
-                    distance ? (
-                      <span className="type-footnote shrink-0 tabular-nums text-muted-foreground">
-                        {distance}
-                      </span>
-                    ) : undefined
-                  }
+                  trailing={<NearbyDistanceBadge distance={distance} />}
                 />
               );
             })
