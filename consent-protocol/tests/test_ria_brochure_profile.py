@@ -1056,24 +1056,33 @@ def test_brochure_provenance_migration_adds_only_nullable_labels() -> None:
 
 def test_brochure_provenance_is_covered_by_the_schema_contracts() -> None:
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-    highest = max(
+    production_head = max(
         int(name.split("_", 1)[0]) for name in manifest["ordered_migrations"] if name[:3].isdigit()
     )
+    uat_overlay = manifest.get("environment_overlays", {}).get("uat", [])
+    uat_head = max(
+        [production_head]
+        + [int(name.split("_", 1)[0]) for name in uat_overlay if name[:3].isdigit()]
+    )
     # What matters here is that the brochure migration is registered and that
-    # the contracts track the manifest head. Pinning the head to a fixed number
-    # made every later migration fail this RIA test for an unrelated reason.
+    # each contract tracks its selected manifest lane. Pinning either lane to a
+    # fixed number made later migrations fail this RIA test for an unrelated
+    # reason; treating the UAT overlay as production would erase its isolation.
     assert MIGRATION in manifest["ordered_migrations"]
-    assert highest >= int(MIGRATION.split("_", 1)[0])
+    assert production_head >= int(MIGRATION.split("_", 1)[0])
 
-    for contract_name in ("uat_integrated_schema.json", "prod_core_schema.json"):
+    for contract_name, expected_head in (
+        ("uat_integrated_schema.json", uat_head),
+        ("prod_core_schema.json", production_head),
+    ):
         contract = json.loads((CONTRACTS_DIR / contract_name).read_text(encoding="utf-8"))
-        assert contract["expected_migration_version"] == highest
+        assert contract["expected_migration_version"] == expected_head
         assert set(contract["required_tables"]["ria_profiles"]) >= set(PROVENANCE_COLUMNS)
 
     dev_contract = json.loads(
         (CONTRACTS_DIR / "dev_minimum_schema.json").read_text(encoding="utf-8")
     )
-    assert dev_contract["expected_migration_version"] == highest
+    assert dev_contract["expected_migration_version"] == production_head
 
 
 def test_brochure_provenance_rollback_drops_only_the_labels() -> None:

@@ -311,9 +311,7 @@ export function RiaClientWorkspace({
         idToken,
         investor_user_id: detail.investor_user_id,
       });
-      toast.success("Relationship disconnected", {
-        description: "Access ended immediately. History stays available if you reconnect.",
-      });
+      toast.success("Relationship disconnected");
       router.push(ROUTES.RIA_CLIENTS);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to disconnect relationship");
@@ -343,9 +341,7 @@ export function RiaClientWorkspace({
         selected_account_ids: activeTemplate.requires_account_selection ? selectedAccountIds : [],
         reason: requestReason.trim() || undefined,
       });
-      toast.success("Access request sent", {
-        description: "The client can review it in Access Manager.",
-      });
+      toast.success("Access request sent. The client can review it in Access Manager.");
       setRequestReason("");
       await refreshWorkspace();
     } catch (error) {

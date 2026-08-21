@@ -1,21 +1,15 @@
-import { copyToClipboard } from "@/lib/utils/clipboard";
+import {
+  isShareCancellationError as isShareCancelled,
+  shareLink,
+  type ShareDelivery,
+} from "@/lib/share/share-link";
 
-export type CircleCodeShareDelivery =
-  | "native-share"
-  | "web-share"
-  | "copied";
+/** Kept as an alias so existing imports read unchanged. */
+export type CircleCodeShareDelivery = ShareDelivery;
 
-export function isShareCancellationError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const candidate = error as { name?: unknown; message?: unknown };
-  const name = typeof candidate.name === "string" ? candidate.name : "";
-  const message =
-    typeof candidate.message === "string" ? candidate.message.trim() : "";
-  return (
-    name === "AbortError" ||
-    /^share cancell?ed$/i.test(message)
-  );
-}
+/** Re-exported: cancelling a share is not a failure, and every caller here
+ *  already checks it under this name. */
+export const isShareCancellationError = isShareCancelled;
 
 /**
  * How a Circle is named inside share copy ("Join my <label> on One …").
@@ -74,35 +68,5 @@ export async function shareNamedCircleCode(params: {
   dialogTitle: string;
   url?: string;
 }): Promise<CircleCodeShareDelivery> {
-  const url = params.url?.trim() ? params.url.trim() : undefined;
-  const { Capacitor } = await import("@capacitor/core");
-  if (Capacitor.isNativePlatform()) {
-    const { Share } =
-      (await import("@capacitor/share")) as typeof import("@capacitor/share");
-    await Share.share({
-      title: params.title,
-      text: params.text,
-      dialogTitle: params.dialogTitle,
-      ...(url ? { url } : {}),
-    });
-    return "native-share";
-  }
-
-  if (
-    typeof navigator !== "undefined" &&
-    typeof navigator.share === "function"
-  ) {
-    await navigator.share({
-      title: params.title,
-      text: params.text,
-      ...(url ? { url } : {}),
-    });
-    return "web-share";
-  }
-
-  // Clipboard fallback keeps the link alongside the text so nothing is lost when
-  // neither native nor Web Share is available.
-  const clipboardText = url ? `${params.text}\n${url}` : params.text;
-  if (await copyToClipboard(clipboardText)) return "copied";
-  throw new Error("Sharing is not supported on this device.");
+  return shareLink(params);
 }

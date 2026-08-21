@@ -23,6 +23,9 @@ import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { DurationWheelPicker } from "./duration-wheel-picker";
 import { DurationPresetPicker } from "./duration-presets";
 
+export const LOCATION_SEARCH_INPUT_CLASSNAME =
+  "h-11 w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-inset focus:ring-[color:var(--app-accent-ring)] [&::-webkit-search-cancel-button]:appearance-none";
+
 /**
  * Mirrors the existing page DURATION_OPTIONS so the Select/menu values stay
  * identical. `0.25` is here because 15 minutes is the product floor for a
@@ -399,7 +402,7 @@ export function PersonSearchInput({
             field.scrollIntoView({ block: "center", behavior: "smooth" });
           }, 250);
         }}
-        className="h-11 w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-[color:var(--app-accent-ring)] [&::-webkit-search-cancel-button]:appearance-none"
+        className={LOCATION_SEARCH_INPUT_CLASSNAME}
       />
     </div>
   );

@@ -240,7 +240,7 @@ export function ManagePortfolioView() {
               const rawFinancial = snapshot?.data ?? null;
 
               if (!hasValidFinancialShape(rawFinancial)) {
-                toast.error("Portfolio index exists but financial information is missing. Please re-import your statement.");
+                toast.error("Financial details are missing. Re-import your statement.");
               } else {
                 // Normalize Review-format → Dashboard-format field names
                 parsed = normalizeStoredPortfolio(rawFinancial) as unknown as PortfolioData;

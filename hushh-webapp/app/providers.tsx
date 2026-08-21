@@ -240,7 +240,7 @@ function AppShellFrame({ children }: ProvidersProps) {
         "--app-scroll-bottom-pad": hidesPersistentChrome
           ? "0px"
           : isRiaRoute(pathname)
-            ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
+            ? "var(--bottom-chrome-stack-height)"
             : isOneSetupSurfaceRoute(pathname)
               ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
               : hideGlobalChrome || isPublicStandaloneRoute

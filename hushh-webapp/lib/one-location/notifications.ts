@@ -50,6 +50,7 @@ export type OneLocationWorkflowNotificationType =
   | "location_public_invite_submitted"
   | "location_one_network_joined"
   | "location_circle_member_invite"
+  | "location_circle_member_invite_accepted"
   | "location_circle_member_added"
   | "location_circle_code_joined";
 
@@ -120,6 +121,10 @@ const WORKFLOW_COPY: Record<
   location_circle_member_invite: {
     title: "Circle invitation",
     fallbackDescription: "A connection invited you to join their Circle.",
+  },
+  location_circle_member_invite_accepted: {
+    title: "Circle invitation accepted",
+    fallbackDescription: "Someone accepted your Circle invitation.",
   },
   location_circle_member_added: {
     // There was no card to tap and no decision to make, so this is the only
@@ -474,6 +479,7 @@ export function oneLocationSectionForWorkflowNotificationType(
       return "my_requests";
     case "location_one_network_joined":
     case "location_circle_member_invite":
+    case "location_circle_member_invite_accepted":
     case "location_circle_member_added":
     case "location_circle_code_joined":
       return "people";
@@ -794,6 +800,11 @@ export function locationWorkflowNotificationCopy(params: {
       return {
         title: copy.title,
         description: `${networkLabel} invited you to join a Circle.`,
+      };
+    case "location_circle_member_invite_accepted":
+      return {
+        title: copy.title,
+        description: `${networkLabel} joined your Circle.`,
       };
     case "location_circle_member_added": {
       // Named, always. Nobody accepted anything here, so the only thing that

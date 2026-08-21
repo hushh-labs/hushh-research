@@ -39,6 +39,19 @@ export function FeedRow({
   const presentation = presentFeedItem(item);
   const read = unread === undefined ? item.read : !unread;
   const tone = DOMAIN_TONE[item.source_domain] ?? "gray";
+  const unreadMarker = (
+    <span
+      aria-label={!read ? "Unread" : undefined}
+      aria-hidden={read ? true : undefined}
+      data-slot="feed-unread-marker"
+      data-state={read ? "read" : "unread"}
+      className={cn(
+        "inline-flex h-3 w-3 shrink-0 items-center justify-center",
+        "before:block before:h-1.5 before:w-1.5 before:rounded-full",
+        read ? "before:bg-transparent" : "before:bg-accent",
+      )}
+    />
+  );
 
   return (
     <SettingsRow
@@ -68,14 +81,7 @@ export function FeedRow({
           </span>
         </span>
       }
-      trailing={
-        !read ? (
-          <span
-            aria-label="Unread"
-            className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
-          />
-        ) : null
-      }
+      trailing={unreadMarker}
       chevron={Boolean(presentation.href)}
       onClick={presentation.href ? () => onOpen(item) : undefined}
     />

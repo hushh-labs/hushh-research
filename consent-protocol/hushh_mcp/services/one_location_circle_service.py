@@ -2863,6 +2863,21 @@ class OneLocationCircleService:
                     accepted = True
                     invite_row["status"] = "accepted"
                     invite_row["responded_at"] = datetime.now(timezone.utc)
+            if accepted:
+                from hushh_mcp.services.push_notifications import (
+                    send_circle_member_invite_accepted_push,
+                )
+
+                send_circle_member_invite_accepted_push(
+                    inviter_user_id=str(invite_row.get("inviter_user_id") or ""),
+                    invitee_user_id=user_id,
+                    invitee_display_name=str(
+                        invite_row.get("invitee_display_name") or ""
+                    ),
+                    circle_id=circle_id,
+                    circle_name=str(invite_row.get("circle_name") or ""),
+                    invite_id=cleaned_invite_id,
+                )
             return {
                 "circle": self.get_circle(user_id=user_id, circle_id=circle_id),
                 "invite": self._member_invite_payload(invite_row or {}),
@@ -3462,8 +3477,7 @@ class OneLocationCircleService:
         if row and bool(row.get("is_system")):
             raise OneLocationCircleError(
                 "LOCATION_CIRCLE_SYSTEM_PROTECTED",
-                "This Circle is used for emergency SMS alerts and cannot be deleted. "
-                "You can still add or remove its members.",
+                "Your SMS Circle can't be deleted. You can still add or remove its members.",
                 status_code=409,
             )
 

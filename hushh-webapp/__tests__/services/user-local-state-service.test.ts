@@ -44,6 +44,7 @@ vi.mock("@/lib/services/vault-method-prompt-local-service", () => ({
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => false },
+  registerPlugin: vi.fn(() => ({})),
 }));
 
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
