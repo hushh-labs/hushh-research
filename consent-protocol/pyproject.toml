@@ -58,6 +58,7 @@ dependencies = [
     "yfinance>=0.2.36",
     "phonenumbers>=9.0.28",
     "pycountry>=26.2.16",
+    "redis>=5,<7",
 ]
 
 [dependency-groups]
