@@ -143,14 +143,23 @@ export function ByocCloudSetupPage() {
         ) : null}
 
         {error ? (
-          <div className="flex flex-col gap-2" data-testid="byoc-cloud-error">
-            <p className="text-sm text-[var(--app-danger)]">{error}</p>
-            {/* A refusal must name the next MOVE, not just the reason. The phone
-                gate is server-side while dev's client mandate is bypassed, so
-                without this link the person has no reachable way to comply. */}
+          // A refusal must be impossible to miss and must name the next MOVE.
+          // The plain one-line rendering read as body copy and the founder
+          // scrolled past it (2026-08-21); this is the app's standing alert
+          // shape (one-setup-hub's finalization alert), headline plus the
+          // server's reason verbatim.
+          <div
+            role="alert"
+            className="flex flex-col gap-1.5 rounded-[var(--app-card-radius-compact)] border border-destructive/30 bg-destructive/5 px-4 py-3"
+            data-testid="byoc-cloud-error"
+          >
+            <p className="text-sm font-semibold text-destructive">
+              Your cloud is not set up yet
+            </p>
+            <p className="text-sm text-destructive">{error}</p>
             {/phone/i.test(error) ? (
               <a
-                className="self-start text-sm underline underline-offset-4"
+                className="self-start text-sm underline underline-offset-4 text-destructive"
                 href={ROUTES.PHONE_MANDATE}
                 data-testid="byoc-cloud-verify-phone"
               >

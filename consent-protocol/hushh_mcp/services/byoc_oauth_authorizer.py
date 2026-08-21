@@ -192,13 +192,65 @@ def exchange_code(code: str, *, session: Any = None) -> str:
     return token
 
 
+def _google_error_detail(response: Any) -> str:
+    """Google's own words for a refusal, compacted to one status line.
+
+    Google errors carry `status`, `message` and, for the interesting refusals,
+    typed `details` (QuotaFailure violations and the like). Discarding them,
+    which `_check` used to do, turned every distinct refusal into the same
+    "HTTP 400", which is how a billing-quota failure shipped to a person as a
+    sentence naming nothing (founder-hit, 2026-08-21).
+    """
+    try:
+        err = (response.json() or {}).get("error") or {}
+    except Exception:  # noqa: BLE001
+        return ""
+    parts = [
+        p
+        for p in (
+            str(err.get("status") or "").strip(),
+            str(err.get("message") or "").strip(),
+        )
+        if p
+    ]
+    for detail in err.get("details") or []:
+        for violation in detail.get("violations") or []:
+            description = str(violation.get("description") or "").strip()
+            if description:
+                parts.append(description)
+    return ": ".join(parts)
+
+
 def _check(response: Any, what: str, *, ok_statuses: tuple[int, ...] = (200,)) -> dict:
     if response.status_code in ok_statuses:
         try:
             return response.json() if response.content else {}
         except Exception:  # noqa: BLE001
             return {}
+    detail = _google_error_detail(response)
+    # Every refusal leaves a log line naming the step and Google's reason, so
+    # the hub's logs answer "why" without a reproduction.
+    logger.warning(
+        "byoc_oauth.google_refused what=%r http=%s detail=%r",
+        what,
+        response.status_code,
+        detail,
+    )
     if response.status_code == 403:
+        # Two very different refusals share this status. "The API is disabled on
+        # the quota project" is OUR platform registration (Google attributes
+        # these calls to the OAuth client's project), and blaming the person's
+        # permissions for it sent the founder chasing ownership they already had
+        # (2026-08-21, Cloud Billing API missing on the client project).
+        lowered = detail.lower()
+        if "has not been used in project" in lowered or "service_disabled" in lowered:
+            raise ByocAuthorizeError(
+                f"Google refused while trying to {what}, and the cause is on our "
+                "side, not yours: an API our integration depends on is not enabled "
+                "for it yet. Try again in a few minutes; if it persists, tell us.",
+                status_code=503,
+                code="NOT_CONFIGURED",
+            )
         raise ByocAuthorizeError(
             f"Your Google account does not have permission to {what} on this project. "
             "You need to be an owner of the project you named.",
@@ -206,7 +258,8 @@ def _check(response: Any, what: str, *, ok_statuses: tuple[int, ...] = (200,)) -
             code="INSUFFICIENT_PERMISSION",
         )
     raise ByocAuthorizeError(
-        f"Google refused while trying to {what} (HTTP {response.status_code})",
+        f"Google refused while trying to {what} (HTTP {response.status_code})"
+        + (f". Google said: {detail}" if detail else ""),
         status_code=502,
         code="AUTHORIZE_FAILED",
     )
@@ -484,14 +537,44 @@ def ensure_billing(*, project_id: str, token: str, session: Any = None) -> dict[
         )
 
     account_name = str(open_accounts[0].get("name") or "")
-    _check(
-        session.put(
-            f"{_BILLING_URL}/projects/{project_id}/billingInfo",
-            headers={**headers, "Content-Type": "application/json"},
-            json={"billingAccountName": account_name},
-            timeout=30,
-        ),
-        "link your billing account",
+    link = session.put(
+        f"{_BILLING_URL}/projects/{project_id}/billingInfo",
+        headers={**headers, "Content-Type": "application/json"},
+        json={"billingAccountName": account_name},
+        timeout=30,
     )
+    if link.status_code != 200:
+        detail = _google_error_detail(link)
+        logger.warning(
+            "byoc_oauth.billing_link_refused project=%s account=%s http=%s detail=%r",
+            project_id,
+            account_name,
+            link.status_code,
+            detail,
+        )
+        if "quota" in detail.lower():
+            # Consumer billing accounts back a small fixed number of projects
+            # (five, typically). Google reports the refusal as a bare
+            # FAILED_PRECONDITION, which shipped to a person as "HTTP 400"
+            # naming nothing (founder-hit, 2026-08-21, hussh-one-df5jxz as the
+            # sixth project on a five-project account). This is the person's
+            # decision to make, so it is a typed NEEDS_BILLING refusal that
+            # names both moves, not a server error.
+            account_id = account_name.removeprefix("billingAccounts/")
+            raise ByocAuthorizeError(
+                f"Your billing account ({account_id}) already backs its maximum "
+                f"number of Google Cloud projects, so Google refused to add "
+                f"{project_id}. Unlink a project you no longer use at "
+                "console.cloud.google.com/billing, or change the name above to a "
+                "project of yours that already has billing and press Continue.",
+                status_code=409,
+                code="NEEDS_BILLING",
+            )
+        raise ByocAuthorizeError(
+            f"Google refused while trying to link your billing account "
+            f"(HTTP {link.status_code})" + (f". Google said: {detail}" if detail else ""),
+            status_code=502,
+            code="AUTHORIZE_FAILED",
+        )
     logger.info("byoc_oauth.billing_linked project=%s", project_id)
     return {"billingLinked": True, "billingAccount": account_name}

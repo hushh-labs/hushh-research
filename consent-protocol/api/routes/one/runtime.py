@@ -763,6 +763,44 @@ async def begin_byoc_authorize(
         ) from exc
 
 
+#: Backoff between proof probes while a freshly written IAM grant settles.
+#: Deliberately short in total: the whole complete call must finish inside the
+#: web client's 60s fetch timeout, chain steps included.
+_GRANT_SETTLE_DELAYS_SECONDS: tuple[float, ...] = (2, 4, 8, 15)
+
+
+async def _wait_for_bootstrap_grant(bootstrap_sa: str, *, deadline: float) -> bool:
+    """True once the just-written tokenCreator grant answers to a proof mint.
+
+    Google settles a new service-account IAM binding eventually, not instantly:
+    the founder's one-click run applied authorization and then failed its proof
+    ONE SECOND later (observed 2026-08-21, hussh-one-df5jxz). The one-click
+    route knows the grant is brand new, so it alone earns a bounded wait before
+    the save's single-attempt proof; the manual flow keeps its single attempt
+    because the person returns minutes after running the script.
+    """
+    from hushh_mcp.services.user_gcp_bootstrap import BootstrapError, mint_bootstrap_token
+
+    attempts = 0
+    for delay in (0.0, *_GRANT_SETTLE_DELAYS_SECONDS):
+        if delay:
+            if time.monotonic() + delay > deadline:
+                break
+            await asyncio.sleep(delay)
+        attempts += 1
+        try:
+            await asyncio.to_thread(mint_bootstrap_token, bootstrap_sa=bootstrap_sa)
+            logger.info("byoc_oauth.grant_settled sa=%s attempts=%s", bootstrap_sa, attempts)
+            return True
+        except BootstrapError:
+            continue
+        except Exception:  # noqa: BLE001 - an unreachable IAM API is not an unsettled grant
+            # The save's own probe owns that classification; do not block on it.
+            return True
+    logger.warning("byoc_oauth.grant_not_settled sa=%s attempts=%s", bootstrap_sa, attempts)
+    return False
+
+
 @router.post("/byoc/authorize/complete", response_model=ByocAuthorizeCompleteResponse)
 @limiter.limit(RateLimits.AGENT_CHAT)
 async def complete_byoc_authorize(
@@ -779,6 +817,7 @@ async def complete_byoc_authorize(
     from hushh_mcp.services import byoc_oauth_authorizer as oauth
     from hushh_mcp.services.user_gcp_project import suggest_project_id
 
+    started = time.monotonic()
     try:
         project = oauth.verify_state(body.state, firebase_uid)
         token = await asyncio.to_thread(oauth.exchange_code, body.code)
@@ -801,6 +840,23 @@ async def complete_byoc_authorize(
         raise HTTPException(
             status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
         ) from exc
+
+    # The grant this chain just wrote must ANSWER before the save's proof runs,
+    # and IAM settles it eventually, not instantly. Bounded by the client's
+    # fetch budget; when Google needs longer, the person presses Continue again
+    # and the idempotent chain re-reaches this point in seconds.
+    bootstrap_sa = f"{body.bootstrapServiceAccountId}@{project}.iam.gserviceaccount.com"
+    if not await _wait_for_bootstrap_grant(bootstrap_sa, deadline=started + 45.0):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "GRANT_SETTLING",
+                "message": (
+                    "Your cloud is authorized and Google is still settling the new "
+                    "permission. Press Continue again in a moment to finish."
+                ),
+            },
+        )
 
     saved = await save_byoc_project(
         request=request,
