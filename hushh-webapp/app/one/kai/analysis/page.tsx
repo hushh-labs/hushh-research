@@ -511,7 +511,7 @@ export function KaiAnalysisPageContent() {
       if (summaryLoadingToastIdRef.current === null) {
         summaryLoadingToastIdRef.current = toast.info("Saving to history…", {
           duration: Infinity,
-          description: "Final recommendation is ready. Kai is storing this analysis in your PKM.",
+          
         });
       }
       setLiveEntry(entry);
@@ -849,10 +849,8 @@ export function KaiAnalysisPageContent() {
           }),
         );
       })
-      .catch((error) => {
-        toast.error("Could not start debate.", {
-          description: error instanceof Error ? error.message : "Please try again.",
-        });
+      .catch(() => {
+        toast.error("Could not start debate.");
       })
       .finally(() => {
         setStartingPreviewDebate(false);
