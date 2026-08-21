@@ -48,6 +48,8 @@ const {
   mockRequestAccess,
   mockCreatePublicInvite,
   mockCreateCircleInvite,
+  mockListCircles,
+  mockGetCircle,
   mockGetActivity,
   mockGetState,
   mockGetNearbyPresence,
@@ -99,6 +101,8 @@ const {
   mockRequestAccess: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
   mockCreateCircleInvite: vi.fn(),
+  mockListCircles: vi.fn(),
+  mockGetCircle: vi.fn(),
   mockGetActivity: vi.fn(),
   mockGetState: vi.fn(),
   mockGetNearbyPresence: vi.fn(),
@@ -330,8 +334,8 @@ vi.mock("@/lib/one-location/service", () => ({
     // Named-circle surface: the mandatory onboarding invite screen
     // find-or-creates the user's first owned Circle and issues its
     // member-visible invite code before the people step opens.
-    listCircles: vi.fn().mockResolvedValue([]),
-    getCircle: vi.fn(),
+    listCircles: mockListCircles,
+    getCircle: mockGetCircle,
     ensureSmsSystemCircle: vi.fn().mockResolvedValue({ members: [] }),
     createNamedCircle: vi.fn().mockResolvedValue({
       id: "circle_onboarding",
@@ -1066,6 +1070,8 @@ describe("OneLocationAgentPage", () => {
     mockCreatePublicInvite.mockResolvedValue({
       publicUrl: "/one/location/request/invite_1",
     });
+    mockListCircles.mockResolvedValue([]);
+    mockGetCircle.mockResolvedValue(undefined);
     mockGetState.mockResolvedValue(locationState());
     mockGetNearbyPresence.mockResolvedValue({
       presence: null,
@@ -2050,6 +2056,73 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
     expect(mockCreateGrant).not.toHaveBeenCalled();
+  });
+
+  it("opens Circle member Share directly on the details step with that member selected", async () => {
+    const circle = {
+      id: "circle-1",
+      name: "Family",
+      kind: "family" as const,
+      role: "owner" as const,
+      memberCount: 2,
+      memberLimit: 20,
+      viewerCapabilities: {
+        canInviteMembers: true,
+        canViewInviteCode: true,
+        canRotateInviteCode: true,
+        canManageCircle: true,
+        canModerateInvites: true,
+      },
+      members: [
+        {
+          userId: "user_a",
+          displayName: "Test User",
+          role: "owner" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+          canReceiveLocation: true,
+          keyId: "key_a",
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+        },
+        {
+          userId: "user_abdul",
+          displayName: "Abdul Rashid",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+          canReceiveLocation: true,
+          keyId: "key_abdul",
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "xa", y: "ya" },
+        },
+      ],
+    };
+    mockListCircles.mockResolvedValue([circle]);
+    mockGetCircle.mockResolvedValue(circle);
+    const { rerender } = render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams("action=circle-detail&circleId=circle-1"),
+    );
+    rerender(<OneLocationAgentPage />);
+
+    await screen.findByText("Abdul Rashid");
+    const menuTrigger = screen.getByRole("button", {
+      name: "Actions for Abdul Rashid",
+    });
+    fireEvent.keyDown(menuTrigger, { key: "Enter" });
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: /Share location/i }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Ready to share?" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Who can see you?" }),
+    ).toBeNull();
+    expect(screen.getByText("Can see you")).toBeTruthy();
+    expect(screen.getByText("Abdul Rashid")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start sharing" })).toBeEnabled();
   });
 
   it("opens the canonical Location Settings URL and owns Saved Locations there", async () => {

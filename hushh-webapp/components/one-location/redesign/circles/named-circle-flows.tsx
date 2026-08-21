@@ -945,7 +945,7 @@ function CircleMemberRow({
             <DropdownMenuContent align="end">
               {canShare ? (
                 <DropdownMenuItem onSelect={() => onShare()}>
-                  <Share2 className="h-4 w-4" />
+                  <Share2 className="h-4 w-4 text-current" />
                   Share location
                 </DropdownMenuItem>
               ) : null}

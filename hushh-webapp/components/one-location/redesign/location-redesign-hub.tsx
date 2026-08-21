@@ -457,7 +457,10 @@ export type LocationHubViewModel = {
   onRetryNamedCircleMemberInvites: () => void;
   onLeaveNamedCircle: (circleId: string) => Promise<void>;
   onDeleteNamedCircle: (circleId: string) => Promise<void>;
-  prepareNamedCircleShare: (circleId: string, recipientUserId: string) => void;
+  prepareNamedCircleShare: (
+    circleId: string,
+    recipientUserId: string,
+  ) => Promise<boolean>;
   clearNamedCircleShareContext: () => void;
 
   /* Save My Soul (internal compatibility identifier remains SOS). */
@@ -1242,8 +1245,15 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               vm.onConnectCircleMember(circleId, memberUserId)
             }
             onShareWithMember={(circleId, recipientUserId) => {
-              vm.prepareNamedCircleShare(circleId, recipientUserId);
-              openFlow("share");
+              void (async () => {
+                const prepared = await vm.prepareNamedCircleShare(
+                  circleId,
+                  recipientUserId,
+                );
+                if (!prepared) return;
+                setShareStep("details");
+                openFlow("share");
+              })();
             }}
             onRemoveMember={vm.onRemoveNamedCircleMember}
             onLoadEligibleConnections={vm.onLoadNamedCircleEligibleConnections}

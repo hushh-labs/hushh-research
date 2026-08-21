@@ -7469,20 +7469,50 @@ export function OneLocationAgentPageContent({
   );
 
   const prepareNamedCircleShare = useCallback(
-    (circleId: string, recipientUserId: string) => {
-      setSelectedShareCircleSelection(null);
-      setNamedCircleShareContext({
-        circleId,
-        circleName:
-          namedCircles.find((circle) => circle.id === circleId)?.name ??
-          "Circle",
-        recipientUserIds: [recipientUserId],
-      });
-      setSelectedRecipientId(recipientUserId);
-      setSelectedRecipientIds([recipientUserId]);
-      setShareReviewOpen(false);
+    async (
+      circleId: string,
+      recipientUserId: string,
+    ): Promise<boolean> => {
+      setBusy("shareCircle");
+      try {
+        const selection =
+          await handleResolveNamedCircleRecipients(circleId, "location");
+        const target = selection.ready.find(
+          ({ recipient }) => recipient.userId === recipientUserId,
+        );
+        if (!target) {
+          throw new Error(
+            "This Circle member is not ready to receive location yet.",
+          );
+        }
+        setSelectedShareCircleSelection({
+          ...selection,
+          ready: [target],
+        });
+        setNamedCircleShareContext({
+          circleId: selection.circle.id,
+          circleName: selection.circle.name,
+          recipientUserIds: [target.recipient.userId],
+        });
+        setSelectedRecipientId(target.recipient.userId);
+        setSelectedRecipientIds([target.recipient.userId]);
+        setShareReviewOpen(false);
+        setShareDurationHours(ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS);
+        setShareMessage("");
+        return true;
+      } catch (error) {
+        toast.error(
+          oneLocationErrorMessage(
+            error,
+            "Could not prepare this member for sharing.",
+          ),
+        );
+        return false;
+      } finally {
+        setBusy(null);
+      }
     },
-    [namedCircles, setSelectedRecipientIds],
+    [handleResolveNamedCircleRecipients, setSelectedRecipientIds],
   );
 
   const clearNamedCircleShareContext = useCallback(() => {
