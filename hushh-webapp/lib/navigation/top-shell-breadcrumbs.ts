@@ -510,6 +510,22 @@ function resolveTopShellBreadcrumbInner(
     }
   }
 
+  if (pathname === ROUTES.RIA_CLAIM) {
+    const returnHref =
+      normalizeInternalRouteHref(searchParams?.get("return_to")) ||
+      ROUTES.RIA_ONBOARDING;
+    return {
+      backHref: returnHref,
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "RIA", href: returnHref },
+        { label: "Claim profile" },
+      ],
+    };
+  }
+
   if (pathname === ROUTES.RIA_ONBOARDING) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {
