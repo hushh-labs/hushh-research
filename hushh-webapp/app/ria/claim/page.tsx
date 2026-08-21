@@ -551,7 +551,7 @@ export default function RiaClaimPage() {
         dataState={nativeDataState}
       />
       <FullscreenFlowShell width="reading" className="px-0">
-        <div className="mx-auto flex w-full max-w-[34rem] flex-col gap-6 px-6 pb-[var(--app-scroll-bottom-pad)] pt-4">
+        <div className="mx-auto flex w-full max-w-[34rem] flex-col gap-6 px-6 pb-[var(--ria-onboarding-cta-bottom-clearance,var(--app-scroll-bottom-pad))] pt-4">
           {step !== "phone" && step !== "done" ? (
             <button
               type="button"
