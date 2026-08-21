@@ -1658,9 +1658,9 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
       <div
         data-ui-role="grouped-card"
         data-one-location-action-grid=""
-        className="grid grid-cols-2 overflow-hidden rounded-[22px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]"
+        className="grid grid-cols-2 gap-2 sm:gap-3"
       >
-        {items.map((item, index) => (
+        {items.map((item) => (
           <button
             key={item.controlId}
             type="button"
@@ -1671,21 +1671,17 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             data-voice-label={item.title}
             onClick={item.onClick}
             className={cn(
-              "group flex min-h-[116px] min-w-0 flex-col items-center justify-center gap-3 bg-transparent px-3 py-5 text-center transition-colors [-webkit-tap-highlight-color:transparent] hover:bg-[rgba(0,0,0,0.025)] active:bg-[rgba(120,120,128,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] sm:min-h-[126px]",
-              index % 2 === 0 &&
-                "border-r border-[color:var(--app-separator)]",
-              index < 2 &&
-                "border-b border-[color:var(--app-separator)]",
+              "group flex min-h-[94px] min-w-0 flex-col items-center justify-center gap-2.5 rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] px-3 py-4 text-center shadow-[var(--app-card-shadow-standard)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-card-surface-compact)] active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] sm:min-h-[108px]",
             )}
           >
             <span
               aria-hidden
               data-one-location-action-icon=""
               className={cn(
-                "inline-flex h-12 w-12 shrink-0 items-center justify-center [&_svg]:h-8 [&_svg]:w-8 [&_svg]:stroke-[1.95]",
+                "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] transition-transform group-active:scale-95 [&_svg]:h-6 [&_svg]:w-6 [&_svg]:stroke-[2]",
                 item.tone === "red"
-                  ? "text-[color:var(--app-destructive)]"
-                  : "text-[color:var(--app-accent-deep)]",
+                  ? "bg-[color:var(--app-destructive-tint)] text-[color:var(--app-destructive)]"
+                  : "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)]",
               )}
             >
               {item.icon}
@@ -1693,7 +1689,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             <RowLabel
               as="span"
               className={cn(
-                "min-w-0 text-[15px] font-semibold leading-5",
+                "min-w-0 text-[14px] font-semibold leading-[18px] sm:text-[15px] sm:leading-5",
                 item.tone === "red" && "text-[color:var(--app-destructive)]",
               )}
             >

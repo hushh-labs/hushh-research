@@ -1282,10 +1282,7 @@ describe("OneLocationAgentPage", () => {
 
     const actionGrid = actions.querySelector("[data-one-location-action-grid]");
     expect(actionGrid?.className).toContain("grid-cols-2");
-    expect(actionGrid?.className).toContain("rounded-[22px]");
-    expect(actionGrid?.className).toContain(
-      "shadow-[var(--app-card-shadow-standard)]",
-    );
+    expect(actionGrid?.className).toContain("gap-2");
 
     const actionCells = actionGrid?.querySelectorAll(
       "[data-one-location-action-cell]",
@@ -1294,11 +1291,18 @@ describe("OneLocationAgentPage", () => {
     actionCells?.forEach((cell) => {
       expect(cell.className).toContain("items-center");
       expect(cell.className).toContain("text-center");
-      expect(cell.className).toContain("min-h-[116px]");
+      expect(cell.className).toContain("min-h-[94px]");
+      expect(cell.className).toContain("rounded-[18px]");
+      expect(cell.className).toContain(
+        "shadow-[var(--app-card-shadow-standard)]",
+      );
     });
     expect(
       actionGrid?.querySelector("[data-one-location-action-icon]")?.className,
-    ).toContain("[&_svg]:h-8");
+    ).toContain("rounded-[16px]");
+    expect(
+      actionGrid?.querySelector("[data-one-location-action-icon]")?.className,
+    ).toContain("[&_svg]:h-6");
 
     const activity = screen.getByTestId("one-location-now-activity");
     expect(within(activity).getByText("Active shares")).toBeTruthy();
