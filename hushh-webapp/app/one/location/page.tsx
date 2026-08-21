@@ -150,6 +150,7 @@ import {
   joinNamesForSpeech,
   normalizeSpokenName,
   resolveSpokenNames,
+  splitSpokenNames,
 } from "@/lib/one-location/resolve-spoken-names";
 
 
@@ -9869,8 +9870,9 @@ export function OneLocationAgentPageContent({
   });
 
   useLocalOnboardingActionHandler("location.add_to_circle", async (slots) => {
-    const spokenPerson = String(slots?.person ?? "").trim();
-    if (!spokenPerson) {
+    const raw = String(slots?.person ?? "").trim();
+    const spokenNames = splitSpokenNames(raw);
+    if (spokenNames.length === 0) {
       return {
         status: "blocked" as const,
         summary: "Say who you want to add to the circle.",
@@ -9883,11 +9885,11 @@ export function OneLocationAgentPageContent({
           "Unlock One first -- I cannot see your circles while the vault is locked.",
       };
     }
-    const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
-    if ("blocked" in resolved) {
-      return { status: "blocked" as const, summary: resolved.blocked };
+    const resolvedCircle = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+    if ("blocked" in resolvedCircle) {
+      return { status: "blocked" as const, summary: resolvedCircle.blocked };
     }
-    const circle = resolved.circle;
+    const circle = resolvedCircle.circle;
     if (circle.viewerCapabilities?.canInviteMembers === false) {
       return {
         status: "blocked" as const,
@@ -9906,56 +9908,69 @@ export function OneLocationAgentPageContent({
         ),
       };
     }
-    const target = normalizeSpokenName(spokenPerson);
     // Answer about an invitation that already exists rather than sending a
-    // second one the other person would see twice.
-    const alreadyInvited = eligible.pendingInvites.find(
-      (invite) =>
-        invite.status === "pending" &&
-        normalizeSpokenName(String(invite.inviteeDisplayName ?? "")).includes(
-          target,
-        ),
-    );
-    if (alreadyInvited) {
-      return {
-        status: "succeeded" as const,
-        summary: `${alreadyInvited.inviteeDisplayName} already has a pending invitation to ${circle.name}.`,
-      };
+    // second one the other person would see twice -- checked per spoken
+    // name, before the rest fall through to eligible-connections matching.
+    const alreadyInvitedNames: string[] = [];
+    const remainingNames: string[] = [];
+    for (const spokenName of spokenNames) {
+      const target = normalizeSpokenName(spokenName);
+      const existingInvite = eligible.pendingInvites.find(
+        (invite) =>
+          invite.status === "pending" &&
+          normalizeSpokenName(String(invite.inviteeDisplayName ?? "")).includes(
+            target,
+          ),
+      );
+      if (existingInvite) {
+        alreadyInvitedNames.push(existingInvite.inviteeDisplayName ?? spokenName);
+      } else {
+        remainingNames.push(spokenName);
+      }
     }
     // Server-authoritative: eligible connections already exclude current
     // members and anyone not connected, so a match here is genuinely addable.
-    const matches = eligible.eligibleConnections.filter((connection) =>
-      normalizeSpokenName(connection.displayName).includes(target),
-    );
-    if (matches.length === 0) {
+    const { resolved, unresolved } = remainingNames.length
+      ? resolveSpokenNames(
+          eligible.eligibleConnections,
+          remainingNames.join(", "),
+          (connection) => connection.displayName,
+        )
+      : { resolved: [], unresolved: [] };
+    if (resolved.length > 0 && eligible.remainingCapacity < resolved.length) {
+      return {
+        status: "blocked" as const,
+        summary: `${resolved.length} people match, but ${circle.name} only has room for ${eligible.remainingCapacity} more.`,
+      };
+    }
+    if (resolved.length === 0) {
+      if (alreadyInvitedNames.length > 0) {
+        return {
+          status: "succeeded" as const,
+          summary: `${joinNamesForSpeech(alreadyInvitedNames)} already ${
+            alreadyInvitedNames.length === 1 ? "has" : "have"
+          } a pending invitation to ${circle.name}.`,
+        };
+      }
+      const ambiguous = unresolved.find((entry) => entry.kind === "ambiguous");
+      if (ambiguous && ambiguous.kind === "ambiguous") {
+        return {
+          status: "blocked" as const,
+          summary: `More than one person matches that name: ${ambiguous.matches
+            .map((connection) => connection.displayName)
+            .join(", ")}. Say which one.`,
+        };
+      }
       return {
         status: "blocked" as const,
         summary: `Nobody who can be added to ${circle.name} matches that name. They have to be connected to you and not already in it.`,
       };
     }
-    if (matches.length > 1) {
-      return {
-        status: "blocked" as const,
-        summary: `More than one person matches that name: ${matches
-          .map((connection) => connection.displayName)
-          .join(", ")}. Say which one.`,
-      };
-    }
-    if (eligible.remainingCapacity < 1) {
-      return {
-        status: "blocked" as const,
-        summary: `${circle.name} is already at its member limit.`,
-      };
-    }
-    const invitee = matches[0];
-    if (!invitee) {
-      return {
-        status: "blocked" as const,
-        summary: `Nobody who can be added to ${circle.name} matches that name.`,
-      };
-    }
     try {
-      await handleInviteNamedCircleConnections(circle.id, [invitee.userId]);
+      await handleInviteNamedCircleConnections(
+        circle.id,
+        resolved.map((connection) => connection.userId),
+      );
     } catch (error) {
       return {
         status: "failed" as const,
@@ -9966,11 +9981,23 @@ export function OneLocationAgentPageContent({
       };
     }
     scheduleNamedCircleStateRefresh();
+    const invitedNames = resolved.map((connection) => connection.displayName);
+    const problems = [
+      ...alreadyInvitedNames.map(
+        (name) => `${name} already has a pending invitation`,
+      ),
+      ...unresolved.map((entry) =>
+        entry.kind === "not_found"
+          ? `couldn't find anyone named "${entry.spokenText}"`
+          : `${entry.matches.length} people match "${entry.spokenText}" -- say which one`,
+      ),
+    ];
+    const problemSentence = problems.length ? ` Also, ${problems.join("; ")}.` : "";
     // "Invited", never "added". Joining is the other person's decision, and
     // reporting it as done would claim a consent that has not been given.
     return {
       status: "succeeded" as const,
-      summary: `Invited ${invitee.displayName} to ${circle.name}. They join once they accept.`,
+      summary: `Invited ${joinNamesForSpeech(invitedNames)} to ${circle.name}. They join once they accept.${problemSentence}`,
     };
   });
 
@@ -9984,6 +10011,15 @@ export function OneLocationAgentPageContent({
           summary: "Say who you want to remove from the circle.",
         };
       }
+      // Removal is destructive and its confirmation card names exactly one
+      // person -- deliberately narrower than add_to_circle's multi-person
+      // support rather than building a multi-subject confirmation UI here.
+      if (splitSpokenNames(spokenPerson).length > 1) {
+        return {
+          status: "blocked" as const,
+          summary: "Remove people from a circle one at a time.",
+        };
+      }
       if (!vaultOwnerToken) {
         return {
           status: "blocked" as const,
@@ -9991,11 +10027,11 @@ export function OneLocationAgentPageContent({
             "Unlock One first -- I cannot see your circles while the vault is locked.",
         };
       }
-      const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
-      if ("blocked" in resolved) {
-        return { status: "blocked" as const, summary: resolved.blocked };
+      const resolvedCircle = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+      if ("blocked" in resolvedCircle) {
+        return { status: "blocked" as const, summary: resolvedCircle.blocked };
       }
-      const circle = resolved.circle;
+      const circle = resolvedCircle.circle;
       if (circle.viewerCapabilities?.canManageCircle === false) {
         return {
           status: "blocked" as const,
@@ -10014,29 +10050,28 @@ export function OneLocationAgentPageContent({
           ),
         };
       }
-      const target = normalizeSpokenName(spokenPerson);
       // Only people actually IN the circle. Matching the wider connection list
       // would let "remove Sarah" report success about somebody who was never a
       // member, leaving the real membership untouched and the person believing
       // otherwise.
-      const matches = detail.members.filter((member) =>
-        normalizeSpokenName(member.displayName).includes(target),
-      );
-      if (matches.length === 0) {
+      const { resolved: circleMatches, unresolved: circleUnresolved } =
+        resolveSpokenNames(detail.members, spokenPerson, (member) => member.displayName);
+      if (circleMatches.length === 0) {
+        const ambiguous = circleUnresolved.find((entry) => entry.kind === "ambiguous");
+        if (ambiguous && ambiguous.kind === "ambiguous") {
+          return {
+            status: "blocked" as const,
+            summary: `More than one person in ${circle.name} matches that name: ${ambiguous.matches
+              .map((member) => member.displayName)
+              .join(", ")}. Say which one.`,
+          };
+        }
         return {
           status: "blocked" as const,
           summary: `Nobody in ${circle.name} matches that name.`,
         };
       }
-      if (matches.length > 1) {
-        return {
-          status: "blocked" as const,
-          summary: `More than one person in ${circle.name} matches that name: ${matches
-            .map((member) => member.displayName)
-            .join(", ")}. Say which one.`,
-        };
-      }
-      const member = matches[0];
+      const member = circleMatches[0];
       if (!member) {
         return {
           status: "blocked" as const,

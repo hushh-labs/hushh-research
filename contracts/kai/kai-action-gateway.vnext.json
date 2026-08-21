@@ -8379,7 +8379,7 @@
         "member",
         "group"
       ],
-      "meaning": "Invites one of your connections to join a circle. They are not in the circle until they accept, so this sends an invitation rather than adding them outright. Only people already connected to you can be invited.",
+      "meaning": "Invites one or more of your connections to join a circle -- multiple people can be named in one turn, e.g. 'Alice and Bob'. They are not in the circle until they accept, so this sends an invitation rather than adding them outright. Only people already connected to you can be invited.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -8441,7 +8441,7 @@
             "prompt": "Who should I invite to the circle?",
             "required": true,
             "slot": "person",
-            "resolver": "spoken_person_name"
+            "resolver": "spoken_person_name_list"
           },
           {
             "name": "circle",
@@ -8453,7 +8453,7 @@
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name",
+          "person": "spoken_person_name_list",
           "circle": "spoken_circle_name"
         },
         "workflow_steps": [
