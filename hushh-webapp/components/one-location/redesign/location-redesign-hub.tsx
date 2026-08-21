@@ -3953,6 +3953,43 @@ function AskFlow({
         const isFormValid = vm.selectedRequestOwnerIds.length > 0;
         const sending = vm.busy === "request";
         return (
+          /**
+           * Pinned, because choosing someone and sending to them were never on
+           * screen together.
+           *
+           * Send sits after the roster, the duration ladder, the reason chips
+           * and the message box -- roughly a screen and a half below the person
+           * being picked. So the count travels with it: scrolling away from the
+           * roster used to lose the only place that said how many were chosen.
+           *
+           * `sticky`, not `fixed`. A fixed bar covers content and has to be
+           * paid for with page padding that is wrong at one end or the other.
+           * This one rides the page and settles into place at the bottom of the
+           * flow, so nothing is ever permanently underneath it.
+           *
+           * The offset is the app's own composed bottom inset plus the
+           * keyboard: on iOS the on-screen keyboard would otherwise sit over
+           * the action a person just reached for.
+           */
+          <div
+            data-testid="one-location-ask-send-bar"
+            className="sticky z-10 -mx-1 mt-1 space-y-2 rounded-2xl bg-[color:var(--app-primary-surface)]/95 px-1 py-2 backdrop-blur supports-[backdrop-filter]:bg-[color:var(--app-primary-surface)]/80"
+            style={{
+              bottom:
+                "calc(var(--app-bottom-inset, 0px) + var(--kb-height, 0px) + 0.5rem)",
+            }}
+          >
+            {isFormValid ? (
+              <p
+                aria-live="polite"
+                data-testid="one-location-ask-selection-summary"
+                className={cn(MUTED_TEXT, "px-1")}
+              >
+                {vm.selectedRequestOwnerIds.length === 1
+                  ? "1 person selected"
+                  : `${vm.selectedRequestOwnerIds.length} people selected`}
+              </p>
+            ) : null}
           <Button
             onClick={() => {
               // Never submit an incomplete form even if the click somehow
@@ -3978,6 +4015,7 @@ function AskFlow({
           >
             Send request
           </Button>
+          </div>
         );
       })()}
 

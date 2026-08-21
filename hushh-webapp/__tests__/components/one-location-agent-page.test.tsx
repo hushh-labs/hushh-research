@@ -4400,6 +4400,34 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("keeps the count with the action, since the two are a screen apart", async () => {
+    // Send sits after the roster, the duration ladder, the reason chips and the
+    // message box. Scrolling to it used to lose the only place that said how
+    // many people were chosen, so the last check before an outward action was
+    // to scroll back up and count rows.
+    mockGetState.mockResolvedValue(locationState());
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    // Nothing chosen: the bar is there, the count is not -- an empty line
+    // announcing zero is noise.
+    expect(screen.getByTestId("one-location-ask-send-bar")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("one-location-ask-selection-summary"),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Select Trusted B/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("one-location-ask-selection-summary"),
+      ).toHaveTextContent("1 person selected"),
+    );
+  });
+
   it("offers a way to Connect when the person being looked for is not on the list", async () => {
     // This roster is everyone you are already connected to, so "they are not
     // here" has exactly one answer and it lives on another screen. Without
