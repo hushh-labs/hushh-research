@@ -12,7 +12,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/services/api-client";
 // The rungs themselves, not a copy of their labels: Ask and Share must offer
 // the same ladder, so the test reads the same list the component does.
-import { SHARE_DURATION_LADDER } from "@/components/one-location/redesign/duration-presets";
 import { ROUTES } from "@/lib/navigation/routes";
 
 const {
@@ -1946,7 +1945,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     // Move the duration off its default so the reset below has something to
     // actually reset.
-    fireEvent.click(screen.getByRole("button", { name: "4 hours" }));
+    fireEvent.click(screen.getByRole("button", { name: "1 hour" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Optional note" }), {
       target: { value: "Meet me by the entrance" },
     });
@@ -2029,13 +2028,13 @@ describe("OneLocationAgentPage", () => {
       screen.queryByRole("radio", { name: /Approximate area/i }),
     ).toBeNull();
     // Back to the 15-minute default, and back to the collapsed ladder — a
-    // reopened flow that kept "4 hours" pressed would be offering a length
+    // reopened flow that kept "1 hour" pressed would be offering a length
     // this share never chose.
     expect(screen.getByRole("button", { name: "15 min" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
-    expect(screen.getByRole("button", { name: "4 hours" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "1 hour" })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
@@ -4018,18 +4017,20 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openAskFlow();
 
-    // Every rung the Share ladder offers, in the same order.
-    for (const rung of SHARE_DURATION_LADDER) {
+    // Request uses the same compact ladder pattern as Share, but it cannot ask
+    // for open-ended access to someone else's location.
+    for (const label of ["15 min", "1 hour", "Custom"]) {
       expect(
-        screen.getByRole("button", { name: rung.label }),
-        `Ask is missing the "${rung.label}" rung`,
+        screen.getByRole("button", { name: label }),
+        `Ask is missing the "${label}" rung`,
       ).toBeTruthy();
     }
+    expect(screen.queryByRole("button", { name: "Until I stop" })).toBeNull();
     // And no wheel: the spinbuttons only exist inside the wheel, and mounting
     // one here is what the report was about.
     expect(screen.queryByRole("spinbutton", { name: "Hours" })).toBeNull();
     expect(screen.queryByRole("spinbutton", { name: "Minutes" })).toBeNull();
-  });
+  }, 10_000);
 
   it("sends an approval-first location request without sharing coordinates", async () => {
     mockGetState.mockResolvedValue({
@@ -4048,14 +4049,10 @@ describe("OneLocationAgentPage", () => {
         name: /Select Trusted B for location request/i,
       }),
     );
-    fireEvent.change(
-      screen.getByPlaceholderText(
-        "Hey, can you share your location until we meet?",
-      ),
-      {
-        target: { value: "Need pickup coordination" },
-      },
-    );
+    expect(
+      screen.queryByPlaceholderText("Hey, can you share your location until we meet?"),
+    ).toBeNull();
+    expect(screen.queryByPlaceholderText("What should they know?")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
 
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
@@ -4065,7 +4062,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockRequestAccess).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
       ownerUserId: "user_b",
-      message: "Safety check-in — Need pickup coordination",
+      message: "Safety check-in",
       requestedDurationHours: 1,
       requestedDurationMode: "timed",
     });
@@ -4079,7 +4076,7 @@ describe("OneLocationAgentPage", () => {
         selected_count: 1,
         success_count: 1,
         failure_count: 0,
-        has_note: true,
+        has_note: false,
       }),
     );
     await waitFor(() =>

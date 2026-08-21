@@ -1085,6 +1085,31 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(classes.has("justify-end")).toBe(true);
   });
 
+  it("keeps My connections scrollable when the list grows", async () => {
+    // Three connections fit naturally. A hundred should not turn the top of
+    // Connect into a full-page receipt before the search field appears.
+    mocks.listConnections.mockResolvedValue(
+      Array.from({ length: 12 }, (_, index) => ({
+        connectionId: `c-${index}`,
+        userId: `u-${index}`,
+        displayName: `Trusted Person ${index + 1}`,
+        maskedEmail: `t***${index}@example.com`,
+      })),
+    );
+
+    const { container } = render(<ConnectPageClient />);
+    expect(await screen.findByText("My connections (12)")).toBeTruthy();
+
+    const list = container.querySelector(
+      '[data-testid="connect-my-connections-group"] [data-inset-separators="true"]',
+    );
+    expect(list).toBeTruthy();
+    expect(list!.className).toContain("max-h-[232px]");
+    expect(list!.className).toContain("overflow-y-auto");
+    expect(list!.className).toContain("overscroll-contain");
+    expect(list!.className).toContain("sm:max-h-[320px]");
+  });
+
   it("asks for the search field in two words", async () => {
     render(<ConnectPageClient />);
     expect(await screen.findByPlaceholderText("Search people")).toBeTruthy();

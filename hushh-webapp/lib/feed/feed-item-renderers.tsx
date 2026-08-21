@@ -164,7 +164,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           ? shareAmount
             ? `Shared their location with you for ${shareAmount}`
             : "Shared their location with you"
-          : "Started sharing location",
+          : "You started sharing location",
         href: ROUTES.ONE_LOCATION,
       };
     }

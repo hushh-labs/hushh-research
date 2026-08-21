@@ -43,6 +43,7 @@ import {
   UserPlus,
   UsersRound,
   ChevronRight,
+  X,
 } from "lucide-react";
 
 import {
@@ -135,10 +136,6 @@ import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography"
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
 import {
-  SelectedContactsPill,
-  SelectedContactsSheet,
-} from "@/components/one-location/redesign/contact-picker/selected-review-sheet";
-import {
   flattenRecipientSections,
   lastInteractionByUserId,
   sectionRecipients,
@@ -168,6 +165,7 @@ import { useMediaQuery } from "@/lib/morphy-ux/use-media-query";
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
 export const ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS = "0.25";
+const ONE_LOCATION_REQUEST_REASON_MAX_LENGTH = 80;
 
 export type PrivateCheckInResult = {
   succeededRecipientIds: string[];
@@ -3066,10 +3064,6 @@ function ShareFlow({
     // Only claim the Circle while it is still whole. A partially deselected
     // roster is a hand-picked list of people, and this is the last surface that
     // may overstate who is included.
-    const selectedCircle = shareCircleFullySelected
-      ? vm.selectedShareCircleSelection
-      : null;
-    const peopleNoun = selectedReady.length === 1 ? "person" : "people";
     return (
       // A single-column consent form does not get wider just because the window
       // does. Measured at 1440 this step rendered an 824px card holding a 420px
@@ -3089,70 +3083,6 @@ function ShareFlow({
           eyebrow="Step 2 of 2 · Confirm"
           title="Ready to share?"
         />
-
-        <section className="space-y-3">
-          {/* Label and its Edit action on one line, group beneath. The card
-              this replaced carried the action inside its own header; a group
-              owns its title, so the affordance sits beside the label it edits
-              rather than inside the surface it edits. */}
-          <div className="flex items-end justify-between gap-3 px-1">
-            <div className="min-w-0">
-              <AppSectionLabel as="h2">Can see you</AppSectionLabel>
-              <p className={MUTED_TEXT}>
-                {selectedCircle
-                  ? `${selectedCircle.circle.name} · ${selectedReady.length} ${peopleNoun}`
-                  : `${selectedReady.length} ${peopleNoun}`}
-              </p>
-            </div>
-            {/* Raw <button>, not the morphy Button: that component's
-                `size.default` carries `min-h-[50px]`, which lives in a
-                different tailwind-merge group from `h-*` and therefore
-                survives `h-9`. The control rendered 36px tall against a
-                50px min-height — under Apple's 44pt tap target on one axis
-                and over the row's own height on the other. */}
-            <button
-              type="button"
-              onClick={backToPeople}
-              aria-label="Change who can see you"
-              className="flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)]"
-            >
-              Edit
-            </button>
-          </div>
-          {selectedReady.length ? (
-            /* A real <ul>, not a stack of divs: this is the read-back of who is
-               about to see you, and "list, 3 items" is exactly what a screen
-               reader should say here. Painted with the same surface, radius and
-               inset hairlines SettingsGroup uses, so it is the group shape with
-               the list semantics kept. */
-            <ul
-              aria-label="People who can see your location"
-              className="divide-y divide-border/60 overflow-hidden rounded-[var(--app-card-radius-standard,24px)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]"
-            >
-              {selectedReady.map((recipient) => (
-                <li
-                  key={recipient.userId}
-                  className="flex min-h-[56px] items-center gap-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]"
-                >
-                  <Avatar
-                    initials={initialsFrom(vm.recipientLabel(recipient))}
-                  />
-                  <RowLabel
-                    as="span"
-                    className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]"
-                  >
-                    {vm.recipientLabel(recipient)}
-                  </RowLabel>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState
-              title="Nobody chosen yet"
-              description="Tap Edit to choose people."
-            />
-          )}
-        </section>
 
         <SectionCard>
           <div className="space-y-5">
@@ -3222,14 +3152,23 @@ function ShareFlow({
           </div>
         </SectionCard>
 
-        {/* No "Location type" row. It read back whichever option was picked,
-            which made the consent step the most convincing part of a promise
-            nothing kept — see the note above ShareFlow. */}
-        <TrustNoteCard
-          description={
-            vm.shareDurationHours === "until_stopped"
-              ? "Encrypted. Stop anytime."
-              : "Encrypted. Ends automatically."
+        <SelectedRecipientsRail
+          title="Can see you"
+          ariaLabel="People who can see your location"
+          recipients={selectedReady}
+          onRemove={(recipientUserId) =>
+            vm.toggleShareRecipient(recipientUserId, "share_flow")
+          }
+          recipientLabel={vm.recipientLabel}
+          trailing={
+            <button
+              type="button"
+              onClick={backToPeople}
+              aria-label="Change who can see you"
+              className="flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)]"
+            >
+              Edit
+            </button>
           }
         />
 
@@ -3303,21 +3242,6 @@ function ShareFlow({
               />
             );
           })}
-          {vm.selectedShareCircleSelection && shareCircleFullySelected ? (
-            <p className={cn(MUTED_TEXT, "mt-3")}>
-              Current ready members only; future members are never added
-              automatically.
-              {vm.selectedShareCircleSelection.excluded.filter(
-                (item) => item.reason !== "self",
-              ).length
-                ? ` ${
-                    vm.selectedShareCircleSelection.excluded.filter(
-                      (item) => item.reason !== "self",
-                    ).length
-                  } member(s) need Location setup and are not included.`
-                : ""}
-            </p>
-          ) : null}
         </SettingsGroup>
       ) : null}
       <PersonSearchInput
@@ -3571,10 +3495,6 @@ function AskFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
-  // Selection is only ever readable by scrolling the roster and counting the
-  // rows wearing "Selected". The pill answers "who is on this list" without
-  // the scroll, and the sheet is where that answer gets edited.
-  const [selectionSheetOpen, setSelectionSheetOpen] = useState(false);
   const selectedRecipients = useMemo(
     () =>
       vm.recipients.filter((recipient) =>
@@ -3753,12 +3673,6 @@ function AskFlow({
       <section className="space-y-3">
         <AppSectionLabel as="h2">People</AppSectionLabel>
         <PersonSearchInput value={searchDraft} onChange={setSearchDraft} />
-        {vm.selectedRequestOwnerIds.length ? (
-          <SelectedContactsPill
-            count={vm.selectedRequestOwnerIds.length}
-            onOpen={() => setSelectionSheetOpen(true)}
-          />
-        ) : null}
         {filtered.length ? (
           /* Windowed above the picker's own threshold, plain DOM below it.
              The rule is `shouldVirtualizeList`, imported rather than
@@ -3941,29 +3855,16 @@ function AskFlow({
           Don&apos;t see someone? Manage connections
           <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
         </a>
+        <SelectedRecipientsRail
+          title="Selected"
+          recipients={selectedRecipients}
+          onRemove={(recipientUserId) =>
+            vm.toggleRequestOwner(recipientUserId, "ask_flow")
+          }
+          recipientLabel={vm.recipientLabel}
+        />
       </section>
 
-      <SelectedContactsSheet
-        open={selectionSheetOpen}
-        onOpenChange={setSelectionSheetOpen}
-        recipients={selectedRecipients}
-        busyUserId={null}
-        onRemove={(recipientUserId) =>
-          vm.toggleRequestOwner(recipientUserId, "ask_flow")
-        }
-        recipientLabel={vm.recipientLabel}
-      />
-
-      {/* Ask and Share are the same decision pointed in opposite directions,
-          so they are now the same card: one surface, "How long" over the
-          ladder, then the next field. Ask used to put its duration in a
-          SettingsRow trailing slot as a two-column scroll wheel — a control
-          that needs 260px pinned to the right edge of a row, overlapping the
-          row it sat in and looking nothing like the screen people reach it
-          from.
-
-          Message keeps its own labelled block below: a two-row textarea is not
-          a row control. */}
       <SectionCard>
         <div className="space-y-5">
           <DurationSelector
@@ -3984,26 +3885,41 @@ function AskFlow({
           />
           <ReasonChips
             value={reason}
-            onChange={setReason}
+            onChange={(next) => {
+              setReason(next);
+              if (next !== "Other") vm.setRequestMessage("");
+            }}
             label="Reason"
             presentation="select"
           />
+          {reason === "Other" ? (
+            <div className="space-y-2.5">
+              <label
+                htmlFor="one-location-ask-other-reason"
+                className="text-sm font-semibold text-foreground"
+              >
+                Add reason
+              </label>
+              <textarea
+                id="one-location-ask-other-reason"
+                value={vm.requestMessage}
+                onChange={(e) =>
+                  vm.setRequestMessage(
+                    e.target.value.slice(
+                      0,
+                      ONE_LOCATION_REQUEST_REASON_MAX_LENGTH,
+                    ),
+                  )
+                }
+                rows={2}
+                maxLength={ONE_LOCATION_REQUEST_REASON_MAX_LENGTH}
+                placeholder="What should they know?"
+                className="block w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-compact)] px-3 pb-8 pt-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+              />
+            </div>
+          ) : null}
         </div>
       </SectionCard>
-
-      <section className="space-y-3">
-        <AppSectionLabel as="h2">Message</AppSectionLabel>
-        <textarea
-          value={vm.requestMessage}
-          onChange={(e) => vm.setRequestMessage(e.target.value)}
-          rows={2}
-          placeholder="Hey, can you share your location until we meet?"
-          /* bg-background is the light canvas colour, so on this screen the
-             field disappeared into the page exactly as the search input did.
-             Same surface as the group above it, in both themes. */
-          className="w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
-        />
-      </section>
 
       {/* Send is enabled once at least one recipient is chosen. Duration and
           reason default to sensible values, so gating Send on them too (added
@@ -4038,7 +3954,7 @@ function AskFlow({
            */
           <div
             data-testid="one-location-ask-send-bar"
-            className="sticky z-10 -mx-1 mt-1 space-y-2 rounded-2xl bg-[color:var(--app-primary-surface)]/95 px-1 py-2 backdrop-blur supports-[backdrop-filter]:bg-[color:var(--app-primary-surface)]/80"
+            className="sticky z-10 -mx-1 mt-1 space-y-2 rounded-2xl bg-[color:var(--app-card-surface-default-solid)] px-1 py-2"
             style={{
               bottom:
                 "calc(var(--app-bottom-inset, 0px) + var(--kb-height, 0px) + 0.5rem)",
@@ -4093,6 +4009,63 @@ function AskFlow({
           Done
         </Button>
       ) : null}
+    </div>
+  );
+}
+
+function SelectedRecipientsRail({
+  title,
+  ariaLabel,
+  recipients,
+  onRemove,
+  recipientLabel,
+  trailing,
+}: {
+  title: string;
+  ariaLabel?: string;
+  recipients: OneLocationRecipient[];
+  onRemove: (recipientUserId: string) => void;
+  recipientLabel: (recipient: OneLocationRecipient) => string;
+  trailing?: ReactNode;
+}) {
+  if (!recipients.length) return null;
+
+  return (
+    <div className="space-y-2 pt-1">
+      <div className="flex items-end justify-between gap-3 px-1">
+        <AppSectionLabel as="h3">{title}</AppSectionLabel>
+        {trailing}
+      </div>
+      <div
+        aria-label={ariaLabel ?? title}
+        role="list"
+        className="max-h-[176px] overflow-y-auto rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/15"
+      >
+        {recipients.map((recipient) => {
+          const label = recipientLabel(recipient);
+          return (
+            <div key={recipient.userId} role="listitem">
+              <button
+                type="button"
+                onClick={() => onRemove(recipient.userId)}
+                aria-label={`Remove ${label}`}
+                className="group flex min-h-14 w-full items-center gap-3 border-b border-[color:var(--app-separator)] px-3 text-left last:border-b-0"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
+                  <UsersRound className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
+                  {label}
+                </span>
+                <X
+                  className="h-4 w-4 shrink-0 text-muted-foreground opacity-55 transition-opacity group-hover:opacity-100"
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

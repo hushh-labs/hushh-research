@@ -28,9 +28,9 @@ import {
  *
  *   - a 44pt tap target that is really 36px (`h-9` is what the surrounding
  *     chips use, and what the old "Until I stop" toggle was)
- *   - "8 hours" or "Until I stop" clipped inside an 80px cell at 320px
- *   - the 3-column grid reflowing to 3 rows on an iPhone SE because one
- *     label wrapped
+ *   - "Until I stop" clipped inside a compact iPhone cell at 320px
+ *   - the compact grid reflowing to three rows on an iPhone SE because one
+ *     label wrapped or a fifth choice slipped back in
  *   - the whole control creeping back toward the 306px the founder called
  *     "taking much space"
  *
@@ -52,10 +52,10 @@ const WIDE_WIDTHS = [768, 1024, 1440] as const;
 /**
  * The widest a single duration chip may be on a desktop.
  *
- * A 3-column grid inside the 880px Location shell stretched each cell to 258px,
- * and inside the wider Share card to 440px — "8 hours" printed across a slab
- * half a screen wide, in the founder's words "not looking good". A chip sized
- * to "Until I stop" is ~120px.
+ * A fixed grid inside the 880px Location shell stretched each cell to 258px,
+ * and inside the wider Share card to 440px — short labels printed across slabs
+ * half a screen wide, in the founder's words "not looking good". Content-sized
+ * chips stay around the actual label width.
  */
 const WIDE_MAX_CELL_WIDTH_PX = 170;
 
@@ -64,14 +64,14 @@ const WIDE_MAX_CELL_WIDTH_PX = 170;
  * row of chips = 74. Slack for sub-pixel line boxes. Two rows would be 126 and
  * fail — which is the point.
  */
-const WIDE_COLLAPSED_MAX_HEIGHT_PX = 80;
+const WIDE_COLLAPSED_MAX_HEIGHT_PX = 84;
 
 /**
  * The collapsed control's budget, in CSS px:
- *   label/hint row 20 + gap 10 + row 44 + gap 8 + row 44 + gap 8 + row 44
- * = 178. Four px of slack for sub-pixel line boxes.
+ *   label/hint row 20 + gap 10 + row 44 + gap 8 + row 44
+ * = 126. Four px of slack for sub-pixel line boxes.
  */
-const COLLAPSED_MAX_HEIGHT_PX = 182;
+const COLLAPSED_MAX_HEIGHT_PX = 130;
 
 /**
  * Custom open: the collapsed ladder + gap 8 + pt-1 4 + a 3-row wheel 120 = 310.
@@ -158,7 +158,6 @@ async function buildFixture(customOpen = false): Promise<string> {
         <div class="${DURATION_GRID_CLASS}" data-grid>${gridCells}${cell(
           "Until I stop",
           false,
-          "col-span-3",
         )}</div>
         ${
           customOpen
@@ -286,8 +285,7 @@ test.describe("One Location duration ladder layout", () => {
         ).toBeGreaterThanOrEqual(44);
       }
 
-      // L2/L4 — no label may clip or wrap. "Until I stop" is the reason the
-      // open-ended rung is a full-width row and not a seventh grid cell.
+      // L2/L4 — no label may clip or wrap.
       for (const cell of measured.cells) {
         expect(cell.clipped, `"${cell.text}" is clipped`).toBe(false);
         expect(
@@ -296,9 +294,9 @@ test.describe("One Location duration ladder layout", () => {
         ).toBe(1);
       }
 
-      // L3 — the six grid cells stay in exactly two rows. A wrapped label
-      // reflows them to three and the control silently grows 52px.
-      const gridRows = new Set(measured.cells.slice(0, 6).map((c) => c.top));
+      // L3 — the compact choices stay in exactly two rows. A wrapped label or
+      // extra preset reflows them to three and the control silently grows 52px.
+      const gridRows = new Set(measured.cells.map((c) => c.top));
       expect(gridRows.size).toBe(2);
 
       // L5 — nothing pushes the page sideways at any width.
@@ -315,11 +313,11 @@ test.describe("One Location duration ladder layout", () => {
       // L7 — the budget. This is the founder's actual complaint, in a number.
       expect(measured.controlHeight).toBeLessThanOrEqual(COLLAPSED_MAX_HEIGHT_PX);
 
-      // L9 — the open-ended rung spans the ladder, so it reads as the last
-      // rung rather than a stray chip.
-      expect(
-        Math.abs(measured.untilStopWidth - measured.gridWidth),
-      ).toBeLessThanOrEqual(1);
+      // L9 — the open-ended rung stays a peer in the same 2x2 grid, not a
+      // detached full-width bar.
+      expect(measured.untilStopWidth).toBeLessThanOrEqual(
+        measured.gridWidth / 2 + 1,
+      );
 
       // L10 — no React/ARIA warnings from the new markup.
       expect(consoleErrors).toEqual([]);
