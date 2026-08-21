@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
@@ -201,6 +201,7 @@ export default function RiaOnboardingPage({
   onSetupSkip?: () => void | Promise<void>;
 } = {}) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, phoneNumber } = useAuth();
   const {
@@ -217,6 +218,7 @@ export default function RiaOnboardingPage({
   //   ?reinitiate=1   → re-run the whole 5-step wizard (start at welcome)
   // A generic ?step= is also honoured.
   const editParam = searchParams?.get("edit") ?? null;
+  const currentRoute = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ""}`;
   const setupOrigin =
     setupMode ||
     normalizeInternalRouteHref(searchParams?.get("from")) === ROUTES.ONE_SETUP;
@@ -534,7 +536,7 @@ export default function RiaOnboardingPage({
           { signal: controller.signal },
         ).finally(() => clearTimeout(timer));
         if (isClaimableLookupOutcome(lookup)) {
-          router.replace(buildRiaClaimRoute(phone));
+          router.replace(buildRiaClaimRoute(phone, { returnTo: currentRoute }));
         }
       } catch {
         /* stay in the wizard */
@@ -542,7 +544,7 @@ export default function RiaOnboardingPage({
     })();
     // phoneNumber is in the deps so the probe re-runs once the backend phone
     // hydrates, which happens after the first render for a Google sign-in.
-  }, [entryMode, user, phoneNumber, router]);
+  }, [currentRoute, entryMode, user, phoneNumber, router]);
 
   useEffect(() => {
     if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;

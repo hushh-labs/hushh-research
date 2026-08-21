@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { BadgeCheck, Loader2, Lock, Search as SearchIcon, UserRound, Users, X } from "lucide-react";
+import { BadgeCheck, Loader2, Lock, Search as SearchIcon, Share2, UserRound, Users, X } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -14,6 +14,12 @@ import { NearbyDirectories } from "@/components/connect/nearby-directories";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
+import { buildInviteToOneShare } from "@/lib/connect/invite-to-one";
+import {
+  isShareCancellationError,
+  ShareUnavailableError,
+  shareLink,
+} from "@/lib/share/share-link";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -36,6 +42,7 @@ import {
 import { useRequireAuth } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
@@ -398,6 +405,27 @@ export default function ConnectPageClient() {
     void loadOutgoingRequestIds();
   }, [loadOutgoingRequestIds]);
 
+  useEffect(() => {
+    const handleStateChanged = (event: Event) => {
+      const detail =
+        (event as CustomEvent<{ action?: unknown; reconcile?: unknown }>)
+          .detail || {};
+      // Only re-fetch for real mutations (`action`) or explicit reconcile
+      // requests, not bookkeeping echoes like "fcm_opened" that would
+      // otherwise flash the list on every notification read.
+      if (!detail.action && !detail.reconcile) return;
+      void loadConnections().then((rows) => setConnections(rows));
+      void loadOutgoingRequestIds();
+    };
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, handleStateChanged);
+    return () => {
+      window.removeEventListener(
+        CONSENT_STATE_CHANGED_EVENT,
+        handleStateChanged,
+      );
+    };
+  }, [loadConnections, loadOutgoingRequestIds]);
+
   // The directory is every account on Hussh, so listing all of it unprompted
   // stops being useful as soon as sign-ups outgrow a screen or two: the person
   // you came to connect with is buried among strangers, and paging through them
@@ -424,6 +452,56 @@ export default function ConnectPageClient() {
   // the same mistake as asking for page 3 of a query they just retyped.
   const directoryAudience = CONNECT_TAB_AUDIENCE[tab];
   const isAdvisorTab = tab === "advisors";
+  // Searching a name and finding nobody has one likely explanation the
+  // directory cannot act on: that person has not joined yet. Offered on People
+  // only -- People searches the whole of One, so "not here" really does mean
+  // "not on One". A name missing from RIAs means their adviser profile is not
+  // verified, and one missing from Around you means they are not nearby;
+  // neither is fixed by an app link, and offering one there would send someone
+  // to invite a person who is already a member.
+  //
+  // Resolved once, not inside the handler: an invite the build cannot produce
+  // a working link for is not offered at all, rather than rendered as a button
+  // that fails when tapped.
+  const inviteToOneShare = useMemo(() => buildInviteToOneShare(), []);
+  const canInviteToOne = tab === "people" && inviteToOneShare !== null;
+
+  // A share sheet is modal but not instant: on iOS it animates in, and the
+  // promise does not settle until it is dismissed. Two taps in that window
+  // asked the platform to present a second sheet over the first, which iOS
+  // rejects outright -- the person got an error toast for tapping twice. The
+  // guard is a ref rather than state because the sheet is its own feedback;
+  // re-rendering a row to disable it would only make the list flicker under
+  // the sheet that just covered it.
+  const invitingRef = useRef(false);
+
+  const handleInviteToOne = useCallback(async () => {
+    if (!inviteToOneShare || invitingRef.current) return;
+    invitingRef.current = true;
+    try {
+      const delivery = await shareLink(inviteToOneShare);
+      // Only the clipboard fallback needs saying out loud. The native sheet and
+      // Web Share both show the person their own send, so a toast on top of
+      // that reports something they just watched happen.
+      if (delivery === "copied") toast.success("Invite link copied.");
+    } catch (error) {
+      // Dismissing the sheet is a decision, not a failure.
+      if (isShareCancellationError(error)) return;
+      toast.error(
+        error instanceof ShareUnavailableError
+          ? // Nothing to retry: no sheet, no Web Share, and the clipboard was
+            // refused. Saying "could not share" would invite a second tap that
+            // cannot go anywhere either.
+            "This browser cannot share links."
+          : // The channel exists and something went wrong inside it, so the
+            // copy stays neutral about which rung failed.
+            "Could not share the invite.",
+      );
+    } finally {
+      invitingRef.current = false;
+    }
+  }, [inviteToOneShare]);
+
   const resultSetKey = `${directoryAudience}:${pageSize}:${trimmedQuery}`;
   const [renderedResultSetKey, setRenderedResultSetKey] = useState(resultSetKey);
   if (renderedResultSetKey !== resultSetKey) {
@@ -1692,16 +1770,36 @@ export default function ConnectPageClient() {
                   // section rendered as blank space under its own heading.
                   // An empty result has to say so.
                   hasQuery ? (
-                    <SettingsRow
-                      title={`No one matches "${trimmedQuery}"`}
-                      description={
-                        isAdvisorTab
-                          ? "Try People, or their full name."
-                          : "Try their full name."
-                      }
-                      density="compact"
-                      disabled
-                    />
+                    <>
+                      <SettingsRow
+                        title={`No one matches "${trimmedQuery}"`}
+                        description={
+                          isAdvisorTab
+                            ? "Try People, or their full name."
+                            : "Try their full name."
+                        }
+                        density="compact"
+                        disabled
+                      />
+                      {/* The row above states a fact, so it stays inert; an
+                          invite is a separate offer and gets its own row
+                          rather than making "No one matches Bob" tappable.
+                          Read together they are the two things left to try:
+                          spell it out, or bring them here. */}
+                      {canInviteToOne ? (
+                        <SettingsRow
+                          icon={Share2}
+                          iconTone="blue"
+                          title="Invite them to One"
+                          description="Send them the app. You can connect once they join."
+                          density="compact"
+                          onClick={() => {
+                            void handleInviteToOne();
+                          }}
+                          testId="connect-invite-to-one"
+                        />
+                      ) : null}
+                    </>
                   ) : (
                     <SettingsRow
                       title={isAdvisorTab ? "No advisors yet" : "No people yet"}
