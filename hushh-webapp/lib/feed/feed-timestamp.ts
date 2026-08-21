@@ -13,9 +13,10 @@ export function daysSinceToday(date: Date, now: Date = new Date()): number {
 }
 
 /**
- * Renders a feed row's right-aligned day/time label: "Today - 3:45 PM",
- * "Yesterday - 3:45 PM", or "Mon - 3:45 PM" (short weekday) for anything
- * older. Always a 12-hour clock, explicit regardless of locale default.
+ * Renders a feed row's right-aligned day/time label: "Today - 03:45 PM",
+ * "Yesterday - 03:45 PM", or "Mon - 03:45 PM" (short weekday) for anything
+ * older. Always a two-digit 12-hour clock, explicit regardless of locale default,
+ * so the feed timestamp column stays visually stable across one- and two-digit hours.
  * Returns "" for an invalid/missing instant so callers can embed the result
  * directly in JSX without a null-guard.
  */
@@ -23,7 +24,7 @@ export function formatFeedTimestamp(value: string | number | Date): string {
   const date = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(date.getTime())) return "";
   const time = formatLocalDateTime(date, {
-    hour: "numeric",
+    hour: "2-digit",
     minute: "2-digit",
     hour12: true,
   });
