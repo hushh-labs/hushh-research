@@ -68,6 +68,13 @@ button,
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Search controls frequently live inside rounded, clipped grouped cards.
+ * Keep the system focus affordance inside the input so its edges never crop. */
+input[type="search"]:focus,
+input[type="search"]:focus-visible {
+  --tw-ring-inset: inset;
+}
+
 /* Prevent auto-zoom on iOS Safari when focusing inputs */
 @media screen and (max-width: 767px) {
   input,

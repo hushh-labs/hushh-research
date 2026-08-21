@@ -34,7 +34,6 @@ import {
   Lock,
   Map,
   MapPin,
-  MessageCircleQuestionMark,
   Navigation,
   Plus,
   Send,
@@ -1205,7 +1204,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             recipientSubtitle={vm.recipientSubtitle}
             isRecipientShareReady={vm.isRecipientShareReady}
           />
-
         ) : flow === "create-circle" ? (
           <CreateCircleFlow
             busy={vm.busy === "namedCircle"}
@@ -1245,9 +1243,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               openFlow("share");
             }}
             onRemoveMember={vm.onRemoveNamedCircleMember}
-            onLoadEligibleConnections={
-              vm.onLoadNamedCircleEligibleConnections
-            }
+            onLoadEligibleConnections={vm.onLoadNamedCircleEligibleConnections}
             onInviteConnections={vm.onInviteNamedCircleConnections}
             onCancelMemberInvite={vm.onCancelNamedCircleMemberInvite}
             onLeave={vm.onLeaveNamedCircle}
@@ -1318,7 +1314,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         onRetry={vm.onShowMyLocation}
         onOpenSettings={vm.onOpenLocationSettings}
       />
-
 
       <div className="-mx-[var(--page-inline-gutter-standard)]">
         <SwipeViews
@@ -1479,7 +1474,7 @@ function NowHub({
           },
           {
             title: "Request location",
-            icon: <MessageCircleQuestionMark />,
+            icon: <UserPlus />,
             tone: "blue",
             onClick: onRequestLocation,
             controlId: "one-location-action-ask",
@@ -1555,28 +1550,28 @@ function NowHub({
           testId="one-location-now-more"
           shellClassName={groupedShellClassName}
         >
-        <SettingsRow
-          icon={Map}
-          iconTone="gray"
-          title="Your Map"
-          density="compact"
-          chevron
-          onClick={onOpenMap}
-          testId="one-location-map-row"
-          voiceControlId="one-location-open-map"
-          voiceActionId="location.open_map"
-        />
-        <SettingsRow
-          icon={Lock}
-          iconTone="gray"
-          title="Settings"
-          density="compact"
-          chevron
-          onClick={onOpenSettings}
-          testId="one-location-settings-entry"
-          voiceControlId="one-location-action-settings"
-          voiceActionId="location.open_settings"
-        />
+          <SettingsRow
+            icon={Map}
+            iconTone="gray"
+            title="Your Map"
+            density="compact"
+            chevron
+            onClick={onOpenMap}
+            testId="one-location-map-row"
+            voiceControlId="one-location-open-map"
+            voiceActionId="location.open_map"
+          />
+          <SettingsRow
+            icon={Lock}
+            iconTone="gray"
+            title="Settings"
+            density="compact"
+            chevron
+            onClick={onOpenSettings}
+            testId="one-location-settings-entry"
+            voiceControlId="one-location-action-settings"
+            voiceActionId="location.open_settings"
+          />
         </SettingsGroup>
       </div>
     </div>
@@ -1705,7 +1700,10 @@ function LocationDetailFlow({
   // keyed by grant id + coordinates so a moved point re-resolves. The ref
   // dedupes in-flight/resolved coordinate pairs without re-triggering the effect.
   const [addressByGrant, setAddressByGrant] = useState<
-    Record<string, { key: string; status: "loading" | "done"; text: string | null }>
+    Record<
+      string,
+      { key: string; status: "loading" | "done"; text: string | null }
+    >
   >({});
   const resolvedAddressKeyRef = useRef<Record<string, string>>({});
   const reverseGeocodePoint = vm.reverseGeocodePoint;
@@ -1984,9 +1982,7 @@ function LocationDetailFlow({
                   removeBusy={vm.revokingGrantId === grant.id}
                   viewBusy={vm.busy === "view"}
                   message={
-                    point?.checkIn?.message ??
-                    grant.shareMessage ??
-                    undefined
+                    point?.checkIn?.message ?? grant.shareMessage ?? undefined
                   }
                   address={
                     addressEntry?.status === "done" ? addressEntry.text : null
@@ -2066,9 +2062,7 @@ function LocationDetailFlow({
             ))}
           </div>
         ) : (
-          <EmptyState
-            title="Nothing to review"
-          />
+          <EmptyState title="Nothing to review" />
         )
       ) : null}
     </div>
@@ -2428,9 +2422,7 @@ function PeopleHub({
             </Button>
 
             <div className="col-start-3 row-start-1 justify-self-end sm:col-start-4">
-              {isDesktopPeopleLayout
-                ? addPeopleAction
-                : syncContactsAction}
+              {isDesktopPeopleLayout ? addPeopleAction : syncContactsAction}
             </div>
 
             <div
@@ -2504,7 +2496,9 @@ function PeopleHub({
                         // tint, which is the whole reason "is this the same
                         // person or a different one" is hard to answer here.
                         subtitle={
-                          receiving ? "Sharing with you" : vm.recipientSubtitle(r)
+                          receiving
+                            ? "Sharing with you"
+                            : vm.recipientSubtitle(r)
                         }
                         active={sharing || receiving}
                         first={i === 0}
@@ -2778,7 +2772,9 @@ function LinksHub({
             <ActiveLinkRow
               first
               tileClass="bg-[color:var(--app-purple)]/12 dark:bg-[color:var(--app-purple)]/15"
-              icon={<LinkIcon className="h-[17px] w-[17px] text-[color:var(--app-purple)]" />}
+              icon={
+                <LinkIcon className="h-[17px] w-[17px] text-[color:var(--app-purple)]" />
+              }
               title="Live location link"
               subtitle={`${vm.expiresCountdownLabel(temp.expiresAt)} · anyone with the link`}
               onCopy={vm.onCopyPublicInvite}
@@ -2788,7 +2784,9 @@ function LinksHub({
             <ActiveLinkRow
               first={!temp}
               tileClass="bg-[color:var(--app-success)]/12 dark:bg-[color:var(--app-success)]/15"
-              icon={<ShieldCheck className="h-[17px] w-[17px] text-[color:var(--app-success)]" />}
+              icon={
+                <ShieldCheck className="h-[17px] w-[17px] text-[color:var(--app-success)]" />
+              }
               title="Invite link"
               subtitle={`${vm.expiresCountdownLabel(invite.expiresAt)} · one person`}
               onCopy={vm.onCopyCircleInvite}
@@ -2796,9 +2794,7 @@ function LinksHub({
           ) : null}
         </div>
       ) : (
-        <EmptyState
-          title="No active links"
-        />
+        <EmptyState title="No active links" />
       )}
 
       <Button
@@ -2873,9 +2869,7 @@ function SosFlow({
         recipientLabel={vm.recipientLabel}
         isRecipientShareReady={vm.isRecipientShareReady}
         emergency={lookupStartedForMount ? vm.sosEmergency : null}
-        emergencyStatus={
-          lookupStartedForMount ? vm.sosEmergencyStatus : "idle"
-        }
+        emergencyStatus={lookupStartedForMount ? vm.sosEmergencyStatus : "idle"}
         onResolveEmergencyNumber={onResolveSosLocation}
       />
     </>
@@ -3001,7 +2995,9 @@ function ShareFlow({
         density="compact"
         disabled={!ready}
         onClick={
-          ready ? () => vm.toggleShareRecipient(r.userId, "share_flow") : undefined
+          ready
+            ? () => vm.toggleShareRecipient(r.userId, "share_flow")
+            : undefined
         }
         ariaPressed={ready ? selected : undefined}
         ariaLabel={
@@ -3037,9 +3033,8 @@ function ShareFlow({
   );
   const selectedReady = vm.selectedRecipientIds
     .map((recipientId) => recipientById.get(recipientId))
-    .filter(
-      (recipient): recipient is OneLocationRecipient =>
-        Boolean(recipient && vm.isRecipientShareReady(recipient)),
+    .filter((recipient): recipient is OneLocationRecipient =>
+      Boolean(recipient && vm.isRecipientShareReady(recipient)),
     );
   const shareNoteLength = vm.shareMessage.length;
   const shareNoteLimitExceeded =
@@ -3085,7 +3080,10 @@ function ShareFlow({
         {/* No description: the summary card directly below states who can see
             you, for how long and when it ends. Repeating that in prose above it
             is the design explaining itself. */}
-        <TaskFlowHeader eyebrow="Step 2 of 2 · Confirm" title="Ready to share?" />
+        <TaskFlowHeader
+          eyebrow="Step 2 of 2 · Confirm"
+          title="Ready to share?"
+        />
 
         <section className="space-y-3">
           {/* Label and its Edit action on one line, group beneath. The card
@@ -3134,7 +3132,10 @@ function ShareFlow({
                   <Avatar
                     initials={initialsFrom(vm.recipientLabel(recipient))}
                   />
-                  <RowLabel as="span" className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
+                  <RowLabel
+                    as="span"
+                    className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]"
+                  >
                     {vm.recipientLabel(recipient)}
                   </RowLabel>
                 </li>
@@ -3180,9 +3181,7 @@ function ShareFlow({
                 <textarea
                   id="one-location-share-note"
                   value={vm.shareMessage}
-                  onChange={(event) =>
-                    vm.setShareMessage(event.target.value)
-                  }
+                  onChange={(event) => vm.setShareMessage(event.target.value)}
                   rows={2}
                   aria-invalid={shareNoteLimitExceeded}
                   aria-describedby={
@@ -3339,7 +3338,10 @@ function ShareFlow({
               separatorInset
             >
               {alreadySharing.map((r) =>
-                renderShareRecipientRow(r, activeGrantByRecipientId.get(r.userId)),
+                renderShareRecipientRow(
+                  r,
+                  activeGrantByRecipientId.get(r.userId),
+                ),
               )}
             </SettingsGroup>
           ) : null}
@@ -3357,7 +3359,10 @@ function ShareFlow({
         // A typo used to be reported as "you have no contacts", which sends a
         // person with twenty of them off to invite people they already have.
         // The list being empty and the QUERY being empty are different facts.
-        <EmptyState title="No matching people" description="Try a different name." />
+        <EmptyState
+          title="No matching people"
+          description="Try a different name."
+        />
       ) : (
         <EmptyState
           title="No trusted people yet"
@@ -3513,7 +3518,10 @@ function SelectionDot({ selected }: { selected: boolean }) {
       )}
     >
       {selected ? (
-        <Check className="h-3 w-3 text-[color:var(--app-accent-fg)]" strokeWidth={3} />
+        <Check
+          className="h-3 w-3 text-[color:var(--app-accent-fg)]"
+          strokeWidth={3}
+        />
       ) : null}
     </span>
   );
@@ -3700,12 +3708,9 @@ function AskFlow({
           className="flex items-start gap-2.5 rounded-2xl border border-[color:var(--app-success)]/30 bg-[color:var(--app-success)]/10 px-3.5 py-3"
         >
           <ShieldCheck className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[color:var(--app-success)]" />
-          <p className="text-sm font-medium text-foreground">
-            Request sent.
-          </p>
+          <p className="text-sm font-medium text-foreground">Request sent.</p>
         </div>
       ) : null}
-
 
       <section className="space-y-3">
         <AppSectionLabel as="h2">People</AppSectionLabel>
@@ -4130,16 +4135,16 @@ function InviteFlow({
           stackTrailingOnMobile
           trailing={
             <DurationSelector
-          value={vm.durationHours}
-          onChange={vm.setDurationHours}
-          label=""
-          // 24 hours is the ceiling, not a preference. The API rejects
-          // anything above it (`duration_hours … le=24` on
-          // CreateCircleInviteRequest) and `normalize_duration_hours` raises
-          // "between 15 minutes and 24 hours", so the "7 days" option that
-          // used to sit here could only ever return HTTP 422 — an invite the
-          // owner watched fail with no idea why.
-          options={[
+              value={vm.durationHours}
+              onChange={vm.setDurationHours}
+              label=""
+              // 24 hours is the ceiling, not a preference. The API rejects
+              // anything above it (`duration_hours … le=24` on
+              // CreateCircleInviteRequest) and `normalize_duration_hours` raises
+              // "between 15 minutes and 24 hours", so the "7 days" option that
+              // used to sit here could only ever return HTTP 422 — an invite the
+              // owner watched fail with no idea why.
+              options={[
                 { value: "1", label: "1 hour" },
                 { value: "24", label: "24 hours" },
               ]}

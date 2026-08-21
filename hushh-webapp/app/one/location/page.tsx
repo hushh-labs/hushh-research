@@ -11950,7 +11950,7 @@ export function OneLocationAgentPageContent({
                       onChange={(event) =>
                         setRecipientSearch(event.target.value)
                       }
-                      className="h-10 w-full rounded-[14px] border border-black/[0.04] bg-white pl-10 pr-4 text-[15px] text-[#1c1c1e] shadow-sm outline-none transition-shadow placeholder:text-[#8e8e93] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white"
+                      className="h-10 w-full rounded-[14px] border border-black/[0.04] bg-white pl-10 pr-4 text-[15px] text-[#1c1c1e] shadow-sm outline-none transition-shadow placeholder:text-[#8e8e93] focus:ring-2 focus:ring-inset focus:ring-[color:var(--app-accent-ring)] dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white"
                       placeholder="Search One Network..."
                       type="text"
                     />
