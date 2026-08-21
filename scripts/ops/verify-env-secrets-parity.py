@@ -354,7 +354,11 @@ def _domain_runtime_contract(project: str) -> dict[str, str]:
     }
 
 
-def _firebase_project_contract(project: str) -> dict[str, str]:
+def _firebase_project_contract(
+    project: str,
+    *,
+    expected_project: str | None = None,
+) -> dict[str, str]:
     """Prove Firebase Admin and public client configuration target one project.
 
     The Admin credential itself is never rendered. This only compares its
@@ -379,10 +383,21 @@ def _firebase_project_contract(project: str) -> dict[str, str]:
     if not admin_project:
         return {"status": "invalid_credentials", "credentials": "invalid"}
 
-    return {
-        "status": "valid" if admin_project == client_project.strip() else "mismatch",
-        "credentials": "valid" if admin_project == client_project.strip() else "mismatch",
-    }
+    if admin_project != client_project.strip():
+        return {"status": "mismatch", "credentials": "mismatch"}
+
+    expected = str(expected_project or "").strip()
+    if expected and admin_project != expected:
+        return {
+            "status": "unexpected_project",
+            "credentials": "valid",
+            "expected": "mismatch",
+        }
+
+    result = {"status": "valid", "credentials": "valid"}
+    if expected:
+        result["expected"] = "valid"
+    return result
 
 
 def _format_names(names: Iterable[str]) -> str:
@@ -710,6 +725,12 @@ def main() -> int:
         description="Verify required GCP Secret Manager keys for deploy parity."
     )
     parser.add_argument("--project", required=True, help="GCP project id")
+    parser.add_argument(
+        "--expected-firebase-project",
+        help=(
+            "Optional exact public Firebase project id required after Admin/client parity."
+        ),
+    )
     parser.add_argument("--region", default="us-central1", help="Reserved for parity interface")
     parser.add_argument(
         "--backend-service",
@@ -951,7 +972,10 @@ def main() -> int:
             report["classifications"].append("domain_runtime_contract_failed")
 
     if checks_frontend:
-        firebase_project_contract = _firebase_project_contract(args.project)
+        firebase_project_contract = _firebase_project_contract(
+            args.project,
+            expected_project=args.expected_firebase_project,
+        )
         report["firebase_project_contract"] = firebase_project_contract
         print(f"Firebase project contract: {firebase_project_contract['status']}")
         if firebase_project_contract["status"] != "valid":
