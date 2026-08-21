@@ -2557,8 +2557,32 @@ function PeopleHub({
                     }
                     description={
                       hasSearch
-                        ? "Try a different name."
+                        ? "Don't see who you're looking for?"
                         : "Invite someone to start sharing."
+                    }
+                    // The first link in a chain that already had its other
+                    // two. A name matching nobody here usually belongs to
+                    // someone not connected yet, so this hands over to
+                    // Connect -- where a search that also finds nobody offers
+                    // "Invite them to One". Without it the person had to guess
+                    // that Connect was the next place to look.
+                    //
+                    // The header actions sit above the list and are out of
+                    // view once results have scrolled, so the way out belongs
+                    // here, where the dead end is.
+                    action={
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        onClick={onAddConnections}
+                        data-voice-control-id="one-location-empty-connect-bridge"
+                        className={PEOPLE_HEADER_ACTION}
+                      >
+                        {hasSearch
+                          ? "Manage connections in Connect →"
+                          : "Add someone in Connect →"}
+                      </Button>
                     }
                   />
                 </div>
