@@ -39,6 +39,62 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
  * continue. Treating the first answer as a failure would make the normal path look
  * broken.
  */
+/** The six stages, in the product order, with copy a person can trust. */
+const SETUP_STAGES: Array<{ id: string; label: string }> = [
+  { id: "creating_project", label: "Creating your project" },
+  { id: "linking_billing", label: "Linking your billing" },
+  { id: "enabling_apis", label: "Enabling Google APIs" },
+  { id: "applying_iam", label: "Granting the one permission" },
+  { id: "settling_grant", label: "Waiting for Google to settle it" },
+  { id: "proving", label: "Proving we can act in your cloud" },
+];
+
+function SetupStageChecklist({
+  job,
+}: {
+  job: { stage: string; stages: Array<{ stage: string }>; projectId: string };
+}) {
+  const reached = new Set(job.stages.map((entry) => entry.stage));
+  return (
+    <div
+      className="space-y-3 rounded-2xl border border-[var(--app-border)] p-4"
+      data-testid="byoc-setup-progress"
+      aria-live="polite"
+    >
+      <p className="text-sm font-semibold">Setting up {job.projectId}</p>
+      <ul className="space-y-1.5">
+        {SETUP_STAGES.map((stage) => {
+          const isCurrent = job.stage === stage.id;
+          const isDone = reached.has(stage.id) && !isCurrent;
+          return (
+            <li key={stage.id} className="flex items-center gap-2 text-sm">
+              <span aria-hidden className="w-4 text-center">
+                {isDone ? "✓" : isCurrent ? "•" : ""}
+              </span>
+              <span
+                className={
+                  isDone
+                    ? "text-[var(--app-text-secondary)]"
+                    : isCurrent
+                      ? "font-medium"
+                      : "text-[var(--app-text-secondary)] opacity-60"
+                }
+              >
+                {stage.label}
+                {isCurrent ? "…" : ""}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="text-xs text-[var(--app-text-secondary)]">
+        This runs on its own. You can go back to Setup and continue the other
+        steps; this page and the setup list will show when your cloud is ready.
+      </p>
+    </div>
+  );
+}
+
 export function ByocCloudSetupPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -58,6 +114,61 @@ export function ByocCloudSetupPage() {
     rationale: string;
   } | null>(null);
   const [switching, setSwitching] = useState(false);
+  // The live stage record of the background setup job. Fetched on mount (a
+  // person can leave and come back mid-job) and polled every 2s while running.
+  const [job, setJob] = useState<Awaited<
+    ReturnType<typeof ApiService.getByocSetupStatus>
+  > | null>(null);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      try {
+        const status = await ApiService.getByocSetupStatus();
+        if (cancelled) return;
+        setJob(status.status === "none" ? null : status);
+        if (status.status === "recorded") {
+          // The durable marker just landed server-side; refresh the shared
+          // bootstrap so this page, the hub, and every other surface flip to
+          // the truth without a reload.
+          await PreVaultUserStateService.bootstrapState(user.uid, {
+            force: true,
+          }).catch(() => undefined);
+          if (cancelled) return;
+          const suggestion = await ApiService.suggestByocProject().catch(() => null);
+          if (cancelled) return;
+          if (suggestion) {
+            setExisting({
+              projectId: suggestion.projectId,
+              rationale: suggestion.rationale ?? "",
+            });
+          }
+          return;
+        }
+        if (status.status === "running" && !status.stale) {
+          timer = setTimeout(() => void poll(), 2000);
+        }
+      } catch {
+        // A missed poll is not a verdict; retry a few times, then stop rather
+        // than hammering a deployment that has no job store (the naming form
+        // below is always a truthful fallback).
+        failures += 1;
+        if (!cancelled && failures < 3) {
+          timer = setTimeout(() => void poll(), 4000);
+        }
+      }
+    };
+    let failures = 0;
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [user?.uid]);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -176,7 +287,34 @@ export function ByocCloudSetupPage() {
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion className="space-y-6">
-        {connectedBefore && !connectedNow ? (
+        {job && job.status === "running" && !job.stale ? (
+          // The live checklist owns the screen while the job runs. Nothing
+          // else competes with it: no form, no dead buttons, no guessing.
+          <SetupStageChecklist job={job} />
+        ) : job && (job.status === "failed" || job.stale) && !authorized ? (
+          <div
+            role="alert"
+            className="flex flex-col gap-1.5 rounded-[var(--app-card-radius-compact)] border border-destructive/30 bg-destructive/5 px-4 py-3"
+            data-testid="byoc-setup-failed"
+          >
+            <p className="text-sm font-semibold text-destructive">
+              Your cloud is not set up yet
+            </p>
+            <p className="text-sm text-destructive">
+              {job.stale
+                ? "The setup stopped partway (our side restarted). Everything already done is kept."
+                : job.errorMessage || "The setup could not finish."}
+            </p>
+            <button
+              type="button"
+              className="self-start text-sm underline underline-offset-4 text-destructive"
+              onClick={() => void handleProjectNamed(job.projectId)}
+              data-testid="byoc-setup-retry"
+            >
+              Try again
+            </button>
+          </div>
+        ) : connectedBefore && !connectedNow ? (
           // The revisit state: their cloud is already recorded and proven.
           // Showing the naming form here read as "nothing ever happened"
           // (audit finding, 2026-08-21); the truth is a connected cloud with

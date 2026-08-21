@@ -41,6 +41,7 @@ EXPECTED_PARKED_MIGRATIONS = (
     "906_personal_agent_user_cloud.sql",
     "907_pod_lifecycle_events.sql",
     "908_personal_agent_tombstone_metadata.sql",
+    "909_byoc_setup_jobs.sql",
 )
 
 

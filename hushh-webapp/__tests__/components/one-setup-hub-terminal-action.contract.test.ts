@@ -110,8 +110,10 @@ describe("One setup hub terminal action contract", () => {
 
     // "Required" in the same muted grey as every other trailing label reads as
     // one more optional status. The blocking row takes the accent pill and the
-    // current-step role so it is legible as the thing to do first.
-    expect(hub).toContain('statusLabel="Required"');
+    // current-step role so it is legible as the thing to do first. The cloud
+    // row's label is dynamic now (it reads "Setting up (step N of 6)" while
+    // the background job runs), and "Required" stays its resting default.
+    expect(hub).toContain('cloudSetupRunning ? cloudSetupStageLabel : "Required"');
     expect(hub).toContain('statusTone={cloudComplete ? "required" : "muted"}');
     expect(tile).toContain('statusTone === "required"');
     expect(tile).toContain("bg-[var(--app-accent-tint)]");

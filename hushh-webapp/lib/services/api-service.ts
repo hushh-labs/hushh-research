@@ -3478,15 +3478,13 @@ export class ApiService {
     return response.json();
   }
 
+  // The completion is a background JOB now: this returns a claim ticket in
+  // about a second, and getByocSetupStatus serves the live stage record. The
+  // six-stage chain inside one HTTP request lost to three stacked timeouts.
   static async completeByocAuthorize(input: { code: string; state: string }): Promise<{
+    jobId: string;
     projectId: string;
-    region: string;
-    bootstrapServiceAccount: string;
-    authorized: boolean;
-    hushhCaller: string;
-    nextStep: string;
-    createdProject: boolean;
-    billingLinked: boolean;
+    status: "running";
   }> {
     const firebaseIdToken = await this.getFirebaseToken();
     const response = await ApiService.apiFetch("/api/one/runtime/byoc/authorize/complete", {
@@ -3517,6 +3515,28 @@ export class ApiService {
         // fall through to the generic error
       }
       throw new Error(serverMessage || "BYOC_AUTHORIZE_FAILED");
+    }
+    return response.json();
+  }
+
+  /** The live stage record of the person's cloud setup job. */
+  static async getByocSetupStatus(): Promise<{
+    status: "none" | "running" | "recorded" | "failed";
+    stage: string;
+    stages: Array<{ stage: string; at: string }>;
+    projectId: string;
+    errorCode: string | null;
+    errorMessage: string | null;
+    stale: boolean;
+    updatedAt: string | null;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/runtime/byoc/setup/status", {
+      method: "GET",
+      headers: firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {},
+    });
+    if (!response.ok) {
+      throw new Error("BYOC_SETUP_STATUS_FAILED");
     }
     return response.json();
   }

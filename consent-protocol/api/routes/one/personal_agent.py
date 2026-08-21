@@ -268,7 +268,12 @@ async def resolve_personal_agent_status(
     # OBSERVES -- it must never mutate a row whose host is live.
     _warn_if_handshake_is_overdue(row, status)
 
-    state = _STATE_BY_REGISTRY_STATUS.get(status, _DEFAULT_STATE)
+    # No row at all is a DIFFERENT truth from an unrecognised status: nothing
+    # was ever started for this person. Reporting it as "reserved" claimed the
+    # positive ("ready to activate") for an absence (audit finding, 2026-08-21).
+    # A read failure above leaves row=None too, and "none" stays the honest
+    # degraded answer there as well: claim nothing you did not read.
+    state = "none" if row is None else _STATE_BY_REGISTRY_STATUS.get(status, _DEFAULT_STATE)
     result: dict = {"state": state, "featureEnabled": personal_agent_enabled()}
     hushh_id = (row or {}).get("hushh_id")
     if hushh_id:

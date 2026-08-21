@@ -273,11 +273,14 @@ def apply_authorization(
     bootstrap_account_id: str = "one-bootstrap",
     session: Any = None,
     sleep: Any = time.sleep,
+    on_apis_enabled: Any = None,
 ) -> dict[str, Any]:
     """Run the script's exact plan under the PERSON's own identity.
 
     Idempotent throughout: re-running against an already-authorized project
-    changes nothing and succeeds.
+    changes nothing and succeeds. ``on_apis_enabled`` fires once the enable
+    operation is confirmed clean, so an observing job can mark the boundary
+    between "enabling APIs" and "applying IAM" for the person watching.
     """
     if session is None:
         import requests as session  # noqa: PLC0415
@@ -333,6 +336,9 @@ def apply_authorization(
             status_code=502,
             code="AUTHORIZE_FAILED",
         )
+
+    if on_apis_enabled is not None:
+        on_apis_enabled()
 
     # 2. The bootstrap service account (409 = it already exists = fine).
     created = session.post(

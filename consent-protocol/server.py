@@ -973,14 +973,40 @@ async def startup_personal_agent_reconcile_worker() -> None:
                 stalled_before=before,
                 statuses=("provisioning", "provisioning_failed", "connecting"),
             )
+            # A `provisioning_failed` row older than this is a PERMANENT
+            # failure wearing a transient costume: the sweep used to retry it
+            # forever, re-emitting "setup started again" each pass while (for
+            # example) the target project no longer existed (audit finding,
+            # 2026-08-21). Past the cap the row keeps its honest failed status,
+            # the owner's surfaces say setup did not finish, and a fresh
+            # attempt through the app resets the clock by rewriting the row.
+            permanent_cutoff = datetime.now(timezone.utc).timestamp() - 48 * 3600
+            kept = []
+            for row in rows:
+                if not str(row.get("user_id") or "").strip():
+                    continue
+                if str(row.get("status") or "") == "provisioning_failed":
+                    raw_created = str(row.get("created_at") or "")
+                    try:
+                        created_ts = datetime.fromisoformat(
+                            raw_created.replace("Z", "+00:00")
+                        ).timestamp()
+                    except ValueError:
+                        created_ts = permanent_cutoff  # unparseable: keep retrying
+                    if created_ts < permanent_cutoff:
+                        logger.info(
+                            "personal_agent.retry_capped hushh_id=%s age_h>48",
+                            str(row.get("hushh_id") or "<none>"),
+                        )
+                        continue
+                kept.append(row)
             return [
                 StalledAgent(
                     user_id=str(row.get("user_id") or ""),
                     hushh_id=str(row.get("hushh_id") or ""),
                     status=str(row.get("status") or ""),
                 )
-                for row in rows
-                if str(row.get("user_id") or "").strip()
+                for row in kept
             ]
 
         async def retry(user_id: str) -> None:

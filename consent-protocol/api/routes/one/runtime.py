@@ -736,6 +736,27 @@ class ByocAuthorizeCompleteResponse(ByocProjectSaveResponse):
     billingLinked: bool
 
 
+class ByocSetupAcceptedResponse(BaseModel):
+    """The one-click completion is a JOB now; this is its claim ticket."""
+
+    jobId: str
+    projectId: str
+    status: Literal["running"]
+
+
+class ByocSetupStatusResponse(BaseModel):
+    """The durable stage record, shaped for every surface that shows the truth."""
+
+    status: str
+    stage: str
+    stages: list[dict]
+    projectId: str
+    errorCode: str | None = None
+    errorMessage: str | None = None
+    stale: bool = False
+    updatedAt: str | None = None
+
+
 @router.post("/byoc/authorize/begin", response_model=ByocAuthorizeBeginResponse)
 @limiter.limit(RateLimits.AGENT_CHAT)
 async def begin_byoc_authorize(
@@ -763,13 +784,19 @@ async def begin_byoc_authorize(
         ) from exc
 
 
+#: Strong references to in-flight setup jobs: asyncio keeps only weak refs to
+#: tasks, and a garbage-collected job would die silently mid-chain.
+_BYOC_SETUP_TASKS: set = set()
+
 #: Backoff between proof probes while a freshly written IAM grant settles.
 #: Deliberately short in total: the whole complete call must finish inside the
 #: web client's 60s fetch timeout, chain steps included.
 _GRANT_SETTLE_DELAYS_SECONDS: tuple[float, ...] = (2, 4, 8, 15)
 
 
-async def _wait_for_bootstrap_grant(bootstrap_sa: str, *, deadline: float) -> bool:
+async def _wait_for_bootstrap_grant(
+    bootstrap_sa: str, *, deadline: float, delays: tuple[float, ...] | None = None
+) -> bool:
     """True once the just-written tokenCreator grant answers to a proof mint.
 
     Google settles a new service-account IAM binding eventually, not instantly:
@@ -782,7 +809,7 @@ async def _wait_for_bootstrap_grant(bootstrap_sa: str, *, deadline: float) -> bo
     from hushh_mcp.services.user_gcp_bootstrap import BootstrapError, mint_bootstrap_token
 
     attempts = 0
-    for delay in (0.0, *_GRANT_SETTLE_DELAYS_SECONDS):
+    for delay in (0.0, *(delays if delays is not None else _GRANT_SETTLE_DELAYS_SECONDS)):
         if delay:
             if time.monotonic() + delay > deadline:
                 break
@@ -807,68 +834,90 @@ async def complete_byoc_authorize(
     request: Request,
     body: ByocAuthorizeCompleteRequest,
     firebase_uid: str = Depends(require_firebase_auth),
-) -> ByocAuthorizeCompleteResponse:
-    """Everything after the Google consent screen, in one authenticated hop.
+) -> ByocSetupAcceptedResponse:
+    """Everything after the Google consent screen, as an OBSERVABLE JOB.
 
-    The person's access token lives in this coroutine's locals for exactly this
-    call: create-if-missing, link billing, apply the authorization plan, then
-    hand off to the SAME save path the manual route uses — the cryptographic
-    proof and the durable marker have one implementation, not two."""
+    The single-use OAuth code is burned synchronously (it cannot wait), then the
+    in-memory token is handed to a background task that runs the chain and
+    writes one durable stage record per transition. The response is a claim
+    ticket, not a verdict: the status route serves the truth from here on, so
+    the person can watch, leave, keep onboarding, and come back. The six-stage
+    chain squeezed through one HTTP request lost to three stacked timeouts
+    (measured live 2026-08-21); no timeout tuning fixes that shape.
+    """
     from hushh_mcp.services import byoc_oauth_authorizer as oauth
+    from hushh_mcp.services import byoc_setup_job_service as jobs
     from hushh_mcp.services.user_gcp_project import suggest_project_id
 
-    started = time.monotonic()
     try:
         project = oauth.verify_state(body.state, firebase_uid)
         token = await asyncio.to_thread(oauth.exchange_code, body.code)
-        suggestion = suggest_project_id(firebase_uid)
-        ensured = await asyncio.to_thread(
-            oauth.ensure_project,
-            project_id=project,
-            display_name=suggestion.display_name,
-            token=token,
-        )
-        billing = await asyncio.to_thread(oauth.ensure_billing, project_id=project, token=token)
-        await asyncio.to_thread(
-            oauth.apply_authorization,
-            project=project,
-            token=token,
-            caller_sa=_hushh_caller_identity(),
-            bootstrap_account_id=body.bootstrapServiceAccountId,
-        )
     except oauth.ByocAuthorizeError as exc:
         raise HTTPException(
             status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}
         ) from exc
 
-    # The grant this chain just wrote must ANSWER before the save's proof runs,
-    # and IAM settles it eventually, not instantly. Bounded by the client's
-    # fetch budget; when Google needs longer, the person presses Continue again
-    # and the idempotent chain re-reaches this point in seconds.
-    bootstrap_sa = f"{body.bootstrapServiceAccountId}@{project}.iam.gserviceaccount.com"
-    if not await _wait_for_bootstrap_grant(bootstrap_sa, deadline=started + 45.0):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "GRANT_SETTLING",
-                "message": (
-                    "Your cloud is authorized and Google is still settling the new "
-                    "permission. Press Continue again in a moment to finish."
-                ),
-            },
+    suggestion = suggest_project_id(firebase_uid)
+    job_id = jobs.new_job_id()
+    await jobs.ByocSetupJobRepo().start(user_id=firebase_uid, job_id=job_id, project_id=project)
+
+    async def _save():
+        return await save_byoc_project(
+            request=request,
+            body=ByocProjectSaveRequest(
+                projectId=project,
+                region=body.region,
+                bootstrapServiceAccountId=body.bootstrapServiceAccountId,
+            ),
+            firebase_uid=firebase_uid,
         )
 
-    saved = await save_byoc_project(
-        request=request,
-        body=ByocProjectSaveRequest(
-            projectId=project,
-            region=body.region,
-            bootstrapServiceAccountId=body.bootstrapServiceAccountId,
-        ),
-        firebase_uid=firebase_uid,
+    task = asyncio.create_task(
+        jobs.run_setup_job(
+            user_id=firebase_uid,
+            job_id=job_id,
+            project=project,
+            token=token,
+            display_name=suggestion.display_name,
+            caller_sa=_hushh_caller_identity(),
+            bootstrap_account_id=body.bootstrapServiceAccountId,
+            ensure_project=oauth.ensure_project,
+            ensure_billing=oauth.ensure_billing,
+            apply_authorization=oauth.apply_authorization,
+            wait_for_grant=_wait_for_bootstrap_grant,
+            save=_save,
+        )
     )
-    return ByocAuthorizeCompleteResponse(
-        **saved.model_dump(),
-        createdProject=bool(ensured.get("created")),
-        billingLinked=bool(billing.get("billingLinked")),
+    _BYOC_SETUP_TASKS.add(task)
+    task.add_done_callback(_BYOC_SETUP_TASKS.discard)
+    logger.info("byoc_setup_job.accepted user=%s job=%s project=%s", firebase_uid, job_id, project)
+    return ByocSetupAcceptedResponse(jobId=job_id, projectId=project, status="running")
+
+
+@router.get("/byoc/setup/status", response_model=ByocSetupStatusResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def byoc_setup_status(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> ByocSetupStatusResponse:
+    """The current truth of the person's cloud setup, for any surface to render.
+
+    `stale` means the record stopped advancing while `running`: the instance
+    restarted mid-job. The chain is idempotent, so the honest next move is a
+    fresh attempt, and the UI says so instead of spinning forever.
+    """
+    from hushh_mcp.services import byoc_setup_job_service as jobs
+
+    row = await jobs.ByocSetupJobRepo().get(firebase_uid)
+    if not row:
+        return ByocSetupStatusResponse(status="none", stage="", stages=[], projectId="")
+    return ByocSetupStatusResponse(
+        status=str(row.get("status") or ""),
+        stage=str(row.get("stage") or ""),
+        stages=list(row.get("stages") or []),
+        projectId=str(row.get("project_id") or ""),
+        errorCode=row.get("error_code"),
+        errorMessage=row.get("error_message"),
+        stale=jobs.is_stale(row),
+        updatedAt=str(row.get("updated_at") or "") or None,
     )

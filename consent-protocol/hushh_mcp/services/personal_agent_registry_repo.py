@@ -406,7 +406,7 @@ class PersonalAgentRegistryRepo:
         response = (
             self._db()
             .table(_REGISTRY)
-            .select("user_id", "hushh_id", "status")
+            .select("user_id", "hushh_id", "status", "created_at")
             .in_("status", list(statuses))
             # Inactivity, not age. See the docstring: `upsert` stamps `updated_at` on
             # every lifecycle transition and `record_heartbeat` deliberately does not,

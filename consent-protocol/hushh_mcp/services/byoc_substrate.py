@@ -249,7 +249,17 @@ class HushhFederatedSubstrate:
                     resource_ids=ids,
                     plan_digest=digest,
                     grant_ref=grant_ref,
-                    detail="the bootstrap grant is missing or revoked in the target project",
+                    # Impersonation refusal cannot distinguish "grant revoked"
+                    # from "the project itself is gone" (both answer the same
+                    # way), so the detail names both rather than misdiagnosing a
+                    # deleted project as a revoked grant (audit finding,
+                    # 2026-08-21).
+                    detail=(
+                        "hushh could not act in the target project: the bootstrap "
+                        "grant is missing or revoked, or the project no longer "
+                        "exists. Check the project in Google Cloud, or switch to "
+                        "a different project in Setup."
+                    ),
                 )
 
         factory = self._bootstrap_factory or UserGcpBootstrap

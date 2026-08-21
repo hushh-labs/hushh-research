@@ -54,6 +54,8 @@ import {
 import { getCapabilityStatusDisplay } from "@/lib/onboarding/capability-status-display";
 import { isLocalFirstOnboardingEnabled } from "@/lib/onboarding/local-first-flags";
 import { migrateOnboardingBuffer } from "@/lib/services/onboarding-buffer-migration-service";
+import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
+import { ApiService } from "@/lib/services/api-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
@@ -187,6 +189,68 @@ export function OneSetupHub() {
       active = false;
     };
   }, [user?.uid]);
+
+  // The cloud setup runs as a background job; while it does, the row says so
+  // ("step N of 6") instead of "Required", and the person keeps onboarding.
+  // Slow poll: the cloud page owns the live checklist, this row only needs the
+  // headline. When the job records, the marker flips and stale-while-revalidate
+  // above turns the row Connected.
+  const [cloudSetupJob, setCloudSetupJob] = useState<{
+    stage: string;
+    stagesReached: number;
+  } | null>(null);
+  const cloudComplete_forJob = prereqMatchesUser && prereqSnapshot.cloud === "complete";
+  useEffect(() => {
+    if (!user?.uid || cloudComplete_forJob) {
+      setCloudSetupJob(null);
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      try {
+        const status = await ApiService.getByocSetupStatus();
+        if (cancelled) return;
+        if (status.status === "running" && !status.stale) {
+          setCloudSetupJob({
+            stage: status.stage,
+            stagesReached: status.stages.length,
+          });
+          timer = setTimeout(() => void poll(), 10_000);
+          return;
+        }
+        setCloudSetupJob(null);
+        if (status.status === "recorded") {
+          void PreVaultUserStateService.bootstrapState(user.uid, { force: true })
+            .then((state) => {
+              if (!cancelled) {
+                setPrereqSnapshot({
+                  userId: user.uid,
+                  cloud: PreVaultUserStateService.hasOneCloudProject(state)
+                    ? "complete"
+                    : "required",
+                  runtime: PreVaultUserStateService.hasOneRuntimeChoice(state)
+                    ? "complete"
+                    : "required",
+                });
+              }
+            })
+            .catch(() => undefined);
+        }
+      } catch {
+        if (!cancelled) setCloudSetupJob(null);
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [user?.uid, cloudComplete_forJob]);
+  const cloudSetupRunning = cloudSetupJob !== null;
+  const cloudSetupStageLabel = cloudSetupJob
+    ? `Setting up (step ${Math.min(Math.max(cloudSetupJob.stagesReached, 1), 6)} of 6)`
+    : "Required";
 
   const items = useMemo(() => buildSetupItems(byId), [byId]);
   const groupedItems = groupSetupCapabilities(items, (item) =>
@@ -685,12 +749,16 @@ export function OneSetupHub() {
                   <SetupNavigationTile
                     id="cloud"
                     title="Your cloud"
-                    description="Run your private agent in your own Google Cloud project. Your compute, your bill."
+                    description={
+                      cloudSetupRunning
+                        ? "Being set up in the background. Keep going; this finishes on its own."
+                        : "Run your private agent in your own Google Cloud project. Your compute, your bill."
+                    }
                     href={ROUTES.ONE_SETUP_CLOUD}
                     voiceControlId="one_setup_tile_cloud"
                     icon={lucideCapabilityIcon(Cloud)}
                     tone="connected"
-                    statusLabel="Required"
+                    statusLabel={cloudSetupRunning ? cloudSetupStageLabel : "Required"}
                   />
                 ) : null}
                 {!runtimeChoiceComplete ? (
@@ -766,6 +834,13 @@ export function OneSetupHub() {
                       isComplete
                     />
                   ) : null}
+                  {/* The agent's live build status, IN the journey where it
+                      started. The honest presence surface existed only on the
+                      home screen, so the person who just pressed "Use Hussh's
+                      AI" had to leave setup to learn whether anything was
+                      happening (audit finding, 2026-08-21). It renders nothing
+                      until there is an agent state to report. */}
+                  {runtimeChoiceComplete ? <OneAgentPresence /> : null}
                   {completeItems.map((item) => (
                     <CapabilitySetupTile
                       key={item.id}

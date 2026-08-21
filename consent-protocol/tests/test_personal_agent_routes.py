@@ -163,13 +163,15 @@ def _status_client(monkeypatch, *, row=None, raises=False, enabled=False):
     return TestClient(app)
 
 
-def test_status_reserved_when_no_row_and_flag_off(monkeypatch):
-    # Honest even while the feature is off: never 404, never silent.
+def test_status_none_when_no_row_and_flag_off(monkeypatch):
+    # Honest even while the feature is off: never 404, never silent -- and no
+    # row means NOTHING was started. "reserved" claimed the positive ("held and
+    # ready to activate") for an absence (audit finding, 2026-08-21).
     client = _status_client(monkeypatch, row=None, enabled=False)
     resp = client.get("/api/one/personal-agent/status")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["state"] == "reserved"
+    assert body["state"] == "none"
     assert body["featureEnabled"] is False
     assert "hushhId" not in body
 
@@ -191,11 +193,13 @@ def test_status_reserved_when_pending(monkeypatch):
     assert resp.json()["state"] == "reserved"
 
 
-def test_status_fails_safe_to_reserved(monkeypatch):
+def test_status_fails_safe_to_none(monkeypatch):
+    # A registry read failure claims NOTHING it did not read: "none" degrades
+    # the surface to "no pod shown" rather than asserting a held reservation.
     client = _status_client(monkeypatch, raises=True)
     resp = client.get("/api/one/personal-agent/status")
     assert resp.status_code == 200
-    assert resp.json()["state"] == "reserved"
+    assert resp.json()["state"] == "none"
 
 
 # --- state vocabulary -------------------------------------------------------
