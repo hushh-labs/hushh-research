@@ -82,7 +82,10 @@ def build_report() -> dict:
         raw_overlays.get("uat"), label="environment_overlays.uat", violations=violations
     )
 
-    canonical_entries = ordered + uat_overlay
+    canonical_entries = sorted(
+        ordered + uat_overlay,
+        key=_migration_version,
+    )
     duplicate_entries = sorted(
         name for name, count in Counter(canonical_entries).items() if count != 1
     )
@@ -118,7 +121,7 @@ def build_report() -> dict:
             violations.append(f"release_manifest_missing_file:{migration_name}")
 
     base_versions = _versions(ordered, label="production", violations=violations)
-    uat_versions = _versions(ordered + uat_overlay, label="uat", violations=violations)
+    uat_versions = _versions(canonical_entries, label="uat", violations=violations)
     canonical_versions = _versions(
         canonical_entries, label="canonical_union", violations=violations
     )

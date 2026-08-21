@@ -22,6 +22,7 @@ import {
   LogIn,
   Menu,
   Maximize2,
+  Mail,
   Mic,
   Minimize2,
   Minus,
@@ -38,6 +39,7 @@ import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
+import { EmailDraftCard } from "@/components/agent/email-draft-card";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
 import {
@@ -1176,6 +1178,8 @@ export function AgentChatWorkspace({
   // (background-task tracking and its local voice state) below.
   const sharedRuntime = useAgentRuntimeStateOptional();
   const [input, setInput] = useState("");
+  const [emailDraftOpen, setEmailDraftOpen] = useState(false);
+  const [emailDraftSeed, setEmailDraftSeed] = useState("");
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [composerLong, setComposerLong] = useState(false);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedAgentPrompt[]>([]);
@@ -3715,6 +3719,13 @@ export function AgentChatWorkspace({
     enqueuePrompt(text);
   };
 
+  const openEmailDraft = () => {
+    const seed = input.trim();
+    setInput("");
+    setEmailDraftSeed(seed);
+    setEmailDraftOpen(true);
+  };
+
   handoffPromptSubmitRef.current = async (prompt: string) => {
     enqueuePrompt(prompt);
   };
@@ -3906,6 +3917,24 @@ export function AgentChatWorkspace({
   );
   const composerActionRail = (
     <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-9 w-9 shrink-0 rounded-xl text-muted-foreground"
+        disabled={isLoadingHistory || isVoiceConnecting}
+        aria-label="Draft an email"
+        title="Draft an email"
+        onClick={() => {
+          if (!user?.uid || !isVaultUnlocked || !getVaultOwnerToken()) {
+            setVaultDialogOpen(true);
+            return;
+          }
+          openEmailDraft();
+        }}
+      >
+        <Mail className="h-4 w-4" />
+      </Button>
       {agentVoiceEnabled ? (
         <Button
           type="button"
@@ -4677,6 +4706,25 @@ export function AgentChatWorkspace({
               <div ref={messagesEndRef} />
             </div>
           </div>
+
+          {emailDraftOpen && user?.uid && vaultOwnerToken ? (
+            <div className="border-t border-border/70 px-3 py-3 sm:px-5">
+              <div className="mx-auto w-full max-w-4xl">
+                <EmailDraftCard
+                  userId={user.uid}
+                  vaultOwnerToken={vaultOwnerToken}
+                  initialBody={emailDraftSeed}
+                  onClose={() => setEmailDraftOpen(false)}
+                  onSent={() => {
+                    setEmailDraftOpen(false);
+                    setEmailDraftSeed("");
+                    appendMessage({ id: `email-sent-${Date.now()}`, role: "assistant", text: "Your email was sent from your connected Gmail account.", timestamp: formatNow(), status: "done" });
+                    toast.success("Email sent.");
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
 
           <form
             onSubmit={handleSubmit}

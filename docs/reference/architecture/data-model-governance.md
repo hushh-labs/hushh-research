@@ -33,6 +33,7 @@ Use these in order:
 | `personal_metadata` | manifests, scope handles, actor/persona metadata | retain while account or relationship exists |
 | `workflow_state` | KYC, consent export, upgrade, and approval state | compact terminal sensitive state after short window |
 | `provider_cache` | Plaid, Gmail, market, and provider-derived operational state | short-lived, refreshable, not durable memory |
+| `workflow_state` | Confirmation-bound Google email send action HMACs, statuses, and provider message ids | short-lived operational state; never draft text, addresses, tokens, or PKM |
 | `audit_regulated` | consent, internal access, funding/trading evidence | long-retention metadata only |
 | `reference` | shared market/reference data | rebuildable or refreshable |
 

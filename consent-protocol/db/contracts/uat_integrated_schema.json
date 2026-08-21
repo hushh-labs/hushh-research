@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 162,
+  "expected_migration_version": 163,
   "migration_version_policy": "exact",
 
   "required_functions": [
@@ -1356,6 +1356,7 @@
     "google_service_grants": ["user_id", "provider", "service", "status", "scope_csv", "access_level", "last_used_at", "disconnected_at", "created_at", "updated_at"],
     "google_oauth_attempts": ["attempt_id", "user_id", "service", "redirect_uri", "requested_scope_csv", "state_digest", "verifier_ciphertext", "verifier_iv", "verifier_tag", "expires_at", "consumed_at", "created_at"],
     "google_calendar_action_proposals": ["proposal_id", "user_id", "action", "payload_json", "expected_event_etag", "status", "expires_at", "executed_at", "created_at"],
+    "google_email_send_actions": ["action_id", "user_id", "provider", "payload_hmac", "idempotency_hmac", "recipient_count", "status", "expires_at", "sending_at", "completed_at", "provider_message_id", "provider_thread_id", "error_code", "created_at", "updated_at"],
     "one_wallet_cards": [
       "user_id",
       "pass_serial",

@@ -115,6 +115,7 @@ export const ROUTES = {
   ONE_SETUP_CONNECTED_SYSTEMS: "/one/setup/connected-systems",
   ONE_SETUP_CONNECTIONS: "/one/setup/connections",
   GMAIL: "/one/gmail",
+  EMAIL: "/one/email",
   CALENDAR: "/one/calendar",
   PKM: "/one/pkm",
   ONE_MARKETPLACE: "/one/marketplace",

@@ -15,6 +15,7 @@ import { DataTable } from "@/components/app-ui/data-table";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import GmailChatPanel from "@/components/gmail/gmail-chat-panel";
 import GmailNudgesSection from "@/components/gmail/gmail-nudges-section";
+import { GmailSendAccessCard } from "@/components/gmail/gmail-send-access-card";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Progress } from "@/components/ui/progress";
@@ -1488,6 +1489,8 @@ export default function GmailReceiptsPage({
               </div>
             ) : null}
           </SurfaceInset>
+
+          <GmailSendAccessCard />
 
           {journeyVariant === "onboarding" && onFinishSetup && onSkipSetup ? (
             <SetupCompletionFooter

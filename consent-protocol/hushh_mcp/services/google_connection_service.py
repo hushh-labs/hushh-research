@@ -24,6 +24,7 @@ from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_app_runtime_settings, get_core_security_settings
 
 GoogleService = Literal["gmail", "calendar", "drive", "contacts"]
+GoogleAccessLevel = Literal["read", "manage", "send"]
 
 _AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - OAuth endpoint, not a credential
@@ -34,7 +35,15 @@ _USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 # `/profile/...` page remains only as a compatibility handler for old links.
 _RETURN_PATH = "/one/profile/google/oauth/return"
 _SERVICE_SCOPES: dict[GoogleService, dict[str, tuple[str, ...]]] = {
-    "gmail": {"read": ("https://www.googleapis.com/auth/gmail.readonly",)},
+    "gmail": {
+        "read": ("https://www.googleapis.com/auth/gmail.readonly",),
+        # The Email agent needs inbox/receipt reads plus a confirmation-bound
+        # send. `gmail.send` remains narrower than `gmail.compose`.
+        "send": (
+            "https://www.googleapis.com/auth/gmail.readonly",
+            "https://www.googleapis.com/auth/gmail.send",
+        ),
+    },
     "calendar": {
         "read": (
             "https://www.googleapis.com/auth/calendar.events.readonly",
@@ -132,7 +141,7 @@ class GoogleConnectionService:
         return configured
 
     @staticmethod
-    def scopes(service: GoogleService, access_level: Literal["read", "manage"]) -> tuple[str, ...]:
+    def scopes(service: GoogleService, access_level: GoogleAccessLevel) -> tuple[str, ...]:
         if service not in _SERVICE_SCOPES or access_level not in _SERVICE_SCOPES[service]:
             raise GoogleConnectionError("Unsupported Google service permission", status_code=422)
         return _SERVICE_SCOPES[service][access_level]
@@ -179,7 +188,7 @@ class GoogleConnectionService:
         *,
         user_id: str,
         service: GoogleService,
-        access_level: Literal["read", "manage"],
+        access_level: GoogleAccessLevel,
         redirect_uri: str | None,
         login_hint: str | None,
     ) -> dict[str, Any]:
@@ -351,10 +360,13 @@ class GoogleConnectionService:
         )
         scopes = _clean(token.get("scope")) or _clean(attempt["requested_scope_csv"])
         service = _clean(attempt["service"])
+        scope_set = set(scopes.split())
         level = (
             "manage"
             if service == "calendar"
-            and "https://www.googleapis.com/auth/calendar.events" in scopes.split()
+            and "https://www.googleapis.com/auth/calendar.events" in scope_set
+            else "send"
+            if service == "gmail" and "https://www.googleapis.com/auth/gmail.send" in scope_set
             else "read"
         )
         self.db.execute_raw(
@@ -368,23 +380,25 @@ class GoogleConnectionService:
         return self.status(user_id=user_id, service=service)
 
     async def access_token(
-        self, *, user_id: str, service: GoogleService, access_level: Literal["read", "manage"]
+        self, *, user_id: str, service: GoogleService, access_level: GoogleAccessLevel
     ) -> str:
         row = self._connection(user_id)
         if not row or row.get("status") != "connected":
-            raise GoogleConnectionError("Connect Google Calendar first", status_code=403)
+            raise GoogleConnectionError(
+                "Connect the requested Google service first", status_code=403
+            )
         grant = self.db.execute_raw(
             "SELECT * FROM google_service_grants WHERE user_id = :user_id AND provider = 'google' AND service = :service",
             {"user_id": user_id, "service": service},
         ).data
+        required_scopes = set(self.scopes(service, access_level))
+        granted_scopes = set(str(grant[0].get("scope_csv") or "").split()) if grant else set()
         if (
             not grant
             or grant[0].get("status") != "connected"
-            or (access_level == "manage" and grant[0].get("access_level") != "manage")
+            or not required_scopes <= granted_scopes
         ):
-            raise GoogleConnectionError(
-                "Additional Google Calendar permission is required", status_code=403
-            )
+            raise GoogleConnectionError("Additional Google permission is required", status_code=403)
         expiry = row.get("access_token_expires_at")
         try:
             if expiry and datetime.fromisoformat(
@@ -462,6 +476,12 @@ class GoogleConnectionService:
         if service == "calendar":
             self.db.execute_raw(
                 "DELETE FROM google_calendar_action_proposals WHERE user_id = :user_id AND status IN ('pending', 'executing')",
+                {"user_id": user_id},
+            )
+        if service == "gmail":
+            self.db.execute_raw(
+                """UPDATE google_email_send_actions SET status = 'expired', updated_at = NOW()
+                   WHERE user_id = :user_id AND status = 'prepared'""",
                 {"user_id": user_id},
             )
         return self.status(user_id=user_id, service=service)

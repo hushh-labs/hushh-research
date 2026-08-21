@@ -1725,6 +1725,24 @@ class GmailReceiptsService:
         latest = latest or row
         return next_access, latest
 
+    async def inbox_read_access_token(self, *, user_id: str) -> str:
+        """Return read access for inbox agents during the connector migration.
+
+        Receipt sync retains its legacy operational table for now, but One's
+        Email agent can immediately read through the normalized connection
+        created by the combined Email-agent OAuth consent. No token is copied
+        between stores.
+        """
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
+        if row:
+            token, _ = await self._ensure_access_token(user_id=user_id)
+            return token
+        from hushh_mcp.services.google_connection_service import get_google_connection_service
+
+        return await get_google_connection_service().access_token(
+            user_id=user_id, service="gmail", access_level="read"
+        )
+
     def _build_receipt_query(
         self, *, query_since: datetime, query_before: datetime | None = None
     ) -> str:
@@ -1858,7 +1876,7 @@ class GmailReceiptsService:
         scans recent primary-inbox threads and returns structured nudges. The
         intent logic is the pure ``derive_nudges`` so it stays unit-testable.
         """
-        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        access_token = await self.inbox_read_access_token(user_id=user_id)
         profile = await self._http_get_json(_GMAIL_PROFILE_URL, token=access_token)
         user_email = _clean_text(profile.get("emailAddress"))
 
@@ -2091,7 +2109,7 @@ class GmailReceiptsService:
         search expression (e.g. ``from:ravi newer_than:7d``). Read-only.
         """
         bounded_limit = max(1, min(int(limit or 10), 25))
-        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        access_token = await self.inbox_read_access_token(user_id=user_id)
         listing = await self._list_messages(
             access_token=access_token,
             query_text=_clean_text(query),

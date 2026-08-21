@@ -238,6 +238,7 @@ this first release.
 | Method | Path | Authorization | Description |
 | --- | --- | --- | --- |
 | POST | `/api/one/calendar/connect/start` | Firebase Bearer | Start incremental Google Calendar read or manage authorization; returns only an OAuth authorization URL and expiry. |
+
 | POST | `/api/one/calendar/connect/complete` | Firebase Bearer | Redeem a one-time, PKCE-bound OAuth callback and persist the encrypted provider credential and Calendar grant. |
 | GET | `/api/one/calendar/status/{user_id}` | Firebase Bearer | Return non-sensitive Calendar connection and permission state. |
 | POST | `/api/one/calendar/disconnect` | Firebase Bearer | Disable Calendar locally and delete pending actions without revoking sibling Google services. |
@@ -245,6 +246,22 @@ this first release.
 | POST | `/api/one/calendar/availability` | VAULT_OWNER Bearer | Read free/busy blocks for up to twenty requested calendars. |
 | POST | `/api/one/calendar/proposals` | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google. |
 | POST | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed. |
+
+### One Gmail sending
+
+The connected-Gmail send path is separate from the legacy receipt connector and
+from delegated `one@hushh.ai` KYC mail. It requires a current `VAULT_OWNER`
+token for every prepared/executed action; draft content is supplied transiently
+and stored only as a server HMAC.
+
+| Method | Route | Auth | Contract |
+| --- | --- | --- | --- |
+| POST | `/api/one/email-send/connect/start` | Firebase Bearer | Request incremental `gmail.send` authorization. |
+| POST | `/api/one/email-send/connect/complete` | Firebase Bearer | Complete the server-bound PKCE OAuth state. |
+| GET | `/api/one/email-send/status/{user_id}` | Firebase Bearer | Return send-capability status only; no token or email content. |
+| POST | `/api/one/email-send/draft` | VAULT_OWNER Bearer | Generate a structured visible draft from the owner's supplied instruction; no Gmail mutation. |
+| POST | `/api/one/email-send/prepare` | VAULT_OWNER Bearer | Validate the visible draft and create a ten-minute content-HMAC action. |
+| POST | `/api/one/email-send/execute` | VAULT_OWNER Bearer | Atomically consume an unchanged action and send as the connected Gmail account. |
 
 ### One Location Agent
 

@@ -10,6 +10,7 @@ from .calendar import router as calendar_router
 from .connections import router as connections_router
 from .email import router as email_router
 from .email_chat import router as email_chat_router
+from .email_delivery import router as email_delivery_router
 from .feed import router as feed_router
 from .information_chat import router as information_chat_router
 from .insurance_agents import router as insurance_agents_router
@@ -30,6 +31,7 @@ router.include_router(connections_router)
 router.include_router(calendar_router)
 router.include_router(email_router)
 router.include_router(email_chat_router)
+router.include_router(email_delivery_router)
 router.include_router(feed_router)
 router.include_router(location_router)
 router.include_router(location_chat_router)
