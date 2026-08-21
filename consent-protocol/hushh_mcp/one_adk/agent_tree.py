@@ -45,6 +45,11 @@ from hushh_mcp.agents.calendar.tools import (
     propose_calendar_event,
     propose_calendar_reschedule,
 )
+from hushh_mcp.agents.hermes.tools import (
+    hermes_jobs,
+    hermes_relay,
+    hermes_status,
+)
 from hushh_mcp.agents.onboarding.agent import (
     OnboardingAssessmentV1,
     OnboardingJourneyContext,
@@ -1376,6 +1381,9 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         propose_calendar_event,
         propose_calendar_reschedule,
         propose_calendar_cancellation,
+        hermes_status,
+        hermes_jobs,
+        hermes_relay,
     ]
 
 

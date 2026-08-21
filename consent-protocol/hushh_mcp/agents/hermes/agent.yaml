@@ -1,0 +1,81 @@
+manifest_version: 2
+id: agent_hermes
+name: Hermes Agent
+version: 0.1.0
+description: Reports the owner's linked Hussh One Hermes machine — its status, connected channels, and scheduled jobs — and relays natural-language work to it.
+status: active
+owner: backend
+parent: agent_one
+model: gemini-3.7-flash
+system_instruction: |
+  You are the Hermes Agent under One. Hermes is the owner's own computer,
+  linked to their account as a trusted device. You speak for that machine: you
+  can report whether it is awake, which channels it is connected to, what it
+  runs on a schedule, and you can hand it a natural-language instruction to
+  carry out locally.
+
+  Report only what the tools return. Never guess whether the machine is online,
+  invent a job, a schedule, or a channel, or claim work happened that the tools
+  did not confirm. When the machine is offline or not linked, say exactly that
+  and name the concrete next step from the tool result rather than retrying.
+
+  Relaying work is a real action on the owner's computer, so treat it as one.
+  Relay a request only when the owner clearly asked for something to be done or
+  answered on their machine. Pass their intent through faithfully in one
+  instruction; do not expand it into extra steps they did not ask for. When the
+  relay returns a failure, report the failure and its reason as given — never
+  present it as if the machine had answered normally.
+
+  Never handle, request, or repeat credentials, vault material, or device keys.
+  Those never appear in tool results and must never appear in what you say.
+required_scopes:
+  - cap.one.invoke
+tools:
+  - name: hermes_status
+    description: Report whether the owner's Hermes machine is linked and awake right now.
+    py_func: hushh_mcp.agents.hermes.tools.hermes_status
+    required_scope: cap.one.invoke
+  - name: hermes_jobs
+    description: List the scheduled jobs configured on the owner's Hermes machine.
+    py_func: hushh_mcp.agents.hermes.tools.hermes_jobs
+    required_scope: cap.one.invoke
+  - name: hermes_relay
+    description: Send one natural-language instruction to the owner's Hermes machine and return its answer.
+    py_func: hushh_mcp.agents.hermes.tools.hermes_relay
+    required_scope: cap.one.invoke
+authorities:
+  invocation:
+    - cap.one.invoke
+  data: []
+  actions: []
+side_effects:
+  - name: hermes_relayed_turn
+    confirmation: owner_only
+    idempotent: false
+    timeout_seconds: 120
+    max_retries: 0
+surfaces:
+  chat: true
+  voice: false
+  web: true
+  ios: false
+  android: false
+  a2a: false
+  mcp: false
+  not_applicable_reason: The Hermes bridge is a local-development lane reachable only from the machine running the app; it is not exposed on native, public A2A, or MCP surfaces.
+privacy:
+  context_allowlist:
+    - hussh:user_id
+    - hussh:timezone
+  plaintext_telemetry: false
+telemetry_namespace: agent.hermes
+failure_states:
+  - hermes_bridge_disabled
+  - hermes_not_linked
+  - hermes_offline
+  - hermes_unauthorized
+  - hermes_relay_failed
+rollout:
+  kill_switch: HERMES_AGENT_DISABLED
+  strategy: internal
+  rollback: Disable the Hermes Agent and leave the trusted-device registration untouched; the machine keeps running and only the in-app relay stops.

@@ -622,6 +622,122 @@
       "action_ids": [],
       "authorities": {
         "actions": [],
+        "data": [],
+        "invocation": [
+          "cap.one.invoke"
+        ]
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Reports the owner's linked Hussh One Hermes machine \u2014 its status, connected channels, and scheduled jobs \u2014 and relays natural-language work to it.",
+      "evaluations": [],
+      "failure_states": [
+        "hermes_bridge_disabled",
+        "hermes_not_linked",
+        "hermes_offline",
+        "hermes_unauthorized",
+        "hermes_relay_failed"
+      ],
+      "icon": null,
+      "id": "agent_hermes",
+      "inputs": [],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/hermes/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3.7-flash",
+      "name": "Hermes Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [
+          "hussh:user_id",
+          "hussh:timezone"
+        ],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [
+        "cap.one.invoke"
+      ],
+      "rollout": {
+        "kill_switch": "HERMES_AGENT_DISABLED",
+        "rollback": "Disable the Hermes Agent and leave the trusted-device registration untouched; the machine keeps running and only the in-app relay stops.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [
+        {
+          "confirmation": "owner_only",
+          "idempotent": false,
+          "max_retries": 0,
+          "name": "hermes_relayed_turn",
+          "timeout_seconds": 120
+        }
+      ],
+      "status": "active",
+      "subagents": [],
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "The Hermes bridge is a local-development lane reachable only from the machine running the app; it is not exposed on native, public A2A, or MCP surfaces.",
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "83be1b476110154f89ec60de5b26057038db371833ca151aac65826a19ff64b4",
+      "telemetry_namespace": "agent.hermes",
+      "tools": [
+        {
+          "description": "Report whether the owner's Hermes machine is linked and awake right now.",
+          "name": "hermes_status",
+          "py_func": "hushh_mcp.agents.hermes.tools.hermes_status",
+          "required_scope": "cap.one.invoke"
+        },
+        {
+          "description": "List the scheduled jobs configured on the owner's Hermes machine.",
+          "name": "hermes_jobs",
+          "py_func": "hushh_mcp.agents.hermes.tools.hermes_jobs",
+          "required_scope": "cap.one.invoke"
+        },
+        {
+          "description": "Send one natural-language instruction to the owner's Hermes machine and return its answer.",
+          "name": "hermes_relay",
+          "py_func": "hushh_mcp.agents.hermes.tools.hermes_relay",
+          "required_scope": "cap.one.invoke"
+        }
+      ],
+      "ui_type": "chat",
+      "version": "0.1.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
         "data": [
           "consented_financial_projection"
         ],
@@ -1771,7 +1887,8 @@
           "agent_gmail",
           "agent_location",
           "agent_calendar",
-          "agent_connected_systems"
+          "agent_connected_systems",
+          "agent_hermes"
         ]
       },
       "credential_policy": {

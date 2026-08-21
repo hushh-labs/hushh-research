@@ -33,6 +33,7 @@ export const ROUTE_ID_VALUES = [
   "profile_security_session",
   "profile_security_devices",
   "profile_security_device_authorize",
+  "hermes",
   "profile_my_data",
   "profile_my_data_domain",
   "profile_access",
@@ -181,6 +182,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "profile_security_devices";
   if (pathname === ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE)
     return "profile_security_device_authorize";
+  if (pathname === ROUTES.HERMES) return "hermes";
   if (pathname === ROUTES.PROFILE_MY_DATA) return "profile_my_data";
   if (pathname === ROUTES.PROFILE_MY_DATA_DOMAIN)
     return "profile_my_data_domain";

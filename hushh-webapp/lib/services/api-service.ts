@@ -1766,6 +1766,52 @@ export class ApiService {
     );
   }
 
+  // ==========================================================================
+  // HERMES BRIDGE
+  //
+  // These reach Next route handlers (not the Python API): the Hermes machine is
+  // only addressable from the server the app runs on, and its credential must
+  // never reach the browser. See hushh-webapp/lib/hermes/config.ts.
+  // ==========================================================================
+
+  private static async hermesFetch(
+    path: string,
+    init: RequestInit = {},
+  ): Promise<Response> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) {
+      return new Response(
+        JSON.stringify({ error: "Missing Firebase ID token" }),
+        { status: 401 },
+      );
+    }
+    const headers = new Headers(init.headers);
+    headers.set("Authorization", `Bearer ${authToken}`);
+    return apiFetch(path, { ...init, headers, cache: "no-store" });
+  }
+
+  /** Reachability + machine status + which trusted device this Hermes is. */
+  static async getHermesStatus(): Promise<Response> {
+    return this.hermesFetch("/api/hermes/status", { method: "GET" });
+  }
+
+  /** Scheduled jobs running on the Hermes machine. */
+  static async listHermesJobs(): Promise<Response> {
+    return this.hermesFetch("/api/hermes/jobs", { method: "GET" });
+  }
+
+  /** Run one natural-language turn on the Hermes machine. */
+  static async runHermesTurn(
+    prompt: string,
+    sessionId?: string | null,
+  ): Promise<Response> {
+    return this.hermesFetch("/api/hermes/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, sessionId: sessionId ?? null }),
+    });
+  }
+
   /**
    * Request a backend-minted Firebase custom token for reviewer login.
    * Only available when app-review mode is enabled server-side.
