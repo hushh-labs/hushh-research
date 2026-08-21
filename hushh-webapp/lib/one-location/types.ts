@@ -524,6 +524,13 @@ export type OneLocationNearbyPlaceSuggestion = {
    * nearby sweep locally instead of re-querying per chip and re-truncating.
    */
   categories?: OneLocationNearbyPlaceCategory[] | null;
+  /**
+   * Whether this place has a claimed Hushh business profile, per the
+   * business-claiming backend. No current provider populates this field, so
+   * it is `undefined`/`null` on every real result today -- callers must
+   * treat that as "unknown", never as "unclaimed".
+   */
+  businessClaimStatus?: "claimed" | "unclaimed" | null;
 };
 
 export type OneLocationNearbyRelationship =

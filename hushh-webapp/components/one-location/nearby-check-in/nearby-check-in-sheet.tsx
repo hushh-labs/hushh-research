@@ -9,6 +9,7 @@ import {
   type CSSProperties,
 } from "react";
 import {
+  Building2,
   Check,
   ChevronDown,
   Compass,
@@ -40,6 +41,16 @@ import {
   CHECK_OUT_BUTTON_VARIANT,
 } from "@/components/one-location/nearby-check-in/check-in-panel-layout";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -347,6 +358,24 @@ function timeLeftLabel(expiresAt: string): string {
   return remainder ? `${hours}h ${remainder}m left` : `${hours}h left`;
 }
 
+/**
+ * Whether the selected place is known -- from real backend data -- to have
+ * no claimed Hushh business profile.
+ *
+ * No current provider populates `businessClaimStatus`, so this is `false`
+ * for every real result today. That is deliberate: the claiming system
+ * tracked in issue #5459 does not exist yet, so "unknown" must never be
+ * treated as "unclaimed" -- doing so would show an invite CTA on every
+ * place, including ones that may already be claimed once that system
+ * ships. The CTA activates automatically the moment a provider starts
+ * sending this field.
+ */
+function isPlaceUnclaimed(
+  place: OneLocationNearbyPlaceSuggestion | null,
+): boolean {
+  return place?.businessClaimStatus === "unclaimed";
+}
+
 function initials(label: string): string {
   return (
     label
@@ -504,6 +533,11 @@ export function NearbyCheckInSheet({
   const [placesError, setPlacesError] = useState<string | null>(null);
   const [accuracyNotice, setAccuracyNotice] = useState<string | null>(null);
   const [visiblePlacesCount, setVisiblePlacesCount] = useState(3);
+  const [requestedBusinessInvitePlaceIds, setRequestedBusinessInvitePlaceIds] = useState<
+    Set<string>
+  >(new Set());
+  const [pendingBusinessInvitePlaceId, setPendingBusinessInvitePlaceId] =
+    useState<string | null>(null);
 
   const typedSearchActive = search.trim().length >= 2;
 
@@ -920,6 +954,8 @@ export function NearbyCheckInSheet({
     setPresenceLoadError(null);
     setPlacesError(null);
     setAccuracyNotice(null);
+    setRequestedBusinessInvitePlaceIds(new Set());
+    setPendingBusinessInvitePlaceId(null);
     publishState(EMPTY_NEARBY_STATE);
     return () => {
       requestGenerationRef.current += 1;
@@ -953,6 +989,8 @@ export function NearbyCheckInSheet({
     setLocationRecovery(null);
     setPresenceLoadError(null);
     setPlacesError(null);
+    setRequestedBusinessInvitePlaceIds(new Set());
+    setPendingBusinessInvitePlaceId(null);
     void loadPresence(!open, expectedOwnerEpoch).then((next) => {
       if (
         !open ||
@@ -1147,6 +1185,29 @@ export function NearbyCheckInSheet({
     () => offsetFromPoint(selectedPlace, point),
     [point, selectedPlace],
   );
+  const selectedPlaceName = selectedPlace
+    ? selectedPlace.name?.trim() || selectedPlace.text
+    : "";
+  const selectedPlaceUnclaimed = isPlaceUnclaimed(selectedPlace);
+  const selectedPlaceInviteRequested = selectedPlace
+    ? requestedBusinessInvitePlaceIds.has(selectedPlace.placeId)
+    : false;
+
+  /**
+   * Records that the owner asked to invite this business, without claiming
+   * an SMS was sent -- there is no dispatch backend behind this yet (out of
+   * scope for #5459's Check-In slice), so the only honest outcome is "we
+   * noted the request", never a success state.
+   */
+  const confirmBusinessInvite = () => {
+    if (!selectedPlace) return;
+    const placeId = selectedPlace.placeId;
+    setRequestedBusinessInvitePlaceIds((current) => new Set(current).add(placeId));
+    setPendingBusinessInvitePlaceId(null);
+    toast.message(
+      `Sending isn't available yet. We'll let you know once invites can reach ${selectedPlaceName || "this business"}.`,
+    );
+  };
 
   /** How far the owner has moved from the place they are checked in to. */
   const activeDriftMeters = useMemo(() => {
@@ -2053,6 +2114,47 @@ export function NearbyCheckInSheet({
                         <span>{offsetNotice(selectedPlaceOffsetMeters)}</span>
                       </p>
                     ) : null}
+                    {selectedPlace && selectedPlaceUnclaimed ? (
+                      <div
+                        className="mt-3 flex items-start gap-3 rounded-2xl border border-border/60 bg-muted/40 p-4"
+                        data-testid="nearby-unclaimed-business-card"
+                      >
+                        <Building2
+                          className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold">
+                            This business profile is unclaimed
+                          </p>
+                          <p className="mt-0.5 text-xs leading-4 text-muted-foreground">
+                            Send an invite on behalf of Hushh to claim profile.
+                          </p>
+                          {selectedPlaceInviteRequested ? (
+                            <p
+                              className="mt-2 text-xs font-medium text-muted-foreground"
+                              data-testid="nearby-unclaimed-business-invite-requested"
+                            >
+                              Noted. Sending isn&apos;t available yet.
+                            </p>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="mt-2"
+                              onClick={() =>
+                                setPendingBusinessInvitePlaceId(
+                                  selectedPlace.placeId,
+                                )
+                              }
+                            >
+                              Send invite to claim business
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
                     {!places.length &&
                     !capturing &&
                     !searching &&
@@ -2222,6 +2324,32 @@ export function NearbyCheckInSheet({
           )}
         </div>
       </SheetContent>
+      <AlertDialog
+        open={
+          pendingBusinessInvitePlaceId !== null &&
+          pendingBusinessInvitePlaceId === selectedPlace?.placeId
+        }
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setPendingBusinessInvitePlaceId(null);
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send invite to claim business?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This notes your request for {selectedPlaceName || "this business"} to
+              claim and verify their profile. Sending isn&apos;t available yet, so
+              no invite goes out until it is.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmBusinessInvite}>
+              Confirm request
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sheet>
   );
 }

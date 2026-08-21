@@ -55,6 +55,7 @@ vi.mock("sonner", () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),
+    message: vi.fn(),
   },
 }));
 
@@ -2098,6 +2099,216 @@ describe("NearbyCheckInSheet", () => {
           afterMount,
         );
       });
+    });
+  });
+
+  describe("unclaimed business invite", () => {
+    it("never shows the CTA when the provider sends no claim status", async () => {
+      // The default fixture (set in the outer beforeEach) carries no
+      // businessClaimStatus field, exactly like every real provider response
+      // today. "Unknown" must never be rendered as "unclaimed".
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /Stanford University/ }),
+      );
+
+      expect(
+        screen.queryByTestId("nearby-unclaimed-business-card"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("does not show the CTA for a place explicitly marked claimed", async () => {
+      service.nearbyPlaces.mockResolvedValue([
+        {
+          placeId: "stanford-main",
+          text: "Stanford University",
+          name: "Stanford University",
+          address: "450 Jane Stanford Way",
+          category: "University",
+          categories: ["education"],
+          distanceMeters: 48,
+          latitude: 37.4276,
+          longitude: -122.1697,
+          businessClaimStatus: "claimed",
+        },
+      ]);
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /Stanford University/ }),
+      );
+
+      expect(
+        screen.queryByTestId("nearby-unclaimed-business-card"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("offers to invite a business the provider marks unclaimed", async () => {
+      service.nearbyPlaces.mockResolvedValue([
+        {
+          placeId: "stanford-main",
+          text: "Stanford University",
+          name: "Stanford University",
+          address: "450 Jane Stanford Way",
+          category: "University",
+          categories: ["education"],
+          distanceMeters: 48,
+          latitude: 37.4276,
+          longitude: -122.1697,
+          businessClaimStatus: "unclaimed",
+        },
+      ]);
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      expect(
+        screen.queryByTestId("nearby-unclaimed-business-card"),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /Stanford University/ }),
+      );
+
+      const card = screen.getByTestId("nearby-unclaimed-business-card");
+      expect(card).toHaveTextContent("This business profile is unclaimed");
+      expect(card).toHaveTextContent(
+        "Send an invite on behalf of Hushh to claim profile.",
+      );
+      expect(
+        screen.getByRole("button", { name: "Send invite to claim business" }),
+      ).toBeInTheDocument();
+    });
+
+    it("confirms the request without claiming an invite was actually sent", async () => {
+      service.nearbyPlaces.mockResolvedValue([
+        {
+          placeId: "stanford-main",
+          text: "Stanford University",
+          name: "Stanford University",
+          address: "450 Jane Stanford Way",
+          category: "University",
+          categories: ["education"],
+          distanceMeters: 48,
+          latitude: 37.4276,
+          longitude: -122.1697,
+          businessClaimStatus: "unclaimed",
+        },
+      ]);
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /Stanford University/ }),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Send invite to claim business" }),
+      );
+
+      expect(
+        await screen.findByText("Send invite to claim business?"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          /Sending isn't available yet, so no invite goes out until it is/,
+        ),
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Confirm request" }));
+
+      await waitFor(() => {
+        expect(
+          screen.getByTestId("nearby-unclaimed-business-invite-requested"),
+        ).toHaveTextContent("Noted. Sending isn't available yet.");
+      });
+      expect(
+        screen.queryByRole("button", { name: "Send invite to claim business" }),
+      ).not.toBeInTheDocument();
+      const { toast } = await import("sonner");
+      expect(toast.success).not.toHaveBeenCalled();
+      expect(toast.message).toHaveBeenCalledWith(
+        "Sending isn't available yet. We'll let you know once invites can reach Stanford University.",
+      );
+    });
+
+    it("cancels without noting the request or marking the place invited", async () => {
+      service.nearbyPlaces.mockResolvedValue([
+        {
+          placeId: "stanford-main",
+          text: "Stanford University",
+          name: "Stanford University",
+          address: "450 Jane Stanford Way",
+          category: "University",
+          categories: ["education"],
+          distanceMeters: 48,
+          latitude: 37.4276,
+          longitude: -122.1697,
+          businessClaimStatus: "unclaimed",
+        },
+      ]);
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /Stanford University/ }),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Send invite to claim business" }),
+      );
+      await screen.findByText("Send invite to claim business?");
+
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      await waitFor(() => {
+        expect(
+          screen.queryByText("Send invite to claim business?"),
+        ).not.toBeInTheDocument();
+      });
+      expect(
+        screen.getByRole("button", { name: "Send invite to claim business" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("nearby-unclaimed-business-invite-requested"),
+      ).not.toBeInTheDocument();
+      const { toast } = await import("sonner");
+      expect(toast.message).not.toHaveBeenCalled();
     });
   });
 });
