@@ -138,6 +138,11 @@ import {
   SelectedContactsPill,
   SelectedContactsSheet,
 } from "@/components/one-location/redesign/contact-picker/selected-review-sheet";
+import {
+  flattenRecipientSections,
+  lastInteractionByUserId,
+  sectionRecipients,
+} from "@/lib/one-location/recipient-sections";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveSmsContactsBackAction } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
@@ -3630,6 +3635,39 @@ function AskFlow({
    * without moving the answer, and the other lane is now reachable rather than
    * silently dropped.
    */
+  /**
+   * The roster, arranged.
+   *
+   * Recency comes from what this screen already holds -- a request you sent, a
+   * share they gave you, a share you gave them -- so no new storage and no
+   * invented "frequently contacted", which nothing in this product counts.
+   *
+   * While a query is active the arrangement is dropped: a search result is
+   * ordered by how well each person matches, and headings over that would name
+   * an order the list does not have.
+   */
+  const lastInteraction = useMemo(
+    () =>
+      lastInteractionByUserId({
+        requestedByMe: vm.requestedByMe,
+        receivedGrants: vm.receivedGrants,
+        ownerGrants: vm.activeOwnerGrants,
+      }),
+    [vm.requestedByMe, vm.receivedGrants, vm.activeOwnerGrants],
+  );
+  const rosterRows = useMemo(
+    () =>
+      flattenRecipientSections(
+        sectionRecipients({
+          recipients: filtered,
+          lastInteraction,
+          label: vm.recipientLabel,
+          querying: vm.recipientSearch.trim().length > 0,
+        }),
+      ),
+    [filtered, lastInteraction, vm.recipientLabel, vm.recipientSearch],
+  );
+
   const receivedGroupsByOwner = useMemo(() => {
     const byOwner = new globalThis.Map<string, OneLocationGrantLaneGroup>();
     // `"recipient"` -- the side argument names WHICH SIDE I AM, so for grants
@@ -3731,14 +3769,36 @@ function AskFlow({
              grouped shell would put a card inside a card and draw a divider
              between two things that have their own edges. */
           <VirtualContactList
-            items={filtered}
-            getKey={(r) => r.userId}
+            items={rosterRows}
+            getKey={(row) => row.key}
             scrollClassName={cn("mt-3", PEOPLE_LIST_SCROLL_CLASS)}
             itemClassName="pb-2.5 last:pb-0"
             presentation="cards"
             testId="one-location-ask-recipients"
             ariaLabel="People you can ask"
-            renderItem={(r) => {
+            // A section heading is not one of the people. Taking it out of the
+            // list stops a screen reader announcing "Recent" as an entry.
+            getItemRole={(row) =>
+              row.kind === "header" ? "presentation" : undefined
+            }
+            renderItem={(row) => {
+              // Headers ride the SAME windowed list as the rows, rather than a
+              // scroller per section: two capped scrollers stacked inside one
+              // screen is the shape this flow already rejected once.
+              if (row.kind === "header") {
+                return (
+                  // The screen's own section type, not a second one invented
+                  // here: "People" a few lines up is the same primitive.
+                  <AppSectionLabel
+                    as="h3"
+                    data-testid={`one-location-ask-section-${row.key}`}
+                    className="px-1 pt-1"
+                  >
+                    {row.title}
+                  </AppSectionLabel>
+                );
+              }
+              const r = row.recipient;
               const selected = vm.selectedRequestOwnerIds.includes(r.userId);
               // Every row used to read "Ready for private sharing" with Select
               // as the only affordance, whoever the person was and whatever had

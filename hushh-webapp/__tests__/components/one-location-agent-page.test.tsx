@@ -4428,6 +4428,62 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("drops the arrangement while a query is active", async () => {
+    // A search result is ordered by how well each person matches. Headings over
+    // that would name an order the list does not have, so the sections go and
+    // the caller's ranking passes through untouched.
+    mockGetState.mockResolvedValue(locationState());
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), {
+      target: { value: "Tru" },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("one-location-ask-section-header:recent"),
+      ).toBeNull();
+      expect(
+        screen.queryByTestId("one-location-ask-section-header:all"),
+      ).toBeNull();
+    });
+  });
+
+  it("keeps a section heading out of the list of people", async () => {
+    // The roster carries `role="list"`, and every entry in it is wrapped as a
+    // `listitem`. A heading is not one of the people, so it opts out --
+    // otherwise a screen reader reads "Recent" as an entry between two names.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      // The page derives `requestedByMe` from `requests`, filtered to the ones
+      // this viewer sent, so the fixture has to seed the field the API returns.
+      requests: [
+        {
+          id: "req_recent",
+          ownerUserId: "user_b",
+          requesterUserId: "user_a",
+          status: "pending",
+          requestedAt: new Date().toISOString(),
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    const heading = await screen.findByTestId(
+      "one-location-ask-section-header:recent",
+    );
+    expect(heading.tagName).toBe("H3");
+    expect(heading.parentElement).toHaveAttribute("role", "presentation");
+  });
+
   it("offers a way to Connect when the person being looked for is not on the list", async () => {
     // This roster is everyone you are already connected to, so "they are not
     // here" has exactly one answer and it lives on another screen. Without
