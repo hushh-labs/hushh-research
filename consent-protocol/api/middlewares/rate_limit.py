@@ -19,14 +19,44 @@ straight to Redis when cross-instance precision becomes a requirement.
 
 import logging
 import os
+from functools import lru_cache
 
 from fastapi import Request
-from slowapi import Limiter
+from fastapi.responses import JSONResponse
+from limits import parse
+from limits.limits import RateLimitItem
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from hushh_mcp.consent.token import validate_token
 
 logger = logging.getLogger(__name__)
+
+_HUSHH_TECH_PRODUCT_PREFIX = "/api/v1/products/hushh-tech/"
+
+
+def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    """Keep the product API typed and non-cacheable without changing other routes."""
+    if not request.url.path.startswith(_HUSHH_TECH_PRODUCT_PREFIX):
+        return _rate_limit_exceeded_handler(request, exc)
+    response = JSONResponse(
+        status_code=429,
+        content={
+            "detail": {
+                "code": "RATE_LIMITED",
+                "message": "Try again shortly.",
+            }
+        },
+        headers={
+            "Cache-Control": "private, no-store",
+            "Pragma": "no-cache",
+        },
+    )
+    return request.app.state.limiter._inject_headers(  # noqa: SLF001
+        response,
+        request.state.view_rate_limit,
+    )
 
 
 def get_rate_limit_key(request: Request) -> str:
@@ -53,6 +83,27 @@ def get_rate_limit_key(request: Request) -> str:
                 return f"user:{payload.user_id}"
 
     return get_remote_address(request)
+
+
+def get_trusted_forwarded_client_ip(
+    request: Request,
+    *,
+    trusted_proxy_hops_env: str | None = None,
+) -> str:
+    """Resolve the rightmost edge-attested visitor IP for public rate limits."""
+    trusted_hops = 0
+    if trusted_proxy_hops_env:
+        raw = str(os.getenv(trusted_proxy_hops_env) or "").strip()
+        try:
+            trusted_hops = max(0, int(raw))
+        except ValueError:
+            trusted_hops = 0
+    forwarded = str(request.headers.get("x-forwarded-for") or "")
+    chain = [part.strip() for part in forwarded.split(",") if part.strip()]
+    if not chain:
+        return get_remote_address(request) or "unknown"
+    index = max(len(chain) - 1 - trusted_hops, 0)
+    return chain[index][:64]
 
 
 # Rate limiting is enabled by default but disabled under the pytest harness so
@@ -92,6 +143,17 @@ class RateLimits:
     # Token validation - higher for polling (soon replaced by SSE)
     TOKEN_VALIDATION = "60/minute"  # noqa: S105
 
+    # UAT-only HushhTech product entry. The public PKCE exchange remains IP
+    # keyed because it has no bearer identity; fixed scopes prevent route/path
+    # changes from creating fresh buckets. Writes are deliberately tighter
+    # than status and compatibility reads.
+    HUSHH_TECH_LAUNCH_AUTHORIZE = "10/minute"  # noqa: S105
+    HUSHH_TECH_PROXY_ATTESTATION = "240/minute"  # noqa: S105
+    HUSHH_TECH_FIREBASE_PREAUTH = "120/minute"  # noqa: S105
+    HUSHH_TECH_LAUNCH_EXCHANGE = "20/minute"  # noqa: S105
+    HUSHH_TECH_LINK_WRITE = "10/minute"  # noqa: S105
+    HUSHH_TECH_CLIENT_READ = "60/minute"  # noqa: S105
+
     # Agent chat - moderate limit
     AGENT_CHAT = "30/minute"  # noqa: S105
 
@@ -108,6 +170,7 @@ class RateLimits:
     # check-in churn, and alias-based connection attempts. Shared enforcement
     # keeps the existing RATE_LIMIT_STORAGE_URI Redis-later seam.
     ONE_LOCATION_NEARBY_READ = "8/minute"  # noqa: S105
+
     ONE_LOCATION_NEARBY_WRITE = "6/minute"  # noqa: S105
     ONE_LOCATION_NEARBY_CONNECT = "10/minute"  # noqa: S105
     # Provider-backed search/details incur external cost. Keep a separate,
@@ -170,6 +233,18 @@ class RateLimits:
 
     # Global fallback per IP
     GLOBAL_PER_IP = "100/minute"  # noqa: S105
+
+
+@lru_cache(maxsize=32)
+def _parsed_limit(limit_value: str) -> RateLimitItem:
+    return parse(limit_value)
+
+
+def consume_shared_rate_limit_budget(*, limit_value: str, scope: str, key: str) -> bool:
+    """Consume a budget before FastAPI dependency work starts."""
+    if not limiter.enabled:
+        return True
+    return bool(limiter.limiter.hit(_parsed_limit(limit_value), scope, key))
 
 
 def log_rate_limit_hit(request: Request, limit: str):
