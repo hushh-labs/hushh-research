@@ -118,8 +118,8 @@ export function KaiMarketHubPage() {
         onSelectionChange={(value) => setVisibleTab(value as PortfolioTab)}
         onSelectionCommit={(value) => setActiveTab(value as PortfolioTab)}
         panelInset="page"
-        heightMode={visibleTab === "market" ? "active" : "max"}
-        viewportMinHeight={visibleTab === "market" ? "0" : undefined}
+        heightMode="active"
+        viewportMinHeight="0"
       >
         <div className="h-full w-full">
           <AppPageContentRegion>
