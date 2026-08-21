@@ -30,12 +30,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import {
-  Link as LinkIcon,
   Lock,
   Map,
   MapPin,
   Navigation,
-  Plus,
   Send,
   Check,
   Shield,
@@ -308,6 +306,17 @@ export type LocationHubViewModel = {
   requestMessage: string;
   shareReviewOpen: boolean;
   publicInviteUrl: string;
+  /**
+   * The public link's own duration, kept apart from `durationHours`.
+   *
+   * That one string is written by the Ask composer and the Circle invite screen
+   * and read by all three lanes. The public-link control now sits permanently
+   * on the Links tab rather than behind a button, so sharing the string would
+   * mean anyone browsing past the tab rewrites what the other two screens
+   * offer.
+   */
+  publicLinkDurationHours: string;
+  setPublicLinkDurationHours: (value: string) => void;
   circleInviteUrl: string;
 
   /* setters (presentation state owned by page) */
@@ -559,7 +568,6 @@ type FlowKind =
   | "create-circle"
   | "join-circle"
   | "circle-detail"
-  | "temp-link"
   | "check-in"
   | "sos"
   | "sms-contacts"
@@ -587,7 +595,6 @@ const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
   "create-circle": "create-circle",
   "join-circle": "join-circle",
   "circle-detail": "circle-detail",
-  "temp-link": "temp-link",
   "check-in": "check-in",
   sos: "sos",
   "sms-contacts": "sms-contacts",
@@ -616,6 +623,24 @@ export function resolveSmsContactsBackFlow(
   // performs this navigation now, and it resolves the target the same way.
   return resolveSmsContactsBackAction(source);
 }
+
+/**
+ * Actions whose screen was folded into a hub tab rather than removed.
+ *
+ * Different from `RETIRED_ACTIONS` below, and the difference is what the
+ * person is told. A retired action is gone and says so. A relocated one still
+ * exists -- it is just no longer its own screen -- so it lands on the tab that
+ * absorbed it, quietly. "That's no longer there." would be a lie for these,
+ * and a confusing one, since the thing they asked for is on the screen they
+ * are now looking at.
+ *
+ * `temp-link` was the create-a-live-location-link screen. Its duration
+ * question and its create button are now on the Links tab itself, so every
+ * bookmark, history entry and Kai deep link pointing at it resolves there.
+ */
+const RELOCATED_ACTION_TABS: Readonly<Record<string, LocationHubTab>> = {
+  "temp-link": "links",
+};
 
 const RETIRED_ACTIONS = new Set([
   "drive-to",
@@ -1048,6 +1073,16 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       params.set(FLOW_ACTION_PARAM, action);
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     }
+    const relocatedTab = RELOCATED_ACTION_TABS[action];
+    if (relocatedTab) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete(FLOW_ACTION_PARAM);
+      params.set(LOCATION_HUB_TAB_PARAM, relocatedTab);
+      // No toast: the screen did not go away, it became this tab, and the
+      // person is looking at it.
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      return;
+    }
     if (RETIRED_ACTIONS.has(action)) {
       const params = new URLSearchParams(searchParams.toString());
       params.delete(FLOW_ACTION_PARAM);
@@ -1290,7 +1325,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             onManageSmsContacts={() => openFlow("sms-contacts")}
           />
         ) : (
-          <TemporaryLinkFlow vm={vm} onClose={closeFlow} />
+          // Every FlowKind above is matched, and `none` never reaches here.
+          // This used to fall through to the temporary-link screen, so any
+          // flow slug nobody had wired up quietly rendered "Share outside your
+          // Circle" instead of failing visibly.
+          null
         )}
       </div>
     );
@@ -1374,7 +1413,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           </LocationHubPanel>
 
           <LocationHubPanel>
-            <LinksHub vm={vm} onCreateTempLink={() => openFlow("temp-link")} />
+            <LinksHub vm={vm} />
           </LocationHubPanel>
         </SwipeViews>
       </div>
@@ -2778,70 +2817,164 @@ function ActiveLinkRow({
   );
 }
 
-function LinksHub({
-  vm,
-  onCreateTempLink,
-}: {
-  vm: LocationHubViewModel;
-  onCreateTempLink: () => void;
-}) {
+/**
+ * The Links tab, which is now the whole of the live-location-link flow.
+ *
+ * Making one used to take three screens: this tab, with a "Create link" button
+ * that created nothing and only navigated; a separate `?action=temp-link`
+ * screen carrying a warning, one duration question and the button that
+ * actually created; and then that same screen again, showing the result with a
+ * "Done" that returned here -- where the link appeared a third time, as a row,
+ * with only a Copy button. Two of those three screens existed to ask one
+ * question and to acknowledge its answer.
+ *
+ * The question is now asked here, and the answer replaces it in place.
+ *
+ * One live link at a time. While one is active there is no create control at
+ * all: not disabled, absent. A second link is not a thing the product wants to
+ * be able to make -- both stay independently resolvable, revoking the one on
+ * screen leaves the other watching, and the tab can only ever show the newest.
+ * The way to a different link is to end this one, which is a button already on
+ * the card. The server refuses the second as well (`create_public_invite`
+ * hands back the live one), because a rule that lives only in a component is
+ * defeated by a stale tab.
+ */
+function LinksHub({ vm }: { vm: LocationHubViewModel }) {
   const temp = vm.latestActivePublicInvite;
   const invite = vm.latestActiveCircleInvite;
-  const hasLinks = Boolean(temp) || Boolean(invite);
+  // Two separate questions, and both have to be asked.
+  //
+  //   is a link live?      `temp` -- the server's row
+  //   can we hand it over? `vm.publicInviteUrl` -- the URL itself
+  //
+  // Neither implies the other. An invite minted before its token could be
+  // re-derived from its row is live with no recoverable URL, so Copy would
+  // hand over nothing. And for one round trip after creating, the URL is known
+  // while the row is not: `onCreatePublicInvite` fires its refresh without
+  // awaiting it. Keying the whole tab on `temp` alone put the create form back
+  // on screen during that window, which reads as "nothing happened" and
+  // invites a second press.
+  const hasLiveLink = Boolean(temp) || Boolean(vm.publicInviteUrl);
+  const hasShareableLink = Boolean(vm.publicInviteUrl);
 
   return (
     <div className="space-y-4">
       <div className="px-[6px]">
         <SectionTitle as="h2">Active links</SectionTitle>
-        {/* This section lists two different things — a live location link and
-            a Circle invite link — and the invite shares no location at all.
-            Copy that described only the first was wrong for half the list,
-            and neither told a new user what a "link" is here. */}
-        <RowDescription as="p" className="mt-1">
-          Links you can send to anyone — to show where you are, or to invite
-          them to a Circle.
-        </RowDescription>
       </div>
 
-      {hasLinks ? (
-        <div className={cn("overflow-hidden px-3.5", SUBCARD_SURFACE)}>
-          {temp ? (
-            <ActiveLinkRow
-              first
-              tileClass="bg-[color:var(--app-purple)]/12 dark:bg-[color:var(--app-purple)]/15"
-              icon={
-                <LinkIcon className="h-[17px] w-[17px] text-[color:var(--app-purple)]" />
-              }
-              title="Live location link"
-              subtitle={`${vm.expiresCountdownLabel(temp.expiresAt)} · anyone with the link`}
-              onCopy={vm.onCopyPublicInvite}
-            />
-          ) : null}
-          {invite ? (
-            <ActiveLinkRow
-              first={!temp}
-              tileClass="bg-[color:var(--app-success)]/12 dark:bg-[color:var(--app-success)]/15"
-              icon={
-                <ShieldCheck className="h-[17px] w-[17px] text-[color:var(--app-success)]" />
-              }
-              title="Invite link"
-              subtitle={`${vm.expiresCountdownLabel(invite.expiresAt)} · one person`}
-              onCopy={vm.onCopyCircleInvite}
-            />
-          ) : null}
-        </div>
+      {hasLiveLink ? (
+        hasShareableLink ? (
+          <TemporaryLinkCard
+            title="Live location link"
+            statusLine="Anyone with this link can view you"
+            // No countdown until the row lands: inventing one from the
+            // duration that was picked would drift from the expiry the server
+            // actually stamped.
+            expiryLabel={
+              temp ? vm.expiresCountdownLabel(temp.expiresAt) : undefined
+            }
+            onCopy={vm.onCopyPublicInvite}
+            onShare={vm.onSharePublicInvite}
+            // Revoking needs the invite's id, which arrives with the row. In
+            // the moment before it does, the control shows itself as busy
+            // rather than pretending to work -- which is honest, because a
+            // refresh really is in flight. Copy and Share are unaffected: the
+            // URL is already in hand.
+            onRevoke={() => {
+              if (temp) vm.onRevokePublicInvite(temp);
+            }}
+            revokeBusy={vm.busy === "publicRevoke" || !temp}
+          />
+        ) : (
+          // Live, and its URL is gone: an invite from before the token could be
+          // re-derived from its row. Copy and Share would be dead controls, so
+          // they are not offered -- but the link is still out there watching,
+          // so ending it has to stay reachable. Saying why keeps this from
+          // reading as a bug the person should retry.
+          <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
+            <div className="min-w-0">
+              <RowLabel as="p">Live location link</RowLabel>
+              <RowDescription as="p" className="mt-0.5">
+                Made on another device or before an update, so it cannot be
+                shown again here. Stop it to make a new one.
+              </RowDescription>
+            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (temp) vm.onRevokePublicInvite(temp);
+              }}
+              isLoading={vm.busy === "publicRevoke" || !temp}
+              className="h-9 w-full rounded-full text-sm"
+            >
+              Stop this link
+            </Button>
+          </div>
+        )
       ) : (
-        <EmptyState title="No active links" />
+        <div className="space-y-4">
+          <WarningCard
+            title="Anyone with this link can see you"
+            description="The link stops on its own."
+          />
+          <SettingsGroup title="Duration" separatorInset>
+            <SettingsRow
+              title="Link stays live for"
+              description="Anyone holding it can watch until then."
+              stackTrailingOnMobile
+              trailing={
+                <DurationSelector
+                  value={vm.publicLinkDurationHours}
+                  onChange={vm.setPublicLinkDurationHours}
+                  label=""
+                  // Deliberately shorter than the trusted-share durations:
+                  // anyone holding this link can watch, so the public ceiling
+                  // stays at 1 hour.
+                  options={[
+                    { value: "0.5", label: "30 min" },
+                    { value: "1", label: "1 hour" },
+                  ]}
+                />
+              }
+            />
+          </SettingsGroup>
+          {/* The label changes while it works. This press waits on a device fix
+              before it can post anything, so on a cold start it can sit for
+              several seconds -- and it used to sit as a bare spinner with the
+              label hidden, which is why it read as "taking longer than
+              expected" rather than as "still finding you". Naming the wait is
+              the fix available here; the wait itself is a GPS acquisition. */}
+          <Button
+            onClick={vm.onCreatePublicInvite}
+            isLoading={vm.busy === "publicInvite"}
+            data-voice-control-id="one-location-action-temp-link"
+            className="h-12 min-h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+          >
+            {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
+          </Button>
+        </div>
       )}
 
-      <Button
-        onClick={onCreateTempLink}
-        data-voice-control-id="one-location-action-temp-link"
-        className="w-full"
-      >
-        <Plus className="mr-2 h-4 w-4" />
-        Create link
-      </Button>
+      {/* A Circle invite is a different object on a different table with a
+          different ceiling, and it is not subject to the one-at-a-time rule
+          above: it admits one named person to a Circle rather than showing the
+          owner to anyone holding a URL. It keeps its row. */}
+      {invite ? (
+        <div className={cn("overflow-hidden px-3.5", SUBCARD_SURFACE)}>
+          <ActiveLinkRow
+            first
+            tileClass="bg-[color:var(--app-success)]/12 dark:bg-[color:var(--app-success)]/15"
+            icon={
+              <ShieldCheck className="h-[17px] w-[17px] text-[color:var(--app-success)]" />
+            }
+            title="Invite link"
+            subtitle={`${vm.expiresCountdownLabel(invite.expiresAt)} · one person`}
+            onCopy={vm.onCopyCircleInvite}
+          />
+        </div>
+      ) : null}
 
       <div className="flex items-start gap-2 px-1">
         <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -4239,99 +4372,3 @@ function InviteFlow({
 /* =================================================================== */
 
 /** Same precision story as ShareFlow — see the note there. */
-function TemporaryLinkFlow({
-  vm,
-  onClose,
-}: {
-  vm: LocationHubViewModel;
-  onClose: () => void;
-}) {
-  const created =
-    Boolean(vm.publicInviteUrl) || Boolean(vm.latestActivePublicInvite);
-
-  if (created) {
-    const invite = vm.latestActivePublicInvite;
-    return (
-      <div className="space-y-5">
-        <TaskFlowHeader
-          eyebrow="Copy, share or revoke"
-          title="Public location link active"
-        />
-        <WarningCard
-          title="Anyone with the link can view you."
-          description="The link stops on its own."
-        />
-        {invite ? (
-          <TemporaryLinkCard
-            title="Public location link active"
-            statusLine="Anyone with this link can view you"
-            expiryLabel={vm.expiresCountdownLabel(invite.expiresAt)}
-            onCopy={vm.onCopyPublicInvite}
-            onShare={vm.onSharePublicInvite}
-            onRevoke={() => vm.onRevokePublicInvite(invite)}
-            revokeBusy={vm.busy === "publicRevoke"}
-          />
-        ) : null}
-        <Button
-          variant="ghost"
-          onClick={onClose}
-          className="h-11 w-full rounded-2xl text-sm"
-        >
-          Done
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-5">
-      {/* The eyebrow, title and description all used to say "outside your
-          Circle", then the warning said "until it expires" and the trust note
-          said it a third time. The consent point is load-bearing here, so it is
-          stated ONCE, in the warning, where it carries the most weight. */}
-      <TaskFlowHeader title="Share outside your Circle" />
-      <WarningCard
-        title="Anyone with this link can see you"
-        description="The link stops on its own."
-      />
-      <SettingsGroup title="Duration" separatorInset>
-        <SettingsRow
-          title="Link stays live for"
-          description="Anyone holding it can watch until then."
-          stackTrailingOnMobile
-          trailing={
-            <DurationSelector
-              value={vm.durationHours}
-              onChange={vm.setDurationHours}
-              label=""
-              // Deliberately shorter than the trusted-share durations: anyone
-              // holding this link can watch, so the public ceiling stays at
-              // 1 hour.
-              options={[
-                { value: "0.5", label: "30 min" },
-                { value: "1", label: "1 hour" },
-              ]}
-            />
-          }
-        />
-      </SettingsGroup>
-      {/* The temporary link shares the same precise point as everything else,
-          so it offers no precision card either. The "expires automatically"
-          note that sat here was the third statement of the same fact — the
-          warning above and the duration control already carry it. */}
-      {/* The label changes while it works. This press waits on a device fix
-          before it can post anything, so on a cold start it can sit for
-          several seconds — and it used to sit as a bare spinner with the label
-          hidden, which is why it read as "taking longer than expected" rather
-          than as "still finding you". Naming the wait is the fix available
-          here; the wait itself is a GPS acquisition. */}
-      <Button
-        onClick={vm.onCreatePublicInvite}
-        isLoading={vm.busy === "publicInvite"}
-        className="h-12 min-h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-      >
-        {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
-      </Button>
-    </div>
-  );
-}
