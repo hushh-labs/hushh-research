@@ -676,6 +676,7 @@ EOF
         --project hushh-pda-uat \
         --region us-central1 \
         --service consent-protocol \
+        --release-environment uat \
         --contract-file "$REPO_ROOT/consent-protocol/db/contracts/uat_integrated_schema.json")
       if [ -n "$report_path" ]; then
         cmd+=(--report-path "$report_path")
@@ -707,7 +708,8 @@ EOF
         --project "${DEV_PROJECT_ID:-hushh-pda-dev}" \
         --region us-central1 \
         --service consent-protocol \
-        --contract-file "$REPO_ROOT/consent-protocol/db/contracts/uat_integrated_schema.json")
+        --release-environment production \
+        --contract-file "$REPO_ROOT/consent-protocol/db/contracts/dev_minimum_schema.json")
       if [ -n "$report_path" ]; then
         cmd+=(--report-path "$report_path")
       fi

@@ -45,10 +45,10 @@ stateDiagram-v2
 
   note right of replay
     Contract model, enforced in the blocking CI governance lane:
-    uat_integrated_schema.json  policy exact, v127
-    prod_core_schema.json       policy exact, v127
-    verify_release_migration_contract.py fails when prod policy is not exact
-    report_prod_contract_posture.py exits non-zero on any prod/integrated delta
+    prod_core_schema.json       exact production base lane
+    uat_integrated_schema.json  exact base plus UAT overlay
+    verify_release_migration_contract.py checks both selected heads
+    report_prod_contract_posture.py allows only the declared UAT delta
   end note
 ```
 
@@ -115,22 +115,25 @@ PITR, described in
 
 ## Environment Contract Model
 
-UAT and production run the same Cloud SQL schema, so both contracts are exact and
-must stay at the same migration version:
+The release manifest has a production-safe base lane and explicit environment
+overlays. Production never inherits an overlay by default:
 
-- `uat_integrated_schema.json`
-  - exact policy
-  - tracks the current integrated release lane
 - `prod_core_schema.json`
   - exact policy
-  - mirrors the integrated contract table-for-table
+  - tracks `ordered_migrations` only
   - validated read-only
+- `uat_integrated_schema.json`
+  - exact policy
+  - tracks `ordered_migrations` plus `environment_overlays.uat`
+- `dev_minimum_schema.json`
+  - minimum policy
+  - remains on the production base lane unless a separate dev overlay is added
 
-Production is converged to the integrated contract. Any delta between the two
-files is drift to close, not accepted policy, and
-`verify_release_migration_contract.py` fails when the production contract is not
-`exact`. (The earlier "frozen subset" model, where production pinned a lower
-minimum version and a reduced table set, is retired.)
+The parser defaults to `production`. Selecting `uat` requires an explicit
+`--release-environment uat` argument and the canonical UAT project and Cloud SQL
+instance markers. The contract verifier rejects duplicate base/overlay entries,
+missing files, an unaccounted repository head, or a contract that does not match
+its selected lane.
 
 ## Surface Taxonomy
 
@@ -209,7 +212,8 @@ Do not use as:
 ./bin/hushh db verify-uat-schema
 ./bin/hushh db report-prod-posture
 ./bin/hushh codex data-model-audit
-python3 consent-protocol/db/migrate.py --release --migration-mode observe
+python3 consent-protocol/db/migrate.py --release --release-environment production --migration-mode observe
+python3 consent-protocol/db/migrate.py --release --release-environment uat --migration-mode observe
 ```
 
 Meaning:
@@ -219,8 +223,8 @@ Meaning:
 - `verify-uat-schema`
   - runs the exact UAT contract against live UAT runtime DB settings, read-only
 - `report-prod-posture`
-  - reports any delta between the production and integrated contracts, and exits
-    non-zero when they have drifted apart (expected delta: none)
+  - permits only the exact declared UAT-only table delta and exits non-zero on
+    any other production/UAT contract drift
 - `data-model-audit`
   - verifies migration-created tables are classified under the runtime DB data-plane contract
   - blocks unclassified tables and canonical writes into legacy memory tables
@@ -240,9 +244,10 @@ If a disposable seed path is needed, keep it:
 When a new numbered migration lands:
 
 1. add the SQL file under `db/migrations/`
-2. update `release_migration_manifest.json`
-3. update `uat_integrated_schema.json` when the integrated contract advances
-4. advance `prod_core_schema.json` in the same change so it stays an exact mirror of the integrated contract
+2. add a production migration to `ordered_migrations`, or a UAT-only migration
+   to `environment_overlays.uat`; never add the same file to both
+3. update the schema contract for every lane that selects the migration
+4. keep production and dev on the base head when a change is explicitly UAT-only
 5. follow the maintainer SOP in [data-model-governance.md](../architecture/data-model-governance.md)
 6. update [runtime-db-data-plane-contract.json](../architecture/runtime-db-data-plane-contract.json) when the migration creates or renames tables
 7. run `./bin/hushh codex data-model-audit` before claiming the migration is production-ready
