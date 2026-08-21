@@ -21,6 +21,7 @@ import { KaiPreviewRouter } from "@/components/kai/views/kai-preview-router";
 import { KaiAnalysisPageContent } from "@/app/one/kai/analysis/page";
 import { scheduleFinanceWorkspaceWarmup } from "@/lib/kai/finance-workspace-warmup";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
+import { cn } from "@/lib/utils";
 
 const FINANCE_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.finance;
 type PortfolioTab = (typeof FINANCE_TAB_DEFINITION.tabs)[number]["value"];
@@ -98,7 +99,10 @@ export function KaiMarketHubPage() {
       fitContent
 
       width="reading"
-      className="relative !px-0 pb-32"
+      className={cn(
+        "relative !px-0",
+        visibleTab !== "market" && "overflow-hidden max-h-[calc(100dvh-var(--app-top-content-offset,84px))]"
+      )}
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -114,14 +118,16 @@ export function KaiMarketHubPage() {
         onSelectionChange={(value) => setVisibleTab(value as PortfolioTab)}
         onSelectionCommit={(value) => setActiveTab(value as PortfolioTab)}
         panelInset="page"
+        heightMode="active"
+        viewportMinHeight="0"
       >
         <div className="h-full w-full">
           <AppPageContentRegion>
             <KaiPreviewRouter />
           </AppPageContentRegion>
         </div>
-        <div className="h-full w-full">
-          <AppPageContentRegion>
+        <div className="h-full w-full overflow-hidden">
+          <AppPageContentRegion className="h-full overflow-hidden">
             <KaiFlow
               userId={user.uid}
               mode="dashboard"
@@ -130,8 +136,8 @@ export function KaiMarketHubPage() {
             />
           </AppPageContentRegion>
         </div>
-        <div className="h-full w-full">
-          <AppPageContentRegion>
+        <div className="h-full w-full overflow-hidden">
+          <AppPageContentRegion className="h-full overflow-hidden">
             <KaiAnalysisPageContent />
           </AppPageContentRegion>
         </div>
