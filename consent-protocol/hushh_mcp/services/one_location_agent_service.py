@@ -3818,9 +3818,10 @@ class OneLocationAgentService:
                 "LOCATION_RECIPIENT_UNAVAILABLE",
                 unavailable_message
                 or (
-                    "They are in your One Network but their secure location key "
-                    "isn't ready yet. Ask them to open One Location and unlock "
-                    "their vault once, then try again."
+                    # Two lines in a toast. The old copy explained the whole
+                    # mechanism and ran to four; what the reader needs is the
+                    # one action that fixes it.
+                    "Ask them to open One Location and unlock once, then try again."
                 ),
                 status_code=409,
             )

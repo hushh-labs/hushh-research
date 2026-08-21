@@ -826,9 +826,7 @@ export default function MarketplacePage() {
 
   const matchContacts = useCallback(async () => {
     if (!user) {
-      toast.error("Sign in required", {
-        description: "Connect needs your signed-in account before matching contacts.",
-      });
+      toast.error("Sign in required. Connect needs your signed-in account before matching contacts.");
       return;
     }
     try {
@@ -854,9 +852,7 @@ export default function MarketplacePage() {
         `${matches.length} match${matches.length === 1 ? "" : "es"} from ${lookupResult.totalContacts} contacts.`
       );
       if (matches.length === 0) {
-        toast.info("No Hussh contacts found", {
-          description: "Search is still available across public profiles.",
-        });
+        toast.info("No Hussh contacts found. Search is still available across public profiles.");
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not match contacts.";
@@ -878,9 +874,7 @@ export default function MarketplacePage() {
     if (!user) return;
     const investorUserId = marketplaceInvestorUserId(investor);
     if (!isMarketplaceInvestorConnectable(investor) || !investorUserId) {
-      toast.info("Public investor profile", {
-        description: "This profile is discovery-only until an invite or verified Hussh account exists.",
-      });
+      toast.info("Public investor profile");
       return;
     }
     try {
@@ -900,9 +894,7 @@ export default function MarketplacePage() {
         current.includes(investorId) ? current : [...current, investorId]
       );
       rememberInvestorDeckDecision("passed", investorId);
-      toast.success("Connection request sent", {
-        description: "The investor can review it in their pending connections.",
-      });
+      toast.success("Connection request sent. The investor can review it in their pending connections.");
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send connection request");
@@ -921,9 +913,7 @@ export default function MarketplacePage() {
         addresseeUserId: ria.user_id,
         message: "Would like to connect.",
       });
-      toast.success("Connection request sent", {
-        description: "The advisor can review it in their pending connections.",
-      });
+      toast.success("Connection request sent. The advisor can review it in their pending connections.");
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send connection request");
@@ -944,9 +934,7 @@ export default function MarketplacePage() {
       );
       rememberInvestorDeckDecision("shortlisted", investorId);
       rememberInvestorDeckDecision("passed", investorId);
-      toast.success("Investor lead saved", {
-        description: "Saved to the database-backed RIA deck shortlist.",
-      });
+      toast.success("Investor lead saved. Saved to the database-backed RIA deck shortlist.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save investor lead");
     }

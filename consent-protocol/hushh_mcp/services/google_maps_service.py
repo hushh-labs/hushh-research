@@ -7,12 +7,17 @@ calls our own /api/one/location/maps/* endpoints, which call this service.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
+import os
+import time
 from typing import Any, Literal
 from urllib.parse import quote
 
 import httpx
+from cachetools import TTLCache
+from redis import asyncio as redis_asyncio
 
 from hushh_mcp.config import GOOGLE_MAPS_API_KEY
 
@@ -32,6 +37,174 @@ _NEARBY_CHECK_IN_RESULT_LIMIT = 20
 # Ceiling for the merged multi-request sweep. Each category bucket contributes
 # its own 20-result budget, so a hotel is never crowded out by restaurants.
 _NEARBY_CHECK_IN_MERGED_LIMIT = 80
+
+# Repeat opens at the same spot (home, office) are the dominant real-world
+# pattern for both the check-in picker and the directory, so a short cache
+# keyed on a coarse grid cell avoids re-billing Google for a location that
+# has not moved. 3 decimal places is ~110 m at the equator -- tighter than
+# the 500 m check-in radius, so a hit still means "the same immediate area",
+# not "somewhere down the block".
+#
+# Google's Maps Platform terms permit exactly this: temporary caching for
+# Customer Application performance is allowed for under 30 consecutive
+# calendar days, kept secure, not redistributed, and not used to defeat
+# Google's usage accounting. 10 minutes is far inside that ceiling.
+#
+# Two tiers, cache-aside:
+#   L1 -- per-process TTLCache. Bounded (maxsize) so a long-lived worker
+#         cannot grow this without limit; evicts on both size and age.
+#   L2 -- Redis, shared across every Cloud Run instance and worker, so a
+#         cell one instance already paid for is free on every other one.
+#         Reuses the connection this service already runs in production for
+#         rate limiting (api/middlewares/rate_limit.py) -- same documented
+#         "SCALE SEAM" pattern, second consumer. If Redis is unset or errors,
+#         every call here degrades to L1-only: caching gets less effective,
+#         nothing breaks.
+_PLACES_CACHE_TTL_SECONDS = 600.0
+_PLACES_CACHE_CELL_DECIMALS = 3
+_PLACES_CACHE_MAX_ENTRIES = 2_000
+_PLACES_CACHE_KEY_PREFIX = "places-cache:v1:"
+_REDIS_OP_TIMEOUT_SECONDS = 0.5
+
+# A module-level indirection so a test can freeze/advance time deterministically
+# instead of sleeping for real seconds to prove TTL expiry. The lambdas below
+# look this global up by name on every call (not at construction time), so
+# monkeypatching `_cache_clock` after the caches already exist still works.
+_cache_clock = time.monotonic
+
+# Two independent caches: the check-in picker's "all" sweep and the
+# directory's per-category, caller-chosen-radius lookups have different key
+# shapes and must not collide with each other.
+_nearby_places_cache: TTLCache = TTLCache(
+    maxsize=_PLACES_CACHE_MAX_ENTRIES, ttl=_PLACES_CACHE_TTL_SECONDS, timer=lambda: _cache_clock()
+)
+_directory_cache: TTLCache = TTLCache(
+    maxsize=_PLACES_CACHE_MAX_ENTRIES, ttl=_PLACES_CACHE_TTL_SECONDS, timer=lambda: _cache_clock()
+)
+_redis_client: "redis_asyncio.Redis | None" = None
+
+
+def clear_places_cache() -> None:
+    """Reset both cache tiers.
+
+    Call this between tests -- otherwise a cache hit from one test (many
+    reuse the same lat/lng as "the" standard test point) silently serves a
+    different test's mock response instead of exercising a fresh call. Also
+    drops the Redis client so a test that monkeypatches the connection URL
+    or injects a fake client starts from a clean slate.
+    """
+
+    global _redis_client
+    _nearby_places_cache.clear()
+    _directory_cache.clear()
+    _redis_client = None
+
+
+def _geo_cell(lat: float, lng: float) -> tuple[float, float]:
+    return (
+        round(float(lat), _PLACES_CACHE_CELL_DECIMALS),
+        round(float(lng), _PLACES_CACHE_CELL_DECIMALS),
+    )
+
+
+def _cache_key_string(namespace: str, key_parts: tuple[Any, ...]) -> str:
+    return _PLACES_CACHE_KEY_PREFIX + namespace + ":" + ":".join(str(part) for part in key_parts)
+
+
+def _redis_url() -> str:
+    # A dedicated override, falling back to the URI this service already
+    # provisions for rate limiting -- same Memorystore instance, a second,
+    # namespaced use, no new secret required.
+    return (
+        os.getenv("PLACES_CACHE_REDIS_URL") or os.getenv("RATE_LIMIT_STORAGE_URI") or ""
+    ).strip()
+
+
+def _get_redis_client() -> "redis_asyncio.Redis | None":
+    """Lazily build the shared Redis client, or None if unconfigured.
+
+    Constructing `Redis.from_url` does not itself open a connection -- it is
+    cheap and does not need to be awaited -- so this can stay a plain
+    function. Every real network call happens in `_redis_cache_get/_set`,
+    which swallow errors, so a bad or unreachable URL degrades to L1-only
+    caching instead of failing a request.
+    """
+
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
+    url = _redis_url()
+    if not url:
+        return None
+    _redis_client = redis_asyncio.Redis.from_url(
+        url,
+        socket_timeout=_REDIS_OP_TIMEOUT_SECONDS,
+        socket_connect_timeout=_REDIS_OP_TIMEOUT_SECONDS,
+    )
+    return _redis_client
+
+
+async def _redis_cache_get(cache_key: str) -> list[dict[str, Any]] | None:
+    client = _get_redis_client()
+    if client is None:
+        return None
+    try:
+        raw = await client.get(cache_key)
+    except Exception:
+        logger.warning("maps.places_cache.redis_get_failed")
+        return None
+    if raw is None:
+        return None
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    # Don't trust a cached blob's shape blindly -- a version bump on this key
+    # prefix, or a stale write from a future/older deploy sharing the same
+    # Redis instance, must read as a miss, not a corrupt result.
+    if not isinstance(decoded, list) or not all(isinstance(item, dict) for item in decoded):
+        return None
+    return decoded
+
+
+async def _redis_cache_set(cache_key: str, value: list[dict[str, Any]]) -> None:
+    client = _get_redis_client()
+    if client is None:
+        return
+    try:
+        await client.set(cache_key, json.dumps(value), ex=int(_PLACES_CACHE_TTL_SECONDS))
+    except Exception:
+        logger.warning("maps.places_cache.redis_set_failed")
+
+
+async def _places_cache_get(
+    local_cache: TTLCache,
+    namespace: str,
+    key_parts: tuple[Any, ...],
+) -> list[dict[str, Any]] | None:
+    cache_key = _cache_key_string(namespace, key_parts)
+    local_hit = local_cache.get(cache_key)
+    if local_hit is not None:
+        return list(local_hit)
+    remote_hit = await _redis_cache_get(cache_key)
+    if remote_hit is None:
+        return None
+    # Backfill L1 so the next hit on this same instance is free of the
+    # network round trip, not just free of Google.
+    local_cache[cache_key] = remote_hit
+    return list(remote_hit)
+
+
+async def _places_cache_set(
+    local_cache: TTLCache,
+    namespace: str,
+    key_parts: tuple[Any, ...],
+    value: list[dict[str, Any]],
+) -> None:
+    cache_key = _cache_key_string(namespace, key_parts)
+    local_cache[cache_key] = list(value)
+    await _redis_cache_set(cache_key, value)
+
 
 NearbyPlaceCategory = Literal[
     "all",
@@ -816,10 +989,19 @@ class GoogleMapsService:
         bucket concurrently and merges: each bucket brings its own 20-result
         budget, so no category can crowd out another.
 
-        The request point is sent to Google only for this foreground request and
-        is not cached or logged by this service. Exact distance helps the owner
-        choose a place but is never included in nearby-person responses.
+        The request point is never logged or persisted by this service. It is
+        sent to Google for a foreground request, and briefly held in a
+        two-tier cache-aside cache (process memory, plus Redis when
+        configured -- see `_places_cache_get`/`_PLACES_CACHE_TTL_SECONDS`) so
+        a drawer reopened at a spot that has not moved is answered without
+        billing Google again. Exact distance helps the owner choose a place
+        but is never included in nearby-person responses.
         """
+
+        cache_key_parts = (category, *_geo_cell(lat, lng))
+        cached = await _places_cache_get(_nearby_places_cache, "nearby", cache_key_parts)
+        if cached is not None:
+            return cached
 
         key = _require_key()
         # (chip this request stands for, types it filters on). The leading
@@ -898,7 +1080,9 @@ class GoogleMapsService:
         limit = (
             _NEARBY_CHECK_IN_MERGED_LIMIT if category == "all" else _NEARBY_CHECK_IN_RESULT_LIMIT
         )
-        return results[:limit]
+        bounded = results[:limit]
+        await _places_cache_set(_nearby_places_cache, "nearby", cache_key_parts, bounded)
+        return bounded
 
     async def search_directory_category(
         self,
@@ -920,8 +1104,13 @@ class GoogleMapsService:
         picker is answering "where am I standing", so 500 m is the honest bound;
         a directory is answering "what is around here", where the reader chooses.
 
-        The request point is sent to Google for this foreground request only. It
-        is not cached, logged, or persisted by this service.
+        The request point is never logged or persisted by this service. It is
+        sent to Google for a foreground request, and briefly held in a
+        two-tier cache-aside cache (process memory, plus Redis when
+        configured -- see `_places_cache_get`/`_PLACES_CACHE_TTL_SECONDS`)
+        keyed on category, grid cell, and the clamped radius/limit -- so
+        tapping between radius tiers or reopening the same category on the
+        same visit does not re-bill Google for an answer already in hand.
         """
 
         key = _require_key()
@@ -935,6 +1124,11 @@ class GoogleMapsService:
 
         bounded_radius = max(1.0, min(float(radius_meters), _DIRECTORY_MAX_RADIUS_METERS))
         bounded_limit = max(1, min(int(limit), _DIRECTORY_MAX_RESULT_COUNT))
+
+        cache_key_parts = (category, *_geo_cell(lat, lng), round(bounded_radius), bounded_limit)
+        cached = await _places_cache_get(_directory_cache, "directory", cache_key_parts)
+        if cached is not None:
+            return cached
 
         body: dict[str, Any] = {
             "maxResultCount": bounded_limit,
@@ -987,6 +1181,7 @@ class GoogleMapsService:
                 rows.append(row)
 
         rows.sort(key=lambda item: (item["distanceMeters"], str(item["name"]).casefold()))
+        await _places_cache_set(_directory_cache, "directory", cache_key_parts, rows)
         return rows
 
     def _normalize_directory_place(

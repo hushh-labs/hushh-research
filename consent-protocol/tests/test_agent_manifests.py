@@ -104,7 +104,7 @@ def test_gemini_model_matrix_uses_current_workload_equivalents() -> None:
     assert one.capabilities["heads"] == {
         "text": "gemini-3.7-flash",
         "specialist_text": "gemini-3.7-flash",
-        "live": "gemini-live-2.5-flash-native-audio",
+        "live": "gemini-3.1-flash-live-preview",
     }
 
 

@@ -985,24 +985,16 @@ export default function RiaOnboardingPage({
       if (advisoryOutcome === "verified" || advisoryOutcome === "active") {
         await RiaOnboardingDraftLocalService.clear(user.uid);
         setShouldPersistDraft(false);
-        toast.success("Credentials verified", {
-          description: "Your advisor profile is now live in the RIA directory.",
-        });
+        toast.success("Credentials verified. Your advisor profile is now live in the RIA directory.");
       } else if (advisoryOutcome === "rejected") {
-        toast.error("Verification failed", {
-          description:
-            result.verification_message || "The license could not be verified.",
-        });
+        toast.error("Verification failed");
         setError(result.verification_message || "Verification was rejected.");
       } else {
         // Onboarding is complete; the verified badge is a separate layer that
         // unlocks after live/manual verification succeeds. Do not block here.
         await RiaOnboardingDraftLocalService.clear(user.uid);
         setShouldPersistDraft(false);
-        toast.success("Profile created", {
-          description:
-            "Your RIA profile is live as pending verification. The verified badge unlocks once your licence is confirmed.",
-        });
+        toast.success("Profile created");
       }
 
       setStatus((current) => ({
@@ -1044,9 +1036,10 @@ export default function RiaOnboardingPage({
         localVerificationBypassEnabled,
       });
       setError(submitErrorMessage);
-      toast.error("Could not submit verification", {
-        description: submitErrorMessage,
-      });
+      // The resolved message is the useful half -- it names what the
+      // regulator needs. It is also on the page via setError, so the
+      // clamp bounding it here costs nothing.
+      toast.error(submitErrorMessage);
     } finally {
       submitInFlightRef.current = false;
       setSaving(false);
@@ -1067,10 +1060,7 @@ export default function RiaOnboardingPage({
   function handleDraftBio() {
     const suggestion = buildRiaOnboardingBioSuggestion(draft);
     if (!suggestion) {
-      toast.info("Verify your licence first", {
-        description:
-          "Kai needs regulator-backed details before drafting a bio.",
-      });
+      toast.info("Verify your licence first. Kai needs regulator-backed details before drafting a bio.");
       return;
     }
     updateDraft({
@@ -1079,17 +1069,12 @@ export default function RiaOnboardingPage({
         ? draft.strategySummary
         : suggestion,
     });
-    toast.success("Bio drafted", {
-      description: "Review the draft before submitting your profile.",
-    });
+    toast.success("Bio drafted. Review the draft before submitting your profile.");
   }
 
   function handleAskKaiUpdateAnything() {
     openKaiCommandBar();
-    toast.info("Kai command opened", {
-      description:
-        "Ask Kai what to update, or use Edit on any section for direct changes.",
-    });
+    toast.info("Kai command opened");
   }
 
   const isEnriching = Boolean(draft.scrapeJobId && scrapePollingRef.current);

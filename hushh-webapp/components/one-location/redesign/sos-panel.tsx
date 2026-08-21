@@ -362,13 +362,13 @@ export function SosPanel({
       await navigator.clipboard.writeText(emergency.number);
       setWindowsCopyStatus("copied");
       toast.success(`${emergency.number} copied`, {
-        description: `This browser cannot open a dialer. Call ${emergency.number} from your phone now — ${emergency.countryName}.`,
+        
         duration: 10_000,
       });
     } catch {
       setWindowsCopyStatus("error");
       toast.error("Could not copy the number", {
-        description: `Dial ${emergency.number} from your phone now — ${emergency.countryName}.`,
+        
         duration: 10_000,
       });
     }
