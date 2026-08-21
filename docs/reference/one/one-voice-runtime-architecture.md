@@ -156,9 +156,13 @@ inside One's agent tree on the backend.
 What shipped:
 
 - `consent-protocol/hushh_mcp/one_adk/agent_tree.py` builds One as the root
-  `LlmAgent` (name `one`, model `gemini-live-2.5-flash-native-audio` via
-  `AGENT_ONE_ADK_MODEL`; the native-audio Live model is served regionally on
-  Vertex, so the live client pins `AGENT_ONE_ADK_LOCATION`, default
+  `LlmAgent` (name `one`, model `gemini-3.1-flash-live-preview` via
+  `AGENT_ONE_ADK_MODEL`; its `GEMINI_LIVE_COMPATIBILITY` entry declares the
+  `developer_api` transport — the model is not published on Vertex — so the
+  builder uses the Hussh-managed live key `HUSHH_MANAGED_GEMINI_LIVE_API_KEY`;
+  Vertex-transport models such as the
+  `gemini-live-2.5-flash-native-audio` rollback instead pin
+  `AGENT_ONE_ADK_LOCATION`, default
   `us-central1`) with the full roster wired as tools: `google_search`,
   `open_screen`, `AgentTool(finance)`, `AgentTool(ria)`, and specialist-turn
   function wrappers.
@@ -199,7 +203,7 @@ catalog rather than a single blanket default:
 | --- | --- | --- |
 | One typed Agent Chat, semantic action selection, and agentic specialists | `gemini-3.7-flash` | GA Flash text/function head on the global Vertex endpoint |
 | Bounded summary reduction, receipt extraction, and runtime readiness probes | `gemini-3.1-flash-lite` | Lower-cost, lower-latency bounded work |
-| Agent Bar bidirectional speech | `gemini-live-2.5-flash-native-audio` | Current native-audio Live model; served from the configured Live region |
+| Agent Bar bidirectional speech | `gemini-3.1-flash-live-preview` | Canonical Live model; served on the Gemini Developer API with the Hussh-managed live key (`gemini-live-2.5-flash-native-audio` on Vertex is the declared rollback) |
 
 Text models are explicitly marked `supports_native_realtime=false`; only the
 named Live model can acquire the realtime transport. Gemini 3.7 Flash is not a
@@ -247,9 +251,10 @@ known capability gap, not a permission bypass.
   remain on managed Vertex.
 - Live BYOK is disabled by default. The relay accepts it only after an operator
   selects a registry-approved Developer API model and enables it after an ADK
-  rehearsal. The registry currently permits `gemini-2.5-flash-live-preview`;
-  `gemini-3.1-flash-live-preview` fails closed because its Live contract does
-  not support the relay's required mid-session client-content updates. A Google
+  rehearsal. The registry permits `gemini-3.1-flash-live-preview` (the
+  canonical live model — its 2026-08-21 ADK rehearsal verified the relay's
+  mid-session updates reach it, riding `send_realtime_input(text=...)` via
+  google-adk's 3.x transposition) and `gemini-2.5-flash-live-preview`. A Google
   Cloud Vertex API key is currently typed-turn only and is rejected before the
   live relay; its Live endpoint/model contract needs its own UAT rehearsal. An
   unsupported, invalid, or quota-limited key offers managed Gemini instead;

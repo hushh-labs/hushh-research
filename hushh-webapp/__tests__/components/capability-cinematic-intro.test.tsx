@@ -136,7 +136,7 @@ describe("CapabilityCinematicIntroGate", () => {
     expect(action.className).toContain("text-center");
   });
 
-  it("top-anchors the shared intro instead of vertically centering the first setup screen", () => {
+  it("uses one fixed centered canvas without a nested fullscreen shell", () => {
     render(
       <CapabilityCinematicIntroGate capabilityId="location">
         <p>Location body</p>
@@ -151,12 +151,15 @@ describe("CapabilityCinematicIntroGate", () => {
     );
 
     expect(intro).toBeTruthy();
-    expect(shell).toBeTruthy();
+    expect(shell).toBeNull();
+    expect(intro?.className).toContain("fixed");
+    expect(intro?.className).toContain("inset-0");
+    expect(intro?.className).toContain("justify-center");
+    expect(intro?.className).toContain("items-center");
     expect(intro?.className).not.toContain("my-auto");
-    expect(shell?.className).not.toContain("justify-center");
   });
 
-  it("does not add a second viewport-height centering layer when the intro is embedded", () => {
+  it("reuses the same fixed centered canvas when the intro is embedded", () => {
     render(
       <CapabilityCinematicIntroGate capabilityId="finance" embedded>
         <p>Finance preferences</p>
@@ -168,8 +171,11 @@ describe("CapabilityCinematicIntroGate", () => {
     );
 
     expect(intro).toBeTruthy();
+    expect(intro?.className).toContain("fixed");
+    expect(intro?.className).toContain("inset-0");
+    expect(intro?.className).toContain("justify-center");
+    expect(intro?.className).toContain("items-center");
     expect(intro?.className).not.toContain("min-h-[calc(100dvh");
-    expect(intro?.className).not.toContain("justify-center");
     expect(intro?.className).not.toContain("my-auto");
   });
 

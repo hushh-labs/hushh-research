@@ -16,10 +16,9 @@ name: "Rollback"
 # Federation), and calls the same, unmodified scripts/ci/cloudrun-rollback.sh
 # the automatic path already uses.
 #
-# Two separate jobs, not one dynamic `environment:`, deliberately — this
-# mirrors deploy-uat.yml (no environment: key, repo-level vars) and
-# deploy-production.yml (environment: production, environment-scoped vars)
-# exactly, rather than introducing an unproven dynamic-environment pattern.
+# Two separate jobs, not one dynamic `environment:`, deliberately. Each job
+# binds its exact deployment environment so the corresponding environment-
+# scoped workload identity variables resolve without widening their scope.
 
 on:
   workflow_dispatch:
@@ -63,6 +62,7 @@ jobs:
     if: github.event.inputs.environment == 'uat'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: uat
     concurrency:
       group: deploy-uat
       cancel-in-progress: false

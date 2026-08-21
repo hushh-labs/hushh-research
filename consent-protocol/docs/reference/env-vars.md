@@ -80,6 +80,19 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `HUSSH_TRUSTED_DEVICE_ENABLED` | `hushh_mcp/services/trusted_device_service.py` | UAT only | Additive Hermes trusted-device kill switch. Defaults disabled. |
 | `HUSHH_TRUSTED_DEVICE_UAT_ALLOWLIST` | `api/routes/account.py` | UAT rollout | Comma-separated Firebase UIDs or verified account emails allowed to enroll Hermes. |
 | `TRUSTED_DEVICE_PEPPER` | `hushh_mcp/services/trusted_device_service.py` | Optional secret | HMAC pepper for one-time authorization codes and nonces. Falls back to `APP_SIGNING_KEY`; a dedicated UAT secret is preferred. |
+| `HUSSH_TECH_CLIENT_ENABLED` | `hushh_mcp/services/hushh_tech_client_service.py` | UAT only | Master kill switch. Production is hard-disabled in code even if this drifts true. |
+| `HUSSH_TECH_DEVELOPER_APP_ID` | `api/routes/hushh_tech.py` | UAT rollout | Exact dedicated developer-app id. The app must have only the `hushh_tech_client` tool group and no capabilities. |
+| `HUSSH_TECH_ALLOWED_AUDIENCE` | `hushh_mcp/services/hushh_tech_client_service.py` | UAT rollout | Exact launch audience (`hushh-tech-uat`). |
+| `HUSSH_TECH_ALLOWED_REDIRECT_URIS` | `hushh_mcp/services/hushh_tech_client_service.py` | UAT rollout | Comma-separated exact HTTPS callback allowlist. |
+| `HUSSH_TECH_ALLOWED_CONSENT_SCOPES` | `api/routes/developer.py` | UAT rollout | Comma-separated exact, non-wildcard `attr.*` scopes for the dedicated product registration. Empty fails closed. |
+| `HUSSH_TECH_UAT_FIREBASE_UID_ALLOWLIST` | `hushh_mcp/services/hushh_tech_client_service.py` | UAT rollout | Synthetic Firebase UID cohort. Email and phone are never accepted. |
+| `HUSSH_TECH_SHADOW_MAX_AGE_MS` | `hushh_mcp/services/hushh_tech_client_service.py` | No | Maximum synthetic shadow age; defaults to seven days. |
+| `HUSSH_TECH_TRUSTED_PROXY_HOPS` | `api/routes/hushh_tech.py` | No | Trusted edge hops to skip from the right of `X-Forwarded-For`; defaults to direct Cloud Run (`0`). |
+| `HUSSH_TECH_PROXY_AUDIENCE` | `api/routes/hushh_tech.py`, Research Next launch proxy | UAT rollout | Exact Research consent API audience used for Google service-account identity tokens. |
+| `HUSSH_TECH_TRUSTED_PROXY_SERVICE_ACCOUNTS` | `api/routes/hushh_tech.py` | UAT rollout | Exact comma-separated Research and HushhTech UAT runtime service accounts permitted to attest a forwarded visitor IP. |
+| `HUSSH_TECH_FRONTEND_TRUSTED_PROXY_HOPS` | Research Next launch proxy | UAT rollout | Edge hops skipped from the right when the Research proxy derives the visitor IP; direct Cloud Run default is `0`. |
+| `HUSSH_TECH_LAUNCH_PEPPER` | `hushh_mcp/services/hushh_tech_client_service.py` | UAT secret | Dedicated HMAC pepper for launch-code hashes. Direct Secret Manager binding; never browser-visible or stored in runtime JSON. |
+| `RATE_LIMIT_STORAGE_URI` | backend limiter and Research Next launch proxy | UAT secret | Shared `redis://` or `rediss://` limiter backend. HushhTech admission stays disabled in UAT when absent or process-local. |
 | `HUSHH_UAT_PHONE_TEST_NUMBERS` | `api/routes/account.py` | UAT test only | Comma-separated E.164 allowlist for fixed-code phone verification; only honored when `ENVIRONMENT=uat`. Store in UAT Secret Manager. |
 | `HUSHH_UAT_PHONE_TEST_CODE` | `api/routes/account.py` | UAT test only | Fixed OTP for the UAT phone allowlist. Store in UAT Secret Manager and never expose as `NEXT_PUBLIC_*`. |
 | `HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET` | `api/routes/account.py` | Optional | Optional HMAC key for stateless UAT phone challenge IDs; falls back to `APP_SIGNING_KEY`. |

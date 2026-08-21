@@ -11,7 +11,8 @@ Canonical visual owner: [Mobile Guide](../mobile.md).
 ## What this is
 
 One command builds a **public App Store** Hussh One iOS release from an exact green `main` SHA,
-wires it to the **UAT backend + UAT Firebase** (`hushh-pda-uat`) — the *same* latest
+wires it to the **UAT backend + shared Firebase authority** (`hushh-pda`; its config is stored in
+`hushh-pda-uat` Secret Manager) — the *same* latest
 frontend+backend that is live on UAT and ships to TestFlight — signs it with the **production APNs
 entitlement** via Apple-managed signing, uploads it to **App Store Connect**, sets the version's
 **"What's New"** text, attaches the build, and (opt-in, one click) **submits it for public Apple
@@ -23,7 +24,7 @@ review**. By default it stops *before* the final, irreversible "Submit for App S
 > submission layer differs.
 
 The build still archives with **production APNs** entitlements (correct for *any* App Store binary —
-push on a store build routes through Apple's PRODUCTION APNs). That means the **UAT Firebase project
+push on a store build routes through Apple's PRODUCTION APNs). That means the **shared Firebase project
 must hold a production APNs key** for push notifications to deliver on the released app.
 
 For an internal TestFlight build (no review), use the sibling pipeline: `ship-ios-testflight`
@@ -34,7 +35,7 @@ For an internal TestFlight build (no review), use the sibling pipeline: `ship-io
 - **Dispatcher:** `scripts/release/dispatch-ios-appstore.mjs` (resolves SHA, confirms, dispatches, watches).
 - **Runner:** GitHub-hosted `macos-15`, Xcode 26.3 — GCP has no macOS instances and local builds
   hang inside iCloud Drive, so only the *dispatch* runs on your machine; the Apple build runs in CI.
-- **Target:** bundle `com.hushh.app`, version `1.3.6`, **UAT** backend + Firebase (`hushh-pda-uat`),
+- **Target:** bundle `com.hushh.app`, version `1.3.6`, **UAT** backend + Firebase (`hushh-pda`),
   ASC app id `6757718917`.
 
 ## The final command
@@ -155,7 +156,7 @@ export/upload, or version/build validation):
 | `IOS_GOOGLESERVICE_INFO_PLIST_B64` | Base64 of the **UAT** iOS `GoogleService-Info.plist`. |
 | `BACKEND_URL` | UAT backend origin (the `*uat*` / UAT Cloud Run host). |
 | `APP_FRONTEND_ORIGIN` | UAT app origin (`https://uat.one.hushh.ai`). |
-| `NEXT_PUBLIC_FIREBASE_API_KEY` … `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | UAT Firebase web contract (see the workflow's `require` list). |
+| `NEXT_PUBLIC_FIREBASE_API_KEY` … `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | UAT-selected web config for the shared `hushh-pda` Firebase authority (see the workflow's `require` list). |
 
 Create each once (use `versions add` instead of `create` if it already exists):
 

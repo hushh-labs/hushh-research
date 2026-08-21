@@ -53,6 +53,7 @@ describe("observability route map", () => {
     ).toBe("connected_systems");
     expect(resolveRouteId("/research")).toBe("research");
     expect(resolveRouteId("/research/protocol")).toBe("research_protocol");
+    expect(resolveRouteId("/products/hushh-tech/launch")).toBe("hushh_tech_launch");
     expect(resolveRouteId("/blog")).toBe("blog");
     expect(resolveRouteId("/blog/sample")).toBe("blog_post");
     expect(resolveRouteId("/gmail")).toBe("gmail");
@@ -115,6 +116,12 @@ describe("observability route map", () => {
     expect(resolveRouteId("/one/connect/settings")).toBe("connect_settings");
     expect(resolveRouteId("/one/profile/preferences/gemini")).toBe(
       "profile_preferences_gemini",
+    );
+    expect(resolveRouteId("/one/profile/preferences/voice")).toBe(
+      "profile_preferences_voice",
+    );
+    expect(resolveRouteId("/one/profile/preferences/voice/changelog")).toBe(
+      "profile_preferences_voice_changelog",
     );
     expect(resolveRouteId("/portfolio/shared")).toBe("portfolio_shared");
     expect(resolveRouteId("/ria/clients")).toBe("ria_clients");
