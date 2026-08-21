@@ -1449,6 +1449,12 @@ export default function ConnectPageClient() {
                   : `My connections (${sortedConnections.length})`
               }
               separatorInset
+              contentClassName={
+                sortedConnections.length > 0
+                  ? "max-h-[232px] overflow-y-auto overscroll-contain sm:max-h-[320px]"
+                  : undefined
+              }
+              testId="connect-my-connections-group"
             >
               {sortedConnections.length === 0 ? (
                 <SettingsRow

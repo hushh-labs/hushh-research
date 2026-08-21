@@ -387,6 +387,9 @@ const SHARE_VOICE_DURATION_VALUES = new Set<string>([
   ...SHARE_DURATION_LADDER.map((rung) => rung.value),
   SHARE_DURATION_UNTIL_STOP_VALUE,
   "0.5",
+  "2",
+  "4",
+  "8",
   "24",
 ]);
 
@@ -4773,12 +4776,16 @@ export function OneLocationAgentPageContent({
           const stillNoOne = mail.emailed === 0;
           toast.error(
             stillNoOne
-              ? `Location shared, but no one was alerted — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off. Call emergency services if you need help now.`
-              : `No phones lit up — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off.${mailNote} Call emergency services if you need help now.`,
+              // Action first. A clamp cuts from the bottom, and the one
+              // sentence that must survive is the one telling someone in
+              // trouble what to do. Who has notifications off is on the
+              // screen behind this.
+              ? "Call emergency services now — nobody was alerted."
+              : "Call emergency services now — no phones lit up.",
           );
         } else if (unreachable.length > 0) {
           toast.warning(
-            `Alerted ${reached} of ${readyRecipients.length} contacts. Couldn't reach ${formatNameList(unreachable)} — notifications are off on their end.${mailNote}`,
+            `Alerted ${reached} of ${readyRecipients.length}. The rest have notifications off.`,
           );
         } else {
           toast.success(
@@ -7462,20 +7469,50 @@ export function OneLocationAgentPageContent({
   );
 
   const prepareNamedCircleShare = useCallback(
-    (circleId: string, recipientUserId: string) => {
-      setSelectedShareCircleSelection(null);
-      setNamedCircleShareContext({
-        circleId,
-        circleName:
-          namedCircles.find((circle) => circle.id === circleId)?.name ??
-          "Circle",
-        recipientUserIds: [recipientUserId],
-      });
-      setSelectedRecipientId(recipientUserId);
-      setSelectedRecipientIds([recipientUserId]);
-      setShareReviewOpen(false);
+    async (
+      circleId: string,
+      recipientUserId: string,
+    ): Promise<boolean> => {
+      setBusy("shareCircle");
+      try {
+        const selection =
+          await handleResolveNamedCircleRecipients(circleId, "location");
+        const target = selection.ready.find(
+          ({ recipient }) => recipient.userId === recipientUserId,
+        );
+        if (!target) {
+          throw new Error(
+            "This Circle member is not ready to receive location yet.",
+          );
+        }
+        setSelectedShareCircleSelection({
+          ...selection,
+          ready: [target],
+        });
+        setNamedCircleShareContext({
+          circleId: selection.circle.id,
+          circleName: selection.circle.name,
+          recipientUserIds: [target.recipient.userId],
+        });
+        setSelectedRecipientId(target.recipient.userId);
+        setSelectedRecipientIds([target.recipient.userId]);
+        setShareReviewOpen(false);
+        setShareDurationHours(ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS);
+        setShareMessage("");
+        return true;
+      } catch (error) {
+        toast.error(
+          oneLocationErrorMessage(
+            error,
+            "Could not prepare this member for sharing.",
+          ),
+        );
+        return false;
+      } finally {
+        setBusy(null);
+      }
     },
-    [namedCircles, setSelectedRecipientIds],
+    [handleResolveNamedCircleRecipients, setSelectedRecipientIds],
   );
 
   const clearNamedCircleShareContext = useCallback(() => {
@@ -11950,7 +11987,7 @@ export function OneLocationAgentPageContent({
                       onChange={(event) =>
                         setRecipientSearch(event.target.value)
                       }
-                      className="h-10 w-full rounded-[14px] border border-black/[0.04] bg-white pl-10 pr-4 text-[15px] text-[#1c1c1e] shadow-sm outline-none transition-shadow placeholder:text-[#8e8e93] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white"
+                      className="h-10 w-full rounded-[14px] border border-black/[0.04] bg-white pl-10 pr-4 text-[15px] text-[#1c1c1e] shadow-sm outline-none transition-shadow placeholder:text-[#8e8e93] focus:ring-2 focus:ring-inset focus:ring-[color:var(--app-accent-ring)] dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white"
                       placeholder="Search One Network..."
                       type="text"
                     />

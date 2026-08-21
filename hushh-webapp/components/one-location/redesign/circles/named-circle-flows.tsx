@@ -91,6 +91,7 @@ import {
   sortPeopleByName,
 } from "@/lib/one-location/people-search";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
+import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { cn } from "@/lib/utils";
 
@@ -944,7 +945,7 @@ function CircleMemberRow({
             <DropdownMenuContent align="end">
               {canShare ? (
                 <DropdownMenuItem onSelect={() => onShare()}>
-                  <Share2 className="h-4 w-4" />
+                  <Share2 className="h-4 w-4 text-current" />
                   Share location
                 </DropdownMenuItem>
               ) : null}
@@ -1665,7 +1666,10 @@ export function CircleDetailFlow({
                     value={peopleSearch}
                     onChange={(event) => setPeopleSearch(event.target.value)}
                     placeholder="Search connections"
-                    className="h-12 w-full rounded-full border border-border bg-muted/40 pl-11 pr-4 text-base outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                    className={cn(
+                      LOCATION_SEARCH_INPUT_CLASSNAME,
+                      "h-12 rounded-full bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70",
+                    )}
                   />
                 </label>
 

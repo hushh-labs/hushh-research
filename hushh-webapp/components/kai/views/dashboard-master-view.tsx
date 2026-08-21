@@ -1218,7 +1218,7 @@ export function DashboardMasterView({
     });
     if (invalidHolding) {
       toast.error(
-        `Holding ${invalidHolding.symbol || invalidHolding.name || "entry"} has invalid values. Quantity, price, and market value must be greater than 0.`,
+        `${invalidHolding.symbol || invalidHolding.name || "That holding"}: quantity, price and value must all be above zero.`,
       );
       return;
     }

@@ -3462,8 +3462,7 @@ class OneLocationCircleService:
         if row and bool(row.get("is_system")):
             raise OneLocationCircleError(
                 "LOCATION_CIRCLE_SYSTEM_PROTECTED",
-                "This Circle is used for emergency SMS alerts and cannot be deleted. "
-                "You can still add or remove its members.",
+                "Your SMS Circle can't be deleted. You can still add or remove its members.",
                 status_code=409,
             )
 
