@@ -4773,12 +4773,16 @@ export function OneLocationAgentPageContent({
           const stillNoOne = mail.emailed === 0;
           toast.error(
             stillNoOne
-              ? `Location shared, but no one was alerted — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off. Call emergency services if you need help now.`
-              : `No phones lit up — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off.${mailNote} Call emergency services if you need help now.`,
+              // Action first. A clamp cuts from the bottom, and the one
+              // sentence that must survive is the one telling someone in
+              // trouble what to do. Who has notifications off is on the
+              // screen behind this.
+              ? "Call emergency services now — nobody was alerted."
+              : "Call emergency services now — no phones lit up.",
           );
         } else if (unreachable.length > 0) {
           toast.warning(
-            `Alerted ${reached} of ${readyRecipients.length} contacts. Couldn't reach ${formatNameList(unreachable)} — notifications are off on their end.${mailNote}`,
+            `Alerted ${reached} of ${readyRecipients.length}. The rest have notifications off.`,
           );
         } else {
           toast.success(
