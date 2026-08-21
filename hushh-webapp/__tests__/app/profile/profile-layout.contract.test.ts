@@ -32,17 +32,17 @@ describe("Profile canonical page layout", () => {
     );
     expect(source).not.toContain('<UserIcon className="h-12 w-12" />');
   });
-  it("gives account metadata the full compact header width", () => {
+  it("gives account metadata the full centered compact header width", () => {
     const source = readFileSync(
       join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
       "utf8",
     );
 
     expect(source).toContain(
-      'className="profile-home-copy w-full min-w-0 max-w-full',
+      'className="profile-home-hero flex w-full min-w-0 flex-col items-center gap-2 px-0 text-center sm:px-6"',
     );
     expect(source).toContain(
-      'gap-2.5 px-0 text-center sm:px-6',
+      'className="profile-home-copy flex w-full min-w-0 max-w-full flex-col items-center justify-center gap-1"',
     );
     expect(source).not.toContain(
       'gap-2.5 px-4 text-center sm:px-6',

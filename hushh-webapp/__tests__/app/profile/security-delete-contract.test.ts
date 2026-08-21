@@ -26,9 +26,7 @@ describe("profile security deletion contract", () => {
   it("allows no-vault account deletion without forcing vault creation", () => {
     expect(profilePageSource).toContain("if (!nextHasVault)");
     expect(profilePageSource).toContain("setShowDeleteConfirm(true);");
-    expect(profilePageSource).toContain(
-      "No vault exists yet. This deletes cloud-linked account records.",
-    );
+    expect(profilePageSource).toContain("Deletes cloud-linked records.");
     expect(profilePageSource).not.toContain("Create vault to delete account");
   });
 
@@ -59,7 +57,7 @@ describe("profile security deletion contract", () => {
   });
 
   it("offers a reset-account path that keeps the account and re-runs setup", () => {
-    expect(profilePageSource).toContain("Reset your One account?");
+    expect(profilePageSource).toContain("Reset account?");
     expect(profilePageSource).toContain('"Yes, reset my account"');
     expect(profilePageSource).toContain(
       "AccountService.resetAccount(resolution.token)",

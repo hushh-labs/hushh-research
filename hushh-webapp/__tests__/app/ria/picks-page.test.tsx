@@ -440,13 +440,13 @@ describe("RiaPicksPage", () => {
     await screen.findByText("NVDA");
     expect(screen.queryByRole("button", { name: /copy from kai/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^upload$/i })).toBeNull();
-    expect(screen.queryByRole("link", { name: /template/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /template/i })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
 
     expect(screen.getByRole("button", { name: /copy from kai/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^upload$/i })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /^template$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^template$/i })).toBeTruthy();
     expect(screen.queryByText("List source")).toBeNull();
     expect(
       screen.queryByText(
@@ -470,14 +470,14 @@ describe("RiaPicksPage", () => {
     expect(screen.getAllByRole("button", { name: /^upload$/i })).toHaveLength(
       1,
     );
-    expect(screen.getAllByRole("link", { name: /^template$/i })).toHaveLength(
+    expect(screen.getAllByRole("button", { name: /^template$/i })).toHaveLength(
       1,
     );
     fireEvent.click(screen.getByRole("button", { name: /^upload$/i }));
 
     expect(screen.getByText("Upload a top-picks CSV")).toBeTruthy();
     expect(
-      screen.getByRole("link", { name: /download template/i }),
+      screen.getByRole("button", { name: /download template/i }),
     ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /upload and replace top picks/i }),
