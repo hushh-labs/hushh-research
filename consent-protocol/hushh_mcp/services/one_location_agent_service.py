@@ -465,6 +465,21 @@ def _hash_public_value(value: str) -> str:
 # digest. Rows minted before this carry no version marker, so their token stays
 # unrecoverable and the payload simply omits the URL -- unchanged behaviour for
 # them, rather than a wrong link.
+# A public link is readable by anyone who holds it, so its ceiling is one hour
+# and the screen says so.
+#
+# The screen was the ONLY thing saying so. `normalize_duration_hours` allows up
+# to 24, the Pydantic field allows up to 24, and the DB CHECK allows up to 24 --
+# all three are the private-share ceiling, which is a different promise made to
+# a named person who can be un-shared. A request carrying `durationHours: 24`
+# was accepted and minted a public link that watched the owner for a day.
+#
+# Rejected rather than clamped: silently shortening what was asked for is how
+# the client-side clamp hid this in the first place, and no shipped client can
+# reach this branch -- every public-link caller already clamps to one hour
+# before it posts.
+PUBLIC_INVITE_MAX_DURATION_HOURS = 1.0
+
 _PUBLIC_INVITE_TOKEN_DOMAIN = b"one-location-public-invite-token:v1:"
 _PUBLIC_INVITE_CODE_VERSION = "derived-v1"
 
@@ -5808,6 +5823,12 @@ class OneLocationAgentService:
                 str(exc),
                 status_code=422,
             ) from exc
+        if duration > PUBLIC_INVITE_MAX_DURATION_HOURS:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_INVALID",
+                "A public location link can stay live for at most 1 hour.",
+                status_code=422,
+            )
         # Expiry is written lazily -- `_expire_public_invite` only flips a row
         # when something reads it -- so a link whose time has passed can still
         # be sitting at status 'active'. Settle that here first, or the reuse

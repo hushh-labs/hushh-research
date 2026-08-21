@@ -1101,6 +1101,19 @@ const CIRCLE_INVITE_MAX_DURATION_HOURS = 24;
  */
 const PUBLIC_INVITE_MAX_DURATION_HOURS = 1;
 
+/**
+ * An ISO expiry as epoch ms, or null when there is nothing usable to compare.
+ *
+ * Null means "do not expire this locally" rather than "expired": a missing or
+ * unparseable timestamp is not evidence the link has run out, and treating it
+ * as such would hide a working link.
+ */
+function parseExpiryMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function publicInviteDurationHours(value: string): number {
   return inviteDurationHours(value, PUBLIC_INVITE_MAX_DURATION_HOURS);
 }
@@ -2511,8 +2524,18 @@ export function OneLocationAgentPageContent({
    * and the next `getState` there is a window where the only place the URL
    * exists is this variable. `publicInviteUrl` below prefers the server's copy
    * and falls back to this one.
+   *
+   * It carries its own expiry, and that is not decoration. A bare string
+   * outlived the link it named: once the invite ran out, the server stopped
+   * reporting it as active but this variable still held a URL, so the Links tab
+   * -- which hides its create control whenever a link is live -- kept showing a
+   * dead link with no way past it. The expiry here is the one the SERVER
+   * stamped, not the duration that was asked for, so the two agree.
    */
-  const [createdPublicInviteUrl, setCreatedPublicInviteUrl] = useState("");
+  const [createdPublicInvite, setCreatedPublicInvite] = useState<{
+    url: string;
+    expiresAtMs: number | null;
+  } | null>(null);
   /**
    * The public link's own duration, deliberately not the shared `durationHours`.
    *
@@ -3281,12 +3304,32 @@ export function OneLocationAgentPageContent({
         isOneLocationGrantUnwatched(auth.userId, grant.id),
     ).length;
   }, [auth.userId, unwatchedTick, state?.receivedGrants]);
+  /**
+   * Links that are live right now, by the clock as well as by the server.
+   *
+   * `status` alone is not enough. Expiry is written server-side only when a row
+   * is READ, and nothing on this screen refetches on a timer -- so a link that
+   * ran out five minutes ago is still `status: "active"` in the state this
+   * session already holds. That was harmless while the Links tab merely listed
+   * it. It is not harmless now: the tab hides its create control whenever a
+   * link is live, so a stale row left the person looking at a dead link with no
+   * way to make another until they reloaded the page.
+   *
+   * `nowMs` ticks every 30s and on return from background, so the create form
+   * comes back on its own, which is exactly the promise the tab makes.
+   *
+   * A row with no `expiresAt` is treated as live: the server sent it as active
+   * and we have nothing to contradict that with.
+   */
   const activePublicInvites = useMemo(
     () =>
-      (state?.publicInvites ?? []).filter(
-        (invite) => invite.status === "active",
-      ),
-    [state?.publicInvites],
+      (state?.publicInvites ?? []).filter((invite) => {
+        if (invite.status !== "active") return false;
+        if (!invite.expiresAt) return true;
+        const expiresAtMs = Date.parse(invite.expiresAt);
+        return !Number.isFinite(expiresAtMs) || expiresAtMs > nowMs;
+      }),
+    [nowMs, state?.publicInvites],
   );
   const latestActivePublicInvite = useMemo(() => {
     const inviteTime = (invite: OneLocationPublicInvite) =>
@@ -3318,8 +3361,17 @@ export function OneLocationAgentPageContent({
     if (fromServer && String(fromServer).trim()) {
       return publicInviteUrlLabel(String(fromServer).trim());
     }
-    return createdPublicInviteUrl;
-  }, [createdPublicInviteUrl, latestActivePublicInvite]);
+    if (!createdPublicInvite) return "";
+    // The fallback has to expire with the link it names, or it keeps a dead
+    // link on screen after `latestActivePublicInvite` has correctly let go.
+    if (
+      createdPublicInvite.expiresAtMs !== null &&
+      createdPublicInvite.expiresAtMs <= nowMs
+    ) {
+      return "";
+    }
+    return createdPublicInvite.url;
+  }, [createdPublicInvite, latestActivePublicInvite, nowMs]);
 
   const activeCircleInvites = useMemo(
     () =>
@@ -6482,7 +6534,10 @@ export function OneLocationAgentPageContent({
         locationSnapshot: point,
       });
       const url = publicInviteUrlLabel(response.publicUrl);
-      setCreatedPublicInviteUrl(url);
+      setCreatedPublicInvite({
+        url,
+        expiresAtMs: parseExpiryMs(response.invite?.expiresAt),
+      });
       const copiedToClipboard = url ? await copyToClipboard(url) : false;
       trackEvent("one_location_public_link_created", {
         route_id: "one_location",
@@ -6572,7 +6627,10 @@ export function OneLocationAgentPageContent({
           locationSnapshot: point,
         });
         url = publicInviteUrlLabel(response.publicUrl);
-        setCreatedPublicInviteUrl(url);
+        setCreatedPublicInvite({
+          url,
+          expiresAtMs: parseExpiryMs(response.invite?.expiresAt),
+        });
         trackEvent("one_location_public_link_created", {
           route_id: "one_location",
           result: "success",
@@ -7571,7 +7629,7 @@ export function OneLocationAgentPageContent({
           vaultOwnerToken,
           inviteId: invite.id,
         });
-        setCreatedPublicInviteUrl("");
+        setCreatedPublicInvite(null);
         toast.success("Public location link revoked.");
         void refresh().catch(() => null);
       } catch (error) {

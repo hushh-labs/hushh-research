@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import { Children, type ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/lib/services/api-client";
 // The rungs themselves, not a copy of their labels: Ask and Share must offer
@@ -858,6 +858,13 @@ async function openTemporaryLinkFlow() {
 }
 
 describe("OneLocationAgentPage", () => {
+  afterEach(() => {
+    // A test that installs fake timers and then fails leaves them installed,
+    // and every test after it hangs on a clock that never moves -- three
+    // unrelated failures from one. Cheap to make impossible.
+    vi.useRealTimers();
+  });
+
   beforeEach(async () => {
     vi.clearAllMocks();
     // The shared store, holding a fix measured now — what a session with a
@@ -5693,6 +5700,85 @@ describe("OneLocationAgentPage", () => {
     );
     const replaced = String(mockRouterReplace.mock.calls.at(-1)?.[0] ?? "");
     expect(replaced).not.toContain("action=temp-link");
+  });
+
+
+  it("brings the create form back when the link runs out", async () => {
+    // The tab hides its create control whenever a link is live, and expiry is
+    // written server-side only when a row is READ -- nothing here refetches on
+    // a timer. Without a clock check the state this session already holds says
+    // "active" forever, so a link that ran out five minutes ago left the person
+    // looking at a dead card with no way past it until they reloaded.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      publicInvites: [
+        activePublicInvite({
+          expiresAt: new Date(Date.now() + 250).toISOString(),
+        }),
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+    expect(await screen.findByText("Live location link")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Create link$/i })).toBeNull();
+
+    // Real time, not fake. This suite's setup awaits real promises, and fake
+    // timers -- even advancing ones -- leave `waitFor` running on a clock the
+    // test controls, which hangs rather than fails. The expiry above is a few
+    // hundred milliseconds out, so waiting it out for real is cheaper than the
+    // machinery to pretend.
+    //
+    // `visibilitychange` is the same hook a phone uses coming back from
+    // background, and the page listens for it precisely so a screen that has
+    // been away does not wait out the next 30s tick.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(screen.queryByText("Live location link")).toBeNull();
+    expect(screen.getByText("Link stays live for")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Create link$/i })).toBeTruthy();
+  });
+
+  it("does not expire a link the server sent without an expiry", async () => {
+    // A missing timestamp is not evidence the link has run out. Treating it as
+    // expired would hide a working link and offer to make a second.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      publicInvites: [activePublicInvite({ expiresAt: undefined })],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+
+    expect(await screen.findByText("Live location link")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Create link$/i })).toBeNull();
+  });
+
+  it("treats a link that expired before the tab opened as gone", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      publicInvites: [
+        activePublicInvite({
+          // Still "active" server-side: the row has not been read since.
+          expiresAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        }),
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+
+    expect(await screen.findByText("Link stays live for")).toBeTruthy();
+    expect(screen.queryByText("Live location link")).toBeNull();
   });
 
 });

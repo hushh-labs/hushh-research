@@ -5451,3 +5451,30 @@ def test_the_owners_state_carries_the_link_back() -> None:
     ]
     assert len(invites) == 1
     assert invites[0]["publicUrl"] == created["publicUrl"]
+
+
+def test_a_public_link_cannot_be_asked_to_live_longer_than_an_hour() -> None:
+    # Anyone holding this link can watch, which is a different promise from a
+    # private share to a named person who can be un-shared. 24 was the private
+    # ceiling, copied into every layer -- Pydantic, normalize_duration_hours,
+    # the DB CHECK -- so the one-hour cap the screen showed was enforced only by
+    # the screen, and a crafted request minted a public link for a full day.
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        service.create_public_invite(owner_user_id="user_a", duration_hours=24)
+
+    assert excinfo.value.code == "LOCATION_DURATION_INVALID"
+    assert excinfo.value.status_code == 422
+    assert not service.public_invites
+
+
+def test_the_durations_the_screen_offers_are_accepted() -> None:
+    service = FourUserMemoryService()
+
+    half = service.create_public_invite(owner_user_id="user_a", duration_hours=0.5)
+    assert half["invite"]["durationHours"] == 0.5
+
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=half["invite"]["id"])
+    whole = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    assert whole["invite"]["durationHours"] == 1
