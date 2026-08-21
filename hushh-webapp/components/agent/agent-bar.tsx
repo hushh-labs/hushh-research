@@ -309,6 +309,63 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const activeRuntimeModeRef = useRef<"hushh_managed_vertex" | "byok" | null>(null);
   const lastTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
   const prewarmedRelayRef = useRef<PrewarmedGeminiRelay | null>(null);
+
+  // Test-only dispatch entry point: invokes the same pure execution boundary a
+  // real Gemini tool-call reaches, but skips the confirmation card and journey
+  // grant machinery that wraps it in normal use. Automation supplies the
+  // actionId/slots a voice turn would have produced; this proves the action
+  // itself works end-to-end without simulating audio/STT.
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const bridge = window.__HUSHH_NATIVE_TEST__;
+    if (!bridge?.enabled) return undefined;
+
+    const dispatch = async (actionId: string, slots?: Record<string, unknown>) => {
+      bridge.dispatchAgentActionStatus = `running:${actionId}`;
+      bridge.dispatchAgentActionError = "";
+      const runtimeState = runtime?.appRuntimeState;
+      if (!runtimeState) {
+        const message = "App runtime state is not ready.";
+        bridge.dispatchAgentActionStatus = `error:${actionId}`;
+        bridge.dispatchAgentActionError = message;
+        throw new Error(message);
+      }
+      try {
+        const result = await executeAgentGatewayAction({
+          actionId,
+          slots: slots ?? {},
+          userId: user?.uid ?? "",
+          router,
+          appRuntimeState: runtimeState,
+          surfaceMetadata: getVoiceSurfaceMetadata(),
+          allowedActionIds:
+            runtime?.oneVoiceContextSnapshot.available_action_ids ?? null,
+          hasPortfolioData:
+            runtimeState.portfolio.has_portfolio_data ||
+            runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
+          busyOperations,
+          setAnalysisParams,
+          switchPersona,
+        });
+        bridge.dispatchAgentActionStatus = `ok:${actionId}`;
+        return result;
+      } catch (error) {
+        bridge.dispatchAgentActionStatus = `error:${actionId}`;
+        bridge.dispatchAgentActionError =
+          error instanceof Error ? error.message : "native action dispatch failed";
+        throw error;
+      }
+    };
+
+    bridge.dispatchAgentAction = dispatch;
+
+    return () => {
+      const currentBridge = window.__HUSHH_NATIVE_TEST__;
+      if (currentBridge && currentBridge.dispatchAgentAction === dispatch) {
+        currentBridge.dispatchAgentAction = null;
+      }
+    };
+  }, [runtime, user?.uid, router, busyOperations, setAnalysisParams, switchPersona]);
   const relayMintInFlightRef = useRef(false);
   const relayMintCooldownUntilRef = useRef(0);
   const relayMintBackoffMsRef = useRef(5_000);

@@ -28,6 +28,11 @@ declare global {
       replayVaultUnlock?: (() => void) | null;
       switchPersona?: ((target: "investor" | "ria") => Promise<unknown>) | null;
       navigateToRoute?: ((route: string) => void) | null;
+      dispatchAgentAction?:
+        | ((actionId: string, slots?: Record<string, unknown>) => Promise<unknown>)
+        | null;
+      dispatchAgentActionStatus?: string;
+      dispatchAgentActionError?: string;
       bootstrapState?: string;
       bootstrapUserId?: string;
       bootstrapError?: string;
