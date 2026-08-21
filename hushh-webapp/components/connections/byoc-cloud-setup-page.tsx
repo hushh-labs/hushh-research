@@ -143,9 +143,21 @@ export function ByocCloudSetupPage() {
         ) : null}
 
         {error ? (
-          <p className="text-sm text-[var(--app-danger)]" data-testid="byoc-cloud-error">
-            {error}
-          </p>
+          <div className="flex flex-col gap-2" data-testid="byoc-cloud-error">
+            <p className="text-sm text-[var(--app-danger)]">{error}</p>
+            {/* A refusal must name the next MOVE, not just the reason. The phone
+                gate is server-side while dev's client mandate is bypassed, so
+                without this link the person has no reachable way to comply. */}
+            {/phone/i.test(error) ? (
+              <a
+                className="self-start text-sm underline underline-offset-4"
+                href={ROUTES.PHONE_MANDATE}
+                data-testid="byoc-cloud-verify-phone"
+              >
+                Verify your phone number
+              </a>
+            ) : null}
+          </div>
         ) : null}
 
         {saved && !authorized ? (

@@ -432,9 +432,11 @@ export default function ProfileGmailOAuthReturnPageClient({
         <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
           <HushhLoader
             label={
-              stage === "redirecting"
-                ? "Returning to Gmail..."
-                : "Completing your Gmail connector setup..."
+              (searchParams.get("state") || initialState || "").startsWith("byoc.")
+                ? "Setting up your cloud. This can take a few minutes..."
+                : stage === "redirecting"
+                  ? "Returning to Gmail..."
+                  : "Completing your Gmail connector setup..."
             }
           />
         </AppPageContentRegion>
