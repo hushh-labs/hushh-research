@@ -675,7 +675,17 @@ def _configured_phone_test_numbers() -> set[str]:
     environment = _runtime_environment()
     dev_numbers = _configured_dev_phone_test_numbers()
     if dev_numbers:
-        return dev_numbers
+        # The simulation lane also honours the operator-curated UAT allowlist.
+        # Dev ran on that allowlist for as long as its runtime identified as
+        # `uat`; the 2026-08-07 dev-identity change silently dropped it, which
+        # stranded the numbers people actually use there (founder-reported,
+        # 2026-08-21: the standing +1 989 898 9894 / 000000 pair stopped
+        # working on dev). The reserved +1 555 0100-0199 range stays the only
+        # thing HUSHH_DEV_PHONE_TEST_NUMBERS itself may carry — that guard is
+        # untouched — and a uat-sourced number keeps its fixed UAT code on
+        # confirm, so merging widens which numbers are claimable in the lane
+        # without relaxing how they are claimed.
+        return dev_numbers | _configured_uat_phone_test_numbers()
     if environment == "uat":
         return _configured_uat_phone_test_numbers()
     if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
@@ -704,8 +714,11 @@ def _dev_phone_code_is_optional() -> bool:
       * `simulation_permitted()` — an explicit opt-in AND a deploy lane naming a
         development environment. `uat`, `staging` and `production` are refused
         outright, and absence of configuration denies.
-      * the allowlist — only reserved fictitious numbers (+1 555 0100-0199) can be
-        claimed at all, so there is no real person's number to take.
+      * the allowlist — the code may be skipped ONLY for the reserved fictitious
+        range (+1 555 0100-0199), so no real person's number is claimable
+        without a code. Operator-curated UAT numbers are also claimable in the
+        lane (see `_configured_phone_test_numbers`), but they keep their fixed
+        UAT code on confirm — the relaxation never extends to them.
       * the challenge — `_is_valid_uat_phone_test_verification_id` still has to
         pass, so the confirm call must follow a start call for the same number.
 
@@ -754,6 +767,20 @@ def _phone_test_enabled() -> bool:
     if _dev_phone_code_is_optional():
         return True
     return bool(_configured_phone_test_numbers() and _configured_phone_test_code())
+
+
+def _phone_test_expected_code(phone_number: str) -> tuple[str, bool]:
+    """The (expected_code, code_optional) claim semantics for one allowlisted number.
+
+    The two allowlists keep their own semantics when merged on dev: the code may
+    be skipped ONLY for the reserved fictitious range, and an operator-curated
+    UAT number keeps its fixed UAT code even inside the simulation lane.
+    """
+    dev_reserved = phone_number in _configured_dev_phone_test_numbers()
+    configured = _configured_phone_test_code()
+    expected = configured if dev_reserved else (_configured_uat_phone_test_code() or configured)
+    optional = _dev_phone_code_is_optional() and dev_reserved
+    return expected, optional
 
 
 def _phone_test_challenge_key() -> str:
@@ -1152,7 +1179,6 @@ async def confirm_uat_test_phone_verification(
 ):
     """Persist an environment-gated fixed-code phone verification claim."""
     phone_number = _normalize_phone_number(payload.phone_number)
-    configured_code = _configured_phone_test_code()
 
     if not _phone_test_enabled() or phone_number not in _configured_phone_test_numbers():
         raise HTTPException(
@@ -1173,11 +1199,13 @@ async def confirm_uat_test_phone_verification(
         )
 
     # The simulation lane may run without a code at all — see
-    # `_dev_phone_code_is_optional`. The allowlist and the challenge above still
-    # had to pass, so this skips ONLY the code comparison, and only in a lane the
-    # simulation guard has already permitted.
-    if not _dev_phone_code_is_optional() and not secrets.compare_digest(
-        str(payload.verification_code or "").strip(), configured_code
+    # `_dev_phone_code_is_optional`. That relaxation is scoped to the RESERVED
+    # fictitious range only; `_phone_test_expected_code` keeps each allowlist's
+    # own claim semantics when they are merged on dev. The allowlist and the
+    # challenge above still had to pass either way.
+    expected_code, code_optional = _phone_test_expected_code(phone_number)
+    if not code_optional and not secrets.compare_digest(
+        str(payload.verification_code or "").strip(), expected_code
     ):
         raise HTTPException(
             status_code=401,

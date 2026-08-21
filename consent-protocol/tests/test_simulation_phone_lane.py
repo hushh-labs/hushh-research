@@ -358,12 +358,16 @@ def test_dev_stays_inside_the_hosted_runtime_guards():
     assert "development" not in _HOSTED_ENVIRONMENTS
 
 
-def test_dev_no_longer_answers_to_the_uat_phone_allowlist(clean_env):
-    """The behaviour change this carries: dev stops borrowing UAT's phone secrets.
+def test_dev_needs_its_own_lane_before_any_phone_allowlist_answers(clean_env):
+    """UAT secrets alone enable nothing on dev; the simulation lane is the key.
 
     The dev revision mounts HUSHH_UAT_PHONE_TEST_* and, while it reported `uat`,
-    resolved them as its own. Reporting `dev` ends that, and the dev lane the deploy
-    configures is what replaces it.
+    resolved them as its own with no lane decision anywhere. Reporting `dev` ends
+    that: with the simulation lane OFF, nothing resolves. With the lane ON, the
+    dev-reserved range AND the operator-curated UAT allowlist both answer — the
+    silent drop of the UAT numbers stranded the pair people actually use
+    (founder-reported 2026-08-21), so consulting them again is deliberate, and
+    the lane gate is what separates dev from an unconfigured box.
     """
     clean_env.setenv("ENVIRONMENT", "dev")
     clean_env.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
@@ -372,10 +376,76 @@ def test_dev_no_longer_answers_to_the_uat_phone_allowlist(clean_env):
     assert account_routes._configured_phone_test_numbers() == set()
     assert account_routes._phone_test_enabled() is False
 
-    # ...and the dev lane the deploy script configures takes over.
+    # ...and the dev lane the deploy script configures unlocks BOTH allowlists.
     clean_env.setenv("HUSHH_DEV_SIMULATION_ENABLED", "1")
     clean_env.setenv("HUSHH_DEPLOY_ENV", "dev")
     clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+15550100")
 
-    assert account_routes._configured_phone_test_numbers() == {"+15550100"}
+    assert account_routes._configured_phone_test_numbers() == {"+15550100", "+16505550101"}
     assert account_routes._phone_test_enabled() is True
+
+
+def test_the_simulation_lane_also_honours_the_uat_allowlist(clean_env):
+    """Dev consults the operator-curated UAT numbers again (founder pair).
+
+    Dev rode the UAT allowlist for as long as its runtime identified as `uat`;
+    the dev-identity change silently dropped it and stranded the standing
+    +1 989 898 9894 / 000000 pair. The merge brings the numbers back WITHOUT
+    touching the reserved-range guard on HUSHH_DEV_PHONE_TEST_NUMBERS itself.
+    """
+    _configure_simulation(clean_env)
+    clean_env.setenv("ENVIRONMENT", "dev")
+    clean_env.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+19898989894")
+    clean_env.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+
+    assert account_routes._configured_phone_test_numbers() == {
+        "+15550100",
+        "+15550101",
+        "+19898989894",
+    }
+
+
+def test_a_uat_number_keeps_its_fixed_code_inside_the_simulation_lane(clean_env):
+    """Merging widens WHICH numbers are claimable, never HOW they are claimed."""
+    _configure_simulation(clean_env)
+    # No dev code configured: the reserved range runs code-optional on dev.
+    clean_env.delenv("HUSSH_DEV_PHONE_TEST_CODE", raising=False)
+    clean_env.delenv("HUSHH_DEV_PHONE_TEST_CODE", raising=False)
+    clean_env.setenv("ENVIRONMENT", "dev")
+    clean_env.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+19898989894")
+    clean_env.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+
+    reserved_code, reserved_optional = account_routes._phone_test_expected_code("+15550100")
+    assert reserved_optional is True
+
+    uat_code, uat_optional = account_routes._phone_test_expected_code("+19898989894")
+    assert uat_optional is False
+    assert uat_code == "000000"
+
+
+def test_a_dev_code_never_replaces_the_uat_code_for_uat_numbers(clean_env):
+    """With a dev code set, each range still answers to its own code."""
+    _configure_simulation(clean_env)  # sets HUSHH_DEV_PHONE_TEST_CODE=424242
+    clean_env.setenv("ENVIRONMENT", "dev")
+    clean_env.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+19898989894")
+    clean_env.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+
+    reserved_code, reserved_optional = account_routes._phone_test_expected_code("+15550100")
+    assert reserved_optional is False
+    assert reserved_code == "424242"
+
+    uat_code, uat_optional = account_routes._phone_test_expected_code("+19898989894")
+    assert uat_optional is False
+    assert uat_code == "000000"
+
+
+def test_real_uat_claim_semantics_are_unchanged_by_the_merge(clean_env):
+    """On real UAT (no simulation lane) the UAT code still decides, as before."""
+    clean_env.setenv("ENVIRONMENT", "uat")
+    clean_env.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+19898989894")
+    clean_env.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+
+    assert account_routes._configured_phone_test_numbers() == {"+19898989894"}
+    expected, optional = account_routes._phone_test_expected_code("+19898989894")
+    assert optional is False
+    assert expected == "000000"
