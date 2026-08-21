@@ -19,6 +19,7 @@ import {
   Fingerprint,
   Folder,
   KeyRound,
+  Laptop,
   LifeBuoy,
   Loader2,
   LogOut,
@@ -33,6 +34,7 @@ import {
   SendHorizontal,
   ShieldCheck,
   SlidersHorizontal,
+  Terminal,
   Trash2,
   User,
   UserRound,
@@ -3225,6 +3227,29 @@ function ProfilePageContent() {
           onClick={() =>
             updateProfileView({ panel: "security", detail: "vault" }, "push")
           }
+        />
+      </SettingsGroup>
+
+      {/*
+        Linked machines. The trusted-devices screen and the Hermes console both
+        existed as routes with nothing navigating to them, which made an
+        enrolled machine invisible in the app. Security is the honest home for
+        both: a trusted device is a durable, revocable grant over this account.
+      */}
+      <SettingsGroup title="Linked machines">
+        <SettingsRow
+          icon={Laptop}
+          title="Trusted devices"
+          description="Machines linked to this account."
+          chevron
+          onClick={() => router.push(ROUTES.PROFILE_SECURITY_DEVICES)}
+        />
+        <SettingsRow
+          icon={Terminal}
+          title="Hermes"
+          description="Status, channels, scheduled jobs, and a direct line."
+          chevron
+          onClick={() => router.push(ROUTES.HERMES)}
         />
       </SettingsGroup>
     </div>
