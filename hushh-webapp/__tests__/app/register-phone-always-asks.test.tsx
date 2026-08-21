@@ -1,3 +1,15 @@
+/**
+ * /register-phone always asks. There is no host that gets waved through.
+ *
+ * This page used to detect localhost/dev hostnames and immediately redirect to
+ * the setup hub — which made the one reachable phone screen a dead end while
+ * the server still refused to record a cloud without `phone_verified is True`
+ * (observed on dev.one.hushh.ai, 2026-08-19, with a freshly re-created
+ * account). The bypass is deleted; these tests hold the door open: an
+ * unverified signed-in visitor sees the verification flow, on every host, and
+ * a fresh verification lands in One setup.
+ */
+
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,13 +21,11 @@ const {
   resolveAfterLoginMock,
   bootstrapStateMock,
   syncOnboardingJourneyMock,
-  shouldBypassLocalPhoneMandateMock,
 } = vi.hoisted(() => ({
   replace: vi.fn(),
   resolveAfterLoginMock: vi.fn(),
   bootstrapStateMock: vi.fn(),
   syncOnboardingJourneyMock: vi.fn(),
-  shouldBypassLocalPhoneMandateMock: vi.fn(),
 }));
 
 const user = {
@@ -88,9 +98,6 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
     syncOnboardingJourney: syncOnboardingJourneyMock,
   },
 }));
-vi.mock("@/lib/services/phone-mandate-service", () => ({
-  shouldBypassPhoneMandateForLocalhost: shouldBypassLocalPhoneMandateMock,
-}));
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: vi.fn(),
 }));
@@ -98,7 +105,7 @@ vi.mock("@/lib/onboarding/onboarding-journey-phase", () => ({
   resolvePostPhoneOnboardingPhase: () => "setup_hub",
 }));
 
-describe("PhoneMandatePageContent localhost continuation", () => {
+describe("PhoneMandatePageContent always asks", () => {
   beforeEach(() => {
     replace.mockReset();
     resolveAfterLoginMock.mockReset();
@@ -107,29 +114,20 @@ describe("PhoneMandatePageContent localhost continuation", () => {
     resolveAfterLoginMock.mockResolvedValue("/one/setup");
     bootstrapStateMock.mockResolvedValue({ setupCompleted: false });
     syncOnboardingJourneyMock.mockResolvedValue(undefined);
-    shouldBypassLocalPhoneMandateMock.mockReturnValue(true);
   });
 
-  it("enters the setup hub once without waiting for post-auth reconciliation", async () => {
-    const view = render(<PhoneMandatePageContent />);
+  it("shows the verification flow to an unverified visitor and never redirects away", async () => {
+    // jsdom serves this test from localhost — the exact host the deleted
+    // bypass used to redirect. The flow must render and stay.
+    render(<PhoneMandatePageContent />);
 
-    view.rerender(<PhoneMandatePageContent />);
-    view.rerender(<PhoneMandatePageContent />);
-
-    await waitFor(() => {
-      expect(replace).toHaveBeenCalledWith("/one/setup");
-    });
-    expect(replace).toHaveBeenCalledTimes(1);
-    expect(resolveAfterLoginMock).not.toHaveBeenCalled();
-    expect(bootstrapStateMock).not.toHaveBeenCalled();
-    expect(syncOnboardingJourneyMock).not.toHaveBeenCalled();
-    // The mocked router does not unmount the page. This confirms the
-    // transition remains pending in the mock without restarting work.
-    expect(screen.getByText("Continuing local session...")).toBeVisible();
+    expect(
+      await screen.findByRole("button", { name: "Complete phone verification" }),
+    ).toBeVisible();
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it("keeps a freshly verified account in One setup before resolving any generic destination", async () => {
-    shouldBypassLocalPhoneMandateMock.mockReturnValue(false);
     // This models a stale generic resolver result. The fresh root state—not a
     // destination computed before verification—owns the account gate.
     resolveAfterLoginMock.mockResolvedValue("/one/profile");

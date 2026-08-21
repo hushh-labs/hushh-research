@@ -6,12 +6,6 @@ import {
 
 const LOCAL_PHONE_MANDATE_BYPASS_HOSTS = new Set(["localhost", "127.0.0.1"]);
 
-// The hosted development deployment, which is meant to behave like localhost for
-// end-to-end testing. It is matched by EXACT hostname and nothing else: not a
-// suffix, not a pattern. `uat.one.hushh.ai` and `one.hushh.ai` must never match,
-// and a suffix test on "one.hushh.ai" would match both.
-const DEV_PHONE_MANDATE_BYPASS_HOSTS = new Set(["dev.one.hushh.ai"]);
-
 function normalizeHostname(hostname?: string | null): string {
   return String(hostname ?? "")
     .trim()
@@ -23,31 +17,32 @@ export function hasVerifiedPhoneNumber(phoneNumber?: string | null): boolean {
   return String(phoneNumber ?? "").trim().length > 0;
 }
 
+// LOCALHOST ONLY — deliberately narrower than this bypass once was.
+//
+// `dev.one.hushh.ai` used to be in this set, and that produced a dead loop a
+// person could not escape through the product: the client never asked for a
+// phone while the SERVER kept requiring `phone_verified is True` before
+// recording a cloud or provisioning an agent (ai_connection_gate,
+// `_reserve_pending_agent_record`), so the cloud save 409'd "verify your phone
+// first" with no reachable way to comply (observed on dev.one.hushh.ai,
+// 2026-08-19, with a freshly re-created account). The dev deployment must ask,
+// exactly like production; its server carries the fictitious-number lane
+// (+1 555 0100-0199, no SMS, no captcha) so the screen is cheap to pass there.
+//
+// Localhost stays exempt for one concrete reason: Firebase phone auth's
+// reCAPTCHA does not complete on localhost (known auth limitation,
+// founder-verified 2026-08-20), so a forced screen there cannot be passed with
+// a real number and would strand local sessions. This grants NOTHING
+// server-side — a localhost session that needs a verified phone (the BYOC cloud
+// save) still rehearses that journey on dev, or visits /register-phone
+// explicitly and uses the fictitious-number lane, which the local backend also
+// carries. /register-phone itself never host-redirects away (that auto-bounce
+// was the second half of the dead loop and stays deleted).
 export function shouldBypassPhoneMandateForLocalhost(hostname?: string | null): boolean {
-  const host = normalizeHostname(hostname);
-
-  // Localhost: unchanged, and still gated on the environment as well as the host.
-  if (resolveAppEnvironment() === "development" && LOCAL_PHONE_MANDATE_BYPASS_HOSTS.has(host)) {
-    return true;
-  }
-
-  // The dev deployment, matched on HOSTNAME ALONE — deliberately, and this is the
-  // one part worth explaining.
-  //
-  // `resolveAppEnvironment()` cannot be used here. The dev frontend is built with
-  // `_APP_ENV=uat` so its behaviour gates replicate UAT exactly, which means it
-  // reports "uat" on dev and "uat" on real UAT and cannot separate them. Requiring
-  // "development" would refuse the very environment this exists to serve; accepting
-  // "uat" would open real UAT. The hostname is the only signal that tells them
-  // apart, and it is not spoofable into the bundle: this reads
-  // `window.location.hostname`, so it is true only when the page is genuinely
-  // served from that host.
-  //
-  // What this does NOT do: grant a verified phone. This is the client-side mandate
-  // that routes an unverified user to the phone screen. Every server-side control
-  // is untouched — the AI-connection gate still reads `phone_verified is True` from
-  // the identity record before it will provision anything.
-  return DEV_PHONE_MANDATE_BYPASS_HOSTS.has(host);
+  return (
+    resolveAppEnvironment() === "development" &&
+    LOCAL_PHONE_MANDATE_BYPASS_HOSTS.has(normalizeHostname(hostname))
+  );
 }
 
 function shouldBypassPhoneMandateForNativeRouteAudit(): boolean {

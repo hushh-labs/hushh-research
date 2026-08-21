@@ -292,6 +292,9 @@ describe("PhoneMandateGuard", () => {
   });
 
   it("keeps localhost development users in the app without requiring phone verification", async () => {
+    // Localhost only: Firebase reCAPTCHA cannot complete there, so a forced
+    // screen cannot be passed with a real number (founder-verified 2026-08-20).
+    // The exemption grants nothing server-side.
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
     render(
       <PhoneMandateGuard exemptVaultUsers>
@@ -308,34 +311,23 @@ describe("PhoneMandateGuard", () => {
     expect(bootstrapStateMock).not.toHaveBeenCalled();
   });
 
-  it("waits for the client hostname before deciding the localhost phone mandate", async () => {
+  it("still redirects on the dev deployment, even in a development build", async () => {
+    // THE dead-loop regression trip-wire: dev.one.hushh.ai was once in the
+    // bypass set, which suppressed the screen the server requires and stranded
+    // a fresh account at the cloud save's 409 (observed 2026-08-19). Dev asks,
+    // exactly like production; its server-side fictitious-number lane makes the
+    // screen cheap to pass.
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
-    hostnameValue = null;
-    const view = render(
-      <PhoneMandateGuard>
-        <div>setup content</div>
-      </PhoneMandateGuard>,
-    );
-
-    expect(screen.getByText("Checking phone requirement...")).toBeTruthy();
-    expect(replace).not.toHaveBeenCalled();
-    expect(bootstrapStateMock).not.toHaveBeenCalled();
-    expect(checkVaultMock).not.toHaveBeenCalled();
-    expect(refreshCurrentUserIdentityMock).not.toHaveBeenCalled();
-
-    hostnameValue = "localhost";
-    view.rerender(
-      <PhoneMandateGuard>
-        <div>setup content</div>
-      </PhoneMandateGuard>,
+    hostnameValue = "dev.one.hushh.ai";
+    render(
+      <PhoneMandateGuard exemptVaultUsers>
+        <div>profile content</div>
+      </PhoneMandateGuard>
     );
 
     await waitFor(() => {
-      expect(screen.getByText("setup content")).toBeTruthy();
+      expect(replace).toHaveBeenCalledWith("/register-phone?redirect=%2Fone%2Fprofile");
     });
-    expect(replace).not.toHaveBeenCalled();
-    expect(bootstrapStateMock).not.toHaveBeenCalled();
-    expect(checkVaultMock).not.toHaveBeenCalled();
-    expect(refreshCurrentUserIdentityMock).not.toHaveBeenCalled();
+    expect(bootstrapStateMock).toHaveBeenCalledTimes(1);
   });
 });

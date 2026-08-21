@@ -425,7 +425,6 @@ describe("PostAuthRouteService", () => {
         redirectPath: inviteRedirect,
         phoneNumber: null,
         phoneVerified: false,
-        hostname: "uat.one.hushh.ai",
       })
     ).resolves.toBe(buildPhoneMandateRoute(inviteRedirect));
   });
@@ -466,7 +465,6 @@ describe("PostAuthRouteService", () => {
         redirectPath: inviteRedirect,
         phoneNumber: null,
         phoneVerified: false,
-        hostname: "uat.one.hushh.ai",
       })
     ).resolves.toBe(buildPhoneMandateRoute(inviteRedirect));
   });
@@ -489,7 +487,8 @@ describe("PostAuthRouteService", () => {
       })
     ).resolves.toBe(ROUTES.ONE_HOME);
   });
-    it("skips the phone mandate for localhost hostname variants in development", async () => {
+
+  it("skips the phone mandate for localhost hostname variants in development", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
@@ -506,6 +505,28 @@ describe("PostAuthRouteService", () => {
         hostname: "127.0.0.1",
       })
     ).resolves.toBe(ROUTES.ONE_HOME);
+  });
+
+  it("does not exempt the dev deployment from the phone mandate", async () => {
+    // The dead-loop regression trip-wire: dev.one.hushh.ai must ask, exactly
+    // like production, because the server requires a verified phone before the
+    // cloud save (observed stranding a fresh account, 2026-08-19).
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: false,
+      setupCompleted: true,
+      setupCompletedAt: 1,
+      setupSkipped: false,
+    });
+    loadPendingOnboardingMock.mockResolvedValue(null);
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        phoneNumber: null,
+        hostname: "dev.one.hushh.ai",
+      })
+    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_HOME));
   });
 
   describe("first-run One Setup gate", () => {
