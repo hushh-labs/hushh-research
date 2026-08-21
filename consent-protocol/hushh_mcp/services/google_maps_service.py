@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import time
 from typing import Any, Literal
 from urllib.parse import quote
 
@@ -32,6 +33,69 @@ _NEARBY_CHECK_IN_RESULT_LIMIT = 20
 # Ceiling for the merged multi-request sweep. Each category bucket contributes
 # its own 20-result budget, so a hotel is never crowded out by restaurants.
 _NEARBY_CHECK_IN_MERGED_LIMIT = 80
+
+# Repeat opens at the same spot (home, office) are the dominant real-world
+# pattern for both the check-in picker and the directory, so a short cache
+# keyed on a coarse grid cell avoids re-billing Google for a location that
+# has not moved. 3 decimal places is ~110 m at the equator -- tighter than
+# the 500 m check-in radius, so a hit still means "the same immediate area",
+# not "somewhere down the block". In-process only: nothing here is written
+# to disk, a log, or a database, and it is empty again on the next deploy.
+_PLACES_CACHE_TTL_SECONDS = 600.0
+_PLACES_CACHE_CELL_DECIMALS = 3
+
+# Two independent caches: the check-in picker's "all" sweep and the
+# directory's per-category, caller-chosen-radius lookups have different key
+# shapes and must not collide with each other.
+_nearby_places_cache: dict[tuple[Any, ...], tuple[float, list[dict[str, Any]]]] = {}
+_directory_cache: dict[tuple[Any, ...], tuple[float, list[dict[str, Any]]]] = {}
+# A module-level indirection so a test can freeze/advance time deterministically
+# instead of sleeping for real seconds to prove TTL expiry.
+_cache_clock = time.monotonic
+
+
+def clear_places_cache() -> None:
+    """Reset both Places response caches.
+
+    Call this between tests -- otherwise a cache hit from one test (many
+    reuse the same lat/lng as "the" standard test point) silently serves a
+    different test's mock response instead of exercising a fresh call.
+    """
+
+    _nearby_places_cache.clear()
+    _directory_cache.clear()
+
+
+def _geo_cell(lat: float, lng: float) -> tuple[float, float]:
+    return (
+        round(float(lat), _PLACES_CACHE_CELL_DECIMALS),
+        round(float(lng), _PLACES_CACHE_CELL_DECIMALS),
+    )
+
+
+def _cache_get(
+    cache: dict[tuple[Any, ...], tuple[float, list[dict[str, Any]]]],
+    cache_key: tuple[Any, ...],
+) -> list[dict[str, Any]] | None:
+    entry = cache.get(cache_key)
+    if entry is None:
+        return None
+    inserted_at, value = entry
+    if _cache_clock() - inserted_at > _PLACES_CACHE_TTL_SECONDS:
+        del cache[cache_key]
+        return None
+    # A copy: the caller is free to slice/sort/mutate its result without
+    # corrupting what the next hit returns.
+    return list(value)
+
+
+def _cache_set(
+    cache: dict[tuple[Any, ...], tuple[float, list[dict[str, Any]]]],
+    cache_key: tuple[Any, ...],
+    value: list[dict[str, Any]],
+) -> None:
+    cache[cache_key] = (_cache_clock(), list(value))
+
 
 NearbyPlaceCategory = Literal[
     "all",
@@ -816,10 +880,18 @@ class GoogleMapsService:
         bucket concurrently and merges: each bucket brings its own 20-result
         budget, so no category can crowd out another.
 
-        The request point is sent to Google only for this foreground request and
-        is not cached or logged by this service. Exact distance helps the owner
-        choose a place but is never included in nearby-person responses.
+        The request point is never logged or persisted by this service. It is
+        sent to Google for a foreground request, and briefly held in an
+        in-process cache (see `_PLACES_CACHE_TTL_SECONDS`) so a drawer reopened
+        at a spot that has not moved is answered without billing Google again.
+        Exact distance helps the owner choose a place but is never included in
+        nearby-person responses.
         """
+
+        cache_key = (category, *_geo_cell(lat, lng))
+        cached = _cache_get(_nearby_places_cache, cache_key)
+        if cached is not None:
+            return cached
 
         key = _require_key()
         # (chip this request stands for, types it filters on). The leading
@@ -898,7 +970,9 @@ class GoogleMapsService:
         limit = (
             _NEARBY_CHECK_IN_MERGED_LIMIT if category == "all" else _NEARBY_CHECK_IN_RESULT_LIMIT
         )
-        return results[:limit]
+        bounded = results[:limit]
+        _cache_set(_nearby_places_cache, cache_key, bounded)
+        return bounded
 
     async def search_directory_category(
         self,
@@ -920,8 +994,12 @@ class GoogleMapsService:
         picker is answering "where am I standing", so 500 m is the honest bound;
         a directory is answering "what is around here", where the reader chooses.
 
-        The request point is sent to Google for this foreground request only. It
-        is not cached, logged, or persisted by this service.
+        The request point is never logged or persisted by this service. It is
+        sent to Google for a foreground request, and briefly held in an
+        in-process cache (see `_PLACES_CACHE_TTL_SECONDS`) keyed on category,
+        grid cell, and the clamped radius/limit -- so tapping between radius
+        tiers or reopening the same category on the same visit does not
+        re-bill Google for an answer already in hand.
         """
 
         key = _require_key()
@@ -935,6 +1013,11 @@ class GoogleMapsService:
 
         bounded_radius = max(1.0, min(float(radius_meters), _DIRECTORY_MAX_RADIUS_METERS))
         bounded_limit = max(1, min(int(limit), _DIRECTORY_MAX_RESULT_COUNT))
+
+        cache_key = (category, *_geo_cell(lat, lng), round(bounded_radius), bounded_limit)
+        cached = _cache_get(_directory_cache, cache_key)
+        if cached is not None:
+            return cached
 
         body: dict[str, Any] = {
             "maxResultCount": bounded_limit,
@@ -987,6 +1070,7 @@ class GoogleMapsService:
                 rows.append(row)
 
         rows.sort(key=lambda item: (item["distanceMeters"], str(item["name"]).casefold()))
+        _cache_set(_directory_cache, cache_key, rows)
         return rows
 
     def _normalize_directory_place(
