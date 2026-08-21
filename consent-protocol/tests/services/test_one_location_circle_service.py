@@ -939,6 +939,89 @@ def test_targeted_invite_accept_rechecks_direct_connection_and_creates_origins(
     )
 
 
+def test_targeted_invite_accept_notifies_inviter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Accepting used to write the membership silently -- the inviter's
+    # Circle only reflected the new member after a manual reload, since
+    # nothing told their client anything had changed.
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    invite_id = "550e8400-e29b-41d4-a716-446655440002"
+    now = datetime.now(timezone.utc)
+    conn = _CapacityConnection(
+        {"id": invite_id, "circle_id": circle_id},
+        {
+            "id": circle_id,
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+            "status": "active",
+            "name": "Family",
+            "kind": "family",
+        },
+        {"user_id": "member-user"},
+        {
+            "id": invite_id,
+            "circle_id": circle_id,
+            "inviter_user_id": "inviter-member",
+            "invitee_user_id": "member-user",
+            "invitee_display_name": "Member User",
+            "status": "pending",
+            "expires_at": now + timedelta(hours=1),
+            "created_at": now,
+        },
+        None,
+        {"user_id": "inviter-member"},
+        {"id": "connection-id"},
+        {"id": "direct-origin-id"},
+        {"circle_count": 0},
+        {"member_count": 1},
+        None,
+        [
+            {"user_id": "member-user"},
+            {"user_id": "inviter-member"},
+            {"user_id": "owner-user"},
+        ],
+        None,
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(
+        circle_service_module,
+        "ensure_connection_origin",
+        lambda _conn, **kwargs: {},
+    )
+    monkeypatch.setattr(
+        service,
+        "get_circle",
+        lambda **_kwargs: {"id": circle_id, "name": "Family"},
+    )
+    push_calls: list[dict] = []
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_member_invite_accepted_push",
+        lambda **kwargs: push_calls.append(kwargs) or 1,
+    )
+
+    result = service.accept_member_invite(
+        user_id="member-user",
+        invite_id=invite_id,
+    )
+
+    assert result["accepted"] is True
+    assert push_calls == [
+        {
+            "inviter_user_id": "inviter-member",
+            "invitee_user_id": "member-user",
+            "invitee_display_name": "Member User",
+            "circle_id": circle_id,
+            "circle_name": "Family",
+            "invite_id": invite_id,
+        }
+    ]
+
+
 def test_targeted_invite_accept_fails_if_direct_connection_was_removed() -> None:
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
     invite_id = "550e8400-e29b-41d4-a716-446655440002"
