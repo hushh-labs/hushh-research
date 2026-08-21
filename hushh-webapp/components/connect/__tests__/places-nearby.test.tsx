@@ -291,6 +291,37 @@ describe("PlacesNearby", () => {
     expect(mocks.streamNearby.mock.calls[1][0].radiusMi).toBe(15);
   });
 
+  it("filters fetched places locally and can clear a no-match search", async () => {
+    mocks.locationState = LOCATED;
+    render(<PlacesNearby getIdToken={getIdToken} />);
+    await screen.findByText("Hotel Vivanta");
+
+    fireEvent.change(screen.getByTestId("places-search"), {
+      target: { value: "hotel" },
+    });
+    await waitFor(() => expect(screen.getByText("Hotel Vivanta")).toBeTruthy());
+
+    fireEvent.change(screen.getByTestId("places-search"), {
+      target: { value: "not a match" },
+    });
+    expect(await screen.findByTestId("places-search-empty")).toBeTruthy();
+    expect(mocks.streamNearby).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByText("Clear search"));
+    expect(await screen.findByText("Hotel Vivanta")).toBeTruthy();
+  });
+
+  it("widens an empty places search from its helpful zero state", async () => {
+    mocks.locationState = LOCATED;
+    mocks.streamNearby.mockImplementation(streamOf([]));
+    render(<PlacesNearby getIdToken={getIdToken} />);
+    await screen.findByTestId("places-empty");
+
+    fireEvent.click(screen.getByText("Search within 15 mi"));
+    await waitFor(() => expect(mocks.streamNearby).toHaveBeenCalledTimes(2));
+    expect(mocks.streamNearby.mock.calls[1][0].radiusMi).toBe(15);
+  });
+
   it("lets the user retry a failure instead of stranding them", async () => {
     mocks.locationState = LOCATED;
     mocks.streamNearby.mockRejectedValue(new Error("Places are unavailable right now."));
