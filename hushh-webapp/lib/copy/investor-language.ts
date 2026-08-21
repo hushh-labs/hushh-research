@@ -88,6 +88,15 @@ export function toInvestorVaultUnlockError(value: unknown): string {
     return toInvestorMessage("VAULT_PASSKEY_ENROLL_REQUIRED");
   }
 
+  if (
+    lowered.includes("vault is temporarily unavailable") ||
+    lowered.includes("vault_status_unavailable") ||
+    lowered.includes("503") ||
+    lowered.includes("failed to fetch")
+  ) {
+    return toInvestorMessage("VAULT_STATUS_UNAVAILABLE");
+  }
+
   if (lowered.includes("bluetooth")) {
     return "Turn on Bluetooth to use a passkey from another device, or use your Vault Key or Recovery Key below.";
   }

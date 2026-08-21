@@ -593,7 +593,7 @@ export function VaultFlow({
         toast.error(message);
       }
     } catch (err: any) {
-      console.error("Unlock error:", err);
+      console.warn("Unlock error:", err);
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
@@ -724,7 +724,7 @@ export function VaultFlow({
         );
         return;
       }
-      console.error("Generated vault unlock failed:", err);
+      console.warn("Generated vault unlock failed:", err);
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
@@ -753,7 +753,7 @@ export function VaultFlow({
         toast.error(message);
       }
     } catch (err: unknown) {
-      console.error("Recovery key unlock failed:", err);
+      console.warn("Recovery key unlock failed:", err);
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
