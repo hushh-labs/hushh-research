@@ -981,8 +981,8 @@ function CircleMemberRow({
                 Remove {member.displayName}?
               </AlertDialogTitle>
               <AlertDialogDescription>
-                Circle-sourced live shares involving this member will stop.
-                Their other connections and shares stay unchanged.
+                Circle shares with this member stop. Direct shares stay
+                unchanged.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -1956,8 +1956,7 @@ export function CircleDetailFlow({
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete {circle.name}?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Members will lose this Circle and Circle-sourced shares will
-                    stop. Unrelated connections and direct shares stay intact.
+                    This deletes the Circle for everyone. Circle shares stop.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -1992,8 +1991,7 @@ export function CircleDetailFlow({
                 <AlertDialogHeader>
                   <AlertDialogTitle>Leave {circle.name}?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Circle-sourced live shares involving you will stop. Your
-                    unrelated connections and direct shares stay unchanged.
+                    Circle shares with you stop. Direct shares stay unchanged.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
