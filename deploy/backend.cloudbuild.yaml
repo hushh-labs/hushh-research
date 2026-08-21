@@ -93,9 +93,14 @@ steps:
             genai_project_id="hushh-pda-uat"
           fi
         fi
-        if [[ "${genai_project_id}" != "$PROJECT_ID" && "${_DEPLOY_ENV}" != "dev" ]]; then
-          echo "Cross-project managed Vertex is allowed only for the isolated dev lane." >&2
-          exit 1
+        if [[ "${genai_project_id}" != "$PROJECT_ID" ]]; then
+          case "${_DEPLOY_ENV}:${genai_project_id}" in
+            dev:hushh-pda-uat|uat:hushh-gemini-bridge) ;;
+            *)
+              echo "Cross-project managed Vertex target is not allowlisted." >&2
+              exit 1
+              ;;
+          esac
         fi
         gcloud iam service-accounts describe "${_RUNTIME_SERVICE_ACCOUNT}" \
           --project="$PROJECT_ID" >/dev/null
@@ -139,10 +144,6 @@ steps:
           if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
             genai_project_id="hushh-pda-uat"
           fi
-        fi
-        if [[ "${genai_project_id}" != "$PROJECT_ID" && "${_DEPLOY_ENV}" != "dev" ]]; then
-          echo "Cross-project managed Vertex is allowed only for the isolated dev lane." >&2
-          exit 1
         fi
         add_secret() {
           local secret_name="$1"
