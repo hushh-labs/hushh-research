@@ -745,7 +745,11 @@ describe("OneLocationOnboardingFlow", () => {
     const contactsScreen = screen.getByTestId(
       "one-location-onboarding-contacts",
     );
-    expect(contactsScreen.firstElementChild?.className).toContain(
+    const contactsSurface = screen.getByTestId(
+      "one-location-onboarding-contacts-surface",
+    );
+    expect(contactsScreen).toContainElement(contactsSurface);
+    expect(contactsSurface.className).toContain(
       "bg-[color:var(--app-grouped-background)]",
     );
 
