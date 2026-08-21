@@ -899,6 +899,12 @@ class FourUserMemoryService(OneLocationAgentService):
         self.connection_origins: dict[str, dict] = {}
         self.named_circle_memberships: set[tuple[str, str]] = set()
         self.sms_contacts: set[tuple[str, str]] = set()
+        # (owner, member) pairs standing in for an active membership of the
+        # owner's own `is_system` Circle. Since #5426 that roster is where the
+        # emergency list actually lives, and the SOS gate reads it as well as
+        # the legacy table -- so the double has to model both or a test can only
+        # ever exercise the half that was already there.
+        self.sms_circle_members: set[tuple[str, str]] = set()
         self.events: dict[str, dict] = {}
         self.notifications: list[dict] = []
         self.professional_relationships: list[dict] = []
@@ -1095,6 +1101,11 @@ class FourUserMemoryService(OneLocationAgentService):
                 status_code=403,
             )
         self.sms_contacts.add((owner_user_id, contact_user_id))
+
+    def _seed_sms_circle_member(self, owner_user_id: str, member_user_id: str) -> None:
+        """Put someone in the owner's emergency Circle without touching the
+        legacy table -- exactly what the Circle detail screen does."""
+        self.sms_circle_members.add((owner_user_id, member_user_id))
 
     def _send_metadata_notification(self, **kwargs) -> None:
         assert _contains_plaintext_location_key(kwargs.get("data") or {}) is False
@@ -1629,7 +1640,8 @@ class FourUserMemoryService(OneLocationAgentService):
             }
         if "SELECT 1" in sql and "FROM one_location_sms_contacts" in sql:
             pair = (params["owner_user_id"], params["contact_user_id"])
-            return {"exists": 1} if pair in self.sms_contacts else None
+            selected = pair in self.sms_contacts or pair in self.sms_circle_members
+            return {"exists": 1} if selected else None
         if "INSERT INTO one_location_sms_contacts" in sql:
             pair = (params["owner_user_id"], params["contact_user_id"])
             self.sms_contacts.add(pair)
@@ -5478,3 +5490,95 @@ def test_the_durations_the_screen_offers_are_accepted() -> None:
     service.revoke_public_invite(owner_user_id="user_a", invite_id=half["invite"]["id"])
     whole = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
     assert whole["invite"]["durationHours"] == 1
+
+
+def test_sos_reaches_someone_added_through_the_emergency_circle() -> None:
+    """The emergency path, for anyone added the way the product now says to.
+
+    Since #5426 the SMS Circle IS the emergency list and the screen picks SOS
+    recipients from its roster. This gate never learned that: it asked
+    `one_location_sms_contacts`, which the Circle detail screen does not write.
+    So somebody added through Circle detail was offered by the UI and refused
+    here with LOCATION_SMS_CONTACT_REQUIRED -- at the moment an SOS was being
+    sent, which is the only moment it is discoverable.
+    """
+
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    # Note what is NOT called: add_sms_contact. This is the Circle-only path.
+    service._seed_sms_circle_member("user_a", "user_b")
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        reason="Come get me",
+        share_kind="sos",
+        enforce_connection=True,
+    )
+
+    assert grant["shareKind"] == "sos"
+    assert grant["recipientUserId"] == "user_b"
+
+
+def test_sos_still_refuses_someone_in_neither_the_table_nor_the_circle() -> None:
+    # The widening above is a widening of an emergency gate, so the refusal it
+    # is widening has to keep holding for everyone else.
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+
+    with pytest.raises(OneLocationAgentError) as err:
+        service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id="user_b",
+            recipient_key_id="key-user_b",
+            duration_hours=8,
+            reason="Come get me",
+            share_kind="sos",
+            enforce_connection=True,
+        )
+    assert err.value.code == "LOCATION_SMS_CONTACT_REQUIRED"
+
+
+def test_every_sos_gate_reads_the_emergency_circle_not_only_the_table() -> None:
+    """A property of the idiom, not of one call site.
+
+    The gate is written at four places -- the atomic grant CTE, the explainer
+    that produces the error message, the fallback list the client reads, and
+    the same list inside `list_state`. A narrow explainer beside a wide gate is
+    worse than either: the share succeeds and the message says it could not. So
+    assert every statement that reaches `one_location_sms_contacts` also reaches
+    the owner's own system Circle.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as module
+
+    source = inspect.getsource(module)
+    # Statement-ish blocks: split on the triple-quoted SQL literals.
+    sql_blocks = [block for block in source.split('"""') if "one_location_sms_contacts" in block]
+    assert sql_blocks, "no SQL reaches one_location_sms_contacts any more"
+
+    for block in sql_blocks:
+        # The two write paths are the owner curating the legacy table itself;
+        # they are not recipient gates and have no Circle arm to grow.
+        if "INSERT INTO one_location_sms_contacts" in block:
+            continue
+        if "DELETE FROM one_location_sms_contacts" in block:
+            continue
+        assert "circle.is_system" in block, (
+            "an SOS gate reads the legacy contacts table without also reading "
+            "the owner's emergency Circle:\n" + block[:400]
+        )

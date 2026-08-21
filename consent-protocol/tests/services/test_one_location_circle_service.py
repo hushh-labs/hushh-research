@@ -974,7 +974,13 @@ def test_targeted_invite_accept_notifies_inviter(
         {"id": "connection-id"},
         {"id": "direct-origin-id"},
         {"circle_count": 0},
-        {"member_count": 1},
+        # No `member_count` row here. The capacity check is one statement now --
+        # the `circle_count` subquery above -- so a second count is a result the
+        # service never asks for, and this scripted connection hands rows out in
+        # order regardless of SQL. It was silently feeding the membership INSERT
+        # a count and then feeding _connect_member_to_circle a None, which reads
+        # as "you are not in this Circle" and raised
+        # LOCATION_CIRCLE_MEMBERSHIP_NOT_ACTIVE on a member who had just joined.
         None,
         [
             {"user_id": "member-user"},
@@ -2674,3 +2680,157 @@ def test_no_add_path_can_walk_into_invitation_payload_code() -> None:
         isinstance(node, ast.Return) and isinstance(node.value, ast.Dict)
         for node in ast.walk(transaction)
     )
+
+
+def test_a_system_circle_has_no_join_code_on_the_server_not_only_in_the_payload() -> None:
+    """`canViewInviteCode` was a claim the API did not keep.
+
+    `_circle_summary` has always reported `is_owner and not is_system`, under a
+    comment reading "A system Circle has no code at all." The SELECT in
+    `create_invite_code` did not read `is_system` and nothing below checked it,
+    so an owner reaching the endpoint directly could mint a bearer code that
+    joins a stranger into their emergency SMS roster.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "owner_user_id": "owner-user",
+            "member_limit": 10,
+            "is_system": True,
+        },
+        {"role": "owner"},
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.create_invite_code(
+            actor_user_id="owner-user",
+            circle_id=circle_id,
+            rotate=False,
+        )
+
+    assert raised.value.code == "LOCATION_CIRCLE_SYSTEM_NO_CODE"
+    assert raised.value.status_code == 409
+    # Refused before any code row is touched, so a rotate cannot revoke the
+    # Circle's (nonexistent) code as a side effect of being refused.
+    assert not any("one_location_circle_invite_codes" in sql for sql in conn.sql)
+    # The other direction -- that an ordinary Circle still mints a code -- is
+    # already proved by test_owner_can_rotate_the_shared_circle_code and the
+    # two code tests above it, all of which pass a circle row carrying no
+    # `is_system` key and reach the INSERT.
+
+
+def test_a_code_minted_before_the_guard_still_cannot_open_a_system_circle() -> None:
+    """Closing the minting side alone would leave the codes already out there.
+
+    Until the guard above, `bootstrap_first_circle` could hand out a code for an
+    SMS Circle. Those codes are live, valid for 72 hours, and redeemable by
+    whoever holds them, so the redemption side has to refuse too.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    invite_id = "550e8400-e29b-41d4-a716-446655440001"
+    conn = _CapacityConnection(
+        {"id": invite_id, "circle_id": circle_id},
+        {
+            "id": circle_id,
+            "owner_user_id": "owner-user",
+            "member_limit": 10,
+            "status": "active",
+            "is_system": True,
+        },
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.join_circle(user_id="stranger-user", code="2345-6789-ABCD")
+
+    # Not a new error state: from the holder's side it is a code that does not
+    # work, and naming the Circle's kind would tell a stranger something about a
+    # roster they have no business knowing exists.
+    assert raised.value.code == "LOCATION_CIRCLE_CODE_INVALID"
+    assert raised.value.status_code == 404
+    assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
+
+
+def test_onboarding_never_names_or_shares_a_system_circle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`list_circles` is ordered `updated_at DESC`.
+
+    `ensure_sms_system_circle` stamps `updated_at` on every rename and
+    limit-heal, so the most recently updated owned Circle is routinely the SMS
+    Circle -- and onboarding would then name it, mint a code for it, and invite
+    the person's friends into their emergency roster.
+    """
+
+    service = OneLocationCircleService(
+        db=_TransactionDb(_CapacityConnection()),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(
+        service,
+        "list_circles",
+        lambda **_kwargs: [
+            {"id": "sms-circle", "role": "owner", "isSystem": True, "name": "SMS Circle"},
+        ],
+    )
+    created: list[dict] = []
+
+    def _create_circle(**kwargs):
+        created.append(kwargs)
+        return {"id": "new-circle", "name": kwargs.get("name")}
+
+    monkeypatch.setattr(service, "create_circle", _create_circle)
+    monkeypatch.setattr(
+        service,
+        "create_invite_code",
+        lambda **_kwargs: {"code": "2345-6789-ABCD"},
+    )
+
+    result = service.bootstrap_first_circle(user_id="owner-user", name="Neelesh's Circle")
+
+    # A Circle of their own, not the emergency one wearing their name.
+    assert result["circleId"] == "new-circle"
+    assert result["circleName"] == "Neelesh's Circle"
+    assert len(created) == 1
+
+
+def test_onboarding_still_reuses_a_circle_the_person_actually_made(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = OneLocationCircleService(
+        db=_TransactionDb(_CapacityConnection()),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(
+        service,
+        "list_circles",
+        lambda **_kwargs: [
+            {"id": "sms-circle", "role": "owner", "isSystem": True, "name": "SMS Circle"},
+            {"id": "family", "role": "owner", "isSystem": False, "name": "K Family"},
+        ],
+    )
+
+    def _fail(**_kwargs):
+        raise AssertionError("bootstrap created a Circle when one already existed")
+
+    monkeypatch.setattr(service, "create_circle", _fail)
+    monkeypatch.setattr(
+        service,
+        "create_invite_code",
+        lambda **_kwargs: {"code": "2345-6789-ABCD"},
+    )
+
+    result = service.bootstrap_first_circle(user_id="owner-user", name="Neelesh's Circle")
+
+    assert result["circleId"] == "family"
+    assert result["circleName"] == "K Family"
