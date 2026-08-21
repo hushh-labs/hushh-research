@@ -144,10 +144,13 @@ import {
   recipientSelectionFromIds,
   resolveEffectiveShareRecipients,
 } from "@/lib/one-location/share-recipient-selection";
+import { resolveBySpokenName } from "@/lib/one-location/resolve-by-spoken-name";
 import {
   ambiguousMatchNames,
-  resolveBySpokenName,
-} from "@/lib/one-location/resolve-by-spoken-name";
+  joinNamesForSpeech,
+  normalizeSpokenName,
+  resolveSpokenNames,
+} from "@/lib/one-location/resolve-spoken-names";
 
 
 import {
@@ -981,22 +984,6 @@ function useShareRecipientSelectionState(): readonly [
 
 function peopleCountLabel(count: number): string {
   return count === 1 ? "1 person" : `${count} people`;
-}
-
-/** Normalize a spoken or stored name: no case, no accents, no punctuation. */
-export function normalizeSpokenName(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    // Punctuation out so "Mum & Dad" and "Mum and Dad" are not two different
-    // circles to a speaker. Unicode classes, not [a-z0-9]: a circle named in
-    // Hindi or Arabic must stay matchable rather than normalizing to nothing.
-    // \p{M} is load-bearing -- Devanagari vowel signs are marks, not letters,
-    // so without it "परिवार" shreds into "पर व र" and never matches itself.
-    .replace(/[^\p{L}\p{N}\p{M}\s]/gu, " ")
-    .replace(/\s+/gu, " ")
-    .trim();
 }
 
 /**
@@ -7792,18 +7779,20 @@ export function OneLocationAgentPageContent({
       selectionSurface: OneLocationSelectionSurface = "select_menu",
     ) => {
       const recipient = recipients.find((item) => item.userId === recipientId);
-      const nextSelectedIds = addSelectedId(
-        selectedRequestOwnerIds,
-        recipientId,
-      );
       setSelectedRequestOwnerId(recipientId);
-      setSelectedRequestOwnerIds(nextSelectedIds);
+      // Functional update: a multi-person voice turn can resolve several
+      // names in one handler invocation and call this once per person
+      // before React re-renders. Computing the next array from the closed-
+      // over `selectedRequestOwnerIds` (as this used to) would have every
+      // call in that batch read the same stale array and overwrite each
+      // other, silently keeping only the last person selected.
+      setSelectedRequestOwnerIds((current) => addSelectedId(current, recipientId));
       if (recipient) {
         trackRecommendationSelection(
           recipient,
           "request",
           selectionSurface,
-          nextSelectedIds.length,
+          addSelectedId(selectedRequestOwnerIds, recipientId).length,
         );
       }
     },
@@ -9009,12 +8998,15 @@ export function OneLocationAgentPageContent({
   // in front of someone who can see it, rather than a live location already
   // sent to the wrong person.
   useLocalOnboardingActionHandler("location.select_share_recipient", async (slots) => {
-    const spoken = String(slots?.person ?? "").trim().toLowerCase();
-    if (!spoken) {
+    const raw = String(slots?.person ?? "").trim();
+    if (!raw) {
       return { status: "blocked" as const, summary: "Say who you want to share with." };
     }
-    let matches = rankedRecipients.filter((recipient) =>
-      recommendationSearchText(recipient).includes(spoken),
+    let { resolved, unresolved } = resolveSpokenNames(
+      rankedRecipients,
+      raw,
+      recipientLabel,
+      recommendationSearchText,
     );
     // Finding nobody while the vault is LOCKED says nothing about who the
     // person is connected to -- the protected recipient list cannot be read at
@@ -9022,7 +9014,11 @@ export function OneLocationAgentPageContent({
     // statement about their connections made without being able to see them.
     // It reads as "that person is not your connection", which may be flatly
     // untrue, and sends someone off to re-add somebody they already have.
-    if (matches.length === 0 && !vaultOwnerToken) {
+    if (
+      resolved.length === 0 &&
+      unresolved.every((entry) => entry.kind === "not_found") &&
+      !vaultOwnerToken
+    ) {
       return {
         status: "blocked" as const,
         summary:
@@ -9031,21 +9027,37 @@ export function OneLocationAgentPageContent({
     }
     // A navigation journey can arrive before the full Location workspace
     // snapshot has finished loading. Do one focused, server-authoritative
-    // recipient read before concluding that the named connection is absent.
-    // This stays inside the browser's existing vault-authorized boundary; the
-    // private agent still receives only the words the person spoke.
-    if (matches.length === 0 && vaultOwnerToken) {
+    // recipient read before concluding that a named connection is absent --
+    // but only re-check the names that came back empty, not names that
+    // already resolved or were ambiguous against the same pool, so a
+    // multi-name turn does not redundantly re-resolve names that already
+    // succeeded. This stays inside the browser's existing vault-authorized
+    // boundary; the private agent still receives only the words the person
+    // spoke.
+    const stillMissing = unresolved.filter((entry) => entry.kind === "not_found");
+    if (stillMissing.length > 0 && vaultOwnerToken) {
       try {
         const freshRecipients = await OneLocationService.listRecipients(
           vaultOwnerToken,
         );
-        matches = rankRecipientsForRecommendation(
+        const freshPool = rankRecipientsForRecommendation(
           enrichRecipientsWithContactSignal(
             freshRecipients,
             contactMatchedUserIds,
           ),
           contactMatchedUserIds,
-        ).filter((recipient) => recommendationSearchText(recipient).includes(spoken));
+        );
+        const retry = resolveSpokenNames(
+          freshPool,
+          stillMissing.map((entry) => entry.spokenText).join(", "),
+          recipientLabel,
+          recommendationSearchText,
+        );
+        resolved = [...resolved, ...retry.resolved];
+        unresolved = [
+          ...unresolved.filter((entry) => entry.kind !== "not_found"),
+          ...retry.unresolved,
+        ];
       } catch {
         return {
           status: "blocked" as const,
@@ -9053,43 +9065,34 @@ export function OneLocationAgentPageContent({
         };
       }
     }
-    if (matches.length === 0) {
-      return {
-        status: "blocked" as const,
-        summary: "Nobody in your connections matches that name.",
-      };
-    }
-    if (matches.length > 1) {
+    if (resolved.length === 0) {
       // Never guess between people. Two colleagues sharing a first name is
       // ordinary, and picking the wrong one here is not recoverable once the
-      // share starts.
-      // Naming them is the point: "which Sarah?" is only answerable if the
-      // person hears both. Bounded to the handful that actually matched the
-      // name they just said.
-      const names = matches
-        .slice(0, 4)
-        .map((recipient) => recipientLabel(recipient).trim())
-        .filter(Boolean)
-        .join(", ");
-      return {
-        status: "blocked" as const,
-        summary: names
-          ? `${matches.length} people match that name: ${names}. Ask which one they meant.`
-          : `${matches.length} people match that name. Ask which one they meant.`,
-      };
-    }
-    const match = matches[0];
-    const matchedUserId = match?.userId;
-    if (!match || !matchedUserId) {
+      // share starts. Naming them is the point: "which Sarah?" is only
+      // answerable if the person hears both.
+      const ambiguous = unresolved.find((entry) => entry.kind === "ambiguous");
+      if (ambiguous && ambiguous.kind === "ambiguous") {
+        const names = ambiguousMatchNames(ambiguous.matches, recipientLabel);
+        return {
+          status: "blocked" as const,
+          summary: names
+            ? `${ambiguous.matches.length} people match that name: ${names}. Ask which one they meant.`
+            : `${ambiguous.matches.length} people match that name. Ask which one they meant.`,
+        };
+      }
       return {
         status: "blocked" as const,
         summary: "Nobody in your connections matches that name.",
       };
     }
-    setSelectedRecipientIds((current) =>
-      current.includes(matchedUserId) ? current : [...current, matchedUserId],
-    );
-    // The RESOLVED name goes back, and that is the safety mechanism rather
+    for (const match of resolved) {
+      const matchedUserId = match.userId;
+      if (!matchedUserId) continue;
+      setSelectedRecipientIds((current) =>
+        current.includes(matchedUserId) ? current : [...current, matchedUserId],
+      );
+    }
+    // The RESOLVED names go back, and that is the safety mechanism rather
     // than a leak.
     //
     // Phase 4 deliberately counted people instead of naming them, to keep the
@@ -9098,25 +9101,41 @@ export function OneLocationAgentPageContent({
     // heard a sound. Hearing "Sarah Chen" is what lets a wrong match die in
     // the question instead of on someone's phone.
     //
-    // The disclosure is bounded to exactly that: one contact, the person's
-    // own, resolved from a name they just said aloud, spoken back to them.
-    // No id, no address, no list -- and still nothing about anyone they did
-    // not name.
-    const matchedName = recipientLabel(match).trim();
+    // The disclosure is bounded to exactly that: the people the person's own
+    // words just resolved, spoken back to them. No id, no address, no list of
+    // anyone they did not name.
+    const matchedNames = resolved
+      .map((match) => recipientLabel(match).trim())
+      .filter(Boolean);
+    // A person can name several people in one turn ("Alice and Rahul") and
+    // have one resolve while the other does not -- apply what worked and say
+    // so, rather than failing the whole turn over the one name that did not
+    // match.
+    const problems = unresolved.map((entry) => {
+      if (entry.kind === "not_found") {
+        return `couldn't find anyone named "${entry.spokenText}"`;
+      }
+      const names = ambiguousMatchNames(entry.matches, recipientLabel);
+      return names
+        ? `${entry.matches.length} people match "${entry.spokenText}" (${names}) -- ask which one`
+        : `${entry.matches.length} people match "${entry.spokenText}" -- ask which one`;
+    });
+    const matchedSentence = matchedNames.length
+      ? `Matched ${joinNamesForSpeech(matchedNames)}.`
+      : "Matched.";
+    const problemSentence = problems.length ? ` Also, ${problems.join("; ")}.` : "";
     return {
       status: "succeeded" as const,
-      // Say the matched name and keep going. This used to end "ask the person
-      // to confirm that is who they meant", which was the design when the
-      // question existed to catch a mis-heard name -- but a spoken yes to a
-      // question One just asked adds nothing the original sentence did not,
+      // Say the matched name(s) and keep going. This used to end "ask the
+      // person to confirm that is who they meant", which was the design when
+      // the question existed to catch a mis-heard name -- but a spoken yes to
+      // a question One just asked adds nothing the original sentence did not,
       // and it was the last thing standing between this flow and hands-free.
       //
       // Naming the match out loud still does the work the question was for:
       // the person hears "Abdul Rashid" when they said "Abdul", and a wrong
       // match is audible at the moment it happens rather than after.
-      summary: matchedName
-        ? `Matched ${matchedName}. Now start the share with location.share_selected and the duration they asked for; say who it is going to as you do it.`
-        : "Matched one person. Now start the share with location.share_selected and the duration they asked for.",
+      summary: `${matchedSentence}${problemSentence} Now start the share with location.share_selected and the duration they asked for; say who it is going to as you do it.`,
     };
   });
 
@@ -9333,35 +9352,46 @@ export function OneLocationAgentPageContent({
     // rules exactly -- same connections list, same "never guess" discipline
     // -- because asking someone for their location and sharing yours with
     // them draw from the identical pool of people.
-    const spoken = String(slots?.person ?? "").trim();
-    if (!spoken) {
+    const raw = String(slots?.person ?? "").trim();
+    if (!raw) {
       return { status: "blocked" as const, summary: "Say who you want to ask." };
     }
-    let resolved = resolveBySpokenName(
+    let { resolved, unresolved } = resolveSpokenNames(
       contactSignalRecipients,
-      spoken,
+      raw,
       recipientLabel,
       recommendationSearchText,
     );
-    if (resolved.kind === "none" && !vaultOwnerToken) {
+    if (
+      resolved.length === 0 &&
+      unresolved.every((entry) => entry.kind === "not_found") &&
+      !vaultOwnerToken
+    ) {
       return {
         status: "blocked" as const,
         summary:
           "Unlock One first -- I cannot see who you are connected to while the vault is locked, so I cannot tell whether they are there.",
       };
     }
-    if (resolved.kind === "none" && vaultOwnerToken) {
+    const stillMissing = unresolved.filter((entry) => entry.kind === "not_found");
+    if (stillMissing.length > 0 && vaultOwnerToken) {
       try {
         const freshRecipients = await OneLocationService.listRecipients(vaultOwnerToken);
-        resolved = resolveBySpokenName(
-          rankRecipientsForRecommendation(
-            enrichRecipientsWithContactSignal(freshRecipients, contactMatchedUserIds),
-            contactMatchedUserIds,
-          ),
-          spoken,
+        const freshPool = rankRecipientsForRecommendation(
+          enrichRecipientsWithContactSignal(freshRecipients, contactMatchedUserIds),
+          contactMatchedUserIds,
+        );
+        const retry = resolveSpokenNames(
+          freshPool,
+          stillMissing.map((entry) => entry.spokenText).join(", "),
           recipientLabel,
           recommendationSearchText,
         );
+        resolved = [...resolved, ...retry.resolved];
+        unresolved = [
+          ...unresolved.filter((entry) => entry.kind !== "not_found"),
+          ...retry.unresolved,
+        ];
       } catch {
         return {
           status: "blocked" as const,
@@ -9369,23 +9399,41 @@ export function OneLocationAgentPageContent({
         };
       }
     }
-    if (resolved.kind === "none") {
+    if (resolved.length === 0) {
+      const ambiguous = unresolved.find((entry) => entry.kind === "ambiguous");
+      if (ambiguous && ambiguous.kind === "ambiguous") {
+        const names = ambiguousMatchNames(ambiguous.matches, recipientLabel);
+        return {
+          status: "blocked" as const,
+          summary: names
+            ? `${ambiguous.matches.length} people match that name: ${names}. Ask which one they meant.`
+            : `${ambiguous.matches.length} people match that name. Ask which one they meant.`,
+        };
+      }
       return { status: "blocked" as const, summary: "Nobody in your connections matches that name." };
     }
-    if (resolved.kind === "many") {
-      const names = ambiguousMatchNames(resolved.matches, recipientLabel);
-      return {
-        status: "blocked" as const,
-        summary: names
-          ? `${resolved.matches.length} people match that name: ${names}. Ask which one they meant.`
-          : `${resolved.matches.length} people match that name. Ask which one they meant.`,
-      };
+    for (const match of resolved) {
+      addRequestOwner(match.userId);
     }
-    const match = resolved.match;
-    addRequestOwner(match.userId);
+    const matchedNames = resolved
+      .map((match) => recipientLabel(match).trim())
+      .filter(Boolean);
+    const problems = unresolved.map((entry) => {
+      if (entry.kind === "not_found") {
+        return `couldn't find anyone named "${entry.spokenText}"`;
+      }
+      const names = ambiguousMatchNames(entry.matches, recipientLabel);
+      return names
+        ? `${entry.matches.length} people match "${entry.spokenText}" (${names}) -- ask which one`
+        : `${entry.matches.length} people match "${entry.spokenText}" -- ask which one`;
+    });
+    const matchedSentence = matchedNames.length
+      ? `Picked ${joinNamesForSpeech(matchedNames)} to ask.`
+      : "Picked one person to ask.";
+    const problemSentence = problems.length ? ` Also, ${problems.join("; ")}.` : "";
     return {
       status: "succeeded" as const,
-      summary: `Picked ${recipientLabel(match).trim()} to ask. Say "send it" to send the request.`,
+      summary: `${matchedSentence}${problemSentence} Say "send it" to send the request.`,
     };
   });
 

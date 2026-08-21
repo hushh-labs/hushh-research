@@ -47,8 +47,10 @@ export function splitSpokenNames(raw: string): string[] {
     .filter(Boolean);
 }
 
-export type PersonResolution<T> =
-  | { spokenText: string; kind: "resolved"; match: T }
+/** A spoken name that did NOT resolve to exactly one candidate. A name that
+ * resolved cleanly is not represented here -- it goes straight into
+ * `MultiNameResolution.resolved` instead. */
+export type UnresolvedPersonName<T> =
   | { spokenText: string; kind: "ambiguous"; matches: T[] }
   | { spokenText: string; kind: "not_found" };
 
@@ -56,7 +58,7 @@ export type MultiNameResolution<T> = {
   /** Every candidate that matched exactly one name unambiguously. */
   resolved: T[];
   /** Every spoken name that did not resolve cleanly, in the order spoken. */
-  unresolved: PersonResolution<T>[];
+  unresolved: UnresolvedPersonName<T>[];
 };
 
 export function resolveSpokenNames<T>(
@@ -72,7 +74,7 @@ export function resolveSpokenNames<T>(
   searchText: (item: T) => string | null | undefined = displayName,
 ): MultiNameResolution<T> {
   const resolved: T[] = [];
-  const unresolved: PersonResolution<T>[] = [];
+  const unresolved: UnresolvedPersonName<T>[] = [];
   for (const spokenText of splitSpokenNames(raw)) {
     const target = normalizeSpokenName(spokenText);
     if (!target) continue;
@@ -101,4 +103,14 @@ export function ambiguousMatchNames<T>(
     .map((item) => (displayName(item) || "").trim())
     .filter(Boolean)
     .join(", ");
+}
+
+/** Join names the way a person would say them out loud: "Alice", "Alice and
+ * Bob", "Alice, Bob and Sarah" -- never an Oxford comma before "and", since
+ * this is read as speech, not written prose. */
+export function joinNamesForSpeech(names: readonly string[]): string {
+  const clean = names.map((name) => name.trim()).filter(Boolean);
+  if (clean.length <= 1) return clean[0] ?? "";
+  if (clean.length === 2) return `${clean[0]} and ${clean[1]}`;
+  return `${clean.slice(0, -1).join(", ")} and ${clean[clean.length - 1]}`;
 }
