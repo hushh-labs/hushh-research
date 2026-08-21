@@ -731,11 +731,6 @@ class ByocAuthorizeCompleteRequest(BaseModel):
     bootstrapServiceAccountId: str = Field(default="one-bootstrap", max_length=30)
 
 
-class ByocAuthorizeCompleteResponse(ByocProjectSaveResponse):
-    createdProject: bool
-    billingLinked: bool
-
-
 class ByocSetupAcceptedResponse(BaseModel):
     """The one-click completion is a JOB now; this is its claim ticket."""
 
@@ -828,7 +823,7 @@ async def _wait_for_bootstrap_grant(
     return False
 
 
-@router.post("/byoc/authorize/complete", response_model=ByocAuthorizeCompleteResponse)
+@router.post("/byoc/authorize/complete", response_model=ByocSetupAcceptedResponse)
 @limiter.limit(RateLimits.AGENT_CHAT)
 async def complete_byoc_authorize(
     request: Request,

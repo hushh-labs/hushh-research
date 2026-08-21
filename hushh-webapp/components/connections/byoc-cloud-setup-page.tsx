@@ -352,7 +352,7 @@ export function ByocCloudSetupPage() {
           </p>
         ) : null}
 
-        {error ? (
+        {error && !(job && job.status === "running" && !job.stale) ? (
           // A refusal must be impossible to miss and must name the next MOVE.
           // The plain one-line rendering read as body copy and the founder
           // scrolled past it (2026-08-21); this is the app's standing alert
