@@ -148,7 +148,33 @@ function messageForStatus(
   // 503 means this deployment has no Maps key, and 404 means the surface is not
   // switched on here. Both are our plumbing, not the reader's problem.
   if (status === 503 || status === 404) return "Not available yet.";
-  const detail = payload?.detail as { message?: string } | string | undefined;
+
+  const detail = payload?.detail as
+    | { message?: string }
+    | string
+    | unknown[]
+    | null
+    | undefined;
+
+  // FastAPI reports a schema violation with `detail` as an ARRAY of per-field
+  // errors, not the {code, message} object every hand-raised error on this
+  // surface uses. `typeof [] === "object"`, so reading `.message` off it found
+  // nothing and the fall-through claimed an outage: someone who typed an area
+  // name into the postcode box was told "Places are unavailable right now."
+  // A 422 is always something about the request we sent -- never a dead
+  // provider -- so it must not borrow the outage sentence. The array's own
+  // `msg` strings are framework prose ("String should have at most 120
+  // characters"), so they stay out of the reader's way.
+  //
+  // Keyed on the ARRAY shape rather than on the 422 status, because this route
+  // also raises 422 by hand -- ONE_PLACES_NO_ORIGIN, and the postcode Google
+  // could not place -- as a {code, message} object whose message is already
+  // written for a reader. Those must keep reaching the screen, so they fall
+  // through to the ordinary read below.
+  if (Array.isArray(detail)) {
+    return "That location could not be read. Try an area or postcode.";
+  }
+
   const message =
     (typeof detail === "object" ? detail?.message : detail) ||
     (payload?.error as string | undefined);

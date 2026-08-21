@@ -234,8 +234,8 @@ describe("PlacesNearby", () => {
     render(<PlacesNearby getIdToken={getIdToken} />);
 
     const input = screen.getByTestId("places-postal-input") as HTMLInputElement;
-    expect(input.getAttribute("placeholder")).toBe("Postcode");
-    expect(input.getAttribute("aria-label")).toBe("Postcode");
+    expect(input.getAttribute("placeholder")).toBe("Area or postcode");
+    expect(input.getAttribute("aria-label")).toBe("Area or postcode");
     expect(input.getAttribute("inputmode")).toBe("text");
     expect(screen.queryByText(/ZIP/)).toBeNull();
   });
@@ -379,12 +379,14 @@ describe("PlacesNearby", () => {
     await waitFor(() => expect(screen.getAllByText("Phoenix Mall")).toHaveLength(1));
   });
 
-  it("orders the merged view by distance, not by which category answered first", async () => {
+  it("orders the merged view by category rank, not by which category answered first", async () => {
     mocks.locationState = LOCATED;
     mocks.streamNearby.mockImplementation(
       streamOf([
-        { category: "hotels_stays", items: [place({ placeId: "far", name: "Far Hotel", distanceMeters: 4000 })] },
-        { category: "food_drink", items: [place({ placeId: "near", name: "Near Cafe", distanceMeters: 200, category: "food_drink" })] },
+        // Answers out of declared order, and the later-declared bucket is
+        // nearer. Neither fact may decide the ranking.
+        { category: "food_drink", items: [place({ placeId: "cafe", name: "Near Cafe", distanceMeters: 200, category: "food_drink" })] },
+        { category: "hotels_stays", items: [place({ placeId: "hotel", name: "Far Hotel", distanceMeters: 4000 })] },
       ]),
     );
 
@@ -392,7 +394,55 @@ describe("PlacesNearby", () => {
 
     await waitFor(() => expect(screen.getByText("Near Cafe")).toBeTruthy());
     const rendered = screen.getByTestId("places-nearby").textContent ?? "";
-    expect(rendered.indexOf("Near Cafe")).toBeLessThan(rendered.indexOf("Far Hotel"));
+    // `hotels_stays` leads PLACES_CATEGORIES, so its rank-0 row leads round 0
+    // even though the cafe is nearer and answered first.
+    expect(rendered.indexOf("Far Hotel")).toBeLessThan(rendered.indexOf("Near Cafe"));
+  });
+
+  it("keeps a dense category from crowding the rest off the top of the list", async () => {
+    mocks.locationState = LOCATED;
+    // The shape that made this surface unusable: banking clusters (ATMs sit
+    // metres apart) while the one restaurant is a few hundred metres away.
+    // Sorted by distance the whole first screen was cash machines.
+    mocks.streamNearby.mockImplementation(
+      streamOf([
+        {
+          category: "banking",
+          items: [1, 2, 3, 4, 5].map((n) =>
+            place({
+              placeId: `atm-${n}`,
+              name: `ATM ${n}`,
+              distanceMeters: 10 * n,
+              category: "banking",
+              categoryLabel: "ATM",
+            }),
+          ),
+        },
+        {
+          category: "food_drink",
+          items: [
+            place({
+              placeId: "cafe",
+              name: "Third Wave Coffee",
+              distanceMeters: 900,
+              category: "food_drink",
+              categoryLabel: "Cafe",
+            }),
+          ],
+        },
+      ]),
+    );
+
+    render(<PlacesNearby getIdToken={getIdToken} />);
+
+    await waitFor(() => expect(screen.getByText("Third Wave Coffee")).toBeTruthy());
+    const rendered = screen.getByTestId("places-nearby").textContent ?? "";
+    // Round 0 is one row per category in declared order, and `food_drink`
+    // precedes `banking` in PLACES_CATEGORIES -- so the cafe leads despite
+    // being 90x further away, and exactly one ATM joins it before round 1
+    // starts. Under the old distance sort all five ATMs preceded the cafe.
+    expect(rendered.indexOf("Third Wave Coffee")).toBeLessThan(rendered.indexOf("ATM 1"));
+    expect(rendered.indexOf("ATM 1")).toBeLessThan(rendered.indexOf("ATM 2"));
   });
 
   it("filters to one category without asking the server again", async () => {
