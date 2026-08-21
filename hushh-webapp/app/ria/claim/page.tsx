@@ -847,14 +847,14 @@ export default function RiaClaimPage() {
                 className={`rounded-[18px] border p-5 ${
                   verified
                     ? "border-[rgba(18,161,80,0.35)] bg-[rgba(18,161,80,0.08)]"
-                    : "border-[rgba(201,139,46,0.3)] bg-[rgba(201,139,46,0.08)]"
+                    : "border-[color:var(--ria-gold)]/30 bg-[color:var(--ria-gold)]/[0.08]"
                 }`}
               >
                 <div className="flex items-start gap-3">
                   {verified ? (
                     <CheckCircle2 className="h-6 w-6 shrink-0 text-[#12A150]" />
                   ) : (
-                    <ShieldCheck className="h-6 w-6 shrink-0 text-[color:var(--ria-gold,#C8923A)]" />
+                    <ShieldCheck className="h-6 w-6 shrink-0 text-[color:var(--ria-gold)]" />
                   )}
                   <div className="min-w-0">
                     <p className="text-[16px] font-semibold">

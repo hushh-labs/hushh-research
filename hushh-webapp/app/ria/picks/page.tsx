@@ -534,7 +534,7 @@ function DenseCellInput(
     <input
       {...rest}
       className={cn(
-        "h-9 w-full rounded-[14px] border px-2.5 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70",
+        "h-9 w-full rounded-[var(--ria-chip-radius)] border px-2.5 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70",
         invalid ? "border-rose-300 dark:border-rose-500/50" : "border-border/80",
         tone === "derived"
           ? "bg-muted/[0.72] text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] read-only:cursor-default"

@@ -112,7 +112,7 @@ function scalarSummaryRows(financial: Record<string, unknown>) {
 
 // DS gold -> ink -> neutral ramp (replaces the sky/amber/emerald/slate mix).
 const ALLOCATION_COLORS: Record<string, string> = {
-  equities: "#c8923a",
+  equities: "var(--ria-gold)",
   bonds: "#0d132b",
   cash: "#8a8f9a",
   other: "#d6d8de",
