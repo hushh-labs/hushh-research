@@ -2100,4 +2100,112 @@ describe("NearbyCheckInSheet", () => {
       });
     });
   });
+
+  describe("unclaimed business invite", () => {
+    it("offers to invite an unclaimed business once a place is selected", async () => {
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      expect(
+        screen.queryByTestId("nearby-unclaimed-business-card"),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /Stanford University/ }),
+      );
+
+      const card = screen.getByTestId("nearby-unclaimed-business-card");
+      expect(card).toHaveTextContent("This business profile is unclaimed");
+      expect(card).toHaveTextContent(
+        "Send an invite on behalf of Hushh to claim profile.",
+      );
+      expect(
+        screen.getByRole("button", { name: "Send invite to claim business" }),
+      ).toBeInTheDocument();
+    });
+
+    it("confirms before sending the invite and marks it sent afterward", async () => {
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /Stanford University/ }),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Send invite to claim business" }),
+      );
+
+      expect(
+        await screen.findByText("Send invite to claim business?"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          /Hushh will send Stanford University an invite on your behalf/,
+        ),
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Send invite" }));
+
+      await waitFor(() => {
+        expect(
+          screen.getByTestId("nearby-unclaimed-business-invite-sent"),
+        ).toHaveTextContent("Invite sent on behalf of Hushh");
+      });
+      expect(
+        screen.queryByRole("button", { name: "Send invite to claim business" }),
+      ).not.toBeInTheDocument();
+      const { toast } = await import("sonner");
+      expect(toast.success).toHaveBeenCalledWith(
+        "Hushh will invite Stanford University to claim their profile.",
+      );
+    });
+
+    it("cancels without sending or marking the place invited", async () => {
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /Stanford University/ }),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Send invite to claim business" }),
+      );
+      await screen.findByText("Send invite to claim business?");
+
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      await waitFor(() => {
+        expect(
+          screen.queryByText("Send invite to claim business?"),
+        ).not.toBeInTheDocument();
+      });
+      expect(
+        screen.getByRole("button", { name: "Send invite to claim business" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("nearby-unclaimed-business-invite-sent"),
+      ).not.toBeInTheDocument();
+    });
+  });
 });
