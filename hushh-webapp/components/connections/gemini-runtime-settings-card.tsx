@@ -239,11 +239,18 @@ export function GeminiRuntimeSettingsCard({
       // Say which of the two things actually happened. "We are building your
       // private agent" and "you are on the shared runtime" are different promises,
       // and a single cheerful string for both is how a product starts lying.
-      toast.success(
-        selection.agentScheduled
-          ? "Using Hussh's AI. Your private agent is being built."
-          : "Using Hussh's AI.",
-      );
+      // When no agent was started, the server says WHY (a human-readable
+      // sentence); dropping it left people never told their agent was not
+      // started (audit finding, 2026-08-21). "host already ..." is the one
+      // positive not-scheduled state: the agent exists or is mid-build.
+      const agentLine = selection.agentScheduled
+        ? "Your private agent is being built."
+        : selection.agentReason.startsWith("host already")
+          ? "Your private agent is already set up."
+          : selection.agentReason
+            ? `Your private agent was not started: ${selection.agentReason}.`
+            : "";
+      toast.success(["Using Hussh's AI.", agentLine].filter(Boolean).join(" "));
     } catch (error) {
       setMode(previousMode);
       setHasExplicitSelection(previousSelection);

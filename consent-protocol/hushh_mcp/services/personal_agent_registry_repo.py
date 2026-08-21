@@ -303,9 +303,15 @@ class PersonalAgentRegistryRepo:
         that rather than fall back to hushh's own cloud (which would silently put their
         agent, and their bill, somewhere they did not choose).
 
-        Not cleared on a failed re-check: losing a previously proven authorization on one
-        transient API error would strand a working pod. Re-proving updates the timestamp;
-        only an explicit revocation path should ever clear it.
+        Not cleared on a failed re-check OF THE SAME PROJECT: losing a previously proven
+        authorization on one transient API error would strand a working pod. Re-proving
+        updates the timestamp; only an explicit revocation path should ever clear it.
+
+        Cleared on a PROJECT SWITCH, structurally: a proof is a statement about one
+        project, and carrying it onto a different, never-proven project would let
+        provisioning proceed where hushh holds no grant -- exactly the fallback this
+        column exists to refuse (audit finding, 2026-08-21). Switching and proving in
+        the same call (the one-click chain) keeps its fresh proof.
         """
         normalized_project = str(project or "").strip()
         if not normalized_project:
@@ -322,6 +328,19 @@ class PersonalAgentRegistryRepo:
             data["user_cloud_bootstrap_sa"] = str(bootstrap_sa).strip()
         if authorized:
             data["user_cloud_authorized_at"] = datetime.now(timezone.utc).isoformat()
+        else:
+            current = (
+                self._db()
+                .table(_REGISTRY)
+                .select("user_cloud_project")
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            rows = current.data or []
+            previous_project = str((rows[0] if rows else {}).get("user_cloud_project") or "")
+            if previous_project and previous_project != normalized_project:
+                data["user_cloud_authorized_at"] = None
         data["updated_at"] = datetime.now(timezone.utc).isoformat()
 
         response = self._db().table(_REGISTRY).update(data).eq("user_id", user_id).execute()

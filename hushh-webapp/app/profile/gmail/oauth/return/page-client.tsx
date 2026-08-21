@@ -251,12 +251,21 @@ export default function ProfileGmailOAuthReturnPageClient({
           router.replace(ROUTES.ONE_SETUP);
         })
         .catch((byocError: unknown) => {
-          const reason =
+          const raw =
             byocError instanceof Error &&
             byocError.message &&
             byocError.message !== "BYOC_AUTHORIZE_FAILED"
               ? byocError.message
-              : "We could not finish setting up your cloud. Try again.";
+              : "";
+          // A transport timeout is not a server verdict: the completion keeps
+          // running server-side and usually lands moments later. Say that,
+          // instead of leaking "Request timed out after 60000ms" into the
+          // alert (audit finding, 2026-08-21).
+          const reason = /timed out|timeout/i.test(raw)
+            ? "This is taking longer than expected, and your cloud may still be " +
+              "finishing in the background. Wait a moment, then press Continue " +
+              "again; if it already finished, the setup list will show it."
+            : raw || "We could not finish setting up your cloud. Try again.";
           router.replace(
             `/one/setup/cloud?authorize_error=${encodeURIComponent(reason)}`,
           );

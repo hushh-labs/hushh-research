@@ -3500,9 +3500,19 @@ export class ApiService {
     if (!response.ok) {
       let serverMessage = "";
       try {
-        const body = (await response.json()) as { detail?: { message?: string } | string };
+        const body = (await response.json()) as {
+          detail?: { message?: string } | string;
+          message?: string;
+        };
         serverMessage =
-          typeof body.detail === "string" ? body.detail : (body.detail?.message ?? "");
+          typeof body.detail === "string"
+            ? body.detail
+            : (body.detail?.message ??
+              // The Next proxy's own timeout body carries { error, message }
+              // with no detail. Without this fallback its 504 surfaced as the
+              // generic failure line (audit finding, 2026-08-21).
+              body.message ??
+              "");
       } catch {
         // fall through to the generic error
       }

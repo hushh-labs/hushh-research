@@ -314,3 +314,99 @@ async def test_upsert_leaves_the_axes_null_when_not_given_them():
     row = await repo.get(_UID)
     assert "deployment_target" not in row
     assert "model_credential_mode" not in row
+
+
+async def test_switching_projects_unproven_clears_the_old_projects_proof():
+    """A proof is a statement about ONE project and must not carry to another.
+
+    The audit-found path (2026-08-21): save project A with a proven grant, then
+    re-save project B without proof. The sticky authorized_at let provisioning
+    proceed against B, where hushh holds no grant -- the exact fallback the
+    column exists to refuse.
+    """
+    repo, db = _repo_and_db()
+    await _upsert(repo, status="pending")
+
+    await repo.set_user_cloud(
+        user_id=_UID,
+        project="project-a",
+        region="us-central1",
+        bootstrap_sa="one-bootstrap@project-a.iam.gserviceaccount.com",
+        authorized=True,
+        deployment_target="user_gcp",
+        model_credential_mode="user_adc",
+    )
+    assert (await repo.get(_UID))["user_cloud_authorized_at"]
+
+    await repo.set_user_cloud(
+        user_id=_UID,
+        project="project-b",
+        region="us-central1",
+        bootstrap_sa="one-bootstrap@project-b.iam.gserviceaccount.com",
+        authorized=False,
+        deployment_target="user_gcp",
+        model_credential_mode="user_adc",
+    )
+
+    row = await repo.get(_UID)
+    assert row["user_cloud_project"] == "project-b"
+    assert not row["user_cloud_authorized_at"]
+
+
+async def test_resaving_the_same_project_unproven_keeps_its_proof():
+    """One transient re-check failure must not strand a working pod."""
+    repo, db = _repo_and_db()
+    await _upsert(repo, status="pending")
+
+    await repo.set_user_cloud(
+        user_id=_UID,
+        project="project-a",
+        region="us-central1",
+        bootstrap_sa="one-bootstrap@project-a.iam.gserviceaccount.com",
+        authorized=True,
+        deployment_target="user_gcp",
+        model_credential_mode="user_adc",
+    )
+    proven_at = (await repo.get(_UID))["user_cloud_authorized_at"]
+    assert proven_at
+
+    await repo.set_user_cloud(
+        user_id=_UID,
+        project="project-a",
+        region="us-central1",
+        bootstrap_sa="one-bootstrap@project-a.iam.gserviceaccount.com",
+        authorized=False,
+        deployment_target="user_gcp",
+        model_credential_mode="user_adc",
+    )
+
+    assert (await repo.get(_UID))["user_cloud_authorized_at"] == proven_at
+
+
+async def test_switching_projects_with_fresh_proof_keeps_the_new_proof():
+    """The one-click chain proves as it switches; that proof stands."""
+    repo, db = _repo_and_db()
+    await _upsert(repo, status="pending")
+
+    await repo.set_user_cloud(
+        user_id=_UID,
+        project="project-a",
+        region="us-central1",
+        bootstrap_sa="one-bootstrap@project-a.iam.gserviceaccount.com",
+        authorized=True,
+        deployment_target="user_gcp",
+        model_credential_mode="user_adc",
+    )
+    await repo.set_user_cloud(
+        user_id=_UID,
+        project="project-b",
+        region="us-central1",
+        bootstrap_sa="one-bootstrap@project-b.iam.gserviceaccount.com",
+        authorized=True,
+        deployment_target="user_gcp",
+        model_credential_mode="user_adc",
+    )
+
+    row = await repo.get(_UID)
+    assert row["user_cloud_project"] == "project-b"
+    assert row["user_cloud_authorized_at"]

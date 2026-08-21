@@ -314,6 +314,26 @@ def apply_authorization(
             "check API enablement",
         )
 
+    # A long-running operation can complete WITH an error, and `done` alone
+    # says nothing about which. Treating that as success let an enablement
+    # failure re-surface three calls later as a permission error naming none
+    # of this (audit finding, 2026-08-21). `ensure_project` already checks its
+    # operation the same way.
+    op_error = op.get("error") or {}
+    if op_error:
+        detail = ": ".join(
+            str(part).strip()
+            for part in (op_error.get("status") or op_error.get("code"), op_error.get("message"))
+            if part
+        )
+        logger.warning("byoc_oauth.enable_operation_failed project=%s detail=%r", project, detail)
+        raise ByocAuthorizeError(
+            "Google could not enable the required APIs on this project"
+            + (f". Google said: {detail}" if detail else ""),
+            status_code=502,
+            code="AUTHORIZE_FAILED",
+        )
+
     # 2. The bootstrap service account (409 = it already exists = fine).
     created = session.post(
         f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts",

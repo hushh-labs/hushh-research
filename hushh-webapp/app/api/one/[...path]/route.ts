@@ -61,6 +61,17 @@ function resolveOneUpstreamTimeoutMs(path: string): number | null {
   if (path === "pod/lifecycle/stream") {
     return null;
   }
+  // The one-click cloud completion legitimately runs long: create project,
+  // link billing, enable ten APIs, apply IAM, then wait for Google to settle
+  // the fresh grant (the backend bounds that wait at 45s from ITS start).
+  // Under the blanket 45s this proxy abandoned the call at the same instant
+  // the backend emitted its typed "press Continue again" refusal, so the
+  // browser showed a generic failure for a call that usually succeeds moments
+  // later (audit finding, 2026-08-21). 55s keeps the whole chain inside the
+  // web client's own 60s abort while letting the backend's answer arrive.
+  if (path === "runtime/byoc/authorize/complete") {
+    return 55_000;
+  }
   return ONE_API_TIMEOUT_MS;
 }
 

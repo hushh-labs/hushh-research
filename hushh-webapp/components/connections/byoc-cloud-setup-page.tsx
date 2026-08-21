@@ -11,7 +11,9 @@ import {
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { ByocCloudCard } from "@/components/connections/byoc-cloud-card";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
+import { useAuth } from "@/lib/firebase/auth-context";
 import { ApiService } from "@/lib/services/api-service";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -40,11 +42,49 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 export function ByocCloudSetupPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user } = useAuth();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<Awaited<
     ReturnType<typeof ApiService.saveByocProject>
   > | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The already-connected state, resolved on mount. This page used to hold all
+  // connection truth in per-session state, so a person whose cloud was fully
+  // recorded came back to a blank form with a dead Finish button (audit
+  // finding, 2026-08-21). The durable "cloud" marker only exists after a
+  // PROVEN save, so marker + saved name is enough to render the truth.
+  const [existing, setExisting] = useState<{
+    projectId: string;
+    rationale: string;
+  } | null>(null);
+  const [switching, setSwitching] = useState(false);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const state =
+          PreVaultUserStateService.getCachedBootstrapState(user.uid) ??
+          (await PreVaultUserStateService.bootstrapState(user.uid));
+        if (cancelled || !PreVaultUserStateService.hasOneCloudProject(state)) {
+          return;
+        }
+        const suggestion = await ApiService.suggestByocProject();
+        if (cancelled) return;
+        setExisting({
+          projectId: suggestion.projectId,
+          rationale: suggestion.rationale ?? "",
+        });
+      } catch {
+        // Resolving the connected state is best-effort; the naming form is
+        // always a truthful fallback.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
 
   usePublishVoiceSurfaceMetadata({ screenId: "one_setup_cloud" });
 
@@ -99,7 +139,12 @@ export function ByocCloudSetupPage() {
     }
   }, []);
 
-  const authorized = saved?.authorized === true;
+  // A cloud is "done" here either because THIS session just proved it, or
+  // because the durable marker says a prior session did. Both are proven
+  // states; the footer treats them identically.
+  const connectedNow = saved?.authorized === true;
+  const connectedBefore = existing !== null && !switching;
+  const authorized = connectedNow || connectedBefore;
 
   const finish = useCallback(() => {
     const requested = requestInternalAppNavigation({
@@ -131,7 +176,34 @@ export function ByocCloudSetupPage() {
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion className="space-y-6">
-        <ByocCloudCard onProjectNamed={handleProjectNamed} />
+        {connectedBefore && !connectedNow ? (
+          // The revisit state: their cloud is already recorded and proven.
+          // Showing the naming form here read as "nothing ever happened"
+          // (audit finding, 2026-08-21); the truth is a connected cloud with
+          // one quiet way out for the person who genuinely wants to switch.
+          <div
+            className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
+            data-testid="byoc-cloud-connected"
+          >
+            <p className="text-sm font-semibold">
+              Connected: {existing.projectId}
+            </p>
+            <p className="text-sm text-[var(--app-text-secondary)]">
+              {existing.rationale ||
+                "Your saved cloud. Change it only to switch projects."}
+            </p>
+            <button
+              type="button"
+              className="text-sm underline underline-offset-4"
+              onClick={() => setSwitching(true)}
+              data-testid="byoc-cloud-switch"
+            >
+              Switch project
+            </button>
+          </div>
+        ) : (
+          <ByocCloudCard onProjectNamed={handleProjectNamed} />
+        )}
 
         {saving ? (
           <p

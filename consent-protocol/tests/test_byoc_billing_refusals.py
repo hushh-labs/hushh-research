@@ -191,3 +191,47 @@ def test_a_real_permission_403_still_names_ownership():
 
     assert caught.value.code == "INSUFFICIENT_PERMISSION"
     assert "owner" in str(caught.value)
+
+
+def test_an_enable_operation_that_completes_with_an_error_is_a_refusal(caplog):
+    """`done` alone is not success: an LRO can complete WITH an error.
+
+    Treating it as success let an enablement failure re-surface three calls
+    later as a permission error naming none of this (audit finding,
+    2026-08-21).
+    """
+
+    class _PostSession(_Session):
+        def __init__(self):
+            super().__init__(gets=[], puts=[])
+            self.posts = 0
+
+        def post(self, url, **_kwargs):
+            self.posts += 1
+            return _Response(
+                200,
+                {
+                    "name": "operations/op-1",
+                    "done": True,
+                    "error": {"code": 9, "message": "Billing must be enabled first."},
+                },
+            )
+
+    session = _PostSession()
+
+    with caplog.at_level("WARNING"), pytest.raises(oauth.ByocAuthorizeError) as caught:
+        oauth.apply_authorization(
+            project="hussh-one-x",
+            token="t",  # noqa: S106 - a fake bearer for a fake session
+            caller_sa="caller@x.iam.gserviceaccount.com",
+            session=session,
+        )
+
+    err = caught.value
+    assert err.code == "AUTHORIZE_FAILED"
+    assert "Billing must be enabled first." in str(err)
+    assert "byoc_oauth.enable_operation_failed" in " ".join(
+        record.getMessage() for record in caplog.records
+    )
+    # It refused at the enablement step: nothing after it ran.
+    assert session.posts == 1
