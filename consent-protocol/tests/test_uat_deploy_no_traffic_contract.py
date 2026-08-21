@@ -79,12 +79,18 @@ def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None
     assert "gcloud services describe" not in backend_build
 
 
-def test_cross_project_vertex_fallback_is_dev_only_and_shared_by_readiness() -> None:
+def test_cross_project_vertex_fallback_is_dev_or_exact_uat_bridge_only() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    production_workflow = _read(".github/workflows/deploy-production.yml")
 
     assert 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then' in backend_build
     assert 'genai_project_id="hushh-pda-uat"' in backend_build
-    assert '"${_DEPLOY_ENV}" != "dev"' in backend_build
+    assert backend_build.count('case "${_DEPLOY_ENV}:${genai_project_id}" in') == 1
+    assert "dev:hushh-pda-uat|uat:hushh-gemini-bridge)" in backend_build
+    assert "Cross-project managed Vertex target is not allowlisted." in backend_build
+    assert "##_GENAI_PROJECT_ID=hushh-gemini-bridge" in uat_workflow
+    assert "hushh-gemini-bridge" not in production_workflow
     assert "roles/serviceusage.serviceUsageConsumer" in backend_build
     assert '"GOOGLE_CLOUD_PROJECT=${genai_project_id}"' in backend_build
     assert backend_build.count('"GOOGLE_CLOUD_PROJECT=${genai_project_id}"') == 1
