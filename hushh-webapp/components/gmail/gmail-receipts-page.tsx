@@ -618,7 +618,7 @@ export default function GmailReceiptsPage({
 
     if (Capacitor.isNativePlatform()) {
       toast.error(
-        "Gmail connection needs the native Google handoff. Open Gmail on the web app to connect this inbox for now.",
+        "Connect this inbox from the web app for now.",
       );
       return Promise.resolve(false);
     }
