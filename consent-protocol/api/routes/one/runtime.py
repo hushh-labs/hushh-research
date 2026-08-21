@@ -395,6 +395,21 @@ async def suggest_byoc_project(
         suggest_project_id,
     )
 
+    # THEIR saved cloud outranks the deterministic suggestion. The founder hit
+    # the trap this closes: the per-person deterministic name collided with their
+    # OWN soft-deleted project, so the field prefills an id Google refuses for 30
+    # days while their real, authorized project sat one edit away. A person who
+    # has already named a cloud gets THAT name back, always.
+    saved = await resolve_user_cloud(firebase_uid)
+    if saved is not None and (saved.project or "").strip():
+        payload = suggest_project_id(firebase_uid).as_dict()
+        payload["projectId"] = saved.project
+        payload["rationale"] = "Your saved cloud. Change it only to switch projects."
+        return ByocProjectSuggestionResponse(
+            **payload,
+            creationModes=[CREATION_GUIDED, CREATION_DELEGATED],
+        )
+
     suggestion = suggest_project_id(firebase_uid)
     return ByocProjectSuggestionResponse(
         **suggestion.as_dict(),
