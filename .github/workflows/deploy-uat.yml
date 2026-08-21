@@ -411,6 +411,13 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }}"
+          # TEMP (revert once the hushh-pda-uat billing dunning is resolved):
+          # route ONLY the managed Vertex/Gemini client to a bridge project on
+          # a healthy billing account, per backend.cloudbuild.yaml's existing
+          # genai_project_id support. Cloud SQL, secrets, and everything else
+          # still target hushh-pda-uat via $PROJECT_ID. To revert, delete this
+          # line (genai_project_id then falls back to $PROJECT_ID).
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_GENAI_PROJECT_ID=hushh-gemini-bridge"
           # Durable Kai analyze-run store ON in UAT: exercises the migration-125
           # persist/replay path against real Cloud SQL before prod flips it on.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_KAI_ANALYZE_DURABLE_RUN_STORE=true"
