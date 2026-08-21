@@ -1,6 +1,11 @@
 "use client";
 
 import { isAgentAsleep, isAgentNotAnswering } from "@/lib/feed/agent-presence-policy";
+import { useState } from "react";
+
+import { ApiService } from "@/lib/services/api-service";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { useVault } from "@/lib/vault/vault-context";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 
 /**
@@ -104,6 +109,8 @@ function toAgentState(value: unknown): AgentState | null {
 }
 
 export function OneAgentPresence() {
+  const [rebuilding, setRebuilding] = useState(false);
+  const { vaultOwnerToken } = useVault();
   // Follows the deployment while it is in flight and stops once it settles.
   // This used to be a one-shot fetch on mount, which meant the chip froze for
   // exactly the minutes it had something to say: a person watching their agent
@@ -133,6 +140,25 @@ export function OneAgentPresence() {
   // takes a moment, and a person who knows their agent sleeps reads that pause as
   // normal instead of as a stall.
   const asleep = state === "active" && isAgentAsleep(health);
+  // Repair, reachable where the failure is SHOWN. The chat workspace had the
+  // only rebuild affordance, so a person looking at "Not ready" here had no
+  // move (founder finding, 2026-08-21). Rebuild re-runs the idempotent
+  // provisioning path; the follow hook then narrates the new attempt.
+  const canRebuild = state === "failed";
+  const handleRebuild = async () => {
+    if (!vaultOwnerToken) {
+      toast.error("Unlock your vault first, then press Rebuild again.");
+      return;
+    }
+    setRebuilding(true);
+    try {
+      await ApiService.provisionPersonalAgent({ vaultOwnerToken });
+    } catch {
+      toast.error("Could not start the rebuild. Try again in a moment.");
+    } finally {
+      setRebuilding(false);
+    }
+  };
 
   return (
     <section
@@ -181,6 +207,17 @@ export function OneAgentPresence() {
           </span>
         ) : null}
       </span>
+      {canRebuild ? (
+        <button
+          type="button"
+          onClick={() => void handleRebuild()}
+          disabled={rebuilding}
+          className="shrink-0 rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+          data-testid="one-agent-rebuild"
+        >
+          {rebuilding ? "Rebuilding…" : "Rebuild your agent"}
+        </button>
+      ) : null}
     </section>
   );
 }

@@ -341,6 +341,7 @@ pod_invoker_member=""
 pod_turn_enabled=""
 pod_directive_transport=""
 dev_simulation_enabled=""
+substrate_teardown_enabled=""
 # BYOC locals, pre-initialised for `set -u`. They are assigned ONLY inside the dev
 # block, and every append_optional_env below runs unconditionally -- so without these
 # three lines an unset read would abort the deploy on uat and production, the two lanes
@@ -365,6 +366,11 @@ if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   # Without this line the dev pod path stops working entirely, which is the whole
   # reason it is set here in the same change that added the guard.
   dev_simulation_enabled="true"
+  # Account deletion now removes what hushh created INSIDE the person's own
+  # project (bucket, keys, pod SA, mail plumbing) under their still-standing
+  # grant. The teardown module is dark without this flag (its second guard);
+  # dev-only for the same reason the whole personal-agent surface is.
+  substrate_teardown_enabled="true"
   # The simulation phone allowlist, pinned in git rather than held as a secret:
   # these are reserved fictitious numbers (+1 555 0100-0199), they identify no
   # one, and an auditable allowlist is worth more than a hidden one. The backend
@@ -482,6 +488,7 @@ append_optional_env "HUSSH_POD_INVOKER_MEMBER" "${pod_invoker_member}"
 append_optional_env "HUSSH_POD_TURN_ENABLED" "${pod_turn_enabled}"
 append_optional_env "POD_DIRECTIVE_TRANSPORT_ENABLED" "${pod_directive_transport}"
 append_optional_env "HUSHH_DEV_SIMULATION_ENABLED" "${dev_simulation_enabled}"
+append_optional_env "PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED" "${substrate_teardown_enabled}"
 append_optional_env "HUSHH_DEV_PHONE_TEST_NUMBERS" "${dev_phone_test_numbers}"
 append_optional_env "POD_STORAGE_GCS_BUCKET" "${dev_pod_state_bucket}"
 # BYOC. Every one is empty outside dev, and append_optional_env drops empties, so the
