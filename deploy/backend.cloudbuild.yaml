@@ -168,6 +168,9 @@ steps:
         if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
           secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=${_PLAID_ACCESS_TOKEN_KEY_SECRET}:latest"
         fi
+        # Hussh-managed Developer API key for the developer_api-transport live
+        # model (gemini-3.1-flash-live-preview is not published on Vertex).
+        add_secret "${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}" "HUSHH_MANAGED_GEMINI_LIVE_API_KEY"
         add_secret "${_FINNHUB_API_KEY_SECRET}" "FINNHUB_API_KEY"
         add_secret "${_PMP_API_KEY_SECRET}" "PMP_API_KEY"
         add_secret "${_NEWSAPI_KEY_SECRET}" "NEWSAPI_KEY"
@@ -366,6 +369,13 @@ steps:
             genai_project_id="hushh-pda-uat"
           fi
         fi
+        # The probe needs the managed live key when the canonical live model
+        # rides the developer_api transport; mounted only when the secret
+        # exists so lanes without it still create the job.
+        live_key_secret_flag=""
+        if gcloud secrets describe "${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+          live_key_secret_flag="--set-secrets=HUSHH_MANAGED_GEMINI_LIVE_API_KEY=${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}:latest"
+        fi
         job_name="${_BACKEND_SERVICE}-genai-readiness"
         gcloud run jobs deploy "${job_name}" \
           --project="$PROJECT_ID" \
@@ -375,6 +385,7 @@ steps:
           --command="python" \
           --args="scripts/verify_managed_vertex_runtime.py" \
           --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1" \
+          ${live_key_secret_flag} \
           --max-retries=0 \
           --task-timeout=90s \
           --quiet
@@ -477,6 +488,9 @@ substitutions:
   _FIREBASE_ADMIN_CREDENTIALS_SECRET: FIREBASE_ADMIN_CREDENTIALS_JSON
   _BACKEND_RUNTIME_CONFIG_JSON_SECRET: BACKEND_RUNTIME_CONFIG_JSON
   _PLAID_ACCESS_TOKEN_KEY_SECRET: ""
+  # Defaulted to the canonical secret name so every lane picks it up without
+  # workflow changes; add_secret skips gracefully where the secret is absent.
+  _HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET: HUSHH_MANAGED_GEMINI_LIVE_API_KEY
   _FINNHUB_API_KEY_SECRET: ""
   _PMP_API_KEY_SECRET: ""
   _NEWSAPI_KEY_SECRET: ""
