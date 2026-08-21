@@ -235,7 +235,21 @@ export default function ProfileGmailOAuthReturnPageClient({
         return;
       }
       void ApiService.completeByocAuthorize({ code, state })
-        .then(() => router.replace("/one/setup"))
+        .then(async () => {
+          // The setup hub renders its root prerequisites from the CACHED
+          // bootstrap state, and that cache predates the save this call just
+          // completed. Without a forced refresh the wizard keeps saying
+          // "Connect your cloud first" after the cloud is recorded
+          // (founder-hit, 2026-08-21). Refresh before navigating so the hub
+          // mounts on the truth; a refresh failure still navigates, because
+          // the hub revalidates in the background too.
+          if (user?.uid) {
+            await PreVaultUserStateService.bootstrapState(user.uid, {
+              force: true,
+            }).catch(() => undefined);
+          }
+          router.replace(ROUTES.ONE_SETUP);
+        })
         .catch((byocError: unknown) => {
           const reason =
             byocError instanceof Error &&

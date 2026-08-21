@@ -149,7 +149,20 @@ export function OneSetupHub() {
     const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
     if (cached) {
       setPrereqSnapshot(project(cached));
-      return;
+      // Stale-while-revalidate: the cached record can predate a prerequisite
+      // completed on another surface. The founder-hit case (2026-08-21): the
+      // one-click cloud flow finished and this checklist kept demanding
+      // "Connect your cloud first" from a cache written before the save.
+      // Render the cache instantly, confirm it in the background, and update
+      // only when the truth differs.
+      void PreVaultUserStateService.bootstrapState(user.uid, { force: true })
+        .then((state) => {
+          if (active) setPrereqSnapshot(project(state));
+        })
+        .catch(() => undefined);
+      return () => {
+        active = false;
+      };
     }
     setPrereqSnapshot({
       userId: user.uid,
