@@ -1,9 +1,10 @@
 name: Ship iOS to TestFlight
 
 # One-click: cut a Hushh One iOS build from the latest green `main` (the SHA that
-# UAT runs), build the Capacitor app against the UAT backend + UAT Firebase, sign
+# UAT runs), build the Capacitor app against the UAT backend + shared hushh-pda
+# Firebase authority (config stored in hushh-pda-uat Secret Manager), sign
 # it with Apple-managed signing via an App Store Connect API key, and upload to
-# TestFlight. TestFlight only -- no App Store review, no prod backend/Firebase.
+# TestFlight. TestFlight only -- no App Store review and no production backend.
 #
 # Web sibling: .github/workflows/deploy-uat.yml (same SHA -> UAT website).
 # Runbook + secret setup: docs/guides/mobile/ship-ios-testflight.md

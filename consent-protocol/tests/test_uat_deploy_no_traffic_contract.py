@@ -40,6 +40,17 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     )
 
 
+def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
+    workflow_source = _read(".github/workflows/deploy-uat.yml")
+    workflow = yaml.safe_load(workflow_source)
+
+    assert workflow["env"]["UAT_FIREBASE_PROJECT_ID"] == "hushh-pda"
+    assert (
+        workflow_source.count('--expected-firebase-project "${{ env.UAT_FIREBASE_PROJECT_ID }}"')
+        == 2
+    )
+
+
 def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
     uat_workflow = _read(".github/workflows/deploy-uat.yml")

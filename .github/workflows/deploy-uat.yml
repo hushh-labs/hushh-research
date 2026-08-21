@@ -29,6 +29,7 @@ permissions:
 
 env:
   GCP_PROJECT_ID: hushh-pda-uat
+  UAT_FIREBASE_PROJECT_ID: hushh-pda
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
   RUNTIME_SERVICE_ACCOUNT: consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com
@@ -621,6 +622,7 @@ jobs:
         run: |
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify-env-secrets-parity.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
+            --expected-firebase-project "${{ env.UAT_FIREBASE_PROJECT_ID }}" \
             --region "${{ env.GCP_REGION }}" \
             --backend-service "${{ env.BACKEND_SERVICE }}" \
             --frontend-service "${{ env.FRONTEND_SERVICE }}" \
@@ -643,6 +645,7 @@ jobs:
           sleep 20
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify-env-secrets-parity.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
+            --expected-firebase-project "${{ env.UAT_FIREBASE_PROJECT_ID }}" \
             --region "${{ env.GCP_REGION }}" \
             --backend-service "${{ env.BACKEND_SERVICE }}" \
             --frontend-service "${{ env.FRONTEND_SERVICE }}" \
