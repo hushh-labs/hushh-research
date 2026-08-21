@@ -35,10 +35,7 @@ function decodeBase64(value: string): Uint8Array {
 }
 
 function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength,
-  ) as ArrayBuffer;
+  return Uint8Array.from(bytes).buffer;
 }
 
 describe("trusted-device passkey vault handoff", () => {

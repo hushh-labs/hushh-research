@@ -1,4 +1,5 @@
 import {
+  HUSHH_TECH_LAUNCH_PATH,
   KAI_MARKET_PATH,
   normalizeStaticExportPathname,
   ROUTES,
@@ -11,6 +12,7 @@ export const ROUTE_ID_VALUES = [
   "developers",
   "research",
   "research_protocol",
+  "hushh_tech_launch",
   "blog",
   "blog_post",
   "login",
@@ -24,6 +26,8 @@ export const ROUTE_ID_VALUES = [
   "profile_preferences_kai",
   "profile_preferences_gemini",
   "profile_preferences_device",
+  "profile_preferences_voice",
+  "profile_preferences_voice_changelog",
   "profile_security",
   "profile_security_vault",
   "profile_security_session",
@@ -147,6 +151,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.DEVELOPERS) return "developers";
   if (pathname === ROUTES.RESEARCH) return "research";
   if (pathname === ROUTES.RESEARCH_PROTOCOL) return "research_protocol";
+  if (pathname === HUSHH_TECH_LAUNCH_PATH) return "hushh_tech_launch";
   if (pathname === ROUTES.BLOG) return "blog";
   if (pathname.startsWith(`${ROUTES.BLOG}/`)) return "blog_post";
   if (pathname === ROUTES.LOGIN) return "login";
@@ -163,6 +168,10 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "profile_preferences_gemini";
   if (pathname === ROUTES.PROFILE_PREFERENCES_DEVICE)
     return "profile_preferences_device";
+  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE)
+    return "profile_preferences_voice";
+  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG)
+    return "profile_preferences_voice_changelog";
   if (pathname === ROUTES.PROFILE_SECURITY) return "profile_security";
   if (pathname === ROUTES.PROFILE_SECURITY_VAULT)
     return "profile_security_vault";

@@ -27,16 +27,16 @@ describe("profile security deletion contract", () => {
     expect(profilePageSource).toContain("if (!nextHasVault)");
     expect(profilePageSource).toContain("setShowDeleteConfirm(true);");
     expect(profilePageSource).toContain(
-      "No vault exists yet. This deletes cloud-linked account records.",
+      "Deletes cloud-linked records.",
     );
     expect(profilePageSource).not.toContain("Create vault to delete account");
   });
 
   it("keeps the One account delete confirmation button mobile-safe", () => {
-    expect(profilePageSource).toContain('"Yes, delete my account"');
-    expect(profilePageSource).toContain("!whitespace-normal");
+    expect(profilePageSource).toContain('"Delete account"');
+    expect(profilePageSource).toContain('variant="destructive"');
     expect(profilePageSource).toContain("min-h-10");
-    expect(profilePageSource).toContain("sm:min-w-[12rem]");
+    expect(profilePageSource).toContain("sm:min-w-[10rem]");
   });
 
   it("uses the same destructive settlement from Profile and setup chrome", () => {
@@ -59,8 +59,8 @@ describe("profile security deletion contract", () => {
   });
 
   it("offers a reset-account path that keeps the account and re-runs setup", () => {
-    expect(profilePageSource).toContain("Reset your One account?");
-    expect(profilePageSource).toContain('"Yes, reset my account"');
+    expect(profilePageSource).toContain("Reset account?");
+    expect(profilePageSource).toContain('"Reset account"');
     expect(profilePageSource).toContain(
       "AccountService.resetAccount(resolution.token)",
     );

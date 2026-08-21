@@ -186,15 +186,31 @@ if (typeof window !== "undefined") {
   globalToastManager.initialize();
 }
 
+/**
+ * One block of text, because that is what a toast now is.
+ *
+ * A title with a description under it is two clamped blocks stacked, which
+ * takes a toast past two lines. Callers of this wrapper still pass a
+ * description and still expect their sentence to show, so it joins the message
+ * instead of being dropped.
+ */
+function joinToastText(message: string, description?: string): string {
+  const detail = String(description || "").trim();
+  const head = String(message || "").trim();
+  if (!detail) return head;
+  if (!head) return detail;
+  return /[.!?]$/.test(head) ? `${head} ${detail}` : `${head}. ${detail}`;
+}
+
 export const useMorphyToast = () => {
   const iconWeight = useIconWeight();
 
   const success = (message: string, options: ToastOptions = {}) => {
     const { variant, duration = 3000, description, className } = options;
 
-    return toast.success(message, {
+    return toast.success(joinToastText(message, description), {
       duration,
-      description,
+      
       icon: (
         <CheckCircleIcon
           className="h-4 w-4 text-current"
@@ -208,9 +224,9 @@ export const useMorphyToast = () => {
   const error = (message: string, options: ToastOptions = {}) => {
     const { variant, duration = 5000, description, className } = options;
 
-    return toast.error(message, {
+    return toast.error(joinToastText(message, description), {
       duration,
-      description,
+      
       icon: (
         <WarningCircleIcon
           className="h-4 w-4 text-current"
@@ -224,9 +240,9 @@ export const useMorphyToast = () => {
   const danger = (message: string, options: ToastOptions = {}) => {
     const { variant, duration = 5000, description, className } = options;
 
-    return toast.error(message, {
+    return toast.error(joinToastText(message, description), {
       duration,
-      description,
+      
       icon: (
         <WarningCircleIcon
           className="h-4 w-4 text-current"
@@ -240,9 +256,9 @@ export const useMorphyToast = () => {
   const warning = (message: string, options: ToastOptions = {}) => {
     const { variant, duration = 4000, description, className } = options;
 
-    return toast.warning(message, {
+    return toast.warning(joinToastText(message, description), {
       duration,
-      description,
+      
       icon: (
         <WarningIcon
           className="h-4 w-4 text-current"
@@ -256,9 +272,9 @@ export const useMorphyToast = () => {
   const info = (message: string, options: ToastOptions = {}) => {
     const { variant, duration = 4000, description, className } = options;
 
-    return toast.info(message, {
+    return toast.info(joinToastText(message, description), {
       duration,
-      description,
+      
       icon: (
         <InfoIcon
           className="h-4 w-4 text-current"
@@ -281,9 +297,9 @@ export const useMorphyToast = () => {
       className,
     } = options;
 
-    return toast(message, {
+    return toast(joinToastText(message, description), {
       duration,
-      description,
+      
       icon: icon || (
         <SparkleIcon
           className="h-4 w-4 text-current"
@@ -345,9 +361,9 @@ export const morphyToast = {
   success: (message: string, options?: ToastOptions) => {
     const { variant, duration = 3000, description, className } = options || {};
 
-    return toast.success(message, {
+    return toast.success(joinToastText(message, description), {
       duration,
-      description,
+      
       className: cn(getToastToneClassName("success", variant), className),
     });
   },
@@ -355,9 +371,9 @@ export const morphyToast = {
   error: (message: string, options?: ToastOptions) => {
     const { variant, duration = 5000, description, className } = options || {};
 
-    return toast.error(message, {
+    return toast.error(joinToastText(message, description), {
       duration,
-      description,
+      
       className: cn(getToastToneClassName("error", variant), className),
     });
   },
@@ -365,9 +381,9 @@ export const morphyToast = {
   danger: (message: string, options?: ToastOptions) => {
     const { variant, duration = 5000, description, className } = options || {};
 
-    return toast.error(message, {
+    return toast.error(joinToastText(message, description), {
       duration,
-      description,
+      
       className: cn(getToastToneClassName("danger", variant), className),
     });
   },
@@ -375,9 +391,9 @@ export const morphyToast = {
   warning: (message: string, options?: ToastOptions) => {
     const { variant, duration = 4000, description, className } = options || {};
 
-    return toast.warning(message, {
+    return toast.warning(joinToastText(message, description), {
       duration,
-      description,
+      
       className: cn(getToastToneClassName("warning", variant), className),
     });
   },
@@ -385,9 +401,9 @@ export const morphyToast = {
   info: (message: string, options?: ToastOptions) => {
     const { variant, duration = 4000, description, className } = options || {};
 
-    return toast.info(message, {
+    return toast.info(joinToastText(message, description), {
       duration,
-      description,
+      
       className: cn(getToastToneClassName("info", variant), className),
     });
   },
@@ -404,9 +420,9 @@ export const morphyToast = {
       className,
     } = options || {};
 
-    return toast(message, {
+    return toast(joinToastText(message, description), {
       duration,
-      description,
+      
       icon,
       className: cn(
         "morphy-sonner-toast",

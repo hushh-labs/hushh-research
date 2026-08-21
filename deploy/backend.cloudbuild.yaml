@@ -93,9 +93,14 @@ steps:
             genai_project_id="hushh-pda-uat"
           fi
         fi
-        if [[ "${genai_project_id}" != "$PROJECT_ID" && "${_DEPLOY_ENV}" != "dev" ]]; then
-          echo "Cross-project managed Vertex is allowed only for the isolated dev lane." >&2
-          exit 1
+        if [[ "${genai_project_id}" != "$PROJECT_ID" ]]; then
+          case "${_DEPLOY_ENV}:${genai_project_id}" in
+            dev:hushh-pda-uat|uat:hushh-gemini-bridge) ;;
+            *)
+              echo "Cross-project managed Vertex target is not allowlisted." >&2
+              exit 1
+              ;;
+          esac
         fi
         gcloud iam service-accounts describe "${_RUNTIME_SERVICE_ACCOUNT}" \
           --project="$PROJECT_ID" >/dev/null
@@ -140,10 +145,6 @@ steps:
             genai_project_id="hushh-pda-uat"
           fi
         fi
-        if [[ "${genai_project_id}" != "$PROJECT_ID" && "${_DEPLOY_ENV}" != "dev" ]]; then
-          echo "Cross-project managed Vertex is allowed only for the isolated dev lane." >&2
-          exit 1
-        fi
         add_secret() {
           local secret_name="$1"
           local env_name="$2"
@@ -167,6 +168,9 @@ steps:
         if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
           secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=${_PLAID_ACCESS_TOKEN_KEY_SECRET}:latest"
         fi
+        # Hussh-managed Developer API key for the developer_api-transport live
+        # model (gemini-3.1-flash-live-preview is not published on Vertex).
+        add_secret "${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}" "HUSHH_MANAGED_GEMINI_LIVE_API_KEY"
         add_secret "${_FINNHUB_API_KEY_SECRET}" "FINNHUB_API_KEY"
         add_secret "${_PMP_API_KEY_SECRET}" "PMP_API_KEY"
         add_secret "${_NEWSAPI_KEY_SECRET}" "NEWSAPI_KEY"
@@ -191,6 +195,8 @@ steps:
         add_secret "${_OMNIGATEWAY_EXT_CRM_CLIENT_ID_SECRET}" "OMNIGATEWAY_EXT_CRM_CLIENT_ID"
         add_secret "${_OMNIGATEWAY_EXT_CRM_CLIENT_SECRET_SECRET}" "OMNIGATEWAY_EXT_CRM_CLIENT_SECRET"
         add_secret "${_HUSHH_DEVELOPER_TOKEN_SECRET}" "HUSHH_DEVELOPER_TOKEN"
+        add_secret "${_HUSHH_TECH_LAUNCH_PEPPER_SECRET}" "HUSSH_TECH_LAUNCH_PEPPER"
+        add_secret "${_RATE_LIMIT_STORAGE_URI_SECRET}" "RATE_LIMIT_STORAGE_URI"
         add_secret "${_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET}" "HUSHH_UAT_PHONE_TEST_NUMBERS"
         add_secret "${_HUSHH_UAT_PHONE_TEST_CODE_SECRET}" "HUSHH_UAT_PHONE_TEST_CODE"
         add_secret "${_HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET_SECRET}" "HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET"
@@ -328,6 +334,9 @@ steps:
         if [[ -n "${_CLOUDSQL_INSTANCES}" ]]; then
           cmd+=("--add-cloudsql-instances=${_CLOUDSQL_INSTANCES}")
         fi
+        if [[ -n "${_VPC_CONNECTOR}" ]]; then
+          cmd+=("--vpc-connector=${_VPC_CONNECTOR}" "--vpc-egress=private-ranges-only")
+        fi
 
         "${cmd[@]}"
     id: "deploy-backend"
@@ -360,6 +369,13 @@ steps:
             genai_project_id="hushh-pda-uat"
           fi
         fi
+        # The probe needs the managed live key when the canonical live model
+        # rides the developer_api transport; mounted only when the secret
+        # exists so lanes without it still create the job.
+        live_key_secret_flag=""
+        if gcloud secrets describe "${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+          live_key_secret_flag="--set-secrets=HUSHH_MANAGED_GEMINI_LIVE_API_KEY=${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}:latest"
+        fi
         job_name="${_BACKEND_SERVICE}-genai-readiness"
         gcloud run jobs deploy "${job_name}" \
           --project="$PROJECT_ID" \
@@ -369,6 +385,7 @@ steps:
           --command="python" \
           --args="scripts/verify_managed_vertex_runtime.py" \
           --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1" \
+          ${live_key_secret_flag} \
           --max-retries=0 \
           --task-timeout=90s \
           --quiet
@@ -462,6 +479,7 @@ substitutions:
   _GENAI_PROJECT_ID: ""
   _REGION: us-central1
   _CLOUDSQL_INSTANCES: ""
+  _VPC_CONNECTOR: ""
   _PLAID_CLIENT_ID_SECRET: ""
   _PLAID_SECRET_SECRET: ""
   _APP_SIGNING_KEY_SECRET: APP_SIGNING_KEY
@@ -470,6 +488,9 @@ substitutions:
   _FIREBASE_ADMIN_CREDENTIALS_SECRET: FIREBASE_ADMIN_CREDENTIALS_JSON
   _BACKEND_RUNTIME_CONFIG_JSON_SECRET: BACKEND_RUNTIME_CONFIG_JSON
   _PLAID_ACCESS_TOKEN_KEY_SECRET: ""
+  # Defaulted to the canonical secret name so every lane picks it up without
+  # workflow changes; add_secret skips gracefully where the secret is absent.
+  _HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET: HUSHH_MANAGED_GEMINI_LIVE_API_KEY
   _FINNHUB_API_KEY_SECRET: ""
   _PMP_API_KEY_SECRET: ""
   _NEWSAPI_KEY_SECRET: ""
@@ -489,6 +510,8 @@ substitutions:
   _OMNIGATEWAY_EXT_CRM_CLIENT_ID_SECRET: OMNIGATEWAY_EXT_CRM_CLIENT_ID
   _OMNIGATEWAY_EXT_CRM_CLIENT_SECRET_SECRET: OMNIGATEWAY_EXT_CRM_CLIENT_SECRET
   _HUSHH_DEVELOPER_TOKEN_SECRET: ""
+  _HUSHH_TECH_LAUNCH_PEPPER_SECRET: ""
+  _RATE_LIMIT_STORAGE_URI_SECRET: ""
   _HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET: ""
   _HUSHH_UAT_PHONE_TEST_CODE_SECRET: ""
   _HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET_SECRET: ""
