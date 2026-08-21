@@ -2504,7 +2504,27 @@ export function OneLocationAgentPageContent({
   const [referralTargets, setReferralTargets] = useState<
     Record<string, string>
   >({});
-  const [publicInviteUrl, setPublicInviteUrl] = useState("");
+  /**
+   * The link as it came back from the create call, this session only.
+   *
+   * Kept because the server's copy arrives one refetch later: between "created"
+   * and the next `getState` there is a window where the only place the URL
+   * exists is this variable. `publicInviteUrl` below prefers the server's copy
+   * and falls back to this one.
+   */
+  const [createdPublicInviteUrl, setCreatedPublicInviteUrl] = useState("");
+  /**
+   * The public link's own duration, deliberately not the shared `durationHours`.
+   *
+   * One `durationHours` string is written by the Ask composer and the Circle
+   * invite screen and read by all three lanes, which is how a public link ended
+   * up posting the 24 hours somebody picked on another screen. The clamp at
+   * post time caught that, but only by silently shortening what the person had
+   * been shown. Now that the control lives permanently on the Links tab rather
+   * than behind a button, it would be writing that shared string every time
+   * anyone browsed past it.
+   */
+  const [publicLinkDurationHours, setPublicLinkDurationHours] = useState("1");
   const [circleInviteUrl, setCircleInviteUrl] = useState("");
   const [
     incomingCircleMemberInvites,
@@ -3279,6 +3299,28 @@ export function OneLocationAgentPageContent({
       )[0] ?? null
     );
   }, [activePublicInvites]);
+  /**
+   * The live public link, whoever knows it.
+   *
+   * The server's copy wins. It is the only one that survives a reload, a second
+   * device, or a link the agent made -- and until it existed, this was simply
+   * `""` in all three cases, so Copy and Share early-returned and the Links tab
+   * shipped a button that did nothing. The create response is the fallback for
+   * the one moment the server has not caught up yet: `handleCreatePublicInvite`
+   * fires `refresh()` without awaiting it.
+   *
+   * Empty means there is genuinely no link to offer -- either none is live, or
+   * the live one predates derivable tokens and cannot be recovered. Callers
+   * must not read empty as "not loaded yet".
+   */
+  const publicInviteUrl = useMemo(() => {
+    const fromServer = latestActivePublicInvite?.publicUrl;
+    if (fromServer && String(fromServer).trim()) {
+      return publicInviteUrlLabel(String(fromServer).trim());
+    }
+    return createdPublicInviteUrl;
+  }, [createdPublicInviteUrl, latestActivePublicInvite]);
+
   const activeCircleInvites = useMemo(
     () =>
       (state?.circleInvites ?? []).filter(
@@ -6436,16 +6478,16 @@ export function OneLocationAgentPageContent({
       const point = readiness.point;
       const response = await OneLocationService.createPublicInvite({
         vaultOwnerToken,
-        durationHours: publicInviteDurationHours(durationHours),
+        durationHours: publicInviteDurationHours(publicLinkDurationHours),
         locationSnapshot: point,
       });
       const url = publicInviteUrlLabel(response.publicUrl);
-      setPublicInviteUrl(url);
+      setCreatedPublicInviteUrl(url);
       const copiedToClipboard = url ? await copyToClipboard(url) : false;
       trackEvent("one_location_public_link_created", {
         route_id: "one_location",
         result: "success",
-        duration_bucket: oneLocationDurationBucket(durationHours),
+        duration_bucket: oneLocationDurationBucket(publicLinkDurationHours),
         copied_to_clipboard: copiedToClipboard,
         active_invite_count: activePublicInvites.length + 1,
       });
@@ -6459,7 +6501,7 @@ export function OneLocationAgentPageContent({
       trackEvent("one_location_public_link_created", {
         route_id: "one_location",
         result: "error",
-        duration_bucket: oneLocationDurationBucket(durationHours),
+        duration_bucket: oneLocationDurationBucket(publicLinkDurationHours),
         copied_to_clipboard: false,
         active_invite_count: activePublicInvites.length,
       });
@@ -6474,8 +6516,8 @@ export function OneLocationAgentPageContent({
     }
   }, [
     activePublicInvites.length,
-    durationHours,
     ensureForegroundLocationReady,
+    publicLinkDurationHours,
     refresh,
     vaultOwnerToken,
   ]);
@@ -6526,15 +6568,15 @@ export function OneLocationAgentPageContent({
         const point = readiness.point;
         const response = await OneLocationService.createPublicInvite({
           vaultOwnerToken,
-          durationHours: publicInviteDurationHours(durationHours),
+          durationHours: publicInviteDurationHours(publicLinkDurationHours),
           locationSnapshot: point,
         });
         url = publicInviteUrlLabel(response.publicUrl);
-        setPublicInviteUrl(url);
+        setCreatedPublicInviteUrl(url);
         trackEvent("one_location_public_link_created", {
           route_id: "one_location",
           result: "success",
-          duration_bucket: oneLocationDurationBucket(durationHours),
+          duration_bucket: oneLocationDurationBucket(publicLinkDurationHours),
           copied_to_clipboard: false,
           active_invite_count: activePublicInvites.length + 1,
         });
@@ -6555,7 +6597,7 @@ export function OneLocationAgentPageContent({
       trackEvent("one_location_public_link_created", {
         route_id: "one_location",
         result: "error",
-        duration_bucket: oneLocationDurationBucket(durationHours),
+        duration_bucket: oneLocationDurationBucket(publicLinkDurationHours),
         copied_to_clipboard: false,
         active_invite_count: activePublicInvites.length,
       });
@@ -6565,9 +6607,9 @@ export function OneLocationAgentPageContent({
     }
   }, [
     activePublicInvites.length,
-    durationHours,
     ensureForegroundLocationReady,
     publicInviteUrl,
+    publicLinkDurationHours,
     refresh,
     vaultOwnerToken,
   ]);
@@ -7529,7 +7571,7 @@ export function OneLocationAgentPageContent({
           vaultOwnerToken,
           inviteId: invite.id,
         });
-        setPublicInviteUrl("");
+        setCreatedPublicInviteUrl("");
         toast.success("Public location link revoked.");
         void refresh().catch(() => null);
       } catch (error) {
@@ -11530,12 +11572,14 @@ export function OneLocationAgentPageContent({
     requestMessage,
     shareReviewOpen,
     publicInviteUrl,
+    publicLinkDurationHours,
     circleInviteUrl,
     setRecipientSearch,
     setShareRecipientSearch,
     setShareDurationHours,
     setShareMessage,
     setDurationHours,
+    setPublicLinkDurationHours,
     setRequestMessage,
     setShareReviewOpen,
     resetShareComposer,
