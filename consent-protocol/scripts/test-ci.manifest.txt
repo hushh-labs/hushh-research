@@ -47,6 +47,7 @@ tests/test_llm_operon_stream_error_leak.py
 tests/test_stream_agent_thinking_gemini_error_cwe209.py
 tests/test_one_location_db_error_detail_cwe209.py
 tests/test_cloudbuild_step_arg_limit.py
+tests/test_uat_deploy_no_traffic_contract.py
 tests/test_deploy_sha_gate_payload_size.py
 tests/services/test_advisor_directory_service.py
 tests/test_advisors_runtime_config_wiring.py
