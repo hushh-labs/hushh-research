@@ -1,4 +1,5 @@
 import {
+  HUSHH_TECH_LAUNCH_PATH,
   KAI_MARKET_PATH,
   normalizeStaticExportPathname,
   ROUTES,
@@ -11,6 +12,7 @@ export const ROUTE_ID_VALUES = [
   "developers",
   "research",
   "research_protocol",
+  "hushh_tech_launch",
   "blog",
   "blog_post",
   "login",
@@ -149,6 +151,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.DEVELOPERS) return "developers";
   if (pathname === ROUTES.RESEARCH) return "research";
   if (pathname === ROUTES.RESEARCH_PROTOCOL) return "research_protocol";
+  if (pathname === HUSHH_TECH_LAUNCH_PATH) return "hushh_tech_launch";
   if (pathname === ROUTES.BLOG) return "blog";
   if (pathname.startsWith(`${ROUTES.BLOG}/`)) return "blog_post";
   if (pathname === ROUTES.LOGIN) return "login";

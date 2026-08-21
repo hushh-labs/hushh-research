@@ -65,10 +65,15 @@ from hushh_mcp.services.developer_oauth_service import (
 )
 from hushh_mcp.services.developer_registry_service import (
     DEFAULT_PUBLIC_TOOL_GROUPS,
+    TOOL_GROUP_HUSHH_TECH_CLIENT,
     DeveloperPrincipal,
     DeveloperRegistryService,
     normalize_tool_groups,
     visible_tool_names_for_groups,
+)
+from hushh_mcp.services.hushh_tech_client_service import (
+    HushhTechClientError,
+    HushhTechClientService,
 )
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.user_identifier_service import resolve_lookup_identifier
@@ -101,6 +106,149 @@ _CONSENT_REQUEST_STATUS_MAP = {
     "CANCELLED": "cancelled",
     "REVOKED": "revoked",
 }
+
+
+def _is_hushh_tech_principal(principal: DeveloperPrincipal) -> bool:
+    return bool(
+        principal.app_id == str(os.getenv("HUSSH_TECH_DEVELOPER_APP_ID", "")).strip()
+        and tuple(principal.allowed_tool_groups) == (TOOL_GROUP_HUSHH_TECH_CLIENT,)
+        and not tuple(principal.allowed_capabilities)
+    )
+
+
+async def _require_hushh_tech_consent_access(
+    principal: DeveloperPrincipal,
+    user_id: str,
+) -> int | None:
+    """Require the enabled cohort and active product link on every consent path."""
+    configured_app_id = str(os.getenv("HUSSH_TECH_DEVELOPER_APP_ID", "")).strip()
+    groups = tuple(principal.allowed_tool_groups)
+    is_candidate = (
+        bool(configured_app_id and principal.app_id == configured_app_id)
+        or TOOL_GROUP_HUSHH_TECH_CLIENT in groups
+    )
+    if not is_candidate:
+        return None
+    if not _is_hushh_tech_principal(principal):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "FEATURE_DISABLED",
+                "message": "This product registration is not enabled.",
+            },
+        )
+    try:
+        link = await HushhTechClientService().get_link_status(
+            firebase_uid=str(user_id or "").strip(),
+            app_id=principal.app_id,
+        )
+    except HushhTechClientError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error_code": exc.state, "message": exc.message},
+        ) from exc
+    except Exception as exc:
+        logger.warning("hushh_tech.consent_gate_unavailable error=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error_code": "UPSTREAM_UNAVAILABLE",
+                "message": "HushhTech account link is unavailable.",
+            },
+        ) from None
+    if not bool(link.get("linked")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "LINK_REQUIRED",
+                "message": "Link the product account before requesting Research data.",
+            },
+        )
+    linked_at_ms = link.get("linked_at_ms")
+    if isinstance(linked_at_ms, bool) or not isinstance(linked_at_ms, int) or linked_at_ms <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error_code": "UPSTREAM_UNAVAILABLE",
+                "message": "HushhTech account link is unavailable.",
+            },
+        )
+    return cast(int, linked_at_ms)
+
+
+def _require_hushh_tech_consent_epoch(
+    principal: DeveloperPrincipal,
+    *,
+    issued_at_ms: object,
+    linked_at_ms: int | None,
+) -> None:
+    """Reject consent state issued before the current product-link activation."""
+    if not _is_hushh_tech_principal(principal):
+        return
+    if (
+        not isinstance(linked_at_ms, int)
+        or linked_at_ms <= 0
+        or isinstance(issued_at_ms, bool)
+        or not isinstance(issued_at_ms, int)
+        or issued_at_ms <= linked_at_ms
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "CONSENT_REQUIRED",
+                "message": "Request consent again after linking this account.",
+            },
+        )
+
+
+def _hushh_tech_consent_scope_allowed(scope: str | None) -> bool:
+    normalized = normalize_scope(scope) if scope else ""
+    allowed = {
+        normalize_scope(item)
+        for item in str(os.getenv("HUSSH_TECH_ALLOWED_CONSENT_SCOPES", "")).split(",")
+        if str(item).strip()
+    }
+    return (
+        normalized.startswith("attr.") and not normalized.endswith(".*") and normalized in allowed
+    )
+
+
+def _require_hushh_tech_consent_scope(
+    principal: DeveloperPrincipal,
+    scope: str | None,
+) -> None:
+    """Bound the dedicated product app to exact pre-approved attr scopes."""
+    if not _is_hushh_tech_principal(principal):
+        return
+    if not _hushh_tech_consent_scope_allowed(scope):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "APP_SCOPE_NOT_ALLOWED",
+                "message": "This product registration is not permitted to request that scope.",
+            },
+        )
+
+
+def _require_hushh_tech_export_scope_binding(
+    principal: DeveloperPrincipal,
+    *,
+    token_scope: str | None,
+    export_scope: str | None,
+) -> None:
+    if not _is_hushh_tech_principal(principal):
+        return
+    _require_hushh_tech_consent_scope(principal, export_scope)
+    if normalize_scope(token_scope or "") != normalize_scope(export_scope or ""):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "CONSENT_EXPORT_SCOPE_MISMATCH",
+                "message": "The encrypted export does not match its consent token scope.",
+            },
+        )
+
+
 _TERMINAL_CONSENT_STATUSES = {"granted", "denied", "expired", "cancelled", "revoked"}
 
 
@@ -936,6 +1084,19 @@ async def _developer_consent_event_generator(
         agent_id=principal.agent_id,
     )
     try:
+        try:
+            linked_at_ms = await _require_hushh_tech_consent_access(principal, user_id)
+            _require_hushh_tech_consent_epoch(
+                principal,
+                issued_at_ms=initial_latest.get("issued_at"),
+                linked_at_ms=linked_at_ms,
+            )
+            _require_hushh_tech_consent_scope(
+                principal,
+                str(initial_latest.get("scope") or ""),
+            )
+        except HTTPException:
+            return
         initial_payload = _developer_consent_status_payload(
             latest=initial_latest,
             user_id=user_id,
@@ -949,13 +1110,34 @@ async def _developer_consent_event_generator(
         }
         if initial_payload["terminal"]:
             return
+        current_scope = str(initial_latest.get("scope") or "")
+        current_issued_at_ms = initial_latest.get("issued_at")
 
         while True:
+            try:
+                linked_at_ms = await _require_hushh_tech_consent_access(principal, user_id)
+                _require_hushh_tech_consent_epoch(
+                    principal,
+                    issued_at_ms=current_issued_at_ms,
+                    linked_at_ms=linked_at_ms,
+                )
+            except HTTPException:
+                return
             if await request.is_disconnected():
                 break
             try:
                 data = await asyncio.wait_for(queue.get(), timeout=30)
             except asyncio.TimeoutError:
+                try:
+                    linked_at_ms = await _require_hushh_tech_consent_access(principal, user_id)
+                    _require_hushh_tech_consent_epoch(
+                        principal,
+                        issued_at_ms=current_issued_at_ms,
+                        linked_at_ms=linked_at_ms,
+                    )
+                    _require_hushh_tech_consent_scope(principal, current_scope)
+                except HTTPException:
+                    return
                 yield {
                     "event": "heartbeat",
                     "data": json.dumps(
@@ -971,6 +1153,21 @@ async def _developer_consent_event_generator(
                 continue
             if str(data.get("agent_id") or "") != principal.agent_id:
                 continue
+            try:
+                linked_at_ms = await _require_hushh_tech_consent_access(principal, user_id)
+                _require_hushh_tech_consent_epoch(
+                    principal,
+                    issued_at_ms=data.get("issued_at"),
+                    linked_at_ms=linked_at_ms,
+                )
+                _require_hushh_tech_consent_scope(
+                    principal,
+                    str(data.get("scope") or ""),
+                )
+            except HTTPException:
+                return
+            current_scope = str(data.get("scope") or "")
+            current_issued_at_ms = data.get("issued_at")
             payload = _developer_consent_status_payload(
                 latest=data,
                 user_id=user_id,
@@ -1553,7 +1750,10 @@ async def get_consent_status(
         token=token,
         authorization=authorization,
     )
+    linked_at_ms = await _require_hushh_tech_consent_access(principal, user_id)
     normalized_scope = normalize_scope(scope) if scope else None
+    if normalized_scope:
+        _require_hushh_tech_consent_scope(principal, normalized_scope)
 
     if normalized_scope and is_private_pkm_export_scope(normalized_scope):
         return DeveloperConsentStatusResponse(
@@ -1574,6 +1774,25 @@ async def get_consent_status(
             agent_id=principal.agent_id,
             requested_scope=normalized_scope,
         )
+        invalidated_link_epoch = False
+        if (
+            active
+            and _is_hushh_tech_principal(principal)
+            and not _hushh_tech_consent_scope_allowed(str(active.get("scope") or ""))
+        ):
+            active = None
+            export_metadata = None
+        if active and _is_hushh_tech_principal(principal):
+            try:
+                _require_hushh_tech_consent_epoch(
+                    principal,
+                    issued_at_ms=active.get("issued_at"),
+                    linked_at_ms=linked_at_ms,
+                )
+            except HTTPException:
+                active = None
+                export_metadata = None
+                invalidated_link_epoch = True
         if active:
             active_metadata = _metadata_object_map(active.get("metadata"))
             coverage = _coverage_fields(
@@ -1608,6 +1827,16 @@ async def get_consent_status(
                     else "Consent is active for this app; an existing broader grant covers the requested scope."
                 ),
             )
+        if invalidated_link_epoch:
+            return DeveloperConsentStatusResponse(
+                status="requires_reconsent",
+                user_id=user_id,
+                scope=normalized_scope,
+                requested_scope=normalized_scope,
+                app_id=principal.app_id,
+                app_display_name=principal.display_name,
+                message="Request consent again after linking this account.",
+            )
         if invalidated_legacy:
             return DeveloperConsentStatusResponse(
                 status="requires_reconsent",
@@ -1624,7 +1853,17 @@ async def get_consent_status(
 
     if request_id:
         latest = await service.get_request_status(user_id, request_id)
+        if latest and _is_hushh_tech_principal(principal):
+            try:
+                _require_hushh_tech_consent_epoch(
+                    principal,
+                    issued_at_ms=latest.get("issued_at"),
+                    linked_at_ms=linked_at_ms,
+                )
+            except HTTPException:
+                latest = None
         if latest and latest.get("agent_id") == principal.agent_id:
+            _require_hushh_tech_consent_scope(principal, str(latest.get("scope") or ""))
             latest_action = str(latest.get("action") or "").strip().upper()
             if is_private_pkm_export_scope(str(latest.get("scope") or "")):
                 latest_action = "REVOKED"
@@ -1709,6 +1948,7 @@ async def stream_consent_events(
         token=token,
         authorization=authorization,
     )
+    linked_at_ms = await _require_hushh_tech_consent_access(principal, user_id)
     latest = await ConsentDBService().get_request_status(user_id, request_id)
     if not latest or latest.get("agent_id") != principal.agent_id:
         raise HTTPException(
@@ -1718,6 +1958,12 @@ async def stream_consent_events(
                 "message": "No matching consent request was found for this developer app.",
             },
         )
+    _require_hushh_tech_consent_scope(principal, str(latest.get("scope") or ""))
+    _require_hushh_tech_consent_epoch(
+        principal,
+        issued_at_ms=latest.get("issued_at"),
+        linked_at_ms=linked_at_ms,
+    )
 
     return EventSourceResponse(
         _developer_consent_event_generator(
@@ -1824,8 +2070,10 @@ async def _request_consent_impl(
         token=token,
         authorization=authorization,
     )
+    linked_at_ms = await _require_hushh_tech_consent_access(principal, payload.user_id)
 
     normalized_scope = normalize_scope(payload.scope)
+    _require_hushh_tech_consent_scope(principal, normalized_scope)
     if is_private_pkm_export_scope(normalized_scope):
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
@@ -1956,6 +2204,21 @@ async def _request_consent_impl(
             active = None
         elif export_policy != payload.refresh_policy:
             active = None
+        elif _is_hushh_tech_principal(principal) and not _hushh_tech_consent_scope_allowed(
+            str(active.get("scope") or "")
+        ):
+            active = None
+            export_metadata = None
+    if active and _is_hushh_tech_principal(principal):
+        try:
+            _require_hushh_tech_consent_epoch(
+                principal,
+                issued_at_ms=active.get("issued_at"),
+                linked_at_ms=linked_at_ms,
+            )
+        except HTTPException:
+            active = None
+            export_metadata = None
     if active:
         if is_information_scope:
             await _require_discovered_information_scope(
@@ -2004,6 +2267,15 @@ async def _request_consent_impl(
         agent_id=principal.agent_id,
         scope=normalized_scope,
     )
+    if pending and _is_hushh_tech_principal(principal):
+        try:
+            _require_hushh_tech_consent_epoch(
+                principal,
+                issued_at_ms=pending.get("issued_at"),
+                linked_at_ms=linked_at_ms,
+            )
+        except HTTPException:
+            pending = None
     if pending and _pending_request_matches(
         pending,
         reason=payload.reason,
@@ -2043,15 +2315,24 @@ async def _request_consent_impl(
     now_ms = int(time.time() * 1000)
     poll_timeout_at = now_ms + (approval_timeout_minutes * 60 * 1000)
     scope_description = get_scope_description(normalized_scope)
-    existing_granted_scopes = [
-        str(token.get("scope") or "")
-        for token in await service.get_superseded_active_tokens(
+    existing_granted_scopes = []
+    superseded_tokens = cast(
+        list[dict[str, Any]],
+        await service.get_superseded_active_tokens(
             payload.user_id,
             agent_id=principal.agent_id,
             requested_scope=normalized_scope,
-        )
-        if str(token.get("scope") or "").strip()
-    ]
+        ),
+    )
+    for superseded_token in superseded_tokens:
+        existing_scope = str(superseded_token.get("scope") or "").strip()
+        if not existing_scope:
+            continue
+        if _is_hushh_tech_principal(principal) and not _hushh_tech_consent_scope_allowed(
+            existing_scope
+        ):
+            continue
+        existing_granted_scopes.append(existing_scope)
     scope_upgrade_fields = _scope_upgrade_fields(
         requested_scope=normalized_scope,
         existing_granted_scopes=existing_granted_scopes,
@@ -2329,6 +2610,7 @@ async def _load_scoped_export_or_raise(
         token=token,
         authorization=authorization,
     )
+    linked_at_ms = await _require_hushh_tech_consent_access(principal, user_id)
     valid, reason, token_obj = await validate_token_with_db(
         consent_token,
         expected_scope=expected_scope,
@@ -2349,7 +2631,8 @@ async def _load_scoped_export_or_raise(
                 "message": f"Consent validation failed: {reason or 'unknown error'}",
             },
         )
-    if is_private_pkm_export_scope(consent_token_scope_value(token_obj)):
+    signed_token_scope = consent_token_scope_value(token_obj)
+    if is_private_pkm_export_scope(signed_token_scope):
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
             detail={
@@ -2357,6 +2640,12 @@ async def _load_scoped_export_or_raise(
                 "message": "This encrypted export is not externally shareable under PKM policy.",
             },
         )
+    _require_hushh_tech_consent_scope(principal, signed_token_scope)
+    _require_hushh_tech_consent_epoch(
+        principal,
+        issued_at_ms=getattr(token_obj, "issued_at", None),
+        linked_at_ms=linked_at_ms,
+    )
 
     if str(token_obj.user_id) != user_id:
         raise HTTPException(
@@ -2393,6 +2682,11 @@ async def _load_scoped_export_or_raise(
                 "message": "This encrypted export is no longer externally shareable.",
             },
         )
+    _require_hushh_tech_export_scope_binding(
+        principal,
+        token_scope=signed_token_scope,
+        export_scope=str(export_data.get("scope") or ""),
+    )
     refresh_status = str(export_data.get("refresh_status") or "current")
     if refresh_status != "current":
         error_code = {
@@ -2726,6 +3020,10 @@ async def get_scoped_export_resource(
             status_code=403,
             detail={"error_code": "CROSS_TENANT_DENIED", "message": "Resource access denied."},
         )
+    linked_at_ms = await _require_hushh_tech_consent_access(
+        principal,
+        str(export_data.get("user_id") or ""),
+    )
     consent_token = str(export_data.get("consent_token") or "")
     valid, reason, token_obj = await validate_token_with_db(consent_token)
     if not valid or token_obj is None or str(token_obj.agent_id) != principal.agent_id:
@@ -2734,8 +3032,20 @@ async def get_scoped_export_resource(
         raise HTTPException(status_code=401, detail={"error_code": "INVALID_CONSENT_TOKEN"})
     if is_private_pkm_export_scope(consent_token_scope_value(token_obj)):
         raise HTTPException(status_code=410, detail={"error_code": "SCOPE_RETIRED"})
+    resource_token_scope = consent_token_scope_value(token_obj)
+    _require_hushh_tech_consent_scope(principal, resource_token_scope)
+    _require_hushh_tech_consent_epoch(
+        principal,
+        issued_at_ms=getattr(token_obj, "issued_at", None),
+        linked_at_ms=linked_at_ms,
+    )
     if is_private_pkm_export_scope(str(export_data.get("scope") or "")):
         raise HTTPException(status_code=410, detail={"error_code": "SCOPE_RETIRED"})
+    _require_hushh_tech_export_scope_binding(
+        principal,
+        token_scope=resource_token_scope,
+        export_scope=str(export_data.get("scope") or ""),
+    )
     if int(export_data.get("export_revision") or 0) != revision:
         raise HTTPException(status_code=404, detail={"error_code": "EXPORT_REVISION_NOT_FOUND"})
     if str(export_data.get("refresh_status") or "") != "current":

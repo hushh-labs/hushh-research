@@ -14,8 +14,7 @@ Security posture
 - The two public routes take no auth at all. Because ``SlowAPIMiddleware`` is
   never added to the app and ``RateLimits.GLOBAL_PER_IP`` is never applied, an
   undecorated public route would carry *zero* limit — so both public routes
-  carry an explicit ``@limiter.limit`` with a forwarded-IP key function (see
-  ``_forwarded_client_ip``).
+  carry an explicit shared limit with the canonical forwarded-IP key helper.
 - The plaintext share token is returned to the owner **only** in the create and
   rotate responses. It is never logged, never echoed on read, and never appears
   in an error body.
@@ -45,10 +44,9 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from slowapi.util import get_remote_address
 
 from api.middleware import require_vault_owner_token
-from api.middlewares.rate_limit import limiter
+from api.middlewares.rate_limit import get_trusted_forwarded_client_ip, limiter
 from hushh_mcp.services.apple_wallet_pass_service import (
     WALLET_PASS_CONTENT_TYPE,
     WALLET_PASS_FILENAME,
@@ -118,38 +116,14 @@ _DB_FAILED_MESSAGE = "Wallet Profile request failed."
 TRUSTED_PROXY_HOPS_ENV = "ONE_WALLET_CARD_TRUSTED_PROXY_HOPS"
 
 
-def _trusted_proxy_hops() -> int:
-    raw = str(os.getenv(TRUSTED_PROXY_HOPS_ENV) or "").strip()
-    try:
-        hops = int(raw)
-    except ValueError:
-        return 0
-    return hops if hops >= 0 else 0
-
-
-def _forwarded_client_ip(request: Request) -> str:
-    """Best available visitor IP for an unauthenticated request.
-
-    ``slowapi``'s default key function falls back to ``get_remote_address``,
-    which behind Cloud Run is the ingress address — every visitor would then
-    share one bucket and the limit would be meaningless. Read the forwarded
-    chain instead, counting from the right (the hop our edge appended) and
-    skipping ``TRUSTED_PROXY_HOPS_ENV`` entries. Falls back to the socket peer
-    when no forwarded header is present (local/dev).
-    """
-
-    forwarded = str(request.headers.get("x-forwarded-for") or "")
-    chain = [part.strip() for part in forwarded.split(",") if part.strip()]
-    if not chain:
-        return get_remote_address(request) or "unknown"
-    index = max(len(chain) - 1 - _trusted_proxy_hops(), 0)
-    return chain[index][:64]
-
-
 def public_rate_limit_key(request: Request) -> str:
     """Rate-limit bucket for the public Wallet Profile surfaces."""
 
-    return f"one_wallet_card_public:{_forwarded_client_ip(request)}"
+    visitor_ip = get_trusted_forwarded_client_ip(
+        request,
+        trusted_proxy_hops_env=TRUSTED_PROXY_HOPS_ENV,
+    )
+    return f"one_wallet_card_public:{visitor_ip}"
 
 
 # ---------------------------------------------------------------------------

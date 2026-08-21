@@ -6,6 +6,12 @@ tests/test_developer_api_routes.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
 tests/test_partner_developer_apps.py
+tests/test_hushh_tech_client_migration.py
+tests/test_hushh_tech_synthetic_import.py
+tests/test_hushh_tech_client_service.py
+tests/test_hushh_tech_routes.py
+tests/test_hushh_tech_scope_isolation.py
+tests/test_hushh_tech_runtime_config.py
 tests/test_export_projection.py
 tests/test_local_mcp_keypair_service.py
 tests/test_mcp_encrypted_scoped_export_tool.py

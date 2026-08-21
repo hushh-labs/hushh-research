@@ -2,11 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
+
+
+def test_manual_rollback_jobs_bind_exact_deployment_environments() -> None:
+    workflow = yaml.safe_load(_read(".github/workflows/rollback.yml"))
+
+    assert workflow["jobs"]["rollback-uat"]["environment"] == "uat"
+    assert workflow["jobs"]["rollback-production"]["environment"] == "production"
 
 
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
