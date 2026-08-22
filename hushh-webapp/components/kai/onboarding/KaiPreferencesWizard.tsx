@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, type ReactNode } from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
@@ -257,9 +257,9 @@ export function KaiPreferencesWizard(props: {
     <main
       data-top-content-anchor={isPageLayout ? "true" : undefined}
       className={cn(
-        "w-full bg-transparent flex flex-col",
+        "w-full max-w-full bg-transparent flex flex-col",
         isPageLayout
-          ? "min-h-[calc(100dvh-var(--app-scroll-bottom-pad,0px))] px-5 pt-[var(--top-content-pad)] pb-[var(--app-scroll-bottom-pad)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
+          ? "min-h-[calc(100dvh-var(--app-scroll-bottom-pad,0px))] px-4 sm:px-6 pt-[var(--top-content-pad)] pb-[var(--app-scroll-bottom-pad)]"
           : "min-h-0 px-4 pt-4 pb-4"
       )}
     >

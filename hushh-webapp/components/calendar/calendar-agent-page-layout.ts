@@ -17,11 +17,22 @@
  * `--top-shell-reserved-height` and `--app-bottom-inset`, so it could not track
  * the real chrome or a native safe area.
  *
- * Normal flow instead, matching every sibling capability setup screen: the page
- * scrolls, so a short viewport costs a scroll rather than the content.
+ * Normal flow instead, and `min-h` rather than a height. That one word is the
+ * whole difference: a `min-height` container GROWS past its floor, so when the
+ * card is taller than the space the page simply gets longer and scrolls, and
+ * `justify-center` quietly stops applying because there is no free space left to
+ * distribute. On a screen with room, the card is centred as it always was.
+ *
+ * The same idiom the RIA setup screen already uses
+ * (`app/one/setup/ria/ria-onboarding-setup-client.tsx`).
+ *
+ * `justify-center` is only safe here BECAUSE the height is a floor. Combined
+ * with a fixed height it centres the overflow too, putting the top of the card
+ * above the container's top edge where no scroll can reach it — which is the
+ * bug this screen shipped with. Do not reintroduce a hard height here.
  */
 export const CALENDAR_SETUP_SHELL_CLASSNAME =
-  "motion-step-enter space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]";
+  "motion-step-enter flex min-h-[calc(100dvh-var(--top-shell-reserved-height,4rem)-var(--app-bottom-inset,2rem))] w-full flex-col items-center justify-center gap-4 pb-[calc(var(--app-bottom-inset)+1rem)]";
 
 /** Header and content share one measure so the card never outgrows the title. */
 export const CALENDAR_SETUP_REGION_CLASSNAME = "w-full max-w-md mx-auto";

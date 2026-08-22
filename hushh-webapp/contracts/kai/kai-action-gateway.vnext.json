@@ -2750,7 +2750,7 @@
         "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "confirm_required",
+      "execution_policy": "allow_direct",
       "activation_policy": "none",
       "execution_target": {
         "status": "wired",
@@ -8055,7 +8055,7 @@
         "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "confirm_required",
+      "execution_policy": "allow_direct",
       "activation_policy": "none",
       "execution_target": {
         "status": "wired",
@@ -8528,7 +8528,7 @@
         "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "confirm_required",
+      "execution_policy": "allow_direct",
       "activation_policy": "none",
       "execution_target": {
         "status": "wired",
@@ -8779,7 +8779,7 @@
         "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "confirm_required",
+      "execution_policy": "allow_direct",
       "activation_policy": "none",
       "execution_target": {
         "status": "wired",
@@ -8897,7 +8897,7 @@
         "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "confirm_required",
+      "execution_policy": "allow_direct",
       "activation_policy": "none",
       "execution_target": {
         "status": "wired",
@@ -9368,7 +9368,7 @@
         "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "confirm_required",
+      "execution_policy": "allow_direct",
       "activation_policy": "none",
       "execution_target": {
         "status": "wired",
@@ -9588,7 +9588,7 @@
         "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "confirm_required",
+      "execution_policy": "allow_direct",
       "activation_policy": "none",
       "execution_target": {
         "status": "wired",

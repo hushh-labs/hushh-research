@@ -5,7 +5,7 @@ import { useState } from "react";
 import { AdvisorsNearby } from "@/components/connect/advisors-nearby";
 import { InsuranceAgentsNearby } from "@/components/connect/insurance-agents-nearby";
 import { PlacesNearby } from "@/components/connect/places-nearby";
-import { SegmentedTabs } from "@/lib/morphy-ux/ui";
+import { FilterChip, FilterChipRow } from "@/lib/morphy-ux/ui";
 
 type NearbyDirectory = "advisors" | "insurance" | "places";
 
@@ -41,17 +41,35 @@ export function NearbyDirectories({
 
   return (
     <div className="space-y-4" data-testid="nearby-directories">
-      <SegmentedTabs
-        value={directory}
-        onValueChange={(value) => setDirectory(value as NearbyDirectory)}
-        options={DIRECTORY_TABS}
-        // Same compact padding as the Connect strip above it, for the same
-        // reason and found the same way: measured at 320px, "Insurance" needed
-        // 69px and had 59px, so this has been shipping as "Insuranc…" on the
-        // narrowest phones. Three tabs do not fit at the stock 16px option
-        // padding. Nothing changes from 640px up.
-        className="[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5"
-      />
+      {/* Chips, not a segmented strip.
+          
+          Two reasons, and the second is why it changed now.
+
+          It never fitted: measured at 320px, "Insurance" needed 69px and had
+          59px, so this shipped as "Insuranc…" on the narrowest phones. A
+          segmented strip divides its width between its options, so the labels
+          were always going to lose. A chip sizes to its own content and the
+          row wraps, which removes the constraint rather than tightening the
+          padding against it.
+
+          And Connect now has a strip above the People/RIAs/Around-you one, so
+          this would have been the third pill strip on a 375px screen. These
+          three are not three places you go -- they are three sources filtered
+          by one location, a slice of the list below. Saying that with chips
+          leaves one grammar on the surface: strip for where you are, chips for
+          which slice. */}
+      <FilterChipRow testId="nearby-directory-filters">
+        {DIRECTORY_TABS.map((option) => (
+          <FilterChip
+            key={option.value}
+            active={directory === option.value}
+            onClick={() => setDirectory(option.value as NearbyDirectory)}
+            testId={`nearby-directory-${option.value}`}
+          >
+            {option.label}
+          </FilterChip>
+        ))}
+      </FilterChipRow>
 
       {directory === "places" ? (
         <PlacesNearby getIdToken={getIdToken} />

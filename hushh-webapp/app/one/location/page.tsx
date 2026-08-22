@@ -243,7 +243,15 @@ import {
   isOneLocationNearbyCheckInAvailable,
   ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
 } from "@/lib/one-location/nearby-check-in-availability";
+import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
+import { ROUTES } from "@/lib/navigation/routes";
 import { resolveOnboardingMapPoint } from "@/lib/one-location/onboarding-map-point";
+// One rule, one place: Connect owns the Circle screens now and needs the
+// same judgement about what an API failure may say to a person.
+import {
+  isTransientOneApiError,
+  oneLocationErrorMessage,
+} from "@/lib/one-location/error-message";
 
 import {
   clearLiveShareEntries,
@@ -1256,12 +1264,6 @@ function statusVariant(
   return "outline";
 }
 
-function isTransientOneApiError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const status = (error as { status?: unknown }).status;
-  return status === 502 || status === 503 || status === 504;
-}
-
 function isVaultOwnerAuthError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const status = (error as { status?: unknown }).status;
@@ -1378,53 +1380,6 @@ async function runOneLocationForegroundAttempt<T>(params: {
       await wait(retryDelayMs);
     }
   }
-}
-
-// Consumer UI must never surface raw backend or database internals such as SQL
-// text, driver errors, stack traces, encrypted key blobs, or table and column
-// identifiers. Those belong in logs and developer tooling only. We only let
-// short, human-readable messages through; anything that looks like an internal
-// dump is replaced with a friendly summary. This keeps the vault and PKM data
-// boundary intact and stops raw driver errors from reaching users.
-
-const ONE_LOCATION_UNSAFE_ERROR_MARKERS = [
-  "psycopg2",
-  "sqlalchemy",
-  "sql:",
-  "select ",
-  "insert into",
-  "update ",
-  "delete from",
-  "relation ",
-  "column ",
-  "constraint",
-  "traceback",
-  "jsonb",
-  "public_key",
-  "encrypted_",
-  "jwk",
-  "background on this error",
-  "undefinedcolumn",
-];
-
-function isSafeUserFacingMessage(message: string): boolean {
-  const trimmed = message.trim();
-  if (!trimmed) return false;
-  // Long strings or multi-line payloads are almost always internal dumps.
-  if (trimmed.length > 160) return false;
-  if (/[\n\r]/.test(trimmed)) return false;
-  const lower = trimmed.toLowerCase();
-  return !ONE_LOCATION_UNSAFE_ERROR_MARKERS.some((marker) =>
-    lower.includes(marker),
-  );
-}
-
-function oneLocationErrorMessage(error: unknown, fallback: string): string {
-  if (isTransientOneApiError(error)) {
-    return "One is still catching up. Please refresh once, then check this page before retrying.";
-  }
-  const raw = error instanceof Error ? error.message : "";
-  return isSafeUserFacingMessage(raw) ? raw : fallback;
 }
 
 // Great-circle distance in metres between two points (Haversine). Used to decide
@@ -3937,6 +3892,25 @@ export function OneLocationAgentPageContent({
       return;
     }
 
+    // Somebody arriving ON a specific screen is not a first run.
+    //
+    // This takeover is decided by auth, the vault, `mode`, `loadError` and one
+    // localStorage flag -- and reads no query parameter at all, so every deep
+    // link into Location put "Share your location easily with anyone" in front
+    // of the screen it named. Circles moved to Connect (#5458) partly because
+    // of that, and the handoff that remains -- sharing your live location with
+    // a Circle member -- still lands here.
+    //
+    // Nothing the linked-to flow needs is produced by this onboarding: it asks
+    // for permission and offers to save a place, and every flow reachable by
+    // `?action=` works without either. So an explicit destination wins over the
+    // first-run greeting. `mode === "setup"` is deliberately still ahead of
+    // this: inside the setup wizard the greeting IS the screen.
+    if (searchParams.get("action")?.trim()) {
+      setLocationOnboardingGate("hidden");
+      return;
+    }
+
     if (locationOnboardingGate === "hidden") {
       return;
     }
@@ -3967,6 +3941,7 @@ export function OneLocationAgentPageContent({
     loadError,
     locationOnboardingGate,
     mode,
+    searchParams,
     vaultOwnerToken,
   ]);
 
@@ -6839,34 +6814,27 @@ export function OneLocationAgentPageContent({
   );
 
   const handleConnectCircleMember = useCallback(
-    async (circleId: string, memberUserId: string) => {
+    async (circleId: string, _memberUserId: string) => {
+      // Hands off rather than sending.
+      //
       // Sharing a Circle does not connect two people -- a joiner is paired with
       // whoever invited them and nobody else -- so this is a real request the
-      // other person answers, exactly like one sent from anywhere else.
-      const idToken = await auth.user?.getIdToken();
-      if (!idToken) {
-        toast.error("Sign in again to send a connection request.");
-        return;
-      }
-      try {
-        await ConnectionsService.sendRequest({
-          idToken,
-          addresseeUserId: memberUserId,
-        });
-        toast.success("Connection request sent.");
-        // Re-read the Circle so the row moves to "Requested" from the server's
-        // answer rather than from an optimistic guess this screen made.
-        await handleLoadNamedCircle(circleId).catch(() => null);
-      } catch (error) {
-        toast.error(
-          oneLocationErrorMessage(
-            error,
-            "Could not send the connection request.",
-          ),
-        );
-      }
+      // other person answers. It used to be sent from here directly, which
+      // made this roster the one place in the app where a connection request
+      // went out without the capability review that
+      // `config/protected-behaviors.json` names
+      // (`connect-request-asks-before-it-shares`). The review sheet lives on
+      // Connect, and Circles live there now too, so the honest move is to
+      // arrive at the same Circle on the surface that owns both.
+      //
+      // The row's "Requested"/Cancel state was also never reachable here: this
+      // screen has no cancel of its own, so it showed a dead status. Connect
+      // has both.
+      router.push(
+        `${ROUTES.CONNECT}?tab=circles&action=circle-detail&circleId=${encodeURIComponent(circleId)}`,
+      );
     },
-    [auth.user, handleLoadNamedCircle],
+    [router],
   );
 
   const handleResolveNamedCircleRecipients = useCallback(
@@ -7229,12 +7197,24 @@ export function OneLocationAgentPageContent({
 
       // Reuse the person's first owned Circle so re-entering onboarding never
       // spawns duplicates; fall back to any membership, else create one.
+      //
+      // Product-managed Circles are skipped, and that is load-bearing rather
+      // than tidy. The SMS Circle and Trusted both arrive on their own -- the
+      // second one the moment a connection is accepted, which is BEFORE most
+      // people reach this screen -- so "the first Circle you own" is routinely
+      // one of them. This screen then asks for its invite code, and neither has
+      // one: a Circle holding everyone you are connected to must not be
+      // shareable by a link, so `create_invite_code` refuses it outright and
+      // the invite step failed with nothing on screen explaining why.
       let targetCircleId: string | null = null;
       try {
         const circles = await OneLocationService.listCircles(vaultOwnerToken);
+        const shareable = circles.filter(
+          (circle) => !circle.systemKind && !circle.isSystem,
+        );
         targetCircleId =
-          circles.find((circle) => circle.role === "owner")?.id ??
-          circles[0]?.id ??
+          shareable.find((circle) => circle.role === "owner")?.id ??
+          shareable[0]?.id ??
           null;
       } catch {
         // A listing hiccup shouldn't block setup — fall through to create.
@@ -10623,7 +10603,7 @@ export function OneLocationAgentPageContent({
             prompt: `Delete ${circle.name}? Everyone in it loses access through it.`,
             subject: {
               name: circle.name,
-              detail: `${circle.memberCount} member${circle.memberCount === 1 ? "" : "s"}`,
+              detail: circleMemberCountLabel(circle.memberCount),
             },
             consequence:
               getKaiActionById("location.delete_circle")?.meaning ?? null,

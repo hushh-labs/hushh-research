@@ -24,7 +24,7 @@ describe("CapabilityCinematicIntroGate", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: "See your money clearly.",
+        name: "Access your finances in one place.",
       }),
     ).toBeTruthy();
     expect(screen.queryByText("Finance preferences")).toBeNull();

@@ -109,7 +109,7 @@ function computePersona(
  */
 function SetupKaiStageRegion({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-[100dvh] w-full flex-col items-center justify-center px-5 pt-[var(--top-content-pad)] pb-[var(--app-screen-footer-pad)]">
+    <div className="flex min-h-[100dvh] w-full max-w-full flex-col items-center justify-center px-4 sm:px-6 pt-[var(--top-content-pad)] pb-[var(--app-screen-footer-pad)]">
       {children}
     </div>
   );

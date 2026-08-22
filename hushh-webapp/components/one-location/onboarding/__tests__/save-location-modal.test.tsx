@@ -406,9 +406,12 @@ describe("SaveLocationModal", () => {
     expect(
       screen.queryByLabelText(/Fill from this address/),
     ).not.toBeInTheDocument();
+    // The lock-deferred caption is gone: the modal now says the same thing
+    // whether or not a lock exists yet.
     expect(
-      screen.getByText(/Saves once your lock is set/i),
-    ).toBeInTheDocument();
+      screen.queryByText(/Saves once your lock is set/i),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Private to you.")).toBeInTheDocument();
     // The detected address is shown, and the Address box is filled from it.
     expect(
       screen.getByText("Kartavya Path, New Delhi, Delhi 110001, India"),

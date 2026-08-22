@@ -26,6 +26,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -145,6 +146,7 @@ import {
   sectionRecipients,
 } from "@/lib/one-location/recipient-sections";
 import { ROUTES } from "@/lib/navigation/routes";
+import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
 import { resolveSmsContactsBackAction } from "@/lib/navigation/top-shell-breadcrumbs";
@@ -876,7 +878,21 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     (next: LocationHubTab) => {
       if (next === tab) return;
       setTabState(next);
+      // Leaving a tab closes whatever flow was open on it.
+      //
+      // `?action=` and `?circleId=` used to survive a tab change, and the
+      // effect that reads them opens the flow again -- so going Circle detail
+      // -> another tab -> back put the person inside the same Circle instead
+      // of at the list they were reaching for. `closeFlow` has always cleared
+      // these; the tab strip did not.
+      // `setFlow` only; the refs are the URL-sync effect's to move, and
+      // reaching into them from here makes every other assignment to them a
+      // lint error about a value that cannot be modified.
+      setFlow("none");
       const params = new URLSearchParams(searchParams.toString());
+      params.delete(FLOW_ACTION_PARAM);
+      params.delete("circleId");
+      params.delete(FLOW_SOURCE_PARAM);
       // Always name the tab, including the default one. Returning to Now by
       // deleting the parameter can leave the query empty, and the App Router
       // will not perform a navigation whose only change is that the whole
@@ -3247,6 +3263,10 @@ function ShareFlow({
   // Picking a Circle selects its ready members in the list below, and those
   // rows remain individually deselectable. Once one is turned off the recipients
   // are no longer that Circle, so the Circle row stops reading as selected.
+  const shareableCircles = useMemo(
+    () => vm.circles.filter((circle) => circle.systemKind !== "trusted"),
+    [vm.circles],
+  );
   const shareCircleFullySelected = isCircleSelectionFullySelected(
     vm.selectedShareCircleSelection,
     vm.selectedRecipientIds,
@@ -3404,9 +3424,23 @@ function ShareFlow({
         title="Who can see you?"
         description="Only people set up to receive it."
       />
-      {vm.circles.length ? (
+      {/* Trusted is not a group you share with.
+        *
+        * It listed here with the same glyph and count as a Circle somebody
+        * made, and one tap pre-selected every location-ready person in it --
+        * which, for a Circle whose roster IS the connection graph, is
+        * "everyone you know" behind a single press. The share then succeeded,
+        * because those people satisfy the connection arm anyway, so nothing
+        * refused it: this is the only place that says no.
+        *
+        * The eligibility SQL puts it plainly -- "Trusted records who you are
+        * connected to; it never decides who can see you" -- and the onboarding
+        * invite step already filters the same way. Only this picker is
+        * narrowed: the People tab, SOS contacts and the SMS flow still list
+        * every Circle. */}
+      {shareableCircles.length ? (
         <SettingsGroup title="Circles" separatorInset>
-          {vm.circles.map((circle) => {
+          {shareableCircles.map((circle) => {
             const selected =
               vm.selectedShareCircleSelection?.circle.id === circle.id &&
               shareCircleFullySelected;
@@ -3436,9 +3470,7 @@ function ShareFlow({
                     ? "Loading…"
                     : selected
                       ? `${selectedReady.length} ready now`
-                      : `${circle.memberCount} ${
-                          circle.memberCount === 1 ? "member" : "members"
-                        }`
+                      : circleMemberCountLabel(circle.memberCount)
                 }
                 trailing={<SelectionDot selected={selected} />}
               />
@@ -4160,14 +4192,17 @@ function AskFlow({
             screen. Without this the empty state was a dead end and a search
             that found nobody was worse -- it proved the person was missing and
             offered nothing to do about it. */}
-        <a
+        {/* `Link`, not a bare anchor: an <a href> is a full document load and
+            the vault key lives only in React state, so the way out of this dead
+            end relocked the vault on the way. */}
+        <Link
           href={ROUTES.CONNECT}
           data-testid="one-location-ask-manage-connections"
           className="mt-3 inline-flex min-h-11 items-center gap-1 rounded-full px-1 text-[15px] font-medium text-[color:var(--app-accent)]"
         >
           Don&apos;t see someone? Manage connections
           <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
-        </a>
+        </Link>
         <SelectedRecipientsRail
           title="Selected"
           recipients={selectedRecipients}
