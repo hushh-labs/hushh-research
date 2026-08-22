@@ -3634,6 +3634,37 @@ class OneLocationAgentService:
                   JOIN one_location_circles circle
                     ON circle.id = mine.circle_id
                    AND circle.status = 'active'
+                   -- A product-managed Circle lists people together without introducing
+                   -- them, and this arm never said so. It joins membership to membership
+                   -- and never mentions `circle.owner_user_id`, so two people became
+                   -- eligible for each other's live location the moment they shared a
+                   -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                   -- appeared in the other's share picker by name.
+                   --
+                   -- On the SMS Circle that is ten strangers, and contradicts that
+                   -- Circle's own design note. On a Trusted Circle holding every
+                   -- connection it would be every PAIR of your connections: 19,900 edges
+                   -- at 200 connections, none of them consented to. An auto-share hook
+                   -- was removed from `accept_request` once already for a smaller
+                   -- version of this.
+                   --
+                   -- So for a Circle the product manages, one side has to be its owner.
+                   -- Circles a person made themselves are untouched: those members chose
+                   -- each other's company.
+                   -- Trusted is excluded outright, not merely owner-scoped.
+                   -- Everyone in it is already a connection, so they satisfy the
+                   -- connection arm above and lose nothing here. What it closes is the
+                   -- other direction: contact sync (#5458) puts matched people into
+                   -- Trusted before they have accepted anything, and membership must not
+                   -- be what makes them shareable. Authority comes from the connection.
+                   -- Trusted records who you are connected to; it never decides who can
+                   -- see you.
+                   AND circle.system_kind IS DISTINCT FROM 'trusted'
+                   AND (
+                     (circle.system_kind IS NULL AND NOT circle.is_system)
+                     OR circle.owner_user_id = mine.user_id
+                     OR circle.owner_user_id = theirs.user_id
+                   )
                   WHERE mine.user_id = :owner_user_id
                     AND mine.status = 'active'
                 )
@@ -4053,6 +4084,37 @@ class OneLocationAgentService:
                 JOIN one_location_circles circle
                   ON circle.id = mine.circle_id
                  AND circle.status = 'active'
+                 -- A product-managed Circle lists people together without introducing
+                 -- them, and this arm never said so. It joins membership to membership
+                 -- and never mentions `circle.owner_user_id`, so two people became
+                 -- eligible for each other's live location the moment they shared a
+                 -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                 -- appeared in the other's share picker by name.
+                 --
+                 -- On the SMS Circle that is ten strangers, and contradicts that
+                 -- Circle's own design note. On a Trusted Circle holding every
+                 -- connection it would be every PAIR of your connections: 19,900 edges
+                 -- at 200 connections, none of them consented to. An auto-share hook
+                 -- was removed from `accept_request` once already for a smaller
+                 -- version of this.
+                 --
+                 -- So for a Circle the product manages, one side has to be its owner.
+                 -- Circles a person made themselves are untouched: those members chose
+                 -- each other's company.
+                 -- Trusted is excluded outright, not merely owner-scoped.
+                 -- Everyone in it is already a connection, so they satisfy the
+                 -- connection arm above and lose nothing here. What it closes is the
+                 -- other direction: contact sync (#5458) puts matched people into
+                 -- Trusted before they have accepted anything, and membership must not
+                 -- be what makes them shareable. Authority comes from the connection.
+                 -- Trusted records who you are connected to; it never decides who can
+                 -- see you.
+                 AND circle.system_kind IS DISTINCT FROM 'trusted'
+                 AND (
+                   (circle.system_kind IS NULL AND NOT circle.is_system)
+                   OR circle.owner_user_id = mine.user_id
+                   OR circle.owner_user_id = theirs.user_id
+                 )
                 WHERE mine.user_id = :owner_user_id
                   AND mine.status = 'active'
                   AND (
@@ -4105,9 +4167,28 @@ class OneLocationAgentService:
             row = self._execute_one(
                 """
                 SELECT 1
-                FROM one_location_sms_contacts
-                WHERE owner_user_id = :owner_user_id
-                  AND contact_user_id = :contact_user_id
+                WHERE EXISTS (
+                        SELECT 1
+                        FROM one_location_sms_contacts
+                        WHERE owner_user_id = :owner_user_id
+                          AND contact_user_id = :contact_user_id
+                      )
+                   -- The same two-armed test the grant gate makes. This one is
+                   -- only the EXPLAINER -- it produces
+                   -- LOCATION_SMS_CONTACT_REQUIRED -- but a narrow explainer
+                   -- beside a wide gate is worse than either: the share would
+                   -- succeed and the message would say it could not.
+                   OR EXISTS (
+                        SELECT 1
+                        FROM one_location_circle_memberships membership
+                        JOIN one_location_circles circle
+                          ON circle.id = membership.circle_id
+                         AND circle.owner_user_id = :owner_user_id
+                         AND circle.is_system
+                         AND circle.status = 'active'
+                        WHERE membership.user_id = :contact_user_id
+                          AND membership.status = 'active'
+                      )
                 LIMIT 1
                 """,
                 {
@@ -4128,7 +4209,7 @@ class OneLocationAgentService:
     def list_sms_contact_ids(self, *, owner_user_id: str) -> list[str]:
         rows = self._execute_many(
             """
-            SELECT sms.contact_user_id
+            SELECT sms.contact_user_id AS contact_user_id
             FROM one_location_sms_contacts sms
             WHERE sms.owner_user_id = :owner_user_id
               AND EXISTS (
@@ -4156,11 +4237,64 @@ class OneLocationAgentService:
                   JOIN one_location_circles circle
                     ON circle.id = mine.circle_id
                    AND circle.status = 'active'
+                   -- A product-managed Circle lists people together without introducing
+                   -- them, and this arm never said so. It joins membership to membership
+                   -- and never mentions `circle.owner_user_id`, so two people became
+                   -- eligible for each other's live location the moment they shared a
+                   -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                   -- appeared in the other's share picker by name.
+                   --
+                   -- On the SMS Circle that is ten strangers, and contradicts that
+                   -- Circle's own design note. On a Trusted Circle holding every
+                   -- connection it would be every PAIR of your connections: 19,900 edges
+                   -- at 200 connections, none of them consented to. An auto-share hook
+                   -- was removed from `accept_request` once already for a smaller
+                   -- version of this.
+                   --
+                   -- So for a Circle the product manages, one side has to be its owner.
+                   -- Circles a person made themselves are untouched: those members chose
+                   -- each other's company.
+                   -- Trusted is excluded outright, not merely owner-scoped.
+                   -- Everyone in it is already a connection, so they satisfy the
+                   -- connection arm above and lose nothing here. What it closes is the
+                   -- other direction: contact sync (#5458) puts matched people into
+                   -- Trusted before they have accepted anything, and membership must not
+                   -- be what makes them shareable. Authority comes from the connection.
+                   -- Trusted records who you are connected to; it never decides who can
+                   -- see you.
+                   AND circle.system_kind IS DISTINCT FROM 'trusted'
+                   AND (
+                     (circle.system_kind IS NULL AND NOT circle.is_system)
+                     OR circle.owner_user_id = mine.user_id
+                     OR circle.owner_user_id = theirs.user_id
+                   )
                   WHERE mine.user_id = :owner_user_id
                     AND mine.status = 'active'
                 )
               )
-            ORDER BY sms.created_at, sms.contact_user_id
+
+            UNION
+
+            -- The emergency Circle's roster, which since #5426 is where the
+            -- product actually keeps this list. This query drove from
+            -- `one_location_sms_contacts` alone, and the Circle detail screen
+            -- does not write that table -- so somebody added the way the
+            -- product now tells you to add them was simply absent from the
+            -- fallback list.
+            --
+            -- No eligibility EXISTS on this arm: membership of the owner's own
+            -- system Circle is already the stronger statement, and it is
+            -- reconciled on every bootstrap. The legacy arm keeps its check
+            -- because that table has rows nothing prunes.
+            SELECT membership.user_id AS contact_user_id
+            FROM one_location_circle_memberships membership
+            JOIN one_location_circles circle
+              ON circle.id = membership.circle_id
+             AND circle.owner_user_id = :owner_user_id
+             AND circle.is_system
+             AND circle.status = 'active'
+            WHERE membership.status = 'active'
+              AND membership.user_id <> :owner_user_id
             """,
             {"owner_user_id": owner_user_id},
         )
@@ -4419,6 +4553,37 @@ class OneLocationAgentService:
                         JOIN one_location_circles circle
                           ON circle.id = mine.circle_id
                          AND circle.status = 'active'
+                         -- A product-managed Circle lists people together without introducing
+                         -- them, and this arm never said so. It joins membership to membership
+                         -- and never mentions `circle.owner_user_id`, so two people became
+                         -- eligible for each other's live location the moment they shared a
+                         -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                         -- appeared in the other's share picker by name.
+                         --
+                         -- On the SMS Circle that is ten strangers, and contradicts that
+                         -- Circle's own design note. On a Trusted Circle holding every
+                         -- connection it would be every PAIR of your connections: 19,900 edges
+                         -- at 200 connections, none of them consented to. An auto-share hook
+                         -- was removed from `accept_request` once already for a smaller
+                         -- version of this.
+                         --
+                         -- So for a Circle the product manages, one side has to be its owner.
+                         -- Circles a person made themselves are untouched: those members chose
+                         -- each other's company.
+                         -- Trusted is excluded outright, not merely owner-scoped.
+                         -- Everyone in it is already a connection, so they satisfy the
+                         -- connection arm above and lose nothing here. What it closes is the
+                         -- other direction: contact sync (#5458) puts matched people into
+                         -- Trusted before they have accepted anything, and membership must not
+                         -- be what makes them shareable. Authority comes from the connection.
+                         -- Trusted records who you are connected to; it never decides who can
+                         -- see you.
+                         AND circle.system_kind IS DISTINCT FROM 'trusted'
+                         AND (
+                           (circle.system_kind IS NULL AND NOT circle.is_system)
+                           OR circle.owner_user_id = mine.user_id
+                           OR circle.owner_user_id = theirs.user_id
+                         )
                         WHERE mine.user_id = :owner_user_id
                           AND mine.status = 'active'
                         ORDER BY mine.joined_at, mine.circle_id
@@ -5053,6 +5218,37 @@ class OneLocationAgentService:
                     JOIN one_location_circles circle
                       ON circle.id = mine.circle_id
                      AND circle.status = 'active'
+                     -- A product-managed Circle lists people together without introducing
+                     -- them, and this arm never said so. It joins membership to membership
+                     -- and never mentions `circle.owner_user_id`, so two people became
+                     -- eligible for each other's live location the moment they shared a
+                     -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                     -- appeared in the other's share picker by name.
+                     --
+                     -- On the SMS Circle that is ten strangers, and contradicts that
+                     -- Circle's own design note. On a Trusted Circle holding every
+                     -- connection it would be every PAIR of your connections: 19,900 edges
+                     -- at 200 connections, none of them consented to. An auto-share hook
+                     -- was removed from `accept_request` once already for a smaller
+                     -- version of this.
+                     --
+                     -- So for a Circle the product manages, one side has to be its owner.
+                     -- Circles a person made themselves are untouched: those members chose
+                     -- each other's company.
+                     -- Trusted is excluded outright, not merely owner-scoped.
+                     -- Everyone in it is already a connection, so they satisfy the
+                     -- connection arm above and lose nothing here. What it closes is the
+                     -- other direction: contact sync (#5458) puts matched people into
+                     -- Trusted before they have accepted anything, and membership must not
+                     -- be what makes them shareable. Authority comes from the connection.
+                     -- Trusted records who you are connected to; it never decides who can
+                     -- see you.
+                     AND circle.system_kind IS DISTINCT FROM 'trusted'
+                     AND (
+                       (circle.system_kind IS NULL AND NOT circle.is_system)
+                       OR circle.owner_user_id = mine.user_id
+                       OR circle.owner_user_id = theirs.user_id
+                     )
                     WHERE mine.user_id = :owner_user_id
                       AND mine.status = 'active'
                       AND (
@@ -5068,6 +5264,35 @@ class OneLocationAgentService:
                     FROM one_location_sms_contacts sc
                     WHERE sc.owner_user_id = :owner_user_id
                       AND sc.contact_user_id = :recipient_user_id
+                  )
+                  -- ...or a member of the owner's emergency Circle.
+                  --
+                  -- Since #5426 the SMS Circle IS the emergency list, and the
+                  -- screen picks SOS recipients from its roster
+                  -- (app/one/location/page.tsx). This gate never learned that:
+                  -- it still asked `one_location_sms_contacts`, which the
+                  -- Circle detail screen does not write. So anybody added the
+                  -- way the product now tells you to add them was accepted by
+                  -- the UI and refused here, with LOCATION_SMS_CONTACT_REQUIRED
+                  -- -- at the moment an SOS was being sent.
+                  --
+                  -- A widening of an emergency gate, so it is worth being
+                  -- precise about what it opens: only the owner's own system
+                  -- Circle, only active memberships, and only a roster the
+                  -- owner curated by hand. It is safe to widen to it only
+                  -- because the same commit stops a system Circle from ever
+                  -- having a join code -- without that, redeeming a code was a
+                  -- way into this roster.
+                  OR EXISTS (
+                    SELECT 1
+                    FROM one_location_circle_memberships membership
+                    JOIN one_location_circles circle
+                      ON circle.id = membership.circle_id
+                     AND circle.owner_user_id = :owner_user_id
+                     AND circle.is_system
+                     AND circle.status = 'active'
+                    WHERE membership.user_id = :recipient_user_id
+                      AND membership.status = 'active'
                   )
                 )
               LIMIT 1
@@ -6665,7 +6890,7 @@ class OneLocationAgentService:
                 (
                     "sms_contacts",
                     """
-                    SELECT sms.contact_user_id
+                    SELECT sms.contact_user_id AS contact_user_id
                     FROM one_location_sms_contacts sms
                     WHERE sms.owner_user_id = :user_id
                       AND EXISTS (
@@ -6689,11 +6914,58 @@ class OneLocationAgentService:
                           JOIN one_location_circles circle
                             ON circle.id = mine.circle_id
                            AND circle.status = 'active'
+                           -- A product-managed Circle lists people together without introducing
+                           -- them, and this arm never said so. It joins membership to membership
+                           -- and never mentions `circle.owner_user_id`, so two people became
+                           -- eligible for each other's live location the moment they shared a
+                           -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                           -- appeared in the other's share picker by name.
+                           --
+                           -- On the SMS Circle that is ten strangers, and contradicts that
+                           -- Circle's own design note. On a Trusted Circle holding every
+                           -- connection it would be every PAIR of your connections: 19,900 edges
+                           -- at 200 connections, none of them consented to. An auto-share hook
+                           -- was removed from `accept_request` once already for a smaller
+                           -- version of this.
+                           --
+                           -- So for a Circle the product manages, one side has to be its owner.
+                           -- Circles a person made themselves are untouched: those members chose
+                           -- each other's company.
+                           -- Trusted is excluded outright, not merely owner-scoped.
+                           -- Everyone in it is already a connection, so they satisfy the
+                           -- connection arm above and lose nothing here. What it closes is the
+                           -- other direction: contact sync (#5458) puts matched people into
+                           -- Trusted before they have accepted anything, and membership must not
+                           -- be what makes them shareable. Authority comes from the connection.
+                           -- Trusted records who you are connected to; it never decides who can
+                           -- see you.
+                           AND circle.system_kind IS DISTINCT FROM 'trusted'
+                           AND (
+                             (circle.system_kind IS NULL AND NOT circle.is_system)
+                             OR circle.owner_user_id = mine.user_id
+                             OR circle.owner_user_id = theirs.user_id
+                           )
                           WHERE mine.user_id = :user_id
                             AND mine.status = 'active'
                         )
                       )
-                    ORDER BY sms.created_at, sms.contact_user_id
+
+                    UNION
+
+                    -- The emergency Circle's roster. Same reason as
+                    -- `list_sms_contact_ids`: since #5426 this is where the
+                    -- list actually lives, and driving from
+                    -- `one_location_sms_contacts` alone left anyone added
+                    -- through Circle detail out of the state the client reads.
+                    SELECT membership.user_id AS contact_user_id
+                    FROM one_location_circle_memberships membership
+                    JOIN one_location_circles circle
+                      ON circle.id = membership.circle_id
+                     AND circle.owner_user_id = :user_id
+                     AND circle.is_system
+                     AND circle.status = 'active'
+                    WHERE membership.status = 'active'
+                      AND membership.user_id <> :user_id
                     """,
                     {"user_id": user_id},
                 ),

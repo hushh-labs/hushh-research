@@ -27,6 +27,7 @@ import {
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleInvitePreview } from "@/lib/one-location/types";
 import { rememberPendingCircleJoin } from "@/lib/one-location/pending-circle-join";
+import { ROUTES } from "@/lib/navigation/routes";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
 /**
@@ -39,9 +40,17 @@ import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completi
 const INVITE_MEASURE: CSSProperties = { maxWidth: "30rem" };
 
 function joinPath(code: string): string {
-  const query = new URLSearchParams({ action: "join-circle" });
+  // Connect, not the Location agent (#5458).
+  //
+  // This used to land on `/one/location?action=join-circle`, where a first-run
+  // onboarding takeover -- decided without reading any query parameter --
+  // rendered instead, so somebody who tapped a friend's invite link was shown
+  // "Share your location easily with anyone" rather than the code they were
+  // handed. Circles live on Connect now, and the code field reads the same
+  // parameter there.
+  const query = new URLSearchParams({ tab: "circles", action: "join-circle" });
   if (code) query.set(CIRCLE_JOIN_CODE_PARAM, code);
-  return `/one/location?${query.toString()}`;
+  return `${ROUTES.CONNECT}?${query.toString()}`;
 }
 
 function loginHref(code: string): string {
@@ -242,7 +251,7 @@ function CircleJoinLanding() {
           }}
           data-testid="circle-join-continue"
         >
-          {canJoin ? "Join this Circle" : "Open One Location"}
+          {canJoin ? "Join this Circle" : "Open One"}
         </Button>
       ) : auth.loading ? (
         <p className="mt-6 flex items-center gap-2 text-[15px] leading-5 text-muted-foreground">

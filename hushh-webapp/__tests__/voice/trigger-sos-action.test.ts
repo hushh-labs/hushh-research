@@ -28,9 +28,15 @@ describe("location.trigger_sos", () => {
     expect(noteInput?.required).toBe(false);
   });
 
-  it("is confirm_required and high risk, the strictest pairing on this surface", () => {
+  it("is allow_direct and high risk, so the handler's own tap-only card is the sole gate", () => {
+    // Not confirm_required: that generic gate accepts a spoken yes (unless
+    // the person opted into hard-tap confirmation everywhere), and would
+    // have settled here before the handler's own confirmed check ever ran --
+    // an extra, redundant spoken step ahead of the tap this action must
+    // always require. allow_direct means the handler's own VOICE_CONFIRM_DATA_KEY
+    // card, which only a tap can settle, is the only confirmation that exists.
     const action = getKaiActionById(TRIGGER);
-    expect(action?.execution_policy).toBe("confirm_required");
+    expect(action?.execution_policy).toBe("allow_direct");
     expect(action?.risk_level).toBe("high");
   });
 

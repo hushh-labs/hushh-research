@@ -74,6 +74,7 @@ from api.routes.one.relay_auth import (
 from hushh_mcp.one_adk.action_tools import _slot_fingerprint
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
+    ONE_LIVE_VOICE_NAME,
     STATE_CONSENT_TOKEN,
     STATE_PENDING_DIRECTIVE,
     STATE_SCREEN,
@@ -502,6 +503,16 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     run_config = RunConfig(
         streaming_mode=StreamingMode.BIDI,
         response_modalities=[genai_types.Modality.AUDIO],
+        # Pinned explicitly: unset, each live model plays its own default
+        # voice, and the two models this relay supports sound audibly
+        # different from each other with nothing set here.
+        speech_config=genai_types.SpeechConfig(
+            voice_config=genai_types.VoiceConfig(
+                prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(
+                    voice_name=ONE_LIVE_VOICE_NAME
+                )
+            )
+        ),
         input_audio_transcription=genai_types.AudioTranscriptionConfig(),
         output_audio_transcription=genai_types.AudioTranscriptionConfig(),
         # No explicit trigger/target tokens: leaving both unset uses the
@@ -738,10 +749,25 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             except (TypeError, ValueError):
                 continue
             if message.get("type") == "interrupt" or message.get("interrupt") is True:
-                # Real interruption: close the current activity window. The
-                # model treats activity_end as end-of-input and the next
-                # audio frame starts a fresh turn.
-                queue.send_activity_end()
+                # Local acknowledgement only. This used to also call
+                # `queue.send_activity_end()` to "close the current activity
+                # window", which was out of contract: activity signals belong
+                # to the client ONLY when automatic activity detection is
+                # disabled, and this relay never disables it -- `run_config`
+                # above leaves `realtime_input_config` unset, so the provider
+                # is doing its own endpointing on the audio it is already
+                # receiving.
+                #
+                # Sending activity_end into a session that is endpointing
+                # itself asks the provider to close a window it owns, on the
+                # exact frames where somebody is talking over One. The barge-in
+                # it was meant to serve is already handled: the browser keeps
+                # streaming audio, and automatic detection interrupts the model
+                # from that audio without being told to.
+                #
+                # It fired once per barge-in, not once per directive -- there
+                # is a single call site and the browser only sends `interrupt`
+                # from its own speech-over-playback path.
                 await websocket.send_text(json.dumps({"serverContent": {"interrupted": True}}))
                 continue
             if message.get("type") == "app_context" or "appContext" in message:
@@ -937,7 +963,28 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 clear_pending_specialist_directives(session_id)
                 greeting_gate.cancel_for_visitor_activity()
                 _cancel_pending_greeting()
-                queue.send_activity_start()
+                # No `queue.send_activity_start()` here, and no activity_end on
+                # the interrupt path either. Both were activity signals sent
+                # into a session that endpoints itself: `run_config` never
+                # disables automatic activity detection, and the contract for
+                # those signals is "if disabled, the client must send activity
+                # signals" -- the client, when it owns the boundary. We do not.
+                #
+                # They also had to be removed together. activity_start fired on
+                # every single utterance, activity_end only on barge-in, so the
+                # common path opened a window that nothing closed. Removing the
+                # rarer half alone would have left that imbalance worse, not
+                # better.
+                #
+                # Nothing is lost by dropping them: the browser buffers the
+                # frames from before its own speech threshold and flushes them
+                # on this same message, so the provider receives the whole
+                # utterance including its onset and detects the boundary from
+                # the audio itself.
+                #
+                # This message is still load-bearing for everything above --
+                # disarming stale proposals, clearing the already-done guard,
+                # cancelling the idle greeting. Only the provider signal goes.
                 continue
             if message.get("type") == "action_confirm":
                 confirmation_payload = message.get("actionConfirmation")

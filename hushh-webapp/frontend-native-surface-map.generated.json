@@ -615,7 +615,10 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/circle/join",
+        "classification": "excluded-web-only"
+      },
       "shell": {
         "app_page_shell": true,
         "page_header": true,
@@ -8728,5 +8731,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "be6ed6394edcd7b1df08ee9f9c663595e4994516d260e747e19f3191e7531513"
+  "content_sha256": "201f31f679379cc7e40cfc8ae947743e77ee5abe44cbb3010fd4d0aacc63b198"
 }
