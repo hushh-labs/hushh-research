@@ -4146,6 +4146,49 @@
       "native_surface_id": "native-route-profile"
     },
     {
+      "route_pattern": "/one/profile/preferences/voice/examples",
+      "page_file": "app/one/profile/preferences/voice/examples/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.preferences.voice.examples",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.preferences.voice.examples",
+        "purpose": "A read-only list of example phrases for what voice can do. Nothing to act on here.",
+        "screen": "profile_preferences",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_preferences",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
       "route_pattern": "/one/profile/receipts",
       "page_file": "app/one/profile/receipts/page.tsx",
       "route_mode": "redirect",

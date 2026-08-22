@@ -17,7 +17,7 @@ afterEach(() => {
 describe("VoicePreferencesPanel", () => {
   it("shows the One header with the current engine version", () => {
     render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} />,
+      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
     );
 
     expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
@@ -30,7 +30,7 @@ describe("VoicePreferencesPanel", () => {
 
   it("opens with voice on and every enforceable domain allowed, matching today's behavior", () => {
     render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} />,
+      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
     );
 
     expect(screen.getByRole("switch", { name: "Voice control" })).toBeChecked();
@@ -41,7 +41,7 @@ describe("VoicePreferencesPanel", () => {
 
   it("Finance and Calendar show as coming soon, not a switch", () => {
     render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} />,
+      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
     );
 
     expect(screen.queryByRole("switch", { name: "Finance" })).toBeNull();
@@ -51,7 +51,7 @@ describe("VoicePreferencesPanel", () => {
 
   it("turning off a domain persists to voice preferences", () => {
     render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} />,
+      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
     );
 
     fireEvent.click(screen.getByRole("switch", { name: "Location" }));
@@ -61,7 +61,7 @@ describe("VoicePreferencesPanel", () => {
 
   it("turning off the master toggle disables the domain and safety switches", () => {
     render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} />,
+      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
     );
 
     fireEvent.click(screen.getByRole("switch", { name: "Voice control" }));
@@ -78,7 +78,7 @@ describe("VoicePreferencesPanel", () => {
 
   it("walk-through mode defaults on and persists when turned off", () => {
     render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} />,
+      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
     );
 
     const toggle = screen.getByRole("switch", { name: "Walk-through mode" });
@@ -93,7 +93,7 @@ describe("VoicePreferencesPanel", () => {
   it("changelog shows a preview and \"See all updates\" opens the dedicated changelog page", () => {
     const onOpenChangelog = vi.fn();
     render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={onOpenChangelog} />,
+      <VoicePreferencesPanel userId={userId} onOpenChangelog={onOpenChangelog} onOpenExamples={() => {}} />,
     );
 
     expect(screen.getByText("What's new")).toBeInTheDocument();
@@ -103,5 +103,20 @@ describe("VoicePreferencesPanel", () => {
     fireEvent.click(seeAll);
 
     expect(onOpenChangelog).toHaveBeenCalledTimes(1);
+  });
+
+  it("\"What can I say\" opens the examples page", () => {
+    const onOpenExamples = vi.fn();
+    render(
+      <VoicePreferencesPanel
+        userId={userId}
+        onOpenChangelog={() => {}}
+        onOpenExamples={onOpenExamples}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /What can I say/ }));
+
+    expect(onOpenExamples).toHaveBeenCalledTimes(1);
   });
 });

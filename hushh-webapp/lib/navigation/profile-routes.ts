@@ -21,6 +21,7 @@ export type ProfileDetail =
   | "device"
   | "voice"
   | "voice-changelog"
+  | "voice-examples"
   | "vault"
   | "session"
   | "gmail-connection"
@@ -100,7 +101,8 @@ export function normalizeProfileDetail(
       detail === "gemini" ||
       detail === "device" ||
       detail === "voice" ||
-      detail === "voice-changelog")
+      detail === "voice-changelog" ||
+      detail === "voice-examples")
   ) {
     return detail;
   }
@@ -220,6 +222,13 @@ export function buildProfileRoute(params?: {
         params?.searchParams,
       );
     }
+    if (detail === "voice-examples") {
+      return appendQuery(
+        ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES,
+        {},
+        params?.searchParams,
+      );
+    }
     return appendQuery(ROUTES.PROFILE_PREFERENCES, {}, params?.searchParams);
   }
 
@@ -333,6 +342,9 @@ export function resolveProfileRouteState(
   }
   if (normalizedPath === ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG) {
     return { panel: "preferences", detail: "voice-changelog" };
+  }
+  if (normalizedPath === ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES) {
+    return { panel: "preferences", detail: "voice-examples" };
   }
 
   if (normalizedPath === ROUTES.PROFILE_SECURITY) {

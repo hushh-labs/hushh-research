@@ -71,6 +71,7 @@ import { GeminiLogo } from "@/components/brand/gemini-logo";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
 import { VoiceChangelogPage } from "@/components/profile/voice-changelog-page";
+import { VoiceExamplesPage } from "@/components/profile/voice-examples-page";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
@@ -3919,7 +3920,11 @@ function ProfilePageContent() {
           />
         ),
       });
-    } else if (activeDetail === "voice" || activeDetail === "voice-changelog") {
+    } else if (
+      activeDetail === "voice" ||
+      activeDetail === "voice-changelog" ||
+      activeDetail === "voice-examples"
+    ) {
       profileStackEntries.push({
         key: "detail:voice",
         title: "Voice",
@@ -3930,6 +3935,9 @@ function ProfilePageContent() {
             onOpenChangelog={() =>
               updateProfileView({ detail: "voice-changelog" }, "push")
             }
+            onOpenExamples={() =>
+              updateProfileView({ detail: "voice-examples" }, "push")
+            }
           />
         ),
       });
@@ -3939,6 +3947,13 @@ function ProfilePageContent() {
           title: "What's new",
           description: "Voice engine updates and fixes.",
           content: <VoiceChangelogPage />,
+        });
+      } else if (activeDetail === "voice-examples") {
+        profileStackEntries.push({
+          key: "detail:voice-examples",
+          title: "What can I say",
+          description: "Examples for every part of the app.",
+          content: <VoiceExamplesPage />,
         });
       }
     }

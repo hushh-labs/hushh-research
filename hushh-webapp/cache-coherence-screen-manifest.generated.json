@@ -11,15 +11,15 @@
   },
   "summary": {
     "total_screens": 130,
-    "physical_page_count": 129,
+    "physical_page_count": 130,
     "route_contract_count": 130,
     "surface_map_count": 130,
     "class_counts": {
       "public/static": 2,
       "realtime/SSE": 1,
       "redirect/alias": 44,
-      "vault-backed": 46,
-      "hidden flow": 16,
+      "vault-backed": 47,
+      "hidden flow": 15,
       "auth/pre-vault": 6,
       "RIA/provider": 9,
       "PKM-secure": 6
@@ -2815,51 +2815,6 @@
       ]
     },
     {
-      "route": "/one/location/view/[token]",
-      "page_file": "app/one/location/view/[token]/page.tsx",
-      "route_contract_mode": "hidden",
-      "screen_class": "hidden flow",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/location/view/[token]",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": false,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
       "route": "/one/marketplace",
       "page_file": "app/one/marketplace/page.tsx",
       "route_contract_mode": "standard",
@@ -3896,6 +3851,51 @@
         "native_beacon": false
       },
       "findings": []
+    },
+    {
+      "route": "/one/profile/preferences/voice/examples",
+      "page_file": "app/one/profile/preferences/voice/examples/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/profile/preferences/voice/examples",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "review native route beacon coverage"
+      ]
     },
     {
       "route": "/one/profile/receipts",
@@ -5810,5 +5810,5 @@
       ]
     }
   ],
-  "content_sha256": "d13f52caaad364b826cbbc2978576a2cca2e5bcfe4fc36da38a0743b6a7f49da"
+  "content_sha256": "c34e4c1741f7a75b7f7a9287c3cbc7f29d7224a3301df7e3f45423365f9195d8"
 }

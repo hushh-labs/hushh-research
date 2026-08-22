@@ -79,6 +79,8 @@ export const ROUTES = {
   PROFILE_PREFERENCES_VOICE: "/one/profile/preferences/voice",
   PROFILE_PREFERENCES_VOICE_CHANGELOG:
     "/one/profile/preferences/voice/changelog",
+  PROFILE_PREFERENCES_VOICE_EXAMPLES:
+    "/one/profile/preferences/voice/examples",
   PROFILE_SECURITY: "/one/profile/security",
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",

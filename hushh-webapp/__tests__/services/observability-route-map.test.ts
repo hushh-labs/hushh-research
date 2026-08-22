@@ -123,6 +123,9 @@ describe("observability route map", () => {
     expect(resolveRouteId("/one/profile/preferences/voice/changelog")).toBe(
       "profile_preferences_voice_changelog",
     );
+    expect(resolveRouteId("/one/profile/preferences/voice/examples")).toBe(
+      "profile_preferences_voice_examples",
+    );
     expect(resolveRouteId("/portfolio/shared")).toBe("portfolio_shared");
     expect(resolveRouteId("/ria/clients")).toBe("ria_clients");
     expect(resolveRouteId("/ria/clients/user_123")).toBe("ria_workspace");
