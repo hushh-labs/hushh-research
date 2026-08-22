@@ -158,6 +158,15 @@ _ONE_MODEL = (
     or "gemini-3.1-flash-live-preview"
 ).strip()
 _ONE_LIVE_LOCATION = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
+# Neither live model pins a voice by default, so each one's own default voice
+# plays -- and the two differ audibly. Native audio models (both the 3.1
+# preview and the 2.5 GA model above) accept any Gemini TTS prebuilt voice
+# name via speech_config; "Kore" is Google's own flagship example voice
+# across the Live API docs. Public (no underscore prefix, unlike the other
+# constants here) because the relay builds RunConfig's speech_config from
+# this directly. Override per-environment with AGENT_ONE_ADK_VOICE_NAME if a
+# different one is wanted.
+ONE_LIVE_VOICE_NAME = (os.getenv("AGENT_ONE_ADK_VOICE_NAME") or "Kore").strip()
 # The Developer API Live contract is intentionally separate from the Vertex
 # contract above. It is disabled by default until an ADK integration rehearsal
 # has verified the selected model's BIDI audio, tool calls and mid-session
