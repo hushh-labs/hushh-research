@@ -86,5 +86,6 @@ tests/test_verify_uat_release.py
 # existed.
 tests/services/test_one_location_circle_service.py
 tests/test_one_location_system_circle_migration.py
+tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py
 tests/services/test_account_service_cleanup_tables.py

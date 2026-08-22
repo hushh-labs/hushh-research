@@ -5582,3 +5582,50 @@ def test_every_sos_gate_reads_the_emergency_circle_not_only_the_table() -> None:
             "an SOS gate reads the legacy contacts table without also reading "
             "the owner's emergency Circle:\n" + block[:400]
         )
+
+
+def test_a_product_managed_circle_introduces_nobody() -> None:
+    """The shared-circle eligibility arm is a property of the idiom, not of one
+    call site.
+
+    That arm joins membership to membership and never mentions
+    `circle.owner_user_id`, so two people became eligible for each other's live
+    location the moment they shared a Circle -- whoever owned it. On the SMS
+    Circle that is ten strangers, and it contradicts that Circle's own design
+    note. On a Trusted Circle holding every connection it would be every PAIR
+    of your connections.
+
+    The join is written seven times across two services. Asserting the fix at
+    one of them would leave the other six, and would not stop an eighth being
+    added wide -- which is exactly how it came to be written seven times.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as agent_module
+    from hushh_mcp.services import one_location_circle_service as circle_module
+
+    sites = 0
+    for module in (agent_module, circle_module):
+        source = inspect.getsource(module)
+        # Split on the SQL literals so an assertion lands inside one statement
+        # rather than anywhere in a 7,000-line file.
+        for block in source.split('"""'):
+            if "one_location_circle_memberships" not in block:
+                continue
+            if "JOIN one_location_circles circle" not in block:
+                continue
+            # The two membership rows have to belong to different people for
+            # this to be the eligibility idiom at all.
+            if block.count("one_location_circle_memberships") < 2:
+                continue
+            sites += 1
+            assert "circle.owner_user_id = " in block, (
+                "a shared-Circle eligibility join does not require one side to "
+                "be the Circle's owner, so a product-managed Circle would "
+                "introduce its members to each other:\n" + block[:500]
+            )
+
+    # Seven when this was written. The floor catches a site being deleted along
+    # with its guard; the assertion above catches a new one arriving wide.
+    assert sites >= 7, f"expected at least 7 shared-Circle joins, found {sites}"

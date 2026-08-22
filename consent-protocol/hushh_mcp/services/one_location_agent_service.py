@@ -3634,6 +3634,28 @@ class OneLocationAgentService:
                   JOIN one_location_circles circle
                     ON circle.id = mine.circle_id
                    AND circle.status = 'active'
+                   -- A product-managed Circle lists people together without introducing
+                   -- them, and this arm never said so. It joins membership to membership
+                   -- and never mentions `circle.owner_user_id`, so two people became
+                   -- eligible for each other's live location the moment they shared a
+                   -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                   -- appeared in the other's share picker by name.
+                   --
+                   -- On the SMS Circle that is ten strangers, and contradicts that
+                   -- Circle's own design note. On a Trusted Circle holding every
+                   -- connection it would be every PAIR of your connections: 19,900 edges
+                   -- at 200 connections, none of them consented to. An auto-share hook
+                   -- was removed from `accept_request` once already for a smaller
+                   -- version of this.
+                   --
+                   -- So for a Circle the product manages, one side has to be its owner.
+                   -- Circles a person made themselves are untouched: those members chose
+                   -- each other's company.
+                   AND (
+                     (circle.system_kind IS NULL AND NOT circle.is_system)
+                     OR circle.owner_user_id = mine.user_id
+                     OR circle.owner_user_id = theirs.user_id
+                   )
                   WHERE mine.user_id = :owner_user_id
                     AND mine.status = 'active'
                 )
@@ -4053,6 +4075,28 @@ class OneLocationAgentService:
                 JOIN one_location_circles circle
                   ON circle.id = mine.circle_id
                  AND circle.status = 'active'
+                 -- A product-managed Circle lists people together without introducing
+                 -- them, and this arm never said so. It joins membership to membership
+                 -- and never mentions `circle.owner_user_id`, so two people became
+                 -- eligible for each other's live location the moment they shared a
+                 -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                 -- appeared in the other's share picker by name.
+                 --
+                 -- On the SMS Circle that is ten strangers, and contradicts that
+                 -- Circle's own design note. On a Trusted Circle holding every
+                 -- connection it would be every PAIR of your connections: 19,900 edges
+                 -- at 200 connections, none of them consented to. An auto-share hook
+                 -- was removed from `accept_request` once already for a smaller
+                 -- version of this.
+                 --
+                 -- So for a Circle the product manages, one side has to be its owner.
+                 -- Circles a person made themselves are untouched: those members chose
+                 -- each other's company.
+                 AND (
+                   (circle.system_kind IS NULL AND NOT circle.is_system)
+                   OR circle.owner_user_id = mine.user_id
+                   OR circle.owner_user_id = theirs.user_id
+                 )
                 WHERE mine.user_id = :owner_user_id
                   AND mine.status = 'active'
                   AND (
@@ -4175,6 +4219,28 @@ class OneLocationAgentService:
                   JOIN one_location_circles circle
                     ON circle.id = mine.circle_id
                    AND circle.status = 'active'
+                   -- A product-managed Circle lists people together without introducing
+                   -- them, and this arm never said so. It joins membership to membership
+                   -- and never mentions `circle.owner_user_id`, so two people became
+                   -- eligible for each other's live location the moment they shared a
+                   -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                   -- appeared in the other's share picker by name.
+                   --
+                   -- On the SMS Circle that is ten strangers, and contradicts that
+                   -- Circle's own design note. On a Trusted Circle holding every
+                   -- connection it would be every PAIR of your connections: 19,900 edges
+                   -- at 200 connections, none of them consented to. An auto-share hook
+                   -- was removed from `accept_request` once already for a smaller
+                   -- version of this.
+                   --
+                   -- So for a Circle the product manages, one side has to be its owner.
+                   -- Circles a person made themselves are untouched: those members chose
+                   -- each other's company.
+                   AND (
+                     (circle.system_kind IS NULL AND NOT circle.is_system)
+                     OR circle.owner_user_id = mine.user_id
+                     OR circle.owner_user_id = theirs.user_id
+                   )
                   WHERE mine.user_id = :owner_user_id
                     AND mine.status = 'active'
                 )
@@ -4460,6 +4526,28 @@ class OneLocationAgentService:
                         JOIN one_location_circles circle
                           ON circle.id = mine.circle_id
                          AND circle.status = 'active'
+                         -- A product-managed Circle lists people together without introducing
+                         -- them, and this arm never said so. It joins membership to membership
+                         -- and never mentions `circle.owner_user_id`, so two people became
+                         -- eligible for each other's live location the moment they shared a
+                         -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                         -- appeared in the other's share picker by name.
+                         --
+                         -- On the SMS Circle that is ten strangers, and contradicts that
+                         -- Circle's own design note. On a Trusted Circle holding every
+                         -- connection it would be every PAIR of your connections: 19,900 edges
+                         -- at 200 connections, none of them consented to. An auto-share hook
+                         -- was removed from `accept_request` once already for a smaller
+                         -- version of this.
+                         --
+                         -- So for a Circle the product manages, one side has to be its owner.
+                         -- Circles a person made themselves are untouched: those members chose
+                         -- each other's company.
+                         AND (
+                           (circle.system_kind IS NULL AND NOT circle.is_system)
+                           OR circle.owner_user_id = mine.user_id
+                           OR circle.owner_user_id = theirs.user_id
+                         )
                         WHERE mine.user_id = :owner_user_id
                           AND mine.status = 'active'
                         ORDER BY mine.joined_at, mine.circle_id
@@ -5094,6 +5182,28 @@ class OneLocationAgentService:
                     JOIN one_location_circles circle
                       ON circle.id = mine.circle_id
                      AND circle.status = 'active'
+                     -- A product-managed Circle lists people together without introducing
+                     -- them, and this arm never said so. It joins membership to membership
+                     -- and never mentions `circle.owner_user_id`, so two people became
+                     -- eligible for each other's live location the moment they shared a
+                     -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                     -- appeared in the other's share picker by name.
+                     --
+                     -- On the SMS Circle that is ten strangers, and contradicts that
+                     -- Circle's own design note. On a Trusted Circle holding every
+                     -- connection it would be every PAIR of your connections: 19,900 edges
+                     -- at 200 connections, none of them consented to. An auto-share hook
+                     -- was removed from `accept_request` once already for a smaller
+                     -- version of this.
+                     --
+                     -- So for a Circle the product manages, one side has to be its owner.
+                     -- Circles a person made themselves are untouched: those members chose
+                     -- each other's company.
+                     AND (
+                       (circle.system_kind IS NULL AND NOT circle.is_system)
+                       OR circle.owner_user_id = mine.user_id
+                       OR circle.owner_user_id = theirs.user_id
+                     )
                     WHERE mine.user_id = :owner_user_id
                       AND mine.status = 'active'
                       AND (
@@ -6759,6 +6869,28 @@ class OneLocationAgentService:
                           JOIN one_location_circles circle
                             ON circle.id = mine.circle_id
                            AND circle.status = 'active'
+                           -- A product-managed Circle lists people together without introducing
+                           -- them, and this arm never said so. It joins membership to membership
+                           -- and never mentions `circle.owner_user_id`, so two people became
+                           -- eligible for each other's live location the moment they shared a
+                           -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                           -- appeared in the other's share picker by name.
+                           --
+                           -- On the SMS Circle that is ten strangers, and contradicts that
+                           -- Circle's own design note. On a Trusted Circle holding every
+                           -- connection it would be every PAIR of your connections: 19,900 edges
+                           -- at 200 connections, none of them consented to. An auto-share hook
+                           -- was removed from `accept_request` once already for a smaller
+                           -- version of this.
+                           --
+                           -- So for a Circle the product manages, one side has to be its owner.
+                           -- Circles a person made themselves are untouched: those members chose
+                           -- each other's company.
+                           AND (
+                             (circle.system_kind IS NULL AND NOT circle.is_system)
+                             OR circle.owner_user_id = mine.user_id
+                             OR circle.owner_user_id = theirs.user_id
+                           )
                           WHERE mine.user_id = :user_id
                             AND mine.status = 'active'
                         )
