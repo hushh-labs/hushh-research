@@ -1437,6 +1437,33 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     setVoiceStatus,
   ]);
 
+  // Retrying from an error is stop-then-start, but not in the same tick:
+  // startConversation's own guard reads `conversationActive` from THIS
+  // render's closure, which is still whatever it was before stopConversation
+  // just changed it -- calling both back to back here would see the stale
+  // value and hit the "already active" branch again instead of actually
+  // starting. A pre-setup failure (mic blocked, no device) never set
+  // conversationActive true in the first place, so waiting for it to CHANGE
+  // would wait forever for exactly that case -- the counter always changes,
+  // regardless of whether conversationActive does, so the effect below is
+  // guaranteed to run on every retry.
+  const startConversationRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    startConversationRef.current = () => void startConversation();
+  }, [startConversation]);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const retryConversation = useCallback(() => {
+    stopConversation();
+    setRetryNonce((current) => current + 1);
+  }, [stopConversation]);
+  useEffect(() => {
+    if (retryNonce === 0) return;
+    startConversationRef.current();
+    // Only a fresh retry request should re-fire this -- startConversationRef
+    // is a ref, kept current by the effect above, and reading .current here
+    // does not need to be declared as a dependency.
+  }, [retryNonce]);
+
   // Continuous voice context: when the user navigates while a live session is
   // active, push the fresh redacted snapshot into the session so One always
   // knows the current screen and its action contracts. For onboarding tiers
@@ -1988,6 +2015,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       <VoiceWalkthroughPanel enabled={walkthroughModeEnabled} />
       <VoiceErrorCard
         message={voiceStatus === "error" ? voiceMessage : null}
+        onRetry={retryConversation}
         onClose={stopConversation}
       />
       {pendingConfirmation ? (

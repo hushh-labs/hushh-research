@@ -13,12 +13,19 @@ import { X } from "lucide-react";
  * dead-end cards above it in the stack, showing the full reason. No
  * auto-fade: unlike a nudge, this describes something that is actually
  * broken and stays up until the person reads it and closes it.
+ *
+ * Also the one place voice recovery from an error was purely manual: tapping
+ * the mic pill again while errored first had to reset it, THEN start a new
+ * session on a second tap. Try Again does both in the one tap this card
+ * already has someone's attention for.
  */
 export function VoiceErrorCard({
   message,
+  onRetry,
   onClose,
 }: {
   message: string | null;
+  onRetry: () => void;
   onClose: () => void;
 }) {
   if (!message) return null;
@@ -44,6 +51,13 @@ export function VoiceErrorCard({
           <X className="size-3.5" aria-hidden="true" />
         </button>
       </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-4 h-12 w-full rounded-full bg-primary text-[15px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+      >
+        Try again
+      </button>
     </div>
   );
 }
