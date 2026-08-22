@@ -72,6 +72,7 @@ import {
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { parseVoiceSubject } from "@/lib/voice/voice-action-card";
 import { classifySpokenConfirmation } from "@/lib/voice/spoken-confirmation";
 import {
   clearJourneyApproval,
@@ -954,6 +955,18 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                         }
                       : null,
                 });
+                // A handler that resolved who this run is about (a matched
+                // recipient, a person a request just went to) says so through
+                // the same `data` bag the confirm/disambiguation cards read.
+                // Surfacing it here, before settlement, is what lets the
+                // walkthrough panel show a name the moment it is known
+                // instead of only once the whole run finishes.
+                const resolvedSubject = parseVoiceSubject(executionResult.data);
+                if (resolvedSubject) {
+                  appInteractionCoordinator.updateActionRun(actionRun.id, {
+                    subject: resolvedSubject,
+                  });
+                }
                 if (executionResult.routeAfter) {
                   appInteractionCoordinator.updateActionRun(actionRun.id, {
                     phase: "navigating",

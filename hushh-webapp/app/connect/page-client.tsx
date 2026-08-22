@@ -1303,6 +1303,12 @@ export default function ConnectPageClient() {
       return {
         status: "succeeded",
         summary: `Connection request sent to ${person.displayName}.`,
+        data: {
+          subject: {
+            name: person.displayName || "Someone",
+            detail: getDirectoryPersonDescription(person) ?? null,
+          },
+        },
       };
     } catch (error) {
       return {

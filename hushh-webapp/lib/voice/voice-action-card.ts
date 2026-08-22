@@ -207,6 +207,32 @@ export function parseVoiceConfirm(
 }
 
 /**
+ * Read who a handler result is about, for surfaces that show a subject
+ * without asking a confirm/disambiguation question -- the walkthrough panel,
+ * narrating a hands-free send while it runs. Checked in two places: a plain
+ * `data.subject` a handler sets on its own, or the `subject` already inside a
+ * `VoiceConfirm` payload, so a destructive action's card and its walkthrough
+ * row agree on the same name without the handler stating it twice.
+ */
+export function parseVoiceSubject(
+  data: Record<string, unknown> | undefined,
+): { name: string; detail?: string | null } | null {
+  if (!data) return null;
+  const raw = data.subject;
+  if (raw && typeof raw === "object") {
+    const value = raw as { name?: unknown; detail?: unknown };
+    const name = String(value.name ?? "").trim();
+    if (name) {
+      return {
+        name,
+        detail: value.detail ? String(value.detail).trim() : null,
+      };
+    }
+  }
+  return parseVoiceConfirm(data)?.subject ?? null;
+}
+
+/**
  * Read a disambiguation out of a handler result's `data`, if it carries one.
  *
  * Validated rather than trusted: a malformed payload must leave the normal

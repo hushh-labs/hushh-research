@@ -20,6 +20,7 @@ function run(overrides: Partial<ActionRun> & { id: string }): ActionRun {
     goalId: overrides.goalId ?? null,
     phase: overrides.phase ?? "executing",
     message: overrides.message ?? "Working",
+    subject: overrides.subject ?? null,
     createdAtMs: overrides.createdAtMs ?? 0,
     updatedAtMs: overrides.updatedAtMs ?? overrides.createdAtMs ?? 0,
     completedAtMs: overrides.completedAtMs ?? null,
@@ -100,6 +101,23 @@ describe("VoiceWalkthroughPanel", () => {
     render(<VoiceWalkthroughPanel enabled />);
 
     expect(screen.queryByTestId("voice-walkthrough-panel")).toBeNull();
+  });
+
+  it("shows a single-step task once a handler names who it's about", () => {
+    const solo = appInteractionCoordinator.startActionRun({
+      actionId: "connect.send_request",
+      label: "Send a connection request",
+      source: "voice",
+    });
+    appInteractionCoordinator.updateActionRun(solo.id, {
+      subject: { name: "Ankit Kumar Singh", detail: "an•••@hushh.ai" },
+    });
+
+    render(<VoiceWalkthroughPanel enabled />);
+
+    expect(screen.getByTestId("voice-walkthrough-panel")).toBeInTheDocument();
+    expect(screen.getByText("Ankit Kumar Singh")).toBeInTheDocument();
+    expect(screen.getByText("an•••@hushh.ai")).toBeInTheDocument();
   });
 
   it("shows a live step list for a multi-step task when enabled", () => {

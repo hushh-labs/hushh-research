@@ -809,6 +809,17 @@ function recipientLabel(recipient: OneLocationRecipient): string {
   return safePersonLabel(recipient.displayName);
 }
 
+/**
+ * A single readable line under a recipient's name, for the walkthrough
+ * panel's subject row -- a masked phone once contact sync has it, otherwise
+ * whatever headline the recipient set. Deliberately not
+ * `recommendationSearchText`: that string exists for fuzzy matching and
+ * reads as a lowercase keyword blob, not something to show someone.
+ */
+function recipientSubjectDetail(recipient: OneLocationRecipient): string | null {
+  return recipient.maskedPhone || recipient.profileHeadline || null;
+}
+
 function recommendationTierLabel(tier?: string | null): string {
   switch (tier) {
     case "needs_action":
@@ -9158,6 +9169,12 @@ export function OneLocationAgentPageContent({
       return {
         status: "succeeded" as const,
         summary: `${chosenName ? `Matched ${chosenName}.` : "Matched."} Now start the share with location.share_selected and the duration they asked for; say who it is going to as you do it.`,
+        data:
+          chosen && chosenName
+            ? {
+                subject: { name: chosenName, detail: recipientSubjectDetail(chosen) },
+              }
+            : undefined,
       };
     }
     const raw = String(slots?.person ?? "").trim();
@@ -9333,7 +9350,19 @@ export function OneLocationAgentPageContent({
               },
             },
           }
-        : null),
+        : matchedNames.length
+          ? {
+              data: {
+                subject: {
+                  name: joinNamesForSpeech(matchedNames),
+                  detail:
+                    resolved.length === 1
+                      ? recipientSubjectDetail(resolved[0]!)
+                      : null,
+                },
+              },
+            }
+          : null),
     };
   });
 
@@ -9357,13 +9386,35 @@ export function OneLocationAgentPageContent({
     // Active shares makes the result something the person can see and stop.
     // Only set for the voice path -- taps keep returning to the clean hub.
     const landOn = "/one/location?action=active-shares";
+    const shareRecipients = selectedRecipientIds
+      .map((id) => rankedRecipients.find((candidate) => candidate.userId === id))
+      .filter((candidate): candidate is OneLocationRecipient => Boolean(candidate));
     const result = await handleShare(duration, landOn);
     if (result.status !== "succeeded") return result;
     // Declared only once the completion effect will really navigate there.
     // `routeAfter` makes the runtime WAIT for that settlement -- on an action
     // that does not navigate it waits for nothing and times out into a false
     // "started", which is why it cannot simply be returned unconditionally.
-    return { ...result, routeAfter: landOn, screenAfter: "one_location" };
+    const shareNames = shareRecipients.map((r) => recipientLabel(r).trim()).filter(Boolean);
+    return {
+      ...result,
+      routeAfter: landOn,
+      screenAfter: "one_location",
+      data: {
+        ...(result.data || {}),
+        ...(shareNames.length
+          ? {
+              subject: {
+                name: joinNamesForSpeech(shareNames),
+                detail:
+                  shareRecipients.length === 1
+                    ? recipientSubjectDetail(shareRecipients[0]!)
+                    : shareVoiceDurationSpokenLabel(duration),
+              },
+            }
+          : {}),
+      },
+    };
   });
 
   useLocalOnboardingActionHandler("location.stop_share", async (slots) => {
@@ -9560,6 +9611,12 @@ export function OneLocationAgentPageContent({
       return {
         status: "succeeded" as const,
         summary: `${chosenName ? `Picked ${chosenName} to ask.` : "Picked one person to ask."} Say "send it" to send the request.`,
+        data:
+          chosen && chosenName
+            ? {
+                subject: { name: chosenName, detail: recipientSubjectDetail(chosen) },
+              }
+            : undefined,
       };
     }
     const raw = String(slots?.person ?? "").trim();
@@ -9676,7 +9733,19 @@ export function OneLocationAgentPageContent({
               },
             },
           }
-        : null),
+        : matchedNames.length
+          ? {
+              data: {
+                subject: {
+                  name: joinNamesForSpeech(matchedNames),
+                  detail:
+                    resolved.length === 1
+                      ? recipientSubjectDetail(resolved[0]!)
+                      : null,
+                },
+              },
+            }
+          : null),
     };
   });
 
@@ -9690,10 +9759,10 @@ export function OneLocationAgentPageContent({
         summary: "Say who you want to ask first, then say send it.",
       };
     }
-    const names = selectedRequestOwners
+    const ownerNames = selectedRequestOwners
       .map((owner) => recipientLabel(owner).trim())
-      .filter(Boolean)
-      .join(", ");
+      .filter(Boolean);
+    const names = ownerNames.join(", ");
     const sent = await handleRequestAccess();
     if (!sent) {
       return {
@@ -9707,6 +9776,17 @@ export function OneLocationAgentPageContent({
         selectedRequestOwners.length === 1
           ? `Asked ${names || "them"} for their location.`
           : `Asked ${selectedRequestOwners.length} people for their location.`,
+      data: ownerNames.length
+        ? {
+            subject: {
+              name: joinNamesForSpeech(ownerNames),
+              detail:
+                selectedRequestOwners.length === 1
+                  ? recipientSubjectDetail(selectedRequestOwners[0]!)
+                  : `${selectedRequestOwners.length} people`,
+            },
+          }
+        : undefined,
     };
   });
 

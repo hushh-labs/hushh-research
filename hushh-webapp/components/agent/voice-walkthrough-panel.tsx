@@ -103,7 +103,13 @@ export function VoiceWalkthroughPanel({ enabled }: { enabled: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, last?.id, last?.phase]);
 
-  if (!enabled || !linger || group.length < 2) return null;
+  // A single step still earns its place here once a handler has named who
+  // it is about -- "who am I sending this to" is exactly the thing the bar's
+  // own one-line status pill has no room for, and it is the reason this
+  // panel exists rather than the separate confirm-everything popup that was
+  // considered and dropped.
+  const hasSubject = group.some((step) => step.subject);
+  if (!enabled || !linger || (group.length < 2 && !hasSubject)) return null;
 
   return (
     <div
@@ -117,9 +123,23 @@ export function VoiceWalkthroughPanel({ enabled }: { enabled: boolean }) {
       </p>
       <ul className="flex flex-col gap-2">
         {group.map((step) => (
-          <li key={step.id} className="flex items-center gap-2.5">
-            <StepIcon phase={step.phase} />
-            <span className={stepTextClass(step.phase)}>{step.label}</span>
+          <li key={step.id} className="flex flex-col gap-1">
+            <div className="flex items-center gap-2.5">
+              <StepIcon phase={step.phase} />
+              <span className={stepTextClass(step.phase)}>{step.label}</span>
+            </div>
+            {step.subject ? (
+              <div className="ml-[26px] flex min-w-0 flex-col">
+                <span className="truncate text-xs font-medium text-foreground">
+                  {step.subject.name}
+                </span>
+                {step.subject.detail ? (
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {step.subject.detail}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
           </li>
         ))}
       </ul>

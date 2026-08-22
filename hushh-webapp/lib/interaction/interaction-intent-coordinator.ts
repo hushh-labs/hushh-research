@@ -96,6 +96,14 @@ export type ActionRun = {
   goalId: string | null;
   phase: ActionRunPhase;
   message: string;
+  /**
+   * Who or what this run acts on, once a handler has resolved it -- the same
+   * name+detail shape `VoiceConfirm`/`VoiceDisambiguationCandidate` already
+   * show, surfaced here so the walkthrough panel can display it live instead
+   * of only inside a confirmation card. Unknown until a handler result says
+   * otherwise, and untouched by phase-only updates.
+   */
+  subject: { name: string; detail?: string | null } | null;
   createdAtMs: number;
   updatedAtMs: number;
   completedAtMs: number | null;
@@ -234,6 +242,7 @@ export class InteractionIntentCoordinator {
       goalId: input.goalId ?? null,
       phase,
       message: input.message ?? actionRunMessage(phase, input.label),
+      subject: null,
       createdAtMs: now,
       updatedAtMs: now,
       completedAtMs: null,
@@ -246,18 +255,26 @@ export class InteractionIntentCoordinator {
   updateActionRun(
     runId: string,
     input: {
-      phase: ActionRunPhase;
+      /** Omit to patch `subject`/`message` without moving the run's phase. */
+      phase?: ActionRunPhase;
       message?: string;
+      subject?: ActionRun["subject"];
     },
   ): ActionRun | null {
     let updated: ActionRun | null = null;
     this.actionRuns = this.actionRuns.map((run) => {
       if (run.id !== runId || isTerminalActionRunPhase(run.phase)) return run;
-      const terminal = isTerminalActionRunPhase(input.phase);
+      const phase = input.phase ?? run.phase;
+      const terminal = isTerminalActionRunPhase(phase);
       updated = {
         ...run,
-        phase: input.phase,
-        message: input.message ?? actionRunMessage(input.phase, run.label),
+        phase,
+        message:
+          input.message ??
+          (input.phase !== undefined
+            ? actionRunMessage(phase, run.label)
+            : run.message),
+        subject: input.subject !== undefined ? input.subject : run.subject,
         updatedAtMs: Date.now(),
         completedAtMs: terminal ? Date.now() : null,
       };

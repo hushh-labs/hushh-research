@@ -555,6 +555,12 @@ describe("Connect — People", () => {
     expect(mocks.sendRequest).toHaveBeenCalledWith(
       expect.objectContaining({ addresseeUserId: "u10" }),
     );
+    // The walkthrough panel reads this to show who the request just went to
+    // -- the same name+detail shape the disambiguation card above shows.
+    expect(result?.data?.subject).toEqual({
+      name: "Ankit Kumar Singh",
+      detail: null,
+    });
   });
 
   it("finds someone whose stored name is not how it was spoken", async () => {
