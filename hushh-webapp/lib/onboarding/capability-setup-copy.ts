@@ -106,7 +106,7 @@ const SETUP_COPY_BY_ID: Record<
     setupBlurb: "One keeps track of your day.",
     actionLabel: "Connect Calendar",
     resumeActionLabel: "Finish Calendar",
-    introPremise: "Understand your schedule.",
+    introPremise: "Stay ahead of your schedule.",
     introPromise: "See what's ahead, and make time for what matters.",
     setupBullets: [
       "Connect Google Calendar with the access you choose.",
