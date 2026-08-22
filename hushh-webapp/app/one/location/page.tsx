@@ -9409,7 +9409,9 @@ export function OneLocationAgentPageContent({
                 detail:
                   shareRecipients.length === 1
                     ? recipientSubjectDetail(shareRecipients[0]!)
-                    : shareVoiceDurationSpokenLabel(duration),
+                    : duration
+                      ? shareVoiceDurationSpokenLabel(duration)
+                      : null,
               },
             }
           : {}),
