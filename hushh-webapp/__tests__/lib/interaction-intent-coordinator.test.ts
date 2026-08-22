@@ -157,6 +157,26 @@ describe("InteractionIntentCoordinator", () => {
     });
   });
 
+  it("carries an optional goalId through a run so related steps can be grouped later", () => {
+    const coordinator = new InteractionIntentCoordinator();
+    const withGoal = coordinator.startActionRun({
+      actionId: "location.pause_updates",
+      label: "Pause updates",
+      source: "voice",
+      directiveId: "directive_1",
+      goalId: "goal.location.pause_updates",
+    });
+    const withoutGoal = coordinator.startActionRun({
+      actionId: "connect.open_people",
+      label: "Open Connect people",
+      source: "voice",
+      directiveId: "directive_2",
+    });
+
+    expect(withGoal.goalId).toBe("goal.location.pause_updates");
+    expect(withoutGoal.goalId).toBeNull();
+  });
+
   it("cancels non-terminal interaction work on background without owning vault state", () => {
     const coordinator = new InteractionIntentCoordinator();
     const cancelNavigation = vi.fn();

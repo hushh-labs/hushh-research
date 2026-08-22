@@ -95,7 +95,7 @@ export function VoicePreferencesPanel({
       <SettingsGroup>
         <SettingsRow
           title="Voice control"
-          description="Let One act on what you say, everywhere in the app."
+          description="Let One act on what you say."
           trailing={
             <Switch
               checked={state.voiceEnabled}
@@ -107,13 +107,10 @@ export function VoicePreferencesPanel({
           }
         />
       </SettingsGroup>
-      <SettingsGroup
-        title="Safety"
-        description="Applies to actions that already ask for confirmation, like sharing your location or sending an SOS."
-      >
+      <SettingsGroup title="Safety" description="For actions that already ask to confirm.">
         <SettingsRow
-          title="Require a tap to confirm risky actions"
-          description="Turn this on to stop a spoken yes or no from confirming them."
+          title="Require a tap to confirm"
+          description="Stops a spoken yes or no from confirming."
           disabled={!state.voiceEnabled}
           trailing={
             <Switch
@@ -122,14 +119,31 @@ export function VoicePreferencesPanel({
               onCheckedChange={(checked) =>
                 set((current) => ({ ...current, requireTapConfirmation: checked }))
               }
-              aria-label="Require a tap to confirm risky actions"
+              aria-label="Require a tap to confirm"
+            />
+          }
+        />
+      </SettingsGroup>
+      <SettingsGroup title="Guidance" description="See each step as One works.">
+        <SettingsRow
+          title="Walk-through mode"
+          description="Follow along step by step."
+          disabled={!state.voiceEnabled}
+          trailing={
+            <Switch
+              checked={state.walkthroughMode}
+              disabled={!state.voiceEnabled}
+              onCheckedChange={(checked) =>
+                set((current) => ({ ...current, walkthroughMode: checked }))
+              }
+              aria-label="Walk-through mode"
             />
           }
         />
       </SettingsGroup>
       <SettingsGroup
         title="What voice can control"
-        description="Turn a domain off to stop voice from acting there. You can still use it by tap."
+        description="Turn a domain off to block voice there; tap still works."
       >
         {VOICE_ENGINE_DOMAINS.map((domain) => {
           const allowed = !state.disabledDomains.includes(domain.key);

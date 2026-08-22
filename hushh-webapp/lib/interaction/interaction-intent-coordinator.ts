@@ -86,6 +86,14 @@ export type ActionRun = {
   label: string;
   source: InteractionIntentSource;
   directiveId: string | null;
+  /**
+   * The authored journey/goal this run belongs to, when the directive that
+   * started it named one. Two runs sharing a `goalId` are steps of the same
+   * multi-action task (e.g. a navigate step and the local-handler step it
+   * escorts) -- this is the only thing that ties them together, since each
+   * step still arrives as its own directive and its own run.
+   */
+  goalId: string | null;
   phase: ActionRunPhase;
   message: string;
   createdAtMs: number;
@@ -203,6 +211,7 @@ export class InteractionIntentCoordinator {
     label: string;
     source: InteractionIntentSource;
     directiveId?: string | null;
+    goalId?: string | null;
     phase?: Extract<ActionRunPhase, "acknowledged" | "preparing">;
     message?: string;
   }): ActionRun {
@@ -222,6 +231,7 @@ export class InteractionIntentCoordinator {
       label: input.label,
       source: input.source,
       directiveId: input.directiveId ?? null,
+      goalId: input.goalId ?? null,
       phase,
       message: input.message ?? actionRunMessage(phase, input.label),
       createdAtMs: now,
@@ -271,6 +281,18 @@ export class InteractionIntentCoordinator {
       phase,
       message: settlement.summary,
     });
+  }
+
+  /**
+   * Test-only. `cancelActiveActionRuns` marks runs terminal but keeps them in
+   * the rolling history for grouping (e.g. `VoiceWalkthroughPanel`), so a
+   * suite that starts real runs against the shared singleton needs a genuine
+   * wipe between tests -- otherwise a later test's runs land inside the
+   * still-recent grouping window of an earlier test's.
+   */
+  resetActionRunsForTests(): void {
+    this.actionRuns = [];
+    this.publish();
   }
 
   cancelActiveActionRuns(message = "Action cancelled"): void {
@@ -546,7 +568,7 @@ export function useActiveActionRun(): ActionRun | null {
   return null;
 }
 
-function isTerminalActionRunPhase(phase: ActionRunPhase): boolean {
+export function isTerminalActionRunPhase(phase: ActionRunPhase): boolean {
   return (
     phase === "completed" ||
     phase === "blocked" ||

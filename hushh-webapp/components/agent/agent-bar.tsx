@@ -25,6 +25,7 @@ import { useTheme } from "next-themes";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import { VoiceActionCard } from "@/components/agent/voice-action-card";
+import { VoiceWalkthroughPanel } from "@/components/agent/voice-walkthrough-panel";
 import { useAuth } from "@/hooks/use-auth";
 import {
   executeAgentGatewayAction,
@@ -34,6 +35,10 @@ import {
 import { settleAgentGatewayAction } from "@/lib/agent/agent-gateway-action-settlement";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import { requiresHardTapConfirmation } from "@/lib/agent/confirmation-tap-policy";
+import {
+  readVoicePreferences,
+  subscribeVoicePreferences,
+} from "@/lib/agent/voice-preferences";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { ApiService } from "@/lib/services/api-service";
 import {
@@ -292,6 +297,20 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     clearJourneyApproval(reason);
   }, []);
   const activeActionRun = useActiveActionRun();
+  // Read directly rather than through AgentRuntimeState's snapshot: that
+  // snapshot is deliberately the subset of preferences the backend relay
+  // needs to see, and walk-through mode is a purely client-side rendering
+  // choice with nothing for the relay to act on.
+  const [walkthroughModeEnabled, setWalkthroughModeEnabled] = useState(
+    () => readVoicePreferences(user?.uid).walkthroughMode,
+  );
+  useEffect(() => {
+    setWalkthroughModeEnabled(readVoicePreferences(user?.uid).walkthroughMode);
+    if (!user?.uid) return;
+    return subscribeVoicePreferences(user.uid, (next) =>
+      setWalkthroughModeEnabled(next.walkthroughMode),
+    );
+  }, [user?.uid]);
   const pendingConfirmationRef = useRef<PendingVoiceConfirmation | null>(null);
   const voiceStatus = useAgentVoiceState((s) => s.status);
   const voiceMessage = useAgentVoiceState((s) => s.message);
@@ -767,6 +786,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               label: action.label,
               source: "voice",
               directiveId,
+              goalId,
               message: `Preparing ${action.label}`,
             });
             actionRunId = actionRun.id;
@@ -1966,6 +1986,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           raised when an action could not run at all, so there is nothing
           pending to confirm at the same moment. */}
       <VoiceActionCard />
+      <VoiceWalkthroughPanel enabled={walkthroughModeEnabled} />
       {pendingConfirmation ? (
         <div
           role="dialog"
