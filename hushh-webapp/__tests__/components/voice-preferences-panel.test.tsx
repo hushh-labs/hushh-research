@@ -76,18 +76,18 @@ describe("VoicePreferencesPanel", () => {
     ).toBeDisabled();
   });
 
-  it("walk-through mode defaults off and persists when turned on", () => {
+  it("walk-through mode defaults on and persists when turned off", () => {
     render(
       <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} />,
     );
 
     const toggle = screen.getByRole("switch", { name: "Walk-through mode" });
-    expect(toggle).not.toBeChecked();
+    expect(toggle).toBeChecked();
 
     fireEvent.click(toggle);
 
-    expect(readVoicePreferences(userId).walkthroughMode).toBe(true);
-    expect(toggle).toBeChecked();
+    expect(readVoicePreferences(userId).walkthroughMode).toBe(false);
+    expect(toggle).not.toBeChecked();
   });
 
   it("changelog shows a preview and \"See all updates\" opens the dedicated changelog page", () => {

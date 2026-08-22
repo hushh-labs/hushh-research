@@ -29,7 +29,7 @@ const PREFERENCES_KEY_PREFIX = "one_voice_preferences_v1:";
 const DEFAULT_STATE: OneVoicePreferencesState = {
   voiceEnabled: true,
   requireTapConfirmation: false,
-  walkthroughMode: false,
+  walkthroughMode: true,
   disabledDomains: [],
 };
 
@@ -58,7 +58,11 @@ function sanitizeState(value: unknown): OneVoicePreferencesState {
   return {
     voiceEnabled: raw.voiceEnabled !== false,
     requireTapConfirmation: raw.requireTapConfirmation === true,
-    walkthroughMode: raw.walkthroughMode === true,
+    // Unlike the other fields here, walkthrough mode is additive rather than
+    // a restriction -- it narrates, it never blocks -- so a store written
+    // before this preference existed reads as "on", matching the new
+    // default, not as the implicit "off" every other flag falls back to.
+    walkthroughMode: raw.walkthroughMode !== false,
     disabledDomains,
   };
 }

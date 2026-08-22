@@ -157,6 +157,36 @@ describe("InteractionIntentCoordinator", () => {
     });
   });
 
+  it("patches subject without moving phase, and later phase-only updates keep it", () => {
+    const coordinator = new InteractionIntentCoordinator();
+    const run = coordinator.startActionRun({
+      actionId: "connect.send_request",
+      label: "Send a connection request",
+      source: "voice",
+    });
+    expect(coordinator.getActiveActionRun()).toMatchObject({ subject: null });
+
+    coordinator.updateActionRun(run.id, {
+      subject: { name: "Ankit Kumar Singh", detail: "an•••@hushh.ai" },
+    });
+    expect(coordinator.getActiveActionRun()).toMatchObject({
+      phase: "acknowledged",
+      subject: { name: "Ankit Kumar Singh", detail: "an•••@hushh.ai" },
+    });
+
+    coordinator.finishActionRunFromSettlement(run.id, {
+      status: "succeeded",
+      summary: "Connection request sent to Ankit Kumar Singh.",
+    });
+    const snapshot = coordinator
+      .getActionRunsSnapshot()
+      .find((entry) => entry.id === run.id);
+    expect(snapshot).toMatchObject({
+      phase: "completed",
+      subject: { name: "Ankit Kumar Singh", detail: "an•••@hushh.ai" },
+    });
+  });
+
   it("carries an optional goalId through a run so related steps can be grouped later", () => {
     const coordinator = new InteractionIntentCoordinator();
     const withGoal = coordinator.startActionRun({

@@ -73,6 +73,7 @@ import {
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { parseVoiceSubject } from "@/lib/voice/voice-action-card";
 import { classifySpokenConfirmation } from "@/lib/voice/spoken-confirmation";
 import {
   clearJourneyApproval,
@@ -994,6 +995,18 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                         }
                       : null,
                 });
+                // A handler that resolved who this run is about (a matched
+                // recipient, a person a request just went to) says so through
+                // the same `data` bag the confirm/disambiguation cards read.
+                // Surfacing it here, before settlement, is what lets the
+                // walkthrough panel show a name the moment it is known
+                // instead of only once the whole run finishes.
+                const resolvedSubject = parseVoiceSubject(executionResult.data);
+                if (resolvedSubject) {
+                  appInteractionCoordinator.updateActionRun(actionRun.id, {
+                    subject: resolvedSubject,
+                  });
+                }
                 if (executionResult.routeAfter) {
                   appInteractionCoordinator.updateActionRun(actionRun.id, {
                     phase: "navigating",
@@ -1170,6 +1183,20 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   useEffect(() => {
     handleTransportEventRef.current = handleTransportEvent;
   }, [handleTransportEvent]);
+
+  // Narrower than stopConversation: aborts whatever the walkthrough panel is
+  // currently showing without ending the voice session it belongs to. The
+  // abort is best-effort -- not every handler checks its signal mid-flight --
+  // so cancelActiveActionRuns is what actually makes the UI reflect "stopped"
+  // immediately rather than waiting on work that may keep running unseen.
+  const cancelActiveWalkthroughTask = useCallback(() => {
+    actionAbortControllerRef.current?.abort();
+    appInteractionCoordinator.cancelActiveActionRuns("Cancelled");
+    abandonPendingConfirmation(
+      "cancelled_from_walkthrough",
+      "The confirmation was cancelled.",
+    );
+  }, [abandonPendingConfirmation]);
 
   const stopConversation = useCallback(() => {
     actionAbortControllerRef.current?.abort();
@@ -2121,7 +2148,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           raised when an action could not run at all, so there is nothing
           pending to confirm at the same moment. */}
       <VoiceActionCard />
-      <VoiceWalkthroughPanel enabled={walkthroughModeEnabled} />
+      <VoiceWalkthroughPanel
+        enabled={walkthroughModeEnabled}
+        onCancel={cancelActiveWalkthroughTask}
+      />
       {/* Only while nothing more immediate is already up: a confirmation or
           error is the person's next decision, and a dead end describing a
           state the screen has already moved past would be stale advice
