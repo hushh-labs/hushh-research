@@ -4303,7 +4303,7 @@
         "baseline_transport": "Active recipient-scoped ciphertext only; no public or iframe fallback",
         "coordinate_storage": "Live-share map coordinates stay in foreground renderer memory. Nearby presence captures a final check-in point and stores it only under AES-256-GCM plus a rotating spatial token; accuracy is request-memory-only, and peers receive no coordinates.",
         "location_capture": "After renderer consent, Map takes one bounded foreground fix for camera focus. Locate me publishes only on an explicit tap. Nearby check-in takes a fresh bounded fix only for an explicit, time-boxed check-in.",
-        "visibility": "Ghost Mode remains the map default. Local/UAT nearby discovery requires separate explicit visibility consent, returns a roster without peer coordinates, and fails closed in production."
+        "visibility": "An active private or Circle share is visible on the recipient's map unconditionally -- no separate map-visibility opt-in. Local/UAT nearby discovery requires separate explicit visibility consent, returns a roster without peer coordinates, and fails closed in production."
       }
     },
     {
@@ -8728,5 +8728,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "be6ed6394edcd7b1df08ee9f9c663595e4994516d260e747e19f3191e7531513"
+  "content_sha256": "365580c33c14299d4f3d35fedebdc5b27f7ef03c96797766a4b3461926f5a12e"
 }

@@ -17,8 +17,6 @@ import {
 import { App as CapacitorApp } from "@capacitor/app";
 import {
   ChevronDown,
-  Eye,
-  EyeOff,
   LocateFixed,
   Loader2,
   MapPin,
@@ -94,7 +92,6 @@ import {
 import { OneLocationService } from "@/lib/one-location/service";
 import type {
   OneLocationMapMarker,
-  OneLocationMapPreferences,
   OneLocationGrant,
   OneLocationNearbyAttendee,
   OneLocationNearbyPresenceState,
@@ -585,9 +582,6 @@ export function LocationImmersiveMap({
   const [acceptedRenderer, setAcceptedRenderer] = useState(() =>
     readCachedRendererConsentAccepted(auth.userId),
   );
-  const [preferences, setPreferences] = useState<OneLocationMapPreferences>({
-    presenceMode: "ghost",
-  });
   const [markers, setMarkers] = useState<RenderMarker[]>([]);
   // The server's own definition of live, rather than a second copy of 90 in
   // the client that could drift away from it.
@@ -666,7 +660,7 @@ export function LocationImmersiveMap({
   const [unavailableReason, setUnavailableReason] = useState<
     "maps-key" | "renderer"
   >("maps-key");
-  const [busy, setBusy] = useState<"presence" | "locate" | null>(null);
+  const [busy, setBusy] = useState<"locate" | null>(null);
   const [nearbyConnectionBusyAlias, setNearbyConnectionBusyAlias] = useState<
     string | null
   >(null);
@@ -1041,7 +1035,6 @@ export function LocationImmersiveMap({
       const nextMarkers = resolved.filter(
         (item): item is RenderMarker => item !== null,
       );
-      setPreferences(state.preferences);
       if (Number.isFinite(state.freshnessSeconds) && state.freshnessSeconds > 0) {
         setFreshnessSeconds(state.freshnessSeconds);
       }
@@ -1120,7 +1113,6 @@ export function LocationImmersiveMap({
   useEffect(() => {
     if (!vaultOwnerToken || !auth.userId) return;
     if (demoMode) {
-      setPreferences({ presenceMode: "ghost" });
       return;
     }
     // Re-apply the cache on every userId change (covers the case where the
@@ -1133,7 +1125,6 @@ export function LocationImmersiveMap({
     void OneLocationService.getMapState(vaultOwnerToken)
       .then((state) => {
         if (cancelled) return;
-        setPreferences(state.preferences);
         const accepted =
           state.preferences.rendererConsentVersion ===
           GOOGLE_MAPS_RENDERER_CONSENT_VERSION;
@@ -2064,56 +2055,16 @@ export function LocationImmersiveMap({
   const acceptRenderer = useCallback(async () => {
     if (!vaultOwnerToken) return;
     try {
-      const next = await OneLocationService.updateMapPreferences({
+      await OneLocationService.updateMapPreferences({
         vaultOwnerToken,
         rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
       });
-      setPreferences(next);
       setAcceptedRenderer(true);
       writeCachedRendererConsentAccepted(auth.userId, true);
     } catch {
       toast.error("Your Map could not be prepared.");
     }
   }, [auth.userId, vaultOwnerToken]);
-
-  const setPresence = useCallback(async () => {
-    if (!vaultOwnerToken) return;
-    setBusy("presence");
-    try {
-      const nextMode =
-        preferences.presenceMode === "ghost" ? "foreground_private" : "ghost";
-      if (demoMode) {
-        setPreferences((current) => ({
-          ...current,
-          presenceMode: nextMode,
-        }));
-        toast.success(
-          nextMode === "ghost"
-            ? "Demo Ghost Mode is on."
-            : "Demo visibility is on.",
-        );
-        return;
-      }
-      const next = await OneLocationService.updateMapPreferences({
-        vaultOwnerToken,
-        presenceMode: nextMode,
-      });
-      setPreferences(next);
-      toast.success(
-        nextMode === "ghost"
-          ? "Ghost Mode is on. Nobody sees you on their map."
-          // "Tap Locate me to appear" was true while the locate button was the
-          // only thing that ever published a map-visible position. Sharing does
-          // it now, so telling somebody to go and tap something else would send
-          // them looking for a step that no longer exists.
-          : "You will appear on the map of anyone you share with.",
-      );
-    } catch {
-      toast.error("Map visibility could not be updated.");
-    } finally {
-      setBusy(null);
-    }
-  }, [demoMode, preferences.presenceMode, vaultOwnerToken]);
 
   const focusMarker = useCallback(async (marker: RenderMarker) => {
     setSelected(marker);
@@ -2155,12 +2106,6 @@ export function LocationImmersiveMap({
       await focusSelfPoint(point, { animate: true, select: true });
       if (demoMode) {
         toast.success("Centered on your device location.");
-        return;
-      }
-      if (preferences.presenceMode !== "foreground_private") {
-        toast.message(
-          "Ghost Mode is on. Only you can see this.",
-        );
         return;
       }
       const state = await OneLocationService.getState(vaultOwnerToken);
@@ -2208,13 +2153,7 @@ export function LocationImmersiveMap({
     } finally {
       setBusy(null);
     }
-  }, [
-    captureCurrentLocation,
-    demoMode,
-    focusSelfPoint,
-    preferences.presenceMode,
-    vaultOwnerToken,
-  ]);
+  }, [captureCurrentLocation, demoMode, focusSelfPoint, vaultOwnerToken]);
 
   // A–Z before the query, so the tray has somewhere to start looking; the
   // filter then keeps that order inside each of its relevance groups. Applied
@@ -3375,7 +3314,7 @@ export function LocationImmersiveMap({
 
               <div
                 className={`mt-3 grid gap-2 ${
-                  demoAvailable ? "grid-cols-3" : "grid-cols-2"
+                  demoAvailable ? "grid-cols-2" : "grid-cols-1"
                 }`}
               >
                 {demoAvailable ? (
@@ -3394,28 +3333,6 @@ export function LocationImmersiveMap({
                     <span className="truncate">Demo</span>
                   </Button>
                 ) : null}
-                <Button
-                  className={`h-11 min-w-0 justify-between rounded-2xl px-2.5 ${
-                    preferences.presenceMode === "foreground_private"
-                      ? MAP_ACCENT_ACTIVE_CLASSNAME
-                      : ""
-                  }`}
-                  variant="secondary"
-                  aria-pressed={
-                    preferences.presenceMode === "foreground_private"
-                  }
-                  disabled={busy === "presence"}
-                  onClick={() => void setPresence()}
-                >
-                  <span className="truncate">
-                    {preferences.presenceMode === "ghost" ? "Ghost" : "Visible"}
-                  </span>
-                  {preferences.presenceMode === "ghost" ? (
-                    <EyeOff className="h-4 w-4 shrink-0" />
-                  ) : (
-                    <Eye className="h-4 w-4 shrink-0" />
-                  )}
-                </Button>
                 <Button
                   className="h-11 min-w-0 rounded-2xl px-2"
                   variant="secondary"
