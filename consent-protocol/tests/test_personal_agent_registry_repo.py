@@ -216,6 +216,55 @@ async def test_set_user_cloud_records_coordinates_without_a_status_transition():
     assert row["hushh_id"] == "ha1_abc"
 
 
+async def test_mark_needs_reinit_flips_status_and_clears_the_authorization():
+    """A CONFIRMED-gone host must both flip to needs_reinit AND drop the proof.
+
+    Clearing `user_cloud_authorized_at` is the load-bearing half. The flag is otherwise
+    sticky forever, so a project the user deleted keeps `is_ready_to_provision` True and
+    `/managed/select` keeps scheduling a pod into a dead project (the compounding bug the
+    reachability gate exists to end). Broken on purpose: drop the None write and the proof
+    survives into the reinit -- this fails.
+    """
+    repo, _ = _repo_and_db()
+    await _upsert(repo, status="provisioned")
+    await repo.set_user_cloud(
+        user_id=_UID,
+        project="their-own-project",
+        region="us-central1",
+        bootstrap_sa="one-bootstrap@their-own-project.iam.gserviceaccount.com",
+        authorized=True,
+        deployment_target="user_gcp",
+        model_credential_mode="user_adc",
+    )
+    assert (await repo.get(_UID))["user_cloud_authorized_at"]  # precondition: proven
+
+    wrote = await repo.mark_needs_reinit(_UID)
+
+    assert wrote is True
+    row = await repo.get(_UID)
+    assert row["status"] == "needs_reinit"
+    assert row["user_cloud_authorized_at"] is None
+    # The identity survives -- reinit re-authorizes and adopts, it never re-mints.
+    assert row["hushh_id"] == "ha1_abc"
+    # The project name is left in place so the reinit screen can offer to reuse it.
+    assert row["user_cloud_project"] == "their-own-project"
+
+
+async def test_mark_needs_reinit_never_creates_a_row():
+    """No recorded host, nothing to mark. It must not conjure a needs_reinit row for a
+    user who never provisioned -- an UPDATE that matched nothing returns False."""
+    repo, db = _repo_and_db()
+    wrote = await repo.mark_needs_reinit("nobody")
+    assert wrote is False
+    assert db.tables.get("personal_agent_registry", []) == []
+
+
+async def test_mark_needs_reinit_refuses_a_blank_user():
+    repo, _ = _repo_and_db()
+    assert await repo.mark_needs_reinit("") is False
+    assert await repo.mark_needs_reinit("   ") is False
+
+
 async def test_a_named_but_unauthorized_cloud_is_recorded_without_the_proof():
     """ "They typed a name" and "hushh can act there" are different facts.
 

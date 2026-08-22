@@ -74,13 +74,25 @@ async def wake_pod(
     # for a gone pod hangs a returning user forever. When the reachability gate is
     # on, one bounded backend check resolves the ambiguity -- and ONLY a confirmed
     # `gone` returns the fresh-setup signal; any uncertainty stays `waking`, so a
-    # transient probe error never spuriously changes the user's agent identity. This
-    # endpoint still writes nothing: re-provision (which the client triggers on
-    # `gone`) is the single writer of the row.
+    # transient probe error never spuriously changes the user's agent identity.
+    #
+    # On a CONFIRMED gone (and only then) this endpoint makes ONE durable write:
+    # it flips the row to needs_reinit and clears the sticky authorization, so a
+    # later /managed/select cannot schedule a pod into the project the user
+    # deleted. That write is idempotent and best-effort -- the wake answer returns
+    # regardless. A cold/uncertain wake still writes nothing.
     from hushh_mcp.runtime_settings import personal_agent_reachability_gate  # noqa: PLC0415
 
     if personal_agent_reachability_gate() and await _host_is_gone(row or {}):
         logger.info("pod_wake.host_gone user_id_prefix=%s", user_id[:8])
+        # Durably record the confirmed-gone verdict: flip to needs_reinit and
+        # clear the sticky authorization, so a later /managed/select cannot
+        # schedule a pod into the dead project. Best-effort -- the wake answer
+        # must return regardless. Only this confirmed-gone branch may write it.
+        try:
+            await PersonalAgentRegistryRepo().mark_needs_reinit(user_id)
+        except Exception as exc:  # noqa: BLE001 - the wake response must not depend on this
+            logger.warning("pod_wake.mark_needs_reinit_failed err=%s", type(exc).__name__)
         return {"state": "gone", "needsFreshSetup": True, "etaMs": 0}
 
     logger.info("pod_wake.waking user_id_prefix=%s probe_status=%s", user_id[:8], status)

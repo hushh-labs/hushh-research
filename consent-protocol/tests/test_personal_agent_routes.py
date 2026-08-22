@@ -220,6 +220,10 @@ def test_status_fails_safe_to_none(monkeypatch):
         # Declared ahead of their writer (Workstreams B/C); unreachable today.
         ("connecting", "connecting"),
         ("provisioning_failed", "failed"),
+        # Written by pod_wake on a CONFIRMED-gone host: renders as `failed` so the
+        # presence chip shows its recovery affordance; the shared recovery classifier
+        # then routes it to cloud-reconnect (reinit), not a rebuild into a dead project.
+        ("needs_reinit", "failed"),
     ],
 )
 def test_status_maps_every_registry_status(monkeypatch, registry_status, expected_state):

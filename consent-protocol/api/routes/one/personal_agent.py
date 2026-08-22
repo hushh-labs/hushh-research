@@ -105,6 +105,12 @@ _STATE_BY_REGISTRY_STATUS: dict[str, str] = {
     "connecting": "connecting",
     "provisioned": "active",
     "provisioning_failed": "failed",
+    # The recorded host is CONFIRMED gone (the user deleted the project/service).
+    # Renders as `failed` so the presence chip shows its recovery affordance; the
+    # shared recovery classifier then routes it to "reconnect your cloud" (reinit)
+    # rather than a rebuild into a project that no longer exists. Distinct from
+    # `provisioning_failed` on the row so the reconcile sweep never retries it.
+    "needs_reinit": "failed",
     # A reaped agent's identity survives its host: the HusshID is retained and a
     # new host can be earned again, which is exactly what `reserved` means to a
     # client. Without this entry a reaped row fell to the default -- also

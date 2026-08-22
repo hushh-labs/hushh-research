@@ -346,6 +346,29 @@ class PersonalAgentRegistryRepo:
         response = self._db().table(_REGISTRY).update(data).eq("user_id", user_id).execute()
         return bool(response.data or [])
 
+    async def mark_needs_reinit(self, user_id: str) -> bool:
+        """The recorded host is CONFIRMED gone (the user deleted the project/service).
+
+        Two writes, together: flip status to ``needs_reinit`` AND clear
+        ``user_cloud_authorized_at``. Clearing the authorization is the load-bearing
+        half -- it is otherwise sticky forever, so ``is_ready_to_provision`` stays
+        True and ``/managed/select`` keeps scheduling a pod into a project that no
+        longer exists (the compounding bug the reachability gate exists to end). The
+        HusshID and the identity are untouched: reinit re-authorizes a project and
+        adopts the same agent; it never re-mints. Only a CONFIRMED-gone verdict may
+        call this -- a transient probe blip must not (pod_wake defaults to waking).
+        """
+        normalized = str(user_id or "").strip()
+        if not normalized:
+            return False
+        data = {
+            "status": "needs_reinit",
+            "user_cloud_authorized_at": None,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        response = self._db().table(_REGISTRY).update(data).eq("user_id", normalized).execute()
+        return bool(response.data or [])
+
     async def fetch_liveness_candidates(self, *, limit: int = 200) -> list[dict]:
         """Rows that own (or are standing up) a host, for the liveness sweep to judge.
 
