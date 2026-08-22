@@ -22,6 +22,7 @@ import {
   shareLink,
 } from "@/lib/share/share-link";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -352,6 +353,21 @@ export default function ConnectPageClient() {
    */
   const surface: ConnectSurface =
     searchParams.get(CONNECT_SURFACE_PARAM) === "circles" ? "circles" : "all";
+  /** Which Circle flow, if any, the URL is asking for. Part of the scroll key
+   *  below, because opening one is a new screen even though the path is not. */
+  const circleFlowAction = searchParams.get("action") ?? "";
+  const circleFlowId = searchParams.get("circleId") ?? "";
+
+  // Every navigation on this page passes `scroll: false`, because the surface
+  // strip and the Circle flows are query-only states that must not jump the
+  // page. The cost is that nothing resets scroll either: the shell keys its
+  // own reset on the pathname, which never changes here, so a long people list
+  // scrolled halfway down handed that offset to the circles list, and to every
+  // Circle flow opened after it. The Location hub hit this and fixed it the
+  // same way.
+  useScrollReset(`${surface}:${circleFlowAction}:${circleFlowId}`, {
+    behavior: "auto",
+  });
 
   const [tab, setTab] = useState<ConnectTab>("people");
   /**
@@ -479,6 +495,11 @@ export default function ConnectPageClient() {
       if (!detail.action && !detail.reconcile) return;
       void loadConnections().then((rows) => setConnections(rows));
       void loadOutgoingRequestIds();
+      // A Circle roster open behind this page shows the same relationships,
+      // one row per member. Without this it kept a blue "Connect" on somebody
+      // who had just asked to connect with the viewer -- and pressing it then
+      // claimed a request was sent and offered a Cancel the API refuses.
+      setCircleRefreshToken((token) => token + 1);
     };
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, handleStateChanged);
     return () => {

@@ -3262,6 +3262,10 @@ function ShareFlow({
   // Picking a Circle selects its ready members in the list below, and those
   // rows remain individually deselectable. Once one is turned off the recipients
   // are no longer that Circle, so the Circle row stops reading as selected.
+  const shareableCircles = useMemo(
+    () => vm.circles.filter((circle) => circle.systemKind !== "trusted"),
+    [vm.circles],
+  );
   const shareCircleFullySelected = isCircleSelectionFullySelected(
     vm.selectedShareCircleSelection,
     vm.selectedRecipientIds,
@@ -3419,9 +3423,23 @@ function ShareFlow({
         title="Who can see you?"
         description="Only people set up to receive it."
       />
-      {vm.circles.length ? (
+      {/* Trusted is not a group you share with.
+        *
+        * It listed here with the same glyph and count as a Circle somebody
+        * made, and one tap pre-selected every location-ready person in it --
+        * which, for a Circle whose roster IS the connection graph, is
+        * "everyone you know" behind a single press. The share then succeeded,
+        * because those people satisfy the connection arm anyway, so nothing
+        * refused it: this is the only place that says no.
+        *
+        * The eligibility SQL puts it plainly -- "Trusted records who you are
+        * connected to; it never decides who can see you" -- and the onboarding
+        * invite step already filters the same way. Only this picker is
+        * narrowed: the People tab, SOS contacts and the SMS flow still list
+        * every Circle. */}
+      {shareableCircles.length ? (
         <SettingsGroup title="Circles" separatorInset>
-          {vm.circles.map((circle) => {
+          {shareableCircles.map((circle) => {
             const selected =
               vm.selectedShareCircleSelection?.circle.id === circle.id &&
               shareCircleFullySelected;

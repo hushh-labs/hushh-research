@@ -43,6 +43,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  SheetClose,
   Sheet,
   SheetContent,
   SheetDescription,
@@ -62,6 +63,7 @@ import {
 } from "@/components/one-location/redesign/tokens";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   CIRCLE_NAME_ACTION_CLASSNAME,
   CIRCLE_NAME_INPUT_CLASSNAME,
@@ -1552,7 +1554,17 @@ export function CircleDetailFlow({
 
       {circle ? (
         <>
-          {isOwner ? (
+          {/* Renaming a Trusted Circle is withheld, the SMS Circle's is not.
+            *
+            * That is not an inconsistency. `ensure_sms_system_circle` says in
+            * so many words that its rename "heals our default, it does not
+            * overwrite a person's decision" -- the emergency roster is a list
+            * you curate, so its name is yours. A Trusted Circle's name is
+            * derived exactly like its roster is, and renaming it produced the
+            * one thing this move exists to end: the write landed and toasted
+            * success, then Connect went on calling it "Trusted" while Location
+            * showed the new name. One Circle, two names, in one app. */}
+          {isOwner && circle.systemKind !== "trusted" ? (
             <div className={CIRCLE_DETAIL_CARD}>
               <label
                 htmlFor={CIRCLE_NAME_INPUT_ID}
@@ -1627,9 +1639,20 @@ export function CircleDetailFlow({
                   <p className="text-[15px] font-semibold leading-5 text-foreground">
                     Invite people
                   </p>
+                  {/* What the API actually permits.
+                    *
+                    * "Every Circle member can invite … or share the same
+                    * Circle code" was false on every kind: both
+                    * `create_member_invites` and `create_invite_code` refuse a
+                    * non-owner, this card only renders to the owner anyway,
+                    * and a product-managed Circle can never have a code at
+                    * all. The sentence tracked an old docstring rather than
+                    * the code, on the one screen whose job is to say who may
+                    * do what. */}
                   <p className={cn(MUTED_TEXT, "mt-1")}>
-                    Every Circle member can invite an existing connection or
-                    share the same Circle code.
+                    {canViewInviteCode
+                      ? "Only you can add an existing connection and share this Circle's code."
+                      : "Only you can add an existing connection. This Circle has no shareable code."}
                   </p>
                 </div>
               </div>
@@ -1895,7 +1918,29 @@ export function CircleDetailFlow({
                               ? "Circle is full."
                               : peopleSearch.trim()
                                 ? "Try a different name."
-                                : "Add someone in Connect first."
+                                : "You can invite people to this Circle once you're connected to them — or share its code with anyone."
+                          }
+                          // A sentence pointing at Connect, shown inside a
+                          // sheet that covers Connect, with nothing to press.
+                          // A first-run person reaches this two taps after
+                          // being told "invite people you're connected to",
+                          // having none.
+                          action={
+                            remainingCapacity !== 0 && !peopleSearch.trim() ? (
+                              <SheetClose asChild>
+                                <Link
+                                  href={`${ROUTES.CONNECT}?tab=all`}
+                                  className={cn(
+                                    buttonVariants({
+                                      variant: "outline",
+                                      size: "sm",
+                                    }),
+                                  )}
+                                >
+                                  Find people
+                                </Link>
+                              </SheetClose>
+                            ) : undefined
                           }
                         />
                       )}

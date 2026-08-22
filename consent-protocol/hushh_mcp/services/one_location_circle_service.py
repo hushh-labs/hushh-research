@@ -1482,6 +1482,13 @@ class OneLocationCircleService:
                 WHERE id = CAST(:circle_id AS UUID)
                   AND owner_user_id = :owner_user_id
                   AND status = 'active'
+                  -- A Trusted Circle's name is derived exactly like its
+                  -- roster. Renaming it used to land, persist and toast
+                  -- success, and then Connect went on calling it "Trusted"
+                  -- while Location showed the new name: one Circle, two names.
+                  -- The SMS Circle is deliberately NOT excluded -- its rename
+                  -- is a decision `ensure_sms_system_circle` promises to keep.
+                  AND system_kind IS DISTINCT FROM 'trusted'
                 RETURNING id
                 """,
                 {

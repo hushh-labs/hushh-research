@@ -256,20 +256,49 @@ describe("ConnectCirclesTab", () => {
     expect(screen.getByTestId("connect-circle-join")).toBeTruthy();
   });
 
-  it("degrades to a sentence when the vault is locked", async () => {
-    // Connect has never touched the vault and its tests do not mock one. A
-    // locked vault must cost the circles list, not the whole page.
+  it("names the real next step when there is no vault yet", async () => {
+    // A LOCKED vault never reaches this branch -- the guard shows its unlock
+    // dialog first. The one audience for a null token is somebody who has no
+    // vault yet, so "unlock" was false for exactly the person reading it, and
+    // the row was disabled with the create/join group withheld beside it.
     mocks.vaultOwnerToken = null;
 
     render(<ConnectCirclesTab />);
 
-    expect(
-      await screen.findByText("Unlock One to see your circles"),
-    ).toBeTruthy();
+    expect(await screen.findByText("Finish setting up One")).toBeTruthy();
+    expect(screen.queryByText("Unlock One to see your circles")).toBeNull();
     expect(mocks.listCircles).not.toHaveBeenCalled();
     expect(mocks.ensureTrusted).not.toHaveBeenCalled();
-    // And no controls that cannot work.
+    // And no controls that cannot work without a vault.
     expect(screen.queryByTestId("connect-circle-create")).toBeNull();
+  });
+
+  it("sends that row to setup rather than leaving it inert", async () => {
+    mocks.vaultOwnerToken = null;
+
+    render(<ConnectCirclesTab />);
+
+    (await screen.findByText("Finish setting up One")).click();
+
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    expect(String(mocks.routerPush.mock.calls[0][0])).toContain("/one/setup");
+  });
+
+  it("lets a failed load be retried", async () => {
+    // Nothing else on this branch can bump the token: the flows that do are
+    // unreachable from an error state, and an inbound notification is not
+    // something the reader can trigger.
+    mocks.listCircles.mockRejectedValueOnce(new Error("boom"));
+
+    render(<ConnectCirclesTab />);
+
+    const row = await screen.findByText("Circles are unavailable");
+    expect(mocks.listCircles).toHaveBeenCalledTimes(1);
+
+    mocks.listCircles.mockResolvedValue([circle("mine", "Roommates", 3)]);
+    row.click();
+
+    expect(await screen.findByText("Roommates")).toBeTruthy();
   });
 
   it("reconciles Trusted before it reads the list", async () => {

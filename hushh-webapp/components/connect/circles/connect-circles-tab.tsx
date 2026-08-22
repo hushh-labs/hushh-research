@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -228,6 +229,8 @@ export function ConnectCirclesTab({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  /** Which vault session has already had its Trusted Circle reconciled. */
+  const reconciledForTokenRef = useRef<string | null>(null);
 
   const action = readAction(searchParams.get(CONNECT_CIRCLE_ACTION_PARAM));
   const circleIdParam = String(
@@ -242,7 +245,10 @@ export function ConnectCirclesTab({
       return;
     }
     let cancelled = false;
-    setLoading(true);
+    // Only blank the list when there is nothing painted yet. A refresh of a
+    // list already on screen is not a loading state, and reporting one made
+    // the native beacon claim the surface was still fetching.
+    if (circles.length === 0) setLoading(true);
     setError(null);
     // Reconcile, then read.
     //
@@ -255,7 +261,23 @@ export function ConnectCirclesTab({
     //
     // A reconcile that fails must not cost the list: the Circles they already
     // have are still worth showing, and the next open tries again.
-    void OneLocationService.ensureTrustedSystemCircle({ vaultOwnerToken })
+    // Reconciled once per unlocked session, not once per bump.
+    //
+    // This is a write that opens a transaction over the caller's whole
+    // accepted-connection graph, and it sits on a 6-per-minute limiter. Ten
+    // things bump the token -- a create, a join, a rename, an add, a remove, a
+    // sent request, a cancel, an inbound notification -- so a busy minute
+    // spent the budget on re-deriving a roster that had not changed. The list
+    // still re-reads every time; only the reconcile is held.
+    const alreadyReconciled = reconciledForTokenRef.current === vaultOwnerToken;
+    const reconcile = alreadyReconciled
+      ? Promise.resolve()
+      : OneLocationService.ensureTrustedSystemCircle({ vaultOwnerToken }).then(
+          () => {
+            reconciledForTokenRef.current = vaultOwnerToken;
+          },
+        );
+    void reconcile
       .catch(() => undefined)
       .then(() => OneLocationService.listCircles(vaultOwnerToken))
       .then((next) => {
@@ -271,6 +293,7 @@ export function ConnectCirclesTab({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vaultOwnerToken, reloadToken, refreshToken]);
 
   useEffect(() => {
@@ -363,7 +386,12 @@ export function ConnectCirclesTab({
   );
 
   const closeFlow = useCallback(() => {
-    go({ action: null, circleId: null, code: null });
+    // `replace`, not push. This runs after leaving and after deleting, so the
+    // entry it closes may name a Circle that no longer exists -- and pushing
+    // left it a back destination that re-mounted into "Could not open this
+    // Circle" with a Retry that can never succeed. The Location hub replaces
+    // for exactly this reason.
+    go({ action: null, circleId: null, code: null }, "replace");
     // The list behind the flow is stale the moment anything was created,
     // renamed, joined or left. Re-read rather than patch: a roster kept in two
     // places is the thing this move exists to end.
@@ -522,20 +550,36 @@ export function ConnectCirclesTab({
     <div className="space-y-4 sm:space-y-5" data-testid="connect-circles-tab">
       {vaultOwnerToken === null ? (
         <SettingsGroup title="Your circles">
+          {/* Whose screen this actually is.
+           *
+           * A LOCKED vault never reaches here -- the guard shows its unlock
+           * dialog first. The one audience for a null token is somebody who
+           * has no vault yet, i.e. somebody still in setup, and telling them
+           * to unlock something they do not have was both false and a dead
+           * end: the row was disabled and the create/join group was withheld
+           * on the same condition. So it names the real next step and goes
+           * there. */}
           <SettingsRow
-            title="Unlock One to see your circles"
-            description="Circles hold the people you share with, so they stay behind the vault."
+            title="Finish setting up One"
+            description="Circles need your vault, which is created during setup."
             density="compact"
-            disabled
+            chevron
+            onClick={() => router.push(ROUTES.ONE_SETUP)}
+            testId="connect-circle-setup"
           />
         </SettingsGroup>
       ) : error ? (
         <SettingsGroup title="Your circles">
+          {/* Retryable. Nothing else on this branch can bump the token: the
+           * flows that do are unreachable from an error state, and an inbound
+           * notification is not something the reader can trigger. */}
           <SettingsRow
             title="Circles are unavailable"
-            description={error}
+            description={`${error} Tap to try again.`}
             density="compact"
             tone="destructive"
+            onClick={() => setReloadToken((token) => token + 1)}
+            testId="connect-circle-retry"
           />
         </SettingsGroup>
       ) : loading ? (
@@ -557,8 +601,18 @@ export function ConnectCirclesTab({
                 // Circle" -- because three friends' rosters would otherwise be
                 // three identical rows reading "SMS Circle". Overwriting that
                 // name here threw the disambiguation away.
+                // The product's name only while it is still the product's.
+                //
+                // An owner may rename their SMS Circle -- the server treats
+                // that as their decision and heals only the default -- so
+                // overriding the title here unconditionally meant the rename
+                // succeeded, persisted, showed on Location, and was silently
+                // discarded on this list. Once the stored name differs from
+                // the default it is theirs, and it wins.
                 title={
-                  isSystemCircleKind(kind) && circle.role === "owner"
+                  isSystemCircleKind(kind) &&
+                  circle.role === "owner" &&
+                  circle.name === SYSTEM_CIRCLE_COPY[kind].title
                     ? SYSTEM_CIRCLE_COPY[kind].title
                     : circle.name
                 }
