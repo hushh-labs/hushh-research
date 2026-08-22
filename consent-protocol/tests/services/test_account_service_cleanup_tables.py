@@ -472,6 +472,51 @@ def _owned_circle_conn(monkeypatch, service, *, circle_rows):
     return conn
 
 
+def test_owned_circle_cleanup_also_clears_system_kind_before_hard_delete(monkeypatch):
+    """Incident #5574, arriving a second time by a different column.
+
+    Migration 163 widened `one_location_circles_block_system_delete` to fire on
+    `system_kind IS NOT NULL` as well, because a Trusted Circle is deliberately
+    NOT `is_system`. Clearing only the flag therefore stopped being enough to
+    open this escape hatch, and the failure is not limited to Trusted: 163
+    backfills `system_kind = 'sms'` onto every SMS Circle that already exists,
+    so the row the demotion above handles ALSO still trips the trigger.
+
+    That is the exact production failure of 2026-08-19 -- account deletion
+    500s with RestrictViolation -- reachable by every account that has signed
+    in since 160 shipped.
+    """
+
+    service = AccountService()
+    conn = _owned_circle_conn(
+        monkeypatch,
+        service,
+        circle_rows=[
+            {"id": "circle_sms", "is_owner": True, "has_active_membership": True},
+            {"id": "circle_trusted", "is_owner": True, "has_active_membership": True},
+        ],
+    )
+
+    results: dict[str, bool] = {}
+    service._delete_owned_named_circles(conn, user_id="owner", results=results)
+
+    executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
+    clear_index = next(
+        index
+        for index, sql in enumerate(executed_sql)
+        if "UPDATE one_location_circles" in sql and "SET system_kind = NULL" in sql
+    )
+    delete_index = next(
+        index for index, sql in enumerate(executed_sql) if "DELETE FROM one_location_circles" in sql
+    )
+
+    assert clear_index < delete_index
+    # Scoped to this owner, and to rows that actually carry a kind.
+    assert "AND system_kind IS NOT NULL" in executed_sql[clear_index]
+    assert conn.execute.call_args_list[clear_index].args[1] == {"user_id": "owner"}
+    assert results["one_location_circles"] is True
+
+
 def test_owned_circle_cleanup_demotes_system_circle_before_hard_delete(monkeypatch):
     service = AccountService()
     conn = _owned_circle_conn(

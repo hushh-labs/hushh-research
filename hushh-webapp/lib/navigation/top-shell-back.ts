@@ -77,6 +77,17 @@ export function resolveTopShellBackAction(params: {
   const locationActionOpen =
     params.pathname === ROUTES.ONE_LOCATION &&
     Boolean(params.searchParams?.get("action")?.trim());
+  // The same shape, on Connect. Circles moved there (#5458) and brought their
+  // `?action=` flows with them, but this test named one pathname literally --
+  // so on Connect the flow fell through to the section-root branch below and
+  // the back arrow returned to wherever the person had entered Connect FROM,
+  // throwing them out of the workspace instead of closing the Circle. There is
+  // no other way out: `CreateCircleFlow` and `JoinCircleFlow` pass no `onBack`
+  // to their header, so the shell's arrow is the only control on the screen.
+  const connectCircleFlowOpen =
+    params.pathname === ROUTES.CONNECT &&
+    params.searchParams?.get("tab") === "circles" &&
+    Boolean(params.searchParams?.get("action")?.trim());
 
   const action = (
     href: string,
@@ -90,7 +101,7 @@ export function resolveTopShellBackAction(params: {
 
   // An open panel or action sheet closes in place. It is a query-only state on
   // the same screen, never a step in the trail, so it must not retrace.
-  if (profilePanelOpen || locationActionOpen) {
+  if (profilePanelOpen || locationActionOpen || connectCircleFlowOpen) {
     return action(breadcrumb.backHref, "replace");
   }
 

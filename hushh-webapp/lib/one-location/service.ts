@@ -435,6 +435,30 @@ export class OneLocationService {
     return response.circle;
   }
 
+  /**
+   * Find-or-create the Trusted Circle and top up its roster.
+   *
+   * The accept hook writes both sides of a NEW connection, so a pair that
+   * connects from here on needs nothing else. What it cannot do is account for
+   * the connections somebody already had: without this call, a person with
+   * forty of them sees no Trusted Circle at all until their next accept, and
+   * then sees one holding a single name under the words "Everyone you're
+   * connected to" -- which is worse than not showing it.
+   *
+   * So the list reconciles before it reads. Safe on every call: the reconcile
+   * adds only connections with no membership row of ANY status, so a removal
+   * stays removed.
+   */
+  static async ensureTrustedSystemCircle(params: {
+    vaultOwnerToken: string;
+  }): Promise<OneLocationCircleDetail> {
+    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
+      "/api/one/location/circles/trusted",
+      { method: "POST", headers: authHeaders(params.vaultOwnerToken) },
+    );
+    return response.circle;
+  }
+
   static async createNamedCircle(params: {
     vaultOwnerToken: string;
     name: string;

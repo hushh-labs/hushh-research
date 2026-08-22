@@ -119,3 +119,134 @@ describe("Connect canonical surface contract", () => {
     ).toBe("abdul@example.test");
   });
 });
+
+describe("voice actions land on a surface that is actually showing", () => {
+  it("brings Connections forward before it touches the inner strip", () => {
+    // `setTab` moves a control that is not on screen while Circles is showing,
+    // so "open people" reported success and did nothing. A voice action that
+    // lies about what happened is worse than one that refuses: the person
+    // stops watching for a result that is never coming.
+    const source = readFileSync(
+      join(process.cwd(), "app/connect/page-client.tsx"),
+      "utf8",
+    );
+
+    for (const action of [
+      "connect.open_people",
+      "connect.open_nearby",
+      "connect.search_people",
+    ]) {
+      const start = source.indexOf(`useLocalOnboardingActionHandler("${action}"`);
+      expect(start, action).toBeGreaterThan(-1);
+      const body = source.slice(start, source.indexOf("useLocalOnboardingActionHandler", start + 10));
+      expect(body, action).toContain('selectSurface("all")');
+      // And it does so before the inner strip, so the strip is mounted.
+      expect(
+        body.indexOf('selectSurface("all")'),
+        action,
+      ).toBeLessThan(body.indexOf("setTab("));
+    }
+  });
+});
+
+describe("leaving a surface does not keep you inside a Circle", () => {
+  it("clears the open Circle when the surface changes", () => {
+    // `?action=` and `?circleId=` used to survive a surface switch, so going
+    // Circle detail -> Connections -> Circles dropped the person back inside
+    // the same roster instead of at the list with New circle on it.
+    const source = readFileSync(
+      join(process.cwd(), "app/connect/page-client.tsx"),
+      "utf8",
+    ).split("\r\n").join("\n");
+
+    const start = source.indexOf("const selectSurface = useCallback(");
+    expect(start).toBeGreaterThan(-1);
+    const body = source.slice(start, source.indexOf("const closeFlow", start) + 1 || start + 2000);
+
+    expect(body).toContain('params.delete("action")');
+    expect(body).toContain('params.delete("circleId")');
+    expect(body).toContain('params.delete("code")');
+    // Still names the surface it is moving to -- the App Router refuses a
+    // navigation whose only change is the query string disappearing.
+    expect(body).toContain("params.set(CONNECT_SURFACE_PARAM, next)");
+  });
+});
+
+describe("the Location hub closes its flow when the tab changes", () => {
+  it("clears the flow params rather than letting the effect reopen them", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/one-location/redesign/location-redesign-hub.tsx"),
+      "utf8",
+    ).split("\r\n").join("\n");
+
+    const start = source.indexOf("const setTab = useCallback(");
+    expect(start).toBeGreaterThan(-1);
+    const body = source.slice(start, start + 1800);
+
+    expect(body).toContain("params.delete(FLOW_ACTION_PARAM)");
+    expect(body).toContain('params.delete("circleId")');
+    expect(body).toContain('setFlow("none")');
+    expect(body).toContain("params.set(LOCATION_HUB_TAB_PARAM, next)");
+  });
+});
+
+describe("the Circle flows do not spend the shared join rate limit", () => {
+  it("wraps Preview in the busy gate, like Join beside it", () => {
+    // Handed raw, the Preview button never disabled or spun for the whole
+    // round trip, so a person tapped it again -- and `/circle-codes/resolve`
+    // shares a 10-per-minute bucket with `/circle-codes/join`, so enough taps
+    // locked them out of the thing they came to do.
+    const source = readFileSync(
+      join(process.cwd(), "components/connect/circles/connect-circles-tab.tsx"),
+      "utf8",
+    ).split("\r\n").join("\n");
+
+    expect(source).toContain("withBusy(() => actions.resolveCode(code))");
+    expect(source).not.toContain("onResolve={actions.resolveCode}");
+  });
+});
+
+describe("a deep link into Location is not treated as a first run", () => {
+  it("hides the onboarding takeover when the URL names an action", () => {
+    // The gate reads auth, the vault, `mode`, `loadError` and one localStorage
+    // flag -- and no query parameter at all, so every deep link into Location
+    // put "Share your location easily with anyone" in front of the screen it
+    // named. Setup stays ahead of this: inside the wizard the greeting IS the
+    // screen.
+    const source = readFileSync(
+      join(process.cwd(), "app/one/location/page.tsx"),
+      "utf8",
+    ).split("\r\n").join("\n");
+
+    const start = source.indexOf("const [locationOnboardingGate");
+    const effect = source.slice(source.indexOf("if (loadError) {", start));
+    const body = effect.slice(0, effect.indexOf("const introSeen"));
+
+    expect(body).toContain('searchParams.get("action")?.trim()');
+    expect(body).toContain('setLocationOnboardingGate("hidden")');
+    // Setup is still decided before this point.
+    expect(source.indexOf('if (mode === "setup")', start)).toBeLessThan(
+      source.indexOf('searchParams.get("action")?.trim()', start),
+    );
+  });
+});
+
+describe("the Location roster hands a connection request to Connect", () => {
+  it("does not send one itself", () => {
+    // `config/protected-behaviors.json` names the capability review
+    // (`connect-request-asks-before-it-shares`). The Location roster was the
+    // last place that sent a request without it, and it has no cancel of its
+    // own either, so its "Requested" was dead text.
+    const source = readFileSync(
+      join(process.cwd(), "app/one/location/page.tsx"),
+      "utf8",
+    ).split("\r\n").join("\n");
+
+    const start = source.indexOf("const handleConnectCircleMember");
+    const body = source.slice(start, source.indexOf("useCallback", start + 2000));
+
+    expect(body).toContain("ROUTES.CONNECT");
+    expect(body).toContain("action=circle-detail");
+    expect(body).not.toContain("ConnectionsService.sendRequest");
+  });
+});

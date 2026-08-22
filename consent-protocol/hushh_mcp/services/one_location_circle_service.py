@@ -77,7 +77,21 @@ TRUSTED_SYSTEM_CIRCLE_NAME = "Trusted"
 # it; migration 163 widens the CHECK for this kind alone. The auto-join path
 # never reads it -- refusing to record a connection somebody already accepted
 # would be worse than an oversized roster.
-TRUSTED_SYSTEM_CIRCLE_MEMBER_LIMIT = 32767
+# What a Trusted Circle stores in `member_limit`, which is NOT a ceiling on it.
+#
+# Nothing on a Trusted write path consults this: the reconcile is one
+# INSERT ... SELECT with no capacity check, the accept hook is a plain upsert,
+# and `_circle_summary` reports `memberLimit: null` for Trusted from
+# `is_trusted` rather than from this number. So a person with four hundred
+# connections gets four hundred members regardless of what is stored here.
+#
+# It is the ORDINARY default rather than SMALLINT's ceiling because migration
+# 158 replays ahead of 163 on every deploy and re-adds
+# `CHECK (member_limit BETWEEN 2 AND 100)` against the whole table. A stored
+# 32767 makes that ADD raise 23514 on the first deploy after any Trusted Circle
+# exists, which fails the migration step of every release after it. 163's
+# header carries the full account.
+TRUSTED_SYSTEM_CIRCLE_MEMBER_LIMIT = CIRCLE_DEFAULT_MEMBER_LIMIT
 
 # What the product called it before. Rows still carrying this are renamed on
 # the next bootstrap; a name the OWNER chose is never touched.
@@ -160,6 +174,51 @@ def _first(result: Any) -> dict[str, Any] | None:
 
 def _all(result: Any) -> list[dict[str, Any]]:
     return [payload for row in result.fetchall() if (payload := _row_dict(row)) is not None]
+
+
+def _human_display_name(name: Any, user_id: Any) -> str:
+    """A display name, or "" when what we hold is not one.
+
+    The identity cache stores whatever the account gave it, and for an account
+    with no display name that has been observed to be the Firebase uid itself.
+    Rendering it produced "6mRRECV04CYyKrGQT1sGe2zszdt1's SMS Circle" on a
+    real screen -- an opaque 28-character token where a person's name belongs.
+
+    Fixing the sync is its own change. Nothing that formats a name for a reader
+    should trust it in the meantime: a "name" identical to the id it is keyed
+    by is not a name, and neither is a bare uid-shaped string.
+    """
+
+    cleaned = str(name or "").strip()
+    if not cleaned:
+        return ""
+    if cleaned == str(user_id or "").strip():
+        return ""
+    # Firebase uids are 28 characters of mixed-case alphanumerics with no
+    # spaces. A real display name that shape is vanishingly unlikely; a uid
+    # that shape is certain.
+    if len(cleaned) >= 20 and " " not in cleaned and cleaned.isalnum():
+        return ""
+    return cleaned
+
+
+def _is_product_managed(row: dict[str, Any]) -> bool:
+    """Is this a Circle the product provisions, rather than one a person made?
+
+    `is_system` was the whole of that question while the SMS Circle was the
+    only such Circle. Trusted is deliberately NOT `is_system` -- migration 163
+    carries the reasoning -- so a guard that asks the flag alone lets Trusted
+    walk through every door that was shut against the SMS one, including the
+    join-code door this file closed two commits ago.
+
+    `system_kind` is the question now. The flag stays in the test so a row read
+    by a revision that predates the column still answers correctly, and so a
+    demotion that clears only the flag cannot quietly re-open anything.
+    """
+
+    if bool(row.get("is_system")):
+        return True
+    return bool(str(row.get("system_kind") or "").strip())
 
 
 def _clean_circle_id(value: str) -> str:
@@ -388,7 +447,7 @@ class OneLocationCircleService:
         # under the same product-chosen name as their own. Saying whose it is
         # turns three identical rows back into three distinct ones.
         if is_system and not is_owner:
-            owner_name = str(row.get("owner_display_name") or "").strip()
+            owner_name = _human_display_name(row.get("owner_display_name"), owner_user_id)
             name = f"{owner_name}'s {name}" if owner_name else f"Shared {name}"
         return {
             "id": str(row.get("id") or ""),
@@ -420,7 +479,13 @@ class OneLocationCircleService:
                 # owner inside that scope, and the owner was never shown the
                 # decision. On a system Circle the same act handed out SOS
                 # alerts, with an address, to someone the owner never chose.
-                "canInviteMembers": is_owner,
+                # Trusted excluded, and that is not tidiness. Its roster IS
+                # the accepted-connection graph, reconciled on every read, so a
+                # hand-written membership is a row the product did not derive
+                # and cannot explain -- while the detail screen tells the same
+                # person "to take somebody out, disconnect from them", which is
+                # only true as long as nobody put them in by hand.
+                "canInviteMembers": is_owner and not is_trusted,
                 # A join code a member can hand out is the same hole with a
                 # link attached: whoever redeems it lands in the owner's Circle
                 # just the same. A system Circle has no code at all.
@@ -768,7 +833,7 @@ class OneLocationCircleService:
             )
             circle = self._circle_summary(dict(summary_row))
             circle["members"] = [self._member_payload(row) for row in (members_result.data or [])]
-            circle["activeInviteCode"] = self._invite_code_payload(
+            invite_code_payload = self._invite_code_payload(
                 {
                     "id": summary_row.get("code_id"),
                     "circle_id": summary_row.get("code_circle_id"),
@@ -779,8 +844,25 @@ class OneLocationCircleService:
                 if summary_row.get("code_id")
                 else None
             )
+            # Withheld from anyone the payload already says must not see it.
+            #
+            # This used to be attached unconditionally, so the live twelve
+            # character code -- the whole secret, in plaintext -- reached every
+            # active member of the Circle in the detail response, while
+            # `canViewInviteCode` merely stopped the screen from drawing it. A
+            # capability flag on top of the data it is meant to withhold is a
+            # instruction, not a control: the code was one request away for
+            # anybody already inside the Circle.
+            #
+            # Minting was closed to non-owners two commits into this stack.
+            # Reading is the other half of handing something out.
+            can_view_code = bool((circle.get("viewerCapabilities") or {}).get("canViewInviteCode"))
+            circle["activeInviteCode"] = invite_code_payload if can_view_code else None
+            # Derived from what actually exists, not from what this viewer may
+            # see -- otherwise a member's response would claim the owner needs
+            # to rotate a code that is perfectly healthy.
             circle["inviteCodeNeedsOwnerRotation"] = bool(
-                summary_row.get("code_id") and circle["activeInviteCode"] is None
+                summary_row.get("code_id") and invite_code_payload is None
             )
             return circle
         except OneLocationCircleError:
@@ -1426,6 +1508,13 @@ class OneLocationCircleService:
                 WHERE id = CAST(:circle_id AS UUID)
                   AND owner_user_id = :owner_user_id
                   AND status = 'active'
+                  -- A Trusted Circle's name is derived exactly like its
+                  -- roster. Renaming it used to land, persist and toast
+                  -- success, and then Connect went on calling it "Trusted"
+                  -- while Location showed the new name: one Circle, two names.
+                  -- The SMS Circle is deliberately NOT excluded -- its rename
+                  -- is a decision `ensure_sms_system_circle` promises to keep.
+                  AND system_kind IS DISTINCT FROM 'trusted'
                 RETURNING id
                 """,
                 {
@@ -1472,7 +1561,8 @@ class OneLocationCircleService:
                         text(
                             """
                             SELECT
-                              id, owner_user_id, member_limit, is_system
+                              id, owner_user_id, member_limit, is_system,
+                              system_kind
                             FROM one_location_circles circle
                             WHERE id = CAST(:circle_id AS UUID)
                               AND status = 'active'
@@ -1538,7 +1628,10 @@ class OneLocationCircleService:
                 # from `one_location_sms_contacts` rather than from the roster.
                 # That changes in this same commit, which is why this guard is
                 # in it and comes first.
-                if bool(circle_row.get("is_system")):
+                # Asked of `system_kind` as well as the flag: Trusted is not
+                # `is_system`, and a bearer code into it is a code into the
+                # whole list of people you are connected to.
+                if _is_product_managed(circle_row):
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_SYSTEM_NO_CODE",
                         "This Circle is managed for you and cannot be shared with a code.",
@@ -1685,11 +1778,20 @@ class OneLocationCircleService:
         # system Circles here is the half of that fix that keeps onboarding
         # pointed at a Circle the person actually made; `create_invite_code`
         # refusing them is the half that holds for every other caller.
+        #
+        # `isSystem` alone stopped being that test when Trusted arrived. Trusted
+        # is deliberately NOT `is_system` -- the commit before this one explains
+        # why -- so for anyone whose only owned Circle is Trusted, this picked
+        # it, and `create_invite_code` then refused it and onboarding failed
+        # outright rather than giving them a first Circle. Product-managed is
+        # `systemKind`, and that is what this asks now.
         owned = next(
             (
                 circle
                 for circle in self.list_circles(user_id=user_id)
-                if str(circle.get("role") or "") == "owner" and not bool(circle.get("isSystem"))
+                if str(circle.get("role") or "") == "owner"
+                and not bool(circle.get("isSystem"))
+                and not str(circle.get("systemKind") or "").strip()
             ),
             None,
         )
@@ -1725,6 +1827,7 @@ class OneLocationCircleService:
                 """
                 SELECT
                   circle.name, circle.kind, code.expires_at,
+                  circle.owner_user_id,
                   identity.display_name AS owner_display_name,
                   COUNT(membership.user_id) AS member_count,
                   BOOL_OR(
@@ -1746,7 +1849,7 @@ class OneLocationCircleService:
                   AND code.use_count < code.max_uses
                 GROUP BY
                   circle.id, circle.name, circle.kind, code.expires_at,
-                  identity.display_name
+                  circle.owner_user_id, identity.display_name
                 """,
                 {"code_hash": code_hash, "user_id": user_id},
             )
@@ -1760,7 +1863,10 @@ class OneLocationCircleService:
             return {
                 "name": str(row.get("name") or ""),
                 "kind": str(row.get("kind") or "other"),
-                "ownerDisplayName": str(row.get("owner_display_name") or "A Circle owner"),
+                "ownerDisplayName": (
+                    _human_display_name(row.get("owner_display_name"), row.get("owner_user_id"))
+                    or "A Circle owner"
+                ),
                 "memberCount": int(row.get("member_count") or 0),
                 "expiresAt": _iso(row.get("expires_at")),
                 "alreadyMember": bool(row.get("already_member")),
@@ -1802,7 +1908,9 @@ class OneLocationCircleService:
                     conn.execute(
                         text(
                             """
-                            SELECT id, owner_user_id, member_limit, status, is_system
+                            SELECT
+                              id, owner_user_id, member_limit, status,
+                              is_system, system_kind
                             FROM one_location_circles
                             WHERE id = CAST(:circle_id AS UUID)
                             FOR UPDATE
@@ -1829,7 +1937,7 @@ class OneLocationCircleService:
                 # holder's side it is a code that does not work, and naming the
                 # Circle's kind would tell a stranger something about a roster
                 # they have no business knowing exists.
-                if bool(circle_row.get("is_system")):
+                if _is_product_managed(circle_row):
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_CODE_INVALID",
                         "That Circle code is invalid or no longer available.",
@@ -2457,7 +2565,7 @@ class OneLocationCircleService:
                             SELECT
                               circle.id, circle.name, circle.kind,
                               circle.owner_user_id, circle.member_limit,
-                              circle.is_system
+                              circle.is_system, circle.system_kind
                             FROM one_location_circles circle
                             WHERE circle.id = CAST(:circle_id AS UUID)
                               AND circle.status = 'active'
@@ -2505,6 +2613,22 @@ class OneLocationCircleService:
                 # owner is the only person who may grant it. This is checked
                 # before any capacity, connection or invitation state is read:
                 # a non-owner learns nothing about the Circle by asking.
+                # Refused for a Trusted Circle whoever asks, its owner included.
+                # `_connect_member_to_circle` would write a `named_circle` origin
+                # scoped to Trusted -- the exact provenance
+                # `ensure_trusted_system_circle` documents it must never write,
+                # because that origin is revoked when the membership ends, which
+                # is backwards for a roster derived from the connection itself.
+                #
+                # The capability flag beside this says the same thing, and a flag
+                # is an instruction rather than a control.
+                if str(circle_row.get("system_kind") or "") == "trusted":
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION",
+                        "Everyone you're connected to is already in this Circle. "
+                        "Connect with someone to add them.",
+                        status_code=409,
+                    )
                 if str(circle_row.get("owner_user_id") or "") != actor_user_id:
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_OWNER_REQUIRED",
