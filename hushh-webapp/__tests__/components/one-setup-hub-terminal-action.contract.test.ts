@@ -43,7 +43,7 @@ describe("One setup hub terminal action contract", () => {
 
     expect(source).toContain("<SetupCompletionFooter");
     expect(source).toContain('testId="one-setup-master-ack"');
-    expect(source).toContain("disabled={!runtimeChoiceComplete}");
+    expect(source).toContain("blocked={!runtimeChoiceComplete}");
     expect(source).toContain(
       "PreVaultUserStateService.hasOneRuntimeChoice(currentState)",
     );
@@ -172,14 +172,24 @@ describe("One setup hub terminal action contract", () => {
     expect(hub).toContain("disabled:text-muted-foreground");
     expect(hub).not.toContain("disabled:opacity-40");
 
-    // The reason travels with the block on every surface. The desktop footer
-    // has a supporting line under the button; the phone header action has
-    // nothing but a `title` tooltip, which a touch device never shows -- so the
-    // header summary both layouts render has to name it too.
+    // ...but "looks gated" must not mean "eats the tap". Both master actions
+    // stay tappable while blocked and answer with a toast, because that is the
+    // moment someone is asking. The permanent supporting line and the phone
+    // `title` tooltip that used to carry the reason are gone -- the tooltip
+    // never rendered on touch anyway, which is the only place that action ships.
+    expect(footer).toContain("blocked?: boolean");
+    expect(footer).toContain(
+      "const isBlockedTappableAction =\n    blocked && !disabled && !busy && !isQuietSetupAction",
+    );
+    // One block, not a stacked description -- the two-line toast ceiling.
+    expect(hub).toContain('toast.info("Choose your AI first."');
+    expect(hub).not.toContain("description: \"Pick how One gets its AI");
+    expect(hub).not.toContain('title={\n                !runtimeChoiceComplete');
+    expect(hub).not.toContain('? "Choose your AI first."\n                    : "Set up the rest later."');
+
+    // The header summary still names it on both layouts, so the blocker is
+    // legible before the tap as well as after it.
     expect(hub).toContain('"Choose your AI first."');
-    expect(
-      hub.match(/Choose your AI first\./g)?.length,
-    ).toBeGreaterThanOrEqual(3);
   });
 
   it("keeps the mandatory-step language out of system nouns", () => {

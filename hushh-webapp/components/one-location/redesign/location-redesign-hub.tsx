@@ -30,15 +30,18 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import {
+  Loader2,
   Lock,
   Map,
   MapPin,
-  Navigation,
+  MessageCircleWarning,
+  Pencil,
   Send,
   Check,
+  CalendarCheck2,
   Shield,
   ShieldCheck,
-  UserPlus,
+  UserRoundPlus,
   UsersRound,
   ChevronRight,
   X,
@@ -91,6 +94,7 @@ import {
   Avatar,
   EmptyState,
   SectionCard,
+  StatusPill,
   TaskFlowHeader,
   TrustNoteCard,
   WarningCard,
@@ -101,7 +105,6 @@ import {
   RequestCard,
   SharedWithMeCard,
   TemporaryLinkCard,
-  TrustedPersonCard,
   type GrantViewStatus,
 } from "./cards";
 
@@ -119,6 +122,7 @@ import {
   ReasonChips,
   type ReasonValue,
 } from "./selectors";
+import { REQUEST_DURATION_LADDER } from "./duration-presets";
 import {
   LiveShareStatusCard,
   ShareCountdownText,
@@ -129,10 +133,12 @@ import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
+import { ContactAvatar } from "@/components/one-location/redesign/contact-picker/atoms";
 import {
   flattenRecipientSections,
   lastInteractionByUserId,
@@ -1120,14 +1126,19 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       return;
     }
     const desired = requested;
-    if (desired === "none" && pendingFlowRef.current !== "none") {
+    if (pendingFlowRef.current !== "none" && desired !== pendingFlowRef.current) {
       return;
     }
+    const wasPendingProgrammaticOpen = pendingFlowRef.current === desired;
     pendingFlowRef.current = "none";
     const previousFlow = activeFlowRef.current;
     if (previousFlow === "share" && desired !== "share") {
       resetShareDraft();
-    } else if (previousFlow !== "share" && desired === "share") {
+    } else if (
+      previousFlow !== "share" &&
+      desired === "share" &&
+      !wasPendingProgrammaticOpen
+    ) {
       resetShareDraft();
     }
     activeFlowRef.current = desired;
@@ -1472,6 +1483,10 @@ function NowHub({
     vm.activeOwnerGrants.length,
     vm.liveShare?.count ?? 0,
   );
+  const hasActivity =
+    activeShareCount > 0 ||
+    vm.receivedGrants.length > 0 ||
+    vm.pendingOwnerRequests.length > 0;
 
   return (
     <div className="space-y-4" data-testid="one-location-now-hub">
@@ -1517,7 +1532,7 @@ function NowHub({
         items={[
           {
             title: "Share location",
-            icon: <Navigation />,
+            icon: <Send />,
             tone: "blue",
             onClick: onStartShare,
             controlId: "one-location-action-share",
@@ -1526,7 +1541,7 @@ function NowHub({
           },
           {
             title: "Request location",
-            icon: <UserPlus />,
+            icon: <UserRoundPlus />,
             tone: "blue",
             onClick: onRequestLocation,
             controlId: "one-location-action-ask",
@@ -1535,7 +1550,7 @@ function NowHub({
           },
           {
             title: "Check-In",
-            icon: <ShieldCheck />,
+            icon: <CalendarCheck2 />,
             tone: "blue",
             onClick: onCheckIn,
             controlId: "one-location-action-check-in",
@@ -1543,7 +1558,7 @@ function NowHub({
           },
           {
             title: "SMS",
-            icon: <Shield />,
+            icon: <MessageCircleWarning />,
             tone: "red",
             onClick: onSos,
             controlId: "one-location-action-sos",
@@ -1552,48 +1567,50 @@ function NowHub({
         ]}
       />
 
-      <div className="space-y-2">
-        <LocationNowGroupLabel>Activity</LocationNowGroupLabel>
-        <SettingsGroup
-          separatorInset
-          testId="one-location-now-activity"
-          shellClassName={groupedShellClassName}
-        >
-          <SettingsRow
-            icon={UsersRound}
-            iconTone="gray"
-            title="Active shares"
-            density="compact"
-            trailing={activeShareCount}
-            chevron
-            onClick={onOpenActiveShares}
-            voiceControlId="one-location-action-active-shares"
-            voiceActionId="location.open_active_shares"
-          />
-          <SettingsRow
-            icon={MapPin}
-            iconTone="gray"
-            title="Shared with me"
-            density="compact"
-            trailing={vm.receivedGrants.length}
-            chevron
-            onClick={onOpenSharedWithMe}
-            voiceControlId="one-location-action-shared-with-me"
-            voiceActionId="location.open_shared_with_me"
-          />
-          <SettingsRow
-            icon={ShieldCheck}
-            iconTone="gray"
-            title="Needs my review"
-            density="compact"
-            trailing={vm.pendingOwnerRequests.length}
-            chevron
-            onClick={onOpenNeedsReview}
-            voiceControlId="one-location-action-needs-review"
-            voiceActionId="location.open_needs_review"
-          />
-        </SettingsGroup>
-      </div>
+      {hasActivity ? (
+        <div className="space-y-2">
+          <LocationNowGroupLabel>Activity</LocationNowGroupLabel>
+          <SettingsGroup
+            separatorInset
+            testId="one-location-now-activity"
+            shellClassName={groupedShellClassName}
+          >
+            <SettingsRow
+              icon={UsersRound}
+              iconTone="gray"
+              title="Active shares"
+              density="compact"
+              trailing={activeShareCount}
+              chevron
+              onClick={onOpenActiveShares}
+              voiceControlId="one-location-action-active-shares"
+              voiceActionId="location.open_active_shares"
+            />
+            <SettingsRow
+              icon={MapPin}
+              iconTone="gray"
+              title="Shared with me"
+              density="compact"
+              trailing={vm.receivedGrants.length}
+              chevron
+              onClick={onOpenSharedWithMe}
+              voiceControlId="one-location-action-shared-with-me"
+              voiceActionId="location.open_shared_with_me"
+            />
+            <SettingsRow
+              icon={ShieldCheck}
+              iconTone="gray"
+              title="Needs my review"
+              density="compact"
+              trailing={vm.pendingOwnerRequests.length}
+              chevron
+              onClick={onOpenNeedsReview}
+              voiceControlId="one-location-action-needs-review"
+              voiceActionId="location.open_needs_review"
+            />
+          </SettingsGroup>
+        </div>
+      ) : null}
 
       <div className="space-y-2">
         <LocationNowGroupLabel>More</LocationNowGroupLabel>
@@ -1653,14 +1670,14 @@ type LocationActionGridItem = {
 
 function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
   return (
-    <section className="space-y-2.5" data-testid="one-location-now-actions">
+    <section className="space-y-2" data-testid="one-location-now-actions">
       <LocationNowGroupLabel>Actions</LocationNowGroupLabel>
       <div
         data-ui-role="grouped-card"
         data-one-location-action-grid=""
-        className="grid grid-cols-2 overflow-hidden rounded-[22px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]"
+        className="grid grid-cols-2 gap-2 sm:gap-2.5"
       >
-        {items.map((item, index) => (
+        {items.map((item) => (
           <button
             key={item.controlId}
             type="button"
@@ -1671,21 +1688,17 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             data-voice-label={item.title}
             onClick={item.onClick}
             className={cn(
-              "group flex min-h-[116px] min-w-0 flex-col items-center justify-center gap-3 bg-transparent px-3 py-5 text-center transition-colors [-webkit-tap-highlight-color:transparent] hover:bg-[rgba(0,0,0,0.025)] active:bg-[rgba(120,120,128,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] sm:min-h-[126px]",
-              index % 2 === 0 &&
-                "border-r border-[color:var(--app-separator)]",
-              index < 2 &&
-                "border-b border-[color:var(--app-separator)]",
+              "group flex min-h-24 min-w-0 flex-col items-center justify-center gap-2.5 rounded-[18px] bg-[color:var(--app-primary-surface)] px-3 py-3 text-center shadow-[0_1px_1px_rgba(0,0,0,0.035),0_8px_20px_rgba(0,0,0,0.045)] ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,box-shadow,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-card-surface-default-solid)] hover:shadow-[0_1px_2px_rgba(0,0,0,0.045),0_12px_26px_rgba(0,0,0,0.055)] active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] sm:min-h-[104px]",
             )}
           >
             <span
               aria-hidden
               data-one-location-action-icon=""
               className={cn(
-                "inline-flex h-12 w-12 shrink-0 items-center justify-center [&_svg]:h-8 [&_svg]:w-8 [&_svg]:stroke-[1.95]",
+                "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] transition-transform group-active:scale-95 [&_svg]:h-6 [&_svg]:w-6 [&_svg]:stroke-2",
                 item.tone === "red"
-                  ? "text-[color:var(--app-destructive)]"
-                  : "text-[color:var(--app-accent-deep)]",
+                  ? "bg-[color:var(--app-destructive-tint)] text-[color:var(--app-destructive)] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--app-destructive)_14%,transparent)]"
+                  : "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent)] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--app-accent)_12%,transparent)]",
               )}
             >
               {item.icon}
@@ -1693,7 +1706,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             <RowLabel
               as="span"
               className={cn(
-                "min-w-0 text-[15px] font-semibold leading-5",
+                "min-w-0 text-[14px] font-semibold leading-[18px] tracking-[-0.01em] text-[color:var(--app-label)] sm:text-[15px] sm:leading-5",
                 item.tone === "red" && "text-[color:var(--app-destructive)]",
               )}
             >
@@ -1873,7 +1886,8 @@ function LocationDetailFlow({
               // One share is still one tap. The chevron only appears for a
               // person who genuinely has two, so nothing about the common case
               // grew a step.
-              const single = group.grants.length === 1 ? group.primaryGrant : null;
+              const single =
+                group.grants.length === 1 ? group.primaryGrant : null;
               return (
                 <SettingsRow
                   key={group.counterpartUserId}
@@ -1934,7 +1948,9 @@ function LocationDetailFlow({
                     ) : (
                       <ShareLanesDisclosure
                         expanded={expanded}
-                        onToggle={() => toggleLaneExpansion(group.counterpartUserId)}
+                        onToggle={() =>
+                          toggleLaneExpansion(group.counterpartUserId)
+                        }
                         controlsId={lanesId}
                         label={`Manage your shares with ${name}`}
                       />
@@ -1975,115 +1991,115 @@ function LocationDetailFlow({
                 Boolean(point) && !collapsedGrantIds.has(grant.id);
               return (
                 <div key={group.counterpartUserId} data-grant-id={grant.id}>
-                <SharedWithMeCard
-                  isSmsTriggered={Boolean(group.smsGrant)}
-                  name={ownerName}
-                  statusLine={
-                    multiLane
-                      ? `${group.grants.length} live shares`
-                      : grant.durationMode === "until_stopped"
-                        ? "Until stopped"
-                        : grant.expiresAt
-                          ? `Access until ${vm.formatDateTime(grant.expiresAt)}`
-                          : "Active"
-                  }
-                  shareLanes={
-                    multiLane ? (
-                      // One control per SHARE. The card's own Remove is a
-                      // single button, and with two shares behind one card it
-                      // could only ever drop one of them -- silently, since
-                      // nothing on screen would say which. `revoke_grant`
-                      // accepts the recipient as well as the owner (it records
-                      // the difference as `recipient_revoke`), so these are
-                      // real controls, not decoration.
-                      <div data-testid="one-location-received-share-lanes">
-                        <ShareLanesDisclosure
-                          expanded={lanesExpanded}
-                          onToggle={() =>
-                            toggleLaneExpansion(group.counterpartUserId)
-                          }
-                          controlsId={lanesId}
-                          label={`Show the shares ${ownerName} has with you`}
-                        />
-                        <div id={lanesId} hidden={!lanesExpanded}>
-                          <PersonShareLanes
-                            group={group}
-                            counterpartName={ownerName}
-                            formatEndsAt={vm.formatDateTime}
-                            action="remove"
-                            onStopGrant={vm.onStopGrant}
-                            revokingGrantId={vm.revokingGrantId}
+                  <SharedWithMeCard
+                    isSmsTriggered={Boolean(group.smsGrant)}
+                    name={ownerName}
+                    statusLine={
+                      multiLane
+                        ? `${group.grants.length} live shares`
+                        : grant.durationMode === "until_stopped"
+                          ? "Until stopped"
+                          : grant.expiresAt
+                            ? `Access until ${vm.formatDateTime(grant.expiresAt)}`
+                            : "Active"
+                    }
+                    shareLanes={
+                      multiLane ? (
+                        // One control per SHARE. The card's own Remove is a
+                        // single button, and with two shares behind one card it
+                        // could only ever drop one of them -- silently, since
+                        // nothing on screen would say which. `revoke_grant`
+                        // accepts the recipient as well as the owner (it records
+                        // the difference as `recipient_revoke`), so these are
+                        // real controls, not decoration.
+                        <div data-testid="one-location-received-share-lanes">
+                          <ShareLanesDisclosure
+                            expanded={lanesExpanded}
+                            onToggle={() =>
+                              toggleLaneExpansion(group.counterpartUserId)
+                            }
+                            controlsId={lanesId}
+                            label={`Show the shares ${ownerName} has with you`}
                           />
+                          <div id={lanesId} hidden={!lanesExpanded}>
+                            <PersonShareLanes
+                              group={group}
+                              counterpartName={ownerName}
+                              formatEndsAt={vm.formatDateTime}
+                              action="remove"
+                              onStopGrant={vm.onStopGrant}
+                              revokingGrantId={vm.revokingGrantId}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    ) : null
-                  }
-                  previewExpanded={expanded}
-                  mapHref={point ? vm.mapLocationHref(point) : undefined}
-                  onView={() => onExpandGrant(grant)}
-                  onDismiss={() => onCollapseGrant(grant.id)}
-                  onRecenter={
-                    point ? () => recenterGrantViewport(grant.id) : undefined
-                  }
-                  // Suppressed for a person holding two shares: the card's
-                  // single Remove would silently act on only one of them, and
-                  // the breakdown above already carries one per share.
-                  onRemove={
-                    multiLane ? undefined : () => vm.onStopGrant(grant.id)
-                  }
-                  removeBusy={vm.revokingGrantId === grant.id}
-                  viewBusy={vm.busy === "view"}
-                  message={
-                    point?.checkIn?.message ?? grant.shareMessage ?? undefined
-                  }
-                  address={
-                    addressEntry?.status === "done" ? addressEntry.text : null
-                  }
-                  addressLoading={
-                    Boolean(point) && addressEntry?.status === "loading"
-                  }
-                  coordinatesFallback={
-                    point
-                      ? `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}`
-                      : undefined
-                  }
-                  // Only while there is nothing to look at. Once a point lands
-                  // it is the answer, and a leftover "waiting for their first
-                  // update" line under a live map would contradict it.
-                  viewStatus={
-                    point ? null : (vm.grantViewStatuses?.[grant.id] ?? null)
-                  }
-                  onAskReshare={() => vm.onAskReshare(grant)}
-                  askReshareBusy={vm.busy === "request"}
-                >
-                  {expanded && point
-                    ? vm.renderMapPreview(
-                        point,
-                        false,
-                        `${grant.id}:${grantViewportResetKeys[grant.id] ?? 0}`,
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => vm.onAskReshare(grant)}
-                          disabled={vm.busy === "request"}
-                          className="h-8 rounded-full border-amber-500/30 bg-white/70 px-3 text-[12px] font-semibold text-amber-800 hover:bg-white dark:border-amber-300/25 dark:bg-white/10 dark:text-amber-100 dark:hover:bg-white/15"
-                        >
-                          {vm.busy === "request" ? (
-                            <span
-                              className="mr-1.5 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
-                              aria-hidden="true"
-                            />
-                          ) : (
-                            <Send
-                              className="mr-1.5 h-3.5 w-3.5"
-                              aria-hidden="true"
-                            />
-                          )}
-                          Ask to refresh
-                        </Button>,
-                      )
-                    : null}
-                </SharedWithMeCard>
+                      ) : null
+                    }
+                    previewExpanded={expanded}
+                    mapHref={point ? vm.mapLocationHref(point) : undefined}
+                    onView={() => onExpandGrant(grant)}
+                    onDismiss={() => onCollapseGrant(grant.id)}
+                    onRecenter={
+                      point ? () => recenterGrantViewport(grant.id) : undefined
+                    }
+                    // Suppressed for a person holding two shares: the card's
+                    // single Remove would silently act on only one of them, and
+                    // the breakdown above already carries one per share.
+                    onRemove={
+                      multiLane ? undefined : () => vm.onStopGrant(grant.id)
+                    }
+                    removeBusy={vm.revokingGrantId === grant.id}
+                    viewBusy={vm.busy === "view"}
+                    message={
+                      point?.checkIn?.message ?? grant.shareMessage ?? undefined
+                    }
+                    address={
+                      addressEntry?.status === "done" ? addressEntry.text : null
+                    }
+                    addressLoading={
+                      Boolean(point) && addressEntry?.status === "loading"
+                    }
+                    coordinatesFallback={
+                      point
+                        ? `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}`
+                        : undefined
+                    }
+                    // Only while there is nothing to look at. Once a point lands
+                    // it is the answer, and a leftover "waiting for their first
+                    // update" line under a live map would contradict it.
+                    viewStatus={
+                      point ? null : (vm.grantViewStatuses?.[grant.id] ?? null)
+                    }
+                    onAskReshare={() => vm.onAskReshare(grant)}
+                    askReshareBusy={vm.busy === "request"}
+                  >
+                    {expanded && point
+                      ? vm.renderMapPreview(
+                          point,
+                          false,
+                          `${grant.id}:${grantViewportResetKeys[grant.id] ?? 0}`,
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => vm.onAskReshare(grant)}
+                            disabled={vm.busy === "request"}
+                            className="h-8 rounded-full border-amber-500/30 bg-white/70 px-3 text-[12px] font-semibold text-amber-800 hover:bg-white dark:border-amber-300/25 dark:bg-white/10 dark:text-amber-100 dark:hover:bg-white/15"
+                          >
+                            {vm.busy === "request" ? (
+                              <span
+                                className="mr-1.5 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
+                                aria-hidden="true"
+                              />
+                            ) : (
+                              <Send
+                                className="mr-1.5 h-3.5 w-3.5"
+                                aria-hidden="true"
+                              />
+                            )}
+                            Ask to refresh
+                          </Button>,
+                        )
+                      : null}
+                  </SharedWithMeCard>
                 </div>
               );
             })}
@@ -2499,7 +2515,8 @@ function PeopleHub({
                   data-testid="one-location-people-list"
                 >
                   {filtered.map((r, i) => {
-                    const shareGroup = ownerGroupsByUserId.get(r.userId) ?? null;
+                    const shareGroup =
+                      ownerGroupsByUserId.get(r.userId) ?? null;
                     const sharing = Boolean(shareGroup);
                     // One share is still one tap: the row keeps its single
                     // Stop and grows nothing. The breakdown appears only for a
@@ -2979,8 +2996,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
       <div className="flex items-start gap-2 px-1">
         <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <p className={MUTED_TEXT}>
-          You choose how long — up to 1 hour for a location link, 24 hours for
-          an invite.
+          Up to 1 hour for a location link, 24 hours for an invite.
         </p>
       </div>
     </div>
@@ -3623,6 +3639,124 @@ function SelectionDot({ selected }: { selected: boolean }) {
   );
 }
 
+function RequestRecipientListRow({
+  name,
+  subtitle,
+  tone,
+  statusLabel,
+  selectable,
+  selected,
+  actionAriaLabel,
+  onSelect,
+  onEdit,
+  editActive,
+  onRemove,
+  removeAriaLabel,
+  removeBusy,
+  expandedContent,
+}: {
+  name: string;
+  subtitle?: string;
+  tone: "ready" | "pending" | "neutral";
+  statusLabel?: string;
+  selectable: boolean;
+  selected: boolean;
+  actionAriaLabel: string;
+  onSelect?: () => void;
+  onEdit?: () => void;
+  editActive?: boolean;
+  onRemove?: () => void;
+  removeAriaLabel?: string;
+  removeBusy?: boolean;
+  expandedContent?: ReactNode;
+}) {
+  const pillTone =
+    statusLabel === "Live"
+      ? "live"
+      : tone === "pending"
+        ? "pending"
+        : "neutral";
+
+  return (
+    <div
+      className={cn(
+        "min-w-0 bg-transparent",
+        selected && selectable && "bg-[color:var(--app-accent)]/5",
+      )}
+    >
+      <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
+        <ContactAvatar label={name} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
+            {name}
+          </span>
+          {subtitle ? (
+            <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
+              {subtitle}
+            </span>
+          ) : null}
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          {statusLabel ? (
+            <StatusPill tone={pillTone} className="px-2 py-0 text-[12px]">
+              {statusLabel}
+            </StatusPill>
+          ) : null}
+          {onEdit ? (
+            <ShellActionSurface
+              variant="icon"
+              className="h-8 w-8 shrink-0"
+              aria-label={`${editActive ? "Cancel editing" : "Edit"} access for ${name}`}
+              aria-pressed={editActive}
+              onClick={onEdit}
+            >
+              <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+            </ShellActionSurface>
+          ) : null}
+          {onRemove ? (
+            <ShellActionSurface
+              variant="icon"
+              className="h-8 w-8 shrink-0 text-destructive"
+              aria-label={removeAriaLabel ?? `Remove ${name}'s access`}
+              onClick={onRemove}
+              disabled={removeBusy}
+            >
+              {removeBusy ? (
+                <Loader2
+                  className="h-3.5 w-3.5 animate-spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+            </ShellActionSurface>
+          ) : null}
+          {selectable && onSelect ? (
+            <Button
+              size="sm"
+              onClick={onSelect}
+              aria-label={actionAriaLabel}
+              className={cn(
+                "h-8 shrink-0 rounded-full px-3 text-[13px] font-semibold",
+                selected
+                  ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+                  : "bg-[color:var(--app-secondary-system-fill)] text-foreground hover:bg-[color:var(--app-secondary-system-fill)]/80",
+              )}
+            >
+              {selected ? "Selected" : "Select"}
+            </Button>
+          ) : null}
+        </span>
+      </div>
+      {expandedContent ? (
+        <div className="border-t border-[color:var(--app-separator)] px-3.5 py-3">
+          {expandedContent}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /* =================================================================== */
 /* ASK FLOW                                                             */
 /* =================================================================== */
@@ -3754,6 +3888,10 @@ function AskFlow({
       ),
     [filtered, lastInteraction, vm.recipientLabel, vm.recipientSearch],
   );
+  const rosterRecipientRows = useMemo(
+    () => rosterRows.filter((row) => row.kind === "recipient"),
+    [rosterRows],
+  );
 
   const receivedGroupsByOwner = useMemo(() => {
     const byOwner = new globalThis.Map<string, OneLocationGrantLaneGroup>();
@@ -3819,6 +3957,28 @@ function AskFlow({
     const timer = window.setInterval(() => setStatusNowMs(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, [hasTimeRelativeRow]);
+
+  const isRequestFormValid = vm.selectedRequestOwnerIds.length > 0;
+  const sendingRequest = vm.busy === "request";
+  const sendRequest = () => {
+    // Never submit an incomplete form even if the click somehow reaches the
+    // handler (e.g. keyboard/AT), and never double-fire.
+    if (!isRequestFormValid || sendingRequest || sendInFlightRef.current)
+      return;
+    sendInFlightRef.current = true;
+    sentSelectionRef.current = vm.selectedRequestOwnerIds;
+    void (async () => {
+      try {
+        // Confirm only what actually happened: the banner appears on a
+        // resolved success, and a failure leaves the composer intact with its
+        // own error toast.
+        setJustSent(await vm.onSendRequest(reason));
+      } finally {
+        sendInFlightRef.current = false;
+      }
+    })();
+  };
+
   return (
     <div className="space-y-5">
       <TaskFlowHeader
@@ -3841,44 +4001,12 @@ function AskFlow({
         <AppSectionLabel as="h2">People</AppSectionLabel>
         <PersonSearchInput value={searchDraft} onChange={setSearchDraft} />
         {filtered.length ? (
-          /* Windowed above the picker's own threshold, plain DOM below it.
-             The rule is `shouldVirtualizeList`, imported rather than
-             re-implemented, so this list and the contact picker cannot drift
-             apart on where "too long to render whole" begins.
-
-             `presentation="cards"` because these rows are already cards: the
-             grouped shell would put a card inside a card and draw a divider
-             between two things that have their own edges. */
           <VirtualContactList
-            items={rosterRows}
+            items={rosterRecipientRows}
             getKey={(row) => row.key}
-            scrollClassName={cn("mt-3", PEOPLE_LIST_SCROLL_CLASS)}
-            itemClassName="pb-2.5 last:pb-0"
-            presentation="cards"
             testId="one-location-ask-recipients"
             ariaLabel="People you can ask"
-            // A section heading is not one of the people. Taking it out of the
-            // list stops a screen reader announcing "Recent" as an entry.
-            getItemRole={(row) =>
-              row.kind === "header" ? "presentation" : undefined
-            }
             renderItem={(row) => {
-              // Headers ride the SAME windowed list as the rows, rather than a
-              // scroller per section: two capped scrollers stacked inside one
-              // screen is the shape this flow already rejected once.
-              if (row.kind === "header") {
-                return (
-                  // The screen's own section type, not a second one invented
-                  // here: "People" a few lines up is the same primitive.
-                  <AppSectionLabel
-                    as="h3"
-                    data-testid={`one-location-ask-section-${row.key}`}
-                    className="px-1 pt-1"
-                  >
-                    {row.title}
-                  </AppSectionLabel>
-                );
-              }
               const r = row.recipient;
               const selected = vm.selectedRequestOwnerIds.includes(r.userId);
               // Every row used to read "Ready for private sharing" with Select
@@ -3902,8 +4030,9 @@ function AskFlow({
               // nothing to do about that but wait it out or leave the screen
               // entirely to find the Shared with me / Requests sent list
               // that could end or shorten it.
-              const activeGrant =
-                receivedGroupsByOwner.get(r.userId)?.primaryGrant;
+              const activeGrant = receivedGroupsByOwner.get(
+                r.userId,
+              )?.primaryGrant;
               const isEditingThis =
                 Boolean(activeGrant) && vm.editingGrantId === activeGrant?.id;
               // The unanswered ask this row is reporting, if any. The row used
@@ -3912,23 +4041,21 @@ function AskFlow({
               const pendingRequestId = status.pendingRequestId;
               const recipientLabel = vm.recipientLabel(r);
               return (
-                <TrustedPersonCard
+                <RequestRecipientListRow
                   key={r.userId}
                   name={recipientLabel}
-                  subtitle={status.subtitle}
+                  subtitle={
+                    status.selectable && status.tone === "ready"
+                      ? undefined
+                      : status.subtitle
+                  }
                   tone={status.tone}
                   statusLabel={status.statusLabel}
-                  actionLabel={
-                    status.selectable
-                      ? selected
-                        ? "Selected"
-                        : "Select"
-                      : undefined
-                  }
+                  selectable={status.selectable}
                   actionAriaLabel={`${
                     selected ? "Deselect" : "Select"
                   } ${recipientLabel} for location request`}
-                  onAction={
+                  onSelect={
                     status.selectable
                       ? () => vm.toggleRequestOwner(r.userId, "ask_flow")
                       : undefined
@@ -3966,7 +4093,7 @@ function AskFlow({
                   }
                   expandedContent={
                     isEditingThis && activeGrant ? (
-                      <>
+                      <div className="space-y-3">
                         <DurationSelector
                           value={vm.editGrantDurationHours}
                           onChange={vm.setEditGrantDurationHours}
@@ -3987,7 +4114,7 @@ function AskFlow({
                         >
                           Save
                         </Button>
-                      </>
+                      </div>
                     ) : undefined
                   }
                 />
@@ -4049,6 +4176,7 @@ function AskFlow({
                public-link lanes later run Number() over, so a non-numeric
                sentinel here posts NaN to a `gt=0` field. */
             allowUntilStop={false}
+            rungs={REQUEST_DURATION_LADDER}
           />
           <ReasonChips
             value={reason}
@@ -4085,49 +4213,12 @@ function AskFlow({
               />
             </div>
           ) : null}
-        </div>
-      </SectionCard>
-
-      {/* Send is enabled once at least one recipient is chosen. Duration and
-          reason default to sensible values, so gating Send on them too (added
-          in #5108) blocked submitting even when the request was already valid;
-          that extra gating is intentionally removed here.
-
-          The button keeps the action accent in every state. Success is a status,
-          and it is already said twice — by the banner above and by each person's
-          row turning to "Asked" — so recolouring the primary action green said it
-          a third time and cost the screen its one action colour. */}
-      {(() => {
-        const isFormValid = vm.selectedRequestOwnerIds.length > 0;
-        const sending = vm.busy === "request";
-        return (
-          /**
-           * Pinned, because choosing someone and sending to them were never on
-           * screen together.
-           *
-           * Send sits after the roster, the duration ladder, the reason chips
-           * and the message box -- roughly a screen and a half below the person
-           * being picked. So the count travels with it: scrolling away from the
-           * roster used to lose the only place that said how many were chosen.
-           *
-           * `sticky`, not `fixed`. A fixed bar covers content and has to be
-           * paid for with page padding that is wrong at one end or the other.
-           * This one rides the page and settles into place at the bottom of the
-           * flow, so nothing is ever permanently underneath it.
-           *
-           * The offset is the app's own composed bottom inset plus the
-           * keyboard: on iOS the on-screen keyboard would otherwise sit over
-           * the action a person just reached for.
-           */
-          <div
-            data-testid="one-location-ask-send-bar"
-            className="sticky z-10 -mx-1 mt-1 space-y-2 rounded-2xl bg-[color:var(--app-card-surface-default-solid)] px-1 py-2"
-            style={{
-              bottom:
-                "calc(var(--app-bottom-inset, 0px) + var(--kb-height, 0px) + 0.5rem)",
-            }}
-          >
-            {isFormValid ? (
+          {/* Send is enabled once at least one recipient is chosen. Duration and
+              reason default to sensible values, so gating Send on them too would
+              block a valid request. It lives in the same card as the form so it
+              cannot cover Reason or the inline Other field. */}
+          <div data-testid="one-location-ask-send-bar" className="space-y-2">
+            {isRequestFormValid ? (
               <p
                 aria-live="polite"
                 data-testid="one-location-ask-selection-summary"
@@ -4138,34 +4229,18 @@ function AskFlow({
                   : `${vm.selectedRequestOwnerIds.length} people selected`}
               </p>
             ) : null}
-          <Button
-            onClick={() => {
-              // Never submit an incomplete form even if the click somehow
-              // reaches the handler (e.g. keyboard/AT), and never double-fire.
-              if (!isFormValid || sending || sendInFlightRef.current) return;
-              sendInFlightRef.current = true;
-              sentSelectionRef.current = vm.selectedRequestOwnerIds;
-              void (async () => {
-                try {
-                  // Confirm only what actually happened: the banner appears on a
-                  // resolved success, and a failure leaves the composer intact
-                  // with its own error toast.
-                  setJustSent(await vm.onSendRequest(reason));
-                } finally {
-                  sendInFlightRef.current = false;
-                }
-              })();
-            }}
-            disabled={!isFormValid || sending}
-            aria-disabled={!isFormValid || sending}
-            isLoading={sending}
-            className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
-          >
-            Send request
-          </Button>
+            <Button
+              onClick={sendRequest}
+              disabled={!isRequestFormValid || sendingRequest}
+              aria-disabled={!isRequestFormValid || sendingRequest}
+              isLoading={sendingRequest}
+              className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+            >
+              Send request
+            </Button>
           </div>
-        );
-      })()}
+        </div>
+      </SectionCard>
 
       {justSent ? (
         <Button
@@ -4263,7 +4338,7 @@ function InviteFlow({
         <SectionCard>
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
-              <UserPlus className="h-5 w-5" />
+              <UserRoundPlus className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-base font-semibold text-foreground">

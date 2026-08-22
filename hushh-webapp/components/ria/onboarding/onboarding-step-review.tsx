@@ -221,7 +221,7 @@ export function OnboardingStepReview({
       </div>
 
       <RiaAiActionPill onClick={onAskKaiUpdateAnything}>
-        Ask Kai to update anything
+        Ask One to update anything
       </RiaAiActionPill>
     </div>
   );

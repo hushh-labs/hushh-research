@@ -534,7 +534,7 @@ function DenseCellInput(
     <input
       {...rest}
       className={cn(
-        "h-9 w-full rounded-[14px] border px-2.5 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70",
+        "h-9 w-full rounded-[var(--ria-chip-radius)] border px-2.5 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70",
         invalid ? "border-rose-300 dark:border-rose-500/50" : "border-border/80",
         tone === "derived"
           ? "bg-muted/[0.72] text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] read-only:cursor-default"
@@ -1210,7 +1210,7 @@ function ScreeningEditor({
           <div>
             <h3 className="text-sm font-semibold text-foreground">Screening</h3>
             <p className="text-xs text-muted-foreground">
-              Keep the fixed screening taxonomy, but update the rules Kai should carry into investor debates.
+              Keep the fixed screening taxonomy, but update the rules One should carry into investor debates.
             </p>
           </div>
           <div className="flex justify-end">
@@ -1258,7 +1258,7 @@ function ScreeningEditor({
               <div className="space-y-3">
                 {filteredRows.length === 0 ? (
                   <SurfaceInset className="px-4 py-3 text-sm text-muted-foreground">
-                    No rules yet. Add the rubric you want Kai to carry into the investor debate.
+                    No rules yet. Add the rubric you want One to carry into the investor debate.
                   </SurfaceInset>
                 ) : null}
                 {filteredRows.map((row) => (
@@ -1595,7 +1595,7 @@ export default function RiaPicksPage() {
 
   const sourceOptions = useMemo(
     () => [
-      { value: "kai", label: `Kai list (${kaiRows.length || "..."})` },
+      { value: "kai", label: `Suggested list (${kaiRows.length || "..."})` },
       { value: "my", label: `My list (${myTopPicks.length})` },
     ],
     [kaiRows.length, myTopPicks.length]
@@ -2027,7 +2027,7 @@ export default function RiaPicksPage() {
         ensureKaiScreeningRowsLoaded(),
       ]);
       if (topPicks.length === 0) {
-        toast.error("Kai list is not available yet");
+        toast.error("Suggested list is not available yet");
         return;
       }
       const basePackage = editing && draftPackage ? draftPackage : createDraftPackage(activePackage);
@@ -2050,7 +2050,7 @@ export default function RiaPicksPage() {
       setSource("my");
       setEditing(true);
       setUploadOpen(false);
-      toast.success("Copied all Kai tabs into My list. Save to publish it.");
+      toast.success("Copied all suggested tabs into My list. Save to publish it.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to copy list");
     } finally {
@@ -2120,13 +2120,13 @@ export default function RiaPicksPage() {
     }
   }
 
-  const sourceTitle = source === "kai" ? "Kai list" : "My list";
+  const sourceTitle = source === "kai" ? "Suggested list" : "My list";
   const showMyListActionRail = source === "my";
   const voiceSurfaceMetadata = useMemo(
     () => ({
       screenId: "ria_picks",
       title: "RIA Picks",
-      purpose: "Advisor stock universe with Kai reference picks and vault-backed advisor package.",
+      purpose: "Advisor stock universe with suggested reference picks and vault-backed advisor package.",
       sections: [
         {
           id: "ria_picks_source",
@@ -2151,7 +2151,7 @@ export default function RiaPicksPage() {
         },
         {
           id: "ria_picks_source_kai",
-          label: "Kai list",
+          label: "Suggested list",
           type: "tab",
           state: source === "kai" ? "active" : "available",
           actionId: "ria.picks.open_source_kai",
@@ -2206,7 +2206,7 @@ export default function RiaPicksPage() {
         },
         {
           id: "ria_picks_copy_from_kai",
-          label: "Copy from Kai",
+          label: "Copy suggested list",
           type: "button",
           state: savingToMyList || !isVaultUnlocked ? "disabled" : "available",
           actionId: "ria.picks.copy_from_kai",
@@ -2523,7 +2523,7 @@ export default function RiaPicksPage() {
                     className="w-full justify-center"
                   >
                     <Save className="mr-2 h-4 w-4" />
-                    {savingToMyList ? "Copying..." : "Copy from Kai"}
+                    {savingToMyList ? "Copying..." : "Copy suggested list"}
                   </Button>
                   {!editing ? (
                     <Button
@@ -2613,7 +2613,7 @@ export default function RiaPicksPage() {
               {source === "kai" && kaiLoading ? (
                 <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading Kai list...
+                  Loading suggested list...
                 </div>
               ) : null}
 

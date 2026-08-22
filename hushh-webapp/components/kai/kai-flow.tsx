@@ -907,7 +907,7 @@ export function KaiFlow({
                     id: "portfolio_review",
                     title: "Review imported portfolio",
                     purpose:
-                      "Lets you inspect parsed holdings before saving them into Kai.",
+                      "Lets you inspect parsed holdings before saving them into Finance.",
                   },
                 ]
               : [

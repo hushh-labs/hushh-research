@@ -153,7 +153,7 @@ export type SpecialistConsentRequiredCardProps = {
 function agentDisplayName(agentId: string): string {
   if (agentId === "agent_nav") return "Nav";
   if (agentId === "agent_location") return "Location";
-  if (agentId === "agent_kai") return "Kai";
+  if (agentId === "agent_kai") return "Finance";
   if (agentId === "agent_kyc") return "KYC";
   return agentId.replace(/^agent_/, "").replace(/_/g, " ") || "This agent";
 }
