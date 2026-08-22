@@ -938,6 +938,36 @@ function resolveTopShellBreadcrumbInner(
   }
 
   // Connect root (level 2): back returns to /one (level 1).
+  // A Circle flow opened on Connect is a level-three place, and the shell has
+  // to say so -- otherwise the crumb reads "One > Connect" while a create form
+  // is on screen, and its back arrow leaves the workspace entirely instead of
+  // closing the flow. #5458 moved these here from the Location agent, where
+  // they had their own crumb.
+  if (pathname === ROUTES.CONNECT && searchParams?.get("tab") === "circles") {
+    const circleFlowLabels: Record<string, string> = {
+      "create-circle": "New circle",
+      "join-circle": "Join with code",
+      "circle-detail": "Circle",
+    };
+    const label = circleFlowLabels[String(searchParams?.get("action") ?? "")];
+    if (label) {
+      return {
+        // Back closes the flow and returns to the list, naming the tab
+        // explicitly -- the App Router refuses a navigation whose only change
+        // is the whole query string disappearing.
+        backHref: `${ROUTES.CONNECT}?tab=circles`,
+        width: "profile",
+        align: "center",
+        hideBack: false,
+        items: [
+          { label: "One", href: ROUTES.ONE_HOME },
+          { label: "Connect", href: `${ROUTES.CONNECT}?tab=circles` },
+          { label },
+        ],
+      };
+    }
+  }
+
   if (pathname === ROUTES.CONNECT || pathname === ROUTES.MARKETPLACE) {
     return {
       backHref: ROUTES.ONE_HOME,

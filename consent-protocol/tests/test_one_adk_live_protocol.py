@@ -1,5 +1,7 @@
 """Unit coverage for One ADK Live browser-frame trust boundaries."""
 
+from pathlib import Path
+
 import pytest
 
 from api.routes.one.adk_live import (
@@ -996,3 +998,36 @@ def test_one_settlement_produces_one_turn_even_when_it_arms_a_continuation():
     )
     # A failed navigation arms nothing either.
     assert _navigation_continuation_screen("goal.x", navigation_run, "failed") is None
+
+
+def test_the_relay_never_sends_activity_signals_while_the_provider_endpoints_itself():
+    """Activity signals belong to the client only when automatic VAD is off.
+
+    `AutomaticActivityDetection.disabled` is what decides who owns endpointing:
+    "if disabled, the client must send activity signals." This relay leaves
+    `realtime_input_config` unset on its `RunConfig`, so automatic detection is
+    on and the provider owns it -- and a relay that also sends activity_end is
+    asking the provider to close a window it did not hand over.
+
+    The two halves are checked together on purpose. Either one alone is a
+    legitimate design: manual VAD WITH activity signals is fine, and automatic
+    VAD WITHOUT them is fine. It is the mismatch that is the bug, and it was
+    introduced by a comment that read "close the current activity window" as
+    though the window were ours to close.
+    """
+    source = (Path(__file__).resolve().parents[1] / "api/routes/one/adk_live.py").read_text(
+        encoding="utf-8"
+    )
+    # Comments are stripped first. The invariant is about what the relay DOES,
+    # and the comment explaining this fix has to be free to name the call it
+    # removed -- an assertion that a string is absent from a file otherwise
+    # fails on its own rationale, which is exactly what happened here.
+    code = "\n".join(
+        line for line in source.splitlines() if not line.strip().startswith("#")
+    )
+    assert "queue.send_activity_end()" not in code
+    assert "queue.send_activity_start()" not in code
+    # If someone ever disables automatic detection, this test should be
+    # revisited rather than silently kept passing: that is the configuration
+    # where the relay MUST send the signals it is forbidden from sending here.
+    assert "realtime_input_config=" not in code

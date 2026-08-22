@@ -1658,3 +1658,67 @@ def test_every_connections_writer_lets_the_database_order_the_pair():
     service_source = inspect.getsource(connections_service)
     assert "self._canonical_pair(requester, user_id)" not in service_source
     assert "self._canonical_pair(user_id, peer_user_id)" not in service_source
+
+
+def test_accepting_puts_both_people_in_each_others_trusted_circle(monkeypatch):
+    """The Circle is a projection of the connection, recorded in the same
+    transaction so the two are never seen apart."""
+
+    from hushh_mcp.services import connections_service as module
+
+    calls: list[dict] = []
+
+    def _capture(conn, *, user_a_id, user_b_id, source="connection"):
+        calls.append({"a": user_a_id, "b": user_b_id, "source": source})
+
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
+
+    monkeypatch.setattr(
+        OneLocationCircleService,
+        "ensure_trusted_membership_for_pair",
+        staticmethod(_capture),
+    )
+    del module
+
+    svc = _svc()
+    svc._transaction_connection = object()
+    svc._join_trusted_system_circles(user_a_id="user-a", user_b_id="user-b")
+
+    assert calls == [{"a": "user-a", "b": "user-b", "source": "connection"}]
+
+
+def test_a_failed_trusted_join_does_not_refuse_the_connection(monkeypatch):
+    """Accepting is a consent transition; the roster is a view of it.
+
+    A view that fails must not roll back a consent that succeeded. It can only
+    ever lag -- Trusted is excluded from every location-eligibility query -- and
+    the owner's next bootstrap reconciles it.
+    """
+
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
+
+    def _boom(conn, *, user_a_id, user_b_id, source="connection"):
+        raise RuntimeError("circle service is down")
+
+    monkeypatch.setattr(
+        OneLocationCircleService,
+        "ensure_trusted_membership_for_pair",
+        staticmethod(_boom),
+    )
+
+    svc = _svc()
+    svc._transaction_connection = object()
+
+    # No raise. That is the assertion.
+    svc._join_trusted_system_circles(user_a_id="user-a", user_b_id="user-b")
+
+
+def test_the_trusted_join_is_skipped_rather_than_guessed_without_a_transaction():
+    # Behind the lightweight test doubles there is no connection to run on.
+    # Skipping is right here and wrong for the disconnect path, which logs a
+    # warning instead: a missing membership grants nothing and self-heals, a
+    # missing teardown leaves a live location path open.
+    svc = _svc()
+    svc._transaction_connection = None
+
+    svc._join_trusted_system_circles(user_a_id="user-a", user_b_id="user-b")

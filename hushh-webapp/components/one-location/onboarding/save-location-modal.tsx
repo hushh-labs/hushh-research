@@ -1278,9 +1278,7 @@ export function SaveLocationModal({
               {/* A caption, not a card. It reassures; it is not a control, and
                   the panel it used to sit in gave it a control's weight. */}
               <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
-                {deferredUntilVault
-                  ? "Saves once your lock is set."
-                  : "Private to you."}
+                Private to you.
               </p>
             </div>
 

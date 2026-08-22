@@ -626,7 +626,7 @@ function locationActivity() {
 async function openLocationFeatureStep() {
   expect(
     await screen.findByRole("heading", {
-      name: "Share your location easily with anyone.",
+      name: "Be easy to reach when it actually matters.",
     }),
   ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
@@ -714,7 +714,17 @@ async function finishLocationOnboarding() {
 }
 
 async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
-  await finishLocationOnboarding();
+  // There is not always an entry flow to skip.
+  //
+  // A URL that names a destination -- any `?action=` -- no longer gets the
+  // first-run takeover, because arriving ON a screen is not a first run and
+  // the greeting was rendering in front of the thing the link pointed at.
+  // Callers that set an action therefore have nothing to dismiss, and this
+  // helper's job is "get past the entry flow", which is already true.
+  const onboardingShowing = screen.queryByTestId("one-location-onboarding");
+  if (onboardingShowing) {
+    await finishLocationOnboarding();
+  }
 
   // Completion settles asynchronously now that it is driven by a press rather
   // than a timer. Wait for the overlay to actually unmount, or callers assert
@@ -2389,7 +2399,7 @@ describe("OneLocationAgentPage", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "Share your location easily with anyone.",
+        name: "Be easy to reach when it actually matters.",
       }),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
@@ -2422,7 +2432,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", {
-        name: "Share your location easily with anyone.",
+        name: "Be easy to reach when it actually matters.",
       }),
     ).toBeNull();
   });
@@ -2985,7 +2995,7 @@ describe("OneLocationAgentPage", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "Share your location easily with anyone.",
+        name: "Be easy to reach when it actually matters.",
       }),
     ).toBeTruthy();
 
@@ -3180,7 +3190,7 @@ describe("OneLocationAgentPage", () => {
       ).toBeNull();
       expect(
         screen.queryByRole("heading", {
-          name: "Share your location easily with anyone.",
+          name: "Be easy to reach when it actually matters.",
         }),
       ).toBeNull();
     },
@@ -3230,7 +3240,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockRegisterKey).toHaveBeenCalled());
     expect(
       await screen.findByRole("heading", {
-        name: "Share your location easily with anyone.",
+        name: "Be easy to reach when it actually matters.",
       }),
     ).toBeTruthy();
     const onboardingShellClass =
