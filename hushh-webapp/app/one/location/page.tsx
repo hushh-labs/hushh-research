@@ -9330,7 +9330,17 @@ export function OneLocationAgentPageContent({
     const duration = SHARE_VOICE_DURATION_VALUES.has(requested)
       ? requested
       : undefined;
-    if (duration) setShareDurationHours(duration);
+    if (!duration) {
+      // Never fall through to whatever duration happens to already be on
+      // screen -- that is a guess about how long someone's live location
+      // should be visible, made on their behalf. Ask, every time, exactly
+      // like a name that never resolved.
+      return {
+        status: "blocked" as const,
+        summary: "For how long? You can say 30 minutes, 1 hour, 4 hours or 24 hours.",
+      };
+    }
+    setShareDurationHours(duration);
 
     // A hands-free share is otherwise invisible: One says it started and the
     // screen returns to a hub that looks exactly as it did before. Landing on

@@ -7143,7 +7143,7 @@
           {
             "name": "duration_hours",
             "prompt": "For how long? You can say 30 minutes, 1 hour, 4 hours or 24 hours.",
-            "required": false,
+            "required": true,
             "slot": "duration_hours",
             "resolver": "location_share_duration",
             "options": [
