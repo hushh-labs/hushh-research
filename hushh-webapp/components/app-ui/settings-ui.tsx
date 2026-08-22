@@ -669,10 +669,10 @@ export function AdaptiveDetailSurface({
               (event.currentTarget as HTMLElement).focus();
             }}
           >
-            <SheetHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 py-3 text-left backdrop-blur-[var(--blur-standard)]">
-              <div className="flex min-w-0 items-center gap-3 pr-10">
+            <SheetHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 pt-8 pb-3 text-left backdrop-blur-[var(--blur-standard)]">
+              <div className="flex min-w-0 items-center gap-3 pr-10 text-left">
                 {leading ? <div className="shrink-0">{leading}</div> : null}
-                <div className="min-w-0">
+                <div className="min-w-0 text-left">
                   {eyebrow ? (
                     <SectionLabel as="p">
                       {eyebrow}
@@ -726,10 +726,10 @@ export function AdaptiveDetailSurface({
             (e.currentTarget as HTMLElement).focus();
           }}
         >
-          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 py-3 pr-14 text-left backdrop-blur-[var(--blur-standard)] sm:px-5 sm:py-4 sm:pr-14">
-            <div className="flex min-w-0 items-center gap-3">
+          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 pt-8 pb-3 pr-14 text-left backdrop-blur-[var(--blur-standard)] sm:px-5 sm:pt-6 sm:pb-4 sm:pr-14">
+            <div className="flex min-w-0 items-center gap-3 text-left">
               {leading ? <div className="shrink-0">{leading}</div> : null}
-              <div className="min-w-0">
+              <div className="min-w-0 text-left">
                 {eyebrow ? (
                   <SectionLabel as="p">
                     {eyebrow}
@@ -786,9 +786,9 @@ export function AdaptiveDetailSurface({
         }}
       >
         <DialogHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-6 py-4 pr-16 text-left backdrop-blur-[var(--blur-standard)]">
-          <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3 text-left">
             {leading ? <div className="shrink-0">{leading}</div> : null}
-            <div className="min-w-0">
+            <div className="min-w-0 text-left">
               {eyebrow ? (
                 <SectionLabel as="p">
                   {eyebrow}
