@@ -7,7 +7,12 @@
  * "and") BEFORE any normalization, because normalizeSpokenName() strips
  * exactly those characters -- splitting after normalizing would destroy the
  * delimiters this needs. Each resulting name is then matched independently,
- * by substring, never exact: a person says "Sarah", not "Sarah Chen".
+ * first by substring, then -- only when substring finds nothing -- by a
+ * bounded fuzzy fallback for the kind of one- or two-letter slip speech
+ * transcription actually makes ("Nilesh" heard for "Neelesh"). Fuzzy never
+ * runs when substring already matched something, so it can only turn a
+ * "not found" into a match; it never second-guesses or widens a match that
+ * already succeeded.
  *
  * A person can name several people in one turn ("share with Alice and
  * Bob"), and each name resolves on its own: some may match cleanly, one may
@@ -47,6 +52,64 @@ export function splitSpokenNames(raw: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Levenshtein edit distance: the fewest single-character insertions,
+ * deletions, or substitutions to turn `a` into `b`. Pure string distance,
+ * with no idea what a "name" is -- the safety guard lives in
+ * `isFuzzyMatch`'s threshold, not here.
+ */
+function levenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let previousRow = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const currentRow = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      const substitutionCost = a[i - 1] === b[j - 1] ? 0 : 1;
+      currentRow.push(
+        Math.min(
+          currentRow[j - 1]! + 1, // insertion
+          previousRow[j]! + 1, // deletion
+          previousRow[j - 1]! + substitutionCost, // substitution
+        ),
+      );
+    }
+    previousRow = currentRow;
+  }
+  return previousRow[b.length]!;
+}
+
+/**
+ * How many character edits a word may be off by and still count as a fuzzy
+ * match, scaled to its length. Under 4 letters is never fuzzy-matched at
+ * all: a one-edit slip on "Al" or "Amy" reaches too many unrelated short
+ * names to be safe here, where a wrong match means a location shared with,
+ * or a request sent to, the wrong person. Longer names get a little more
+ * room, since a mis-heard syllable ("Nilesh" for "Neelesh", "Ankeet" for
+ * "Ankit") is a couple of letters, not a fraction of the word.
+ */
+function fuzzyMatchThreshold(wordLength: number): number {
+  if (wordLength < 4) return 0;
+  if (wordLength <= 5) return 1;
+  return 2;
+}
+
+/**
+ * True when `target` is a close spoken variant of `candidateWord` -- judged
+ * by the LONGER side's length, not the shorter. An insertion/deletion pair
+ * like "Ankit" (5) vs "Ankeet" (6) already spends one edit purely on the
+ * length gap; judging it by the shorter word's threshold would refuse a
+ * mishearing that adds or drops a single letter on top of a real edit.
+ */
+function isFuzzyMatch(target: string, candidateWord: string): boolean {
+  const threshold = fuzzyMatchThreshold(
+    Math.max(target.length, candidateWord.length),
+  );
+  if (threshold === 0) return false;
+  return levenshteinDistance(target, candidateWord) <= threshold;
+}
+
 /** A spoken name that did NOT resolve to exactly one candidate. A name that
  * resolved cleanly is not represented here -- it goes straight into
  * `MultiNameResolution.resolved` instead. */
@@ -78,9 +141,18 @@ export function resolveSpokenNames<T>(
   for (const spokenText of splitSpokenNames(raw)) {
     const target = normalizeSpokenName(spokenText);
     if (!target) continue;
-    const matches = candidates.filter((item) =>
+    let matches = candidates.filter((item) =>
       normalizeSpokenName(String(searchText(item) || "")).includes(target),
     );
+    if (matches.length === 0) {
+      matches = candidates.filter((item) => {
+        const normalized = normalizeSpokenName(String(searchText(item) || ""));
+        return (
+          isFuzzyMatch(target, normalized) ||
+          normalized.split(" ").some((word) => isFuzzyMatch(target, word))
+        );
+      });
+    }
     if (matches.length === 0) {
       unresolved.push({ spokenText, kind: "not_found" });
     } else if (matches.length === 1) {
