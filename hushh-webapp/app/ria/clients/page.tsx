@@ -202,10 +202,7 @@ export default function RiaClientsPage() {
               ) : null}
             </span>
           }
-          // The roster count and its description belong to Connected. Carrying
-          // them over to Around you labelled a list of public records with a
-          // count of the advisor's own clients.
-          description={view === "connected" ? RIA_COPY.clients.description : undefined}
+          description={RIA_COPY.clients.description}
           icon={UserRound}
           accent="ria"
         />
@@ -230,18 +227,7 @@ export default function RiaClientsPage() {
           </div>
 
           {view === "nearby" ? (
-            <div className="flex flex-col gap-4">
-              <SettingsGroup
-                embedded
-                title={RIA_COPY.clients.aroundYouWorkspace.title}
-                description={RIA_COPY.clients.aroundYouWorkspace.description}
-              >
-                <div className="px-4 py-3 text-sm text-muted-foreground">
-                  {RIA_COPY.clients.aroundYouWorkspace.body}
-                </div>
-              </SettingsGroup>
-              <NearbyAroundYou />
-            </div>
+            <NearbyAroundYou />
           ) : (
           <SettingsGroup
             embedded

@@ -110,7 +110,7 @@ vi.mock("@/components/ria/nearby/nearby-around-you", () => ({
 import RiaClientsPage from "@/app/ria/clients/page";
 
 describe("RIA Clients page", () => {
-  it("keeps workspace copy on Connected and explains the Around You workspace boundary", () => {
+  it("keeps the workspace summary visible when switching to Around You", () => {
     render(<RiaClientsPage />);
 
     expect(
@@ -119,13 +119,8 @@ describe("RIA Clients page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Around you/i }));
 
-    expect(screen.queryByText(/One workspace per client/i)).not.toBeInTheDocument();
-    expect(screen.getByText("Workspace access")).toBeInTheDocument();
     expect(
-      screen.getByText(/Connect first to open a client workspace/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Dedicated workspaces stay with Connected clients/i),
+      screen.getByText(/One workspace per client/i),
     ).toBeInTheDocument();
     expect(screen.getByText("Nearby records pane")).toBeInTheDocument();
     expect(push).not.toHaveBeenCalled();
