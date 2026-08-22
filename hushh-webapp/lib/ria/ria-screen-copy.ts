@@ -77,6 +77,11 @@ export const RIA_COPY = {
       title: "Connected investors",
       description: "Status, access, research, and explorer in one place.",
     },
+    aroundYouWorkspace: {
+      title: "Workspace access",
+      description: "Around You shows public records. Connect first to open a client workspace.",
+      body: "Public records can be shortlisted here. Dedicated workspaces stay with Connected clients.",
+    },
     loading: "Loading clients…",
     empty: "No connected investors yet.",
     browse: "Browse the marketplace",

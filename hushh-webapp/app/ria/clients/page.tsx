@@ -230,7 +230,18 @@ export default function RiaClientsPage() {
           </div>
 
           {view === "nearby" ? (
-            <NearbyAroundYou />
+            <div className="flex flex-col gap-4">
+              <SettingsGroup
+                embedded
+                title={RIA_COPY.clients.aroundYouWorkspace.title}
+                description={RIA_COPY.clients.aroundYouWorkspace.description}
+              >
+                <div className="px-4 py-3 text-sm text-muted-foreground">
+                  {RIA_COPY.clients.aroundYouWorkspace.body}
+                </div>
+              </SettingsGroup>
+              <NearbyAroundYou />
+            </div>
           ) : (
           <SettingsGroup
             embedded
