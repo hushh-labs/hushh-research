@@ -255,6 +255,15 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private runtimeCredentialMode: "hushh_managed_vertex" | "byok" =
     "hushh_managed_vertex";
   private runtimeCredential: string | null = null;
+  /**
+   * The provider's own opaque continuation token. Seeded from `start()`'s
+   * options when reconnecting, and replaced every time the provider issues a
+   * fresh one (it rotates through a session, not just once). Sent on the next
+   * `runtime_bootstrap` this instance makes, and handed off in the `closed`
+   * event so a NEW instance -- start() always builds one -- can carry it
+   * forward.
+   */
+  private resumptionHandle: string | null = null;
   private runtimeCredentialTransport: "developer_api" | "vertex_api_key" =
     "developer_api";
   private runtimeVertexProject: string | null = null;
@@ -373,6 +382,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.startContext = context;
     this.latestContext = context;
     this.consentToken = options?.consentToken ?? null;
+    this.resumptionHandle = options?.resumptionHandle?.trim() || null;
     this.runtimeCredentialMode =
       options?.runtimeCredentialMode === "byok"
         ? "byok"
@@ -640,6 +650,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
           ...(this.runtimeCredentialMode === "byok" && credential
             ? { runtime_credential: credential }
             : {}),
+          ...(this.resumptionHandle
+            ? { resumption_handle: this.resumptionHandle }
+            : {}),
         }),
       );
       this.runtimeCredential = null;
@@ -709,7 +722,18 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (sessionEnded) {
       const reason = readString(sessionEnded.reason) ?? "unknown";
       const resumable = sessionEnded.resumable === true;
-      this.fail(describeSessionEndedReason(reason, resumable));
+      this.fail(describeSessionEndedReason(reason, resumable), resumable);
+      return;
+    }
+
+    // The provider's own continuation token, reissued through the life of a
+    // session (not just once). Kept for the next runtime_bootstrap this
+    // instance sends, and handed off via the `closed` event once this
+    // instance tears down, so a reconnect can carry it into a fresh one.
+    const sessionResumption = readRecord(message.sessionResumption);
+    const resumptionHandle = readString(sessionResumption?.handle);
+    if (resumptionHandle) {
+      this.resumptionHandle = resumptionHandle;
       return;
     }
 
@@ -1391,7 +1415,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.handlers.onOutputLevel?.(0);
   }
 
-  private fail(message: string): void {
+  private fail(message: string, resumable?: boolean): void {
     const eventOptions = this.nextEventOptions();
     this.handlers.onError?.(message, eventOptions);
     this.handlers.onEvent?.({
@@ -1401,6 +1425,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       sessionId: eventOptions.sessionId,
       sourceId: eventOptions.sourceId,
       sourceSeq: eventOptions.sourceSeq,
+      ...(resumable !== undefined ? { resumable } : {}),
     });
     this.stop();
   }
@@ -1475,6 +1500,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.handlers.onEvent?.({
       type: "closed",
       provider: this.provider,
+      resumptionHandle: this.resumptionHandle,
     });
     this.handlers.onClose?.();
   }
