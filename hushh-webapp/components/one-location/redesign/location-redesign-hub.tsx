@@ -26,6 +26,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -4160,14 +4161,17 @@ function AskFlow({
             screen. Without this the empty state was a dead end and a search
             that found nobody was worse -- it proved the person was missing and
             offered nothing to do about it. */}
-        <a
+        {/* `Link`, not a bare anchor: an <a href> is a full document load and
+            the vault key lives only in React state, so the way out of this dead
+            end relocked the vault on the way. */}
+        <Link
           href={ROUTES.CONNECT}
           data-testid="one-location-ask-manage-connections"
           className="mt-3 inline-flex min-h-11 items-center gap-1 rounded-full px-1 text-[15px] font-medium text-[color:var(--app-accent)]"
         >
           Don&apos;t see someone? Manage connections
           <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
-        </a>
+        </Link>
         <SelectedRecipientsRail
           title="Selected"
           recipients={selectedRecipients}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import {
   Check,
@@ -924,17 +925,23 @@ function CircleMemberRow({
             all. Answering an incoming request lives on Connect, and this is
             now the link that goes there. */}
         {actionCta?.action === "respond" ? (
-          <a
-            href={ROUTES.CONNECT}
-            aria-label={`Respond to the connection request from ${member.displayName}`}
-            data-testid={`circle-member-respond-${member.userId}`}
-            className={cn(
-              buttonVariants({ variant: "outline", size: "sm" }),
-              CIRCLE_MEMBER_ACTION_CLASSNAME,
-            )}
-          >
-            {actionCta.label}
-          </a>
+          <>
+          {/* `Link`, not a bare anchor. An <a href> is a full document
+              load, and the vault key lives only in React state -- so the
+              one control offered here relocked the vault on the way to
+              using it. */}
+            <Link
+              href={ROUTES.CONNECT}
+              aria-label={`Respond to the connection request from ${member.displayName}`}
+              data-testid={`circle-member-respond-${member.userId}`}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                CIRCLE_MEMBER_ACTION_CLASSNAME,
+              )}
+            >
+              {actionCta.label}
+            </Link>
+          </>
         ) : null}
         {hasMenu ? (
           <DropdownMenu>
