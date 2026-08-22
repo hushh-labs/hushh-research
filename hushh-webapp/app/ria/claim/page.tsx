@@ -486,6 +486,14 @@ export default function RiaClaimPage() {
     setError(null);
   }, []);
 
+  const handleBack = useCallback(() => {
+    if (step === "found") {
+      resetToPhone();
+      return;
+    }
+    setStep("found");
+  }, [resetToPhone, step]);
+
   const outcome = lookup?.outcome ?? null;
   const candidates: RiaClaimCandidate[] = lookup?.candidates ?? [];
   const adviserCount = lookup?.current_adviser_count ?? null;
@@ -543,15 +551,15 @@ export default function RiaClaimPage() {
         dataState={nativeDataState}
       />
       <FullscreenFlowShell width="reading" className="px-0">
-        <div className="mx-auto flex w-full max-w-[34rem] flex-col gap-6 px-6 pb-[var(--app-scroll-bottom-pad)] pt-4">
+        <div className="mx-auto flex w-full max-w-[34rem] flex-col gap-6 px-6 pb-[var(--ria-onboarding-cta-bottom-clearance,var(--app-scroll-bottom-pad))] pt-4">
           {step !== "phone" && step !== "done" ? (
             <button
               type="button"
-              onClick={() => (step === "found" ? resetToPhone() : setStep("found"))}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/20 transition-transform active:scale-95"
+              onClick={handleBack}
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/20 text-muted-foreground transition-all hover:bg-muted/40 hover:text-foreground active:scale-95"
               aria-label="Back"
             >
-              <ChevronLeft className="h-5 w-5" />
+              <ChevronLeft className="h-5 w-5" aria-hidden="true" />
             </button>
           ) : null}
 
@@ -847,14 +855,14 @@ export default function RiaClaimPage() {
                 className={`rounded-[18px] border p-5 ${
                   verified
                     ? "border-[rgba(18,161,80,0.35)] bg-[rgba(18,161,80,0.08)]"
-                    : "border-[rgba(201,139,46,0.3)] bg-[rgba(201,139,46,0.08)]"
+                    : "border-[color:var(--ria-gold)]/30 bg-[color:var(--ria-gold)]/[0.08]"
                 }`}
               >
                 <div className="flex items-start gap-3">
                   {verified ? (
                     <CheckCircle2 className="h-6 w-6 shrink-0 text-[#12A150]" />
                   ) : (
-                    <ShieldCheck className="h-6 w-6 shrink-0 text-[color:var(--ria-gold,#C8923A)]" />
+                    <ShieldCheck className="h-6 w-6 shrink-0 text-[color:var(--ria-gold)]" />
                   )}
                   <div className="min-w-0">
                     <p className="text-[16px] font-semibold">

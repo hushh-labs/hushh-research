@@ -75,6 +75,46 @@ def _email_handle(email: object | None) -> str:
     return local
 
 
+def label_from_identity_row(
+    row: object | None,
+    *,
+    allow_email_handle: bool = True,
+    fallback: str = "",
+) -> str:
+    """The name to show for a person whose identity row is already in hand.
+
+    The same ladder as ``resolve_requester_label`` -- display name, rejecting
+    values that are identifiers rather than names, then the email handle -- run
+    against a row the caller has already read instead of re-querying for it.
+    Callers that hold rows for a whole list need this: the querying resolver
+    would turn one page of people into one round-trip each.
+
+    ``allow_email_handle`` is a privacy boundary. An email's local part is a
+    name to someone who already knows you and an identifier to someone who does
+    not, so it is offered only on surfaces already scoped to a relationship.
+    A broad discovery directory passes False.
+
+    ``fallback`` is the last resort, for an account that genuinely resolves to
+    nothing. Callers that want their own word for that ("Circle member") pass
+    it here rather than substituting afterwards, so the ladder is what decides.
+    """
+
+    if not row:
+        return fallback
+    get = getattr(row, "get", None)
+    if get is None:
+        return fallback
+    user_id = str(get("user_id") or "")
+    display_name = str(get("display_name") or "").strip()
+    if display_name and not looks_technical_label(display_name, user_id=user_id):
+        return display_name
+    if allow_email_handle:
+        handle = _email_handle(get("email"))
+        if handle:
+            return handle
+    return fallback
+
+
 def resolve_requester_label(
     user_id: str,
     *,

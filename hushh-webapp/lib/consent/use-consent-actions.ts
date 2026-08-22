@@ -262,9 +262,9 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       markAsHandling(consent.id);
 
       if (!userId || !vaultKey) {
-        toast.error("Vault not unlocked", {
+        toast.error("Vault not unlocked. Unlock your vault to approve this request.", {
           id: toastId,
-          description: "Unlock your vault to approve this request.",
+          
           duration: 6000,
           action: {
             label: "Unlock",
@@ -731,7 +731,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           }));
           
           toast.info("Vault locked", {
-            description: "Your VAULT_OWNER access has been revoked. Please unlock again to continue.",
+            
             duration: 5000,
           });
         }

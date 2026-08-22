@@ -40,10 +40,10 @@ describe("One agent roster cache metrics", () => {
       finance: { value: "NVDA", label: "+6.40%" },
       ria: { value: "3", label: "active clients" },
       email: { value: "1", label: "approval waiting" },
-      consent: { value: "1", label: "request to review" },
-      location: { value: "1", label: "live share" },
-      pkm: { value: "12", label: "saved details" },
-      "connected-systems": { value: "2", label: "connected systems" },
+      consent: { value: "1", label: "request" },
+      location: { value: "1", label: "live" },
+      pkm: { value: "12", label: "saved" },
+      "connected-systems": { value: "2", label: "connected" },
     });
   });
 

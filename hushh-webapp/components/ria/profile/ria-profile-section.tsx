@@ -220,8 +220,8 @@ function RiaRegulatoryProfileSummary({
         <SettingsRow
           icon={MessageCircle}
           iconTone="blue"
-          title="Ask Kai to update anything"
-          description="Open Kai and describe what should change in this profile."
+          title="Ask One to update anything"
+          description="Open One and describe what should change in this profile."
           onClick={onAskKaiUpdateAnything}
           chevron
           testId="ria-profile-ask-kai"
@@ -387,7 +387,7 @@ function RiaVerificationChip({ verified }: { verified: boolean }) {
         "inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-[12px] font-medium",
         verified
           ? "border-[rgba(18,161,80,0.35)] bg-[rgba(18,161,80,0.08)] text-[#12A150]"
-          : "border-[rgba(201,139,46,0.3)] bg-[rgba(201,139,46,0.08)] text-[color:var(--ria-gold,#C8923A)]",
+          : "border-[color:var(--ria-gold)]/30 bg-[color:var(--ria-gold)]/[0.08] text-[color:var(--ria-gold)]",
       )}
     >
       {verified ? (
@@ -782,9 +782,7 @@ export function RiaProfileSection({
 
   const handleAskKai = useCallback(() => {
     openKaiCommandBar();
-    toast.info("Kai command opened", {
-      description: "Ask Kai what to update, or use Edit on any section.",
-    });
+    toast.info("Command bar opened. Ask One what to update, or use Edit on any section.");
   }, []);
 
   const handleDraftBio = useCallback(() => {
@@ -792,14 +790,10 @@ export function RiaProfileSection({
       if (!current) return current;
       const suggestion = buildRiaOnboardingBioSuggestion(current);
       if (!suggestion) {
-        toast.info("Add more details first", {
-          description: "Kai needs services or firm details to draft a bio.",
-        });
+        toast.info("Add more details first. One needs services or firm details to draft a bio.");
         return current;
       }
-      toast.success("Bio drafted", {
-        description: "Review the draft before saving.",
-      });
+      toast.success("Bio drafted. Review the draft before saving.");
       return normalizeRiaOnboardingDraft({ ...current, bio: suggestion });
     });
   }, []);
@@ -833,14 +827,9 @@ export function RiaProfileSection({
       await onRefresh(true);
       await refresh({ force: true });
       setEditOpen(false);
-      toast.success("Profile updated", {
-        description: "Your advisor profile changes are saved.",
-      });
-    } catch (error) {
-      toast.error("Could not save profile", {
-        description:
-          error instanceof Error ? error.message : "Please try again.",
-      });
+      toast.success("Profile updated. Your advisor profile changes are saved.");
+    } catch {
+      toast.error("Could not save profile");
     } finally {
       setSaving(false);
     }
@@ -893,9 +882,7 @@ export function RiaProfileSection({
       });
       if (!result.updated) {
         setLicenseMessage(result.message || "Could not update license data.");
-        toast.error("Update failed", {
-          description: result.message || "Please try again.",
-        });
+        toast.error("Update failed");
         return;
       }
       await onRefresh(true);
@@ -965,15 +952,10 @@ export function RiaProfileSection({
       await switchPersona("investor").catch(() => null);
       await refresh({ force: true });
       setShowDeleteConfirm(false);
-      toast.success("RIA profile deleted", {
-        description: "Your One account is unchanged.",
-      });
+      toast.success("RIA profile deleted. Your One account is unchanged.");
       router.replace(ROUTES.ONE_HOME);
-    } catch (error) {
-      toast.error("Could not delete profile", {
-        description:
-          error instanceof Error ? error.message : "Please try again.",
-      });
+    } catch {
+      toast.error("Could not delete profile");
       // Reset ONLY on failure, where the user stays on this screen and must be
       // able to retry. On success `deleting` deliberately stays true until the
       // navigation above unmounts this component: it is the single guard that

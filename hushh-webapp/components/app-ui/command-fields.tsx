@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 
 // 1. Defined standard class names at the top for better maintainability
 const FIELD_TRIGGER_CLASSNAME =
-  "flex min-h-10 w-full items-center justify-between gap-3 rounded-[16px] border px-3 py-2 text-left text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70";
+  "flex min-h-10 w-full items-center justify-between gap-3 rounded-[16px] border px-3 py-2 text-left text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70";
 
 const COMMAND_ITEM_CLASSNAME =
   "rounded-[18px] border border-transparent px-3 py-3 transition-colors duration-300 hover:bg-primary/10 hover:text-foreground aria-selected:border-primary/25 aria-selected:bg-primary/15 aria-selected:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
@@ -291,7 +291,7 @@ export function PopupTextEditorField({
         aria-expanded={open}
         onClick={() => setOpen(true)}
         className={cn(
-          "group flex min-h-[76px] w-full items-start justify-between gap-3 rounded-[16px] border px-3 py-3 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70",
+          "group flex min-h-[76px] w-full items-start justify-between gap-3 rounded-[16px] border px-3 py-3 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
           invalid ? "border-rose-300 dark:border-rose-500/50" : "border-border/80 bg-background hover:border-border",
           triggerClassName
         )}

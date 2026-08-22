@@ -189,7 +189,9 @@ jobs:
             backend:
               - 'consent-protocol/**'
               - 'packages/hushh-mcp/**'
+              - 'deploy/backend.cloudbuild.yaml'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/deploy-uat.yml'
               - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
               - 'scripts/ci/**'

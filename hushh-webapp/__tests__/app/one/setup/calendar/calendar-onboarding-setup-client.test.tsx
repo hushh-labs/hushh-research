@@ -33,7 +33,7 @@ describe("CalendarOnboardingSetupClient", () => {
     render(<CalendarOnboardingSetupClient />);
 
     expect(
-      screen.getByRole("heading", { name: "Understand your schedule." }),
+      screen.getByRole("heading", { name: "Stay ahead of your schedule." }),
     ).toBeTruthy();
     expect(screen.getByText("See what's ahead, and make time for what matters.")).toBeTruthy();
     expect(screen.getByText("Find time")).toBeTruthy();

@@ -756,6 +756,82 @@
       "expected_row_growth": "low_ttl_cache"
     },
     {
+      "id": "hushh_tech_client_identity_state",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "uat_synthetic",
+      "exact_tables": [
+        "hushh_tech_account_links",
+        "hushh_tech_shadow_records"
+      ],
+      "primary_access_path": "UAT-only HushhTech product linking and allowlisted compatibility metadata routes",
+      "retention_policy": "Retain active synthetic links and checked-in synthetic shadow metadata only while the UAT cohort is enabled; revoked links may remain through the bounded QA review window.",
+      "deletion_behavior": "Revoke or delete Firebase-linked mapping rows on account or fixture teardown; delete synthetic shadow rows when the checked-in fixture is retired. No production legacy record is copied into this family.",
+      "trust_boundary": "Firebase UID is the canonical identity. Legacy UUID is provenance only. Shadow rows contain allowlisted synthetic profile, onboarding, access-state, and report-asset metadata; never email mapping evidence, owner tokens, private-place values, PKM plaintext, connector private keys, or production Supabase data.",
+      "plaintext_posture": "synthetic_uat_metadata_only",
+      "expected_row_growth": "low_uat_cohort"
+    },
+    {
+      "id": "hushh_tech_client_launch_workflows",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "uat_synthetic",
+      "exact_tables": [
+        "hushh_tech_launch_authorizations"
+      ],
+      "primary_access_path": "single-use Hussh Research to HushhTech PKCE launch authorize and exchange",
+      "retention_policy": "Codes expire after 60 seconds; retain consumed hashes for a 24-hour replay-investigation window, then compact opportunistically on the next authorization.",
+      "deletion_behavior": "Delete expired and consumed rows after the replay window; cascade user-linked rows on canonical actor deletion.",
+      "trust_boundary": "Hashed launch codes, Firebase UID, exact audience/redirect, PKCE challenge, and timestamps only. No bearer tokens, custom tokens, verifiers, private keys, or account lookup evidence persist.",
+      "plaintext_posture": "hashes_and_workflow_metadata_only",
+      "expected_row_growth": "short_lived_per_launch"
+    },
+    {
+      "id": "hushh_tech_client_link_audit",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "uat_synthetic",
+      "exact_tables": [
+        "hushh_tech_link_events"
+      ],
+      "primary_access_path": "append-only synthetic link activation, conflict, relink, recovery, import, and revocation audit",
+      "retention_policy": "Retain metadata through UAT QA and incident review; compact only under the approved UAT retention process.",
+      "deletion_behavior": "Database enforcement rejects row updates and deletes. Link and actor identifiers are immutable audit provenance without foreign-key cascades, so parent teardown cannot rewrite history; later compaction requires the approved UAT audit-retention process.",
+      "trust_boundary": "Mapping identifiers, event type, app binding, fixture hash, and bounded proof-session metadata only. No email or phone mapping, session proof body, tokens, secrets, production data, or decrypted Research information.",
+      "plaintext_posture": "metadata_and_hashes_only",
+      "expected_row_growth": "low_append_only_uat"
+    },
+    {
+      "id": "hushh_tech_client_migration_workflows",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "uat_synthetic",
+      "exact_tables": [
+        "hushh_tech_migration_runs"
+      ],
+      "primary_access_path": "strict checked-in JSONL synthetic shadow importer dry-run, apply, checkpoint, and deterministic replay",
+      "retention_policy": "Retain fixture checksums, counts, checkpoints, and terminal state for UAT reconciliation while the synthetic cohort exists.",
+      "deletion_behavior": "Delete with synthetic fixture teardown after QA evidence no longer depends on the run; no destructive down-migration is required for rollback.",
+      "trust_boundary": "Fixture names, hashes, counts, checkpoints, stable error codes, and timestamps only. The importer has no Supabase connection/export mode and never stores production rows or credentials.",
+      "plaintext_posture": "synthetic_workflow_metadata_only",
+      "expected_row_growth": "low_per_fixture"
+    },
+    {
+      "id": "hushh_tech_client_migration_audit",
+      "owner": "backend-runtime-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "uat_synthetic",
+      "exact_tables": [
+        "hushh_tech_migration_events"
+      ],
+      "primary_access_path": "append-only synthetic importer start, transactional per-record outcome, failure, and completion evidence",
+      "retention_policy": "Retain bounded event metadata and fixture hashes through UAT reconciliation and QA evidence review; compact only under the approved UAT audit-retention process.",
+      "deletion_behavior": "Database enforcement rejects row updates and deletes. Later compaction requires the approved UAT audit-retention process and is never part of importer replay or rollback.",
+      "trust_boundary": "Run identifiers, fixture hashes, phases, outcomes, sequences, timestamps, stable error codes, synthetic record identifiers, record types, record hashes, counts, and tombstone flags only. No fixture payload, production row, identity evidence, credential, or decrypted Research information.",
+      "plaintext_posture": "synthetic_audit_metadata_and_hashes_only",
+      "expected_row_growth": "low_append_only_per_fixture_record"
+    },
+    {
       "id": "developer_access",
       "owner": "mcp-developer-surface",
       "data_class": "audit_regulated",

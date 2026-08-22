@@ -991,7 +991,9 @@ describe("ProfileReceiptsPage", () => {
       screen.getByRole("heading", { name: /gmail not connected/i }),
     ).toBeTruthy();
     expect(
-      screen.getByText(/receipt emails capture purchase interactions/i),
+      screen.getByText(
+        /flag what needs a reply, surfaces upcoming meetings, and turns your receipts/i,
+      ),
     ).toBeTruthy();
     expect(screen.queryByText("0 receipts")).toBeNull();
     expect(

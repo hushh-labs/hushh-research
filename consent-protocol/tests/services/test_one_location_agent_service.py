@@ -22,6 +22,7 @@ from hushh_mcp.services.one_location_agent_service import (
     _json_param,
     _notification_safe_data,
     _redact_location_metadata,
+    _share_lane_match_sql,
 )
 
 PUBLIC_LOCATION_SNAPSHOT = {
@@ -148,6 +149,7 @@ class AtomicPrivateShareProbe(OneLocationAgentService):
         self.atomic_sql: list[str] = []
         self.recipient_key_lock_keys: list[str] = []
         self.pair_lock_keys: list[str] = []
+        self.atomic_params: list[dict] = []
         self.notifications: list[dict] = []
         self.expiry_normalizations: list[str | None] = []
 
@@ -187,6 +189,11 @@ class AtomicPrivateShareProbe(OneLocationAgentService):
         self.recipient_key_lock_keys.append(recipient_key_lock_key)
         self.pair_lock_keys.append(pair_lock_key)
         self.atomic_sql.append(mutation_sql)
+        # The atomic path builds its params dict independently of
+        # `create_grant`'s, so a lane predicate in the SQL with no matching
+        # bind would fail OPEN to the old pair-wide revoke. This probe never
+        # executes SQL, so capturing the binds is the only way to catch that.
+        self.atomic_params.append(dict(params))
         if self.fail_write:
             raise RuntimeError("transaction failed")
         if not self.replay and not values["freshness_valid"]:
@@ -416,6 +423,15 @@ def test_atomic_private_share_commits_grant_envelope_and_events_together() -> No
     assert "k.key_id = :recipient_key_id" in sql
     assert "NOW() - CAST(:confirmed_at AS TIMESTAMPTZ)" in sql
     assert "UPDATE one_location_share_grants" in sql
+    # The `revoked_grants` CTE must carry the two-lane predicate, or this path
+    # goes on doing what #5506 was: a `check_in` share tearing down the SOS
+    # grant to the same person (and vice versa). This probe never executes the
+    # mutation, so the SQL substring and the bind are the only guards there are
+    # -- and both are needed, since the predicate without its `:is_sos_lane`
+    # bind fails open rather than loudly.
+    assert _share_lane_match_sql("g") in sql
+    assert "CAST(:is_sos_lane AS BOOLEAN)" in sql
+    assert service.atomic_params[0]["is_sos_lane"] is False
     assert "INSERT INTO one_location_share_grants" in sql
     assert "INSERT INTO one_location_envelopes" in sql
     assert sql.count("INSERT INTO one_location_events") == 2
@@ -997,13 +1013,21 @@ class FourUserMemoryService(OneLocationAgentService):
                 requested_circle_id if requested_circle_id is not None else relationship_circle_id
             ),
         }
+        # Replacement is LANE-SCOPED in production (`_create_enforced_grant_row`),
+        # and this stub stands in for that transaction. The predicate is
+        # imported from the service rather than retyped, so the fake cannot
+        # quietly go on reproducing the kind-blind revoke that #5506 was: a
+        # copy here that drifted from production would make every lane test in
+        # this file pass while the real UPDATE stayed broken.
         self._execute_many(
             """
             UPDATE one_location_share_grants
             SET status = 'revoked'
             WHERE owner_user_id = :owner_user_id
               AND recipient_user_id = :recipient_user_id
-              AND status = 'active'
+              AND status = 'active'"""
+            + _share_lane_match_sql()
+            + """
             """,
             params,
         )
@@ -1038,6 +1062,22 @@ class FourUserMemoryService(OneLocationAgentService):
                 },
             )
         return row
+
+    @staticmethod
+    def _grant_is_sos_lane(grant: dict) -> bool:
+        """Which replacement lane a stored row is in, as `_SHARE_LANE_MATCH_SQL` reads it.
+
+        `share_kind` is not a column -- it lives in the `metadata` JSONB, which
+        is the whole reason the original revoke could not see it. Present and
+        not 'sos' means the ordinary lane; the legacy `reason == 'sos_panic'`
+        arm applies only when `share_kind` is absent entirely, matching the
+        COALESCE/IS NULL structure of the production predicate.
+        """
+        metadata = grant.get("metadata") or {}
+        share_kind = metadata.get("share_kind")
+        if share_kind is not None:
+            return str(share_kind) == "sos"
+        return str(metadata.get("reason") or "") == "sos_panic"
 
     def _add_sms_contact_with_locked_eligibility(
         self,
@@ -1500,7 +1540,47 @@ class FourUserMemoryService(OneLocationAgentService):
                     }
                 )
             return rows[: params.get("limit", 40)]
+        # `list_state` reads the two grant directions as separate parallel
+        # queries. Neither was modelled here, so `ownerGrants`/`receivedGrants`
+        # came back empty from every route test that read state -- the section
+        # simply logged `parallel_query_failed` and fell back to nothing. That
+        # is the only seam through which `_grant_payload` (and so the
+        # `shareKind` the whole client-side lane split depends on) is
+        # observable over HTTP, so the coexistence test needs it to be real.
+        if "FROM one_location_share_grants g" in sql and (
+            "WHERE g.owner_user_id = :user_id" in sql
+            or "WHERE g.recipient_user_id = :user_id" in sql
+        ):
+            as_owner = "WHERE g.owner_user_id = :user_id" in sql
+            column = "owner_user_id" if as_owner else "recipient_user_id"
+            counterpart_column = "recipient_user_id" if as_owner else "owner_user_id"
+            label = "recipient" if as_owner else "owner"
+            rows = []
+            for grant in sorted(
+                self.grants.values(),
+                key=lambda item: item["created_at"],
+                reverse=True,
+            ):
+                if grant[column] != params["user_id"]:
+                    continue
+                identity = self.identities.get(grant[counterpart_column] or "", {})
+                rows.append(
+                    {
+                        **grant,
+                        f"{label}_display_name": identity.get("display_name"),
+                        f"{label}_phone_number": identity.get("phone_number"),
+                    }
+                )
+            return rows[:50]
         if "UPDATE one_location_share_grants" in sql and "status = 'revoked'" in sql:
+            # Lane-scoped exactly when the SQL says so, reading the lane out of
+            # the BOUND PARAMS rather than out of anything the test hands us.
+            # That is what keeps this fake a mirror: a production write path
+            # that appends the predicate but forgets to bind `:is_sos_lane`
+            # raises KeyError right here instead of silently falling back to
+            # the pair-wide revoke that #5506 was.
+            lane_scoped = ":is_sos_lane" in sql
+            is_sos_lane = bool(params["is_sos_lane"]) if lane_scoped else None
             revoked = []
             for grant in self.grants.values():
                 if (
@@ -1508,6 +1588,8 @@ class FourUserMemoryService(OneLocationAgentService):
                     and grant["recipient_user_id"] == params["recipient_user_id"]
                     and grant["status"] == "active"
                 ):
+                    if lane_scoped and self._grant_is_sos_lane(grant) != is_sos_lane:
+                        continue
                     grant["status"] = "revoked"
                     revoked.append({"id": grant["id"]})
             return revoked
@@ -2030,7 +2112,10 @@ class FourUserMemoryService(OneLocationAgentService):
             self.referrals[referral_id] = row
             return row
         if "INSERT INTO one_location_public_invites" in sql:
-            invite_id = str(uuid.uuid4())
+            # The caller chooses the id now: the public token is derived from
+            # it, so a double that invents its own would store a digest that
+            # can never be re-derived, and every link would read as legacy.
+            invite_id = str(params.get("invite_id") or uuid.uuid4())
             row = {
                 "id": invite_id,
                 "owner_user_id": params["owner_user_id"],
@@ -2055,6 +2140,50 @@ class FourUserMemoryService(OneLocationAgentService):
                         "owner_phone_number": owner.get("phone_number"),
                     }
             return None
+        if (
+            "UPDATE one_location_public_invites" in sql
+            and "status = 'expired'" in sql
+            and "owner_user_id" in params
+        ):
+            # Settling lazily-expired rows before the reuse lookup. Expiry is
+            # written only when something reads a row, so a link past its time
+            # can still be sitting at 'active'.
+            now = datetime.now(timezone.utc)
+            for invite in self.public_invites.values():
+                if (
+                    invite["owner_user_id"] == params["owner_user_id"]
+                    and invite["status"] == "active"
+                    and invite["expires_at"] <= now
+                ):
+                    invite["status"] = "expired"
+            return None
+        if (
+            "UPDATE one_location_public_invites" in sql
+            and "status = 'revoked'" in sql
+            and "invite_id" in params
+        ):
+            invite = self.public_invites.get(params["invite_id"])
+            if invite and invite["status"] == "active":
+                invite["status"] = "revoked"
+                invite["revoked_at"] = datetime.now(timezone.utc)
+                return invite
+            return None
+        if (
+            "FROM one_location_public_invites" in sql
+            and "expires_at > NOW()" in sql
+            and "owner_user_id" in params
+        ):
+            # The reuse lookup: one live public link per person.
+            now = datetime.now(timezone.utc)
+            live = [
+                invite
+                for invite in self.public_invites.values()
+                if invite["owner_user_id"] == params["owner_user_id"]
+                and invite["status"] == "active"
+                and invite["expires_at"] > now
+            ]
+            live.sort(key=lambda invite: invite["created_at"], reverse=True)
+            return live[0] if live else None
         if "UPDATE one_location_public_invites" in sql and "status = 'expired'" in sql:
             invite = self.public_invites.get(params["invite_id"])
             if invite and invite["status"] == "active":
@@ -4688,3 +4817,664 @@ def test_sms_grant_fails_closed_until_recipient_is_selected() -> None:
     assert service.notifications[0]["data"]["notification_category"] == (
         "ONE_LOCATION_SMS_EMERGENCY"
     )
+
+
+# ---------------------------------------------------------------------------
+# Two-lane grant replacement (#5506)
+#
+# Replacement of a live share is scoped to a LANE, and there are exactly two:
+# the emergency lane (`share_kind == 'sos'`) and everything else. Before this,
+# every create path opened with a kind-blind revoke of every active grant for
+# the pair, so raising an SMS alert with somebody you were already sharing with
+# silently revoked that share -- at SEND time, not at "I'm safe".
+# ---------------------------------------------------------------------------
+
+
+class _ShareCreatedNotificationSpy(FourUserMemoryService):
+    """Records every `_send_location_share_created_notification` call.
+
+    "Two rows are active" is not on its own enough to prove the fix. An
+    implementation that RE-USED the pair's existing grant instead of inserting
+    a new one would satisfy several of the obvious assertions while quietly
+    reintroducing the bug at stop time -- "I'm safe" would then revoke the
+    normal share, because the normal share would BE the SOS grant. Watching the
+    notification the create path fires is what distinguishes "a new SOS grant
+    was created" from "an old grant was handed back".
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.share_created_calls: list[dict] = []
+
+    def _send_location_share_created_notification(self, **kwargs) -> bool:
+        self.share_created_calls.append(kwargs)
+        return super()._send_location_share_created_notification(**kwargs)
+
+
+def _lane_service() -> _ShareCreatedNotificationSpy:
+    """A connected owner/recipient pair with the recipient's key registered."""
+    service = _ShareCreatedNotificationSpy()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    return service
+
+
+def test_sos_grant_does_not_revoke_an_existing_normal_share() -> None:
+    """The regression #5506 was reported as. Confirmed failing on `main`.
+
+    A shares location with B for four hours, then raises an SMS alert with that
+    same B. Before the lane split the four-hour grant was `status = 'revoked'`
+    the instant the SOS grant was created -- silently, with no
+    `location_share_revoked` event and no push, so B's card went on showing a
+    live share and the loss only surfaced at "I'm safe".
+    """
+    service = _lane_service()
+
+    normal = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=4,
+        share_kind="share",
+        enforce_connection=True,
+    )
+    normal_expires_at = service.grants[normal["id"]]["expires_at"]
+
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        reason="Come get me",
+        enforce_connection=True,
+    )
+
+    # 1. Both grants survive. Two live grants per pair is now legal, and this
+    #    is the pair that has to be able to hold them.
+    assert normal["id"] != sos["id"]
+    assert service.grants[normal["id"]]["status"] == "active"
+    assert service.grants[sos["id"]]["status"] == "active"
+    assert service.grants[normal["id"]]["metadata"]["share_kind"] == "share"
+    assert service.grants[sos["id"]]["metadata"]["share_kind"] == "sos"
+
+    # 2. The normal share keeps its ORIGINAL window. Revoke-and-reinsert under
+    #    a new expiry would leave one active row per lane too, while having
+    #    thrown away the four hours the owner actually consented to.
+    assert service.grants[normal["id"]]["expires_at"] == normal_expires_at
+
+    # 3. A genuinely new SOS grant was created, rather than the existing normal
+    #    grant being handed back relabelled. Save My Soul defers its
+    #    notification until the first envelope is durably stored, so this is
+    #    where the create path's intent becomes observable.
+    service.store_encrypted_envelope(
+        owner_user_id="user_a",
+        grant_id=sos["id"],
+        envelope=encrypted_envelope("key-user_b", "sos-ciphertext"),
+    )
+    sos_notifications = [
+        call for call in service.share_created_calls if call["resolved_kind"] == "sos"
+    ]
+    assert len(sos_notifications) == 1
+    assert sos_notifications[0]["grant"]["id"] == sos["id"]
+    assert service.notifications[-1]["title"] == "Save my Soul"
+
+
+def test_approving_an_access_request_does_not_revoke_an_active_sos_grant() -> None:
+    """The NON-enforced create branch, which `approve_request` is the only way in to.
+
+    `approve_request` calls `create_grant` without `enforce_connection`, so it
+    lands in a completely different revoke statement from the one the SOS test
+    above exercises. Both had the same kind-blind WHERE clause, and approving
+    an ordinary access request while an alert was live would have torn the
+    alert's grant down.
+    """
+    service = _lane_service()
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        enforce_connection=True,
+    )
+    sos_expires_at = service.grants[sos["id"]]["expires_at"]
+
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share where you are?",
+    )
+    approved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        duration_hours=1,
+    )
+    approved_grant = approved["grant"]
+
+    assert approved_grant["id"] != sos["id"]
+    assert service.grants[approved_grant["id"]]["status"] == "active"
+    assert service.grants[sos["id"]]["status"] == "active"
+    assert service.grants[sos["id"]]["expires_at"] == sos_expires_at
+
+
+def test_same_lane_replacement_still_revokes_the_previous_grant() -> None:
+    """The other half of the invariant, and the reason this is TWO lanes.
+
+    Scoping replacement per exact share kind would let one pair accumulate
+    unbounded live grants -- `share`, `check_in`, `drive_to`, `pick_me_up` and
+    anything else a client sends, none of which any surface offers a single
+    Stop for. Within a lane the newest grant must still replace the older one
+    exactly as it always did, or the fix degrades into "never replace
+    anything".
+    """
+    service = _lane_service()
+
+    first_share = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        share_kind="share",
+        enforce_connection=True,
+    )
+    second_share = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=2,
+        share_kind="share",
+        enforce_connection=True,
+    )
+    assert service.grants[first_share["id"]]["status"] == "revoked"
+    assert service.grants[second_share["id"]]["status"] == "active"
+
+    # A different NON-emergency kind shares the same lane and keeps replacing.
+    check_in = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        share_kind="check_in",
+        enforce_connection=True,
+    )
+    assert service.grants[second_share["id"]]["status"] == "revoked"
+    assert service.grants[check_in["id"]]["status"] == "active"
+
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+    first_sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        enforce_connection=True,
+    )
+    second_sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        enforce_connection=True,
+    )
+    assert service.grants[first_sos["id"]]["status"] == "revoked"
+    assert service.grants[second_sos["id"]]["status"] == "active"
+    # ...and the ordinary share sitting in the other lane never noticed any of
+    # it. A pair tops out at exactly two live grants, one per lane.
+    assert service.grants[check_in["id"]]["status"] == "active"
+    assert (
+        sum(
+            1
+            for grant in service.grants.values()
+            if grant["status"] == "active"
+            and grant["owner_user_id"] == "user_a"
+            and grant["recipient_user_id"] == "user_b"
+        )
+        == 2
+    )
+
+
+def test_revoking_an_sms_share_names_the_lane_in_its_copy() -> None:
+    """The recipient is told WHICH share ended, not just that one did.
+
+    Stopping an SMS alert revokes its grant through `revoke_grant`, the same
+    path an ordinary share takes, and the notification never named the lane.
+    Someone who had only ever received an emergency SMS was told "X removed
+    your location access" -- about access they do not know by that name, in a
+    sentence identical to the one an ordinary share produces.
+
+    Since #5552 a person can hold both lanes with the same counterpart at once,
+    so the unnamed wording is ambiguous exactly when someone is checking whether
+    the emergency share is still running.
+    """
+
+    import inspect
+
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    source = inspect.getsource(OneLocationAgentService.revoke_grant)
+
+    # The lane is read from the grant rather than guessed. Both queries in
+    # revoke_grant select `*`, so share_kind is already on the row.
+    assert 'row.get("share_kind")' in source
+    assert 'revoked_share_kind == "sos"' in source or "revoked_via_sms" in source
+
+    # The recipient's word is SMS -- an SMS alert is how it reached them.
+    assert "SMS location sharing stopped" in source
+    assert "over SMS" in source
+
+    # Ordinary shares keep the wording they had.
+    assert "removed your location access." in source
+
+    # And the lane travels with the payload, because the grant is gone by the
+    # time the client renders this and cannot look the kind up itself.
+    assert '"share_kind": revoked_share_kind or "standard"' in source
+
+
+def test_location_notifications_name_the_person_not_a_placeholder() -> None:
+    """A notification says who, on both sides, or degrades honestly.
+
+    `_identity_notification_label` used to read `display_name` and say
+    "A trusted person" whenever it was blank -- so the same account that gets
+    named in a connection-request push went unnamed here. Worse, it took the
+    value verbatim, so a row holding a UUID or a raw user id rendered the
+    identifier AS the name on someone's lock screen.
+
+    #5442 already built the ladder for connections (display name -> reject
+    identifiers -> email handle). This pins that Location uses the same one, so
+    the two cannot drift apart again.
+    """
+
+    from hushh_mcp.services.one_location_agent_service import (
+        _identity_notification_label,
+    )
+
+    # A real name is used as-is, on both sides of any notification.
+    assert _identity_notification_label({"user_id": "u1", "display_name": "Neelesh"}) == ("Neelesh")
+
+    # A blank display name falls through to the email handle rather than
+    # going generic -- this is the case that produced unnamed notifications.
+    assert (
+        _identity_notification_label(
+            {"user_id": "u1", "display_name": "", "email": "neelesh@example.com"}
+        )
+        == "neelesh"
+    )
+
+    # An identifier is NOT a name. Showing it would be worse than being generic.
+    identifier_row = {
+        "user_id": "u1",
+        "display_name": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+    }
+    assert _identity_notification_label(identifier_row) == "A trusted person"
+
+    raw_id_row = {"user_id": "u1", "display_name": "u1"}
+    assert _identity_notification_label(raw_id_row) == "A trusted person"
+
+    # Genuinely unresolvable stays generic, which is the honest answer.
+    assert _identity_notification_label(None) == "A trusted person"
+    assert _identity_notification_label({"user_id": "u1"}) == "A trusted person"
+
+
+def test_identity_lookup_reads_the_column_the_name_ladder_needs() -> None:
+    """The email fallback is only reachable if the query selected email."""
+
+    import inspect
+
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    source = inspect.getsource(OneLocationAgentService._identity_row)
+    assert "email" in source
+
+
+def test_only_the_relationship_scoped_list_may_show_an_email_handle() -> None:
+    """The privacy line through a projection two lists share.
+
+    `_recipient_payload` serves both `list_verified_recipients`, which admits a
+    person only on an active connection or a shared active Circle, and
+    `search_directory_candidates`, which admits any phone-verified account so
+    people can be found before they are connected.
+
+    An email's local part is a name to the first group and an identifier about
+    the second. Turning the rung on by default -- or reaching for it in the
+    directory -- would answer "who is this account" for anyone who can open
+    Connect at all, which is everyone.
+    """
+
+    import inspect
+
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    payload = inspect.getsource(OneLocationAgentService._recipient_payload)
+    # Off unless a caller asks. A default of True would make the directory leak
+    # by omission, which is the failure nobody would notice in review.
+    assert "allow_email_handle: bool = False" in payload
+
+    recipients = inspect.getsource(OneLocationAgentService.list_verified_recipients)
+    assert "allow_email_handle=True" in recipients
+
+    directory = inspect.getsource(OneLocationAgentService.search_directory_candidates)
+    assert "allow_email_handle" not in directory, (
+        "the discovery directory must not opt into the email handle: it lists "
+        "phone-verified strangers, not the viewer's connections"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public location link: the owner has to be able to read their own link back.
+#
+# The token used to be `secrets.token_urlsafe(32)`, hashed on the way in and
+# returned exactly once. Nothing could recover it afterwards, so an invite the
+# server reported as active had a link the product could no longer show -- Copy
+# and Share silently did nothing after any reload. It is now derived from the
+# row's UUID with the app signing key, the same way Circle codes are.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _public_invite_key(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="test-signing-key"),
+    )
+    return "test-signing-key"
+
+
+def _derivable_public_invite_row(invite_id: str, *, status: str = "active", **overrides) -> dict:
+    token = one_location_agent_module._public_invite_token_for_id(invite_id)
+    row = {
+        "id": invite_id,
+        "owner_user_id": "owner-1",
+        "public_code_hash": one_location_agent_module._hash_public_value(token),
+        "status": status,
+        "duration_hours": 1.0,
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+        "revoked_at": None,
+        "metadata": json.dumps(
+            {"codeVersion": one_location_agent_module._PUBLIC_INVITE_CODE_VERSION}
+        ),
+    }
+    row.update(overrides)
+    return row
+
+
+def test_public_invite_token_is_stable_for_one_invite(_public_invite_key) -> None:
+    invite_id = str(uuid.uuid4())
+    first = one_location_agent_module._public_invite_token_for_id(invite_id)
+    second = one_location_agent_module._public_invite_token_for_id(invite_id)
+    # The whole point: the same row yields the same link every time it is read.
+    assert first == second
+    assert first
+
+
+def test_public_invite_tokens_differ_between_invites(_public_invite_key) -> None:
+    left = one_location_agent_module._public_invite_token_for_id(str(uuid.uuid4()))
+    right = one_location_agent_module._public_invite_token_for_id(str(uuid.uuid4()))
+    assert left != right
+
+
+def test_public_invite_token_survives_a_url(_public_invite_key) -> None:
+    token = one_location_agent_module._public_invite_token_for_id(str(uuid.uuid4()))
+    # It is spent as a path segment, so base64's "+", "/" and "=" would either
+    # be re-encoded by the client or silently truncate the token.
+    assert "+" not in token
+    assert "/" not in token
+    assert "=" not in token
+    assert token == token.strip()
+
+
+def test_public_invite_token_is_not_the_bare_row_id(_public_invite_key) -> None:
+    # The id travels in the owner's own state payload. If the token were the id,
+    # anyone who saw one person's state could resolve their live location link.
+    invite_id = str(uuid.uuid4())
+    token = one_location_agent_module._public_invite_token_for_id(invite_id)
+    assert invite_id not in token
+    assert invite_id.replace("-", "") not in token
+
+
+def test_public_invite_token_changes_with_the_signing_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invite_id = str(uuid.uuid4())
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="key-one"),
+    )
+    first = one_location_agent_module._public_invite_token_for_id(invite_id)
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="key-two"),
+    )
+    assert one_location_agent_module._public_invite_token_for_id(invite_id) != first
+
+
+def test_derivable_token_is_recovered_from_a_well_formed_row(
+    _public_invite_key,
+) -> None:
+    invite_id = str(uuid.uuid4())
+    row = _derivable_public_invite_row(invite_id)
+    assert one_location_agent_module._public_invite_token_if_derivable(
+        row
+    ) == one_location_agent_module._public_invite_token_for_id(invite_id)
+
+
+def test_legacy_rows_report_no_token_rather_than_a_wrong_one(
+    _public_invite_key,
+) -> None:
+    # Minted before tokens were derived from the id: the random token is gone
+    # for good. Returning a derived one would hand the owner a link that 404s.
+    row = _derivable_public_invite_row(str(uuid.uuid4()), metadata=json.dumps({}))
+    assert one_location_agent_module._public_invite_token_if_derivable(row) is None
+
+
+def test_a_row_whose_digest_does_not_match_reports_no_token(
+    _public_invite_key,
+) -> None:
+    # Signing key rotated, or the row was tampered with. Fail closed.
+    row = _derivable_public_invite_row(str(uuid.uuid4()))
+    row["public_code_hash"] = "0" * 64
+    assert one_location_agent_module._public_invite_token_if_derivable(row) is None
+
+
+def test_a_row_with_no_id_reports_no_token(_public_invite_key) -> None:
+    row = _derivable_public_invite_row(str(uuid.uuid4()))
+    row["id"] = ""
+    assert one_location_agent_module._public_invite_token_if_derivable(row) is None
+    assert one_location_agent_module._public_invite_token_if_derivable(None) is None
+
+
+def test_owner_payload_carries_the_link_for_an_active_invite(
+    _public_invite_key,
+) -> None:
+    invite_id = str(uuid.uuid4())
+    row = _derivable_public_invite_row(invite_id)
+    payload = OneLocationAgentService._public_invite_payload(row)
+    token = one_location_agent_module._public_invite_token_for_id(invite_id)
+    assert payload["publicUrl"] == f"/one/location/request/{token}"
+
+
+@pytest.mark.parametrize("status", ["revoked", "expired"])
+def test_owner_payload_withholds_the_link_once_it_stops_working(
+    _public_invite_key, status: str
+) -> None:
+    # The token no longer resolves, so offering it would hand over a dead link
+    # on a screen that still says "copy".
+    row = _derivable_public_invite_row(str(uuid.uuid4()), status=status)
+    payload = OneLocationAgentService._public_invite_payload(row)
+    assert "publicUrl" not in payload
+
+
+def test_owner_payload_withholds_the_link_for_a_legacy_invite(
+    _public_invite_key,
+) -> None:
+    row = _derivable_public_invite_row(str(uuid.uuid4()), metadata=json.dumps({}))
+    payload = OneLocationAgentService._public_invite_payload(row)
+    assert "publicUrl" not in payload
+
+
+def test_the_recipient_payload_never_carries_the_token(_public_invite_key) -> None:
+    # This is the branch a stranger holding the link receives. The token is the
+    # capability itself; echoing it back would put it in one more place for no
+    # reason, and would leak it to anyone the link was forwarded to.
+    row = _derivable_public_invite_row(str(uuid.uuid4()))
+    payload = OneLocationAgentService._public_invite_payload(row, public=True)
+    assert "publicUrl" not in payload
+    assert "id" not in payload
+    assert "ownerUserId" not in payload
+    serialized = json.dumps(payload)
+    assert one_location_agent_module._public_invite_token_for_id(row["id"]) not in serialized
+
+
+# ---------------------------------------------------------------------------
+# One live public location link per person.
+#
+# Nothing used to stop a second: no unique index, no lookup, just an INSERT. A
+# reload, a second device or a double tap left two links resolvable while the
+# screen showed one, and revoking the visible one left the other watching.
+# ---------------------------------------------------------------------------
+
+
+def _active_public_invites(service) -> list[dict]:
+    return [invite for invite in service.public_invites.values() if invite["status"] == "active"]
+
+
+def test_creating_a_second_public_link_hands_back_the_first() -> None:
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    # Same link, not a second one: this call is what the person makes when they
+    # mean "give me my link", so it answers rather than refusing.
+    assert second["publicToken"] == first["publicToken"]
+    assert second["invite"]["id"] == first["invite"]["id"]
+    assert second["reused"] is True
+    assert first.get("reused") is not True
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_the_reused_link_still_resolves() -> None:
+    # The point of reuse is that whoever already holds the link keeps seeing
+    # the owner. A token handed back that no longer resolved would be worse
+    # than a second link.
+    service = FourUserMemoryService()
+    service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    reused = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    resolved = service.resolve_public_invite(public_token=reused["publicToken"])
+    assert resolved["invite"]["status"] == "active"
+
+
+def test_one_persons_link_does_not_block_another_persons() -> None:
+    service = FourUserMemoryService()
+
+    mine = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    theirs = service.create_public_invite(owner_user_id="user_b", duration_hours=1)
+
+    assert mine["publicToken"] != theirs["publicToken"]
+    assert len(_active_public_invites(service)) == 2
+
+
+def test_revoking_frees_the_person_to_create_another() -> None:
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=first["invite"]["id"])
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert second["publicToken"] != first["publicToken"]
+    assert second.get("reused") is not True
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_an_expired_link_does_not_block_a_new_one() -> None:
+    # Expiry is written lazily -- only when something reads the row -- so a
+    # link past its time can still be sitting at status 'active'. If create did
+    # not settle that first, the reuse lookup would hand back a dead link and
+    # the person could never make another.
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    stale = service.public_invites[first["invite"]["id"]]
+    stale["expires_at"] = datetime.now(timezone.utc) - timedelta(minutes=5)
+    assert stale["status"] == "active"
+
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert second["publicToken"] != first["publicToken"]
+    assert second.get("reused") is not True
+    assert stale["status"] == "expired"
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_a_link_whose_token_cannot_be_recovered_is_replaced() -> None:
+    # A row minted before tokens were derived from the id. Its token is gone
+    # for good, so leaving it active would strand the owner behind a link
+    # nothing can show and no create button.
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    legacy = service.public_invites[first["invite"]["id"]]
+    legacy["metadata"] = {}
+
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert second["publicToken"] != first["publicToken"]
+    assert second.get("reused") is not True
+    assert legacy["status"] == "revoked"
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_the_owners_state_carries_the_link_back() -> None:
+    # The whole reason the token is derived: after a reload the owner still has
+    # to be able to copy and share the link they already made.
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    state = service.list_state(user_id="user_a")
+    invites = [
+        invite for invite in state["publicInvites"] if invite["id"] == created["invite"]["id"]
+    ]
+    assert len(invites) == 1
+    assert invites[0]["publicUrl"] == created["publicUrl"]
+
+
+def test_a_public_link_cannot_be_asked_to_live_longer_than_an_hour() -> None:
+    # Anyone holding this link can watch, which is a different promise from a
+    # private share to a named person who can be un-shared. 24 was the private
+    # ceiling, copied into every layer -- Pydantic, normalize_duration_hours,
+    # the DB CHECK -- so the one-hour cap the screen showed was enforced only by
+    # the screen, and a crafted request minted a public link for a full day.
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        service.create_public_invite(owner_user_id="user_a", duration_hours=24)
+
+    assert excinfo.value.code == "LOCATION_DURATION_INVALID"
+    assert excinfo.value.status_code == 422
+    assert not service.public_invites
+
+
+def test_the_durations_the_screen_offers_are_accepted() -> None:
+    service = FourUserMemoryService()
+
+    half = service.create_public_invite(owner_user_id="user_a", duration_hours=0.5)
+    assert half["invite"]["durationHours"] == 0.5
+
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=half["invite"]["id"])
+    whole = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    assert whole["invite"]["durationHours"] == 1

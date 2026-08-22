@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
@@ -201,6 +201,7 @@ export default function RiaOnboardingPage({
   onSetupSkip?: () => void | Promise<void>;
 } = {}) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, phoneNumber } = useAuth();
   const {
@@ -217,6 +218,7 @@ export default function RiaOnboardingPage({
   //   ?reinitiate=1   → re-run the whole 5-step wizard (start at welcome)
   // A generic ?step= is also honoured.
   const editParam = searchParams?.get("edit") ?? null;
+  const currentRoute = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ""}`;
   const setupOrigin =
     setupMode ||
     normalizeInternalRouteHref(searchParams?.get("from")) === ROUTES.ONE_SETUP;
@@ -534,7 +536,7 @@ export default function RiaOnboardingPage({
           { signal: controller.signal },
         ).finally(() => clearTimeout(timer));
         if (isClaimableLookupOutcome(lookup)) {
-          router.replace(buildRiaClaimRoute(phone));
+          router.replace(buildRiaClaimRoute(phone, { returnTo: currentRoute }));
         }
       } catch {
         /* stay in the wizard */
@@ -542,7 +544,7 @@ export default function RiaOnboardingPage({
     })();
     // phoneNumber is in the deps so the probe re-runs once the backend phone
     // hydrates, which happens after the first render for a Google sign-in.
-  }, [entryMode, user, phoneNumber, router]);
+  }, [currentRoute, entryMode, user, phoneNumber, router]);
 
   useEffect(() => {
     if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;
@@ -983,24 +985,16 @@ export default function RiaOnboardingPage({
       if (advisoryOutcome === "verified" || advisoryOutcome === "active") {
         await RiaOnboardingDraftLocalService.clear(user.uid);
         setShouldPersistDraft(false);
-        toast.success("Credentials verified", {
-          description: "Your advisor profile is now live in the RIA directory.",
-        });
+        toast.success("Credentials verified. Your advisor profile is now live in the RIA directory.");
       } else if (advisoryOutcome === "rejected") {
-        toast.error("Verification failed", {
-          description:
-            result.verification_message || "The license could not be verified.",
-        });
+        toast.error("Verification failed");
         setError(result.verification_message || "Verification was rejected.");
       } else {
         // Onboarding is complete; the verified badge is a separate layer that
         // unlocks after live/manual verification succeeds. Do not block here.
         await RiaOnboardingDraftLocalService.clear(user.uid);
         setShouldPersistDraft(false);
-        toast.success("Profile created", {
-          description:
-            "Your RIA profile is live as pending verification. The verified badge unlocks once your licence is confirmed.",
-        });
+        toast.success("Profile created");
       }
 
       setStatus((current) => ({
@@ -1042,9 +1036,10 @@ export default function RiaOnboardingPage({
         localVerificationBypassEnabled,
       });
       setError(submitErrorMessage);
-      toast.error("Could not submit verification", {
-        description: submitErrorMessage,
-      });
+      // The resolved message is the useful half -- it names what the
+      // regulator needs. It is also on the page via setError, so the
+      // clamp bounding it here costs nothing.
+      toast.error(submitErrorMessage);
     } finally {
       submitInFlightRef.current = false;
       setSaving(false);
@@ -1065,10 +1060,7 @@ export default function RiaOnboardingPage({
   function handleDraftBio() {
     const suggestion = buildRiaOnboardingBioSuggestion(draft);
     if (!suggestion) {
-      toast.info("Verify your licence first", {
-        description:
-          "Kai needs regulator-backed details before drafting a bio.",
-      });
+      toast.info("Verify your licence first. One needs regulator-backed details before drafting a bio.");
       return;
     }
     updateDraft({
@@ -1077,17 +1069,12 @@ export default function RiaOnboardingPage({
         ? draft.strategySummary
         : suggestion,
     });
-    toast.success("Bio drafted", {
-      description: "Review the draft before submitting your profile.",
-    });
+    toast.success("Bio drafted. Review the draft before submitting your profile.");
   }
 
   function handleAskKaiUpdateAnything() {
     openKaiCommandBar();
-    toast.info("Kai command opened", {
-      description:
-        "Ask Kai what to update, or use Edit on any section for direct changes.",
-    });
+    toast.info("Command bar opened");
   }
 
   const isEnriching = Boolean(draft.scrapeJobId && scrapePollingRef.current);
@@ -1112,7 +1099,7 @@ export default function RiaOnboardingPage({
 
     if (!user) {
       return (
-        <div className="rounded-[24px] border border-dashed px-4 py-6 text-sm text-muted-foreground">
+        <div className="rounded-[var(--ria-card-radius)] border border-dashed px-4 py-6 text-sm text-muted-foreground">
           Sign in to continue the RIA onboarding flow.
         </div>
       );
@@ -1120,7 +1107,7 @@ export default function RiaOnboardingPage({
 
     if (iamUnavailable) {
       return (
-        <div className="rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-6 text-sm text-foreground">
+        <div className="rounded-[var(--ria-card-radius)] border border-amber-200 bg-amber-50 px-4 py-6 text-sm text-foreground">
           RIA onboarding is unavailable in this environment. The backend IAM
           schema has not been activated yet.
         </div>
@@ -1293,7 +1280,7 @@ export default function RiaOnboardingPage({
             {renderStep()}
 
             {error ? (
-              <div className="mt-4 rounded-[24px] border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400">
+              <div className="mt-4 rounded-[var(--ria-card-radius)] border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400">
                 {error}
               </div>
             ) : null}
