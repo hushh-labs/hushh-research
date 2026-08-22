@@ -1567,3 +1567,95 @@ describe("named Circle flows", () => {
   });
 
 });
+
+describe("a Trusted Circle offers no control that cannot work", () => {
+  function trustedCircle(): OneLocationCircleDetail {
+    return {
+      id: "trusted-circle",
+      name: "Trusted",
+      kind: "other",
+      role: "owner",
+      memberCount: 2,
+      // No ceiling: the connection graph is not capped.
+      memberLimit: null,
+      isSystem: false,
+      systemKind: "trusted",
+      viewerCapabilities: {
+        canInviteMembers: true,
+        canViewInviteCode: false,
+        canRotateInviteCode: false,
+        canManageCircle: true,
+        canModerateInvites: true,
+        canDeleteCircle: false,
+        canLeaveCircle: false,
+      },
+      members: [
+        {
+          userId: "owner-user",
+          displayName: "Owner",
+          role: "owner",
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+        {
+          userId: "member-user",
+          displayName: "Asha",
+          role: "member",
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+      ],
+    };
+  }
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("shows neither Delete nor Leave, and says why in its own words", async () => {
+    // Trusted is deliberately NOT `is_system`, so the guard written for the SMS
+    // Circle -- `isOwner && circle.isSystem` -- let it fall through to a Delete
+    // button that the API and a database trigger both refuse.
+    const onLoad = vi.fn(async () => trustedCircle());
+    render(<CircleDetailFlow circleId="trusted-circle" {...detailProps(onLoad)} />);
+
+    await screen.findByText("Trusted");
+    expect(screen.queryByRole("button", { name: /Delete circle/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Leave circle/i })).toBeNull();
+
+    // And not the SMS Circle's sentence, which promises a roster you can edit.
+    expect(
+      screen.getByText(/Everyone you're connected to is in this Circle/i),
+    ).toBeTruthy();
+    expect(screen.queryByText(/choose who is in it/i)).toBeNull();
+  });
+
+  it("offers no Remove on its roster, because disconnecting is the way out", async () => {
+    // `_end_membership` refuses a removal here with
+    // LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION: membership is derived from
+    // the connection, so a removal would be undone by the next reconcile.
+    const onLoad = vi.fn(async () => trustedCircle());
+    render(<CircleDetailFlow circleId="trusted-circle" {...detailProps(onLoad)} />);
+
+    await screen.findByText("Asha");
+    expect(
+      screen.queryByRole("button", { name: /Remove from Circle/i }),
+    ).toBeNull();
+    expect(screen.queryByText(/Remove Asha\?/i)).toBeNull();
+  });
+
+  it("still lets an ordinary Circle's owner remove a member", async () => {
+    // The narrowing is about Trusted, not about rosters in general.
+    const ordinary = { ...trustedCircle(), systemKind: null, id: "circle-1" };
+    ordinary.viewerCapabilities = {
+      ...ordinary.viewerCapabilities!,
+      canDeleteCircle: true,
+      canLeaveCircle: false,
+    };
+    const onLoad = vi.fn(async () => ordinary as OneLocationCircleDetail);
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    await screen.findByText("Asha");
+    expect(screen.getByRole("button", { name: /Delete circle/i })).toBeTruthy();
+  });
+});

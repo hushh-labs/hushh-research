@@ -119,3 +119,32 @@ describe("Connect canonical surface contract", () => {
     ).toBe("abdul@example.test");
   });
 });
+
+describe("voice actions land on a surface that is actually showing", () => {
+  it("brings Connections forward before it touches the inner strip", () => {
+    // `setTab` moves a control that is not on screen while Circles is showing,
+    // so "open people" reported success and did nothing. A voice action that
+    // lies about what happened is worse than one that refuses: the person
+    // stops watching for a result that is never coming.
+    const source = readFileSync(
+      join(process.cwd(), "app/connect/page-client.tsx"),
+      "utf8",
+    );
+
+    for (const action of [
+      "connect.open_people",
+      "connect.open_nearby",
+      "connect.search_people",
+    ]) {
+      const start = source.indexOf(`useLocalOnboardingActionHandler("${action}"`);
+      expect(start, action).toBeGreaterThan(-1);
+      const body = source.slice(start, source.indexOf("useLocalOnboardingActionHandler", start + 10));
+      expect(body, action).toContain('selectSurface("all")');
+      // And it does so before the inner strip, so the strip is mounted.
+      expect(
+        body.indexOf('selectSurface("all")'),
+        action,
+      ).toBeLessThan(body.indexOf("setTab("));
+    }
+  });
+});

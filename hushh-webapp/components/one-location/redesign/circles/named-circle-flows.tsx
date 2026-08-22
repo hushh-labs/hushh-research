@@ -793,6 +793,7 @@ function CircleMemberRow({
   onRemove,
   onConnect,
   connecting = false,
+  membersRemovable = true,
 }: {
   member: OneLocationCircleMember;
   currentUserId: string | null;
@@ -803,12 +804,19 @@ function CircleMemberRow({
   /** Sends a connection request to this member. Absent when none is possible. */
   onConnect?: () => Promise<void>;
   connecting?: boolean;
+  /** False where the roster is not the owner's to edit.
+   *
+   *  A Trusted Circle's membership is derived from the connection, so
+   *  `_end_membership` refuses a removal with
+   *  LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION -- the connection is the thing
+   *  to end. Offering Remove there is offering a control that cannot work. */
+  membersRemovable?: boolean;
 }) {
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const isCurrentUser = member.userId === currentUserId;
   const canShare =
     !isCurrentUser && member.phoneVerified && member.secureLocationReady;
-  const canRemove = isOwner && member.role !== "owner";
+  const canRemove = isOwner && member.role !== "owner" && membersRemovable;
   const hasMenu = canShare || canRemove;
 
   const relationship =
@@ -1145,6 +1153,18 @@ export function CircleDetailFlow({
   const circle =
     loadedCircle?.id === circleId ? loadedCircle : null;
   const isOwner = circle?.role === "owner";
+  // Stated by the server rather than inferred here.
+  //
+  // "Owner" and "not the emergency one" stopped being the right test when
+  // Trusted arrived: it is deliberately NOT `is_system`, so it fell through to
+  // the Delete button, which the API and a database trigger both refuse. The
+  // fallbacks reproduce the old inference for a server that does not send the
+  // fields yet.
+  const canDeleteCircle =
+    circle?.viewerCapabilities?.canDeleteCircle ??
+    (isOwner && !circle?.isSystem);
+  const canLeaveCircle =
+    circle?.viewerCapabilities?.canLeaveCircle ?? !isOwner;
   // Dirty-tracked rename: the trailing control only presents as an explicit
   // "Save" once the typed name differs from the one every member currently
   // sees, so an untouched field never offers a no-op write.
@@ -1905,6 +1925,7 @@ export function CircleDetailFlow({
                     currentUserId={currentUserId}
                     isOwner={Boolean(isOwner)}
                     busy={busy}
+                    membersRemovable={circle.systemKind !== "trusted"}
                     onShare={() =>
                       onShareWithMember(circle.id, member.userId)
                     }
@@ -1940,8 +1961,8 @@ export function CircleDetailFlow({
               rename, invite, remove. The API and a database trigger refuse the
               delete too; this only keeps the person from being offered
               something that cannot happen. */}
-          {isOwner && circle.isSystem ? (
-            // The owner of a system Circle gets neither door, and is told why.
+          {!canDeleteCircle && !canLeaveCircle ? (
+            // Neither door, and the reader is told why.
             //
             // The branch below used to be a two-way `isOwner && !isSystem`, so
             // this person fell through to "Leave circle" -- which
@@ -1952,10 +1973,20 @@ export function CircleDetailFlow({
             // A sentence rather than a disabled button: there is nothing to
             // enable later, and a greyed control invites a press and a guess.
             <p className={cn(MUTED_TEXT, "px-1 pt-1")}>
-              This Circle is managed for you, so it can&apos;t be left or
-              deleted. You can still rename it and choose who is in it.
+              {circle.systemKind === "trusted" ? (
+                <>
+                  Everyone you&apos;re connected to is in this Circle, so it
+                  can&apos;t be left or deleted. To take somebody out,
+                  disconnect from them.
+                </>
+              ) : (
+                <>
+                  This Circle is managed for you, so it can&apos;t be left or
+                  deleted. You can still rename it and choose who is in it.
+                </>
+              )}
             </p>
-          ) : isOwner ? (
+          ) : canDeleteCircle ? (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button

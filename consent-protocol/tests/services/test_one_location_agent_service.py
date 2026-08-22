@@ -5571,6 +5571,8 @@ def test_every_sos_gate_reads_the_emergency_circle_not_only_the_table() -> None:
     sql_blocks = [block for block in source.split('"""') if "one_location_sms_contacts" in block]
     assert sql_blocks, "no SQL reaches one_location_sms_contacts any more"
 
+    gates = 0
+    arms = 0
     for block in sql_blocks:
         # The two write paths are the owner curating the legacy table itself;
         # they are not recipient gates and have no Circle arm to grow.
@@ -5578,10 +5580,24 @@ def test_every_sos_gate_reads_the_emergency_circle_not_only_the_table() -> None:
             continue
         if "DELETE FROM one_location_sms_contacts" in block:
             continue
+        gates += 1
+        arms += block.count("circle.is_system")
         assert "circle.is_system" in block, (
             "an SOS gate reads the legacy contacts table without also reading "
             "the owner's emergency Circle:\n" + block[:400]
         )
+
+    # Counted, not merely detected.
+    #
+    # Some of these gates carry the arm twice -- a UNION with a roster arm
+    # on each side -- so the presence check above still passes after one of
+    # them is deleted. That is how the SOS roster fix could be removed with
+    # every backend test still green. Measured by deleting one: 7 becomes 6.
+    assert gates >= 4, f"expected at least 4 SOS recipient gates, found {gates}"
+    assert arms >= 7, (
+        f"expected at least 7 emergency-Circle arms across the SOS gates, "
+        f"found {arms} -- one has been removed"
+    )
 
 
 def test_a_product_managed_circle_introduces_nobody() -> None:
@@ -5606,6 +5622,7 @@ def test_a_product_managed_circle_introduces_nobody() -> None:
     from hushh_mcp.services import one_location_circle_service as circle_module
 
     sites = 0
+    owner_clauses = 0
     for module in (agent_module, circle_module):
         source = inspect.getsource(module)
         # Split on the SQL literals so an assertion lands inside one statement
@@ -5620,6 +5637,7 @@ def test_a_product_managed_circle_introduces_nobody() -> None:
             if block.count("one_location_circle_memberships") < 2:
                 continue
             sites += 1
+            owner_clauses += block.count("circle.owner_user_id = ")
             assert "circle.owner_user_id = " in block, (
                 "a shared-Circle eligibility join does not require one side to "
                 "be the Circle's owner, so a product-managed Circle would "
@@ -5629,3 +5647,15 @@ def test_a_product_managed_circle_introduces_nobody() -> None:
     # Seven when this was written. The floor catches a site being deleted along
     # with its guard; the assertion above catches a new one arriving wide.
     assert sites >= 7, f"expected at least 7 shared-Circle joins, found {sites}"
+
+    # And the clauses are counted, not merely detected.
+    #
+    # Most of these blocks name `circle.owner_user_id` more than once,
+    # because the narrowing accepts either side of the pair as the owner.
+    # The presence check therefore survives one of the two being deleted,
+    # which leaves the join wide open in whichever direction lost its
+    # clause. Measured by deleting one: 17 becomes 16.
+    assert owner_clauses >= 17, (
+        f"expected at least 17 owner-scoping clauses across the "
+        f"shared-Circle joins, found {owner_clauses} -- one has been removed"
+    )

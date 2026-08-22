@@ -52,9 +52,7 @@ function isSystemCircleKind(value: string | null): value is SystemCircleKind {
 }
 
 function systemKindOf(circle: OneLocationCircleSummary): string | null {
-  const kind = String(
-    (circle as { systemKind?: string | null }).systemKind || "",
-  ).trim();
+  const kind = String(circle.systemKind || "").trim();
   if (kind) return kind;
   // A build talking to a server that predates `systemKind` still knows the SMS
   // Circle by its flag. Trusted has no fallback because it cannot exist there.
@@ -77,17 +75,26 @@ function systemKindOf(circle: OneLocationCircleSummary): string | null {
 export function circleRowDescription(circle: OneLocationCircleSummary): string {
   const others = Math.max(0, Number(circle.memberCount || 0) - 1);
   const kind = systemKindOf(circle);
+  const owns = circle.role === "owner";
   const people = others === 1 ? "1 person" : `${others} people`;
 
-  if (kind === "trusted") {
+  // Trusted is owner-scoped by the server, so the only viewer who can reach
+  // this line is its owner. Guarded anyway: "Everyone you're connected to" on
+  // somebody else's roster would be a false statement about the reader.
+  if (kind === "trusted" && owns) {
     return others === 0
       ? SYSTEM_CIRCLE_COPY.trusted.description
       : `${SYSTEM_CIRCLE_COPY.trusted.description} · ${people}`;
   }
   if (kind === "sms") {
-    return others === 0
-      ? `${SYSTEM_CIRCLE_COPY.sms.description} · no one yet`
-      : `${SYSTEM_CIRCLE_COPY.sms.description} · ${people}`;
+    // An SMS Circle appears in the list of everyone ON it, not only its
+    // owner's. "Gets your SOS text" is true for exactly one of those readers;
+    // for the rest the line has to say what it means for THEM.
+    const lead = owns
+      ? SYSTEM_CIRCLE_COPY.sms.description
+      : "You'll get their SOS text";
+    if (!owns) return lead;
+    return others === 0 ? `${lead} · no one yet` : `${lead} · ${people}`;
   }
   return others === 0 ? "No members yet" : people;
 }
@@ -235,8 +242,14 @@ export function ConnectCirclesTab({
                 key={circle.id}
                 icon={kind === "trusted" ? ShieldCheck : Siren}
                 iconTone="indigo"
+                // The product name only for the Circle that is yours. An SMS
+                // Circle shows up in the list of everyone on it, and the server
+                // deliberately renames the ones you do not own -- "Alice's SMS
+                // Circle" -- because three friends' rosters would otherwise be
+                // three identical rows reading "SMS Circle". Overwriting that
+                // name here threw the disambiguation away.
                 title={
-                  isSystemCircleKind(kind)
+                  isSystemCircleKind(kind) && circle.role === "owner"
                     ? SYSTEM_CIRCLE_COPY[kind].title
                     : circle.name
                 }

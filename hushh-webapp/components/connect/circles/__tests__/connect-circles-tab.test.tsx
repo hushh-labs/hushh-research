@@ -49,12 +49,13 @@ function circle(
   name: string,
   memberCount: number,
   systemKind: "trusted" | "sms" | null = null,
+  role: "owner" | "member" = "owner",
 ) {
   return {
     id,
     name,
     kind: "other" as const,
-    role: "owner" as const,
+    role,
     memberCount,
     memberLimit: systemKind === "trusted" ? null : 100,
     isSystem: systemKind === "sms",
@@ -112,6 +113,19 @@ describe("circleRowDescription", () => {
     );
   });
 
+  it("keeps the server's name for an SMS Circle you are only a member of", () => {
+    // An SMS Circle appears in the list of everyone ON it. The server renames
+    // the ones you do not own -- "Alice's SMS Circle" -- because three
+    // friends' rosters would otherwise be three identical rows.
+    const theirs = circle("s", "Alice's SMS Circle", 4, "sms", "member");
+    expect(circleRowDescription(theirs)).toBe("You'll get their SOS text");
+  });
+
+  it("never tells a member it is their own SOS text", () => {
+    const theirs = circle("s", "Alice's SMS Circle", 4, "sms", "member");
+    expect(circleRowDescription(theirs)).not.toContain("your SOS");
+  });
+
   it("still recognises an SMS Circle from a server that predates systemKind", () => {
     const legacy = { ...circle("s", "SMS Circle", 3, "sms"), systemKind: null };
     expect(circleRowDescription(legacy)).toBe("Gets your SOS text · 2 people");
@@ -149,6 +163,19 @@ describe("ConnectCirclesTab", () => {
     expect(screen.getByText("Roommates")).toBeTruthy();
     expect(screen.getByTestId("connect-circle-trusted")).toBeTruthy();
     expect(screen.getByTestId("connect-circle-sms")).toBeTruthy();
+  });
+
+  it("renders the server's name for a Circle you do not own", async () => {
+    mocks.listCircles.mockResolvedValue([
+      circle("theirs", "Alice's SMS Circle", 4, "sms", "member"),
+      circle("mine", "SMS Circle", 3, "sms", "owner"),
+    ]);
+
+    render(<ConnectCirclesTab />);
+
+    // Two rows, two different names -- not two rows both reading "SMS Circle".
+    expect(await screen.findByText("Alice's SMS Circle")).toBeTruthy();
+    expect(screen.getByText("SMS Circle")).toBeTruthy();
   });
 
   it("never names a category the person did not pick", async () => {

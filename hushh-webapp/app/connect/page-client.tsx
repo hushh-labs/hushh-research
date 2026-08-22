@@ -1227,11 +1227,18 @@ export default function ConnectPageClient() {
   );
   usePublishVoiceSurfaceMetadata(connectVoiceSurfaceMetadata);
 
+  // Each of these brings the Connections surface forward before touching the
+  // inner strip. `setTab` alone moves a control that is not on screen while
+  // Circles is showing, so "open people" reported success and did nothing --
+  // and a voice action that lies about what happened is worse than one that
+  // refuses, because the person stops watching for the result.
   useLocalOnboardingActionHandler("connect.open_people", () => {
+    selectSurface("all");
     setTab("people");
     return { status: "succeeded", summary: "Connect people opened." };
   });
   useLocalOnboardingActionHandler("connect.open_nearby", () => {
+    selectSurface("all");
     setTab("nearby");
     return { status: "succeeded", summary: "Advisors around you opened." };
   });
@@ -1243,6 +1250,7 @@ export default function ConnectPageClient() {
     if (!person) {
       return { status: "blocked", summary: "Say the name to search for in Connect." };
     }
+    selectSurface("all");
     setTab("people");
     setQuery(person);
     searchInputRef.current?.focus();
