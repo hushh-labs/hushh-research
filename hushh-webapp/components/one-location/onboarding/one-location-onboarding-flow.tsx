@@ -425,9 +425,9 @@ function WelcomeScreen({
               className="mx-auto mt-5 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.015em]"
               data-one-welcome-heading
             >
-              Share your location
+              Be easy to reach
               <br />
-              easily with anyone.
+              when it actually matters.
             </h1>
           </div>
           <div className="flex min-h-0 flex-1 items-center justify-center py-4">
