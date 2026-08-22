@@ -2087,6 +2087,17 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               : "One is ready to"}
           </p>
           <p className="mt-1 text-[16px] font-semibold">{pendingActionLabel}</p>
+          {/* Sourced from the generated contract's own `meaning`, the same
+              field VoiceConfirm's `consequence` already reads for the 7
+              handler-authored cards -- so every confirmation names what will
+              actually happen, not just that something needs a yes, and stays
+              true when the action's behavior changes instead of drifting
+              into static copy nobody updates alongside it. */}
+          {pendingAction?.meaning ? (
+            <p className="mt-1 text-[13px] leading-relaxed">
+              {pendingAction.meaning}
+            </p>
+          ) : null}
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
             {pendingActionNeedsTrustedActivation
               ? "This tap opens the provider window and keeps One active here."
