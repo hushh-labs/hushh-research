@@ -81,7 +81,10 @@ import {
   type LocalOnboardingActionResult,
 } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
+import {
+  VOICE_CONFIRM_DATA_KEY,
+  VOICE_DISAMBIGUATION_DATA_KEY,
+} from "@/lib/voice/voice-action-card";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 
 import { Badge } from "@/components/ui/badge";
@@ -9136,6 +9139,27 @@ export function OneLocationAgentPageContent({
   // in front of someone who can see it, rather than a live location already
   // sent to the wrong person.
   useLocalOnboardingActionHandler("location.select_share_recipient", async (slots) => {
+    // The disambiguation card's tap re-runs this handler with the chosen id
+    // and no `person` text at all -- the name that needed picking is settled,
+    // and any OTHER names from the same turn already applied themselves
+    // before the card was shown (see below), so this short-circuits straight
+    // to applying the one id instead of re-parsing an empty utterance.
+    const resolvedRecipientId = String(slots?.resolvedRecipientId ?? "").trim();
+    if (resolvedRecipientId) {
+      setSelectedRecipientIds((current) =>
+        current.includes(resolvedRecipientId)
+          ? current
+          : [...current, resolvedRecipientId],
+      );
+      const chosen = rankedRecipients.find(
+        (candidate) => candidate.userId === resolvedRecipientId,
+      );
+      const chosenName = chosen ? recipientLabel(chosen).trim() : "";
+      return {
+        status: "succeeded" as const,
+        summary: `${chosenName ? `Matched ${chosenName}.` : "Matched."} Now start the share with location.share_selected and the duration they asked for; say who it is going to as you do it.`,
+      };
+    }
     const raw = String(slots?.person ?? "").trim();
     if (!raw) {
       return { status: "blocked" as const, summary: "Say who you want to share with." };
@@ -9216,6 +9240,20 @@ export function OneLocationAgentPageContent({
           summary: names
             ? `${ambiguous.matches.length} people match that name: ${names}. Ask which one they meant.`
             : `${ambiguous.matches.length} people match that name. Ask which one they meant.`,
+          data: {
+            [VOICE_DISAMBIGUATION_DATA_KEY]: {
+              actionId: "location.select_share_recipient",
+              resolveSlot: "resolvedRecipientId",
+              slots: {},
+              prompt: `${ambiguous.matches.length} people match "${ambiguous.spokenText}".`,
+              candidates: ambiguous.matches.map((candidate) => ({
+                id: candidate.userId,
+                name: recipientLabel(candidate).trim() || "Someone",
+                detail: recommendationSearchText(candidate) ?? null,
+                actionLabel: "Share",
+              })),
+            },
+          },
         };
       }
       return {
@@ -9262,6 +9300,10 @@ export function OneLocationAgentPageContent({
       ? `Matched ${joinNamesForSpeech(matchedNames)}.`
       : "Matched.";
     const problemSentence = problems.length ? ` Also, ${problems.join("; ")}.` : "";
+    // A name that came back ambiguous alongside others that resolved cleanly
+    // is still worth showing, not just naming: the already-resolved names
+    // are already applied above, so the card only has to settle this one.
+    const stillAmbiguous = unresolved.find((entry) => entry.kind === "ambiguous");
     return {
       status: "succeeded" as const,
       // Say the matched name(s) and keep going. This used to end "ask the
@@ -9274,6 +9316,24 @@ export function OneLocationAgentPageContent({
       // the person hears "Abdul Rashid" when they said "Abdul", and a wrong
       // match is audible at the moment it happens rather than after.
       summary: `${matchedSentence}${problemSentence} Now start the share with location.share_selected and the duration they asked for; say who it is going to as you do it.`,
+      ...(stillAmbiguous && stillAmbiguous.kind === "ambiguous"
+        ? {
+            data: {
+              [VOICE_DISAMBIGUATION_DATA_KEY]: {
+                actionId: "location.select_share_recipient",
+                resolveSlot: "resolvedRecipientId",
+                slots: {},
+                prompt: `${stillAmbiguous.matches.length} people match "${stillAmbiguous.spokenText}".`,
+                candidates: stillAmbiguous.matches.map((candidate) => ({
+                  id: candidate.userId,
+                  name: recipientLabel(candidate).trim() || "Someone",
+                  detail: recommendationSearchText(candidate) ?? null,
+                  actionLabel: "Share",
+                })),
+              },
+            },
+          }
+        : null),
     };
   });
 
@@ -9490,6 +9550,18 @@ export function OneLocationAgentPageContent({
     // rules exactly -- same connections list, same "never guess" discipline
     // -- because asking someone for their location and sharing yours with
     // them draw from the identical pool of people.
+    const resolvedRecipientId = String(slots?.resolvedRecipientId ?? "").trim();
+    if (resolvedRecipientId) {
+      addRequestOwner(resolvedRecipientId);
+      const chosen = contactSignalRecipients.find(
+        (candidate) => candidate.userId === resolvedRecipientId,
+      );
+      const chosenName = chosen ? recipientLabel(chosen).trim() : "";
+      return {
+        status: "succeeded" as const,
+        summary: `${chosenName ? `Picked ${chosenName} to ask.` : "Picked one person to ask."} Say "send it" to send the request.`,
+      };
+    }
     const raw = String(slots?.person ?? "").trim();
     if (!raw) {
       return { status: "blocked" as const, summary: "Say who you want to ask." };
@@ -9546,6 +9618,20 @@ export function OneLocationAgentPageContent({
           summary: names
             ? `${ambiguous.matches.length} people match that name: ${names}. Ask which one they meant.`
             : `${ambiguous.matches.length} people match that name. Ask which one they meant.`,
+          data: {
+            [VOICE_DISAMBIGUATION_DATA_KEY]: {
+              actionId: "location.select_ask_recipient",
+              resolveSlot: "resolvedRecipientId",
+              slots: {},
+              prompt: `${ambiguous.matches.length} people match "${ambiguous.spokenText}".`,
+              candidates: ambiguous.matches.map((candidate) => ({
+                id: candidate.userId,
+                name: recipientLabel(candidate).trim() || "Someone",
+                detail: recommendationSearchText(candidate) ?? null,
+                actionLabel: "Ask",
+              })),
+            },
+          },
         };
       }
       return { status: "blocked" as const, summary: "Nobody in your connections matches that name." };
@@ -9569,9 +9655,28 @@ export function OneLocationAgentPageContent({
       ? `Picked ${joinNamesForSpeech(matchedNames)} to ask.`
       : "Picked one person to ask.";
     const problemSentence = problems.length ? ` Also, ${problems.join("; ")}.` : "";
+    const stillAmbiguous = unresolved.find((entry) => entry.kind === "ambiguous");
     return {
       status: "succeeded" as const,
       summary: `${matchedSentence}${problemSentence} Say "send it" to send the request.`,
+      ...(stillAmbiguous && stillAmbiguous.kind === "ambiguous"
+        ? {
+            data: {
+              [VOICE_DISAMBIGUATION_DATA_KEY]: {
+                actionId: "location.select_ask_recipient",
+                resolveSlot: "resolvedRecipientId",
+                slots: {},
+                prompt: `${stillAmbiguous.matches.length} people match "${stillAmbiguous.spokenText}".`,
+                candidates: stillAmbiguous.matches.map((candidate) => ({
+                  id: candidate.userId,
+                  name: recipientLabel(candidate).trim() || "Someone",
+                  detail: recommendationSearchText(candidate) ?? null,
+                  actionLabel: "Ask",
+                })),
+              },
+            },
+          }
+        : null),
     };
   });
 
