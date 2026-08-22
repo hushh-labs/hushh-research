@@ -202,10 +202,7 @@ export default function RiaClientsPage() {
               ) : null}
             </span>
           }
-          // The roster count and its description belong to Connected. Carrying
-          // them over to Around you labelled a list of public records with a
-          // count of the advisor's own clients.
-          description={view === "connected" ? RIA_COPY.clients.description : undefined}
+          description={RIA_COPY.clients.description}
           icon={UserRound}
           accent="ria"
         />

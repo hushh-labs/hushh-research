@@ -1515,4 +1515,55 @@ describe("named Circle flows", () => {
     expect(onLoad).toHaveBeenCalledTimes(2);
     expect(onLoadEligibleConnections).toHaveBeenCalledTimes(1);
   });
+  it("offers a system Circle's owner neither door, and says why", async () => {
+    // The branch used to be a two-way `isOwner && !isSystem`, so the owner of
+    // their own emergency Circle fell through to "Leave circle" -- which
+    // `_end_membership` refuses with LOCATION_CIRCLE_OWNER_LEAVE_INVALID every
+    // single time. The only control at the bottom of the screen was one that
+    // could not work.
+    const systemCircle = {
+      ...circle("circle-sms", "SMS Circle"),
+      isSystem: true,
+      viewerCapabilities: {
+        canInviteMembers: true,
+        canViewInviteCode: false,
+        canRotateInviteCode: false,
+        canManageCircle: true,
+        canModerateInvites: true,
+      },
+    };
+    render(
+      <CircleDetailFlow
+        circleId="circle-sms"
+        {...detailProps(vi.fn(async () => systemCircle))}
+      />,
+    );
+
+    expect(await screen.findByText("SMS Circle")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Leave circle/i }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Delete circle/i }),
+    ).toBeNull();
+    // A sentence, not a disabled button: there is nothing to enable later.
+    expect(
+      screen.getByText(/managed for you, so it can.t be left or deleted/i),
+    ).toBeTruthy();
+  });
+
+  it("still offers an ordinary Circle's owner the delete door", async () => {
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(vi.fn(async () => circle("circle-1", "Meena Family")))}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /Delete circle/i }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Leave circle/i })).toBeNull();
+  });
+
 });
