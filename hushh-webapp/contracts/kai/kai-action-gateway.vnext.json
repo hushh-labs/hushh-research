@@ -5091,7 +5091,7 @@
         "choose",
         "request"
       ],
-      "meaning": "Finds the person you named among your connections and selects them in the request composer, so you can see who is picked before anything is sent. It only selects: sending the request is still a separate, confirmed step.",
+      "meaning": "Finds the person or people you named among your connections and selects them in the request composer, so you can see who is picked before anything is sent. Multiple people can be named in one turn, e.g. 'Alice and Bob'. It only selects: sending the request is still a separate, confirmed step.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -5154,12 +5154,12 @@
             "prompt": "Who do you want to ask?",
             "required": true,
             "slot": "person",
-            "resolver": "spoken_person_name"
+            "resolver": "spoken_person_name_list"
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name"
+          "person": "spoken_person_name_list"
         },
         "workflow_steps": [
           {
@@ -6960,7 +6960,7 @@
         "person",
         "share"
       ],
-      "meaning": "Finds the person you named among your connections and selects them in the share composer, so you can see who is picked before anything is sent. It only selects: starting the share is still a separate, confirmed step.",
+      "meaning": "Finds the person or people you named among your connections and selects them in the share composer, so you can see who is picked before anything is sent. Multiple people can be named in one turn, e.g. 'Alice and Bob'. It only selects: starting the share is still a separate, confirmed step.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -7023,12 +7023,12 @@
             "prompt": "Who do you want to share with?",
             "required": true,
             "slot": "person",
-            "resolver": "spoken_person_name"
+            "resolver": "spoken_person_name_list"
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name"
+          "person": "spoken_person_name_list"
         },
         "workflow_steps": [
           {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ambiguousMatchNames,
+  joinNamesForSpeech,
   normalizeSpokenName,
   resolveSpokenNames,
   splitSpokenNames,
@@ -147,5 +148,27 @@ describe("ambiguousMatchNames", () => {
   it("drops empty/missing names instead of leaving stray commas", () => {
     const mixed = [SARAH_CHEN, { id: "5", name: "" }, ANDERSON];
     expect(ambiguousMatchNames(mixed, (p) => p.name)).toBe("Sarah Chen, Anderson Cole");
+  });
+});
+
+describe("joinNamesForSpeech", () => {
+  it("returns a single name as-is", () => {
+    expect(joinNamesForSpeech(["Alice"])).toBe("Alice");
+  });
+
+  it("joins two names with 'and', no comma", () => {
+    expect(joinNamesForSpeech(["Alice", "Bob"])).toBe("Alice and Bob");
+  });
+
+  it("joins three or more names without an Oxford comma", () => {
+    expect(joinNamesForSpeech(["Alice", "Bob", "Sarah"])).toBe("Alice, Bob and Sarah");
+  });
+
+  it("returns an empty string for no names", () => {
+    expect(joinNamesForSpeech([])).toBe("");
+  });
+
+  it("drops empty/whitespace-only names", () => {
+    expect(joinNamesForSpeech(["Alice", "  ", "Bob"])).toBe("Alice and Bob");
   });
 });
