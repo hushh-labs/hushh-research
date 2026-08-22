@@ -239,6 +239,8 @@ describe("NwsNearbyService.shortlist", () => {
     expect(snapshot).not.toHaveProperty("reasons");
     expect(snapshot).not.toHaveProperty("sources");
     expect(snapshot).not.toHaveProperty("warnings");
+    expect(snapshot).not.toHaveProperty("globalNws");
+    expect(snapshot).not.toHaveProperty("nearbyRankScore");
   });
 
   it("expresses un-shortlisting as a pass, matching the deck vocabulary", async () => {

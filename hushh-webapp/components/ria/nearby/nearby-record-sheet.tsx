@@ -12,15 +12,12 @@ import { ExternalLink, Star } from "lucide-react";
 
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { NearbyEvidencePanel } from "@/components/ria/nearby/nearby-evidence-panel";
-import { NearbyScoreExplainer } from "@/components/ria/nearby/nearby-score-explainer";
 import { Button } from "@/lib/morphy-ux/button";
 import { AvatarBubble, StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
-import { EYEBROW, MUTED_TEXT, SUBCARD_SURFACE } from "@/lib/morphy-ux/tokens/surfaces";
+import { EYEBROW, MUTED_TEXT } from "@/lib/morphy-ux/tokens/surfaces";
 import {
   associationCategoryLabel,
   factTypeLabel,
-  formatScore,
-  isRegistryOnlyScore,
   type NearbyRecord,
 } from "@/lib/services/nws-nearby-service";
 import { cn } from "@/lib/utils";
@@ -42,7 +39,6 @@ export function NearbyRecordSheet({
   onShortlist,
   shortlisted,
   saving = false,
-  capitalAccessNote,
 }: {
   record: NearbyRecord | null;
   open: boolean;
@@ -50,7 +46,6 @@ export function NearbyRecordSheet({
   onShortlist: (record: NearbyRecord) => void;
   shortlisted: boolean;
   saving?: boolean;
-  capitalAccessNote?: string | null;
 }) {
   if (!record) return null;
 
@@ -80,27 +75,6 @@ export function NearbyRecordSheet({
       }
     >
       <div className="flex flex-col gap-4">
-        <div className={cn(SUBCARD_SURFACE, "flex items-baseline gap-4 p-4")}>
-          <span className="type-display tabular-nums">
-            {formatScore(record.nearbyRankScore)}
-          </span>
-          <div className="min-w-0">
-            <p className={MUTED_TEXT}>Network strength, not net worth.</p>
-            <p className={MUTED_TEXT}>
-              Overall {formatScore(record.globalNws)} · Confidence{" "}
-              {record.confidence.grade ?? "—"}
-            </p>
-            {/* A registry-discovered record scores far below a reviewed one
-                because two thirds of the weighting has nothing to read, not
-                because the person is lesser. Read from the components rather
-                than from the score kind, which reads "provisional" for both
-                kinds and so cannot tell them apart. */}
-            {isRegistryOnlyScore(record) ? (
-              <p className={MUTED_TEXT}>From public registry role and recency only.</p>
-            ) : null}
-          </div>
-        </div>
-
         {record.publicLocation.label ? (
           <div className="flex flex-col gap-0.5">
             <p className="type-footnote">
@@ -123,27 +97,8 @@ export function NearbyRecordSheet({
           </div>
         ) : null}
 
-        {record.scoreBreakdown ? (
-          <div className="flex flex-col gap-2">
-            <span className={EYEBROW}>How this score is built</span>
-            <NearbyScoreExplainer
-              breakdown={record.scoreBreakdown}
-              capitalAccessNote={capitalAccessNote}
-            />
-          </div>
-        ) : record.reasons.length > 0 ? (
-          // Older service revisions publish prose but no arithmetic. Show the
-          // prose rather than nothing, and never both — they say the same thing.
-          <div className="flex flex-col gap-1.5">
-            <span className={EYEBROW}>Why this ranked</span>
-            <ul className="flex flex-col gap-1">
-              {record.reasons.map((reason) => (
-                <li key={reason} className="type-footnote">
-                  {reason}
-                </li>
-              ))}
-            </ul>
-          </div>
+        {record.confidence.grade ? (
+          <p className={MUTED_TEXT}>Record confidence · {record.confidence.grade}</p>
         ) : null}
 
         {record.evidence ? (

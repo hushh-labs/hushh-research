@@ -203,7 +203,7 @@ export default function RiaClientsPage() {
             </span>
           }
           // The roster count and its description belong to Connected. Carrying
-          // them over to Around you labelled a list of public records with a
+          // them over to Public records labelled a list of public records with a
           // count of the advisor's own clients.
           description={view === "connected" ? RIA_COPY.clients.description : undefined}
           icon={UserRound}
@@ -215,7 +215,7 @@ export default function RiaClientsPage() {
         <RiaVerificationGate>
         <div className="flex flex-col gap-8">
           {/* Connected is the roster of investors who already granted access.
-              Around you is prospecting against public records — a different
+              Public records is prospecting against public records — a different
               kind of person entirely, which is why they are separate views on
               one screen rather than one merged list. */}
           <div data-voice-control-id="ria_clients_view_switch">
@@ -224,7 +224,7 @@ export default function RiaClientsPage() {
               onValueChange={(next) => setView(next as ClientsView)}
               options={[
                 { value: "connected", label: "Connected" },
-                { value: "nearby", label: "Around you" },
+                { value: "nearby", label: "Public records" },
               ]}
             />
           </div>

@@ -31,7 +31,6 @@ import {
   NwsNearbyService,
   availableGrades,
   availableTags,
-  formatScore,
   laneCounts as computeLaneCounts,
   type NearbyAnchor,
   type NearbyDiscoverResult,
@@ -282,7 +281,7 @@ export function NearbyAroundYou() {
             {covered ? (
               <p className={MUTED_TEXT}>
                 {hidden > 0
-                  ? `Top ${visible.length} of ${records.length}`
+                  ? `Showing ${visible.length} of ${records.length}`
                   : `${records.length} public ${records.length === 1 ? "record" : "records"}`}
               </p>
             ) : null}
@@ -347,18 +346,12 @@ export function NearbyAroundYou() {
               description={[record.headline, record.organization].filter(Boolean).join(" · ")}
               onClick={() => setSelected(record)}
               trailing={
-                <span className="flex items-center gap-2">
-                  {shortlisted.has(record.personId) ? (
-                    <Star
-                      className="h-3.5 w-3.5 fill-current text-[color:var(--app-accent-fg)]"
-                      aria-label="Shortlisted"
-                    />
-                  ) : null}
-                  {/* Ranked by nearbyRankScore, so that is the number shown. */}
-                  <span className="type-footnote tabular-nums">
-                    {formatScore(record.nearbyRankScore)}
-                  </span>
-                </span>
+                shortlisted.has(record.personId) ? (
+                  <Star
+                    className="h-3.5 w-3.5 fill-current text-[color:var(--app-accent-fg)]"
+                    aria-label="Shortlisted"
+                  />
+                ) : undefined
               }
             />
           ))}
@@ -376,7 +369,7 @@ export function NearbyAroundYou() {
 
       {covered && records.length > 0 ? (
         <div className="flex flex-col gap-0.5 px-1">
-          <p className={MUTED_TEXT}>Public work associations. Not homes, not net worth.</p>
+          <p className={MUTED_TEXT}>Public professional records.</p>
           {/* Sixty records in one postcode reads like everyone there. It is a
               reviewed set from a stated number of organisations, and saying so
               is the difference between a shortlist and a false census. */}
@@ -403,7 +396,6 @@ export function NearbyAroundYou() {
         open={Boolean(selected)}
         onOpenChange={(next) => !next && setSelected(null)}
         onShortlist={handleShortlist}
-        capitalAccessNote={result?.financialContext?.capitalAccessNote}
         shortlisted={selected ? shortlisted.has(selected.personId) : false}
       />
       {picker}
