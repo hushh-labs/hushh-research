@@ -18,6 +18,7 @@ import {
   JoinCircleFlow,
 } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { createConnectCircleActions } from "@/components/connect/circles/connect-circle-actions";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { CIRCLE_JOIN_CODE_PARAM } from "@/lib/one-location/circle-join-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleSummary } from "@/lib/one-location/types";
@@ -275,6 +276,46 @@ export function ConnectCirclesTab({
   useEffect(() => {
     onStateChange?.({ loading, error, count: circles.length });
   }, [circles.length, error, loading, onStateChange]);
+
+  /**
+   * Somebody else acting on your Circle.
+   *
+   * A person joining with a code, accepting an invitation, or being added by
+   * another owner changes this list without you touching anything -- and until
+   * this listener, the only way to see it was to reload the page. The Location
+   * agent has always refreshed on the same event
+   * (`app/one/location/page.tsx`, the `handleLocationNotification` effect), so
+   * the two surfaces disagreed about how current they were.
+   *
+   * The same notification the push already delivers. This is not polling and
+   * opens no socket: it listens to the event the notification layer dispatches
+   * when something lands.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onConsentStateChanged = (event: Event) => {
+      const detail =
+        (event as CustomEvent<Record<string, unknown>>).detail || {};
+      const source = String(detail.source || "").trim();
+      const notificationType = String(detail.notificationType || "").trim();
+      // Circle news arrives on the Location channel, because that is where the
+      // backend still sends it from.
+      if (
+        source !== "one_location_notification" &&
+        !notificationType.startsWith("location_") &&
+        !notificationType.startsWith("circle")
+      ) {
+        return;
+      }
+      setReloadToken((token) => token + 1);
+    };
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentStateChanged);
+    return () =>
+      window.removeEventListener(
+        CONSENT_STATE_CHANGED_EVENT,
+        onConsentStateChanged,
+      );
+  }, []);
 
   const { system, owned } = useMemo(() => orderCircles(circles), [circles]);
 

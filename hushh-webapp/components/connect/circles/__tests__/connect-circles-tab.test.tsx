@@ -524,3 +524,40 @@ describe("a roster row on Connect behaves like a directory row", () => {
     await waitFor(() => expect(mocks.getCircle).toHaveBeenCalledTimes(2));
   });
 });
+
+describe("somebody else acting on your Circle", () => {
+  it("re-reads when circle news arrives, without a page reload", async () => {
+    // A person joining with a code, accepting an invitation, or being added by
+    // another owner changes this list without the viewer touching anything.
+    // Until this listener the only way to see it was to reload the page --
+    // while the Location agent, on the same event, had always refreshed.
+    mocks.searchParams = new URLSearchParams("tab=circles");
+    render(<ConnectCirclesTab />);
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(1));
+
+    window.dispatchEvent(
+      new CustomEvent("consent-state-changed", {
+        detail: { source: "one_location_notification" },
+      }),
+    );
+
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(2));
+  });
+
+  it("ignores news that has nothing to do with circles", async () => {
+    // Every consent change in the app fires this event. Re-reading on all of
+    // them would put a request behind unrelated activity.
+    mocks.searchParams = new URLSearchParams("tab=circles");
+    render(<ConnectCirclesTab />);
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(1));
+
+    window.dispatchEvent(
+      new CustomEvent("consent-state-changed", {
+        detail: { source: "gmail_receipts", notificationType: "gmail_synced" },
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mocks.listCircles).toHaveBeenCalledTimes(1);
+  });
+});
