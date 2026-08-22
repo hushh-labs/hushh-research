@@ -7182,12 +7182,24 @@ export function OneLocationAgentPageContent({
 
       // Reuse the person's first owned Circle so re-entering onboarding never
       // spawns duplicates; fall back to any membership, else create one.
+      //
+      // Product-managed Circles are skipped, and that is load-bearing rather
+      // than tidy. The SMS Circle and Trusted both arrive on their own -- the
+      // second one the moment a connection is accepted, which is BEFORE most
+      // people reach this screen -- so "the first Circle you own" is routinely
+      // one of them. This screen then asks for its invite code, and neither has
+      // one: a Circle holding everyone you are connected to must not be
+      // shareable by a link, so `create_invite_code` refuses it outright and
+      // the invite step failed with nothing on screen explaining why.
       let targetCircleId: string | null = null;
       try {
         const circles = await OneLocationService.listCircles(vaultOwnerToken);
+        const shareable = circles.filter(
+          (circle) => !circle.systemKind && !circle.isSystem,
+        );
         targetCircleId =
-          circles.find((circle) => circle.role === "owner")?.id ??
-          circles[0]?.id ??
+          shareable.find((circle) => circle.role === "owner")?.id ??
+          shareable[0]?.id ??
           null;
       } catch {
         // A listing hiccup shouldn't block setup — fall through to create.
