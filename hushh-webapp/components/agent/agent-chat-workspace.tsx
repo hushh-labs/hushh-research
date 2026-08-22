@@ -136,6 +136,7 @@ import { useConsentActions, type PendingConsent } from "@/lib/consent/use-consen
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
 import { useVault } from "@/lib/vault/vault-context";
 import { ApiService } from "@/lib/services/api-service";
+import { classifyAgentRecovery } from "@/lib/feed/agent-recovery";
 import {
   appInteractionCoordinator,
   useActiveActionRun,
@@ -1199,20 +1200,23 @@ export function AgentChatWorkspace({
   const handleRebuildAgent = useCallback(async () => {
     setRebuildingAgent(true);
     try {
-      // A cold pod is reachable and only needs a moment; only a truly GONE pod
-      // warrants a rebuild -- a fresh pod is a NEW identity, so a healthy agent
-      // must never be rebuilt. getPodInfo distinguishes the two before we act.
-      if (podHushhId) {
-        try {
-          const info = await ApiService.getPodInfo(podHushhId);
-          if (info.podStatus === 200) {
-            setAgentUnreachable(false);
-            return;
-          }
-        } catch {
-          // unreachable -> fall through to a rebuild
-        }
+      // Probe first, through the ONE shared recovery classifier. Wake/reconnect
+      // preserves the agent's identity and memory; a rebuild mints a new
+      // identity and is the last resort, only on a confirmed-gone host whose
+      // cloud is still reachable. A gone PROJECT needs reinit, not a rebuild.
+      const outcome = await classifyAgentRecovery({ podHushhId });
+      if (outcome.kind === "reconnected" || outcome.kind === "waking") {
+        setAgentUnreachable(false);
+        return;
       }
+      if (outcome.kind === "needs_reinit") {
+        // The project is gone; provisioning into it can only fail. Send the
+        // person to reconnect their cloud rather than churn a dead rebuild.
+        router.push(ROUTES.ONE_SETUP_CLOUD);
+        return;
+      }
+      if (outcome.kind === "error") return; // keep the banner; let them retry
+      // rebuildable: confirmed gone, cloud reachable -> a new identity is warranted.
       const token = getVaultOwnerToken();
       if (!token) return; // rebuilding writes the registry; the vault must be unlocked first
       await ApiService.provisionPersonalAgent({ vaultOwnerToken: token });
@@ -1222,7 +1226,7 @@ export function AgentChatWorkspace({
     } finally {
       setRebuildingAgent(false);
     }
-  }, [podHushhId, getVaultOwnerToken]);
+  }, [podHushhId, getVaultOwnerToken, router]);
   const [conversations, setConversations] = useState<AgentChatConversation[]>([]);
   const [messages, setMessages] = useState<AgentMessage[]>(() => [createGreetingMessage()]);
   const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(null);

@@ -1,6 +1,9 @@
 "use client";
 
 import { isAgentAsleep, isAgentNotAnswering } from "@/lib/feed/agent-presence-policy";
+import { classifyAgentRecovery } from "@/lib/feed/agent-recovery";
+import { useRouter } from "next/navigation";
+import { ROUTES } from "@/lib/navigation/routes";
 import { useState } from "react";
 
 import { ApiService } from "@/lib/services/api-service";
@@ -119,8 +122,9 @@ export function OneAgentPresence() {
   // No `userId` on purpose: the Feed owns registering the deployment in the
   // background-work rail, and one owner is better than two components agreeing.
   // The chip is a reader here, not a second reporter.
-  const { state: followed, health, cloud } = useAgentDeploymentFollow();
+  const { state: followed, health, cloud, hushhId } = useAgentDeploymentFollow();
   const state: AgentState | null = toAgentState(followed);
+  const router = useRouter();
 
   // Nothing known yet, so nothing claimed. Rendering the chip with a fabricated
   // state was the previous behavior and it is what made "Reserved" appear for
@@ -140,18 +144,33 @@ export function OneAgentPresence() {
   // takes a moment, and a person who knows their agent sleeps reads that pause as
   // normal instead of as a stall.
   const asleep = state === "active" && isAgentAsleep(health);
-  // Repair, reachable where the failure is SHOWN. The chat workspace had the
-  // only rebuild affordance, so a person looking at "Not ready" here had no
-  // move (founder finding, 2026-08-21). Rebuild re-runs the idempotent
-  // provisioning path; the follow hook then narrates the new attempt.
+  // Repair, reachable where the failure is SHOWN. It runs through the SAME
+  // shared recovery classifier the chat banner uses (they used to disagree:
+  // this chip minted a new identity with no probe). Wake/reconnect preserves
+  // the agent's identity and memory; a project that is gone routes to cloud
+  // reconnect; only a confirmed-gone-but-reachable host earns a new-identity
+  // rebuild (founder finding + north-star identity rule, 2026-08-21).
   const canRebuild = state === "failed";
   const handleRebuild = async () => {
-    if (!vaultOwnerToken) {
-      toast.error("Unlock your vault first, then press Rebuild again.");
-      return;
-    }
     setRebuilding(true);
     try {
+      const outcome = await classifyAgentRecovery({ podHushhId: hushhId });
+      if (outcome.kind === "reconnected" || outcome.kind === "waking") {
+        return; // the follow hook re-narrates; nothing minted
+      }
+      if (outcome.kind === "needs_reinit") {
+        router.push(ROUTES.ONE_SETUP_CLOUD);
+        return;
+      }
+      if (outcome.kind === "error") {
+        toast.error("Could not reach your agent just now. Try again in a moment.");
+        return;
+      }
+      // rebuildable: confirmed gone, cloud reachable -> a new identity is warranted.
+      if (!vaultOwnerToken) {
+        toast.error("Unlock your vault first, then press Rebuild again.");
+        return;
+      }
       await ApiService.provisionPersonalAgent({ vaultOwnerToken });
     } catch {
       toast.error("Could not start the rebuild. Try again in a moment.");
