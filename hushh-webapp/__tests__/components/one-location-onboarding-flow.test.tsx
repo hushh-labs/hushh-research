@@ -313,7 +313,7 @@ describe("OneLocationOnboardingFlow", () => {
           .getByTestId("location-use-case-checkin")
           .querySelectorAll("[data-one-feature-title-line]"),
       ).map((line) => line.textContent),
-    ).toEqual(["Stuck in the", "check-in line?"]);
+    ).toEqual(["Dreading the", "check-in queue?"]);
     expect(
       Array.from(
         screen
@@ -335,7 +335,7 @@ describe("OneLocationOnboardingFlow", () => {
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "Stuck in the check-in line?",
+        name: "Dreading the check-in queue?",
       }),
     ).toBeTruthy();
     expect(
