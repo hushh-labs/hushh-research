@@ -799,8 +799,14 @@ class UserGcpBackend:
             client = await asyncio.to_thread(self._client)
             svc = await asyncio.to_thread(client.get_service, external_agent_id)
             if svc is None:
+                # "gone", NOT "missing": the managed GcpBackend reports "gone"
+                # for an absent service (gcp_backend.py), and pod_wake._host_is_gone
+                # only recognizes "gone". Reporting "missing" here left the whole
+                # missing-project -> reinit path silently dead for BYOC pods --
+                # the exact sovereignty tier it targets (integration defect,
+                # 2026-08-21). One word, one contract, both tiers.
                 return BackendStatus(
-                    external_agent_id=(external_agent_id or None), status="missing", healthy=False
+                    external_agent_id=(external_agent_id or None), status="gone", healthy=False
                 )
             conditions = {
                 c.get("type"): c.get("status") for c in svc.get("status", {}).get("conditions", [])

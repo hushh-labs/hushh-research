@@ -1000,6 +1000,20 @@ async def _deprovision_personal_agent(
         out = result if isinstance(result, dict) else {"status": str(result or "deprovisioned")}
         if substrate is not None:
             out["substrate_teardown"] = substrate
+        # The cloud-setup job record is keyed by user id and is in no cascade, so
+        # deletion orphaned it. This lives HERE, not in _finalize_...: finalize
+        # runs only on the delete-order-V2 path, so the legacy path leaked the
+        # row (audit follow-up, 2026-08-21). _deprovision runs on BOTH paths.
+        try:
+            from db.db_client import get_db  # noqa: PLC0415
+
+            get_db().table("byoc_setup_jobs").delete().eq("user_id", normalized_user_id).execute()
+        except Exception as job_exc:  # noqa: BLE001 - deletion must complete regardless
+            logger.warning(
+                "byoc_setup_job cleanup failed on deletion user=%s err=%s",
+                normalized_user_id,
+                type(job_exc).__name__,
+            )
         return out
     except Exception as exc:
         logger.warning(
@@ -1035,18 +1049,8 @@ async def _finalize_personal_agent_row_delete(user_id: str) -> None:
             normalized_user_id,
             type(exc).__name__,
         )
-    try:
-        # The cloud-setup job record is keyed by user id and was not in any
-        # cascade, so deletion orphaned it (audit follow-up, 2026-08-21).
-        from db.db_client import get_db  # noqa: PLC0415
-
-        get_db().table("byoc_setup_jobs").delete().eq("user_id", normalized_user_id).execute()
-    except Exception as exc:  # noqa: BLE001 - deletion must complete regardless
-        logger.warning(
-            "byoc_setup_job cleanup failed on deletion user=%s err=%s",
-            normalized_user_id,
-            type(exc).__name__,
-        )
+    # byoc_setup_jobs cleanup moved to _deprovision_personal_agent so it runs on
+    # BOTH the V2 and legacy delete paths (this finalize is V2-only).
 
 
 def _firebase_user_provider_ids(user_record: Any) -> set[str]:

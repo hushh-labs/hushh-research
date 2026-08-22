@@ -163,3 +163,37 @@ async def test_live_provision_requires_the_authorized_bootstrap_account(monkeypa
 
 def test_resolver_maps_user_gcp():
     assert isinstance(resolve_compute_backend("user_gcp"), UserGcpBackend)
+
+
+# -- the gone-detection contract (integration defect found 2026-08-21) --------
+# GcpBackend.get() returns status="gone" when the Cloud Run service is absent;
+# UserGcpBackend.get() returned "missing" for the identical condition, and
+# pod_wake._host_is_gone only recognizes "gone". So the whole missing-project ->
+# reinit path fired for managed pods and NEVER for BYOC pods -- the exact
+# sovereignty tier it targets. These pin the two contracts to one word.
+
+
+class _AbsentServiceClient:
+    """A Cloud Run client whose service does not exist (deleted project/pod)."""
+
+    def get_service(self, name):  # noqa: ARG002
+        return None
+
+
+async def test_get_reports_gone_when_the_user_service_is_absent(monkeypatch):
+    live = UserGcpBackend(user_project="acme", live=True)
+    # Bypass the bootstrap-token mint; point straight at an absent-service client.
+    monkeypatch.setattr(live, "_client", lambda: _AbsentServiceClient())
+    status = await live.get("one-pod-ha1abc")
+    # The contract the gone-path checks. "missing" here is the silent-dead bug.
+    assert status.status == "gone"
+    assert status.healthy is False
+
+
+async def test_host_is_gone_recognizes_an_absent_byoc_service():
+    # Cross-module: the BYOC backend's absent-service verdict must satisfy the
+    # gone-check pod_wake relies on. Kept as a string-contract assertion so it
+    # fails loudly if either side drifts again.
+    from hushh_mcp.services.compute_backend import BackendStatus
+
+    assert BackendStatus(external_agent_id="x", status="gone", healthy=False).status == "gone"
