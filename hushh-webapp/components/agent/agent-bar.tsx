@@ -289,6 +289,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // the bar highlights and an ambient waveform animates in place, reacting to
   // the user's voice (listening) and the agent's reply (speaking).
   const [conversationActive, setConversationActive] = useState(false);
+  // Bumped to trigger a deferred (re)start -- manual retry or automatic
+  // reconnect -- once conversationActive has genuinely settled. See the
+  // effect near startConversation for why this can't just call it directly.
+  const [retryNonce, setRetryNonce] = useState(0);
   const [pendingConfirmation, setPendingConfirmation] =
     useState<PendingVoiceConfirmation | null>(null);
   // The journey approval lives in module scope, not component state: it has
@@ -409,10 +413,32 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // Tracks whether the active session ended with an error, so the bar can keep
   // showing the error status (instead of snapping shut) until it is dismissed.
   const erroredRef = useRef(false);
+  // Set only when the relay's own sessionEnded frame said the failure is
+  // resumable; cleared on every "closed" so a later unsignaled drop (a raw
+  // network blip, carrying no opinion either way) never inherits a stale
+  // "yes, reconnect" from an unrelated earlier failure.
+  const lastErrorResumableRef = useRef(false);
+  // The provider's own continuation token, handed off in the "closed" event
+  // just before the client instance carrying it is torn down. Consumed by
+  // the next start() -- manual retry or automatic reconnect alike -- so the
+  // provider continues the SAME conversation instead of starting fresh.
+  const lastResumptionHandleRef = useRef<string | null>(null);
+  const pendingResumptionHandleRef = useRef<string | null>(null);
+  // Deliberately conservative: at most ONE automatic reconnect for the whole
+  // life of this bar, not one per failure. A provider that keeps failing the
+  // same resumed conversation must never be able to loop silently -- a
+  // person tapping Try Again by hand (which re-arms this in retryConversation)
+  // is always a safe, bounded way past that cap, so nothing is actually lost
+  // by keeping the automatic side of this strict.
+  const autoReconnectedRef = useRef(false);
   // Ref indirection lets the idle-timer callback always call the CURRENT
   // stopConversation without needing it in handleTransportEvent's deps
   // (stopConversation is declared further down, after handleTransportEvent).
   const stopConversationRef = useRef<() => void>(() => {});
+  // Same indirection: startConversation is declared even further down, but
+  // handleTransportEvent needs to be able to trigger a reconnect the moment
+  // a resumable session closes.
+  const startConversationRef = useRef<() => void>(() => {});
   const handleTransportEventRef = useRef<(event: OneVoiceSessionEvent) => void>(
     () => {},
   );
@@ -544,6 +570,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           "The confirmation was cancelled because the voice session hit an error.",
         );
         erroredRef.current = true;
+        lastErrorResumableRef.current = event.resumable === true;
         setVoiceStatus("error", event.message, eventOptions);
         return;
       }
@@ -1084,7 +1111,26 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         voiceLeaseRef.current?.release("transport_closed");
         voiceLeaseRef.current = null;
         activeRuntimeModeRef.current = null;
-        if (erroredRef.current) return;
+        lastResumptionHandleRef.current = event.resumptionHandle ?? null;
+        if (erroredRef.current) {
+          // A resumable failure gets one automatic attempt to pick the same
+          // conversation back up before this becomes something the person
+          // has to notice and act on themselves -- that is the entire point
+          // of the relay bothering to say "resumable" in the first place.
+          if (lastErrorResumableRef.current && !autoReconnectedRef.current) {
+            autoReconnectedRef.current = true;
+            pendingResumptionHandleRef.current = lastResumptionHandleRef.current;
+            erroredRef.current = false;
+            lastErrorResumableRef.current = false;
+            // Not just skipped this time -- startConversation's own guard
+            // treats a still-true conversationActive as "already running"
+            // and would route straight to stopConversation instead of
+            // actually reconnecting.
+            setConversationActive(false);
+            setRetryNonce((current) => current + 1);
+          }
+          return;
+        }
         setConversationActive(false);
       }
     },
@@ -1411,6 +1457,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     lastPushedContextRef.current = context
       ? actionableContextKey(context)
       : null;
+    // Consumed once: a resumption handle belongs to the session that just
+    // ended, not to whatever the person starts after it. Reading it here
+    // and clearing it in the same breath means an ordinary, unrelated later
+    // start never accidentally inherits a stale one.
+    const resumptionHandle = pendingResumptionHandleRef.current;
+    pendingResumptionHandleRef.current = null;
     void client.start({
       context,
       accessTier: runtime?.tier ?? null,
@@ -1423,6 +1475,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       runtimeCredentialTransport: runtimeConnection.transport,
       runtimeVertexProject: runtimeConnection.vertexProject,
       runtimeVertexLocation: runtimeConnection.vertexLocation,
+      resumptionHandle,
     });
   }, [
     conversationActive,
@@ -1447,12 +1500,16 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // would wait forever for exactly that case -- the counter always changes,
   // regardless of whether conversationActive does, so the effect below is
   // guaranteed to run on every retry.
-  const startConversationRef = useRef<() => void>(() => {});
   useEffect(() => {
     startConversationRef.current = () => void startConversation();
   }, [startConversation]);
-  const [retryNonce, setRetryNonce] = useState(0);
+  // A manual retry gets the same continuation token an automatic reconnect
+  // would use, and resets the one-per-session automatic budget: a person
+  // choosing to retry by hand is a fresh decision, not a continuation of
+  // whatever already failed once automatically.
   const retryConversation = useCallback(() => {
+    pendingResumptionHandleRef.current = lastResumptionHandleRef.current;
+    autoReconnectedRef.current = false;
     stopConversation();
     setRetryNonce((current) => current + 1);
   }, [stopConversation]);
