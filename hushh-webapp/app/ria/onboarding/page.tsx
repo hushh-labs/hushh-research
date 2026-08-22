@@ -1060,7 +1060,7 @@ export default function RiaOnboardingPage({
   function handleDraftBio() {
     const suggestion = buildRiaOnboardingBioSuggestion(draft);
     if (!suggestion) {
-      toast.info("Verify your licence first. Kai needs regulator-backed details before drafting a bio.");
+      toast.info("Verify your licence first. One needs regulator-backed details before drafting a bio.");
       return;
     }
     updateDraft({
@@ -1074,7 +1074,7 @@ export default function RiaOnboardingPage({
 
   function handleAskKaiUpdateAnything() {
     openKaiCommandBar();
-    toast.info("Kai command opened");
+    toast.info("Command bar opened");
   }
 
   const isEnriching = Boolean(draft.scrapeJobId && scrapePollingRef.current);

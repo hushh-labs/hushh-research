@@ -138,7 +138,7 @@
             "name": "pick_source",
             "slot": "pickSource",
             "resolver": "kai_pick_source",
-            "prompt": "Which list should Kai use for this debate?",
+            "prompt": "Which list should One use for this debate?",
             "default_value": "default",
             "options": [
               "default"
