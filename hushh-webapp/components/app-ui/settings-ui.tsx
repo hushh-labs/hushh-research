@@ -512,7 +512,14 @@ export function SettingsRow({
             />
           </button>
           {trailingContent ? (
-            <div role="presentation" onClick={(e) => e.stopPropagation()}>
+            <div
+              role="presentation"
+              onClick={(e) => {
+                if (onClick) onClick();
+                else e.stopPropagation();
+              }}
+              className={onClick ? "cursor-pointer" : undefined}
+            >
               {trailingContent}
             </div>
           ) : null}
