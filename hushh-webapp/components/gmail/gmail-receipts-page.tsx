@@ -1358,7 +1358,10 @@ export default function GmailReceiptsPage({
     >
       <AppPageHeaderRegion>
         <PageHeader
-          title="Receipts"
+          // Named for the source, not the artefact: the breadcrumb on both
+          // routes that render this page says "Gmail", and the setup checklist
+          // row that leads here says "Connect Gmail".
+          title="Gmail"
           description={pageTitle}
           actions={
             isConnected ? (
