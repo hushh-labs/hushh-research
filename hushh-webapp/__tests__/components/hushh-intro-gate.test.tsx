@@ -36,7 +36,7 @@ describe("HushhIntroGate", () => {
     vi.useRealTimers();
   });
 
-  it("shows only the signed-in greeting and completes in about 1.5 seconds", () => {
+  it("shows only the signed-in greeting and keeps it readable before completing", () => {
     render(
       <HushhIntroGate>
         <main>Private app</main>
@@ -56,12 +56,12 @@ describe("HushhIntroGate", () => {
     expect(intro.getAttribute("data-phase")).toBe("greet");
 
     act(() => {
-      vi.advanceTimersByTime(1080);
+      vi.advanceTimersByTime(1900);
     });
     expect(intro.getAttribute("data-phase")).toBe("exit");
 
     act(() => {
-      vi.advanceTimersByTime(420);
+      vi.advanceTimersByTime(440);
     });
     expect(screen.getByText("Private app")).toBeTruthy();
     expect(screen.queryByTestId("hushh-intro-gate")).toBeNull();

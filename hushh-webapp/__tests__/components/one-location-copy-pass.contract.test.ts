@@ -76,7 +76,11 @@ describe("One Location — link durations stay inside the server's ceiling", () 
   it("states the real ceilings rather than a vague promise", () => {
     // "Links expire automatically" / "after the time you choose" told the owner
     // nothing they could plan around.
-    expect(HUB_SOURCE).toContain("up to 1 hour for a location link");
+    // Matched case-insensitively: the phrase has sat mid-sentence and now
+    // opens one, and which it is has nothing to do with the ceilings this
+    // test is about.
+    expect(HUB_SOURCE).toMatch(/up to 1 hour for a location link/i);
+    expect(HUB_SOURCE).toMatch(/24 hours for an invite/i);
     expect(HUB_SOURCE).not.toContain("Links expire after the time you choose.");
   });
 });

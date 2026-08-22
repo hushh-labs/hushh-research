@@ -33,6 +33,14 @@ export const SHARE_DURATION_LADDER: DurationRung[] = [
   { value: "1", label: "1 hour" },
 ];
 
+export const REQUEST_DURATION_LADDER: DurationRung[] = [
+  { value: "0.25", label: "15 min" },
+  { value: "1", label: "1 hour" },
+  { value: "2", label: "2 hours" },
+  { value: "4", label: "4 hours" },
+  { value: "8", label: "8 hours" },
+];
+
 export const SHARE_DURATION_UNTIL_STOP_VALUE = "until_stopped";
 
 /** What `Custom` opens on when it is reached from the open-ended rung. */
@@ -66,7 +74,8 @@ export const DURATION_CUSTOM_VISIBLE_ROWS = 3;
  * wrapping at 320px is worse than a tidy two-column block and that layout is
  * already measured by e2e/one-location-duration-ladder.layout.spec.ts.
  */
-export const DURATION_GRID_CLASS = "grid grid-cols-2 gap-2 sm:flex sm:flex-wrap";
+export const DURATION_GRID_CLASS =
+  "grid grid-cols-2 gap-2 sm:flex sm:flex-wrap";
 export const DURATION_CELL_CLASS =
   "flex min-h-11 items-center justify-center whitespace-nowrap rounded-[14px] border px-2 text-center text-[15px] font-semibold leading-5 transition-colors touch-manipulation sm:px-4";
 export const DURATION_CELL_OFF_CLASS =

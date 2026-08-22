@@ -112,7 +112,7 @@ function scalarSummaryRows(financial: Record<string, unknown>) {
 
 // DS gold -> ink -> neutral ramp (replaces the sky/amber/emerald/slate mix).
 const ALLOCATION_COLORS: Record<string, string> = {
-  equities: "#c8923a",
+  equities: "var(--ria-gold)",
   bonds: "#0d132b",
   cash: "#8a8f9a",
   other: "#d6d8de",
@@ -234,6 +234,10 @@ function portfolioViewHelper(status?: string | null) {
 function requestTemplateLabel(template: RiaRequestScopeTemplate) {
   const value = String(template.template_name || "").trim();
   if (!value) return "Client information";
+  // Kept after the label itself stopped saying "Kai": the server now sends
+  // "Portfolio + data" directly, but grants issued before that change still
+  // carry the old template_name in the database, and this is the only thing
+  // standing between a stored row and the word "Kai" reaching an advisor.
   if (/kai/i.test(value)) return "Portfolio + data";
   return value;
 }
