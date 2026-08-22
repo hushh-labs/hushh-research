@@ -2871,9 +2871,7 @@ class OneLocationCircleService:
                 send_circle_member_invite_accepted_push(
                     inviter_user_id=str(invite_row.get("inviter_user_id") or ""),
                     invitee_user_id=user_id,
-                    invitee_display_name=str(
-                        invite_row.get("invitee_display_name") or ""
-                    ),
+                    invitee_display_name=str(invite_row.get("invitee_display_name") or ""),
                     circle_id=circle_id,
                     circle_name=str(invite_row.get("circle_name") or ""),
                     invite_id=cleaned_invite_id,

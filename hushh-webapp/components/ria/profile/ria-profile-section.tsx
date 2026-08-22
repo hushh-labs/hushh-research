@@ -848,12 +848,12 @@ export function RiaProfileSection({
           "The RIA profile is busy. Try again when the current update finishes.",
       };
     }
-    setEditOpen(true);
+    openServicesEdit();
     return {
       status: "succeeded" as const,
       summary: "The RIA profile editor is open.",
     };
-  }, [deleting, saving]);
+  }, [deleting, openServicesEdit, saving]);
 
   useLocalOnboardingActionHandler(
     "ria.profile.edit_services",
