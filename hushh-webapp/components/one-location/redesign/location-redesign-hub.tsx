@@ -145,6 +145,8 @@ import {
   sectionRecipients,
 } from "@/lib/one-location/recipient-sections";
 import { ROUTES } from "@/lib/navigation/routes";
+import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
+import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
 import { resolveSmsContactsBackAction } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
   CircleDetailFlow,
@@ -844,6 +846,22 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     resolveLocationHubTab(searchParams.get(LOCATION_HUB_TAB_PARAM)),
   );
   const [flow, setFlow] = useState<FlowKind>("none");
+  // Opening a flow (SOS, Share, Ask, ...) mounts a fresh subtree under
+  // whatever scroll offset the Now/People/Links tab was left at -- the
+  // app-shell scroll-reset instance only keys on tab identity, never on
+  // `?action=`, so it never sees this transition. Without this, tapping an
+  // action after scrolling down reads as an abrupt jump (#5430).
+  useScrollReset(flow, { enabled: flow !== "none", behavior: "auto" });
+  const flowContainerRef = useRef<HTMLDivElement | null>(null);
+  // The bare conditional swap below had no enter transition at all, unlike
+  // every route-level surface in the app. Same canonical Morphy page-enter
+  // used by pkm-settings-shell.tsx and route navigation generally, keyed on
+  // `flow` so swapping between task flows (not just entering/leaving one)
+  // re-triggers it (#5430).
+  usePageEnterAnimation(flowContainerRef, {
+    key: flow,
+    enabled: flow !== "none",
+  });
   const focusedCircleMemberInviteId =
     String(searchParams.get("circleInviteId") || "").trim() || null;
   // Router state can settle one paint after a tap. Keep the local focused
@@ -1206,6 +1224,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   if (flow !== "none") {
     return (
       <div
+        ref={flowContainerRef}
         className="space-y-6 pb-[calc(150px+env(safe-area-inset-bottom))]"
         data-ambient-chrome-ignore
         data-testid="one-location-action-flow"

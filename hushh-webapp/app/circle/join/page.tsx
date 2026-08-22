@@ -26,6 +26,8 @@ import {
 } from "@/lib/one-location/circle-join-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleInvitePreview } from "@/lib/one-location/types";
+import { rememberPendingCircleJoin } from "@/lib/one-location/pending-circle-join";
+import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
 /**
  * An invitation is one short column. `width="reading"` (54rem) stretches it
@@ -224,7 +226,20 @@ function CircleJoinLanding() {
           type="button"
           size="lg"
           className="mt-6 w-full"
-          onClick={() => router.replace(joinPath(code))}
+          onClick={() => {
+            const userId = auth.user?.uid;
+            // Joining needs a vault, which exists only once /one/setup
+            // finishes -- and /one/location itself is gated for a mid-setup
+            // user, so the query-string code below would otherwise be
+            // dropped by that redirect. Parking it here reuses the same
+            // mechanism /one/location already redeems from the moment a
+            // vault token exists, resolved or not, so the join survives an
+            // unresolved bootstrap read too.
+            if (userId && !OneSetupCompletionHintService.isResolved(userId)) {
+              rememberPendingCircleJoin(userId, code);
+            }
+            router.replace(joinPath(code));
+          }}
           data-testid="circle-join-continue"
         >
           {canJoin ? "Join this Circle" : "Open One Location"}
