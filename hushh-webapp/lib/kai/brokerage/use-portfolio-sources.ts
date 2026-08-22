@@ -827,7 +827,7 @@ export function usePortfolioSources({
         userId,
         kind: "plaid_refresh",
         title: "Refreshing Plaid portfolio",
-        description: "Kai is syncing the latest brokerage data from Plaid.",
+        description: "One is syncing the latest brokerage data from Plaid.",
         routeHref: ROUTES.KAI_PORTFOLIO,
         metadata: {
           runIds,

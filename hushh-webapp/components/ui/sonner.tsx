@@ -34,9 +34,22 @@ const Toaster = ({ ...props }: ToasterProps) => {
         classNames: {
           toast:
             "w-full rounded-[20px] border border-border/70 px-4 py-3 text-center shadow-lg shadow-black/5 sm:max-w-[22rem] sm:text-left",
-          title: "text-[13px] font-medium leading-5 tracking-[-0.01em] text-center sm:text-left",
+          // Clamped, and this is the only place a toast's height is
+          // actually bounded. `toast.error("...")` sets the TITLE, which is
+          // nearly every toast in this app, and the title used to have no
+          // ceiling at all -- the one part everything used was the one part
+          // that could grow to four lines.
+          //
+          // Copy alone cannot be the guarantee: a server message reaches this
+          // element through `oneLocationErrorMessage`, whose only length rule
+          // is 160 characters. So the ceiling lives here, where every string
+          // ends up regardless of who wrote it.
+          title:
+            "line-clamp-2 text-[13px] font-medium leading-5 tracking-[-0.01em] text-center sm:text-left",
+          // One line, so a toast carrying both still reads as a glance rather
+          // than a paragraph.
           description:
-            "line-clamp-2 text-[12px] leading-5 text-muted-foreground text-center sm:text-left",
+            "line-clamp-1 text-[12px] leading-5 text-muted-foreground text-center sm:text-left",
           content: "flex-1 gap-1.5 text-center sm:text-left",
           closeButton:
             "left-auto right-3 top-3 border-border/70 bg-background/90 text-muted-foreground hover:bg-muted hover:text-foreground",

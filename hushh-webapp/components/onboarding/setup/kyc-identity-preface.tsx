@@ -95,19 +95,22 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
           <div className="flex items-center justify-between">
             <div className="w-16" />
             <div className="h-1.5 w-12 rounded-full bg-muted/50" />
-            <Button
-              type="button"
-              variant="link"
-              effect="fade"
-              size="sm"
-              onClick={handleSkip}
-              className="w-16 justify-end text-[14px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground rounded-full px-3 py-1.5 h-auto transition-colors"
-              showRipple={false}
-              aria-label="Skip identity checks"
-            >
-              Skip
-            </Button>
+            <div className="flex w-16 justify-end md:justify-center">
+              <Button
+                type="button"
+                variant="link"
+                effect="fade"
+                size="sm"
+                onClick={handleSkip}
+                className="h-auto rounded-full px-3 py-1.5 text-[14px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors md:!no-underline md:hover:!no-underline"
+                showRipple={false}
+                aria-label="Skip identity checks"
+              >
+                Skip
+              </Button>
+            </div>
           </div>
+
 
           <div className="mx-auto flex w-full flex-col text-center">
             <div className="space-y-2 mb-8">

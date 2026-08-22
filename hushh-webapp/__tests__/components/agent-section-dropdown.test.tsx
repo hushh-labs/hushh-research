@@ -39,7 +39,7 @@ describe("AgentSectionDropdown", () => {
     expect(await screen.findByTestId("agent-section-search")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_finance")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_ria")).toBeTruthy();
-    expect(screen.queryByTestId("top_agent_section_gmail")).toBeNull();
+    expect(screen.getByTestId("top_agent_section_gmail")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_consent")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_pkm")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_connected-systems")).toBeTruthy();
