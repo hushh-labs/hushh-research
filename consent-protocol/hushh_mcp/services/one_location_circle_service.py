@@ -1088,7 +1088,7 @@ class OneLocationCircleService:
                         text(
                             """
                             SELECT
-                              id, owner_user_id, member_limit
+                              id, owner_user_id, member_limit, is_system
                             FROM one_location_circles circle
                             WHERE id = CAST(:circle_id AS UUID)
                               AND status = 'active'
@@ -1136,6 +1136,29 @@ class OneLocationCircleService:
                         "LOCATION_CIRCLE_OWNER_REQUIRED",
                         "Only the Circle owner can share this Circle's invite code.",
                         status_code=403,
+                    )
+                # A system Circle has no code, and now the server says so too.
+                #
+                # `_circle_summary` has always reported
+                # `canViewInviteCode: is_owner and not is_system`, under a
+                # comment reading "A system Circle has no code at all." It had
+                # one: this SELECT did not read `is_system` and nothing below
+                # checked it, so the flag was a claim the UI made and the API
+                # did not keep. An owner reaching this endpoint directly -- or
+                # `bootstrap_first_circle`, which picks the most recently
+                # updated owned Circle and is therefore often pointed at the
+                # SMS Circle -- could mint a bearer code that joins a stranger
+                # into the emergency roster.
+                #
+                # It has been harmless only because SOS resolves its recipients
+                # from `one_location_sms_contacts` rather than from the roster.
+                # That changes in this same commit, which is why this guard is
+                # in it and comes first.
+                if bool(circle_row.get("is_system")):
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_SYSTEM_NO_CODE",
+                        "This Circle is managed for you and cannot be shared with a code.",
+                        status_code=409,
                     )
                 if rotate and str(circle_row.get("owner_user_id") or "") != actor_user_id:
                     raise OneLocationCircleError(
@@ -1270,11 +1293,19 @@ class OneLocationCircleService:
         keeps its vault-owner gate.
         """
 
+        # `list_circles` is ordered `updated_at DESC`, and
+        # `ensure_sms_system_circle` stamps `updated_at` on every rename and
+        # limit-heal -- so the most recently updated owned Circle is routinely
+        # the SMS Circle. Onboarding would then name it, mint a code for it and
+        # invite the person's friends into their emergency roster. Skipping
+        # system Circles here is the half of that fix that keeps onboarding
+        # pointed at a Circle the person actually made; `create_invite_code`
+        # refusing them is the half that holds for every other caller.
         owned = next(
             (
                 circle
                 for circle in self.list_circles(user_id=user_id)
-                if str(circle.get("role") or "") == "owner"
+                if str(circle.get("role") or "") == "owner" and not bool(circle.get("isSystem"))
             ),
             None,
         )
@@ -1387,7 +1418,7 @@ class OneLocationCircleService:
                     conn.execute(
                         text(
                             """
-                            SELECT id, owner_user_id, member_limit, status
+                            SELECT id, owner_user_id, member_limit, status, is_system
                             FROM one_location_circles
                             WHERE id = CAST(:circle_id AS UUID)
                             FOR UPDATE
@@ -1397,6 +1428,24 @@ class OneLocationCircleService:
                     )
                 )
                 if not circle_row or str(circle_row.get("status") or "") != "active":
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_CODE_INVALID",
+                        "That Circle code is invalid or no longer available.",
+                        status_code=404,
+                    )
+                # Refusing to MINT a code for a system Circle stops new ones.
+                # It does nothing about the codes already out there: until this
+                # commit `create_invite_code` never read `is_system`, so any
+                # code `bootstrap_first_circle` handed out for an SMS Circle is
+                # live, valid for 72 hours, and redeemable by whoever holds it.
+                # Closing only the minting side would leave the emergency
+                # roster open to every code already shared.
+                #
+                # Reported as CODE_INVALID rather than a new state: from the
+                # holder's side it is a code that does not work, and naming the
+                # Circle's kind would tell a stranger something about a roster
+                # they have no business knowing exists.
+                if bool(circle_row.get("is_system")):
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_CODE_INVALID",
                         "That Circle code is invalid or no longer available.",

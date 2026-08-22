@@ -73,3 +73,18 @@ tests/test_dependency_health_classifier.py
 tests/test_capability_health.py
 tests/test_managed_vertex_readiness_script.py
 tests/test_verify_uat_release.py
+
+# One Location Circles, and the migration guards that protect them.
+#
+# Every file below was written to lock a behaviour that had already broken
+# once, and not one of them was running anywhere: this manifest is the only
+# pytest invocation in any lane, including the merge queue, so a test absent
+# from it is decoration. `test_one_location_system_circle_migration.py` carries
+# the guard written after the account-delete 500, and
+# `test_migrations_are_replay_safe.py` the one written after 158/159 rolled a
+# production deploy back -- both green, both unrun, for as long as they have
+# existed.
+tests/services/test_one_location_circle_service.py
+tests/test_one_location_system_circle_migration.py
+tests/test_migrations_are_replay_safe.py
+tests/services/test_account_service_cleanup_tables.py

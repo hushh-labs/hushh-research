@@ -1940,7 +1940,22 @@ export function CircleDetailFlow({
               rename, invite, remove. The API and a database trigger refuse the
               delete too; this only keeps the person from being offered
               something that cannot happen. */}
-          {isOwner && !circle.isSystem ? (
+          {isOwner && circle.isSystem ? (
+            // The owner of a system Circle gets neither door, and is told why.
+            //
+            // The branch below used to be a two-way `isOwner && !isSystem`, so
+            // this person fell through to "Leave circle" -- which
+            // `_end_membership` refuses with LOCATION_CIRCLE_OWNER_LEAVE_INVALID
+            // every single time. The only control at the bottom of their own
+            // emergency Circle was one that could not work.
+            //
+            // A sentence rather than a disabled button: there is nothing to
+            // enable later, and a greyed control invites a press and a guess.
+            <p className={cn(MUTED_TEXT, "px-1 pt-1")}>
+              This Circle is managed for you, so it can&apos;t be left or
+              deleted. You can still rename it and choose who is in it.
+            </p>
+          ) : isOwner ? (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button

@@ -130,4 +130,38 @@ describe("OneLocationService Circle member invitations", () => {
       "/api/one/location/circle-member-invites/invite-3",
     ]);
   });
+  it("reports who actually went into the Circle", async () => {
+    // The route is called circle-member-invites and returns `invites: []`
+    // unconditionally -- it adds outright now, and names the people it added in
+    // `added`. Reading only `invites` meant this returned an empty array from a
+    // call that had just added two people.
+    mockApiJson.mockResolvedValueOnce({
+      invites: [],
+      added: ["friend-1", "friend-2"],
+    });
+
+    const added = await OneLocationService.createNamedCircleMemberInvites({
+      vaultOwnerToken: "vault-token",
+      circleId: "circle-1",
+      inviteeUserIds: ["friend-1", "friend-2"],
+    });
+
+    expect(added).toEqual(["friend-1", "friend-2"]);
+  });
+
+  it("still answers a server that predates the added array", async () => {
+    // A native build can outlive a backend deploy in either direction.
+    mockApiJson.mockResolvedValueOnce({
+      invites: [{ id: "invite-1", inviteeUserId: "friend-1" }],
+    });
+
+    const added = await OneLocationService.createNamedCircleMemberInvites({
+      vaultOwnerToken: "vault-token",
+      circleId: "circle-1",
+      inviteeUserIds: ["friend-1"],
+    });
+
+    expect(added).toEqual(["friend-1"]);
+  });
+
 });
