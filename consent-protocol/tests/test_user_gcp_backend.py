@@ -197,3 +197,58 @@ async def test_host_is_gone_recognizes_an_absent_byoc_service():
     from hushh_mcp.services.compute_backend import BackendStatus
 
     assert BackendStatus(external_agent_id="x", status="gone", healthy=False).status == "gone"
+
+
+class _ServiceClient:
+    """A Cloud Run client returning one canned service, with our label by default."""
+
+    def __init__(self, svc):
+        self._svc = svc
+
+    def get_service(self, name):  # noqa: ARG002
+        return self._svc
+
+    @staticmethod
+    def service_url(svc):
+        return ((svc or {}).get("status") or {}).get("url")
+
+
+def _ready_service(*, tenancy="user-owned"):
+    return {
+        "metadata": {"name": "one-pod-ha1abc", "labels": {"hussh-tenancy": tenancy}},
+        "status": {
+            "url": "https://one-pod-ha1abc.run.app",
+            "conditions": [{"type": "Ready", "status": "True"}],
+        },
+    }
+
+
+async def test_discover_adopts_an_existing_user_owned_pod(monkeypatch):
+    live = UserGcpBackend(user_project="acme", live=True)
+    monkeypatch.setattr(live, "_client", lambda: _ServiceClient(_ready_service()))
+    handle = await live.discover("ha1abc")
+    assert handle is not None
+    assert handle.status == "live"
+    assert handle.backend_metadata["adopted"] is True
+    assert handle.backend_metadata["url"] == "https://one-pod-ha1abc.run.app"
+
+
+async def test_discover_returns_none_when_no_pod_exists(monkeypatch):
+    live = UserGcpBackend(user_project="acme", live=True)
+    monkeypatch.setattr(live, "_client", lambda: _AbsentServiceClient())
+    assert await live.discover("ha1abc") is None
+
+
+async def test_discover_refuses_a_service_that_is_not_ours(monkeypatch):
+    # A name collision on something WE did not create must never be adopted -- we
+    # would later tear down a resource that is not ours. Only hussh-tenancy=user-owned
+    # is adoptable.
+    live = UserGcpBackend(user_project="acme", live=True)
+    monkeypatch.setattr(live, "_client", lambda: _ServiceClient(_ready_service(tenancy="")))
+    assert await live.discover("ha1abc") is None
+
+
+async def test_discover_is_none_in_plan_mode():
+    # Plan mode holds no impersonated client; there is nothing to discover.
+    planned = UserGcpBackend(user_project="acme", live=False)
+    assert await planned.discover("ha1abc") is None

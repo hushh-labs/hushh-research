@@ -209,3 +209,78 @@ def test_create_service_happy_path_returns_created(monkeypatch):
     monkeypatch.setattr(requests, "post", lambda *a, **k: _Ok())
     result = client.create_service({"metadata": {"name": "one-pod-new"}})
     assert result["metadata"]["name"] == "one-pod-new"
+
+
+def test_list_services_unwraps_items_and_passes_the_label_selector(monkeypatch):
+    import requests
+
+    captured = {}
+
+    class _Ok:
+        status_code = 200
+
+        def json(self):
+            return {
+                "items": [{"metadata": {"name": "one-pod-a"}}, {"metadata": {"name": "one-pod-b"}}]
+            }
+
+        def raise_for_status(self):
+            return None
+
+    def _get(url, headers=None, params=None, timeout=None):
+        captured["url"] = url
+        captured["params"] = params
+        return _Ok()
+
+    client = _client_no_net()
+    monkeypatch.setattr(requests, "get", _get)
+    out = client.list_services("app=hushh-one-pod,hussh-tenancy=user-owned")
+
+    assert [s["metadata"]["name"] for s in out] == ["one-pod-a", "one-pod-b"]
+    assert captured["url"].endswith("/services")
+    # The selector must reach the API server-side; a client-side filter would stream
+    # every service in a busy project.
+    assert captured["params"] == {"labelSelector": "app=hushh-one-pod,hussh-tenancy=user-owned"}
+
+
+def test_list_services_no_selector_sends_no_params(monkeypatch):
+    import requests
+
+    captured = {}
+
+    class _Empty:
+        status_code = 200
+
+        def json(self):
+            return {}  # a project with no services returns no `items` key
+
+        def raise_for_status(self):
+            return None
+
+    def _get(url, headers=None, params=None, timeout=None):
+        captured["params"] = params
+        return _Empty()
+
+    client = _client_no_net()
+    monkeypatch.setattr(requests, "get", _get)
+    assert client.list_services() == []
+    assert captured["params"] is None
+
+
+def test_list_services_surfaces_a_permission_error_never_swallows_it(monkeypatch):
+    import requests
+
+    class _Forbidden:
+        status_code = 403
+
+        def json(self):
+            return {}
+
+        def raise_for_status(self):
+            raise RuntimeError("403 Forbidden")
+
+    client = _client_no_net()
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _Forbidden())
+    # "could not look" must NOT read as "no such pods" -- a reclaim sweep depends on it.
+    with pytest.raises(RuntimeError):
+        client.list_services("app=hushh-one-pod")

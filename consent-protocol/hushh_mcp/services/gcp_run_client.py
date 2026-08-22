@@ -340,6 +340,30 @@ class GcpRunClient:
         r.raise_for_status()
         return dict(r.json())
 
+    def list_services(self, label_selector: str = "") -> list[dict[str, Any]]:
+        """Every service in this project, optionally narrowed by a knative labelSelector.
+
+        The discovery/reclaim substrate reads this to answer two questions the
+        deterministic name alone cannot: "is there an orphaned pod for a person whose
+        registry row we lost?" (Direction B of the orphan sweep) and "which pods carry
+        our label?". A ``label_selector`` like ``app=hushh-one-pod,hussh-tenancy=user-owned``
+        filters server-side, so a busy project does not stream us every service.
+
+        A 403 is surfaced, never swallowed to an empty list: an empty list means "no
+        such pods" and a 403 means "we could not look", and a reclaim sweep that
+        confused the two would report a project swept-clean when it was merely
+        unreadable. That is the R8 silent-fallback failure -- the caller decides what a
+        permission error means, this method does not hide it.
+        """
+        import requests  # type: ignore[import-untyped]
+
+        params = {"labelSelector": label_selector} if label_selector else None
+        r = requests.get(
+            f"{self._base}/services", headers=self._headers(), params=params, timeout=30
+        )
+        r.raise_for_status()
+        return list((r.json() or {}).get("items") or [])
+
     def delete_service(self, name: str) -> None:
         import requests  # type: ignore[import-untyped]
 

@@ -792,6 +792,65 @@ class UserGcpBackend:
         logger.info("user_gcp_backend.plan_deprovision service=%s", external_agent_id)
         return None
 
+    async def discover(self, hushh_id: str) -> Optional[BackendHandle]:
+        """Find an ORPHANED pod that already exists for this person, to ADOPT not rebuild.
+
+        The case: a returning user whose registry row was lost (they uninstalled and came
+        back, or the row was reaped) but whose pod is still running in THEIR project.
+        Because the service name is deterministic (``one-pod-<slug>``), one cheap
+        ``get_service`` answers "is there already a pod here for this identity?" without
+        listing the fleet.
+
+        Adopting preserves the identity and its memory; the alternative -- provisioning --
+        would create a duplicate service the deterministic name then 409s on, and rebuild
+        would mint a NEW identity and discard the memory. So this is the FIRST thing the
+        reinit/repair path should try.
+
+        It refuses to claim a service that is not OURS: the discovered service must carry
+        ``hussh-tenancy=user-owned``. Anything else in the project with a colliding name is
+        left untouched -- we never adopt, and certainly never later tear down, a resource
+        we did not create. Returns None when nothing adoptable exists (or in plan mode).
+        """
+        if not self._live:
+            return None
+        import asyncio  # noqa: PLC0415
+
+        name = _service_name(hushh_id)
+        client = await asyncio.to_thread(self._client)
+        svc = await asyncio.to_thread(client.get_service, name)
+        if svc is None:
+            return None
+        labels = ((svc.get("metadata") or {}).get("labels")) or {}
+        if labels.get("hussh-tenancy") != "user-owned":
+            # A name collision on something we did not create. Not adoptable.
+            logger.warning(
+                "user_gcp_backend.discover_foreign service=%s tenancy=%s",
+                name,
+                labels.get("hussh-tenancy"),
+            )
+            return None
+        conditions = {
+            c.get("type"): c.get("status") for c in svc.get("status", {}).get("conditions", [])
+        }
+        ready = conditions.get("Ready") == "True"
+        url = client.service_url(svc)
+        logger.info("user_gcp_backend.discovered service=%s ready=%s", name, ready)
+        return BackendHandle(
+            external_agent_id=name,
+            a2a_route=f"{A2A_ADDRESS_BASE}/{hushh_id}",
+            status="live" if ready else "deploying",
+            backend=self.backend_id,
+            backend_metadata={
+                "tenancy": "user-owned",
+                "project": self._user_project,
+                "region": self._user_region,
+                "service": name,
+                "url": url or "",
+                "ingress": "internal",
+                "adopted": True,
+            },
+        )
+
     async def get(self, external_agent_id: str) -> BackendStatus:
         if self._live:
             import asyncio  # noqa: PLC0415
