@@ -1015,13 +1015,22 @@ async def _deprovision_personal_agent(
 
         # Capture the row BEFORE deprovision: on the legacy path deprovision deletes it,
         # and the substrate teardown that runs afterward would then re-read None and
-        # silently skip. The capture is load-bearing, not cosmetic. Resilient by design:
-        # a capture failure falls back to None (teardown re-reads and, worst case, no-ops)
-        # rather than failing the whole deletion.
+        # silently skip -- permanently orphaning the user's KMS key, bucket, SA and mail
+        # plumbing in their own project. So a capture FAILURE cannot fall through to None:
+        # it flips the order for this call only, running teardown FIRST (its own re-read
+        # still sees the row, which the failed read did not delete) so erasure is never
+        # silently skipped. The compute-before-substrate order is a 503-avoidance nicety,
+        # not a correctness rule, and account deletion has no live user to protect from it.
         try:
             row = await registry.get(normalized_user_id)
+            capture_failed = False
         except Exception:  # noqa: BLE001 - deletion must complete regardless
-            row = None
+            row, capture_failed = None, True
+            logger.warning(
+                "personal_agent.row_capture_failed_before_teardown user=%s -- "
+                "running substrate teardown first so erasure is not skipped",
+                normalized_user_id,
+            )
 
         # ORDER: compute FIRST, then the substrate it referenced. A live pod holds open
         # references to its KMS key, CMEK bucket, runtime service account and signing
@@ -1034,10 +1043,18 @@ async def _deprovision_personal_agent(
         service = PersonalAgentProvisioningService(
             registry=registry, backend=resolve_compute_backend()
         )
-        result = await service.deprovision(
-            user_id=normalized_user_id, revoke=revoke, defer_row_delete=defer_row_delete
-        )
-        substrate = await _teardown_byoc_substrate(registry, normalized_user_id, row=row)
+        if capture_failed:
+            # No captured row to survive a legacy-path delete -> tear substrate down while
+            # the row still exists, then deprovision. Erasure completeness beats ordering.
+            substrate = await _teardown_byoc_substrate(registry, normalized_user_id)
+            result = await service.deprovision(
+                user_id=normalized_user_id, revoke=revoke, defer_row_delete=defer_row_delete
+            )
+        else:
+            result = await service.deprovision(
+                user_id=normalized_user_id, revoke=revoke, defer_row_delete=defer_row_delete
+            )
+            substrate = await _teardown_byoc_substrate(registry, normalized_user_id, row=row)
 
         out = result if isinstance(result, dict) else {"status": str(result or "deprovisioned")}
         if substrate is not None:

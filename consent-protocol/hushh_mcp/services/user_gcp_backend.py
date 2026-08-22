@@ -848,6 +848,15 @@ class UserGcpBackend:
                 "url": url or "",
                 "ingress": "internal",
                 "adopted": True,
+                # WHICH account this pod runs as -- the same field _execute_live records
+                # (verify_pod_identity binds the asserted HusshID to this on the BYOC
+                # tier). Omitting it locks the adopted pod out of pod_consent / heartbeat /
+                # specialist with a 401, so the standing read adoption just restored could
+                # never be exercised. Derived from the same rule the bootstrap uses.
+                "runtime_service_account": (
+                    f"{pod_service_account_id(hushh_id)}@"
+                    f"{self._user_project}.iam.gserviceaccount.com"
+                ),
             },
         )
 

@@ -6,7 +6,9 @@ memory preserved), not re-provisioned (duplicate) and not rebuilt (new identity)
 exercise the orchestration adopt_orphan adds -- reconstruct a `connecting` row from the
 discovered handle, then hand off to the SAME key-collector provision finishes with -- and
 stop at the seams the existing suites already cover (the key pull + grant mint live in
-test_personal_agent_reconcile_attach.py, so refresh_pod_key is faked here).
+test_pod_key_custody.py, so refresh_pod_key is faked here -- but with a RECORDING fake, so
+the one thing adopt_orphan owns, handing the reconstructed connecting row to the collector,
+is still asserted).
 """
 
 from __future__ import annotations
@@ -80,12 +82,13 @@ def _service(monkeypatch, *, row, handle, cloud=None):
         pa_svc, "resolve_user_cloud", _AsyncReturn(cloud if cloud is not None else _cloud())
     )
     monkeypatch.setattr(svc, "_backend_for", lambda _spec: backend)
-    # The key pull + grant mint are covered elsewhere; fake the collector to a terminal.
-    monkeypatch.setattr(
-        "hushh_mcp.services.pod_key_collector.refresh_pod_key",
-        _AsyncReturn("provisioned"),
-    )
-    return svc, registry, backend
+    # The key pull + grant mint are covered in test_pod_key_custody.py; fake the collector
+    # to a terminal here -- but RECORD the row handed to it, because passing the freshly
+    # reconstructed `connecting` row (not the stale needs_reinit row) is the one step
+    # adopt_orphan itself owns.
+    refresh = _RecordingRefresh("provisioned")
+    monkeypatch.setattr("hushh_mcp.services.pod_key_collector.refresh_pod_key", refresh)
+    return svc, registry, backend, refresh
 
 
 class _AsyncReturn:
@@ -98,10 +101,22 @@ class _AsyncReturn:
         return self._value
 
 
+class _RecordingRefresh:
+    """A refresh_pod_key stand-in that records the row it was handed."""
+
+    def __init__(self, value):
+        self._value = value
+        self.rows: list = []
+
+    async def __call__(self, row, **kwargs):
+        self.rows.append(row)
+        return self._value
+
+
 @pytest.mark.asyncio
 async def test_adopt_reconstructs_a_connecting_row_and_reaches_provisioned(monkeypatch):
     row = {"status": "needs_reinit", "hushh_id": "ha1_abc", "phone_e164_hash": "deadbeef"}
-    svc, registry, backend = _service(monkeypatch, row=row, handle=_handle())
+    svc, registry, backend, refresh = _service(monkeypatch, row=row, handle=_handle())
 
     out = await svc.adopt_orphan(user_id="uid-1")
 
@@ -115,18 +130,25 @@ async def test_adopt_reconstructs_a_connecting_row_and_reaches_provisioned(monke
     assert up["backend_metadata"]["url"] == "https://one-pod.run.app"
     # Adoption NEVER creates compute.
     assert backend.create_calls == 0
+    # The collector was handed the RECONSTRUCTED connecting row (row2), never None or the
+    # stale needs_reinit row -- attach_pod_public_key raises without an existing row.
+    assert len(refresh.rows) == 1
+    handed = refresh.rows[0]
+    assert handed is not None
+    assert handed["status"] == "connecting"
+    assert handed["backend_metadata"]["url"] == "https://one-pod.run.app"
 
 
 @pytest.mark.asyncio
 async def test_adopt_returns_none_when_no_row(monkeypatch):
-    svc, _r, _b = _service(monkeypatch, row=None, handle=_handle())
+    svc, _r, _b, _f = _service(monkeypatch, row=None, handle=_handle())
     assert await svc.adopt_orphan(user_id="uid-1") is None
 
 
 @pytest.mark.asyncio
 async def test_adopt_returns_none_when_already_provisioned(monkeypatch):
     row = {"status": "provisioned", "hushh_id": "ha1_abc", "phone_e164_hash": "x"}
-    svc, registry, _b = _service(monkeypatch, row=row, handle=_handle())
+    svc, registry, _b, _f = _service(monkeypatch, row=row, handle=_handle())
     assert await svc.adopt_orphan(user_id="uid-1") is None
     assert registry.upserts == []  # a whole agent is left untouched
 
@@ -135,7 +157,7 @@ async def test_adopt_returns_none_when_already_provisioned(monkeypatch):
 async def test_adopt_returns_none_when_no_live_pod_to_adopt(monkeypatch):
     # discover() finds nothing -> caller falls through to reinit/rebuild, no row written.
     row = {"status": "needs_reinit", "hushh_id": "ha1_abc", "phone_e164_hash": "x"}
-    svc, registry, _b = _service(monkeypatch, row=row, handle=None)
+    svc, registry, _b, _f = _service(monkeypatch, row=row, handle=None)
     assert await svc.adopt_orphan(user_id="uid-1") is None
     assert registry.upserts == []
 
@@ -151,6 +173,6 @@ async def test_adopt_returns_none_for_a_non_byoc_cloud(monkeypatch):
         bootstrap_sa=None,
     )
     row = {"status": "needs_reinit", "hushh_id": "ha1_abc", "phone_e164_hash": "x"}
-    svc, registry, _b = _service(monkeypatch, row=row, handle=_handle(), cloud=managed)
+    svc, registry, _b, _f = _service(monkeypatch, row=row, handle=_handle(), cloud=managed)
     assert await svc.adopt_orphan(user_id="uid-1") is None
     assert registry.upserts == []

@@ -108,13 +108,51 @@ async def test_account_teardown_deletes_compute_before_substrate(monkeypatch):
         order.append("substrate")
         return {"executed": True, "actions": 1}
 
+    class _Registry:
+        async def get(self, _uid):
+            return {"deployment_target": "user_gcp", "hushh_id": "ha1_x"}
+
     monkeypatch.setattr(_SVC_PATH, FakeService)
-    monkeypatch.setattr(_REPO_PATH, lambda: object())
+    monkeypatch.setattr(_REPO_PATH, _Registry)
     monkeypatch.setattr(account, "_teardown_byoc_substrate", fake_substrate)
 
     await account._deprovision_personal_agent(_UID, revoke=True, defer_row_delete=True)
 
     assert order == ["compute", "substrate"]
+
+
+async def test_a_failed_row_capture_still_runs_substrate_teardown(monkeypatch):
+    # If the up-front registry.get() raises, the teardown must NOT be silently skipped
+    # (that would orphan the user's KMS key/bucket/SA forever). It runs first instead.
+    from api.routes import account
+
+    order: list[str] = []
+
+    class _Registry:
+        async def get(self, _uid):
+            raise RuntimeError("transient DB blip")
+
+    class FakeService:
+        def __init__(self, **kwargs):
+            pass
+
+        async def deprovision(self, *, user_id, revoke=True, defer_row_delete=False):
+            order.append("compute")
+            return {"status": "deprovisioned", "hushhId": "ha1_x"}
+
+    async def fake_substrate(registry, user_id, *, row=None):
+        order.append("substrate")
+        return {"executed": True}
+
+    monkeypatch.setattr(_SVC_PATH, FakeService)
+    monkeypatch.setattr(_REPO_PATH, _Registry)
+    monkeypatch.setattr(account, "_teardown_byoc_substrate", fake_substrate)
+
+    result = await account._deprovision_personal_agent(_UID)
+
+    # Teardown ran (erasure not skipped), and ran BEFORE deprovision could delete the row.
+    assert order == ["substrate", "compute"]
+    assert result["status"] == "deprovisioned"
 
 
 async def test_substrate_teardown_receives_the_row_captured_before_deprovision(monkeypatch):

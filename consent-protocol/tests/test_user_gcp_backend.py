@@ -231,6 +231,10 @@ async def test_discover_adopts_an_existing_user_owned_pod(monkeypatch):
     assert handle.status == "live"
     assert handle.backend_metadata["adopted"] is True
     assert handle.backend_metadata["url"] == "https://one-pod-ha1abc.run.app"
+    # The adopted row MUST carry runtime_service_account, or verify_pod_identity 401s the
+    # pod on the BYOC tier and the restored standing read can never be exercised.
+    sa = handle.backend_metadata["runtime_service_account"]
+    assert sa.endswith("@acme.iam.gserviceaccount.com")
 
 
 async def test_discover_returns_none_when_no_pod_exists(monkeypatch):
