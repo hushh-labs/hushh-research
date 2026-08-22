@@ -117,6 +117,53 @@ describe("SetupCompletionFooter blocked state", () => {
     expect(button.className).not.toContain("disabled:!bg-muted/60");
   });
 
+  it("still takes the tap while blocked, so the caller can say what is missing", () => {
+    // The whole point of `blocked` over `disabled`: an inert button cannot
+    // explain itself, and the explanation is what the tap was asking for.
+    const { button, onComplete } = renderFooter({ blocked: true });
+
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveAttribute("aria-disabled", "true");
+
+    fireEvent.click(button);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it("wears the same neutral container while blocked as it does while disabled", () => {
+    // `disabled:` variants never match an enabled button, so the blocked look
+    // has to be spelled out unprefixed or a tappable block renders full blue
+    // and promises passage it cannot give.
+    const { button } = renderFooter({ blocked: true });
+
+    expect(button.className).toContain("!bg-muted/60");
+    expect(button.className).toContain("!border-border");
+    expect(button.className).toContain("!text-muted-foreground");
+    expect(button.className).toContain("hover:!bg-muted/60");
+    // The accent utility stays in the list and loses to the `!` override, the
+    // same way the disabled path overrides it. What matters is that nothing
+    // paints blue, not that the base class was removed.
+    expect(button.className).toContain("!bg-muted/60");
+  });
+
+  it("lets a real disable win over a soft block", () => {
+    // Both set: the caller means inert. Never leave a button that takes taps
+    // while its owner believes it is switched off.
+    const { button, onComplete } = renderFooter({ blocked: true, disabled: true });
+
+    expect(button).toBeDisabled();
+    expect(button.className).toContain("disabled:!bg-muted/60");
+
+    fireEvent.click(button);
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it("keeps the in-flight run visible rather than re-blocking it mid-tap", () => {
+    const { button } = renderFooter({ blocked: true, busy: true });
+
+    expect(button.className).toContain(ACCENT_FILL);
+    expect(button.className).not.toContain("!bg-muted/60");
+  });
+
   it("leaves the quiet skip action on its own established treatment", () => {
     const { button } = renderFooter({
       disabled: true,
