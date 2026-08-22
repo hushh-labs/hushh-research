@@ -4873,7 +4873,7 @@
         "location",
         "compose"
       ],
-      "meaning": "Opens the share composer, where you pick who to share your location with and for how long. Nothing is shared until you send it.",
+      "meaning": "Opens the share composer, where you pick who to share your location with and for how long. Nothing is shared until you send it. If the person to share with is already named in the same request (e.g. 'share my location with Alice'), call select_share_recipient directly instead -- it navigates here and selects them in one step.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -4981,7 +4981,7 @@
         "request",
         "location"
       ],
-      "meaning": "Opens the request composer, where you ask another person to share their location with you.",
+      "meaning": "Opens the request composer, where you ask another person to share their location with you. If the person is already named in the same request (e.g. 'ask Alice where she is'), call select_ask_recipient directly instead -- it navigates here and selects them in one step.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -5091,7 +5091,7 @@
         "choose",
         "request"
       ],
-      "meaning": "Finds the person or people you named among your connections and selects them in the request composer, so you can see who is picked before anything is sent. Multiple people can be named in one turn, e.g. 'Alice and Bob'. It only selects: sending the request is still a separate, confirmed step.",
+      "meaning": "Finds the person or people you named among your connections and selects them in the request composer, so you can see who is picked before anything is sent. Multiple people can be named in one turn, e.g. 'Alice and Bob'. It only selects: sending the request is still a separate, confirmed step. Works from any screen: it navigates to this composer itself, so open_ask does not need to be called first when a name is already given.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -5426,7 +5426,7 @@
         "group",
         "new"
       ],
-      "meaning": "Opens the create-circle screen, where you name a new circle of people to share location with as a group.",
+      "meaning": "Opens the create-circle screen, where you name a new circle of people to share location with as a group. If the circle's name is already said in the same request (e.g. 'create a circle called Family'), call create_circle directly instead -- it creates the circle without opening this screen.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -5534,7 +5534,7 @@
         "code",
         "invite"
       ],
-      "meaning": "Opens the join-circle screen, where you enter an invite code to join someone else's circle.",
+      "meaning": "Opens the join-circle screen, where you enter an invite code to join someone else's circle. Use this only when you have a code to type in; if you already have a pending circle invitation waiting for you, call accept_circle_invite directly instead -- no code needed.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -5866,7 +5866,7 @@
         "help",
         "panic"
       ],
-      "meaning": "Opens the emergency SOS screen, where an alert with your location can be sent to your emergency contacts. Opening it does not send anything.",
+      "meaning": "Opens the emergency SOS screen, where an alert with your location can be sent to your emergency contacts. Opening it does not send anything. Say this to look at the screen or manage contacts, not to alert anyone -- to send a real alert immediately, use trigger_sos.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -6196,7 +6196,7 @@
         "shares",
         "stop"
       ],
-      "meaning": "Opens the list of shares that are live right now, so you can see and stop what other people can currently see.",
+      "meaning": "Opens the list of shares that are live right now, so you can see and stop what other people can currently see. Say this when no specific person is named yet; if a person IS already named (e.g. 'stop sharing with Alice'), call stop_share directly instead.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -6849,7 +6849,7 @@
         "off",
         "location"
       ],
-      "meaning": "Stops this device sending new location updates and takes you off nearby presence. People you have already granted keep their grant, but it stops moving until you resume.",
+      "meaning": "Stops this device sending new location updates and takes you off nearby presence. People you have already granted keep their grant, but it stops moving until you resume. This affects your device for everyone at once; to end a share with just one person while staying visible to everyone else, use stop_share instead.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -6960,7 +6960,7 @@
         "person",
         "share"
       ],
-      "meaning": "Finds the person or people you named among your connections and selects them in the share composer, so you can see who is picked before anything is sent. Multiple people can be named in one turn, e.g. 'Alice and Bob'. It only selects: starting the share is still a separate, confirmed step.",
+      "meaning": "Finds the person or people you named among your connections and selects them in the share composer, so you can see who is picked before anything is sent. Multiple people can be named in one turn, e.g. 'Alice and Bob'. It only selects: starting the share is still a separate, confirmed step. Works from any screen: it navigates to this composer itself, so open_share does not need to be called first when a name is already given.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -7204,7 +7204,7 @@
         "share",
         "access"
       ],
-      "meaning": "Stops an active share with the named person immediately, so your location no longer updates for them. It only ends the one share you named; every other active share is untouched.",
+      "meaning": "Stops an active share with the named person immediately, so your location no longer updates for them. It only ends the one share you named; every other active share is untouched. This is scoped to one person and does not touch your device's own broadcasting -- to stop sharing with everyone at once, use pause_updates instead.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -8993,7 +8993,7 @@
         "invitation",
         "join"
       ],
-      "meaning": "Joins a circle you were invited to. Once accepted you start sharing your location with, and seeing shares from, that circle's members.",
+      "meaning": "Joins a circle you were invited to. Once accepted you start sharing your location with, and seeing shares from, that circle's members. This only works on an invitation already pending for you; if you have a code instead, use open_join_circle.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -9566,7 +9566,7 @@
         "help",
         "send"
       ],
-      "meaning": "Sends an emergency alert to your ready emergency contacts right now, sharing your live location with them and emailing anyone a push notification could not reach. It does not call emergency services.",
+      "meaning": "Sends an emergency alert to your ready emergency contacts right now, sharing your live location with them and emailing anyone a push notification could not reach. It does not call emergency services. This is a real, immediate alert, not the SOS screen -- to just look at the screen or manage contacts without alerting anyone, use open_sos.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
