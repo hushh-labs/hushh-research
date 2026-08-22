@@ -789,6 +789,30 @@ class AccountService:
                 ),
                 params,
             )
+        # Migration 163 widened that same trigger to fire on `system_kind IS
+        # NOT NULL` as well, because Trusted is deliberately NOT `is_system`.
+        # Clearing only the flag therefore stopped being enough to open the
+        # escape hatch: 163 backfills `system_kind = 'sms'` onto every existing
+        # SMS Circle, so the row demoted above still trips the trigger on the
+        # DELETE below, and a Trusted Circle trips it having never been
+        # `is_system` at all. That is incident #5574 -- account deletion 500s --
+        # arriving a second time by a different column.
+        #
+        # Guarded on the column so a database that predates 163 still deletes.
+        if self._table_exists(conn, "one_location_circles") and self._column_exists(
+            conn, "one_location_circles", "system_kind"
+        ):
+            conn.execute(
+                text(
+                    """
+                    UPDATE one_location_circles
+                    SET system_kind = NULL
+                    WHERE owner_user_id = :user_id
+                      AND system_kind IS NOT NULL
+                    """
+                ),
+                params,
+            )
         conn.execute(
             text(
                 """

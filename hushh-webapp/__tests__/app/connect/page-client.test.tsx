@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   searchInformationScopes: vi.fn(),
   onConnectionCapabilityMutated: vi.fn(),
   routerPush: vi.fn(),
+  searchParams: new URLSearchParams(),
   shareLink: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
@@ -25,6 +26,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.routerPush, replace: vi.fn(), back: vi.fn() }),
   usePathname: () => "/one/connect",
+  // The outer Connections/Circles tab lives in `?tab=`, because a circle is a
+  // place you can be sent and a tab that only exists in `useState` cannot be
+  // linked to. `mocks.searchParams` is a real URLSearchParams so a test can
+  // set the tab the way a URL would.
+  useSearchParams: () => mocks.searchParams,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -101,6 +107,10 @@ const EVERYONE = Array.from({ length: 10 }, (_, index) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A fresh URL per test: the outer tab is read from it, so a leaked
+  // `?tab=circles` would silently render the wrong surface for everything
+  // that ran after it.
+  mocks.searchParams = new URLSearchParams();
   mocks.listConnections.mockResolvedValue([]);
   mocks.listRequests.mockResolvedValue([]);
   mocks.getScopeCatalog.mockResolvedValue({
@@ -1419,5 +1429,85 @@ describe("Connect — inviting someone who is not on One yet", () => {
 
     await searchForNobody();
     expect(screen.queryByText("Invite them to One")).toBeNull();
+  });
+});
+
+describe("Connect — Circles", () => {
+  it("opens on Connections when the URL says nothing", async () => {
+    render(<ConnectPageClient />);
+
+    // The default is not written to the URL on mount: doing that would eat one
+    // router.back() step for every arrival.
+    expect(await screen.findByText("Search by name.")).toBeTruthy();
+    expect(screen.queryByTestId("connect-circles-tab")).toBeNull();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("shows circles instead of the directory when the URL asks for them", async () => {
+    mocks.searchParams = new URLSearchParams("tab=circles");
+
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByTestId("connect-circles-tab")).toBeTruthy();
+    // The whole directory half is gone, not merely scrolled past: the search
+    // box drives a paged server query that has nothing to do with this tab.
+    expect(screen.queryByLabelText("Search people")).toBeNull();
+    expect(screen.queryByRole("button", { name: "RIAs" })).toBeNull();
+  });
+
+  it("names the default tab explicitly, so back to Connections navigates", async () => {
+    // The App Router refuses a navigation whose only change is that the whole
+    // query string disappears -- measured on UAT, recorded in
+    // lib/navigation/top-shell-breadcrumbs.ts. `?tab=all` is what makes this a
+    // control rather than a dead press.
+    mocks.searchParams = new URLSearchParams("tab=circles");
+    render(<ConnectPageClient />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Connections" }),
+    );
+
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=all");
+  });
+
+  it("discards an armed selection when the people list goes away", async () => {
+    // A six-person batch still primed under a list nobody can see is worse than
+    // losing the picks: the button that sends it is on the other tab. The reset
+    // runs before the navigation, so it is observable in this render even
+    // though the mocked URL does not change.
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Select many people" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Cancel selecting people" }),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Circles" }));
+
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=circles");
+    // Back to a plain list, with nothing armed against it.
+    expect(
+      screen.getByRole("button", { name: "Select many people" }),
+    ).toBeTruthy();
+  });
+
+  it("keeps the inner directory tabs to themselves", async () => {
+    // People / RIAs / Around you answers "which directory"; the outer strip
+    // answers "people, or groupings of them". Two axes, two strips -- and the
+    // inner one stays local state, which is what keeps its pinned contract
+    // untouched.
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "RIAs" }));
+
+    expect(await screen.findByText("Advisors with a verified profile.")).toBeTruthy();
+    // No navigation: the inner strip does not touch the URL.
+    expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 });

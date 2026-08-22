@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { BadgeCheck, Loader2, Lock, Search as SearchIcon, Share2, UserRound, Users, X } from "lucide-react";
 
@@ -13,6 +13,7 @@ import {
 import { NearbyDirectories } from "@/components/connect/nearby-directories";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { ConnectCirclesTab } from "@/components/connect/circles/connect-circles-tab";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
 import { buildInviteToOneShare } from "@/lib/connect/invite-to-one";
 import {
@@ -21,6 +22,7 @@ import {
   shareLink,
 } from "@/lib/share/share-link";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -42,6 +44,7 @@ import {
 import { useRequireAuth } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { ROUTES } from "@/lib/navigation/routes";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
@@ -82,6 +85,39 @@ type ConnectTab = "people" | "advisors" | "nearby";
  * one thing that cannot be confused with "advisers nearby", and it is the word
  * the people who hold these profiles use for themselves.
  */
+/**
+ * The outer axis: people, or the groups they are in.
+ *
+ * Deliberately a SECOND strip rather than a fourth segment in the one below.
+ * People / RIAs / Around you answers "which directory"; Connections / Circles
+ * answers "people, or groupings of them". Two axes in one strip reads as four
+ * peers, and the inner three are contract-pinned besides -- a fourth option
+ * there would need the 320px width measurement redone.
+ *
+ * Carried in `?tab=` because a circle detail is a place you can be sent, and a
+ * hub tab that only exists in `useState` cannot be linked to or returned to.
+ */
+type ConnectSurface = "all" | "circles";
+
+const CONNECT_SURFACE_LABEL: Record<ConnectSurface, string> = {
+  all: "Connections",
+  circles: "Circles",
+};
+
+const CONNECT_SURFACES = (["all", "circles"] as const).map((value) => ({
+  value,
+  label: CONNECT_SURFACE_LABEL[value],
+}));
+
+const CONNECT_SURFACE_PARAM = "tab";
+
+/**
+ * The padding override the inner strip needs, reused here so both strips on
+ * this surface share one rule rather than drifting apart.
+ */
+const CONNECT_STRIP_COMPACT_PADDING =
+  "[&>button]:px-1 min-[360px]:[&>button]:px-3 sm:[&>button]:px-4.5";
+
 const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
   people: "People",
   advisors: "RIAs",
@@ -307,7 +343,50 @@ export default function ConnectPageClient() {
   const { user } = useRequireAuth();
   const router = useRouter();
 
+  const searchParams = useSearchParams();
+  /**
+   * The outer tab, from `?tab=`.
+   *
+   * Anything unrecognised reads as "all" rather than throwing a 404 at
+   * somebody who mistyped a link, and the default is not written to the URL on
+   * mount -- that would eat one `router.back()` step for every arrival.
+   */
+  const surface: ConnectSurface =
+    searchParams.get(CONNECT_SURFACE_PARAM) === "circles" ? "circles" : "all";
+  /** Which Circle flow, if any, the URL is asking for. Part of the scroll key
+   *  below, because opening one is a new screen even though the path is not. */
+  const circleFlowAction = searchParams.get("action") ?? "";
+  const circleFlowId = searchParams.get("circleId") ?? "";
+
+  // Every navigation on this page passes `scroll: false`, because the surface
+  // strip and the Circle flows are query-only states that must not jump the
+  // page. The cost is that nothing resets scroll either: the shell keys its
+  // own reset on the pathname, which never changes here, so a long people list
+  // scrolled halfway down handed that offset to the circles list, and to every
+  // Circle flow opened after it. The Location hub hit this and fixed it the
+  // same way.
+  useScrollReset(`${surface}:${circleFlowAction}:${circleFlowId}`, {
+    behavior: "auto",
+  });
+
   const [tab, setTab] = useState<ConnectTab>("people");
+  /**
+   * What the Circles tab is doing, reported up.
+   *
+   * The native audit and the voice layer both describe "the screen", and the
+   * screen is whichever surface is showing. Deriving either from the directory
+   * while Circles is open would report an empty directory as the state of a
+   * tab that is not rendering one.
+   */
+  // Bumped whenever something outside the Circles tab changes a Circle or a
+  // relationship, so an open roster re-reads instead of waiting for a manual
+  // refresh -- the request sent from a member row is the case that showed.
+  const [circleRefreshToken, setCircleRefreshToken] = useState(0);
+  const [circlesState, setCirclesState] = useState<{
+    loading: boolean;
+    error: string | null;
+    count: number;
+  }>({ loading: true, error: null, count: 0 });
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, 300);
@@ -416,6 +495,11 @@ export default function ConnectPageClient() {
       if (!detail.action && !detail.reconcile) return;
       void loadConnections().then((rows) => setConnections(rows));
       void loadOutgoingRequestIds();
+      // A Circle roster open behind this page shows the same relationships,
+      // one row per member. Without this it kept a blue "Connect" on somebody
+      // who had just asked to connect with the viewer -- and pressing it then
+      // claimed a request was sent and offered a Cancel the API refuses.
+      setCircleRefreshToken((token) => token + 1);
     };
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, handleStateChanged);
     return () => {
@@ -556,6 +640,37 @@ export default function ConnectPageClient() {
     };
   }, [user, trimmedQuery, currentPage, pageSize, directoryAudience]);
 
+  const selectSurface = useCallback(
+    (next: ConnectSurface) => {
+      if (next === surface) return;
+      const params = new URLSearchParams(searchParams.toString());
+      // The default is written out explicitly. The App Router refuses a
+      // navigation whose only change is that the whole query string
+      // disappears -- measured on UAT and recorded in
+      // `lib/navigation/top-shell-breadcrumbs.ts` -- so `?tab=all` is what
+      // makes "back to Connections" a control that actually moves.
+      params.set(CONNECT_SURFACE_PARAM, next);
+      // A Circle you had open is not where "Circles" should take you next.
+      // These params outlived the surface switch, so leaving for Connections
+      // and tapping Circles again dropped you back inside the same roster
+      // rather than at the list with New circle and Join with code on it.
+      params.delete("action");
+      params.delete("circleId");
+      params.delete("code");
+      // Leaving the people list discards a selection armed against it. A
+      // six-person batch still primed under a list nobody can see is worse
+      // than losing the picks: the button that sends it is on the other tab.
+      if (next !== "all") {
+        setIsSelectionMode(false);
+        setSelectedPeople(new Map());
+        setShowLimitBanner(false);
+        setPendingRemoveId(null);
+      }
+      router.push(`${ROUTES.CONNECT}?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams, surface],
+  );
+
   const goToPage = useCallback(
     (next: number) => {
       if (loading || next < 1) return;
@@ -596,6 +711,9 @@ export default function ConnectPageClient() {
         }));
         setScopeDraft(null);
         CacheSyncService.onConnectionCapabilityMutated(user.uid);
+        // A Circle roster open behind this sheet is now stale: the row that
+        // said "Connect" should say "Requested". Re-read rather than patch.
+        setCircleRefreshToken((token) => token + 1);
         toast.success("Connection request sent");
         return true;
       } catch (sendError) {
@@ -986,6 +1104,7 @@ export default function ConnectPageClient() {
           return remaining;
         });
         CacheSyncService.onConnectionCapabilityMutated(user.uid);
+        setCircleRefreshToken((token) => token + 1);
         toast.success("Connection request cancelled");
       } catch (cancelError) {
         toast.error(
@@ -1069,8 +1188,17 @@ export default function ConnectPageClient() {
       // to say aloud, so this screen names only itself.
       primaryEntity: null,
       selectedEntity: null,
-      spokenSubject: `Connect, ${CONNECT_TAB_LABEL[tab]} tab`,
+      spokenSubject:
+        surface === "circles"
+          ? "Connect, Circles tab"
+          : `Connect, ${CONNECT_TAB_LABEL[tab]} tab`,
       sections: [
+        {
+          id: "circles",
+          title: "Circles",
+          purpose:
+            "See the groups you are in -- Trusted holds everyone you are connected to, the SMS Circle gets your SOS -- and open one to manage who is in it.",
+        },
         { id: "people", title: "People", purpose: "Search everyone you could connect with, and manage existing connections." },
         { id: "advisors", title: "Advisors", purpose: "Search only people whose registered investment adviser profile is verified." },
         { id: "nearby", title: "Around you", purpose: "Find verified advisors and insurance agents, and businesses, near your current location." },
@@ -1096,36 +1224,57 @@ export default function ConnectPageClient() {
           aliases: ["connection", "connections", "connected people"],
         },
       ],
-      activeSection: CONNECT_TAB_LABEL[tab],
-      activeTab: tab,
+      activeSection:
+        surface === "circles" ? "Circles" : CONNECT_TAB_LABEL[tab],
+      activeTab: surface === "circles" ? "circles" : tab,
       visibleModules:
         tab === "nearby"
           ? ["Advisors near you", "Insurance agents near you", "Places near you"]
           : tab === "advisors"
             ? ["Your connections", "Verified advisers directory"]
             : ["Your connections", "People directory"],
-      focusedWidget: `${CONNECT_TAB_LABEL[tab]} tab`,
-      availableActions: ["Open Connect people", "Open advisors around you", "Search for someone to connect with"],
+      focusedWidget:
+        surface === "circles"
+          ? "Circles tab"
+          : `${CONNECT_TAB_LABEL[tab]} tab`,
+      availableActions: [
+        "Open Connect people",
+        "Open advisors around you",
+        "Search for someone to connect with",
+        "Open your circles",
+      ],
       activeControlId: null,
       lastInteractedControlId: null,
       busyOperations: loading ? ["connect_directory_load"] : [],
       // Counts only -- never who.
       screenMetadata: {
         connect_tab: tab,
+        // The outer axis, reported separately: `connect_tab` has always
+        // meant which directory, and reusing it for a different question
+        // would silently change what every existing reading of it meant.
+        connect_surface: surface,
+        circle_count: circlesState.count,
         connection_count: connections.length,
         has_load_error: Boolean(error),
         searching: query.trim().length > 0,
       },
     }),
-    [connections.length, error, loading, query, tab],
+    [circlesState.count, connections.length, error, loading, query, surface, tab],
   );
   usePublishVoiceSurfaceMetadata(connectVoiceSurfaceMetadata);
 
+  // Each of these brings the Connections surface forward before touching the
+  // inner strip. `setTab` alone moves a control that is not on screen while
+  // Circles is showing, so "open people" reported success and did nothing --
+  // and a voice action that lies about what happened is worse than one that
+  // refuses, because the person stops watching for the result.
   useLocalOnboardingActionHandler("connect.open_people", () => {
+    selectSurface("all");
     setTab("people");
     return { status: "succeeded", summary: "Connect people opened." };
   });
   useLocalOnboardingActionHandler("connect.open_nearby", () => {
+    selectSurface("all");
     setTab("nearby");
     return { status: "succeeded", summary: "Advisors around you opened." };
   });
@@ -1137,6 +1286,7 @@ export default function ConnectPageClient() {
     if (!person) {
       return { status: "blocked", summary: "Say the name to search for in Connect." };
     }
+    selectSurface("all");
     setTab("people");
     setQuery(person);
     searchInputRef.current?.focus();
@@ -1486,15 +1636,31 @@ export default function ConnectPageClient() {
         routeId: "/one/connect",
         marker: "native-route-connect",
         authState: user ? "authenticated" : "pending",
-        dataState: error
-          ? "unavailable-valid"
-          : loading
-            ? "loading"
-            : people.length === 0
-              ? "empty-valid"
-              : "loaded",
-        errorCode: error ? "connect_directory_unavailable" : null,
-        errorMessage: error,
+        dataState:
+          surface === "circles"
+            ? circlesState.error
+              ? "unavailable-valid"
+              : circlesState.loading
+                ? "loading"
+                : circlesState.count === 0
+                  ? "empty-valid"
+                  : "loaded"
+            : error
+              ? "unavailable-valid"
+              : loading
+                ? "loading"
+                : people.length === 0
+                  ? "empty-valid"
+                  : "loaded",
+        errorCode:
+          surface === "circles"
+            ? circlesState.error
+              ? "connect_circles_unavailable"
+              : null
+            : error
+              ? "connect_directory_unavailable"
+              : null,
+        errorMessage: surface === "circles" ? circlesState.error : error,
       }}
     >
       <AppPageHeaderRegion>
@@ -1504,6 +1670,26 @@ export default function ConnectPageClient() {
       <AppPageContentRegion>
         <SurfaceStack compact>
           <div className="space-y-4 sm:space-y-5">
+            {/* The outer axis. People, or the groups they are in. */}
+            <SegmentedTabs
+              value={surface}
+              onValueChange={(value) => selectSurface(value as ConnectSurface)}
+              options={CONNECT_SURFACES}
+              className={CONNECT_STRIP_COMPACT_PADDING}
+            />
+
+            {surface === "circles" ? (
+              <ConnectCirclesTab
+                onStateChange={setCirclesState}
+                currentUserId={user?.uid ?? null}
+                // The roster's Connect opens the SAME capability review the
+                // directory opens, rather than sending outright.
+                onRequestConnection={sendConnectRequest}
+                onCancelConnectionRequest={cancelConnectionRequest}
+                refreshToken={circleRefreshToken}
+              />
+            ) : (
+              <>
             <SegmentedTabs
               value={tab}
               onValueChange={(value) => setTab(value as ConnectTab)}
@@ -2041,6 +2227,8 @@ export default function ConnectPageClient() {
               </SettingsGroup>
                 </div>
               </div>
+            )}
+              </>
             )}
           </div>
         </SurfaceStack>

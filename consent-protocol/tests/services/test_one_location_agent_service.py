@@ -899,6 +899,12 @@ class FourUserMemoryService(OneLocationAgentService):
         self.connection_origins: dict[str, dict] = {}
         self.named_circle_memberships: set[tuple[str, str]] = set()
         self.sms_contacts: set[tuple[str, str]] = set()
+        # (owner, member) pairs standing in for an active membership of the
+        # owner's own `is_system` Circle. Since #5426 that roster is where the
+        # emergency list actually lives, and the SOS gate reads it as well as
+        # the legacy table -- so the double has to model both or a test can only
+        # ever exercise the half that was already there.
+        self.sms_circle_members: set[tuple[str, str]] = set()
         self.events: dict[str, dict] = {}
         self.notifications: list[dict] = []
         self.professional_relationships: list[dict] = []
@@ -1095,6 +1101,11 @@ class FourUserMemoryService(OneLocationAgentService):
                 status_code=403,
             )
         self.sms_contacts.add((owner_user_id, contact_user_id))
+
+    def _seed_sms_circle_member(self, owner_user_id: str, member_user_id: str) -> None:
+        """Put someone in the owner's emergency Circle without touching the
+        legacy table -- exactly what the Circle detail screen does."""
+        self.sms_circle_members.add((owner_user_id, member_user_id))
 
     def _send_metadata_notification(self, **kwargs) -> None:
         assert _contains_plaintext_location_key(kwargs.get("data") or {}) is False
@@ -1629,7 +1640,8 @@ class FourUserMemoryService(OneLocationAgentService):
             }
         if "SELECT 1" in sql and "FROM one_location_sms_contacts" in sql:
             pair = (params["owner_user_id"], params["contact_user_id"])
-            return {"exists": 1} if pair in self.sms_contacts else None
+            selected = pair in self.sms_contacts or pair in self.sms_circle_members
+            return {"exists": 1} if selected else None
         if "INSERT INTO one_location_sms_contacts" in sql:
             pair = (params["owner_user_id"], params["contact_user_id"])
             self.sms_contacts.add(pair)
@@ -5478,3 +5490,200 @@ def test_the_durations_the_screen_offers_are_accepted() -> None:
     service.revoke_public_invite(owner_user_id="user_a", invite_id=half["invite"]["id"])
     whole = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
     assert whole["invite"]["durationHours"] == 1
+
+
+def test_sos_reaches_someone_added_through_the_emergency_circle() -> None:
+    """The emergency path, for anyone added the way the product now says to.
+
+    Since #5426 the SMS Circle IS the emergency list and the screen picks SOS
+    recipients from its roster. This gate never learned that: it asked
+    `one_location_sms_contacts`, which the Circle detail screen does not write.
+    So somebody added through Circle detail was offered by the UI and refused
+    here with LOCATION_SMS_CONTACT_REQUIRED -- at the moment an SOS was being
+    sent, which is the only moment it is discoverable.
+    """
+
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    # Note what is NOT called: add_sms_contact. This is the Circle-only path.
+    service._seed_sms_circle_member("user_a", "user_b")
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        reason="Come get me",
+        share_kind="sos",
+        enforce_connection=True,
+    )
+
+    assert grant["shareKind"] == "sos"
+    assert grant["recipientUserId"] == "user_b"
+
+
+def test_sos_still_refuses_someone_in_neither_the_table_nor_the_circle() -> None:
+    # The widening above is a widening of an emergency gate, so the refusal it
+    # is widening has to keep holding for everyone else.
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+
+    with pytest.raises(OneLocationAgentError) as err:
+        service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id="user_b",
+            recipient_key_id="key-user_b",
+            duration_hours=8,
+            reason="Come get me",
+            share_kind="sos",
+            enforce_connection=True,
+        )
+    assert err.value.code == "LOCATION_SMS_CONTACT_REQUIRED"
+
+
+def test_every_sos_gate_reads_the_emergency_circle_not_only_the_table() -> None:
+    """A property of the idiom, not of one call site.
+
+    The gate is written at four places -- the atomic grant CTE, the explainer
+    that produces the error message, the fallback list the client reads, and
+    the same list inside `list_state`. A narrow explainer beside a wide gate is
+    worse than either: the share succeeds and the message says it could not. So
+    assert every statement that reaches `one_location_sms_contacts` also reaches
+    the owner's own system Circle.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as module
+
+    source = inspect.getsource(module)
+    # Statement-ish blocks: split on the triple-quoted SQL literals.
+    sql_blocks = [block for block in source.split('"""') if "one_location_sms_contacts" in block]
+    assert sql_blocks, "no SQL reaches one_location_sms_contacts any more"
+
+    gates = 0
+    arms = 0
+    for block in sql_blocks:
+        # The two write paths are the owner curating the legacy table itself;
+        # they are not recipient gates and have no Circle arm to grow.
+        if "INSERT INTO one_location_sms_contacts" in block:
+            continue
+        if "DELETE FROM one_location_sms_contacts" in block:
+            continue
+        gates += 1
+        arms += block.count("circle.is_system")
+        assert "circle.is_system" in block, (
+            "an SOS gate reads the legacy contacts table without also reading "
+            "the owner's emergency Circle:\n" + block[:400]
+        )
+
+    # Counted, not merely detected.
+    #
+    # Some of these gates carry the arm twice -- a UNION with a roster arm
+    # on each side -- so the presence check above still passes after one of
+    # them is deleted. That is how the SOS roster fix could be removed with
+    # every backend test still green. Measured by deleting one: 7 becomes 6.
+    assert gates >= 4, f"expected at least 4 SOS recipient gates, found {gates}"
+    assert arms >= 7, (
+        f"expected at least 7 emergency-Circle arms across the SOS gates, "
+        f"found {arms} -- one has been removed"
+    )
+
+
+def test_a_product_managed_circle_introduces_nobody() -> None:
+    """The shared-circle eligibility arm is a property of the idiom, not of one
+    call site.
+
+    That arm joins membership to membership and never mentions
+    `circle.owner_user_id`, so two people became eligible for each other's live
+    location the moment they shared a Circle -- whoever owned it. On the SMS
+    Circle that is ten strangers, and it contradicts that Circle's own design
+    note. On a Trusted Circle holding every connection it would be every PAIR
+    of your connections.
+
+    The join is written seven times across two services. Asserting the fix at
+    one of them would leave the other six, and would not stop an eighth being
+    added wide -- which is exactly how it came to be written seven times.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as agent_module
+    from hushh_mcp.services import one_location_circle_service as circle_module
+
+    sites = 0
+    owner_clauses = 0
+    for module in (agent_module, circle_module):
+        source = inspect.getsource(module)
+        # Split on the SQL literals so an assertion lands inside one statement
+        # rather than anywhere in a 7,000-line file.
+        for block in source.split('"""'):
+            if "one_location_circle_memberships" not in block:
+                continue
+            if "JOIN one_location_circles circle" not in block:
+                continue
+            # The two membership rows have to belong to different people for
+            # this to be the eligibility idiom at all.
+            if block.count("one_location_circle_memberships") < 2:
+                continue
+            sites += 1
+            owner_clauses += block.count("circle.owner_user_id = ")
+            assert "circle.owner_user_id = " in block, (
+                "a shared-Circle eligibility join does not require one side to "
+                "be the Circle's owner, so a product-managed Circle would "
+                "introduce its members to each other:\n" + block[:500]
+            )
+
+    # Seven when this was written. The floor catches a site being deleted along
+    # with its guard; the assertion above catches a new one arriving wide.
+    assert sites >= 7, f"expected at least 7 shared-Circle joins, found {sites}"
+
+    # And the clauses are counted, not merely detected.
+    #
+    # Most of these blocks name `circle.owner_user_id` more than once,
+    # because the narrowing accepts either side of the pair as the owner.
+    # The presence check therefore survives one of the two being deleted,
+    # which leaves the join wide open in whichever direction lost its
+    # clause. Measured by deleting one: 17 becomes 16.
+    assert owner_clauses >= 17, (
+        f"expected at least 17 owner-scoping clauses across the "
+        f"shared-Circle joins, found {owner_clauses} -- one has been removed"
+    )
+
+
+def test_location_and_connect_read_one_circle_list() -> None:
+    """Both surfaces must show the same Circles, structurally.
+
+    Connect's Circles tab reads `GET /api/one/location/circles`, which is
+    `OneLocationCircleService.list_circles`. The Location agent's People tab
+    reads `state.circles` from `list_state`. Issue #5458 asks for one shared
+    grouping rather than a copy per surface, and the owner's own requirement
+    was that a Circle made in Location onboarding shows up on Connect.
+
+    That holds today because `list_state` calls the same method rather than
+    running its own query -- so this asserts it still does. A second query here
+    would drift silently: the two surfaces would agree until the day one of
+    them grew a filter, and the symptom would be a Circle that exists in one
+    place and not the other.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as agent_module
+
+    source = inspect.getsource(agent_module.OneLocationAgentService.list_state)
+    assert "circle_service.list_circles(user_id=user_id)" in source
+    # And it is handed to the caller unchanged -- no per-surface filtering.
+    assert '"circles": named_circles,' in source
+    # Never its own SQL against the Circle tables.
+    assert "FROM one_location_circles" not in source
