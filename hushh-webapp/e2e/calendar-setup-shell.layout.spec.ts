@@ -244,10 +244,18 @@ test.describe("Calendar setup shell", () => {
 
       // The invariant that actually broke: every part of the card must be
       // REACHABLE. In normal flow the shell grows with its content, so the card
-      // never extends past it, and a viewport shorter than the page scrolls.
+      // never extends past it, and a viewport shorter than the page scrolls
+      // far enough to reach the card's last pixel.
+      //
+      // Both comparisons carry a 1px tolerance because getBoundingClientRect
+      // returns fractions while scrollHeight is an integer: a card ending at
+      // 320.5 in a 320 viewport is not a clipped card, it is a rounded one, and
+      // the first version of this assertion failed on exactly that.
       expect(m.card!.bottom).toBeLessThanOrEqual(m.shell!.bottom + 1);
-      if (m.card!.bottom > m.viewportHeight) {
-        expect(m.docScrollHeight).toBeGreaterThan(m.viewportHeight);
+      if (m.card!.bottom > m.viewportHeight + 1) {
+        expect(m.docScrollHeight).toBeGreaterThanOrEqual(
+          Math.floor(m.card!.bottom),
+        );
       }
     });
   }
