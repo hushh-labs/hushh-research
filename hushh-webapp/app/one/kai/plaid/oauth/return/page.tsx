@@ -74,7 +74,7 @@ export default function KaiPlaidOauthReturnPage() {
     const session = loadPlaidOAuthResumeSession();
     if (!session) {
       setStage("error");
-      setError("No active Plaid OAuth session was found. Start the connection again from Kai.");
+      setError("No active Plaid OAuth session was found. Start the connection again from Finance.");
       return;
     }
 
@@ -232,7 +232,7 @@ export default function KaiPlaidOauthReturnPage() {
           <HushhLoader
             label={
               stage === "redirecting"
-                ? "Returning to Kai..."
+                ? "Returning to Finance..."
                 : "Resuming your Plaid connection..."
             }
           />
@@ -261,7 +261,7 @@ export default function KaiPlaidOauthReturnPage() {
           <p className="mt-2 text-sm text-muted-foreground">{error}</p>
           <div className="mt-4 flex flex-col gap-2">
             <Button onClick={() => router.replace(returnPath)} className="w-full">
-              Back to Kai
+              Back to Finance
             </Button>
             <Button
               variant="none"
