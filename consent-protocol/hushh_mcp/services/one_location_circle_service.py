@@ -1685,11 +1685,20 @@ class OneLocationCircleService:
         # system Circles here is the half of that fix that keeps onboarding
         # pointed at a Circle the person actually made; `create_invite_code`
         # refusing them is the half that holds for every other caller.
+        #
+        # `isSystem` alone stopped being that test when Trusted arrived. Trusted
+        # is deliberately NOT `is_system` -- the commit before this one explains
+        # why -- so for anyone whose only owned Circle is Trusted, this picked
+        # it, and `create_invite_code` then refused it and onboarding failed
+        # outright rather than giving them a first Circle. Product-managed is
+        # `systemKind`, and that is what this asks now.
         owned = next(
             (
                 circle
                 for circle in self.list_circles(user_id=user_id)
-                if str(circle.get("role") or "") == "owner" and not bool(circle.get("isSystem"))
+                if str(circle.get("role") or "") == "owner"
+                and not bool(circle.get("isSystem"))
+                and not str(circle.get("systemKind") or "").strip()
             ),
             None,
         )

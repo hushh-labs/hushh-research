@@ -2836,6 +2836,103 @@ def test_onboarding_still_reuses_a_circle_the_person_actually_made(
     assert result["circleName"] == "K Family"
 
 
+def test_onboarding_does_not_pick_the_trusted_circle_as_your_first_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The one system Circle this picker cannot recognise by `isSystem`.
+
+    Trusted is provisioned with `is_system = FALSE` on purpose, so the guard
+    above -- written when the SMS Circle was the only product-managed one --
+    lets it straight through. It is also the FIRST owned Circle most people
+    have, because it is created the moment they accept a connection and long
+    before they make one of their own.
+
+    Picked here, it goes to `create_invite_code`, which refuses a Trusted
+    Circle, so onboarding does not merely hand out the wrong Circle -- it
+    raises, and the person gets no first Circle at all.
+    """
+
+    service = OneLocationCircleService(
+        db=_TransactionDb(_CapacityConnection()),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(
+        service,
+        "list_circles",
+        lambda **_kwargs: [
+            {
+                "id": "trusted-circle",
+                "role": "owner",
+                "isSystem": False,
+                "systemKind": "trusted",
+                "name": "Trusted",
+            },
+        ],
+    )
+    created: list[dict] = []
+
+    def _create_circle(**kwargs):
+        created.append(kwargs)
+        return {"id": "new-circle", "name": kwargs.get("name")}
+
+    monkeypatch.setattr(service, "create_circle", _create_circle)
+    minted: list[dict] = []
+
+    def _mint(**kwargs):
+        minted.append(kwargs)
+        return {"code": "2345-6789-ABCD"}
+
+    monkeypatch.setattr(service, "create_invite_code", _mint)
+
+    result = service.bootstrap_first_circle(user_id="owner-user", name="Neelesh's Circle")
+
+    assert result["circleId"] == "new-circle"
+    assert result["circleName"] == "Neelesh's Circle"
+    assert len(created) == 1
+    # And the code it hands onboarding belongs to that new Circle, never to the
+    # roster of everybody they are connected to.
+    assert [str(call.get("circle_id")) for call in minted] == ["new-circle"]
+
+
+def test_onboarding_still_reuses_a_circle_the_person_made_beside_trusted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guard skips the product's Circles, not the person's."""
+
+    service = OneLocationCircleService(
+        db=_TransactionDb(_CapacityConnection()),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(
+        service,
+        "list_circles",
+        lambda **_kwargs: [
+            {
+                "id": "trusted-circle",
+                "role": "owner",
+                "isSystem": False,
+                "systemKind": "trusted",
+                "name": "Trusted",
+            },
+            {"id": "family", "role": "owner", "isSystem": False, "name": "K Family"},
+        ],
+    )
+
+    def _fail(**_kwargs):
+        raise AssertionError("bootstrap created a Circle when one already existed")
+
+    monkeypatch.setattr(service, "create_circle", _fail)
+    monkeypatch.setattr(
+        service,
+        "create_invite_code",
+        lambda **_kwargs: {"code": "2345-6789-ABCD"},
+    )
+
+    result = service.bootstrap_first_circle(user_id="owner-user", name="Neelesh's Circle")
+
+    assert result["circleId"] == "family"
+
+
 # ---------------------------------------------------------------------------
 # Trusted: a projection of the connection graph, not a permission over it.
 # ---------------------------------------------------------------------------
