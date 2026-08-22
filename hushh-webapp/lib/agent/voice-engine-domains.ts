@@ -71,7 +71,7 @@ export const VOICE_ENGINE_DOMAINS: readonly VoiceEngineDomain[] = [
   {
     key: "finance",
     label: "Finance",
-    description: "Kai portfolio and analysis.",
+    description: "Finance portfolio and analysis.",
     enforced: false,
   },
   {

@@ -154,7 +154,7 @@ export function OnboardingStepLicense({
         <p className="text-[13px] leading-[1.45] text-muted-foreground">
           {verificationBypassEnabled
             ? "Development and UAT can bypass live verification for testing only."
-            : "Kai verifies your identity against FINRA and SEC records before unlocking the advisory workflow."}
+            : "One verifies your identity against FINRA and SEC records before unlocking the advisory workflow."}
         </p>
       </div>
     </div>

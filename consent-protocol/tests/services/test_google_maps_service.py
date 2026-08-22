@@ -907,3 +907,165 @@ async def test_search_directory_category_cache_key_includes_radius(monkeypatch):
     )
 
     assert calls == 2
+
+
+# --------------------------------------------------------------------------- #
+# Redis tier -- shared across every Cloud Run instance and worker. A fake
+# async client stands in for a real server; no test here talks to a network.
+# --------------------------------------------------------------------------- #
+
+
+class _FakeRedis:
+    def __init__(self, *, fail: bool = False):
+        self.store: dict[str, str] = {}
+        self.fail = fail
+        self.get_calls = 0
+        self.set_calls = 0
+
+    async def get(self, key):
+        self.get_calls += 1
+        if self.fail:
+            raise ConnectionError("redis unavailable")
+        return self.store.get(key)
+
+    async def set(self, key, value, ex=None):
+        self.set_calls += 1
+        if self.fail:
+            raise ConnectionError("redis unavailable")
+        self.store[key] = value
+
+
+def test_redis_url_prefers_the_dedicated_override_then_the_rate_limit_uri(monkeypatch):
+    """Same Memorystore instance the rate limiter already uses -- second consumer."""
+
+    monkeypatch.delenv("PLACES_CACHE_REDIS_URL", raising=False)
+    monkeypatch.delenv("RATE_LIMIT_STORAGE_URI", raising=False)
+    assert gms._redis_url() == ""
+
+    monkeypatch.setenv("RATE_LIMIT_STORAGE_URI", "redis://shared:6379/0")
+    assert gms._redis_url() == "redis://shared:6379/0"
+
+    monkeypatch.setenv("PLACES_CACHE_REDIS_URL", "redis://dedicated:6379/1")
+    assert gms._redis_url() == "redis://dedicated:6379/1"
+
+
+def test_no_redis_configured_means_client_is_none(monkeypatch):
+    monkeypatch.delenv("PLACES_CACHE_REDIS_URL", raising=False)
+    monkeypatch.delenv("RATE_LIMIT_STORAGE_URI", raising=False)
+    assert gms._get_redis_client() is None
+
+
+@pytest.mark.asyncio
+async def test_a_cell_another_instance_already_cached_in_redis_is_not_rebilled(monkeypatch):
+    """The whole point of L2: one instance's paid call is every instance's free hit."""
+
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"places": []})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    fake = _FakeRedis()
+    monkeypatch.setattr(gms, "_get_redis_client", lambda: fake)
+    cache_key = gms._cache_key_string("nearby", ("education", *gms._geo_cell(37.4275, -122.1697)))
+    fake.store[cache_key] = json.dumps([{"placeId": "seeded", "name": "Seeded Spot"}])
+
+    result = await gms.GoogleMapsService().nearby_places(
+        lat=37.4275, lng=-122.1697, category="education"
+    )
+
+    assert calls == 0
+    assert result == [{"placeId": "seeded", "name": "Seeded Spot"}]
+
+
+@pytest.mark.asyncio
+async def test_nearby_places_writes_through_to_redis_on_a_fresh_fetch(monkeypatch):
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(
+        gms,
+        "_async_client",
+        lambda: _client_with(lambda r: httpx.Response(200, json={"places": []})),
+    )
+
+    fake = _FakeRedis()
+    monkeypatch.setattr(gms, "_get_redis_client", lambda: fake)
+
+    await gms.GoogleMapsService().nearby_places(lat=37.4275, lng=-122.1697, category="education")
+
+    cache_key = gms._cache_key_string("nearby", ("education", *gms._geo_cell(37.4275, -122.1697)))
+    assert cache_key in fake.store
+    assert json.loads(fake.store[cache_key]) == []
+    assert fake.set_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_a_redis_hit_backfills_the_local_cache_so_the_second_call_stays_local(monkeypatch):
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(
+        gms,
+        "_async_client",
+        lambda: _client_with(lambda r: httpx.Response(200, json={"places": []})),
+    )
+
+    fake = _FakeRedis()
+    monkeypatch.setattr(gms, "_get_redis_client", lambda: fake)
+    cache_key = gms._cache_key_string("nearby", ("education", *gms._geo_cell(37.4275, -122.1697)))
+    fake.store[cache_key] = json.dumps([{"placeId": "seeded", "name": "Seeded"}])
+
+    svc = gms.GoogleMapsService()
+    await svc.nearby_places(lat=37.4275, lng=-122.1697, category="education")
+    assert fake.get_calls == 1
+
+    await svc.nearby_places(lat=37.4275, lng=-122.1697, category="education")
+    assert fake.get_calls == 1  # served from L1 this time, no second round trip
+
+
+@pytest.mark.asyncio
+async def test_a_broken_redis_degrades_to_a_fresh_provider_call_instead_of_failing(monkeypatch):
+    """Losing Redis must cost money, never correctness -- this is the whole point
+    of never letting a cache-layer exception reach the caller."""
+
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"places": []})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+    monkeypatch.setattr(gms, "_get_redis_client", lambda: _FakeRedis(fail=True))
+
+    result = await gms.GoogleMapsService().nearby_places(
+        lat=37.4275, lng=-122.1697, category="education"
+    )
+
+    assert result == []
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_search_directory_category_also_writes_through_to_redis(monkeypatch):
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(
+        gms,
+        "_async_client",
+        lambda: _client_with(lambda r: httpx.Response(200, json={"places": []})),
+    )
+
+    fake = _FakeRedis()
+    monkeypatch.setattr(gms, "_get_redis_client", lambda: fake)
+
+    await gms.GoogleMapsService().search_directory_category(
+        lat=12.9716, lng=77.5946, category="hotels_stays", radius_meters=8046.72, limit=8
+    )
+
+    cache_key = gms._cache_key_string(
+        "directory", ("hotels_stays", *gms._geo_cell(12.9716, 77.5946), 8047, 8)
+    )
+    assert cache_key in fake.store
+    assert fake.set_calls == 1

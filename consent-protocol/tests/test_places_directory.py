@@ -107,6 +107,35 @@ def test_duplicate_categories_collapse() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# The origin box takes an area name, not just a postcode.
+# --------------------------------------------------------------------------- #
+
+
+def test_an_area_name_is_a_valid_origin() -> None:
+    """The bound was 12 characters, which is a postcode and nothing else.
+
+    `_resolve_origin` hands this straight to Places Text Search, which resolves
+    "Koramangala, Bengaluru" perfectly well -- but the schema rejected it before
+    it ever got there, and the resulting 422 reached the reader as an outage.
+    """
+
+    payload = places_routes.PlacesSearchRequest(postalCode="Koramangala, Bengaluru")
+
+    assert payload.postal_code == "Koramangala, Bengaluru"
+
+
+def test_a_postcode_still_resolves() -> None:
+    assert places_routes.PlacesSearchRequest(postalCode="560034").postal_code == "560034"
+
+
+def test_an_unbounded_origin_is_still_refused() -> None:
+    """Widened, not opened: this string is forwarded to a paid provider."""
+
+    with pytest.raises(ValueError):
+        places_routes.PlacesSearchRequest(postalCode="x" * 121)
+
+
+# --------------------------------------------------------------------------- #
 # Streaming
 # --------------------------------------------------------------------------- #
 
