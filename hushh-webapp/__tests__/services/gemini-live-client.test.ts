@@ -257,3 +257,70 @@ describe("GeminiLiveClient session resumption", () => {
     }
   });
 });
+
+describe("GeminiLiveClient connection setup", () => {
+  // Neither describeSocketCloseError nor the setup-timeout watchdog is
+  // exported -- both are reached the same way the real socket reaches them,
+  // through connectSocket's own onclose handler and its armed timer, using
+  // the same FakeWebSocket-swap approach as the resumption tests above.
+
+  class FakeWebSocket {
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    onclose: ((event: { code: number; reason: string }) => void) | null = null;
+    onerror: (() => void) | null = null;
+    readyState = 0;
+    send = vi.fn();
+    close = vi.fn();
+  }
+
+  it("maps a pre-setup close reason to a specific, actionable message", () => {
+    const onError = vi.fn();
+    const transport = new GeminiLiveClient({ onError });
+    const connection = transport as unknown as {
+      connectSocket: (relayUrl: string) => void;
+      ws: FakeWebSocket | null;
+    };
+    const OriginalWebSocket = global.WebSocket;
+    // @ts-expect-error -- minimal stub standing in for the real WebSocket global
+    global.WebSocket = FakeWebSocket;
+    try {
+      connection.connectSocket("wss://example.test/relay");
+      connection.ws?.onclose?.({ code: 1008, reason: "denied access" });
+    } finally {
+      global.WebSocket = OriginalWebSocket;
+    }
+
+    expect(onError).toHaveBeenCalledWith(
+      "Voice is not enabled for this workspace yet. The Gemini project needs Live API access.",
+      expect.anything(),
+    );
+  });
+
+  it("fails with a diagnosable message if setupComplete never arrives", () => {
+    vi.useFakeTimers();
+    const OriginalWebSocket = global.WebSocket;
+    try {
+      const onError = vi.fn();
+      const transport = new GeminiLiveClient({ onError });
+      const connection = transport as unknown as {
+        connectSocket: (relayUrl: string) => void;
+      };
+      // @ts-expect-error -- minimal stub standing in for the real WebSocket global
+      global.WebSocket = FakeWebSocket;
+
+      connection.connectSocket("wss://example.test/relay");
+      expect(onError).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(20_000);
+
+      expect(onError).toHaveBeenCalledWith(
+        expect.stringContaining("Voice took too long to start"),
+        expect.anything(),
+      );
+    } finally {
+      global.WebSocket = OriginalWebSocket;
+      vi.useRealTimers();
+    }
+  });
+});
