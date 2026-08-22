@@ -440,10 +440,10 @@ export function ConnectCirclesTab({
   ) {
     return (
       <CircleDetailFlow
-        // Remount on a bump so the flow re-runs its own load. It holds the
-        // roster in local state, so without this a member added, removed or
-        // newly requested stayed on screen exactly as it was.
-        key={`${circleIdParam}:${reloadToken}:${refreshToken}`}
+        // A signal, not a `key`. Remounting would re-read the roster but also
+        // close an open add-people sheet, clear a half-typed search and drop
+        // the selection -- and a notification can arrive at any moment.
+        reloadSignal={reloadToken + refreshToken}
         circleId={circleIdParam}
         currentUserId={currentUserId}
         busy={busy}

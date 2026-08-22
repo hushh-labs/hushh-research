@@ -1063,6 +1063,7 @@ export function CircleDetailFlow({
   onRemoveMember,
   onConnectMember,
   onCancelMemberRequest,
+  reloadSignal = 0,
   onLoadEligibleConnections,
   onInviteConnections,
   onCancelMemberInvite,
@@ -1107,6 +1108,14 @@ export function CircleDetailFlow({
   /** Takes back a request this viewer sent to a co-member. Absent on a
    *  surface that cannot cancel, where the row shows a plain "Requested". */
   onCancelMemberRequest?: (circleId: string, userId: string) => Promise<void>;
+  /** Re-read this Circle without disturbing what the person is doing.
+   *
+   *  Bumped by the caller when something outside this screen changed the
+   *  roster -- a request sent, a member added, somebody joining with a code.
+   *  Deliberately NOT a `key` remount: that would close an open add-people
+   *  sheet, clear a half-typed search and drop the selection, which is a
+   *  worse answer than a stale row. */
+  reloadSignal?: number;
   onLoadEligibleConnections: (
     circleId: string,
   ) => Promise<OneLocationCircleEligibleConnections>;
@@ -1200,6 +1209,17 @@ export function CircleDetailFlow({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [circleId]);
+
+  // A re-read the caller asked for. Unlike the effect above it resets nothing:
+  // the sheet stays open, the search keeps its text, the selection survives.
+  const lastReloadSignalRef = useRef(reloadSignal);
+  useEffect(() => {
+    if (reloadSignal === lastReloadSignalRef.current) return;
+    lastReloadSignalRef.current = reloadSignal;
+    if (!circleId) return;
+    void reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadSignal]);
 
   const circle =
     loadedCircle?.id === circleId ? loadedCircle : null;

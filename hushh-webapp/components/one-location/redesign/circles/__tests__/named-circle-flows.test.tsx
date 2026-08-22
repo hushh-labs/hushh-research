@@ -1752,3 +1752,41 @@ describe("a roster row can take back a request it sent", () => {
     ).toBeNull();
   });
 });
+
+describe("a caller-requested re-read keeps the screen where it was", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("re-reads on a bumped signal", async () => {
+    const onLoad = vi.fn(async () => circle("circle-1", "K Family"));
+    const props = detailProps(onLoad);
+    const view = render(
+      <CircleDetailFlow circleId="circle-1" {...props} reloadSignal={0} />,
+    );
+    await waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
+
+    view.rerender(
+      <CircleDetailFlow circleId="circle-1" {...props} reloadSignal={1} />,
+    );
+
+    await waitFor(() => expect(onLoad).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not re-read when the signal has not moved", async () => {
+    // Every unrelated re-render must not put a request on the wire.
+    const onLoad = vi.fn(async () => circle("circle-1", "K Family"));
+    const props = detailProps(onLoad);
+    const view = render(
+      <CircleDetailFlow circleId="circle-1" {...props} reloadSignal={3} />,
+    );
+    await waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
+
+    view.rerender(
+      <CircleDetailFlow circleId="circle-1" {...props} reloadSignal={3} />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(onLoad).toHaveBeenCalledTimes(1);
+  });
+});
