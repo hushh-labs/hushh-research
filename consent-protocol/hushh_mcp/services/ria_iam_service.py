@@ -157,7 +157,7 @@ _RIA_KAI_SPECIALIZED_TEMPLATE_ID = "ria_kai_specialized_v1"
 _RIA_KAI_SPECIALIZED_BUNDLE_KEY = "ria_kai_specialized"
 _RIA_KAI_SPECIALIZED_LABEL = "Portfolio + data"
 _RIA_KAI_SPECIALIZED_DESCRIPTION = (
-    "Advisor-side research agent and explorer access for portfolio, profile, analysis history, "
+    "Advisor-side One and explorer access for portfolio, profile, analysis history, "
     "and runtime context."
 )
 _OFFICIAL_LOCATION_REPORT_URLS: tuple[str, ...] = (

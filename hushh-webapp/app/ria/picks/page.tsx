@@ -1210,7 +1210,7 @@ function ScreeningEditor({
           <div>
             <h3 className="text-sm font-semibold text-foreground">Screening</h3>
             <p className="text-xs text-muted-foreground">
-              Keep the fixed screening taxonomy, but update the rules the research agent should carry into investor debates.
+              Keep the fixed screening taxonomy, but update the rules One should carry into investor debates.
             </p>
           </div>
           <div className="flex justify-end">
@@ -1258,7 +1258,7 @@ function ScreeningEditor({
               <div className="space-y-3">
                 {filteredRows.length === 0 ? (
                   <SurfaceInset className="px-4 py-3 text-sm text-muted-foreground">
-                    No rules yet. Add the rubric you want the research agent to carry into the investor debate.
+                    No rules yet. Add the rubric you want One to carry into the investor debate.
                   </SurfaceInset>
                 ) : null}
                 {filteredRows.map((row) => (

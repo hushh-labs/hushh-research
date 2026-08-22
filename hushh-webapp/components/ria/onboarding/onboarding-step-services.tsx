@@ -309,7 +309,7 @@ export function OnboardingStepServices({
       <div className="space-y-3">
         <SectionLabel htmlFor="ria-bio">Short Bio</SectionLabel>
         <RiaAiActionPill onClick={onDraftBio}>
-          Ask the research agent to draft a bio
+          Ask One to draft a bio
         </RiaAiActionPill>
         {hasBio && !bioEditing ? (
           <button

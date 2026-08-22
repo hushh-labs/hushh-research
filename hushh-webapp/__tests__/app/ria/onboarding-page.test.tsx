@@ -228,7 +228,7 @@ vi.mock("@/components/ria/onboarding/onboarding-step-services", () => ({
     <div data-testid="step-services">
       <span data-testid="services-bio">{bio}</span>
       <button data-testid="draft-bio" onClick={onDraftBio}>
-        Ask the research agent to draft a bio
+        Ask One to draft a bio
       </button>
       <span data-testid="services-city">{city}</span>
       <span data-testid="services-area">{areaLocality}</span>
@@ -266,7 +266,7 @@ vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
         Edit Services
       </button>
       <button data-testid="ask-kai-update" onClick={onAskKaiUpdateAnything}>
-        Ask the research agent to update anything
+        Ask One to update anything
       </button>
     </div>
   ),
