@@ -545,6 +545,15 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     # three different problems with one symptom.
     session_started_at = time.monotonic()
 
+    # Session-health tracking for the summary line logged at teardown, below.
+    # Until now, closing a voice session logged nothing about the session
+    # itself -- no duration, no reason it ended, no turn or error count.
+    # Reconstructing "how many sessions failed last week, and why" meant
+    # correlating scattered per-event log lines across two services by hand.
+    turn_count = 0
+    pump_error_count = 0
+    close_reason = "clean"
+
     def _compose_greeting_prompt(screen: str, playbook: dict[str, Any] | None) -> str:
         entry_cue = _bounded_text(playbook.get("entry_cue"), 240) if playbook else ""
         proactive = bool(playbook and playbook.get("proactivity") == "on_entry" and entry_cue)
@@ -1371,6 +1380,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             queue.send_realtime(genai_types.Blob(data=audio_bytes, mime_type=mime))
 
     async def pump_events_to_browser() -> None:
+        nonlocal turn_count, close_reason, pump_error_count
         # ADK evaluates a callable system instruction when run_live opens.
         # Wait for the browser's first bounded app_context so the active
         # server-resolved playbook AND the executable-action inventory are
@@ -1398,6 +1408,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         try:
             await _pump_live_events()
         except ValueError as tool_error:
+            close_reason = "unknown_tool_call"
             logger.warning("one_adk_live_unknown_tool_call error=%s", str(tool_error)[:160])
             await websocket.send_text(
                 json.dumps({"sessionEnded": {"reason": "unknown_tool_call", "resumable": True}})
@@ -1413,6 +1424,8 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             classification = classify_provider_error(runtime_error)
             record_capability_failure("voice", classification, runtime_error)
             resumable = classification == PROVIDER_UNAVAILABLE
+            pump_error_count += 1
+            close_reason = f"runtime_error:{classification}"
             logger.warning(
                 "one_adk_live_runtime_failed classification=%s error=%s",
                 classification,
@@ -1433,6 +1446,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             return
 
     async def _pump_live_events() -> None:
+        nonlocal turn_count
         async for event in runner.run_live(
             user_id=session_user,
             session_id=session_id,
@@ -1696,6 +1710,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 await websocket.send_text(json.dumps({"clientDirective": outgoing_directive}))
 
             if getattr(event, "turn_complete", False):
+                turn_count += 1
                 await websocket.send_text(json.dumps({"serverContent": {"turnComplete": True}}))
 
     up = asyncio.create_task(pump_browser_to_queue())
@@ -1704,13 +1719,35 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         done, pending = await asyncio.wait({up, down}, return_when=asyncio.FIRST_EXCEPTION)
         for task in done:
             task_error = task.exception()
-            if task_error is not None and not isinstance(task_error, WebSocketDisconnect):
-                logger.warning(
-                    "one_adk_live_relay_pump_failed error=%s", task_error.__class__.__name__
-                )
+            if task_error is None:
+                continue
+            if isinstance(task_error, WebSocketDisconnect):
+                close_reason = "client_disconnect"
+                continue
+            # Only the exception class name -- never the message, which can
+            # carry provider response text. Classified into the summary line
+            # below; the class name is the only thing distinguishing a quota
+            # error from a malformed response from a transport failure today.
+            pump_error_count += 1
+            close_reason = f"pump_failed:{task_error.__class__.__name__}"
+            logger.warning(
+                "one_adk_live_relay_pump_failed error=%s", task_error.__class__.__name__
+            )
     except WebSocketDisconnect:
-        pass
+        close_reason = "client_disconnect"
     finally:
+        # The one line answering "how long did this session live, and why did
+        # it end" -- previously absent entirely, so reconstructing session
+        # health meant correlating scattered per-event log lines by hand.
+        logger.info(
+            "one_adk_live_session_summary session_id=%s duration_ms=%s "
+            "close_reason=%s turn_count=%s pump_error_count=%s",
+            session_id,
+            round((time.monotonic() - session_started_at) * 1000),
+            close_reason,
+            turn_count,
+            pump_error_count,
+        )
         up.cancel()
         down.cancel()
         for directive_gc_task in issued_directive_gc_tasks.values():
