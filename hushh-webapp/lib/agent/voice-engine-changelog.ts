@@ -18,6 +18,34 @@ export type VoiceEngineChangelogEntry = {
 export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
   {
     version: "1.0",
+    date: "2026-08-22",
+    title: "Walk-through mode",
+    description:
+      "Turn on Walk-through mode in Voice Settings to see a live list of steps as One works through a request with more than one part, alongside what it says.",
+  },
+  {
+    version: "1.0",
+    date: "2026-08-22",
+    title: "Fixed: sending a connection request by voice required typing",
+    description:
+      "Connect could stop at a search box after hearing a name instead of sending the request itself. It now resolves the name and sends hands-free, the same way it always could.",
+  },
+  {
+    version: "1.0",
+    date: "2026-08-22",
+    title: "Location voice commands pick the right one more often",
+    description:
+      "A few Location commands sounded alike -- \"stop sharing\" versus \"stop sharing my location\", or the SOS screen versus a real alert -- and could be picked wrong. One now tells them apart correctly.",
+  },
+  {
+    version: "1.0",
+    date: "2026-08-22",
+    title: "Ambiguous names show a list to pick from",
+    description:
+      "When a spoken name matched more than one person in Location or Circles, One used to just say so and ask again. It now shows the matches so you can tap the right one.",
+  },
+  {
+    version: "1.0",
     date: "2026-08-16",
     title: "Voice settings",
     description:

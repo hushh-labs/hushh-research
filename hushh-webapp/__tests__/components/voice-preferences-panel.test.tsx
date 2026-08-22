@@ -69,8 +69,25 @@ describe("VoicePreferencesPanel", () => {
     expect(readVoicePreferences(userId).voiceEnabled).toBe(false);
     expect(screen.getByRole("switch", { name: "Location" })).toBeDisabled();
     expect(
-      screen.getByRole("switch", { name: "Require a tap to confirm risky actions" }),
+      screen.getByRole("switch", { name: "Require a tap to confirm" }),
     ).toBeDisabled();
+    expect(
+      screen.getByRole("switch", { name: "Walk-through mode" }),
+    ).toBeDisabled();
+  });
+
+  it("walk-through mode defaults off and persists when turned on", () => {
+    render(
+      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} />,
+    );
+
+    const toggle = screen.getByRole("switch", { name: "Walk-through mode" });
+    expect(toggle).not.toBeChecked();
+
+    fireEvent.click(toggle);
+
+    expect(readVoicePreferences(userId).walkthroughMode).toBe(true);
+    expect(toggle).toBeChecked();
   });
 
   it("changelog shows a preview and \"See all updates\" opens the dedicated changelog page", () => {

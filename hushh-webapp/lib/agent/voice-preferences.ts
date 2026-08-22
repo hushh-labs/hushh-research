@@ -15,6 +15,11 @@ export type OneVoicePreferencesState = {
   voiceEnabled: boolean;
   /** When true, confirm_required voice actions must be tapped, not spoken. */
   requireTapConfirmation: boolean;
+  /**
+   * When true, show a live step-by-step panel narrating each action as One
+   * works through a multi-action request, alongside the spoken narration.
+   */
+  walkthroughMode: boolean;
   /** Domain keys (see voice-engine-domains.ts) the user has turned voice OFF for. */
   disabledDomains: string[];
 };
@@ -24,6 +29,7 @@ const PREFERENCES_KEY_PREFIX = "one_voice_preferences_v1:";
 const DEFAULT_STATE: OneVoicePreferencesState = {
   voiceEnabled: true,
   requireTapConfirmation: false,
+  walkthroughMode: false,
   disabledDomains: [],
 };
 
@@ -52,6 +58,7 @@ function sanitizeState(value: unknown): OneVoicePreferencesState {
   return {
     voiceEnabled: raw.voiceEnabled !== false,
     requireTapConfirmation: raw.requireTapConfirmation === true,
+    walkthroughMode: raw.walkthroughMode === true,
     disabledDomains,
   };
 }
