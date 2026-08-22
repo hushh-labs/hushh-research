@@ -380,6 +380,10 @@ class OneLocationCircleService:
             "kind": str(row.get("kind") or "other"),
             "role": role,
             "isSystem": is_system,
+            # Which product-managed Circle this is, so a screen can
+            # tell the emergency one from the connection projection
+            # without matching on a name the owner may have changed.
+            "systemKind": str(row.get("system_kind") or "") or None,
             "memberCount": int(row.get("member_count") or 0),
             "memberLimit": int(row.get("member_limit") or CIRCLE_DEFAULT_MEMBER_LIMIT),
             "createdAt": _iso(row.get("created_at")),
@@ -574,6 +578,7 @@ class OneLocationCircleService:
                 """
                 SELECT
                   c.id, c.name, c.kind, c.member_limit, c.is_system,
+                  c.system_kind,
                   c.created_at, c.updated_at,
                   c.owner_user_id, :user_id AS viewer_user_id, mine.role,
                   owner_identity.display_name AS owner_display_name,
@@ -589,6 +594,16 @@ class OneLocationCircleService:
                  AND active_members.status = 'active'
                 WHERE mine.user_id = :user_id
                   AND mine.status = 'active'
+                  -- A trusted Circle is the owner's own view of who they are
+                  -- connected to. Every one of those people is a member of it,
+                  -- so listing it on the member side would put one "Trusted"
+                  -- row in your list for every person you know -- each of them
+                  -- rendered with their owner's name, and each of them a
+                  -- readable roster of that person's whole connection graph.
+                  AND (
+                    c.system_kind IS DISTINCT FROM 'trusted'
+                    OR c.owner_user_id = :user_id
+                  )
                 GROUP BY c.id, mine.role, owner_identity.display_name
                 ORDER BY c.updated_at DESC, c.created_at DESC
                 """,
@@ -607,6 +622,7 @@ class OneLocationCircleService:
                 """
                 SELECT
                   c.id, c.name, c.kind, c.member_limit, c.is_system,
+                  c.system_kind,
                   c.created_at, c.updated_at,
                   c.owner_user_id, :user_id AS viewer_user_id, mine.role,
                   owner_identity.display_name AS owner_display_name,
@@ -623,6 +639,17 @@ class OneLocationCircleService:
                   ON mine.circle_id = c.id
                  AND mine.user_id = :user_id
                  AND mine.status = 'active'
+                 -- Same rule as `list_circles`, enforced again here because
+                 -- knowing an id is not a reason to read a roster. A trusted
+                 -- Circle's roster IS its owner's connection graph, so a member
+                 -- who guessed or kept an id could enumerate everyone that
+                 -- person knows. Falls through to the existing
+                 -- LOCATION_CIRCLE_NOT_FOUND, which is the honest answer: there
+                 -- is no such Circle, for you.
+                 AND (
+                   c.system_kind IS DISTINCT FROM 'trusted'
+                   OR c.owner_user_id = :user_id
+                 )
                 LEFT JOIN one_location_circle_memberships active_members
                   ON active_members.circle_id = c.id
                  AND active_members.status = 'active'
@@ -924,7 +951,20 @@ class OneLocationCircleService:
                     FROM one_location_circles
                     WHERE owner_user_id = :owner_user_id
                       AND is_system
+                      -- Say which system Circle. `is_system` alone was
+                      -- unambiguous while there was one kind; it is not any
+                      -- more, and this lookup feeds `ensure_sms_system_circle`,
+                      -- which renames what it finds and drops its member_limit
+                      -- to 10. Picking the wrong row here hands SOS the wrong
+                      -- roster.
+                      --
+                      -- A trusted Circle is deliberately NOT `is_system` (see
+                      -- migration 163), so this predicate is belt as well as
+                      -- braces -- but the ORDER BY is not: without it the row
+                      -- returned was whatever Postgres reached first.
+                      AND system_kind = 'sms'
                       AND status = 'active'
+                    ORDER BY created_at, id
                     LIMIT 1
                     """
                 ),
@@ -940,11 +980,11 @@ class OneLocationCircleService:
                     """
                     INSERT INTO one_location_circles (
                       owner_user_id, name, kind, status, member_limit,
-                      is_system, created_at, updated_at, metadata
+                      is_system, system_kind, created_at, updated_at, metadata
                     )
                     VALUES (
                       :owner_user_id, :name, 'other', 'active',
-                      :member_limit, true, NOW(), NOW(), '{}'::jsonb
+                      :member_limit, true, 'sms', NOW(), NOW(), '{}'::jsonb
                     )
                     ON CONFLICT DO NOTHING
                     RETURNING id
@@ -3083,6 +3123,17 @@ class OneLocationCircleService:
                     JOIN one_location_circles circle
                       ON circle.id = first_member.circle_id
                      AND circle.status = 'active'
+                     -- The seventh copy of the shared-membership join, and it
+                     -- has to narrow with the other six: this one decides
+                     -- whether a legacy SMS contact row is still eligible and
+                     -- may be pruned. Left wide, a Trusted Circle would make
+                     -- every pair "still eligible" and nothing would ever be
+                     -- cleaned up again.
+                     AND (
+                       (circle.system_kind IS NULL AND NOT circle.is_system)
+                       OR circle.owner_user_id = first_member.user_id
+                       OR circle.owner_user_id = second_member.user_id
+                     )
                     WHERE first_member.user_id = sms.owner_user_id
                       AND first_member.status = 'active'
                   )
