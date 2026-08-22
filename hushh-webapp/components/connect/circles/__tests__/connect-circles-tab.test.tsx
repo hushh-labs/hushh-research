@@ -6,17 +6,42 @@ const mocks = vi.hoisted(() => ({
   listCircles: vi.fn(),
   ensureTrusted: vi.fn(),
   routerPush: vi.fn(),
+  routerReplace: vi.fn(),
+  createNamedCircle: vi.fn(),
+  getCircle: vi.fn(),
+  searchParams: new URLSearchParams("tab=circles"),
   vaultOwnerToken: "vault-token" as string | null,
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mocks.routerPush, replace: vi.fn(), back: vi.fn() }),
+  useRouter: () => ({
+    push: mocks.routerPush,
+    replace: mocks.routerReplace,
+    back: vi.fn(),
+  }),
+  useSearchParams: () => mocks.searchParams,
 }));
 
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
     listCircles: mocks.listCircles,
     ensureTrustedSystemCircle: mocks.ensureTrusted,
+    createNamedCircle: mocks.createNamedCircle,
+    resolveNamedCircleCode: vi.fn(),
+    joinNamedCircle: vi.fn(),
+    getCircle: mocks.getCircle,
+    updateNamedCircle: vi.fn(),
+    createNamedCircleInviteCode: vi.fn(),
+    listNamedCircleEligibleConnections: vi.fn(async () => ({
+      eligibleConnections: [],
+      pendingInvites: [],
+      remainingCapacity: 0,
+    })),
+    createNamedCircleMemberInvites: vi.fn(),
+    cancelNamedCircleMemberInvite: vi.fn(),
+    removeNamedCircleMember: vi.fn(),
+    leaveNamedCircle: vi.fn(),
+    deleteNamedCircle: vi.fn(),
   },
 }));
 
@@ -77,6 +102,34 @@ beforeEach(() => {
   mocks.vaultOwnerToken = "vault-token";
   mocks.listCircles.mockResolvedValue([]);
   mocks.ensureTrusted.mockResolvedValue({});
+  mocks.searchParams = new URLSearchParams("tab=circles");
+  mocks.createNamedCircle.mockResolvedValue({ id: "new-circle", name: "Roommates" });
+  mocks.getCircle.mockResolvedValue({
+    id: "mine",
+    name: "Roommates",
+    kind: "other",
+    role: "owner",
+    memberCount: 1,
+    memberLimit: 100,
+    viewerCapabilities: {
+      canInviteMembers: true,
+      canViewInviteCode: true,
+      canRotateInviteCode: true,
+      canManageCircle: true,
+      canModerateInvites: true,
+      canDeleteCircle: true,
+      canLeaveCircle: false,
+    },
+    members: [
+      {
+        userId: "owner-user",
+        displayName: "Owner",
+        role: "owner",
+        phoneVerified: true,
+        secureLocationReady: true,
+      },
+    ],
+  });
 });
 
 describe("circleRowDescription", () => {
@@ -273,7 +326,7 @@ describe("ConnectCirclesTab", () => {
     );
   });
 
-  it("opens a circle in the flow that already manages it", async () => {
+  it("opens a circle without leaving Connect", async () => {
     mocks.listCircles.mockResolvedValue([circle("mine", "Roommates", 3)]);
 
     render(<ConnectCirclesTab />);
@@ -281,10 +334,106 @@ describe("ConnectCirclesTab", () => {
 
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     const href = String(mocks.routerPush.mock.calls[0][0]);
-    // router.push, not a document load: one app, and a full load would drop the
-    // vault session these flows need.
-    expect(href).toContain("/one/location");
+    expect(href).toContain("/one/connect");
+    expect(href).toContain("tab=circles");
     expect(href).toContain("action=circle-detail");
     expect(href).toContain("circleId=mine");
+    // The thing this replaced. `/one/location` runs a first-run onboarding
+    // takeover that no query parameter bypasses, so a person who had never
+    // used Location was shown "Share your location easily with anyone" after
+    // asking to open a group of friends.
+    expect(href).not.toContain("/one/location");
+  });
+
+  it("keeps New circle and Join with code on Connect", async () => {
+    render(<ConnectCirclesTab />);
+
+    (await screen.findByText("New circle")).click();
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    const createHref = String(mocks.routerPush.mock.calls[0][0]);
+    expect(createHref).toContain("/one/connect");
+    expect(createHref).toContain("action=create-circle");
+    expect(createHref).not.toContain("/one/location");
+
+    mocks.routerPush.mockClear();
+    screen.getByText("Join with code").click();
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    const joinHref = String(mocks.routerPush.mock.calls[0][0]);
+    expect(joinHref).toContain("/one/connect");
+    expect(joinHref).toContain("action=join-circle");
+    expect(joinHref).not.toContain("/one/location");
+  });
+
+  it("names the tab explicitly on every navigation", async () => {
+    // The App Router refuses a navigation whose only change is the whole query
+    // string disappearing, so `tab=circles` is written out even when closing a
+    // flow -- otherwise back out of a Circle is a dead press.
+    mocks.listCircles.mockResolvedValue([circle("mine", "Roommates", 3)]);
+
+    render(<ConnectCirclesTab />);
+    (await screen.findByText("Roommates")).click();
+
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=circles");
+  });
+});
+
+describe("the flows are hosted on Connect, not linked away to Location", () => {
+  it("renders Create a circle in place when ?action=create-circle", async () => {
+    // The whole point. Before this, the same tap was a router.push into
+    // /one/location, where a first-run onboarding takeover -- decided without
+    // reading any query parameter -- rendered instead.
+    mocks.searchParams = new URLSearchParams("tab=circles&action=create-circle");
+
+    render(<ConnectCirclesTab />);
+
+    expect(
+      await screen.findByTestId("one-location-create-circle-flow"),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("connect-circles-tab")).toBeNull();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("renders Join with code in place, with a shared code pre-filled", async () => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=join-circle&code=2345-6789-ABCD",
+    );
+
+    render(<ConnectCirclesTab />);
+
+    expect(
+      await screen.findByTestId("one-location-join-circle-flow"),
+    ).toBeTruthy();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("renders circle detail in place when ?action=circle-detail", async () => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail&circleId=mine",
+    );
+
+    render(<ConnectCirclesTab />);
+
+    expect(
+      await screen.findByTestId("one-location-circle-detail-flow"),
+    ).toBeTruthy();
+    expect(mocks.getCircle).toHaveBeenCalled();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("an unknown action falls back to the list rather than a blank screen", async () => {
+    mocks.searchParams = new URLSearchParams("tab=circles&action=nonsense");
+
+    render(<ConnectCirclesTab />);
+
+    expect(await screen.findByTestId("connect-circles-tab")).toBeTruthy();
+  });
+
+  it("shows the list, not a flow, when circle-detail carries no id", async () => {
+    mocks.searchParams = new URLSearchParams("tab=circles&action=circle-detail");
+
+    render(<ConnectCirclesTab />);
+
+    expect(await screen.findByTestId("connect-circles-tab")).toBeTruthy();
   });
 });

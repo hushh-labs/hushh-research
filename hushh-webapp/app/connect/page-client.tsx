@@ -1637,7 +1637,11 @@ export default function ConnectPageClient() {
             />
 
             {surface === "circles" ? (
-              <ConnectCirclesTab onStateChange={setCirclesState} />
+              <ConnectCirclesTab
+                onStateChange={setCirclesState}
+                currentUserId={user?.uid ?? null}
+                getIdToken={getIdToken}
+              />
             ) : (
               <>
             <SegmentedTabs

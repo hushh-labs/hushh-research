@@ -244,6 +244,12 @@ import {
   ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
 } from "@/lib/one-location/nearby-check-in-availability";
 import { resolveOnboardingMapPoint } from "@/lib/one-location/onboarding-map-point";
+// One rule, one place: Connect owns the Circle screens now and needs the
+// same judgement about what an API failure may say to a person.
+import {
+  isTransientOneApiError,
+  oneLocationErrorMessage,
+} from "@/lib/one-location/error-message";
 
 import {
   clearLiveShareEntries,
@@ -1256,12 +1262,6 @@ function statusVariant(
   return "outline";
 }
 
-function isTransientOneApiError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const status = (error as { status?: unknown }).status;
-  return status === 502 || status === 503 || status === 504;
-}
-
 function isVaultOwnerAuthError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const status = (error as { status?: unknown }).status;
@@ -1378,53 +1378,6 @@ async function runOneLocationForegroundAttempt<T>(params: {
       await wait(retryDelayMs);
     }
   }
-}
-
-// Consumer UI must never surface raw backend or database internals such as SQL
-// text, driver errors, stack traces, encrypted key blobs, or table and column
-// identifiers. Those belong in logs and developer tooling only. We only let
-// short, human-readable messages through; anything that looks like an internal
-// dump is replaced with a friendly summary. This keeps the vault and PKM data
-// boundary intact and stops raw driver errors from reaching users.
-
-const ONE_LOCATION_UNSAFE_ERROR_MARKERS = [
-  "psycopg2",
-  "sqlalchemy",
-  "sql:",
-  "select ",
-  "insert into",
-  "update ",
-  "delete from",
-  "relation ",
-  "column ",
-  "constraint",
-  "traceback",
-  "jsonb",
-  "public_key",
-  "encrypted_",
-  "jwk",
-  "background on this error",
-  "undefinedcolumn",
-];
-
-function isSafeUserFacingMessage(message: string): boolean {
-  const trimmed = message.trim();
-  if (!trimmed) return false;
-  // Long strings or multi-line payloads are almost always internal dumps.
-  if (trimmed.length > 160) return false;
-  if (/[\n\r]/.test(trimmed)) return false;
-  const lower = trimmed.toLowerCase();
-  return !ONE_LOCATION_UNSAFE_ERROR_MARKERS.some((marker) =>
-    lower.includes(marker),
-  );
-}
-
-function oneLocationErrorMessage(error: unknown, fallback: string): string {
-  if (isTransientOneApiError(error)) {
-    return "One is still catching up. Please refresh once, then check this page before retrying.";
-  }
-  const raw = error instanceof Error ? error.message : "";
-  return isSafeUserFacingMessage(raw) ? raw : fallback;
 }
 
 // Great-circle distance in metres between two points (Haversine). Used to decide
