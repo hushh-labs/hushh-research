@@ -7,6 +7,7 @@ import {
   buildOneSetupRoute,
   buildPhoneMandateRoute,
   buildProfileVaultRoute,
+  isFirebaseSessionOnlyRoute,
   normalizeInternalRouteHref,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -26,7 +27,10 @@ function normalizeRedirectPath(path: string | null | undefined): string {
   // then promoted some users to `/ria`. Organic authentication always enters
   // the private-agent home; explicit internal deep links remain untouched.
   if (path === ROUTES.HOME) return DEFAULT_HOME_ROUTE;
-  if (path === ROUTES.PHONE_MANDATE || path.startsWith(`${ROUTES.PHONE_MANDATE}?`)) {
+  if (
+    path === ROUTES.PHONE_MANDATE ||
+    path.startsWith(`${ROUTES.PHONE_MANDATE}?`)
+  ) {
     return DEFAULT_HOME_ROUTE;
   }
   return path;
@@ -37,8 +41,8 @@ function hasCompletePreVaultAnswers(
 ): boolean {
   return Boolean(
     answers?.investment_horizon &&
-      answers?.drawdown_response &&
-      answers?.volatility_preference,
+    answers?.drawdown_response &&
+    answers?.volatility_preference,
   );
 }
 
@@ -54,7 +58,10 @@ function inviteRedirectTargetFor(path: string): string | null {
   if (isOneLocationInviteRedirect(path)) return path;
   try {
     const url = new URL(path, "https://one.local");
-    if (url.pathname !== ROUTES.PROFILE && url.pathname !== ROUTES.PROFILE_SECURITY) {
+    if (
+      url.pathname !== ROUTES.PROFILE &&
+      url.pathname !== ROUTES.PROFILE_SECURITY
+    ) {
       return null;
     }
     const returnTo = url.searchParams.get("return_to");
@@ -94,13 +101,23 @@ export class PostAuthRouteService {
     hostname?: string | null;
     enableFirstRunSetupGate?: boolean;
   }): Promise<string> {
+    const requestedRoute = normalizeRedirectPath(params.redirectPath);
+    const safeExplicitRedirect = normalizeInternalRouteHref(requestedRoute);
     const hasExplicitRedirect = Boolean(
       params.redirectPath &&
-        params.redirectPath.trim() &&
-        params.redirectPath !== ROUTES.HOME,
+      params.redirectPath.trim() &&
+      params.redirectPath !== ROUTES.HOME &&
+      safeExplicitRedirect,
     );
-    const fallbackRoute = normalizeRedirectPath(params.redirectPath);
+    const fallbackRoute = safeExplicitRedirect ?? DEFAULT_HOME_ROUTE;
     const fallbackUrl = new URL(fallbackRoute, "https://one.local");
+    if (
+      hasExplicitRedirect &&
+      safeExplicitRedirect &&
+      isFirebaseSessionOnlyRoute(fallbackUrl.pathname)
+    ) {
+      return safeExplicitRedirect;
+    }
     const isSetupHubRedirect = fallbackUrl.pathname === ROUTES.ONE_SETUP;
     const setupReturnTo = normalizeInternalRouteHref(
       fallbackUrl.searchParams.get("return_to"),
@@ -116,12 +133,10 @@ export class PostAuthRouteService {
     const phoneVerified =
       params.phoneVerified === true || remoteState.phoneVerified === true;
     if (remoteState.hasVault) {
-      const setupResolved = PreVaultUserStateService.isSetupResolved(remoteState);
+      const setupResolved =
+        PreVaultUserStateService.isSetupResolved(remoteState);
       const inviteRedirectTarget = inviteRedirectTargetFor(fallbackRoute);
-      if (
-        remoteState.setupCompleted === false &&
-        !setupResolved
-      ) {
+      if (remoteState.setupCompleted === false && !setupResolved) {
         if (hasExplicitRedirect && isSetupHubRedirect) return fallbackRoute;
         return hasExplicitRedirect && fallbackRoute !== PRE_VAULT_ROUTE
           ? buildOneSetupRoute({ returnTo: fallbackRoute })
@@ -143,7 +158,9 @@ export class PostAuthRouteService {
           phoneNumber: params.phoneNumber,
           phoneVerified,
           hasVault: true,
-          hostname: params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
+          hostname:
+            params.hostname ??
+            (typeof window === "undefined" ? null : window.location.hostname),
           pathname: fallbackRoute,
         })
       ) {
@@ -170,11 +187,13 @@ export class PostAuthRouteService {
       const pendingResolved =
         pending?.completed === true &&
         Boolean(pending.completed_at) &&
-        (pending.skipped === true || hasCompletePreVaultAnswers(pending.answers));
+        (pending.skipped === true ||
+          hasCompletePreVaultAnswers(pending.answers));
 
       if (remoteUnset && pendingResolved) {
         const completedAtMs =
-          pending.completed_at && !Number.isNaN(Date.parse(pending.completed_at))
+          pending.completed_at &&
+          !Number.isNaN(Date.parse(pending.completed_at))
             ? Date.parse(pending.completed_at)
             : Date.now();
         try {
@@ -186,7 +205,7 @@ export class PostAuthRouteService {
         } catch (error) {
           console.warn(
             "[PostAuthRouteService] Failed local->remote pre-vault onboarding bridge:",
-            error
+            error,
           );
         }
         setupResolved = true;
@@ -205,10 +224,14 @@ export class PostAuthRouteService {
         phoneNumber: params.phoneNumber,
         phoneVerified,
         hasVault: false,
-        hostname: params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
+        hostname:
+          params.hostname ??
+          (typeof window === "undefined" ? null : window.location.hostname),
       })
     ) {
-      return buildPhoneMandateRoute(inviteRedirectTarget ?? resolvedNoVaultRoute);
+      return buildPhoneMandateRoute(
+        inviteRedirectTarget ?? resolvedNoVaultRoute,
+      );
     }
 
     if (resolvedNoVaultRoute === NO_VAULT_DEFAULT_ROUTE) {

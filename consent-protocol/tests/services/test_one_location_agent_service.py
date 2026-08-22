@@ -2112,7 +2112,10 @@ class FourUserMemoryService(OneLocationAgentService):
             self.referrals[referral_id] = row
             return row
         if "INSERT INTO one_location_public_invites" in sql:
-            invite_id = str(uuid.uuid4())
+            # The caller chooses the id now: the public token is derived from
+            # it, so a double that invents its own would store a digest that
+            # can never be re-derived, and every link would read as legacy.
+            invite_id = str(params.get("invite_id") or uuid.uuid4())
             row = {
                 "id": invite_id,
                 "owner_user_id": params["owner_user_id"],
@@ -2137,6 +2140,50 @@ class FourUserMemoryService(OneLocationAgentService):
                         "owner_phone_number": owner.get("phone_number"),
                     }
             return None
+        if (
+            "UPDATE one_location_public_invites" in sql
+            and "status = 'expired'" in sql
+            and "owner_user_id" in params
+        ):
+            # Settling lazily-expired rows before the reuse lookup. Expiry is
+            # written only when something reads a row, so a link past its time
+            # can still be sitting at 'active'.
+            now = datetime.now(timezone.utc)
+            for invite in self.public_invites.values():
+                if (
+                    invite["owner_user_id"] == params["owner_user_id"]
+                    and invite["status"] == "active"
+                    and invite["expires_at"] <= now
+                ):
+                    invite["status"] = "expired"
+            return None
+        if (
+            "UPDATE one_location_public_invites" in sql
+            and "status = 'revoked'" in sql
+            and "invite_id" in params
+        ):
+            invite = self.public_invites.get(params["invite_id"])
+            if invite and invite["status"] == "active":
+                invite["status"] = "revoked"
+                invite["revoked_at"] = datetime.now(timezone.utc)
+                return invite
+            return None
+        if (
+            "FROM one_location_public_invites" in sql
+            and "expires_at > NOW()" in sql
+            and "owner_user_id" in params
+        ):
+            # The reuse lookup: one live public link per person.
+            now = datetime.now(timezone.utc)
+            live = [
+                invite
+                for invite in self.public_invites.values()
+                if invite["owner_user_id"] == params["owner_user_id"]
+                and invite["status"] == "active"
+                and invite["expires_at"] > now
+            ]
+            live.sort(key=lambda invite: invite["created_at"], reverse=True)
+            return live[0] if live else None
         if "UPDATE one_location_public_invites" in sql and "status = 'expired'" in sql:
             invite = self.public_invites.get(params["invite_id"])
             if invite and invite["status"] == "active":
@@ -5087,3 +5134,347 @@ def test_identity_lookup_reads_the_column_the_name_ladder_needs() -> None:
 
     source = inspect.getsource(OneLocationAgentService._identity_row)
     assert "email" in source
+
+
+def test_only_the_relationship_scoped_list_may_show_an_email_handle() -> None:
+    """The privacy line through a projection two lists share.
+
+    `_recipient_payload` serves both `list_verified_recipients`, which admits a
+    person only on an active connection or a shared active Circle, and
+    `search_directory_candidates`, which admits any phone-verified account so
+    people can be found before they are connected.
+
+    An email's local part is a name to the first group and an identifier about
+    the second. Turning the rung on by default -- or reaching for it in the
+    directory -- would answer "who is this account" for anyone who can open
+    Connect at all, which is everyone.
+    """
+
+    import inspect
+
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    payload = inspect.getsource(OneLocationAgentService._recipient_payload)
+    # Off unless a caller asks. A default of True would make the directory leak
+    # by omission, which is the failure nobody would notice in review.
+    assert "allow_email_handle: bool = False" in payload
+
+    recipients = inspect.getsource(OneLocationAgentService.list_verified_recipients)
+    assert "allow_email_handle=True" in recipients
+
+    directory = inspect.getsource(OneLocationAgentService.search_directory_candidates)
+    assert "allow_email_handle" not in directory, (
+        "the discovery directory must not opt into the email handle: it lists "
+        "phone-verified strangers, not the viewer's connections"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public location link: the owner has to be able to read their own link back.
+#
+# The token used to be `secrets.token_urlsafe(32)`, hashed on the way in and
+# returned exactly once. Nothing could recover it afterwards, so an invite the
+# server reported as active had a link the product could no longer show -- Copy
+# and Share silently did nothing after any reload. It is now derived from the
+# row's UUID with the app signing key, the same way Circle codes are.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _public_invite_key(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="test-signing-key"),
+    )
+    return "test-signing-key"
+
+
+def _derivable_public_invite_row(invite_id: str, *, status: str = "active", **overrides) -> dict:
+    token = one_location_agent_module._public_invite_token_for_id(invite_id)
+    row = {
+        "id": invite_id,
+        "owner_user_id": "owner-1",
+        "public_code_hash": one_location_agent_module._hash_public_value(token),
+        "status": status,
+        "duration_hours": 1.0,
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+        "revoked_at": None,
+        "metadata": json.dumps(
+            {"codeVersion": one_location_agent_module._PUBLIC_INVITE_CODE_VERSION}
+        ),
+    }
+    row.update(overrides)
+    return row
+
+
+def test_public_invite_token_is_stable_for_one_invite(_public_invite_key) -> None:
+    invite_id = str(uuid.uuid4())
+    first = one_location_agent_module._public_invite_token_for_id(invite_id)
+    second = one_location_agent_module._public_invite_token_for_id(invite_id)
+    # The whole point: the same row yields the same link every time it is read.
+    assert first == second
+    assert first
+
+
+def test_public_invite_tokens_differ_between_invites(_public_invite_key) -> None:
+    left = one_location_agent_module._public_invite_token_for_id(str(uuid.uuid4()))
+    right = one_location_agent_module._public_invite_token_for_id(str(uuid.uuid4()))
+    assert left != right
+
+
+def test_public_invite_token_survives_a_url(_public_invite_key) -> None:
+    token = one_location_agent_module._public_invite_token_for_id(str(uuid.uuid4()))
+    # It is spent as a path segment, so base64's "+", "/" and "=" would either
+    # be re-encoded by the client or silently truncate the token.
+    assert "+" not in token
+    assert "/" not in token
+    assert "=" not in token
+    assert token == token.strip()
+
+
+def test_public_invite_token_is_not_the_bare_row_id(_public_invite_key) -> None:
+    # The id travels in the owner's own state payload. If the token were the id,
+    # anyone who saw one person's state could resolve their live location link.
+    invite_id = str(uuid.uuid4())
+    token = one_location_agent_module._public_invite_token_for_id(invite_id)
+    assert invite_id not in token
+    assert invite_id.replace("-", "") not in token
+
+
+def test_public_invite_token_changes_with_the_signing_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invite_id = str(uuid.uuid4())
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="key-one"),
+    )
+    first = one_location_agent_module._public_invite_token_for_id(invite_id)
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="key-two"),
+    )
+    assert one_location_agent_module._public_invite_token_for_id(invite_id) != first
+
+
+def test_derivable_token_is_recovered_from_a_well_formed_row(
+    _public_invite_key,
+) -> None:
+    invite_id = str(uuid.uuid4())
+    row = _derivable_public_invite_row(invite_id)
+    assert one_location_agent_module._public_invite_token_if_derivable(
+        row
+    ) == one_location_agent_module._public_invite_token_for_id(invite_id)
+
+
+def test_legacy_rows_report_no_token_rather_than_a_wrong_one(
+    _public_invite_key,
+) -> None:
+    # Minted before tokens were derived from the id: the random token is gone
+    # for good. Returning a derived one would hand the owner a link that 404s.
+    row = _derivable_public_invite_row(str(uuid.uuid4()), metadata=json.dumps({}))
+    assert one_location_agent_module._public_invite_token_if_derivable(row) is None
+
+
+def test_a_row_whose_digest_does_not_match_reports_no_token(
+    _public_invite_key,
+) -> None:
+    # Signing key rotated, or the row was tampered with. Fail closed.
+    row = _derivable_public_invite_row(str(uuid.uuid4()))
+    row["public_code_hash"] = "0" * 64
+    assert one_location_agent_module._public_invite_token_if_derivable(row) is None
+
+
+def test_a_row_with_no_id_reports_no_token(_public_invite_key) -> None:
+    row = _derivable_public_invite_row(str(uuid.uuid4()))
+    row["id"] = ""
+    assert one_location_agent_module._public_invite_token_if_derivable(row) is None
+    assert one_location_agent_module._public_invite_token_if_derivable(None) is None
+
+
+def test_owner_payload_carries_the_link_for_an_active_invite(
+    _public_invite_key,
+) -> None:
+    invite_id = str(uuid.uuid4())
+    row = _derivable_public_invite_row(invite_id)
+    payload = OneLocationAgentService._public_invite_payload(row)
+    token = one_location_agent_module._public_invite_token_for_id(invite_id)
+    assert payload["publicUrl"] == f"/one/location/request/{token}"
+
+
+@pytest.mark.parametrize("status", ["revoked", "expired"])
+def test_owner_payload_withholds_the_link_once_it_stops_working(
+    _public_invite_key, status: str
+) -> None:
+    # The token no longer resolves, so offering it would hand over a dead link
+    # on a screen that still says "copy".
+    row = _derivable_public_invite_row(str(uuid.uuid4()), status=status)
+    payload = OneLocationAgentService._public_invite_payload(row)
+    assert "publicUrl" not in payload
+
+
+def test_owner_payload_withholds_the_link_for_a_legacy_invite(
+    _public_invite_key,
+) -> None:
+    row = _derivable_public_invite_row(str(uuid.uuid4()), metadata=json.dumps({}))
+    payload = OneLocationAgentService._public_invite_payload(row)
+    assert "publicUrl" not in payload
+
+
+def test_the_recipient_payload_never_carries_the_token(_public_invite_key) -> None:
+    # This is the branch a stranger holding the link receives. The token is the
+    # capability itself; echoing it back would put it in one more place for no
+    # reason, and would leak it to anyone the link was forwarded to.
+    row = _derivable_public_invite_row(str(uuid.uuid4()))
+    payload = OneLocationAgentService._public_invite_payload(row, public=True)
+    assert "publicUrl" not in payload
+    assert "id" not in payload
+    assert "ownerUserId" not in payload
+    serialized = json.dumps(payload)
+    assert one_location_agent_module._public_invite_token_for_id(row["id"]) not in serialized
+
+
+# ---------------------------------------------------------------------------
+# One live public location link per person.
+#
+# Nothing used to stop a second: no unique index, no lookup, just an INSERT. A
+# reload, a second device or a double tap left two links resolvable while the
+# screen showed one, and revoking the visible one left the other watching.
+# ---------------------------------------------------------------------------
+
+
+def _active_public_invites(service) -> list[dict]:
+    return [invite for invite in service.public_invites.values() if invite["status"] == "active"]
+
+
+def test_creating_a_second_public_link_hands_back_the_first() -> None:
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    # Same link, not a second one: this call is what the person makes when they
+    # mean "give me my link", so it answers rather than refusing.
+    assert second["publicToken"] == first["publicToken"]
+    assert second["invite"]["id"] == first["invite"]["id"]
+    assert second["reused"] is True
+    assert first.get("reused") is not True
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_the_reused_link_still_resolves() -> None:
+    # The point of reuse is that whoever already holds the link keeps seeing
+    # the owner. A token handed back that no longer resolved would be worse
+    # than a second link.
+    service = FourUserMemoryService()
+    service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    reused = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    resolved = service.resolve_public_invite(public_token=reused["publicToken"])
+    assert resolved["invite"]["status"] == "active"
+
+
+def test_one_persons_link_does_not_block_another_persons() -> None:
+    service = FourUserMemoryService()
+
+    mine = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    theirs = service.create_public_invite(owner_user_id="user_b", duration_hours=1)
+
+    assert mine["publicToken"] != theirs["publicToken"]
+    assert len(_active_public_invites(service)) == 2
+
+
+def test_revoking_frees_the_person_to_create_another() -> None:
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=first["invite"]["id"])
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert second["publicToken"] != first["publicToken"]
+    assert second.get("reused") is not True
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_an_expired_link_does_not_block_a_new_one() -> None:
+    # Expiry is written lazily -- only when something reads the row -- so a
+    # link past its time can still be sitting at status 'active'. If create did
+    # not settle that first, the reuse lookup would hand back a dead link and
+    # the person could never make another.
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    stale = service.public_invites[first["invite"]["id"]]
+    stale["expires_at"] = datetime.now(timezone.utc) - timedelta(minutes=5)
+    assert stale["status"] == "active"
+
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert second["publicToken"] != first["publicToken"]
+    assert second.get("reused") is not True
+    assert stale["status"] == "expired"
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_a_link_whose_token_cannot_be_recovered_is_replaced() -> None:
+    # A row minted before tokens were derived from the id. Its token is gone
+    # for good, so leaving it active would strand the owner behind a link
+    # nothing can show and no create button.
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    legacy = service.public_invites[first["invite"]["id"]]
+    legacy["metadata"] = {}
+
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert second["publicToken"] != first["publicToken"]
+    assert second.get("reused") is not True
+    assert legacy["status"] == "revoked"
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_the_owners_state_carries_the_link_back() -> None:
+    # The whole reason the token is derived: after a reload the owner still has
+    # to be able to copy and share the link they already made.
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    state = service.list_state(user_id="user_a")
+    invites = [
+        invite for invite in state["publicInvites"] if invite["id"] == created["invite"]["id"]
+    ]
+    assert len(invites) == 1
+    assert invites[0]["publicUrl"] == created["publicUrl"]
+
+
+def test_a_public_link_cannot_be_asked_to_live_longer_than_an_hour() -> None:
+    # Anyone holding this link can watch, which is a different promise from a
+    # private share to a named person who can be un-shared. 24 was the private
+    # ceiling, copied into every layer -- Pydantic, normalize_duration_hours,
+    # the DB CHECK -- so the one-hour cap the screen showed was enforced only by
+    # the screen, and a crafted request minted a public link for a full day.
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        service.create_public_invite(owner_user_id="user_a", duration_hours=24)
+
+    assert excinfo.value.code == "LOCATION_DURATION_INVALID"
+    assert excinfo.value.status_code == 422
+    assert not service.public_invites
+
+
+def test_the_durations_the_screen_offers_are_accepted() -> None:
+    service = FourUserMemoryService()
+
+    half = service.create_public_invite(owner_user_id="user_a", duration_hours=0.5)
+    assert half["invite"]["durationHours"] == 0.5
+
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=half["invite"]["id"])
+    whole = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    assert whole["invite"]["durationHours"] == 1

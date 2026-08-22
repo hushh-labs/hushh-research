@@ -30,22 +30,24 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import {
-  Link as LinkIcon,
   Lock,
   Map,
   MapPin,
-  MessageCircleQuestionMark,
   Navigation,
-  Plus,
   Send,
   Check,
   Shield,
   ShieldCheck,
   UserPlus,
   UsersRound,
+  ChevronRight,
+  X,
 } from "lucide-react";
 
-import { requestRecipientStatus } from "@/lib/one-location/request-recipient-status";
+import {
+  requestRecipientStatus,
+  type RequestRecipientStatus,
+} from "@/lib/one-location/request-recipient-status";
 import {
   locationApproveActionLabel,
   locationAskPromptLine,
@@ -129,6 +131,13 @@ import { SavedLocationsSection } from "@/components/one-location/saved-locations
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
+import {
+  flattenRecipientSections,
+  lastInteractionByUserId,
+  sectionRecipients,
+} from "@/lib/one-location/recipient-sections";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveSmsContactsBackAction } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
@@ -154,6 +163,7 @@ import { useMediaQuery } from "@/lib/morphy-ux/use-media-query";
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
 export const ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS = "0.25";
+const ONE_LOCATION_REQUEST_REASON_MAX_LENGTH = 80;
 
 export type PrivateCheckInResult = {
   succeededRecipientIds: string[];
@@ -288,6 +298,17 @@ export type LocationHubViewModel = {
   requestMessage: string;
   shareReviewOpen: boolean;
   publicInviteUrl: string;
+  /**
+   * The public link's own duration, kept apart from `durationHours`.
+   *
+   * That one string is written by the Ask composer and the Circle invite screen
+   * and read by all three lanes. The public-link control now sits permanently
+   * on the Links tab rather than behind a button, so sharing the string would
+   * mean anyone browsing past the tab rewrites what the other two screens
+   * offer.
+   */
+  publicLinkDurationHours: string;
+  setPublicLinkDurationHours: (value: string) => void;
   circleInviteUrl: string;
 
   /* setters (presentation state owned by page) */
@@ -437,7 +458,10 @@ export type LocationHubViewModel = {
   onRetryNamedCircleMemberInvites: () => void;
   onLeaveNamedCircle: (circleId: string) => Promise<void>;
   onDeleteNamedCircle: (circleId: string) => Promise<void>;
-  prepareNamedCircleShare: (circleId: string, recipientUserId: string) => void;
+  prepareNamedCircleShare: (
+    circleId: string,
+    recipientUserId: string,
+  ) => Promise<boolean>;
   clearNamedCircleShareContext: () => void;
 
   /* Save My Soul (internal compatibility identifier remains SOS). */
@@ -536,7 +560,6 @@ type FlowKind =
   | "create-circle"
   | "join-circle"
   | "circle-detail"
-  | "temp-link"
   | "check-in"
   | "sos"
   | "sms-contacts"
@@ -564,7 +587,6 @@ const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
   "create-circle": "create-circle",
   "join-circle": "join-circle",
   "circle-detail": "circle-detail",
-  "temp-link": "temp-link",
   "check-in": "check-in",
   sos: "sos",
   "sms-contacts": "sms-contacts",
@@ -593,6 +615,24 @@ export function resolveSmsContactsBackFlow(
   // performs this navigation now, and it resolves the target the same way.
   return resolveSmsContactsBackAction(source);
 }
+
+/**
+ * Actions whose screen was folded into a hub tab rather than removed.
+ *
+ * Different from `RETIRED_ACTIONS` below, and the difference is what the
+ * person is told. A retired action is gone and says so. A relocated one still
+ * exists -- it is just no longer its own screen -- so it lands on the tab that
+ * absorbed it, quietly. "That's no longer there." would be a lie for these,
+ * and a confusing one, since the thing they asked for is on the screen they
+ * are now looking at.
+ *
+ * `temp-link` was the create-a-live-location-link screen. Its duration
+ * question and its create button are now on the Links tab itself, so every
+ * bookmark, history entry and Kai deep link pointing at it resolves there.
+ */
+const RELOCATED_ACTION_TABS: Readonly<Record<string, LocationHubTab>> = {
+  "temp-link": "links",
+};
 
 const RETIRED_ACTIONS = new Set([
   "drive-to",
@@ -1025,6 +1065,16 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       params.set(FLOW_ACTION_PARAM, action);
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     }
+    const relocatedTab = RELOCATED_ACTION_TABS[action];
+    if (relocatedTab) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete(FLOW_ACTION_PARAM);
+      params.set(LOCATION_HUB_TAB_PARAM, relocatedTab);
+      // No toast: the screen did not go away, it became this tab, and the
+      // person is looking at it.
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      return;
+    }
     if (RETIRED_ACTIONS.has(action)) {
       const params = new URLSearchParams(searchParams.toString());
       params.delete(FLOW_ACTION_PARAM);
@@ -1187,7 +1237,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             recipientSubtitle={vm.recipientSubtitle}
             isRecipientShareReady={vm.isRecipientShareReady}
           />
-
         ) : flow === "create-circle" ? (
           <CreateCircleFlow
             busy={vm.busy === "namedCircle"}
@@ -1223,13 +1272,18 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               vm.onConnectCircleMember(circleId, memberUserId)
             }
             onShareWithMember={(circleId, recipientUserId) => {
-              vm.prepareNamedCircleShare(circleId, recipientUserId);
-              openFlow("share");
+              void (async () => {
+                const prepared = await vm.prepareNamedCircleShare(
+                  circleId,
+                  recipientUserId,
+                );
+                if (!prepared) return;
+                setShareStep("details");
+                openFlow("share");
+              })();
             }}
             onRemoveMember={vm.onRemoveNamedCircleMember}
-            onLoadEligibleConnections={
-              vm.onLoadNamedCircleEligibleConnections
-            }
+            onLoadEligibleConnections={vm.onLoadNamedCircleEligibleConnections}
             onInviteConnections={vm.onInviteNamedCircleConnections}
             onCancelMemberInvite={vm.onCancelNamedCircleMemberInvite}
             onLeave={vm.onLeaveNamedCircle}
@@ -1263,7 +1317,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             onManageSmsContacts={() => openFlow("sms-contacts")}
           />
         ) : (
-          <TemporaryLinkFlow vm={vm} onClose={closeFlow} />
+          // Every FlowKind above is matched, and `none` never reaches here.
+          // This used to fall through to the temporary-link screen, so any
+          // flow slug nobody had wired up quietly rendered "Share outside your
+          // Circle" instead of failing visibly.
+          null
         )}
       </div>
     );
@@ -1300,7 +1358,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         onRetry={vm.onShowMyLocation}
         onOpenSettings={vm.onOpenLocationSettings}
       />
-
 
       <div className="-mx-[var(--page-inline-gutter-standard)]">
         <SwipeViews
@@ -1348,7 +1405,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           </LocationHubPanel>
 
           <LocationHubPanel>
-            <LinksHub vm={vm} onCreateTempLink={() => openFlow("temp-link")} />
+            <LinksHub vm={vm} />
           </LocationHubPanel>
         </SwipeViews>
       </div>
@@ -1461,7 +1518,7 @@ function NowHub({
           },
           {
             title: "Request location",
-            icon: <MessageCircleQuestionMark />,
+            icon: <UserPlus />,
             tone: "blue",
             onClick: onRequestLocation,
             controlId: "one-location-action-ask",
@@ -1537,28 +1594,28 @@ function NowHub({
           testId="one-location-now-more"
           shellClassName={groupedShellClassName}
         >
-        <SettingsRow
-          icon={Map}
-          iconTone="gray"
-          title="Your Map"
-          density="compact"
-          chevron
-          onClick={onOpenMap}
-          testId="one-location-map-row"
-          voiceControlId="one-location-open-map"
-          voiceActionId="location.open_map"
-        />
-        <SettingsRow
-          icon={Lock}
-          iconTone="gray"
-          title="Settings"
-          density="compact"
-          chevron
-          onClick={onOpenSettings}
-          testId="one-location-settings-entry"
-          voiceControlId="one-location-action-settings"
-          voiceActionId="location.open_settings"
-        />
+          <SettingsRow
+            icon={Map}
+            iconTone="gray"
+            title="Your Map"
+            density="compact"
+            chevron
+            onClick={onOpenMap}
+            testId="one-location-map-row"
+            voiceControlId="one-location-open-map"
+            voiceActionId="location.open_map"
+          />
+          <SettingsRow
+            icon={Lock}
+            iconTone="gray"
+            title="Settings"
+            density="compact"
+            chevron
+            onClick={onOpenSettings}
+            testId="one-location-settings-entry"
+            voiceControlId="one-location-action-settings"
+            voiceActionId="location.open_settings"
+          />
         </SettingsGroup>
       </div>
     </div>
@@ -1687,7 +1744,10 @@ function LocationDetailFlow({
   // keyed by grant id + coordinates so a moved point re-resolves. The ref
   // dedupes in-flight/resolved coordinate pairs without re-triggering the effect.
   const [addressByGrant, setAddressByGrant] = useState<
-    Record<string, { key: string; status: "loading" | "done"; text: string | null }>
+    Record<
+      string,
+      { key: string; status: "loading" | "done"; text: string | null }
+    >
   >({});
   const resolvedAddressKeyRef = useRef<Record<string, string>>({});
   const reverseGeocodePoint = vm.reverseGeocodePoint;
@@ -1966,9 +2026,7 @@ function LocationDetailFlow({
                   removeBusy={vm.revokingGrantId === grant.id}
                   viewBusy={vm.busy === "view"}
                   message={
-                    point?.checkIn?.message ??
-                    grant.shareMessage ??
-                    undefined
+                    point?.checkIn?.message ?? grant.shareMessage ?? undefined
                   }
                   address={
                     addressEntry?.status === "done" ? addressEntry.text : null
@@ -2048,9 +2106,7 @@ function LocationDetailFlow({
             ))}
           </div>
         ) : (
-          <EmptyState
-            title="Nothing to review"
-          />
+          <EmptyState title="Nothing to review" />
         )
       ) : null}
     </div>
@@ -2397,9 +2453,7 @@ function PeopleHub({
             </Button>
 
             <div className="col-start-3 row-start-1 justify-self-end sm:col-start-4">
-              {isDesktopPeopleLayout
-                ? addPeopleAction
-                : syncContactsAction}
+              {isDesktopPeopleLayout ? addPeopleAction : syncContactsAction}
             </div>
 
             <div
@@ -2473,7 +2527,9 @@ function PeopleHub({
                         // tint, which is the whole reason "is this the same
                         // person or a different one" is hard to answer here.
                         subtitle={
-                          receiving ? "Sharing with you" : vm.recipientSubtitle(r)
+                          receiving
+                            ? "Sharing with you"
+                            : vm.recipientSubtitle(r)
                         }
                         active={sharing || receiving}
                         first={i === 0}
@@ -2519,8 +2575,32 @@ function PeopleHub({
                     }
                     description={
                       hasSearch
-                        ? "Try a different name."
+                        ? "Don't see who you're looking for?"
                         : "Invite someone to start sharing."
+                    }
+                    // The first link in a chain that already had its other
+                    // two. A name matching nobody here usually belongs to
+                    // someone not connected yet, so this hands over to
+                    // Connect -- where a search that also finds nobody offers
+                    // "Invite them to One". Without it the person had to guess
+                    // that Connect was the next place to look.
+                    //
+                    // The header actions sit above the list and are out of
+                    // view once results have scrolled, so the way out belongs
+                    // here, where the dead end is.
+                    action={
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        onClick={onAddConnections}
+                        data-voice-control-id="one-location-empty-connect-bridge"
+                        className={PEOPLE_HEADER_ACTION}
+                      >
+                        {hasSearch
+                          ? "Manage connections in Connect →"
+                          : "Add someone in Connect →"}
+                      </Button>
                     }
                   />
                 </div>
@@ -2716,68 +2796,164 @@ function ActiveLinkRow({
   );
 }
 
-function LinksHub({
-  vm,
-  onCreateTempLink,
-}: {
-  vm: LocationHubViewModel;
-  onCreateTempLink: () => void;
-}) {
+/**
+ * The Links tab, which is now the whole of the live-location-link flow.
+ *
+ * Making one used to take three screens: this tab, with a "Create link" button
+ * that created nothing and only navigated; a separate `?action=temp-link`
+ * screen carrying a warning, one duration question and the button that
+ * actually created; and then that same screen again, showing the result with a
+ * "Done" that returned here -- where the link appeared a third time, as a row,
+ * with only a Copy button. Two of those three screens existed to ask one
+ * question and to acknowledge its answer.
+ *
+ * The question is now asked here, and the answer replaces it in place.
+ *
+ * One live link at a time. While one is active there is no create control at
+ * all: not disabled, absent. A second link is not a thing the product wants to
+ * be able to make -- both stay independently resolvable, revoking the one on
+ * screen leaves the other watching, and the tab can only ever show the newest.
+ * The way to a different link is to end this one, which is a button already on
+ * the card. The server refuses the second as well (`create_public_invite`
+ * hands back the live one), because a rule that lives only in a component is
+ * defeated by a stale tab.
+ */
+function LinksHub({ vm }: { vm: LocationHubViewModel }) {
   const temp = vm.latestActivePublicInvite;
   const invite = vm.latestActiveCircleInvite;
-  const hasLinks = Boolean(temp) || Boolean(invite);
+  // Two separate questions, and both have to be asked.
+  //
+  //   is a link live?      `temp` -- the server's row
+  //   can we hand it over? `vm.publicInviteUrl` -- the URL itself
+  //
+  // Neither implies the other. An invite minted before its token could be
+  // re-derived from its row is live with no recoverable URL, so Copy would
+  // hand over nothing. And for one round trip after creating, the URL is known
+  // while the row is not: `onCreatePublicInvite` fires its refresh without
+  // awaiting it. Keying the whole tab on `temp` alone put the create form back
+  // on screen during that window, which reads as "nothing happened" and
+  // invites a second press.
+  const hasLiveLink = Boolean(temp) || Boolean(vm.publicInviteUrl);
+  const hasShareableLink = Boolean(vm.publicInviteUrl);
 
   return (
     <div className="space-y-4">
       <div className="px-[6px]">
         <SectionTitle as="h2">Active links</SectionTitle>
-        {/* This section lists two different things — a live location link and
-            a Circle invite link — and the invite shares no location at all.
-            Copy that described only the first was wrong for half the list,
-            and neither told a new user what a "link" is here. */}
-        <RowDescription as="p" className="mt-1">
-          Links you can send to anyone — to show where you are, or to invite
-          them to a Circle.
-        </RowDescription>
       </div>
 
-      {hasLinks ? (
-        <div className={cn("overflow-hidden px-3.5", SUBCARD_SURFACE)}>
-          {temp ? (
-            <ActiveLinkRow
-              first
-              tileClass="bg-[color:var(--app-purple)]/12 dark:bg-[color:var(--app-purple)]/15"
-              icon={<LinkIcon className="h-[17px] w-[17px] text-[color:var(--app-purple)]" />}
-              title="Live location link"
-              subtitle={`${vm.expiresCountdownLabel(temp.expiresAt)} · anyone with the link`}
-              onCopy={vm.onCopyPublicInvite}
-            />
-          ) : null}
-          {invite ? (
-            <ActiveLinkRow
-              first={!temp}
-              tileClass="bg-[color:var(--app-success)]/12 dark:bg-[color:var(--app-success)]/15"
-              icon={<ShieldCheck className="h-[17px] w-[17px] text-[color:var(--app-success)]" />}
-              title="Invite link"
-              subtitle={`${vm.expiresCountdownLabel(invite.expiresAt)} · one person`}
-              onCopy={vm.onCopyCircleInvite}
-            />
-          ) : null}
-        </div>
+      {hasLiveLink ? (
+        hasShareableLink ? (
+          <TemporaryLinkCard
+            title="Live location link"
+            statusLine="Anyone with this link can view you"
+            // No countdown until the row lands: inventing one from the
+            // duration that was picked would drift from the expiry the server
+            // actually stamped.
+            expiryLabel={
+              temp ? vm.expiresCountdownLabel(temp.expiresAt) : undefined
+            }
+            onCopy={vm.onCopyPublicInvite}
+            onShare={vm.onSharePublicInvite}
+            // Revoking needs the invite's id, which arrives with the row. In
+            // the moment before it does, the control shows itself as busy
+            // rather than pretending to work -- which is honest, because a
+            // refresh really is in flight. Copy and Share are unaffected: the
+            // URL is already in hand.
+            onRevoke={() => {
+              if (temp) vm.onRevokePublicInvite(temp);
+            }}
+            revokeBusy={vm.busy === "publicRevoke" || !temp}
+          />
+        ) : (
+          // Live, and its URL is gone: an invite from before the token could be
+          // re-derived from its row. Copy and Share would be dead controls, so
+          // they are not offered -- but the link is still out there watching,
+          // so ending it has to stay reachable. Saying why keeps this from
+          // reading as a bug the person should retry.
+          <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
+            <div className="min-w-0">
+              <RowLabel as="p">Live location link</RowLabel>
+              <RowDescription as="p" className="mt-0.5">
+                Made on another device or before an update, so it cannot be
+                shown again here. Stop it to make a new one.
+              </RowDescription>
+            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (temp) vm.onRevokePublicInvite(temp);
+              }}
+              isLoading={vm.busy === "publicRevoke" || !temp}
+              className="h-9 w-full rounded-full text-sm"
+            >
+              Stop this link
+            </Button>
+          </div>
+        )
       ) : (
-        <EmptyState
-          title="No active links"
-        />
+        <div className="space-y-4">
+          <WarningCard
+            title="Anyone with this link can see you"
+            description="The link stops on its own."
+          />
+          <SettingsGroup title="Duration" separatorInset>
+            <SettingsRow
+              title="Link stays live for"
+              description="Anyone holding it can watch until then."
+              stackTrailingOnMobile
+              trailing={
+                <DurationSelector
+                  value={vm.publicLinkDurationHours}
+                  onChange={vm.setPublicLinkDurationHours}
+                  label=""
+                  // Deliberately shorter than the trusted-share durations:
+                  // anyone holding this link can watch, so the public ceiling
+                  // stays at 1 hour.
+                  options={[
+                    { value: "0.5", label: "30 min" },
+                    { value: "1", label: "1 hour" },
+                  ]}
+                />
+              }
+            />
+          </SettingsGroup>
+          {/* The label changes while it works. This press waits on a device fix
+              before it can post anything, so on a cold start it can sit for
+              several seconds -- and it used to sit as a bare spinner with the
+              label hidden, which is why it read as "taking longer than
+              expected" rather than as "still finding you". Naming the wait is
+              the fix available here; the wait itself is a GPS acquisition. */}
+          <Button
+            onClick={vm.onCreatePublicInvite}
+            isLoading={vm.busy === "publicInvite"}
+            data-voice-control-id="one-location-action-temp-link"
+            className="h-12 min-h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+          >
+            {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
+          </Button>
+        </div>
       )}
 
-      <Button
-        onClick={onCreateTempLink}
-        data-voice-control-id="one-location-action-temp-link"
-        className="w-full"
-      >
-        <Plus className="mr-2 h-4 w-4" />
-        Create link
-      </Button>
+      {/* A Circle invite is a different object on a different table with a
+          different ceiling, and it is not subject to the one-at-a-time rule
+          above: it admits one named person to a Circle rather than showing the
+          owner to anyone holding a URL. It keeps its row. */}
+      {invite ? (
+        <div className={cn("overflow-hidden px-3.5", SUBCARD_SURFACE)}>
+          <ActiveLinkRow
+            first
+            tileClass="bg-[color:var(--app-success)]/12 dark:bg-[color:var(--app-success)]/15"
+            icon={
+              <ShieldCheck className="h-[17px] w-[17px] text-[color:var(--app-success)]" />
+            }
+            title="Invite link"
+            subtitle={`${vm.expiresCountdownLabel(invite.expiresAt)} · one person`}
+            onCopy={vm.onCopyCircleInvite}
+          />
+        </div>
+      ) : null}
 
       <div className="flex items-start gap-2 px-1">
         <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -2842,9 +3018,7 @@ function SosFlow({
         recipientLabel={vm.recipientLabel}
         isRecipientShareReady={vm.isRecipientShareReady}
         emergency={lookupStartedForMount ? vm.sosEmergency : null}
-        emergencyStatus={
-          lookupStartedForMount ? vm.sosEmergencyStatus : "idle"
-        }
+        emergencyStatus={lookupStartedForMount ? vm.sosEmergencyStatus : "idle"}
         onResolveEmergencyNumber={onResolveSosLocation}
       />
     </>
@@ -2970,7 +3144,9 @@ function ShareFlow({
         density="compact"
         disabled={!ready}
         onClick={
-          ready ? () => vm.toggleShareRecipient(r.userId, "share_flow") : undefined
+          ready
+            ? () => vm.toggleShareRecipient(r.userId, "share_flow")
+            : undefined
         }
         ariaPressed={ready ? selected : undefined}
         ariaLabel={
@@ -3006,9 +3182,8 @@ function ShareFlow({
   );
   const selectedReady = vm.selectedRecipientIds
     .map((recipientId) => recipientById.get(recipientId))
-    .filter(
-      (recipient): recipient is OneLocationRecipient =>
-        Boolean(recipient && vm.isRecipientShareReady(recipient)),
+    .filter((recipient): recipient is OneLocationRecipient =>
+      Boolean(recipient && vm.isRecipientShareReady(recipient)),
     );
   const shareNoteLength = vm.shareMessage.length;
   const shareNoteLimitExceeded =
@@ -3035,10 +3210,6 @@ function ShareFlow({
     // Only claim the Circle while it is still whole. A partially deselected
     // roster is a hand-picked list of people, and this is the last surface that
     // may overstate who is included.
-    const selectedCircle = shareCircleFullySelected
-      ? vm.selectedShareCircleSelection
-      : null;
-    const peopleNoun = selectedReady.length === 1 ? "person" : "people";
     return (
       // A single-column consent form does not get wider just because the window
       // does. Measured at 1440 this step rendered an 824px card holding a 420px
@@ -3054,68 +3225,10 @@ function ShareFlow({
         {/* No description: the summary card directly below states who can see
             you, for how long and when it ends. Repeating that in prose above it
             is the design explaining itself. */}
-        <TaskFlowHeader eyebrow="Step 2 of 2 · Confirm" title="Ready to share?" />
-
-        <section className="space-y-3">
-          {/* Label and its Edit action on one line, group beneath. The card
-              this replaced carried the action inside its own header; a group
-              owns its title, so the affordance sits beside the label it edits
-              rather than inside the surface it edits. */}
-          <div className="flex items-end justify-between gap-3 px-1">
-            <div className="min-w-0">
-              <AppSectionLabel as="h2">Can see you</AppSectionLabel>
-              <p className={MUTED_TEXT}>
-                {selectedCircle
-                  ? `${selectedCircle.circle.name} · ${selectedReady.length} ${peopleNoun}`
-                  : `${selectedReady.length} ${peopleNoun}`}
-              </p>
-            </div>
-            {/* Raw <button>, not the morphy Button: that component's
-                `size.default` carries `min-h-[50px]`, which lives in a
-                different tailwind-merge group from `h-*` and therefore
-                survives `h-9`. The control rendered 36px tall against a
-                50px min-height — under Apple's 44pt tap target on one axis
-                and over the row's own height on the other. */}
-            <button
-              type="button"
-              onClick={backToPeople}
-              aria-label="Change who can see you"
-              className="flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)]"
-            >
-              Edit
-            </button>
-          </div>
-          {selectedReady.length ? (
-            /* A real <ul>, not a stack of divs: this is the read-back of who is
-               about to see you, and "list, 3 items" is exactly what a screen
-               reader should say here. Painted with the same surface, radius and
-               inset hairlines SettingsGroup uses, so it is the group shape with
-               the list semantics kept. */
-            <ul
-              aria-label="People who can see your location"
-              className="divide-y divide-border/60 overflow-hidden rounded-[var(--app-card-radius-standard,24px)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]"
-            >
-              {selectedReady.map((recipient) => (
-                <li
-                  key={recipient.userId}
-                  className="flex min-h-[56px] items-center gap-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]"
-                >
-                  <Avatar
-                    initials={initialsFrom(vm.recipientLabel(recipient))}
-                  />
-                  <RowLabel as="span" className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
-                    {vm.recipientLabel(recipient)}
-                  </RowLabel>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState
-              title="Nobody chosen yet"
-              description="Tap Edit to choose people."
-            />
-          )}
-        </section>
+        <TaskFlowHeader
+          eyebrow="Step 2 of 2 · Confirm"
+          title="Ready to share?"
+        />
 
         <SectionCard>
           <div className="space-y-5">
@@ -3149,9 +3262,7 @@ function ShareFlow({
                 <textarea
                   id="one-location-share-note"
                   value={vm.shareMessage}
-                  onChange={(event) =>
-                    vm.setShareMessage(event.target.value)
-                  }
+                  onChange={(event) => vm.setShareMessage(event.target.value)}
                   rows={2}
                   aria-invalid={shareNoteLimitExceeded}
                   aria-describedby={
@@ -3187,14 +3298,23 @@ function ShareFlow({
           </div>
         </SectionCard>
 
-        {/* No "Location type" row. It read back whichever option was picked,
-            which made the consent step the most convincing part of a promise
-            nothing kept — see the note above ShareFlow. */}
-        <TrustNoteCard
-          description={
-            vm.shareDurationHours === "until_stopped"
-              ? "Encrypted. Stop anytime."
-              : "Encrypted. Ends automatically."
+        <SelectedRecipientsRail
+          title="Can see you"
+          ariaLabel="People who can see your location"
+          recipients={selectedReady}
+          onRemove={(recipientUserId) =>
+            vm.toggleShareRecipient(recipientUserId, "share_flow")
+          }
+          recipientLabel={vm.recipientLabel}
+          trailing={
+            <button
+              type="button"
+              onClick={backToPeople}
+              aria-label="Change who can see you"
+              className="flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)]"
+            >
+              Edit
+            </button>
           }
         />
 
@@ -3268,21 +3388,6 @@ function ShareFlow({
               />
             );
           })}
-          {vm.selectedShareCircleSelection && shareCircleFullySelected ? (
-            <p className={cn(MUTED_TEXT, "mt-3")}>
-              Current ready members only; future members are never added
-              automatically.
-              {vm.selectedShareCircleSelection.excluded.filter(
-                (item) => item.reason !== "self",
-              ).length
-                ? ` ${
-                    vm.selectedShareCircleSelection.excluded.filter(
-                      (item) => item.reason !== "self",
-                    ).length
-                  } member(s) need Location setup and are not included.`
-                : ""}
-            </p>
-          ) : null}
         </SettingsGroup>
       ) : null}
       <PersonSearchInput
@@ -3308,7 +3413,10 @@ function ShareFlow({
               separatorInset
             >
               {alreadySharing.map((r) =>
-                renderShareRecipientRow(r, activeGrantByRecipientId.get(r.userId)),
+                renderShareRecipientRow(
+                  r,
+                  activeGrantByRecipientId.get(r.userId),
+                ),
               )}
             </SettingsGroup>
           ) : null}
@@ -3326,7 +3434,10 @@ function ShareFlow({
         // A typo used to be reported as "you have no contacts", which sends a
         // person with twenty of them off to invite people they already have.
         // The list being empty and the QUERY being empty are different facts.
-        <EmptyState title="No matching people" description="Try a different name." />
+        <EmptyState
+          title="No matching people"
+          description="Try a different name."
+        />
       ) : (
         <EmptyState
           title="No trusted people yet"
@@ -3482,7 +3593,10 @@ function SelectionDot({ selected }: { selected: boolean }) {
       )}
     >
       {selected ? (
-        <Check className="h-3 w-3 text-[color:var(--app-accent-fg)]" strokeWidth={3} />
+        <Check
+          className="h-3 w-3 text-[color:var(--app-accent-fg)]"
+          strokeWidth={3}
+        />
       ) : null}
     </span>
   );
@@ -3504,6 +3618,37 @@ function AskFlow({
   onClose: () => void;
 }) {
   const filtered = vm.visibleRecipients;
+  /**
+   * The field is local; the FILTER is debounced.
+   *
+   * `setRecipientSearch` drives `visibleRecipients`, which re-runs
+   * `filterPeopleByQuery` over the whole roster and re-renders every row. Wired
+   * straight to `onChange` that happened once per keystroke, which is what a
+   * hundred connections cannot afford. Typing stays instant because the input
+   * reads local state; only the query that does the work is delayed.
+   *
+   * 250ms, close to Connect's 300: long enough to swallow a burst of typing,
+   * short enough that the list feels answerable rather than laggy.
+   */
+  const [searchDraft, setSearchDraft] = useState(vm.recipientSearch);
+  const debouncedSearch = useDebouncedValue(searchDraft, 250);
+  useEffect(() => {
+    if (debouncedSearch !== vm.recipientSearch) {
+      vm.setRecipientSearch(debouncedSearch);
+    }
+    // `vm` is rebuilt every render; depending on it would re-fire this on every
+    // render and defeat the debounce entirely.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
+
+  const selectedRecipients = useMemo(
+    () =>
+      vm.recipients.filter((recipient) =>
+        vm.selectedRequestOwnerIds.includes(recipient.userId),
+      ),
+    [vm.recipients, vm.selectedRequestOwnerIds],
+  );
+
   // Keep the person on this screen after sending so the confirmation is tied to
   // the specific request they just made, rather than popping straight back to
   // the hub.
@@ -3540,10 +3685,119 @@ function AskFlow({
   // Coarse on purpose: these labels move in minutes, so a 30s tick keeps them
   // honest without re-rendering a list of people every second.
   const [statusNowMs, setStatusNowMs] = useState(() => Date.now());
+
+  /**
+   * Every live grant with each owner, indexed once.
+   *
+   * The row used to run `receivedGrants.find(...)` for itself, so a roster of R
+   * people scanned the grant list R times per render. Worse, `find` was written
+   * when a person and a grant were the same thing: an owner can now hold an
+   * ordinary share and an SMS (SOS) one at the same time, and `find` bound the
+   * row to whichever happened to come first.
+   *
+   * `groupGrantsByCounterpart` is the shared answer the People directory and
+   * Shared-with-me already use, and its `primaryGrant` is `grants[0]` in the
+   * caller's order -- the same grant `find` returned. So this indexes the work
+   * without moving the answer, and the other lane is now reachable rather than
+   * silently dropped.
+   */
+  /**
+   * The roster, arranged.
+   *
+   * Recency comes from what this screen already holds -- a request you sent, a
+   * share they gave you, a share you gave them -- so no new storage and no
+   * invented "frequently contacted", which nothing in this product counts.
+   *
+   * While a query is active the arrangement is dropped: a search result is
+   * ordered by how well each person matches, and headings over that would name
+   * an order the list does not have.
+   */
+  const lastInteraction = useMemo(
+    () =>
+      lastInteractionByUserId({
+        requestedByMe: vm.requestedByMe,
+        receivedGrants: vm.receivedGrants,
+        ownerGrants: vm.activeOwnerGrants,
+      }),
+    [vm.requestedByMe, vm.receivedGrants, vm.activeOwnerGrants],
+  );
+  const rosterRows = useMemo(
+    () =>
+      flattenRecipientSections(
+        sectionRecipients({
+          recipients: filtered,
+          lastInteraction,
+          label: vm.recipientLabel,
+          querying: vm.recipientSearch.trim().length > 0,
+        }),
+      ),
+    [filtered, lastInteraction, vm.recipientLabel, vm.recipientSearch],
+  );
+
+  const receivedGroupsByOwner = useMemo(() => {
+    const byOwner = new globalThis.Map<string, OneLocationGrantLaneGroup>();
+    // `"recipient"` -- the side argument names WHICH SIDE I AM, so for grants
+    // shared WITH me the counterpart to key on is the owner. Passing "owner"
+    // here keys every group by my own id and the lookup finds nothing; the
+    // Shared-with-me list a few hundred lines up passes "recipient" for the
+    // same array, for the same reason.
+    for (const group of groupGrantsByCounterpart(
+      vm.receivedGrants,
+      "recipient",
+    )) {
+      byOwner.set(group.counterpartUserId, group);
+    }
+    return byOwner;
+  }, [vm.receivedGrants]);
+
+  /**
+   * What each visible row says, computed once per data change.
+   *
+   * `requestRecipientStatus` filters AND sorts `requestedByMe` on every call,
+   * so calling it inside the render loop cost R x O(G log G) per render -- and
+   * a 30-second tick paid it again whether or not anything had happened. The
+   * inputs are the same for every row; only the recipient id differs.
+   */
+  const statusByRecipient = useMemo(() => {
+    const byRecipient = new globalThis.Map<string, RequestRecipientStatus>();
+    for (const recipient of filtered) {
+      byRecipient.set(
+        recipient.userId,
+        requestRecipientStatus({
+          recipientUserId: recipient.userId,
+          requestedByMe: vm.requestedByMe,
+          receivedGrants: vm.receivedGrants,
+          nowMs: statusNowMs,
+        }),
+      );
+    }
+    return byRecipient;
+  }, [filtered, vm.requestedByMe, vm.receivedGrants, statusNowMs]);
+
+  /**
+   * Whether anything on screen is actually measured against the clock.
+   *
+   * "Asked 6m ago" and "Sharing with you, 29 more min" go stale; "Ready for
+   * private sharing" does not. A roster of people you have never asked and who
+   * are not sharing has nothing that ages, and re-rendering it every 30 seconds
+   * is CPU spent to redraw identical text -- battery, on a phone.
+   */
+  const hasTimeRelativeRow = useMemo(
+    () =>
+      [...statusByRecipient.values()].some(
+        (status) =>
+          status.statusLabel !== undefined ||
+          status.pendingRequestId !== undefined ||
+          status.tone !== "ready",
+      ),
+    [statusByRecipient],
+  );
+
   useEffect(() => {
+    if (!hasTimeRelativeRow) return;
     const timer = window.setInterval(() => setStatusNowMs(Date.now()), 30_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [hasTimeRelativeRow]);
   return (
     <div className="space-y-5">
       <TaskFlowHeader
@@ -3558,43 +3812,77 @@ function AskFlow({
           className="flex items-start gap-2.5 rounded-2xl border border-[color:var(--app-success)]/30 bg-[color:var(--app-success)]/10 px-3.5 py-3"
         >
           <ShieldCheck className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[color:var(--app-success)]" />
-          <p className="text-sm font-medium text-foreground">
-            Request sent.
-          </p>
+          <p className="text-sm font-medium text-foreground">Request sent.</p>
         </div>
       ) : null}
 
-
       <section className="space-y-3">
         <AppSectionLabel as="h2">People</AppSectionLabel>
-        <PersonSearchInput
-          value={vm.recipientSearch}
-          onChange={vm.setRecipientSearch}
-        />
+        <PersonSearchInput value={searchDraft} onChange={setSearchDraft} />
         {filtered.length ? (
-          <div className={cn("mt-3", PEOPLE_LIST_SCROLL_CLASS)}>
-            {filtered.map((r) => {
+          /* Windowed above the picker's own threshold, plain DOM below it.
+             The rule is `shouldVirtualizeList`, imported rather than
+             re-implemented, so this list and the contact picker cannot drift
+             apart on where "too long to render whole" begins.
+
+             `presentation="cards"` because these rows are already cards: the
+             grouped shell would put a card inside a card and draw a divider
+             between two things that have their own edges. */
+          <VirtualContactList
+            items={rosterRows}
+            getKey={(row) => row.key}
+            scrollClassName={cn("mt-3", PEOPLE_LIST_SCROLL_CLASS)}
+            itemClassName="pb-2.5 last:pb-0"
+            presentation="cards"
+            testId="one-location-ask-recipients"
+            ariaLabel="People you can ask"
+            // A section heading is not one of the people. Taking it out of the
+            // list stops a screen reader announcing "Recent" as an entry.
+            getItemRole={(row) =>
+              row.kind === "header" ? "presentation" : undefined
+            }
+            renderItem={(row) => {
+              // Headers ride the SAME windowed list as the rows, rather than a
+              // scroller per section: two capped scrollers stacked inside one
+              // screen is the shape this flow already rejected once.
+              if (row.kind === "header") {
+                return (
+                  // The screen's own section type, not a second one invented
+                  // here: "People" a few lines up is the same primitive.
+                  <AppSectionLabel
+                    as="h3"
+                    data-testid={`one-location-ask-section-${row.key}`}
+                    className="px-1 pt-1"
+                  >
+                    {row.title}
+                  </AppSectionLabel>
+                );
+              }
+              const r = row.recipient;
               const selected = vm.selectedRequestOwnerIds.includes(r.userId);
               // Every row used to read "Ready for private sharing" with Select
               // as the only affordance, whoever the person was and whatever had
               // already happened with them -- so there was no active status to
               // read, and somebody who had just asked came back to a row
               // offering to ask again.
-              const status = requestRecipientStatus({
-                recipientUserId: r.userId,
-                requestedByMe: vm.requestedByMe,
-                receivedGrants: vm.receivedGrants,
-                nowMs: statusNowMs,
-              });
+              // Both read from an index built once above, not recomputed per
+              // row. `statusByRecipient` always has this id: it is built from
+              // the same `filtered` array being mapped here.
+              const status =
+                statusByRecipient.get(r.userId) ??
+                requestRecipientStatus({
+                  recipientUserId: r.userId,
+                  requestedByMe: vm.requestedByMe,
+                  receivedGrants: vm.receivedGrants,
+                  nowMs: statusNowMs,
+                });
               // A row already Live is the one place this list had no way off
               // it: the person keeps showing up "already sharing" with
               // nothing to do about that but wait it out or leave the screen
               // entirely to find the Shared with me / Requests sent list
               // that could end or shorten it.
-              const activeGrant = vm.receivedGrants.find(
-                (grant) =>
-                  grant.ownerUserId === r.userId && grant.status === "active",
-              );
+              const activeGrant =
+                receivedGroupsByOwner.get(r.userId)?.primaryGrant;
               const isEditingThis =
                 Boolean(activeGrant) && vm.editingGrantId === activeGrant?.id;
               // The unanswered ask this row is reporting, if any. The row used
@@ -3683,8 +3971,8 @@ function AskFlow({
                   }
                 />
               );
-            })}
-          </div>
+            }}
+          />
         ) : (
           <div className="mt-3">
             {vm.recipientSearch.trim() ? (
@@ -3700,18 +3988,29 @@ function AskFlow({
             )}
           </div>
         )}
+        {/* The way out. This list is everyone you are already connected to, so
+            "they are not here" has exactly one answer, and it lives on another
+            screen. Without this the empty state was a dead end and a search
+            that found nobody was worse -- it proved the person was missing and
+            offered nothing to do about it. */}
+        <a
+          href={ROUTES.CONNECT}
+          data-testid="one-location-ask-manage-connections"
+          className="mt-3 inline-flex min-h-11 items-center gap-1 rounded-full px-1 text-[15px] font-medium text-[color:var(--app-accent)]"
+        >
+          Don&apos;t see someone? Manage connections
+          <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+        </a>
+        <SelectedRecipientsRail
+          title="Selected"
+          recipients={selectedRecipients}
+          onRemove={(recipientUserId) =>
+            vm.toggleRequestOwner(recipientUserId, "ask_flow")
+          }
+          recipientLabel={vm.recipientLabel}
+        />
       </section>
 
-      {/* Ask and Share are the same decision pointed in opposite directions,
-          so they are now the same card: one surface, "How long" over the
-          ladder, then the next field. Ask used to put its duration in a
-          SettingsRow trailing slot as a two-column scroll wheel — a control
-          that needs 260px pinned to the right edge of a row, overlapping the
-          row it sat in and looking nothing like the screen people reach it
-          from.
-
-          Message keeps its own labelled block below: a two-row textarea is not
-          a row control. */}
       <SectionCard>
         <div className="space-y-5">
           <DurationSelector
@@ -3732,26 +4031,41 @@ function AskFlow({
           />
           <ReasonChips
             value={reason}
-            onChange={setReason}
+            onChange={(next) => {
+              setReason(next);
+              if (next !== "Other") vm.setRequestMessage("");
+            }}
             label="Reason"
             presentation="select"
           />
+          {reason === "Other" ? (
+            <div className="space-y-2.5">
+              <label
+                htmlFor="one-location-ask-other-reason"
+                className="text-sm font-semibold text-foreground"
+              >
+                Add reason
+              </label>
+              <textarea
+                id="one-location-ask-other-reason"
+                value={vm.requestMessage}
+                onChange={(e) =>
+                  vm.setRequestMessage(
+                    e.target.value.slice(
+                      0,
+                      ONE_LOCATION_REQUEST_REASON_MAX_LENGTH,
+                    ),
+                  )
+                }
+                rows={2}
+                maxLength={ONE_LOCATION_REQUEST_REASON_MAX_LENGTH}
+                placeholder="What should they know?"
+                className="block w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-compact)] px-3 pb-8 pt-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+              />
+            </div>
+          ) : null}
         </div>
       </SectionCard>
-
-      <section className="space-y-3">
-        <AppSectionLabel as="h2">Message</AppSectionLabel>
-        <textarea
-          value={vm.requestMessage}
-          onChange={(e) => vm.setRequestMessage(e.target.value)}
-          rows={2}
-          placeholder="Hey, can you share your location until we meet?"
-          /* bg-background is the light canvas colour, so on this screen the
-             field disappeared into the page exactly as the search input did.
-             Same surface as the group above it, in both themes. */
-          className="w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
-        />
-      </section>
 
       {/* Send is enabled once at least one recipient is chosen. Duration and
           reason default to sensible values, so gating Send on them too (added
@@ -3766,6 +4080,43 @@ function AskFlow({
         const isFormValid = vm.selectedRequestOwnerIds.length > 0;
         const sending = vm.busy === "request";
         return (
+          /**
+           * Pinned, because choosing someone and sending to them were never on
+           * screen together.
+           *
+           * Send sits after the roster, the duration ladder, the reason chips
+           * and the message box -- roughly a screen and a half below the person
+           * being picked. So the count travels with it: scrolling away from the
+           * roster used to lose the only place that said how many were chosen.
+           *
+           * `sticky`, not `fixed`. A fixed bar covers content and has to be
+           * paid for with page padding that is wrong at one end or the other.
+           * This one rides the page and settles into place at the bottom of the
+           * flow, so nothing is ever permanently underneath it.
+           *
+           * The offset is the app's own composed bottom inset plus the
+           * keyboard: on iOS the on-screen keyboard would otherwise sit over
+           * the action a person just reached for.
+           */
+          <div
+            data-testid="one-location-ask-send-bar"
+            className="sticky z-10 -mx-1 mt-1 space-y-2 rounded-2xl bg-[color:var(--app-card-surface-default-solid)] px-1 py-2"
+            style={{
+              bottom:
+                "calc(var(--app-bottom-inset, 0px) + var(--kb-height, 0px) + 0.5rem)",
+            }}
+          >
+            {isFormValid ? (
+              <p
+                aria-live="polite"
+                data-testid="one-location-ask-selection-summary"
+                className={cn(MUTED_TEXT, "px-1")}
+              >
+                {vm.selectedRequestOwnerIds.length === 1
+                  ? "1 person selected"
+                  : `${vm.selectedRequestOwnerIds.length} people selected`}
+              </p>
+            ) : null}
           <Button
             onClick={() => {
               // Never submit an incomplete form even if the click somehow
@@ -3791,6 +4142,7 @@ function AskFlow({
           >
             Send request
           </Button>
+          </div>
         );
       })()}
 
@@ -3803,6 +4155,63 @@ function AskFlow({
           Done
         </Button>
       ) : null}
+    </div>
+  );
+}
+
+function SelectedRecipientsRail({
+  title,
+  ariaLabel,
+  recipients,
+  onRemove,
+  recipientLabel,
+  trailing,
+}: {
+  title: string;
+  ariaLabel?: string;
+  recipients: OneLocationRecipient[];
+  onRemove: (recipientUserId: string) => void;
+  recipientLabel: (recipient: OneLocationRecipient) => string;
+  trailing?: ReactNode;
+}) {
+  if (!recipients.length) return null;
+
+  return (
+    <div className="space-y-2 pt-1">
+      <div className="flex items-end justify-between gap-3 px-1">
+        <AppSectionLabel as="h3">{title}</AppSectionLabel>
+        {trailing}
+      </div>
+      <div
+        aria-label={ariaLabel ?? title}
+        role="list"
+        className="max-h-[176px] overflow-y-auto rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/15"
+      >
+        {recipients.map((recipient) => {
+          const label = recipientLabel(recipient);
+          return (
+            <div key={recipient.userId} role="listitem">
+              <button
+                type="button"
+                onClick={() => onRemove(recipient.userId)}
+                aria-label={`Remove ${label}`}
+                className="group flex min-h-14 w-full items-center gap-3 border-b border-[color:var(--app-separator)] px-3 text-left last:border-b-0"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
+                  <UsersRound className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
+                  {label}
+                </span>
+                <X
+                  className="h-4 w-4 shrink-0 text-muted-foreground opacity-55 transition-opacity group-hover:opacity-100"
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -3905,16 +4314,16 @@ function InviteFlow({
           stackTrailingOnMobile
           trailing={
             <DurationSelector
-          value={vm.durationHours}
-          onChange={vm.setDurationHours}
-          label=""
-          // 24 hours is the ceiling, not a preference. The API rejects
-          // anything above it (`duration_hours … le=24` on
-          // CreateCircleInviteRequest) and `normalize_duration_hours` raises
-          // "between 15 minutes and 24 hours", so the "7 days" option that
-          // used to sit here could only ever return HTTP 422 — an invite the
-          // owner watched fail with no idea why.
-          options={[
+              value={vm.durationHours}
+              onChange={vm.setDurationHours}
+              label=""
+              // 24 hours is the ceiling, not a preference. The API rejects
+              // anything above it (`duration_hours … le=24` on
+              // CreateCircleInviteRequest) and `normalize_duration_hours` raises
+              // "between 15 minutes and 24 hours", so the "7 days" option that
+              // used to sit here could only ever return HTTP 422 — an invite the
+              // owner watched fail with no idea why.
+              options={[
                 { value: "1", label: "1 hour" },
                 { value: "24", label: "24 hours" },
               ]}
@@ -3942,99 +4351,3 @@ function InviteFlow({
 /* =================================================================== */
 
 /** Same precision story as ShareFlow — see the note there. */
-function TemporaryLinkFlow({
-  vm,
-  onClose,
-}: {
-  vm: LocationHubViewModel;
-  onClose: () => void;
-}) {
-  const created =
-    Boolean(vm.publicInviteUrl) || Boolean(vm.latestActivePublicInvite);
-
-  if (created) {
-    const invite = vm.latestActivePublicInvite;
-    return (
-      <div className="space-y-5">
-        <TaskFlowHeader
-          eyebrow="Copy, share or revoke"
-          title="Public location link active"
-        />
-        <WarningCard
-          title="Anyone with the link can view you."
-          description="The link stops on its own."
-        />
-        {invite ? (
-          <TemporaryLinkCard
-            title="Public location link active"
-            statusLine="Anyone with this link can view you"
-            expiryLabel={vm.expiresCountdownLabel(invite.expiresAt)}
-            onCopy={vm.onCopyPublicInvite}
-            onShare={vm.onSharePublicInvite}
-            onRevoke={() => vm.onRevokePublicInvite(invite)}
-            revokeBusy={vm.busy === "publicRevoke"}
-          />
-        ) : null}
-        <Button
-          variant="ghost"
-          onClick={onClose}
-          className="h-11 w-full rounded-2xl text-sm"
-        >
-          Done
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-5">
-      {/* The eyebrow, title and description all used to say "outside your
-          Circle", then the warning said "until it expires" and the trust note
-          said it a third time. The consent point is load-bearing here, so it is
-          stated ONCE, in the warning, where it carries the most weight. */}
-      <TaskFlowHeader title="Share outside your Circle" />
-      <WarningCard
-        title="Anyone with this link can see you"
-        description="The link stops on its own."
-      />
-      <SettingsGroup title="Duration" separatorInset>
-        <SettingsRow
-          title="Link stays live for"
-          description="Anyone holding it can watch until then."
-          stackTrailingOnMobile
-          trailing={
-            <DurationSelector
-              value={vm.durationHours}
-              onChange={vm.setDurationHours}
-              label=""
-              // Deliberately shorter than the trusted-share durations: anyone
-              // holding this link can watch, so the public ceiling stays at
-              // 1 hour.
-              options={[
-                { value: "0.5", label: "30 min" },
-                { value: "1", label: "1 hour" },
-              ]}
-            />
-          }
-        />
-      </SettingsGroup>
-      {/* The temporary link shares the same precise point as everything else,
-          so it offers no precision card either. The "expires automatically"
-          note that sat here was the third statement of the same fact — the
-          warning above and the duration control already carry it. */}
-      {/* The label changes while it works. This press waits on a device fix
-          before it can post anything, so on a cold start it can sit for
-          several seconds — and it used to sit as a bare spinner with the label
-          hidden, which is why it read as "taking longer than expected" rather
-          than as "still finding you". Naming the wait is the fix available
-          here; the wait itself is a GPS acquisition. */}
-      <Button
-        onClick={vm.onCreatePublicInvite}
-        isLoading={vm.busy === "publicInvite"}
-        className="h-12 min-h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-      >
-        {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
-      </Button>
-    </div>
-  );
-}

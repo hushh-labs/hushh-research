@@ -52,7 +52,7 @@ const QUESTIONS = [
   },
   {
     id: "drawdown_response" as const,
-    prompt: "If your portfolio drops 20%, what would you most likely do?",
+    prompt: "Portfolio down 20%, what's your move?",
     options: [
       { value: "reduce" as const, label: "Reduce investments to limit further losses" },
       { value: "stay" as const, label: "Stay invested and review the situation" },

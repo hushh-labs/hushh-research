@@ -634,15 +634,17 @@ function KaiOnboardingPageContent({
           riskProfile={persona}
           onEditAnswers={() => setStage("wizard")}
           onLaunchDashboard={handleLaunchDashboard}
+          terminalFooter={
+            isStaticFinanceSetupRoute ? (
+              <SetupCapabilityTerminalFooter
+                capabilityId="finance"
+                isOperationallyReady={false}
+                coordinator={financeSetupCoordinator}
+                supportingText="You can return any time."
+              />
+            ) : null
+          }
         />
-        {isStaticFinanceSetupRoute ? (
-          <SetupCapabilityTerminalFooter
-            capabilityId="finance"
-            isOperationallyReady={false}
-            coordinator={financeSetupCoordinator}
-            supportingText="You can return any time."
-          />
-        ) : null}
       </>
     );
   }

@@ -23,7 +23,6 @@ from __future__ import annotations
 import logging
 import os
 import time
-from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, Optional
@@ -133,24 +132,30 @@ APP_ROUTES: dict[str, str] = {
     "profile": "/profile",
 }
 
-# Voice head runs the GA native-audio Live model on Vertex ADC (regional
-# only; it is NOT published on the global endpoint, so the live client pins
-# a region via AGENT_ONE_ADK_LOCATION). Model is env-swappable through
-# AGENT_ONE_ADK_MODEL with no code change.
+# Voice head model contract. The canonical live model is authored in the One
+# manifest (heads.live) and env-swappable through AGENT_ONE_ADK_MODEL with no
+# code change; the transport per model comes from GEMINI_LIVE_COMPATIBILITY.
 #
-# MODEL CONTRACT - do not bump to a gemini-3.x Live model casually:
-# gemini-live-2.5-flash-native-audio is the GA "Recommended" Vertex Live
-# model and supports send_client_content THROUGHOUT the session. The relay
-# (api/routes/one/adk_live.py) depends on mid-session send_content for
-# greetings, app_speech, user_text turns, settlement notes, and route-change
-# notes. On Gemini 3.x Live, send_client_content only seeds initial history;
-# a 3.x swap would silently break every one of those injection paths.
-# _build_one_live_model() logs a warning if the override looks like 3.x.
+# MODEL CONTRACT (updated 2026-08-21 after an ADK Live rehearsal):
+# gemini-3.1-flash-live-preview is the canonical live model. It is served on
+# the Gemini Developer API only (verified: the Vertex publisher endpoint 404s
+# in us-central1/us-east4/europe-west4/asia-southeast1), so its transport is
+# developer_api with a Hussh-managed key (HUSHH_MANAGED_GEMINI_LIVE_API_KEY).
+# The relay's mid-session injections (greetings, app_speech, user_text turns,
+# settlement notes, route-change notes) all queue single-text-part Contents;
+# on Gemini 3.x Live model names, google-adk (>=2.4.0) transposes each of
+# those into session.send_realtime_input(text=...) automatically
+# (google/adk/models/gemini_llm_connection.py), which the rehearsal verified
+# elicits complete model turns mid-session. The rehearsal also verified that
+# mid-session send_client_content itself is honored on the current 3.1
+# preview build, so both injection channels are live. Rollback lever: set
+# AGENT_ONE_ADK_MODEL=gemini-live-2.5-flash-native-audio (GA, Vertex) — its
+# matrix entry and Vertex transport remain fully supported below.
 _ONE_HEADS = _ONE_MANIFEST.capabilities.get("heads", {})
 _ONE_MODEL = (
     os.getenv("AGENT_ONE_ADK_MODEL")
     or (_ONE_HEADS.get("live") if isinstance(_ONE_HEADS, dict) else None)
-    or "gemini-live-2.5-flash-native-audio"
+    or "gemini-3.1-flash-live-preview"
 ).strip()
 _ONE_LIVE_LOCATION = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
 # The Developer API Live contract is intentionally separate from the Vertex
@@ -165,36 +170,12 @@ _SPECIALIST_MODEL = (
 ).strip()
 
 
-@dataclass(frozen=True)
-class GeminiLiveCompatibility:
-    """One relay requirements for one named Gemini Live model contract."""
-
-    transport: Literal["vertex", "developer_api"]
-    supports_mid_session_client_content: bool
-    operator_enablement_required: bool
-
-
-# The relay injects redacted route state and correlated action settlements after
-# setup, so it requires client content throughout a session. Keep the model
-# differences declarative: adding a Developer API model is an explicit contract
-# decision plus an ADK rehearsal, never a best-effort name-prefix heuristic.
-GEMINI_LIVE_COMPATIBILITY: dict[str, GeminiLiveCompatibility] = {
-    "gemini-live-2.5-flash-native-audio": GeminiLiveCompatibility(
-        transport="vertex",
-        supports_mid_session_client_content=True,
-        operator_enablement_required=False,
-    ),
-    "gemini-2.5-flash-live-preview": GeminiLiveCompatibility(
-        transport="developer_api",
-        supports_mid_session_client_content=True,
-        operator_enablement_required=True,
-    ),
-    "gemini-3.1-flash-live-preview": GeminiLiveCompatibility(
-        transport="developer_api",
-        supports_mid_session_client_content=False,
-        operator_enablement_required=True,
-    ),
-}
+# The Live compatibility registry lives in runtime_providers so the deploy
+# verifier can consult it without importing this module's heavy dependency
+# chain; re-exported here because this is its historical import site.
+from hushh_mcp.runtime_providers.live_compatibility import (  # noqa: E402
+    GEMINI_LIVE_COMPATIBILITY,
+)
 
 
 def _onboarding_goals_enabled(user_id: str) -> bool:
@@ -213,23 +194,49 @@ def _onboarding_goals_enabled(user_id: str) -> bool:
     return not allowlist or user_id in allowlist
 
 
-def _build_one_live_model():
-    """Live model for One's voice head.
+def _managed_live_api_key() -> str:
+    """Hussh-managed Developer API key for developer_api-transport live models.
 
-    Wraps the model id in an ADK ``Gemini`` with an explicit regional
-    location when running on Vertex, because the native-audio Live model is
-    served regionally (us-central1 etc.), not on the global endpoint the
-    genai client defaults to.
+    Distinct from BYOK by design: this key is Hussh-owned (minted in the
+    Gemini billing-bridge project, Secret Manager-delivered) and is only ever
+    used for the canonical managed live model. A person's BYOK key still flows
+    exclusively through build_one_live_runner's BYOK lane.
     """
-    if _ONE_MODEL.startswith("gemini-3"):
+    return (os.getenv("HUSHH_MANAGED_GEMINI_LIVE_API_KEY") or "").strip()
+
+
+def _build_one_live_model():
+    """Live model for One's voice head, built on the model's declared transport.
+
+    vertex transport wraps the model id in an ADK ``Gemini`` with an explicit
+    regional location (Vertex live models are served regionally, not on the
+    global endpoint the genai client defaults to). developer_api transport
+    builds the same ADK ``Gemini`` against the Gemini Developer API with the
+    Hussh-managed live key — required for gemini-3.1-flash-live-preview, which
+    is not published on Vertex.
+    """
+    compat = GEMINI_LIVE_COMPATIBILITY.get(_ONE_MODEL)
+    if compat is None:
         logger.warning(
-            "one_adk_live_model_contract_risk model=%s: Gemini 3.x Live treats "
-            "send_client_content as init-history-only; the relay's mid-session "
-            "content injection (greetings, app_speech, settlement and route "
-            "notes) will not work. Stay on gemini-live-2.5-flash-native-audio "
-            "until those paths are migrated to send_realtime_input.",
+            "one_adk_live_model_contract_risk model=%s: not declared in "
+            "GEMINI_LIVE_COMPATIBILITY. The relay's mid-session injection "
+            "channels have not been rehearsed for this model; falling back to "
+            "managed Vertex transport. Author a matrix entry after an ADK "
+            "rehearsal before shipping this model.",
             _ONE_MODEL,
         )
+    if compat is not None and compat.transport == "developer_api":
+        key = _managed_live_api_key()
+        if not key:
+            raise RuntimeError(
+                "managed_live_key_missing: the canonical live model "
+                f"'{_ONE_MODEL}' uses the developer_api transport and requires "
+                "HUSHH_MANAGED_GEMINI_LIVE_API_KEY. Set the secret, or roll "
+                "back with AGENT_ONE_ADK_MODEL=gemini-live-2.5-flash-native-audio."
+            )
+        from hushh_mcp.runtime_providers import build_gemini_byok_adk_model
+
+        return build_gemini_byok_adk_model(_ONE_MODEL, key)
     return build_managed_gemini_adk_model(
         _ONE_MODEL,
         vertex_location=_ONE_LIVE_LOCATION,
@@ -1447,11 +1454,14 @@ def build_one_live_runner(
 ) -> Runner:
     """Return the managed runner or an isolated, connection-local BYOK runner.
 
-    The BYOK Live compatibility gate is deliberately explicit. The current
-    managed runner relies on Vertex's 2.5 native-audio contract; a Developer
-    API model can only be enabled once it is named through the strict model
-    allowlist and the deployment flag. This prevents an API key from causing a
-    credential fallback or an unverified model swap.
+    The BYOK Live compatibility gate is deliberately explicit. The managed
+    runner resolves its own transport (developer_api with the Hussh-managed
+    live key for the canonical gemini-3.1-flash-live-preview; Vertex ADC for
+    vertex-transport models); a BYOK Developer API model can only be enabled
+    once it is named through the strict model allowlist and the deployment
+    flag, and its live + specialist models are built from the person's key
+    explicitly. This prevents an API key from causing a credential fallback
+    or an unverified model swap in either direction.
     """
     if runtime_mode == "hushh_managed_vertex":
         return get_one_runner()

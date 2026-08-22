@@ -164,7 +164,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           ? shareAmount
             ? `Shared their location with you for ${shareAmount}`
             : "Shared their location with you"
-          : "Started sharing location",
+          : "You started sharing location",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -320,6 +320,27 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
               circleInviteId: inviteId,
               section: "people",
             })
+          : ROUTES.ONE_LOCATION,
+      };
+    }
+    case "circle_member_added": {
+      const circleName = metadataString(item.metadata, "circle_name");
+      const circleId = metadataString(item.metadata, "circle_id");
+      const addedBy =
+        metadataString(item.metadata, "added_by_label") || item.actor_label;
+      return {
+        icon,
+        domainLabel,
+        label: "Added to a Circle",
+        description: addedBy
+          ? circleName
+            ? `${addedBy} added you to ${circleName}.`
+            : `${addedBy} added you to their Circle.`
+          : circleName
+            ? `You were added to ${circleName}.`
+            : "You were added to a Circle.",
+        href: circleId
+          ? buildOneLocationWorkflowHref({ circleId, section: "people" })
           : ROUTES.ONE_LOCATION,
       };
     }

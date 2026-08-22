@@ -162,7 +162,7 @@ function formatHeadlinePublished(value: string | null | undefined): string {
 
 const oneMarketRootClassName = cn(
   marketSurfaceVariablesClassName,
-  "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
+  "relative isolate mx-auto flex min-h-0 w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
   "bg-transparent font-sans text-[color:var(--one-fg)] antialiased",
   // The page background always matches the app shell (--background) so the
   // route never paints its own lighter panel inside the shell (the "double
