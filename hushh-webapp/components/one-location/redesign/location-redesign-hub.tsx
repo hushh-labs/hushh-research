@@ -877,7 +877,21 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     (next: LocationHubTab) => {
       if (next === tab) return;
       setTabState(next);
+      // Leaving a tab closes whatever flow was open on it.
+      //
+      // `?action=` and `?circleId=` used to survive a tab change, and the
+      // effect that reads them opens the flow again -- so going Circle detail
+      // -> another tab -> back put the person inside the same Circle instead
+      // of at the list they were reaching for. `closeFlow` has always cleared
+      // these; the tab strip did not.
+      // `setFlow` only; the refs are the URL-sync effect's to move, and
+      // reaching into them from here makes every other assignment to them a
+      // lint error about a value that cannot be modified.
+      setFlow("none");
       const params = new URLSearchParams(searchParams.toString());
+      params.delete(FLOW_ACTION_PARAM);
+      params.delete("circleId");
+      params.delete(FLOW_SOURCE_PARAM);
       // Always name the tab, including the default one. Returning to Now by
       // deleting the parameter can leave the query empty, and the App Router
       // will not perform a navigation whose only change is that the whole

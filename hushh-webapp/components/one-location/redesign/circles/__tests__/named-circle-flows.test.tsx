@@ -1105,7 +1105,14 @@ describe("named Circle flows", () => {
     expect(connect).toHaveAccessibleName("Connect with Sharu Khan");
     fireEvent.click(connect);
     await waitFor(() =>
-      expect(onConnectMember).toHaveBeenCalledWith("circle-1", "stranger-user"),
+      // The identity rides along, because the caller puts this person in
+      // front of the same capability review the Connect directory opens, and
+      // that sheet has to name who the request is going to.
+      expect(onConnectMember).toHaveBeenCalledWith(
+        "circle-1",
+        "stranger-user",
+        { displayName: "Sharu Khan", photoUrl: null },
+      ),
     );
   });
 
@@ -1657,5 +1664,91 @@ describe("a Trusted Circle offers no control that cannot work", () => {
 
     await screen.findByText("Asha");
     expect(screen.getByRole("button", { name: /Delete circle/i })).toBeTruthy();
+  });
+});
+
+describe("a roster row can take back a request it sent", () => {
+  function circleWithPending(): OneLocationCircleDetail {
+    return {
+      id: "circle-1",
+      name: "K Family",
+      kind: "family",
+      role: "owner",
+      memberCount: 2,
+      memberLimit: 100,
+      viewerCapabilities: {
+        canInviteMembers: true,
+        canViewInviteCode: true,
+        canRotateInviteCode: true,
+        canManageCircle: true,
+        canModerateInvites: true,
+      },
+      members: [
+        {
+          userId: "owner-user",
+          displayName: "Owner",
+          role: "owner",
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+        {
+          userId: "waiting-user",
+          displayName: "Sharu Khan",
+          role: "member",
+          phoneVerified: true,
+          secureLocationReady: true,
+          relationship: "pending_outgoing",
+        },
+      ],
+    } as OneLocationCircleDetail;
+  }
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("offers Cancel where the caller can act, not a dead status", async () => {
+    // The Connect directory has always offered Cancel on exactly this row
+    // state. The roster showed the same fact -- "Requested" -- with nothing to
+    // do about it, so the two screens disagreed about what a pending request
+    // is: news on one, a decision you can still change on the other.
+    const onCancelMemberRequest = vi.fn(async () => undefined);
+    const onLoad = vi.fn(async () => circleWithPending());
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(onLoad)}
+        onCancelMemberRequest={onCancelMemberRequest}
+      />,
+    );
+
+    const cancel = await screen.findByTestId("circle-member-cancel-waiting-user");
+    expect(cancel).toBeTruthy();
+    // And the bare status is gone, so the row carries one control, not both.
+    expect(
+      screen.queryByTestId("circle-member-relationship-waiting-user"),
+    ).toBeNull();
+
+    fireEvent.click(cancel);
+    await waitFor(() =>
+      expect(onCancelMemberRequest).toHaveBeenCalledWith(
+        "circle-1",
+        "waiting-user",
+      ),
+    );
+  });
+
+  it("falls back to the status where the caller cannot cancel", async () => {
+    // A surface with no cancel of its own must not grow a button that does
+    // nothing. The Location hub is that surface today.
+    const onLoad = vi.fn(async () => circleWithPending());
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    expect(
+      await screen.findByTestId("circle-member-relationship-waiting-user"),
+    ).toHaveTextContent("Requested");
+    expect(
+      screen.queryByTestId("circle-member-cancel-waiting-user"),
+    ).toBeNull();
   });
 });

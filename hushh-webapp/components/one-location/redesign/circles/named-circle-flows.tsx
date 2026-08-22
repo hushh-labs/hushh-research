@@ -794,6 +794,8 @@ function CircleMemberRow({
   onRemove,
   onConnect,
   connecting = false,
+  onCancelRequest,
+  cancelling = false,
   membersRemovable = true,
 }: {
   member: OneLocationCircleMember;
@@ -805,6 +807,12 @@ function CircleMemberRow({
   /** Sends a connection request to this member. Absent when none is possible. */
   onConnect?: () => Promise<void>;
   connecting?: boolean;
+  /** Takes back a request this person has not answered yet.
+   *
+   *  Absent on a surface that cannot cancel, where the row falls back to a
+   *  plain "Requested" status. */
+  onCancelRequest?: () => Promise<void>;
+  cancelling?: boolean;
   /** False where the roster is not the owner's to edit.
    *
    *  A Trusted Circle's membership is derived from the connection, so
@@ -841,12 +849,18 @@ function CircleMemberRow({
    * and the two states that are NOT the default keep their own affordance.
    */
   const actionCta = cta && cta.action !== "none" ? cta : null;
-  /** Waiting on them. Real news, but nothing here can act on it, so it is a
-   *  status and not a button. */
+  /** Waiting on them.
+   *
+   *  This used to be a status and nothing more, on the reasoning that nothing
+   *  here could act on it. The Connect directory has always been able to --
+   *  it offers Cancel on exactly this state -- so the roster showed the same
+   *  fact with one fewer thing you could do about it. Where a caller can
+   *  cancel, the row does; where it cannot, the status is still the answer. */
   const pendingLabel =
     cta && cta.action === "none" && relationship === "pending_outgoing"
       ? cta.label
       : null;
+  const canCancelRequest = Boolean(pendingLabel && onCancelRequest);
 
   const secondaryLine =
     member.role === "owner"
@@ -897,13 +911,31 @@ function CircleMemberRow({
         ) : null}
       </div>
       <div className={CIRCLE_MEMBER_TRAILING_CLASSNAME}>
-        {pendingLabel ? (
+        {pendingLabel && !canCancelRequest ? (
           <span
             className="px-1 text-[13px] font-medium leading-5 text-muted-foreground"
             data-testid={`circle-member-relationship-${member.userId}`}
           >
             {pendingLabel}
           </span>
+        ) : null}
+        {canCancelRequest ? (
+          // One word, at the width the other actions in this column use. The
+          // directory settled that: "Cancel request" made the widest control
+          // on the screen the one belonging to the least common row state.
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy || cancelling}
+            isLoading={cancelling}
+            aria-label={`Cancel your request to ${member.displayName}`}
+            data-testid={`circle-member-cancel-${member.userId}`}
+            className={CIRCLE_MEMBER_ACTION_CLASSNAME}
+            onClick={() => void onCancelRequest?.()}
+          >
+            Cancel
+          </Button>
         ) : null}
         {actionCta?.action === "connect" ? (
           <Button
@@ -1030,6 +1062,7 @@ export function CircleDetailFlow({
   onShareWithMember,
   onRemoveMember,
   onConnectMember,
+  onCancelMemberRequest,
   onLoadEligibleConnections,
   onInviteConnections,
   onCancelMemberInvite,
@@ -1063,7 +1096,17 @@ export function CircleDetailFlow({
    * whoever invited them and nobody else -- so the roster is where that
    * introduction can be asked for explicitly, and answered by the other person.
    */
-  onConnectMember: (circleId: string, userId: string) => Promise<void>;
+  /** `displayName` and `photoUrl` are passed so a caller can put this person
+   *  in front of the same capability review the Connect directory uses,
+   *  which needs a name to show. Optional so an older caller still compiles. */
+  onConnectMember: (
+    circleId: string,
+    userId: string,
+    person?: { displayName: string | null; photoUrl: string | null },
+  ) => Promise<void>;
+  /** Takes back a request this viewer sent to a co-member. Absent on a
+   *  surface that cannot cancel, where the row shows a plain "Requested". */
+  onCancelMemberRequest?: (circleId: string, userId: string) => Promise<void>;
   onLoadEligibleConnections: (
     circleId: string,
   ) => Promise<OneLocationCircleEligibleConnections>;
@@ -1077,6 +1120,7 @@ export function CircleDetailFlow({
 }) {
   const [loadedCircle, setCircle] =
     useState<OneLocationCircleDetail | null>(null);
+  const [cancellingUserId, setCancellingUserId] = useState<string | null>(null);
   const [inviteCode, setInviteCode] =
     useState<OneLocationCircleInviteCode | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1933,6 +1977,22 @@ export function CircleDetailFlow({
                     isOwner={Boolean(isOwner)}
                     busy={busy}
                     membersRemovable={circle.systemKind !== "trusted"}
+                    cancelling={cancellingUserId === member.userId}
+                    onCancelRequest={
+                      onCancelMemberRequest
+                        ? async () => {
+                            setCancellingUserId(member.userId);
+                            try {
+                              await onCancelMemberRequest(
+                                circle.id,
+                                member.userId,
+                              );
+                            } finally {
+                              setCancellingUserId(null);
+                            }
+                          }
+                        : undefined
+                    }
                     onShare={() =>
                       onShareWithMember(circle.id, member.userId)
                     }
@@ -1944,7 +2004,10 @@ export function CircleDetailFlow({
                       if (connectingUserId) return;
                       setConnectingUserId(member.userId);
                       try {
-                        await onConnectMember(circle.id, member.userId);
+                        await onConnectMember(circle.id, member.userId, {
+                          displayName: member.displayName ?? null,
+                          photoUrl: member.photoUrl ?? null,
+                        });
                       } finally {
                         setConnectingUserId(null);
                       }

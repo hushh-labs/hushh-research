@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -9,8 +9,13 @@ const mocks = vi.hoisted(() => ({
   routerReplace: vi.fn(),
   createNamedCircle: vi.fn(),
   getCircle: vi.fn(),
+  toastError: vi.fn(),
   searchParams: new URLSearchParams("tab=circles"),
   vaultOwnerToken: "vault-token" as string | null,
+}));
+
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError, success: vi.fn() },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -435,5 +440,87 @@ describe("the flows are hosted on Connect, not linked away to Location", () => {
     render(<ConnectCirclesTab />);
 
     expect(await screen.findByTestId("connect-circles-tab")).toBeTruthy();
+  });
+});
+
+describe("a roster row on Connect behaves like a directory row", () => {
+  beforeEach(() => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail&circleId=mine",
+    );
+    mocks.getCircle.mockResolvedValue({
+      id: "mine",
+      name: "Roommates",
+      kind: "other",
+      role: "owner",
+      memberCount: 2,
+      memberLimit: 100,
+      viewerCapabilities: {
+        canInviteMembers: true,
+        canViewInviteCode: true,
+        canRotateInviteCode: true,
+        canManageCircle: true,
+        canModerateInvites: true,
+      },
+      members: [
+        {
+          userId: "owner-user",
+          displayName: "Owner",
+          role: "owner",
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+        {
+          userId: "stranger-user",
+          displayName: "Sharu Khan",
+          role: "member",
+          phoneVerified: true,
+          secureLocationReady: true,
+          relationship: "none",
+        },
+      ],
+    });
+  });
+
+  it("opens the capability review instead of sending outright", async () => {
+    // `config/protected-behaviors.json` names this review, and the directory
+    // shows it even on an empty catalog because "a request that grants nothing
+    // is worth saying out loud". A Circle roster was the one place in the app
+    // that skipped it.
+    const onRequestConnection = vi.fn();
+    render(<ConnectCirclesTab onRequestConnection={onRequestConnection} />);
+
+    fireEvent.click(
+      await screen.findByTestId("circle-member-connect-stranger-user"),
+    );
+
+    await waitFor(() => expect(onRequestConnection).toHaveBeenCalled());
+    expect(onRequestConnection.mock.calls[0][0]).toMatchObject({
+      userId: "stranger-user",
+      displayName: "Sharu Khan",
+    });
+  });
+
+  it("refuses rather than sending when no review is available", async () => {
+    // Never fall back to a bare send. Silence would be better than a request
+    // the person never saw the terms of.
+    render(<ConnectCirclesTab />);
+
+    fireEvent.click(
+      await screen.findByTestId("circle-member-connect-stranger-user"),
+    );
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
+  });
+
+  it("re-reads the roster when the page says something changed", async () => {
+    // A request sent through the sheet leaves the row behind it stale: it
+    // still says Connect when the answer is now Requested.
+    const view = render(<ConnectCirclesTab refreshToken={0} />);
+    await waitFor(() => expect(mocks.getCircle).toHaveBeenCalledTimes(1));
+
+    view.rerender(<ConnectCirclesTab refreshToken={1} />);
+
+    await waitFor(() => expect(mocks.getCircle).toHaveBeenCalledTimes(2));
   });
 });

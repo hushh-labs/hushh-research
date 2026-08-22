@@ -362,6 +362,10 @@ export default function ConnectPageClient() {
    * while Circles is open would report an empty directory as the state of a
    * tab that is not rendering one.
    */
+  // Bumped whenever something outside the Circles tab changes a Circle or a
+  // relationship, so an open roster re-reads instead of waiting for a manual
+  // refresh -- the request sent from a member row is the case that showed.
+  const [circleRefreshToken, setCircleRefreshToken] = useState(0);
   const [circlesState, setCirclesState] = useState<{
     loading: boolean;
     error: string | null;
@@ -625,6 +629,13 @@ export default function ConnectPageClient() {
       // `lib/navigation/top-shell-breadcrumbs.ts` -- so `?tab=all` is what
       // makes "back to Connections" a control that actually moves.
       params.set(CONNECT_SURFACE_PARAM, next);
+      // A Circle you had open is not where "Circles" should take you next.
+      // These params outlived the surface switch, so leaving for Connections
+      // and tapping Circles again dropped you back inside the same roster
+      // rather than at the list with New circle and Join with code on it.
+      params.delete("action");
+      params.delete("circleId");
+      params.delete("code");
       // Leaving the people list discards a selection armed against it. A
       // six-person batch still primed under a list nobody can see is worse
       // than losing the picks: the button that sends it is on the other tab.
@@ -679,6 +690,9 @@ export default function ConnectPageClient() {
         }));
         setScopeDraft(null);
         CacheSyncService.onConnectionCapabilityMutated(user.uid);
+        // A Circle roster open behind this sheet is now stale: the row that
+        // said "Connect" should say "Requested". Re-read rather than patch.
+        setCircleRefreshToken((token) => token + 1);
         toast.success("Connection request sent");
         return true;
       } catch (sendError) {
@@ -1069,6 +1083,7 @@ export default function ConnectPageClient() {
           return remaining;
         });
         CacheSyncService.onConnectionCapabilityMutated(user.uid);
+        setCircleRefreshToken((token) => token + 1);
         toast.success("Connection request cancelled");
       } catch (cancelError) {
         toast.error(
@@ -1640,7 +1655,11 @@ export default function ConnectPageClient() {
               <ConnectCirclesTab
                 onStateChange={setCirclesState}
                 currentUserId={user?.uid ?? null}
-                getIdToken={getIdToken}
+                // The roster's Connect opens the SAME capability review the
+                // directory opens, rather than sending outright.
+                onRequestConnection={sendConnectRequest}
+                onCancelConnectionRequest={cancelConnectionRequest}
+                refreshToken={circleRefreshToken}
               />
             ) : (
               <>

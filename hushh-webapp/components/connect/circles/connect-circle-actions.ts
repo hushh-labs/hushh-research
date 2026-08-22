@@ -13,7 +13,6 @@ import {
   circleShareLabel,
   shareNamedCircleCode,
 } from "@/lib/one-location/share-circle-code";
-import { ConnectionsService } from "@/lib/services/connections-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import type {
   OneLocationCircleDetail,
@@ -41,12 +40,8 @@ export type ConnectCircleActions = ReturnType<typeof createConnectCircleActions>
 
 export function createConnectCircleActions({
   vaultOwnerToken,
-  getIdToken,
 }: {
   vaultOwnerToken: string;
-  /** Only the connect-a-co-member action needs Firebase identity; every other
-   *  call here is authorised by the vault owner token. */
-  getIdToken: () => Promise<string | null>;
 }) {
   /** One shape for every failure: the service's own words when they are safe to
    *  show, a plain sentence when they are not. */
@@ -196,28 +191,6 @@ export function createConnectCircleActions({
         if (delivery === "copied") toast.success("Circle code copied.");
       } catch {
         toast.error("Could not share the Circle code.");
-      }
-    },
-
-    /** Sharing a Circle does not connect two people -- a joiner is paired with
-     *  whoever invited them and nobody else -- so this is a real request the
-     *  other person answers, exactly like one sent from anywhere else. */
-    connectMember: async (_circleId: string, memberUserId: string) => {
-      const idToken = await getIdToken();
-      if (!idToken) {
-        toast.error("Sign in again to send a connection request.");
-        return;
-      }
-      try {
-        await ConnectionsService.sendRequest({
-          idToken,
-          addresseeUserId: memberUserId,
-        });
-        toast.success("Connection request sent.");
-      } catch (error) {
-        toast.error(
-          oneLocationErrorMessage(error, "Could not send that request."),
-        );
       }
     },
 

@@ -148,3 +148,44 @@ describe("voice actions land on a surface that is actually showing", () => {
     }
   });
 });
+
+describe("leaving a surface does not keep you inside a Circle", () => {
+  it("clears the open Circle when the surface changes", () => {
+    // `?action=` and `?circleId=` used to survive a surface switch, so going
+    // Circle detail -> Connections -> Circles dropped the person back inside
+    // the same roster instead of at the list with New circle on it.
+    const source = readFileSync(
+      join(process.cwd(), "app/connect/page-client.tsx"),
+      "utf8",
+    ).split("\r\n").join("\n");
+
+    const start = source.indexOf("const selectSurface = useCallback(");
+    expect(start).toBeGreaterThan(-1);
+    const body = source.slice(start, source.indexOf("const closeFlow", start) + 1 || start + 2000);
+
+    expect(body).toContain('params.delete("action")');
+    expect(body).toContain('params.delete("circleId")');
+    expect(body).toContain('params.delete("code")');
+    // Still names the surface it is moving to -- the App Router refuses a
+    // navigation whose only change is the query string disappearing.
+    expect(body).toContain("params.set(CONNECT_SURFACE_PARAM, next)");
+  });
+});
+
+describe("the Location hub closes its flow when the tab changes", () => {
+  it("clears the flow params rather than letting the effect reopen them", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/one-location/redesign/location-redesign-hub.tsx"),
+      "utf8",
+    ).split("\r\n").join("\n");
+
+    const start = source.indexOf("const setTab = useCallback(");
+    expect(start).toBeGreaterThan(-1);
+    const body = source.slice(start, start + 1800);
+
+    expect(body).toContain("params.delete(FLOW_ACTION_PARAM)");
+    expect(body).toContain('params.delete("circleId")');
+    expect(body).toContain('setFlow("none")');
+    expect(body).toContain("params.set(LOCATION_HUB_TAB_PARAM, next)");
+  });
+});

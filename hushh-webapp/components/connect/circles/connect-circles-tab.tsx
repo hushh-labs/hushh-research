@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import { KeyRound, Plus, ShieldCheck, Siren, UsersRound } from "lucide-react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
@@ -20,6 +21,7 @@ import { createConnectCircleActions } from "@/components/connect/circles/connect
 import { CIRCLE_JOIN_CODE_PARAM } from "@/lib/one-location/circle-join-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleSummary } from "@/lib/one-location/types";
+import type { DirectoryPerson } from "@/lib/services/connections-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { VaultContext } from "@/lib/vault/vault-context";
 
@@ -178,7 +180,9 @@ export function orderCircles(
 export function ConnectCirclesTab({
   onStateChange,
   currentUserId = null,
-  getIdToken,
+  onRequestConnection,
+  onCancelConnectionRequest,
+  refreshToken = 0,
 }: {
   /** Lets the page keep its native beacon and voice metadata truthful without
    *  hoisting circle state into a 2,400-line component. */
@@ -188,9 +192,26 @@ export function ConnectCirclesTab({
     count: number;
   }) => void;
   currentUserId?: string | null;
-  /** Only the connect-a-co-member action needs Firebase identity. Optional so
-   *  the tab still renders in a test that mocks no auth. */
-  getIdToken?: () => Promise<string | null>;
+  /**
+   * Opens the SAME capability review the Connect directory opens.
+   *
+   * A roster row used to call `ConnectionsService.sendRequest` outright, so
+   * the one place in the app where a connection request is sent without the
+   * person seeing what it grants was a Circle member list.
+   * `config/protected-behaviors.json` names that review
+   * (`connect-request-asks-before-it-shares`), and the directory shows it even
+   * when the catalog is empty because "a request that grants nothing is worth
+   * saying out loud". The roster now goes through the same door.
+   */
+  onRequestConnection?: (person: DirectoryPerson) => void | Promise<void>;
+  /** Takes back a request that has not been answered. The directory offers
+   *  this on exactly the same row state; the roster used to show the fact and
+   *  no way to act on it. */
+  onCancelConnectionRequest?: (person: DirectoryPerson) => Promise<void>;
+  /** Bumped by the page when something outside this tab changed a Circle or a
+   *  relationship -- a sent request, an accepted invite -- so the list and the
+   *  open roster re-read instead of waiting for a manual refresh. */
+  refreshToken?: number;
 }) {
   // The context directly, not `useVault()`. That hook throws outside a
   // provider, and this tab must degrade to "circles are unavailable" rather
@@ -249,7 +270,7 @@ export function ConnectCirclesTab({
     return () => {
       cancelled = true;
     };
-  }, [vaultOwnerToken, reloadToken]);
+  }, [vaultOwnerToken, reloadToken, refreshToken]);
 
   useEffect(() => {
     onStateChange?.({ loading, error, count: circles.length });
@@ -260,12 +281,9 @@ export function ConnectCirclesTab({
   const actions = useMemo(
     () =>
       vaultOwnerToken
-        ? createConnectCircleActions({
-            vaultOwnerToken,
-            getIdToken: getIdToken ?? (async () => null),
-          })
+        ? createConnectCircleActions({ vaultOwnerToken })
         : null,
-    [getIdToken, vaultOwnerToken],
+    [vaultOwnerToken],
   );
 
   /**
@@ -381,27 +399,66 @@ export function ConnectCirclesTab({
   ) {
     return (
       <CircleDetailFlow
+        // Remount on a bump so the flow re-runs its own load. It holds the
+        // roster in local state, so without this a member added, removed or
+        // newly requested stayed on screen exactly as it was.
+        key={`${circleIdParam}:${reloadToken}:${refreshToken}`}
         circleId={circleIdParam}
         currentUserId={currentUserId}
         busy={busy}
         onBack={closeFlow}
         onLoad={actions.loadCircle}
-        onRename={(circleId, name) =>
-          withBusy(() => actions.renameCircle(circleId, name))
-        }
+        onRename={async (circleId, name) => {
+          const renamed = await withBusy(() =>
+            actions.renameCircle(circleId, name),
+          );
+          setReloadToken((token) => token + 1);
+          return renamed;
+        }}
         onGenerateCode={(circleId, rotate) =>
           withBusy(() => actions.generateCode(circleId, rotate))
         }
         onCopyCode={actions.copyCode}
         onShareCode={actions.shareCode}
         onShareWithMember={(circleId) => shareWithMember(circleId)}
-        onRemoveMember={(circleId, userId) =>
-          withBusy(() => actions.removeMember(circleId, userId))
+        onRemoveMember={async (circleId, userId) => {
+          await withBusy(() => actions.removeMember(circleId, userId));
+          setReloadToken((token) => token + 1);
+        }}
+        onConnectMember={async (_circleId, userId, person) => {
+          if (!onRequestConnection) {
+            // Never fall back to sending outright. A request that skips the
+            // review is the one thing this row must not do.
+            toast.error("Open Connections to send a connection request.");
+            return;
+          }
+          await onRequestConnection({
+            userId,
+            displayName: person?.displayName ?? null,
+            photoUrl: person?.photoUrl ?? null,
+            email: null,
+            relationship: "none",
+          });
+        }}
+        onCancelMemberRequest={
+          onCancelConnectionRequest
+            ? async (_circleId, userId) => {
+                await onCancelConnectionRequest({
+                  userId,
+                  displayName: null,
+                  photoUrl: null,
+                  email: null,
+                  relationship: "pending_outgoing",
+                });
+              }
+            : undefined
         }
-        onConnectMember={actions.connectMember}
         onLoadEligibleConnections={actions.loadEligibleConnections}
         onInviteConnections={async (circleId, userIds) => {
           await withBusy(() => actions.inviteConnections(circleId, userIds));
+          // The roster on screen is stale the moment somebody is added. It
+          // used to stay stale until the person navigated away and back.
+          setReloadToken((token) => token + 1);
         }}
         onCancelMemberInvite={actions.cancelMemberInvite}
         onLeave={async (circleId) => {
