@@ -144,7 +144,20 @@ export function ConnectCirclesTab({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    void OneLocationService.listCircles(vaultOwnerToken)
+    // Reconcile, then read.
+    //
+    // The accept hook writes both sides of a NEW connection, so a pair that
+    // connects from here on needs nothing else. It cannot account for the
+    // connections a person already had -- without this, somebody with forty of
+    // them opens this tab to no Trusted Circle at all, and after their next
+    // accept to one holding a single name under the words "Everyone you're
+    // connected to", which is worse than not showing it.
+    //
+    // A reconcile that fails must not cost the list: the Circles they already
+    // have are still worth showing, and the next open tries again.
+    void OneLocationService.ensureTrustedSystemCircle({ vaultOwnerToken })
+      .catch(() => undefined)
+      .then(() => OneLocationService.listCircles(vaultOwnerToken))
       .then((next) => {
         if (cancelled) return;
         setCircles(next);

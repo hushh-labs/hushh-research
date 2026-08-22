@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   listCircles: vi.fn(),
+  ensureTrusted: vi.fn(),
   routerPush: vi.fn(),
   vaultOwnerToken: "vault-token" as string | null,
 }));
@@ -13,7 +14,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/one-location/service", () => ({
-  OneLocationService: { listCircles: mocks.listCircles },
+  OneLocationService: {
+    listCircles: mocks.listCircles,
+    ensureTrustedSystemCircle: mocks.ensureTrusted,
+  },
 }));
 
 // The tab reads the context directly rather than through `useVault()`, because
@@ -71,6 +75,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.vaultOwnerToken = "vault-token";
   mocks.listCircles.mockResolvedValue([]);
+  mocks.ensureTrusted.mockResolvedValue({});
 });
 
 describe("circleRowDescription", () => {
@@ -177,8 +182,45 @@ describe("ConnectCirclesTab", () => {
       await screen.findByText("Unlock One to see your circles"),
     ).toBeTruthy();
     expect(mocks.listCircles).not.toHaveBeenCalled();
+    expect(mocks.ensureTrusted).not.toHaveBeenCalled();
     // And no controls that cannot work.
     expect(screen.queryByTestId("connect-circle-create")).toBeNull();
+  });
+
+  it("reconciles Trusted before it reads the list", async () => {
+    // The accept hook covers a NEW connection. It cannot cover the ones a
+    // person already had -- without this call they open the tab to no Trusted
+    // Circle at all, and after their next accept to one holding a single name
+    // under the words "Everyone you're connected to".
+    const order: string[] = [];
+    mocks.ensureTrusted.mockImplementation(async () => {
+      order.push("reconcile");
+      return {};
+    });
+    mocks.listCircles.mockImplementation(async () => {
+      order.push("list");
+      return [];
+    });
+
+    render(<ConnectCirclesTab />);
+
+    await waitFor(() => expect(order).toEqual(["reconcile", "list"]));
+    expect(mocks.ensureTrusted).toHaveBeenCalledWith({
+      vaultOwnerToken: "vault-token",
+    });
+  });
+
+  it("still shows the circles when the reconcile fails", async () => {
+    // A reconcile that fails must not cost the list. An older server with no
+    // such route, a rate limit, a dropped request -- the Circles they already
+    // have are still worth showing, and the next open tries again.
+    mocks.ensureTrusted.mockRejectedValue(new Error("404"));
+    mocks.listCircles.mockResolvedValue([circle("mine", "Roommates", 3)]);
+
+    render(<ConnectCirclesTab />);
+
+    expect(await screen.findByText("Roommates")).toBeTruthy();
+    expect(screen.queryByText("Circles are unavailable")).toBeNull();
   });
 
   it("says so when circles cannot be loaded", async () => {
