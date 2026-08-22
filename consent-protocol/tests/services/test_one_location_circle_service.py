@@ -2761,6 +2761,102 @@ def test_a_code_minted_before_the_guard_still_cannot_open_a_system_circle() -> N
     assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
 
 
+def test_a_trusted_circle_has_no_join_code_either() -> None:
+    """The same door, on the Circle the flag cannot see.
+
+    The guard above asked `is_system`, which was the whole question while the
+    SMS Circle was the only product-managed Circle. Trusted is deliberately NOT
+    `is_system` -- migration 163 carries the reasoning -- so it walked straight
+    through and could be minted a bearer code.
+
+    A code into a Trusted Circle is a code into the list of everyone the owner
+    is connected to, handed to whoever holds it.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "owner_user_id": "owner-user",
+            "member_limit": 100,
+            "is_system": False,
+            "system_kind": "trusted",
+        },
+        {"role": "owner"},
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.create_invite_code(
+            actor_user_id="owner-user",
+            circle_id=circle_id,
+            rotate=False,
+        )
+
+    assert raised.value.code == "LOCATION_CIRCLE_SYSTEM_NO_CODE"
+    assert raised.value.status_code == 409
+    assert not any("one_location_circle_invite_codes" in sql for sql in conn.sql)
+
+
+def test_a_trusted_code_cannot_be_redeemed_either() -> None:
+    """And the redemption side, for the same reason.
+
+    Closing only the minting side would leave live any code handed out before
+    the guard widened.
+    """
+
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    invite_id = "550e8400-e29b-41d4-a716-446655440001"
+    conn = _CapacityConnection(
+        {"id": invite_id, "circle_id": circle_id},
+        {
+            "id": circle_id,
+            "owner_user_id": "owner-user",
+            "member_limit": 100,
+            "status": "active",
+            "is_system": False,
+            "system_kind": "trusted",
+        },
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.join_circle(user_id="stranger-user", code="2345-6789-ABCD")
+
+    # The same answer a stranger gets for any Circle that will not take them:
+    # naming the kind would tell them a roster exists.
+    assert raised.value.code == "LOCATION_CIRCLE_CODE_INVALID"
+    assert raised.value.status_code == 404
+
+
+def test_both_code_doors_read_the_kind_and_not_only_the_flag() -> None:
+    """Structural, because the two tests above pass either way once fixed.
+
+    What they cannot catch is the next product-managed Circle: a third kind
+    added with `is_system = FALSE` would sail through a guard written as
+    `bool(row.get("is_system"))` exactly as Trusted did. Both doors go through
+    one predicate now, and this asserts they still do.
+    """
+
+    import inspect
+
+    for fn in (
+        OneLocationCircleService.create_invite_code,
+        OneLocationCircleService.join_circle,
+    ):
+        source = inspect.getsource(fn)
+        assert "_is_product_managed(" in source, fn.__name__
+        assert 'bool(circle_row.get("is_system"))' not in source, fn.__name__
+        # And it can only answer correctly if the row carries the column.
+        assert "system_kind" in source, fn.__name__
+
+
 def test_onboarding_never_names_or_shares_a_system_circle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

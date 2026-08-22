@@ -140,11 +140,46 @@ def test_the_delete_guard_now_covers_both_kinds() -> None:
     assert "DROP TRIGGER" not in statements
 
 
-def test_the_member_ceiling_is_widened_only_for_a_trusted_circle() -> None:
+def test_the_migration_never_touches_the_member_ceiling() -> None:
+    """The one thing this file must NOT do, and the reason is replay order.
+
+    A Trusted Circle mirrors the connection graph and connections are not
+    capped, so 158's 2..100 reads like the wrong bound for it, and an earlier
+    draft of this migration widened the CHECK to allow SMALLINT's ceiling for
+    `system_kind = 'trusted'`.
+
+    Every environment deploys with `--migration-mode replay`, which runs every
+    file in the manifest on every deploy in manifest order -- and 158 sits at
+    index 135, ahead of this file at 139. 158 ends with a plain DROP/ADD of
+    `CHECK (member_limit BETWEEN 2 AND 100)` with no NOT VALID, so the ADD
+    validates the whole table. Widening the bound here does not stop 158
+    re-narrowing it on the NEXT deploy, by which time Trusted Circles exist:
+    158 raises 23514 and every later release fails at the migration step.
+
+    Reproduced on Postgres 16. So a Trusted Circle stores the ordinary default
+    instead, and this asserts the widening does not come back.
+    """
+
     statements = _statements(_migration())
-    assert "one_location_circles_member_limit_bounds" in statements
-    assert "WHEN system_kind = 'trusted'" in statements
-    assert "ELSE 100" in statements
+    assert "one_location_circles_member_limit_bounds" not in statements
+    assert "member_limit BETWEEN" not in statements
+    assert "32767" not in statements
+
+
+def test_the_trusted_circle_stores_a_limit_158_would_still_accept() -> None:
+    """The other half of the same rule, on the writing side.
+
+    The migration staying away from the constraint is only safe while nothing
+    writes a row that constraint would reject.
+    """
+
+    from hushh_mcp.services.one_location_circle_service import (
+        CIRCLE_DEFAULT_MEMBER_LIMIT,
+        TRUSTED_SYSTEM_CIRCLE_MEMBER_LIMIT,
+    )
+
+    assert TRUSTED_SYSTEM_CIRCLE_MEMBER_LIMIT == CIRCLE_DEFAULT_MEMBER_LIMIT
+    assert 2 <= TRUSTED_SYSTEM_CIRCLE_MEMBER_LIMIT <= 100
 
 
 def test_migration_provisions_nothing_and_grants_nothing() -> None:
@@ -167,12 +202,12 @@ def test_rollback_restores_the_guard_before_it_drops_the_column() -> None:
     )
 
 
-def test_rollback_clamps_before_it_narrows_the_ceiling() -> None:
-    # A trusted Circle carries a ceiling the restored 2..100 bound rejects.
+def test_rollback_leaves_the_member_ceiling_alone_too() -> None:
+    # It has nothing to undo: the forward migration does not touch the bound,
+    # so no row it drops can be outside 2..100 and there is nothing to clamp.
     rollback = _statements(_rollback())
-    assert rollback.index("SET member_limit = 100") < rollback.index(
-        "CHECK (member_limit BETWEEN 2 AND 100)"
-    )
+    assert "one_location_circles_member_limit_bounds" not in rollback
+    assert "SET member_limit" not in rollback
 
 
 def test_rollback_keeps_every_circle_and_every_membership() -> None:

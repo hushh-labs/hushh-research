@@ -77,7 +77,21 @@ TRUSTED_SYSTEM_CIRCLE_NAME = "Trusted"
 # it; migration 163 widens the CHECK for this kind alone. The auto-join path
 # never reads it -- refusing to record a connection somebody already accepted
 # would be worse than an oversized roster.
-TRUSTED_SYSTEM_CIRCLE_MEMBER_LIMIT = 32767
+# What a Trusted Circle stores in `member_limit`, which is NOT a ceiling on it.
+#
+# Nothing on a Trusted write path consults this: the reconcile is one
+# INSERT ... SELECT with no capacity check, the accept hook is a plain upsert,
+# and `_circle_summary` reports `memberLimit: null` for Trusted from
+# `is_trusted` rather than from this number. So a person with four hundred
+# connections gets four hundred members regardless of what is stored here.
+#
+# It is the ORDINARY default rather than SMALLINT's ceiling because migration
+# 158 replays ahead of 163 on every deploy and re-adds
+# `CHECK (member_limit BETWEEN 2 AND 100)` against the whole table. A stored
+# 32767 makes that ADD raise 23514 on the first deploy after any Trusted Circle
+# exists, which fails the migration step of every release after it. 163's
+# header carries the full account.
+TRUSTED_SYSTEM_CIRCLE_MEMBER_LIMIT = CIRCLE_DEFAULT_MEMBER_LIMIT
 
 # What the product called it before. Rows still carrying this are renamed on
 # the next bootstrap; a name the OWNER chose is never touched.
@@ -160,6 +174,25 @@ def _first(result: Any) -> dict[str, Any] | None:
 
 def _all(result: Any) -> list[dict[str, Any]]:
     return [payload for row in result.fetchall() if (payload := _row_dict(row)) is not None]
+
+
+def _is_product_managed(row: dict[str, Any]) -> bool:
+    """Is this a Circle the product provisions, rather than one a person made?
+
+    `is_system` was the whole of that question while the SMS Circle was the
+    only such Circle. Trusted is deliberately NOT `is_system` -- migration 163
+    carries the reasoning -- so a guard that asks the flag alone lets Trusted
+    walk through every door that was shut against the SMS one, including the
+    join-code door this file closed two commits ago.
+
+    `system_kind` is the question now. The flag stays in the test so a row read
+    by a revision that predates the column still answers correctly, and so a
+    demotion that clears only the flag cannot quietly re-open anything.
+    """
+
+    if bool(row.get("is_system")):
+        return True
+    return bool(str(row.get("system_kind") or "").strip())
 
 
 def _clean_circle_id(value: str) -> str:
@@ -1472,7 +1505,8 @@ class OneLocationCircleService:
                         text(
                             """
                             SELECT
-                              id, owner_user_id, member_limit, is_system
+                              id, owner_user_id, member_limit, is_system,
+                              system_kind
                             FROM one_location_circles circle
                             WHERE id = CAST(:circle_id AS UUID)
                               AND status = 'active'
@@ -1538,7 +1572,10 @@ class OneLocationCircleService:
                 # from `one_location_sms_contacts` rather than from the roster.
                 # That changes in this same commit, which is why this guard is
                 # in it and comes first.
-                if bool(circle_row.get("is_system")):
+                # Asked of `system_kind` as well as the flag: Trusted is not
+                # `is_system`, and a bearer code into it is a code into the
+                # whole list of people you are connected to.
+                if _is_product_managed(circle_row):
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_SYSTEM_NO_CODE",
                         "This Circle is managed for you and cannot be shared with a code.",
@@ -1811,7 +1848,9 @@ class OneLocationCircleService:
                     conn.execute(
                         text(
                             """
-                            SELECT id, owner_user_id, member_limit, status, is_system
+                            SELECT
+                              id, owner_user_id, member_limit, status,
+                              is_system, system_kind
                             FROM one_location_circles
                             WHERE id = CAST(:circle_id AS UUID)
                             FOR UPDATE
@@ -1838,7 +1877,7 @@ class OneLocationCircleService:
                 # holder's side it is a code that does not work, and naming the
                 # Circle's kind would tell a stranger something about a roster
                 # they have no business knowing exists.
-                if bool(circle_row.get("is_system")):
+                if _is_product_managed(circle_row):
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_CODE_INVALID",
                         "That Circle code is invalid or no longer available.",
