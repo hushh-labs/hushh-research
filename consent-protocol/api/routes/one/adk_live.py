@@ -74,6 +74,7 @@ from api.routes.one.relay_auth import (
 from hushh_mcp.one_adk.action_tools import _slot_fingerprint
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
+    ONE_LIVE_VOICE_NAME,
     STATE_CONSENT_TOKEN,
     STATE_PENDING_DIRECTIVE,
     STATE_SCREEN,
@@ -502,6 +503,16 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     run_config = RunConfig(
         streaming_mode=StreamingMode.BIDI,
         response_modalities=[genai_types.Modality.AUDIO],
+        # Pinned explicitly: unset, each live model plays its own default
+        # voice, and the two models this relay supports sound audibly
+        # different from each other with nothing set here.
+        speech_config=genai_types.SpeechConfig(
+            voice_config=genai_types.VoiceConfig(
+                prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(
+                    voice_name=ONE_LIVE_VOICE_NAME
+                )
+            )
+        ),
         input_audio_transcription=genai_types.AudioTranscriptionConfig(),
         output_audio_transcription=genai_types.AudioTranscriptionConfig(),
         # No explicit trigger/target tokens: leaving both unset uses the
