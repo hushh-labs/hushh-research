@@ -850,6 +850,42 @@ def ensure_sms_system_circle_route(
         raise _handle_error(exc) from exc
 
 
+@router.post("/location/circles/trusted")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def ensure_trusted_system_circle_route(
+    request: Request,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Find-or-create the caller's Trusted Circle and top up its roster.
+
+    Trusted is a projection of the accepted-connection graph (#5458): everyone
+    you are connected to is in it, and the way out of it is to disconnect.
+
+    Called on bootstrap, so find-or-create rather than create. The reconcile
+    inside adds every connection with no membership row of ANY status, which is
+    what makes a removal stick instead of being undone on the next login, and
+    what heals a membership missed while an older revision was serving.
+
+    Vault-owner token, like the SMS route beside it: the reconcile reads the
+    caller's whole connection graph, which is exactly the material the vault
+    gate exists to protect. It is a projection and nothing more -- Trusted
+    membership grants no location authority, and every shared-Circle
+    eligibility query excludes it explicitly.
+    """
+
+    del request
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "circle": _circle_service().ensure_trusted_system_circle(
+                owner_user_id=_user_id(token_data),
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.delete("/location/circles/{circle_id}/invite-code")
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def revoke_named_location_circle_code(
