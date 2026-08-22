@@ -189,3 +189,64 @@ describe("the Location hub closes its flow when the tab changes", () => {
     expect(body).toContain("params.set(LOCATION_HUB_TAB_PARAM, next)");
   });
 });
+
+describe("the Circle flows do not spend the shared join rate limit", () => {
+  it("wraps Preview in the busy gate, like Join beside it", () => {
+    // Handed raw, the Preview button never disabled or spun for the whole
+    // round trip, so a person tapped it again -- and `/circle-codes/resolve`
+    // shares a 10-per-minute bucket with `/circle-codes/join`, so enough taps
+    // locked them out of the thing they came to do.
+    const source = readFileSync(
+      join(process.cwd(), "components/connect/circles/connect-circles-tab.tsx"),
+      "utf8",
+    ).split("\r\n").join("\n");
+
+    expect(source).toContain("withBusy(() => actions.resolveCode(code))");
+    expect(source).not.toContain("onResolve={actions.resolveCode}");
+  });
+});
+
+describe("a deep link into Location is not treated as a first run", () => {
+  it("hides the onboarding takeover when the URL names an action", () => {
+    // The gate reads auth, the vault, `mode`, `loadError` and one localStorage
+    // flag -- and no query parameter at all, so every deep link into Location
+    // put "Share your location easily with anyone" in front of the screen it
+    // named. Setup stays ahead of this: inside the wizard the greeting IS the
+    // screen.
+    const source = readFileSync(
+      join(process.cwd(), "app/one/location/page.tsx"),
+      "utf8",
+    ).split("\r\n").join("\n");
+
+    const start = source.indexOf("const [locationOnboardingGate");
+    const effect = source.slice(source.indexOf("if (loadError) {", start));
+    const body = effect.slice(0, effect.indexOf("const introSeen"));
+
+    expect(body).toContain('searchParams.get("action")?.trim()');
+    expect(body).toContain('setLocationOnboardingGate("hidden")');
+    // Setup is still decided before this point.
+    expect(source.indexOf('if (mode === "setup")', start)).toBeLessThan(
+      source.indexOf('searchParams.get("action")?.trim()', start),
+    );
+  });
+});
+
+describe("the Location roster hands a connection request to Connect", () => {
+  it("does not send one itself", () => {
+    // `config/protected-behaviors.json` names the capability review
+    // (`connect-request-asks-before-it-shares`). The Location roster was the
+    // last place that sent a request without it, and it has no cancel of its
+    // own either, so its "Requested" was dead text.
+    const source = readFileSync(
+      join(process.cwd(), "app/one/location/page.tsx"),
+      "utf8",
+    ).split("\r\n").join("\n");
+
+    const start = source.indexOf("const handleConnectCircleMember");
+    const body = source.slice(start, source.indexOf("useCallback", start + 2000));
+
+    expect(body).toContain("ROUTES.CONNECT");
+    expect(body).toContain("action=circle-detail");
+    expect(body).not.toContain("ConnectionsService.sendRequest");
+  });
+});

@@ -19,6 +19,7 @@ import {
 import { CIRCLE_NAME_ACTION_CLASSNAME } from "@/components/one-location/redesign/circles/circle-name-row-layout";
 import { CIRCLE_MEMBER_MENU_CLASSNAME } from "@/components/one-location/redesign/circles/circle-member-row-layout";
 import { ROUTES } from "@/lib/navigation/routes";
+import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleInvitePreview,
@@ -1147,7 +1148,15 @@ describe("named Circle flows", () => {
     const respond = await screen.findByTestId(
       "circle-member-respond-asked-user",
     );
-    expect(respond).toHaveAttribute("href", ROUTES.CONNECT);
+    // The consent centre, not `/one/connect`. From a Circle hosted ON Connect,
+    // a bare `/one/connect` href is a navigation whose only change is the query
+    // string disappearing -- which the App Router refuses -- so the one row
+    // with something waiting on it did nothing at all when tapped. A different
+    // pathname works from either host, and it is where Connect's own Respond
+    // already goes.
+    const href = respond.getAttribute("href") ?? "";
+    expect(href).not.toBe(ROUTES.CONNECT);
+    expect(href).toBe(buildConsentCenterHref("pending"));
     fireEvent.click(respond);
     expect(onConnectMember).not.toHaveBeenCalled();
   });
@@ -1788,5 +1797,59 @@ describe("a caller-requested re-read keeps the screen where it was", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(onLoad).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("an impatient second tap never makes a second Circle", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("creates once however many times Create is pressed", async () => {
+    // The host clears its busy flag in a `finally`, which runs before the
+    // navigation it then starts has committed -- so there is a guaranteed
+    // render with this form still mounted, the name still in state and the
+    // button live again. Two taps made two identically-named Circles and two
+    // success toasts.
+    let release: (() => void) | undefined;
+    const onSubmit = vi.fn(
+      () => new Promise<void>((resolve) => {
+        release = () => resolve();
+      }),
+    );
+
+    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. Meena Family"), {
+      target: { value: "Roommates" },
+    });
+    const create = screen.getByRole("button", { name: /create/i });
+    fireEvent.click(create);
+    fireEvent.click(create);
+    fireEvent.click(create);
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    release?.();
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+  });
+
+  it("lets a failed create be retried", async () => {
+    // The guard must not outlive a failure, or one server hiccup makes the
+    // form permanently dead with the name still typed into it.
+    const onSubmit = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("nope"))
+      .mockResolvedValueOnce(undefined);
+
+    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
+    fireEvent.change(screen.getByPlaceholderText("e.g. Meena Family"), {
+      target: { value: "Roommates" },
+    });
+    const create = screen.getByRole("button", { name: /create/i });
+
+    fireEvent.click(create);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    fireEvent.click(create);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
   });
 });

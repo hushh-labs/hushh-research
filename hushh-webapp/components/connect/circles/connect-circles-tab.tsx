@@ -422,7 +422,11 @@ export function ConnectCirclesTab({
       <JoinCircleFlow
         busy={busy}
         initialCode={joinCode}
-        onResolve={actions.resolveCode}
+        // Wrapped, like `onJoin` on the next line. Handed raw, the Preview
+        // button never disabled or spun for the whole round trip, so a person
+        // tapped it again -- and resolve shares the 10-per-minute bucket with
+        // joining, so enough taps locked them out of the thing they came for.
+        onResolve={(code) => withBusy(() => actions.resolveCode(code))}
         onJoin={async (code) => {
           const circle = await withBusy(() => actions.joinCircle(code));
           go({ action: "circle-detail", circleId: circle.id }, "replace");

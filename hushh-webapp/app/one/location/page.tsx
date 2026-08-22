@@ -243,6 +243,7 @@ import {
   isOneLocationNearbyCheckInAvailable,
   ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
 } from "@/lib/one-location/nearby-check-in-availability";
+import { ROUTES } from "@/lib/navigation/routes";
 import { resolveOnboardingMapPoint } from "@/lib/one-location/onboarding-map-point";
 // One rule, one place: Connect owns the Circle screens now and needs the
 // same judgement about what an API failure may say to a person.
@@ -3890,6 +3891,25 @@ export function OneLocationAgentPageContent({
       return;
     }
 
+    // Somebody arriving ON a specific screen is not a first run.
+    //
+    // This takeover is decided by auth, the vault, `mode`, `loadError` and one
+    // localStorage flag -- and reads no query parameter at all, so every deep
+    // link into Location put "Share your location easily with anyone" in front
+    // of the screen it named. Circles moved to Connect (#5458) partly because
+    // of that, and the handoff that remains -- sharing your live location with
+    // a Circle member -- still lands here.
+    //
+    // Nothing the linked-to flow needs is produced by this onboarding: it asks
+    // for permission and offers to save a place, and every flow reachable by
+    // `?action=` works without either. So an explicit destination wins over the
+    // first-run greeting. `mode === "setup"` is deliberately still ahead of
+    // this: inside the setup wizard the greeting IS the screen.
+    if (searchParams.get("action")?.trim()) {
+      setLocationOnboardingGate("hidden");
+      return;
+    }
+
     if (locationOnboardingGate === "hidden") {
       return;
     }
@@ -3920,6 +3940,7 @@ export function OneLocationAgentPageContent({
     loadError,
     locationOnboardingGate,
     mode,
+    searchParams,
     vaultOwnerToken,
   ]);
 
@@ -6792,34 +6813,27 @@ export function OneLocationAgentPageContent({
   );
 
   const handleConnectCircleMember = useCallback(
-    async (circleId: string, memberUserId: string) => {
+    async (circleId: string, _memberUserId: string) => {
+      // Hands off rather than sending.
+      //
       // Sharing a Circle does not connect two people -- a joiner is paired with
       // whoever invited them and nobody else -- so this is a real request the
-      // other person answers, exactly like one sent from anywhere else.
-      const idToken = await auth.user?.getIdToken();
-      if (!idToken) {
-        toast.error("Sign in again to send a connection request.");
-        return;
-      }
-      try {
-        await ConnectionsService.sendRequest({
-          idToken,
-          addresseeUserId: memberUserId,
-        });
-        toast.success("Connection request sent.");
-        // Re-read the Circle so the row moves to "Requested" from the server's
-        // answer rather than from an optimistic guess this screen made.
-        await handleLoadNamedCircle(circleId).catch(() => null);
-      } catch (error) {
-        toast.error(
-          oneLocationErrorMessage(
-            error,
-            "Could not send the connection request.",
-          ),
-        );
-      }
+      // other person answers. It used to be sent from here directly, which
+      // made this roster the one place in the app where a connection request
+      // went out without the capability review that
+      // `config/protected-behaviors.json` names
+      // (`connect-request-asks-before-it-shares`). The review sheet lives on
+      // Connect, and Circles live there now too, so the honest move is to
+      // arrive at the same Circle on the surface that owns both.
+      //
+      // The row's "Requested"/Cancel state was also never reachable here: this
+      // screen has no cancel of its own, so it showed a dead status. Connect
+      // has both.
+      router.push(
+        `${ROUTES.CONNECT}?tab=circles&action=circle-detail&circleId=${encodeURIComponent(circleId)}`,
+      );
     },
-    [auth.user, handleLoadNamedCircle],
+    [router],
   );
 
   const handleResolveNamedCircleRecipients = useCallback(

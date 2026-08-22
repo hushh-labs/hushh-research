@@ -453,7 +453,13 @@ class OneLocationCircleService:
                 # owner inside that scope, and the owner was never shown the
                 # decision. On a system Circle the same act handed out SOS
                 # alerts, with an address, to someone the owner never chose.
-                "canInviteMembers": is_owner,
+                # Trusted excluded, and that is not tidiness. Its roster IS
+                # the accepted-connection graph, reconciled on every read, so a
+                # hand-written membership is a row the product did not derive
+                # and cannot explain -- while the detail screen tells the same
+                # person "to take somebody out, disconnect from them", which is
+                # only true as long as nobody put them in by hand.
+                "canInviteMembers": is_owner and not is_trusted,
                 # A join code a member can hand out is the same hole with a
                 # link attached: whoever redeems it lands in the owner's Circle
                 # just the same. A system Circle has no code at all.
@@ -801,7 +807,7 @@ class OneLocationCircleService:
             )
             circle = self._circle_summary(dict(summary_row))
             circle["members"] = [self._member_payload(row) for row in (members_result.data or [])]
-            circle["activeInviteCode"] = self._invite_code_payload(
+            invite_code_payload = self._invite_code_payload(
                 {
                     "id": summary_row.get("code_id"),
                     "circle_id": summary_row.get("code_circle_id"),
@@ -812,8 +818,25 @@ class OneLocationCircleService:
                 if summary_row.get("code_id")
                 else None
             )
+            # Withheld from anyone the payload already says must not see it.
+            #
+            # This used to be attached unconditionally, so the live twelve
+            # character code -- the whole secret, in plaintext -- reached every
+            # active member of the Circle in the detail response, while
+            # `canViewInviteCode` merely stopped the screen from drawing it. A
+            # capability flag on top of the data it is meant to withhold is a
+            # instruction, not a control: the code was one request away for
+            # anybody already inside the Circle.
+            #
+            # Minting was closed to non-owners two commits into this stack.
+            # Reading is the other half of handing something out.
+            can_view_code = bool((circle.get("viewerCapabilities") or {}).get("canViewInviteCode"))
+            circle["activeInviteCode"] = invite_code_payload if can_view_code else None
+            # Derived from what actually exists, not from what this viewer may
+            # see -- otherwise a member's response would claim the owner needs
+            # to rotate a code that is perfectly healthy.
             circle["inviteCodeNeedsOwnerRotation"] = bool(
-                summary_row.get("code_id") and circle["activeInviteCode"] is None
+                summary_row.get("code_id") and invite_code_payload is None
             )
             return circle
         except OneLocationCircleError:
@@ -2505,7 +2528,7 @@ class OneLocationCircleService:
                             SELECT
                               circle.id, circle.name, circle.kind,
                               circle.owner_user_id, circle.member_limit,
-                              circle.is_system
+                              circle.is_system, circle.system_kind
                             FROM one_location_circles circle
                             WHERE circle.id = CAST(:circle_id AS UUID)
                               AND circle.status = 'active'
@@ -2553,6 +2576,22 @@ class OneLocationCircleService:
                 # owner is the only person who may grant it. This is checked
                 # before any capacity, connection or invitation state is read:
                 # a non-owner learns nothing about the Circle by asking.
+                # Refused for a Trusted Circle whoever asks, its owner included.
+                # `_connect_member_to_circle` would write a `named_circle` origin
+                # scoped to Trusted -- the exact provenance
+                # `ensure_trusted_system_circle` documents it must never write,
+                # because that origin is revoked when the membership ends, which
+                # is backwards for a roster derived from the connection itself.
+                #
+                # The capability flag beside this says the same thing, and a flag
+                # is an instruction rather than a control.
+                if str(circle_row.get("system_kind") or "") == "trusted":
+                    raise OneLocationCircleError(
+                        "LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION",
+                        "Everyone you're connected to is already in this Circle. "
+                        "Connect with someone to add them.",
+                        status_code=409,
+                    )
                 if str(circle_row.get("owner_user_id") or "") != actor_user_id:
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_OWNER_REQUIRED",

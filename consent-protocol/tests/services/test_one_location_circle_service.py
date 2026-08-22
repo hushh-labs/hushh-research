@@ -3243,3 +3243,69 @@ def test_a_trusted_membership_is_reactivated_on_reconnect() -> None:
     assert "ON CONFLICT (circle_id, user_id) DO UPDATE SET" in source
     assert "status = 'active'" in source
     assert "ended_at = NULL" in source
+
+
+# ---------------------------------------------------------------------------
+# What a Circle hands back, and to whom.
+# ---------------------------------------------------------------------------
+
+
+def test_the_join_code_is_withheld_from_anyone_who_may_not_see_it() -> None:
+    """`canViewInviteCode` was an instruction sitting on top of the secret.
+
+    `get_circle` attached the live twelve-character code to every response, so
+    a plain member who could not see it on screen could read it out of the
+    payload one request later. Minting was closed to non-owners earlier in this
+    stack; reading is the other half of handing something out.
+    """
+
+    import inspect
+
+    source = inspect.getsource(OneLocationCircleService.get_circle)
+    # The payload is computed, then gated on the capability the same response
+    # already carries.
+    assert "invite_code_payload = self._invite_code_payload(" in source
+    assert "canViewInviteCode" in source
+    assert 'circle["activeInviteCode"] = invite_code_payload if can_view_code else None' in source
+    # Never attached unconditionally again.
+    assert 'circle["activeInviteCode"] = self._invite_code_payload(' not in source
+    # And the rotation hint still reads the real state rather than this
+    # viewer's view of it -- otherwise a member is told to rotate a healthy code.
+    assert 'summary_row.get("code_id") and invite_code_payload is None' in source
+
+
+def test_nobody_adds_a_member_to_trusted_by_hand() -> None:
+    """Its roster is derived, so a hand-written membership is unexplainable.
+
+    The capability said `is_owner` alone, and Trusted is owner-scoped, so the
+    detail screen rendered a filled "Add people" button -- and the endpoint
+    honoured it, writing a `named_circle` origin scoped to Trusted. That is the
+    exact provenance `ensure_trusted_system_circle` documents it must never
+    write: such an origin is revoked when the membership ends, which is
+    backwards for a roster derived from the connection itself.
+    """
+
+    import inspect
+
+    summary = inspect.getsource(OneLocationCircleService._circle_summary)
+    assert '"canInviteMembers": is_owner and not is_trusted' in summary
+
+    # And the endpoint refuses independently, because a capability flag is an
+    # instruction rather than a control.
+    invites = inspect.getsource(OneLocationCircleService.create_member_invites)
+    assert "circle.system_kind" in invites
+    assert 'if str(circle_row.get("system_kind") or "") == "trusted":' in invites
+    assert "LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION" in invites
+
+
+def test_the_trusted_refusal_comes_before_the_ownership_check() -> None:
+    """Its owner is refused too, so the order has to put the kind first.
+
+    Checking ownership first would let the Circle's owner -- the one person who
+    passes it -- straight through to the write.
+    """
+
+    import inspect
+
+    invites = inspect.getsource(OneLocationCircleService.create_member_invites)
+    assert invites.index('== "trusted"') < invites.index("LOCATION_CIRCLE_OWNER_REQUIRED")

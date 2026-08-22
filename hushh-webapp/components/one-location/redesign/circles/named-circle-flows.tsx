@@ -61,7 +61,7 @@ import {
   MUTED_TEXT,
 } from "@/components/one-location/redesign/tokens";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import {
   CIRCLE_NAME_ACTION_CLASSNAME,
   CIRCLE_NAME_INPUT_CLASSNAME,
@@ -541,10 +541,22 @@ export function CreateCircleFlow({
   // from anyone naming a circle "A", with nothing on screen saying why.
   const canSubmit = name.trim().length >= 1 && !busy;
 
+  // Held past the caller's `busy` flag on purpose.
+  //
+  // A host that clears busy in a `finally` clears it BEFORE the navigation it
+  // then starts has committed, so there is a guaranteed render with this form
+  // still mounted, the name still in state and the button live again. One
+  // impatient double-tap made two identically-named Circles and two success
+  // toasts. Reset only on failure: after a success this form is on its way off
+  // screen and must not accept another submission on the way.
+  const submittingRef = useRef(false);
   const submit = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     try {
       await onSubmit(name.trim(), kind);
     } catch (error) {
+      submittingRef.current = false;
       toast.error(
         circleFlowErrorMessage(error, "Could not create this Circle."),
       );
@@ -680,11 +692,17 @@ export function JoinCircleFlow({
     }
   };
 
+  // Same guard as CreateCircleFlow, for the same reason: joining navigates on
+  // success, and the button comes back before the navigation lands.
+  const joiningRef = useRef(false);
   const join = async () => {
     if (!resolved) return;
+    if (joiningRef.current) return;
+    joiningRef.current = true;
     try {
       await onJoin(resolved.code);
     } catch (error) {
+      joiningRef.current = false;
       toast.error(
         circleFlowErrorMessage(error, "Could not join this Circle."),
       );
@@ -963,7 +981,15 @@ function CircleMemberRow({
               one control offered here relocked the vault on the way to
               using it. */}
             <Link
-              href={ROUTES.CONNECT}
+              // The consent centre, not `/one/connect`.
+              //
+              // From a Circle hosted ON Connect, a bare `/one/connect` href is
+              // a navigation whose only change is the query string
+              // disappearing -- which this repo has measured the App Router to
+              // refuse -- so the one row with something waiting on it did
+              // nothing at all when tapped. Connect's own Respond goes here
+              // too, and a different pathname works from either host.
+              href={buildConsentCenterHref("pending")}
               aria-label={`Respond to the connection request from ${member.displayName}`}
               data-testid={`circle-member-respond-${member.userId}`}
               className={cn(
