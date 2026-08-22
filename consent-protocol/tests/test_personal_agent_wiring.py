@@ -87,6 +87,73 @@ async def test_account_teardown_skips_empty_user():
     assert (await account._deprovision_personal_agent(""))["status"] == "skipped"
 
 
+async def test_account_teardown_deletes_compute_before_substrate(monkeypatch):
+    # A live pod holds open references to its KMS key, CMEK bucket, SA and signing
+    # secret; destroying those under a running pod orphans compute that then 503s. So
+    # compute (the Cloud Run service, via deprovision) MUST be torn down before the
+    # substrate it referenced.
+    from api.routes import account
+
+    order: list[str] = []
+
+    class FakeService:
+        def __init__(self, **kwargs):
+            pass
+
+        async def deprovision(self, *, user_id, revoke=True, defer_row_delete=False):
+            order.append("compute")
+            return {"status": "deprovisioned", "hushhId": "ha1_x"}
+
+    async def fake_substrate(registry, user_id, *, row=None):
+        order.append("substrate")
+        return {"executed": True, "actions": 1}
+
+    monkeypatch.setattr(_SVC_PATH, FakeService)
+    monkeypatch.setattr(_REPO_PATH, lambda: object())
+    monkeypatch.setattr(account, "_teardown_byoc_substrate", fake_substrate)
+
+    await account._deprovision_personal_agent(_UID, revoke=True, defer_row_delete=True)
+
+    assert order == ["compute", "substrate"]
+
+
+async def test_substrate_teardown_receives_the_row_captured_before_deprovision(monkeypatch):
+    # On the legacy path deprovision DELETES the row, so substrate teardown must be handed
+    # the row captured up front -- a re-read would return None and silently skip.
+    from api.routes import account
+
+    captured: dict = {}
+
+    class _Registry:
+        def __init__(self):
+            self._row = {"deployment_target": "user_gcp", "hushh_id": "ha1_x"}
+
+        async def get(self, _uid):
+            return self._row
+
+    class FakeService:
+        def __init__(self, *, registry, **kwargs):
+            self._registry = registry
+
+        async def deprovision(self, *, user_id, revoke=True, defer_row_delete=False):
+            # The legacy path deletes the row; a later re-read would see None.
+            self._registry._row = None
+            return {"status": "deprovisioned", "hushhId": "ha1_x"}
+
+    async def fake_substrate(registry, user_id, *, row=None):
+        captured["row"] = row
+        return {"executed": False}
+
+    monkeypatch.setattr(_SVC_PATH, FakeService)
+    monkeypatch.setattr(_REPO_PATH, _Registry)
+    monkeypatch.setattr(account, "_teardown_byoc_substrate", fake_substrate)
+
+    await account._deprovision_personal_agent(_UID)
+
+    # The row that reached teardown is the one captured BEFORE deprovision nulled it.
+    assert captured["row"] == {"deployment_target": "user_gcp", "hushh_id": "ha1_x"}
+
+
 # ---- phone-verify kickoff scheduler ----------------------------------------
 
 

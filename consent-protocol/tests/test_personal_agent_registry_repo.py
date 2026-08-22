@@ -22,7 +22,7 @@ class _Query:
         self._mode = None
         self._payload = None
         self._conflict = "user_id"
-        self._eq = None
+        self._eqs = []
         self._limit = None
 
     def upsert(self, data, on_conflict="user_id"):
@@ -46,8 +46,14 @@ class _Query:
         return self
 
     def eq(self, col, val):
-        self._eq = (col, val)
+        # Accumulate predicates so a chained .eq(...).eq(...) matches on ALL of them --
+        # a single stored tuple would silently answer for only the last one, which is
+        # exactly the shape of the status-scoped tombstone_exists bug.
+        self._eqs.append((col, val))
         return self
+
+    def _matches(self, row):
+        return all(row.get(col) == val for col, val in self._eqs)
 
     def limit(self, n):
         self._limit = n
@@ -69,19 +75,18 @@ class _Query:
             # which is what set_user_cloud's return value depends on.
             touched = []
             for row in rows:
-                if self._eq and row.get(self._eq[0]) != self._eq[1]:
+                if not self._matches(row):
                     continue
                 row.update(dict(self._payload))
                 touched.append(dict(row))
             return SimpleNamespace(data=touched)
         if self._mode == "select":
-            out = [r for r in rows if not self._eq or r.get(self._eq[0]) == self._eq[1]]
+            out = [r for r in rows if self._matches(r)]
             if self._limit is not None:
                 out = out[: self._limit]
             return SimpleNamespace(data=out)
         if self._mode == "delete":
-            if self._eq:
-                rows[:] = [r for r in rows if r.get(self._eq[0]) != self._eq[1]]
+            rows[:] = [r for r in rows if not self._matches(r)]
             return SimpleNamespace(data=[])
         return SimpleNamespace(data=[])
 
@@ -154,6 +159,21 @@ async def test_tombstone_exists_lookup():
     assert await repo.tombstone_exists("ha1_abc") is True
     assert await repo.tombstone_exists("ha1_other") is False
     assert await repo.tombstone_exists("") is False
+
+
+async def test_tombstone_exists_filters_by_status():
+    # The substrate-orphan marker must be distinguishable from deprovision's own
+    # tombstone: both share a hushh_id, so an UNSCOPED check would make the substrate
+    # tombstone either always skip or never write.
+    repo, _ = _repo_and_db()
+    await repo.tombstone(hushh_id="ha1_abc", external_agent_id=None, status="deprovision_requested")
+
+    assert await repo.tombstone_exists("ha1_abc") is True  # any-status (recycled-phone guard)
+    assert await repo.tombstone_exists("ha1_abc", status="deprovision_requested") is True
+    assert await repo.tombstone_exists("ha1_abc", status="substrate_torn_down") is False
+
+    await repo.tombstone(hushh_id="ha1_abc", external_agent_id=None, status="substrate_torn_down")
+    assert await repo.tombstone_exists("ha1_abc", status="substrate_torn_down") is True
 
 
 async def test_tombstone_skips_empty_hushh_id():

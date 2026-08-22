@@ -18,23 +18,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from hushh_mcp.services.gcp_run_client import load_operator_credentials
 from hushh_mcp.services.pod_reconcile import classify_fleet_registry_mismatch
 
 POD_LABEL = "app=hussh-one-pod"
 
 
 def _fleet_service_names(project: str, region: str) -> list[str]:
-    import requests  # noqa: F401,PLC0415  (AuthorizedSession wraps requests)
-    from google.auth.transport.requests import AuthorizedSession  # noqa: PLC0415
+    # Route through GcpRunClient.list_services rather than a hand-rolled GET so a 403
+    # (an identity that cannot list the project's services) SURFACES as an error rather
+    # than an empty list -- a report that shows a project swept-clean when it was merely
+    # unreadable would send an operator hunting for orphans that were never gone (R8).
+    from hushh_mcp.services.gcp_run_client import GcpRunClient  # noqa: PLC0415
 
-    session = AuthorizedSession(load_operator_credentials())
-    base = f"https://{region}-run.googleapis.com/apis/serving.knative.dev/v1/namespaces/{project}"
-    r = session.get(f"{base}/services", params={"labelSelector": POD_LABEL}, timeout=120)
-    r.raise_for_status()
-    return [
-        str((svc.get("metadata") or {}).get("name") or "") for svc in (r.json().get("items") or [])
-    ]
+    items = GcpRunClient(project=project, region=region).list_services(POD_LABEL)
+    return [str((svc.get("metadata") or {}).get("name") or "") for svc in items]
 
 
 async def _registry_rows() -> list[dict]:

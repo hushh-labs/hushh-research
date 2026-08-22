@@ -9,6 +9,7 @@ tests/services/test_one_location_agent_service.py
 tests/services/test_pkm_service_store_domain_data.py
 tests/test_a2a_agent_card_well_known.py
 tests/test_account_delete_scope_proposals.py
+tests/test_account_substrate_tombstone.py
 tests/test_adk_a2a_compliance_script.py
 tests/test_advisors_coordinate_privacy.py
 tests/test_advisors_runtime_config_wiring.py
@@ -27,6 +28,7 @@ tests/test_byoc_project_naming.py
 tests/test_byoc_project_save_route.py
 tests/test_byoc_setup_job_repo.py
 tests/test_byoc_substrate.py
+tests/test_byoc_substrate_teardown.py
 tests/test_byoc_tenancy_is_per_person.py
 tests/test_campaign_context_tool.py
 tests/test_cloudbuild_step_arg_limit.py

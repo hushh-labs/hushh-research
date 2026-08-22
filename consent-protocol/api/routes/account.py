@@ -897,13 +897,22 @@ async def _delete_firebase_auth_user(user_id: str) -> str:
         return "failed"
 
 
-async def _teardown_byoc_substrate(registry: Any, user_id: str) -> dict[str, Any] | None:
-    """Remove what hushh created inside the person's OWN project, before the
-    grant that permits it is revoked. Their project itself is theirs and is
-    never touched. Returns a summary dict, or None when there is nothing BYOC
-    about this row. Never raises."""
+_SUBSTRATE_TOMBSTONE_STATUS = "substrate_torn_down"
+
+
+async def _teardown_byoc_substrate(
+    registry: Any, user_id: str, *, row: Any = None
+) -> dict[str, Any] | None:
+    """Remove what hushh created inside the person's OWN project. Their project
+    itself is theirs and is never touched. Returns a summary dict, or None when
+    there is nothing BYOC about this row. Never raises.
+
+    Accepts a PRE-FETCHED ``row`` because it now runs AFTER deprovision, and on the
+    legacy path deprovision deletes the row -- a re-read would return None and silently
+    skip the whole teardown. The caller captures the row before deprovision and passes
+    it here."""
     try:
-        row = await registry.get(user_id)
+        row = row if row is not None else await registry.get(user_id)
         if not row or str(row.get("deployment_target") or "") != "user_gcp":
             return None
         project = str(row.get("user_cloud_project") or "").strip()
@@ -914,6 +923,13 @@ async def _teardown_byoc_substrate(registry: Any, user_id: str) -> dict[str, Any
         bootstrap_sa = str(row.get("user_cloud_bootstrap_sa") or "").strip()
         if not bootstrap_sa:
             return {"executed": False, "reason": "no bootstrap account on the row"}
+
+        # Idempotency: a retried account deletion must not re-mint a token and re-run a
+        # teardown whose resources are already destroyed. The substrate tombstone is the
+        # durable "already done" marker, distinct from deprovision's own tombstone (hence
+        # the status scope).
+        if await registry.tombstone_exists(hushh_id, status=_SUBSTRATE_TOMBSTONE_STATUS):
+            return {"executed": False, "reason": "already_torn_down"}
 
         import asyncio  # noqa: PLC0415
 
@@ -939,6 +955,21 @@ async def _teardown_byoc_substrate(registry: Any, user_id: str) -> dict[str, Any
             summary.get("executed"),
             len(summary.get("planned") or []),
         )
+        # Record the substrate-orphan tombstone ONLY when a real teardown ran (both guards
+        # were open). With the flag off, execute_teardown returns executed=False, nothing
+        # was deleted, and no tombstone is written -- so the marker never lies. Best-effort
+        # inside the same try: a tombstone failure must never block account deletion.
+        if summary.get("executed"):
+            await registry.tombstone(
+                hushh_id=hushh_id,
+                external_agent_id=None,
+                status=_SUBSTRATE_TOMBSTONE_STATUS,
+                metadata={
+                    "project": project,
+                    "region": region,
+                    "resources": [a.get("id") for a in actions],
+                },
+            )
         return {"executed": bool(summary.get("executed")), "actions": len(actions)}
     except Exception as exc:  # noqa: BLE001 - deletion must complete regardless
         logger.warning(
@@ -982,21 +1013,32 @@ async def _deprovision_personal_agent(
         # real host would orphan); resolve_compute_backend defaults to inert NullBackend.
         registry = PersonalAgentRegistryRepo()
 
-        # The substrate hushh created INSIDE the person's project (bucket, keys,
-        # pod service account, mail plumbing) existed with NO teardown caller:
-        # deleting an account removed the pod service and left everything else
-        # in their project forever (audit finding, 2026-08-21; founder-directed
-        # cleanup the same day). It runs BEFORE deprovision because deprovision
-        # with revoke=True severs the very grant the teardown acts under, and it
-        # must never block deletion: best-effort, summarized, flag-gated.
-        substrate = await _teardown_byoc_substrate(registry, normalized_user_id)
+        # Capture the row BEFORE deprovision: on the legacy path deprovision deletes it,
+        # and the substrate teardown that runs afterward would then re-read None and
+        # silently skip. The capture is load-bearing, not cosmetic. Resilient by design:
+        # a capture failure falls back to None (teardown re-reads and, worst case, no-ops)
+        # rather than failing the whole deletion.
+        try:
+            row = await registry.get(normalized_user_id)
+        except Exception:  # noqa: BLE001 - deletion must complete regardless
+            row = None
 
+        # ORDER: compute FIRST, then the substrate it referenced. A live pod holds open
+        # references to its KMS key, CMEK bucket, runtime service account and signing
+        # secret; destroying those under a running pod orphans compute that then 503s.
+        # This does NOT re-couple to the grant: deprovision(revoke=True) only writes a
+        # REVOKED pkm.read consent event (revoke_standing_pkm_read) -- it never touches
+        # the bootstrap-SA serviceAccountTokenCreator binding mint_bootstrap_token uses,
+        # so substrate teardown still authenticates after deprovision. Best-effort,
+        # summarized, flag-gated; never blocks deletion.
         service = PersonalAgentProvisioningService(
             registry=registry, backend=resolve_compute_backend()
         )
         result = await service.deprovision(
             user_id=normalized_user_id, revoke=revoke, defer_row_delete=defer_row_delete
         )
+        substrate = await _teardown_byoc_substrate(registry, normalized_user_id, row=row)
+
         out = result if isinstance(result, dict) else {"status": str(result or "deprovisioned")}
         if substrate is not None:
             out["substrate_teardown"] = substrate

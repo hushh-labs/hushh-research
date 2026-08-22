@@ -501,15 +501,22 @@ class PersonalAgentRegistryRepo:
     async def delete(self, user_id: str) -> None:
         self._db().table(_REGISTRY).delete().eq("user_id", user_id).execute()
 
-    async def tombstone_exists(self, hushh_id: str) -> bool:
+    async def tombstone_exists(self, hushh_id: str, *, status: Optional[str] = None) -> bool:
         """Whether a deletion tombstone already exists for ``hushh_id``.
 
         Used by provisioning to skip a HusshID that belonged to a prior owner of a
-        since-recycled phone (SECURITY-REVIEW.md L1).
+        since-recycled phone (SECURITY-REVIEW.md L1) -- that caller wants ANY tombstone,
+        so ``status`` defaults to None (unfiltered).
+
+        With ``status`` set it scopes to one kind of tombstone. This is required for the
+        substrate-orphan marker: deprovision always writes a ``deprovision_requested``
+        tombstone for the same hushh_id, so an unscoped check would make the substrate
+        tombstone either always skip or never write.
         """
         if not (hushh_id or "").strip():
             return False
-        response = (
-            self._db().table(_TOMBSTONES).select("id").eq("hushh_id", hushh_id).limit(1).execute()
-        )
+        query = self._db().table(_TOMBSTONES).select("id").eq("hushh_id", hushh_id)
+        if status:
+            query = query.eq("status", status)
+        response = query.limit(1).execute()
         return bool(response.data)
