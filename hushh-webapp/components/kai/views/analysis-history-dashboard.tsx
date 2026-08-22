@@ -648,7 +648,7 @@ function EmptyState() {
             No analyses yet
           </h3>
         <p className="max-w-md text-[15px] leading-6 text-muted-foreground">
-          Search for a stock ticker below and let Agent Kai&apos;s multi-agent
+          Search for a stock ticker below and let Agent One&apos;s multi-agent
           debate engine give you a data-driven recommendation.
         </p>
       </div>
@@ -1138,7 +1138,7 @@ export function AnalysisHistoryDashboard({
 
   // ----- Populated state -----
   return (
-    <div className="w-full space-y-6 pb-safe">
+    <div className="w-full space-y-6 pb-safe overflow-hidden">
       {/* Data Table */}
       <DataTable
         columns={columns}

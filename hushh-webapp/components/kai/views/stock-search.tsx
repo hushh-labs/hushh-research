@@ -215,7 +215,7 @@ export function StockSearch({
     // If we have the universe loaded, require the ticker to exist.
     if (knownTickerSet.size > 0 && !knownTickerSet.has(ticker)) {
       setError("Ticker not found");
-      toast.error("Ticker not found", { description: "Please enter a valid stock symbol." });
+      toast.error("Ticker not found. Please enter a valid stock symbol.");
       return;
     }
 

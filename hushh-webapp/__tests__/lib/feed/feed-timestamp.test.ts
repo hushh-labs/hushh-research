@@ -18,23 +18,28 @@ describe("formatFeedTimestamp", () => {
   // digits/day-prefix exactly and match am/pm case-insensitively.
   it("labels a same-day instant as Today, 12-hour clock", () => {
     const sameDay = new Date(2026, 7, 12, 15, 45, 0);
-    expect(formatFeedTimestamp(sameDay)).toMatch(/^Today - 3:45\s?PM$/i);
+    expect(formatFeedTimestamp(sameDay)).toMatch(/^Today - 03:45\s?PM$/i);
   });
 
   it("labels the previous calendar day as Yesterday", () => {
     const yesterday = new Date(2026, 7, 11, 9, 5, 0);
-    expect(formatFeedTimestamp(yesterday)).toMatch(/^Yesterday - 9:05\s?AM$/i);
+    expect(formatFeedTimestamp(yesterday)).toMatch(/^Yesterday - 09:05\s?AM$/i);
+  });
+
+  it("keeps one-digit morning hours visually aligned", () => {
+    const earlyMorning = new Date(2026, 7, 12, 1, 5, 0);
+    expect(formatFeedTimestamp(earlyMorning)).toMatch(/^Today - 01:05\s?AM$/i);
   });
 
   it("labels anything older with a short weekday", () => {
     const older = new Date(2026, 7, 10, 18, 30, 0); // Mon
-    expect(formatFeedTimestamp(older)).toMatch(/^Mon - 6:30\s?PM$/i);
+    expect(formatFeedTimestamp(older)).toMatch(/^Mon - 06:30\s?PM$/i);
   });
 
   it("always renders 12-hour time, never 24-hour", () => {
     const afternoon = new Date(2026, 7, 12, 15, 45, 0); // 15:45 local
     const label = formatFeedTimestamp(afternoon);
-    expect(label).toMatch(/3:45\s?PM/i);
+    expect(label).toMatch(/03:45\s?PM/i);
     expect(label).not.toContain("15:45");
   });
 

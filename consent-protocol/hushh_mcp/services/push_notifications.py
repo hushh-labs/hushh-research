@@ -369,3 +369,39 @@ def send_circle_member_invite_push(
             "inviter_user_id": inviter_user_id,
         },
     )
+
+
+def send_circle_member_invite_accepted_push(
+    *,
+    inviter_user_id: str,
+    invitee_user_id: str,
+    invitee_display_name: str,
+    circle_id: str,
+    circle_name: str,
+    invite_id: str,
+) -> int:
+    """Tell whoever sent a named Circle invite that it was accepted.
+
+    Mirrors ``send_circle_code_joined_push`` (the code-based join's inviter
+    notification) for the targeted-invite path, which previously sent
+    nothing at all on accept -- the inviter's Circle only updated on a
+    manual reload.
+    """
+
+    deep_link = f"/one/location?tab=people&circleId={circle_id}"
+    return send_user_data_push(
+        inviter_user_id,
+        notification_type="location_circle_member_invite_accepted",
+        title=circle_name or "Circle invitation",
+        body=f"{invitee_display_name or 'Someone'} joined your Circle.",
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-invite-accepted:{invite_id}",
+        notification_category="ONE_LOCATION",
+        data={
+            "invite_id": invite_id,
+            "circle_id": circle_id,
+            "circle_name": circle_name,
+            "invitee_user_id": invitee_user_id,
+            "network_display_label": invitee_display_name or "",
+        },
+    )

@@ -36,6 +36,7 @@ export function VirtualContactList<T>({
   presentation = "grouped",
   scrollClassName,
   itemClassName,
+  getItemRole,
 }: {
   items: readonly T[];
   getKey: (item: T) => string;
@@ -61,6 +62,19 @@ export function VirtualContactList<T>({
   scrollClassName?: string;
   /** Per-row wrapper classes in `cards` presentation. */
   itemClassName?: string;
+  /**
+   * Overrides one row's ARIA role.
+   *
+   * A list that carries section headers has rows that are NOT list items. The
+   * default wraps every entry as `listitem` under the list's own role, which
+   * would announce "Recent" as one of the people. Returning `"presentation"`
+   * for a header takes it back out of the list without taking it off screen,
+   * so a screen reader hears the heading and then the people under it.
+   *
+   * Omitted by every caller that has no headers, which keeps their markup
+   * byte-identical.
+   */
+  getItemRole?: (item: T) => string | undefined;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const virtualize = shouldVirtualizeList(items.length);
@@ -92,7 +106,7 @@ export function VirtualContactList<T>({
           {items.map((item) => (
             <div
               key={getKey(item)}
-              role={ariaLabel ? "listitem" : undefined}
+              role={getItemRole?.(item) ?? (ariaLabel ? "listitem" : undefined)}
               className={asCards ? itemClassName : undefined}
             >
               {renderItem(item)}
@@ -132,7 +146,9 @@ export function VirtualContactList<T>({
                 // out of register with its own scrollbar over 100 rows.
                 ref={virtualizer.measureElement}
                 data-index={virtualItem.index}
-                role={ariaLabel ? "listitem" : undefined}
+                role={
+                  getItemRole?.(item) ?? (ariaLabel ? "listitem" : undefined)
+                }
                 className={cn(
                   "absolute left-0 top-0 w-full",
                   asCards

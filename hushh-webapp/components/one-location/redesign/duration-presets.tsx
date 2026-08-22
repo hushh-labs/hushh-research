@@ -18,7 +18,10 @@ export type DurationRung = { value: string; label: string };
  * somebody asks for it.
  *
  * Rungs run from the 15-minute product floor (also the backend's floor —
- * `MIN_DURATION_HOURS = 0.25`) to a working day, roughly doubling each step.
+ * `MIN_DURATION_HOURS = 0.25`) to a compact upper choice. Anything between
+ * or beyond these common picks belongs behind `Custom`, where it is still one
+ * deliberate tap away without making the default state read like a settings
+ * panel.
  *
  * "Today" is deliberately absent. Its length is unreadable from its label —
  * 15 hours at 9am, 4 hours at 8pm — and it cannot survive the wheel at all:
@@ -26,6 +29,11 @@ export type DurationRung = { value: string; label: string };
  * writes "0.25" straight back over it.
  */
 export const SHARE_DURATION_LADDER: DurationRung[] = [
+  { value: "0.25", label: "15 min" },
+  { value: "1", label: "1 hour" },
+];
+
+export const REQUEST_DURATION_LADDER: DurationRung[] = [
   { value: "0.25", label: "15 min" },
   { value: "1", label: "1 hour" },
   { value: "2", label: "2 hours" },
@@ -55,18 +63,19 @@ export const DURATION_CUSTOM_VISIBLE_ROWS = 3;
  * raw <button>, not the morphy Button — that component's `size.default`
  * carries `min-h-[50px]` (a different tailwind-merge group from `h-*`, so it
  * survives every override) and `.ui-text-button-label`, which sets
- * `font-size: 17px !important`. At 17px "8 hours" does not fit an 80px cell
- * at 320px, and the grid reflows on exactly the phones that matter.
+ * `font-size: 17px !important`. At 17px "Until I stop" does not fit a compact
+ * iPhone cell, and the grid reflows on exactly the phones that matter.
  *
  * From `sm` up the same cells stop being a grid and become a wrapping row of
- * content-width chips. A 3-column grid stretches: inside the 880px Location
- * shell each cell reached 258px, and inside the wider Share card 440px — six
- * slabs and a seventh full-width bar, 148px of screen to choose a number. As
+ * content-width chips. A fixed grid stretches: inside the 880px Location
+ * shell each cell reached 258px, and inside the wider Share card 440px —
+ * slabs instead of choices. As
  * chips the whole ladder is one 44px row. Phones keep the grid, because ragged
- * wrapping at 320px is worse than a tidy 3-column block and that layout is
+ * wrapping at 320px is worse than a tidy two-column block and that layout is
  * already measured by e2e/one-location-duration-ladder.layout.spec.ts.
  */
-export const DURATION_GRID_CLASS = "grid grid-cols-3 gap-2 sm:flex sm:flex-wrap";
+export const DURATION_GRID_CLASS =
+  "grid grid-cols-2 gap-2 sm:flex sm:flex-wrap";
 export const DURATION_CELL_CLASS =
   "flex min-h-11 items-center justify-center whitespace-nowrap rounded-[14px] border px-2 text-center text-[15px] font-semibold leading-5 transition-colors touch-manipulation sm:px-4";
 export const DURATION_CELL_OFF_CLASS =
@@ -180,15 +189,11 @@ export function DurationPresetPicker({
 
         {/* The open-ended rung. Same height, border and radius as every cell
             beside it: it is the longest duration on the ladder, not a switch
-            that greys out the control it sits under — which is where it was,
-            and why its position read as wrong.
+            that greys out the control it sits under.
 
-            It sits INSIDE the ladder, not under it. On a phone `col-span-3`
-            gives it the full third row, which is the one place its label does
-            not fit an 80px cell at 320px. From `sm` up the ladder is a
-            wrapping chip row, where a column span means nothing and it is
-            simply the last chip — so the whole control is one row instead of
-            two rows plus a bar. */}
+            It sits INSIDE the ladder, not under it, and shares the same
+            two-by-two mobile grid as the timed choices. From `sm` up the
+            ladder is a wrapping chip row, where it is simply the last chip. */}
         {allowUntilStop ? (
           <button
             type="button"
@@ -196,7 +201,6 @@ export function DurationPresetPicker({
             onClick={() => pickRung(untilStopValue)}
             className={cn(
               DURATION_CELL_CLASS,
-              "col-span-3",
               isUntilStop ? DURATION_CELL_ON_CLASS : DURATION_CELL_OFF_CLASS,
             )}
           >

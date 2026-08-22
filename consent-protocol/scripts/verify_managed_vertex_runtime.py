@@ -75,12 +75,31 @@ async def main() -> dict[str, object]:
     binding = ManagedGeminiRuntimeBinding.from_environment()
     models, live_model = _managed_manifest_models()
     live_location = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
-    live_binding = ManagedGeminiRuntimeBinding(
-        project=binding.project,
-        locations=(live_location,),
-        auth_mode=binding.auth_mode,
+    # The live model's endpoint follows its declared transport, mirroring
+    # agent_tree._build_one_live_model: vertex-transport live models probe the
+    # regional Vertex Live endpoint; developer_api-transport models (e.g. the
+    # canonical gemini-3.1-flash-live-preview, which is not published on
+    # Vertex) probe the Gemini Developer API with the Hussh-managed live key.
+    from hushh_mcp.runtime_providers.live_compatibility import (
+        GEMINI_LIVE_COMPATIBILITY,
     )
-    live_client = live_binding.build_direct_client()
+
+    _live_compat = GEMINI_LIVE_COMPATIBILITY.get(live_model)
+    _live_is_developer_api = _live_compat is not None and _live_compat.transport == "developer_api"
+    if _live_is_developer_api:
+        from hushh_mcp.runtime_providers.factory import build_developer_api_live_client
+
+        _managed_live_key = (os.getenv("HUSHH_MANAGED_GEMINI_LIVE_API_KEY") or "").strip()
+        live_client = (
+            build_developer_api_live_client(_managed_live_key) if _managed_live_key else None
+        )
+    else:
+        live_binding = ManagedGeminiRuntimeBinding(
+            project=binding.project,
+            locations=(live_location,),
+            auth_mode=binding.auth_mode,
+        )
+        live_client = live_binding.build_direct_client()
 
     def binding_for(location: str) -> ManagedGeminiRuntimeBinding:
         return ManagedGeminiRuntimeBinding(
@@ -136,6 +155,16 @@ async def main() -> dict[str, object]:
         await asyncio.wait_for(consume_first_response(), timeout=PROBE_TIMEOUT_SECONDS)
 
     async def probe_live_setup() -> None:
+        if live_client is None:
+            # developer_api transport with no managed key in this environment.
+            # The runtime fails loudly at session build (managed_live_key_missing
+            # in agent_tree), so the release evidence records the gap instead of
+            # silently passing a probe that never connected.
+            raise RuntimeError(
+                "managed_live_key_missing: developer_api live model "
+                f"'{live_model}' cannot be probed without "
+                "HUSHH_MANAGED_GEMINI_LIVE_API_KEY"
+            )
         manager = live_client.aio.live.connect(
             model=live_model,
             config=types.LiveConnectConfig(response_modalities=[types.Modality.AUDIO]),
@@ -166,7 +195,8 @@ async def main() -> dict[str, object]:
         for location in locations_for(model):
             labelled.append((f"text:{model}@{location}", probe_text(model, location)))
             labelled.append((f"adk:{model}@{location}", probe_adk_text(model, location)))
-    labelled.append((f"live:{live_model}@{live_location}", probe_live_setup()))
+    _live_endpoint = "developer_api" if _live_is_developer_api else live_location
+    labelled.append((f"live:{live_model}@{_live_endpoint}", probe_live_setup()))
 
     outcomes = await asyncio.gather(*(coro for _, coro in labelled), return_exceptions=True)
 
@@ -194,7 +224,7 @@ async def main() -> dict[str, object]:
         "advisory": is_advisory(classification),
         "models": list(models),
         "live_model": live_model,
-        "live_location": live_location,
+        "live_location": _live_endpoint,
         "probes": probes,
         # A provider-side denial is returned before any model-specific
         # validation, so an outage verdict does NOT clear the candidate. Say so,

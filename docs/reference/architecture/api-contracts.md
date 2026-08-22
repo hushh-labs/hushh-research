@@ -873,6 +873,25 @@ HCT:<base64(user_id|agent_id|scope|issued_at|expires_at)>.<hmac_sha256_signature
 
 ---
 
+## HushhTech UAT Product Client
+
+The complete boundary is [hushh-tech-uat-client.md](./hushh-tech-uat-client.md).
+These routes are UAT-only, disabled by default, and accept only a synthetic
+Firebase UID cohort. Production and Supabase stay unchanged.
+
+| Method | Route | Required proofs | Result |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/products/hushh-tech/launch/authorize` | Research Firebase ID token; exact audience, redirect, and S256 challenge | 60-second single-use code |
+| `POST` | `/api/v1/products/hushh-tech/launch/exchange` | code, verifier, exact audience and redirect | product-bound Firebase custom token and link state |
+| `GET` | `/api/v1/products/hushh-tech/link/status` | Firebase ID token plus server-only HushhTech developer token | `READY` or `LINK_REQUIRED` |
+| `POST` | `/api/v1/products/hushh-tech/link/verify` | recent Firebase authentication, product token, synthetic legacy-session proof | active UID-to-legacy-UUID link or `LINK_CONFLICT` |
+| `POST` | `/api/v1/products/hushh-tech/link/revoke` | recent Firebase authentication plus product token | revoked link and `LINK_REQUIRED` state |
+| `GET` | `/api/v1/products/hushh-tech/compatibility/{record_type}` | Firebase ID token plus product token | one allowlisted synthetic record or a typed fail-closed state |
+
+Email, phone, Apple relay address, and provider identifiers are never mapping
+keys. Link and compatibility routes accept only the exact developer app with
+the `hushh_tech_client` tool group and no broader capability.
+
 ## Response Format
 
 Backend returns **snake_case**. Frontend transforms to **camelCase** in the service layer.
