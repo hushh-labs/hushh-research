@@ -1757,13 +1757,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     pendingAction?.activation_policy === "trusted_activation_required";
   const pendingActionLabel = pendingAction?.label || "Continue this action";
 
-  // In the error state, prefer the specific reason (e.g. mic blocked, no device)
-  // over the generic "Voice error" so the user knows how to recover.
+  // The specific reason (e.g. mic blocked, no device) now has its own card
+  // below, so the pill only ever needs the short, generic status label --
+  // showing the full reason here too just repeated it, truncated mid-word.
   const voiceStatusLabel =
-    activeActionRun?.message ??
-    (voiceStatus === "error" && voiceMessage
-      ? voiceMessage
-      : getAgentVoiceStatusLabel(voiceStatus));
+    activeActionRun?.message ?? getAgentVoiceStatusLabel(voiceStatus);
   const nativeVoiceMode = !conversationActive
     ? "idle"
     : voiceStatus === "connecting"
@@ -1987,6 +1985,30 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           pending to confirm at the same moment. */}
       <VoiceActionCard />
       <VoiceWalkthroughPanel enabled={walkthroughModeEnabled} />
+      {/* A connection-level failure (mic blocked, no device, unsupported
+          browser) happens before any session exists, so there is nothing to
+          confirm and nothing pending -- just a reason and a way out. Shown
+          as its own card instead of packed into the pill's truncated status
+          text, which cut mid-sentence on anything longer than a few words. */}
+      {voiceStatus === "error" && voiceMessage ? (
+        <div
+          role="alertdialog"
+          aria-label="Voice error"
+          className="agent-approval-glass pointer-events-auto w-full max-w-[min(calc(100vw-3rem),392px)] rounded-3xl p-4 text-[#1d1d1f] dark:text-[#f5f5f7]"
+        >
+          <p className="text-[13px] font-medium text-muted-foreground">
+            Voice couldn&apos;t start
+          </p>
+          <p className="mt-1 text-[14px] leading-relaxed">{voiceMessage}</p>
+          <button
+            type="button"
+            onClick={stopConversation}
+            className="mt-4 h-12 w-full rounded-full bg-black/[0.05] text-[15px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
+          >
+            Close
+          </button>
+        </div>
+      ) : null}
       {pendingConfirmation ? (
         <div
           role="dialog"
