@@ -128,5 +128,6 @@ describe("RIA Clients page", () => {
       screen.getByText(/Dedicated workspaces stay with Connected clients/i),
     ).toBeInTheDocument();
     expect(screen.getByText("Nearby records pane")).toBeInTheDocument();
+    expect(push).not.toHaveBeenCalled();
   });
 });
