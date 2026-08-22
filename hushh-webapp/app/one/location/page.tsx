@@ -10112,6 +10112,74 @@ export function OneLocationAgentPageContent({
   });
 
   useLocalOnboardingActionHandler("location.add_to_circle", async (slots) => {
+    // The disambiguation card's tap re-runs this handler with the chosen id
+    // and the circle it was shown for, no `person` text at all -- the name
+    // that needed picking is settled, so this short-circuits straight to
+    // inviting that one connection instead of re-parsing an empty utterance.
+    const resolvedConnectionId = String(slots?.resolvedConnectionId ?? "").trim();
+    if (resolvedConnectionId) {
+      if (!vaultOwnerToken) {
+        return {
+          status: "blocked" as const,
+          summary:
+            "Unlock One first -- I cannot see your circles while the vault is locked.",
+        };
+      }
+      const resolvedCircle = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+      if ("blocked" in resolvedCircle) {
+        return { status: "blocked" as const, summary: resolvedCircle.blocked };
+      }
+      const circle = resolvedCircle.circle;
+      if (circle.viewerCapabilities?.canInviteMembers === false) {
+        return {
+          status: "blocked" as const,
+          summary: `You cannot invite people to ${circle.name}. Only its owner can.`,
+        };
+      }
+      let eligible: OneLocationCircleEligibleConnections;
+      try {
+        eligible = await handleLoadNamedCircleEligibleConnections(circle.id);
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(
+            error,
+            "Could not check who can be added to that circle.",
+          ),
+        };
+      }
+      const chosen = eligible.eligibleConnections.find(
+        (connection) => connection.userId === resolvedConnectionId,
+      );
+      if (!chosen) {
+        return {
+          status: "blocked" as const,
+          summary: `That person can no longer be added to ${circle.name}.`,
+        };
+      }
+      if (eligible.remainingCapacity < 1) {
+        return {
+          status: "blocked" as const,
+          summary: `${circle.name} has no room for another person.`,
+        };
+      }
+      try {
+        await handleInviteNamedCircleConnections(circle.id, [chosen.userId]);
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(
+            error,
+            "Could not send that circle invitation.",
+          ),
+        };
+      }
+      scheduleNamedCircleStateRefresh();
+      return {
+        status: "succeeded" as const,
+        summary: `Invited ${chosen.displayName} to ${circle.name}. They join once they accept.`,
+      };
+    }
     const raw = String(slots?.person ?? "").trim();
     const spokenNames = splitSpokenNames(raw);
     if (spokenNames.length === 0) {
@@ -10201,6 +10269,20 @@ export function OneLocationAgentPageContent({
           summary: `More than one person matches that name: ${ambiguous.matches
             .map((connection) => connection.displayName)
             .join(", ")}. Say which one.`,
+          data: {
+            [VOICE_DISAMBIGUATION_DATA_KEY]: {
+              actionId: "location.add_to_circle",
+              resolveSlot: "resolvedConnectionId",
+              slots: { circle: String(slots?.circle ?? "") },
+              prompt: `${ambiguous.matches.length} people match "${ambiguous.spokenText}".`,
+              candidates: ambiguous.matches.map((connection) => ({
+                id: connection.userId,
+                name: connection.displayName || "Someone",
+                detail: null,
+                actionLabel: "Add",
+              })),
+            },
+          },
         };
       }
       return {
@@ -10235,11 +10317,33 @@ export function OneLocationAgentPageContent({
       ),
     ];
     const problemSentence = problems.length ? ` Also, ${problems.join("; ")}.` : "";
+    // A name that came back ambiguous alongside others that resolved cleanly
+    // is still worth showing, not just naming: the already-resolved names are
+    // already invited above, so the card only has to settle this one.
+    const stillAmbiguous = unresolved.find((entry) => entry.kind === "ambiguous");
     // "Invited", never "added". Joining is the other person's decision, and
     // reporting it as done would claim a consent that has not been given.
     return {
       status: "succeeded" as const,
       summary: `Invited ${joinNamesForSpeech(invitedNames)} to ${circle.name}. They join once they accept.${problemSentence}`,
+      ...(stillAmbiguous && stillAmbiguous.kind === "ambiguous"
+        ? {
+            data: {
+              [VOICE_DISAMBIGUATION_DATA_KEY]: {
+                actionId: "location.add_to_circle",
+                resolveSlot: "resolvedConnectionId",
+                slots: { circle: String(slots?.circle ?? "") },
+                prompt: `${stillAmbiguous.matches.length} people match "${stillAmbiguous.spokenText}".`,
+                candidates: stillAmbiguous.matches.map((connection) => ({
+                  id: connection.userId,
+                  name: connection.displayName || "Someone",
+                  detail: null,
+                  actionLabel: "Add",
+                })),
+              },
+            },
+          }
+        : null),
     };
   });
 
