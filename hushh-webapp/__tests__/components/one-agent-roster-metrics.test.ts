@@ -36,11 +36,6 @@ describe("One agent roster cache metrics", () => {
     );
     cache.set(CACHE_KEYS.DEVELOPER_ACCESS(userId), { systems: [{ id: "crm" }, { id: "gmail" }] }, CACHE_TTL.SHORT);
 
-    // Pre-existing drift fixed here: `resolveCachedAgentMetrics` already
-    // returns the short-form labels below on origin/main — this test still
-    // asserted the older, longer wording ("connected systems", "request to
-    // review", "live share", "saved details") and was failing independent of
-    // any roster redesign work.
     expect(resolveCachedAgentMetrics(userId)).toMatchObject({
       finance: { value: "NVDA", label: "+6.40%" },
       ria: { value: "3", label: "active clients" },

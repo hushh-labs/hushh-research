@@ -541,7 +541,7 @@ function visibilityPostureCopy(params: {
     return {
       label: "Private to your private agent",
       description:
-        "One can use this after you unlock. Sharing is disabled for external recipients.",
+        "One can use this after you unlock your vault. Sharing is disabled for external recipients.",
       counterpartSummary: "Sharing disabled",
     };
   }

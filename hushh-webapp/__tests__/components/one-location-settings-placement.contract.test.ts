@@ -26,54 +26,52 @@ describe("One Location settings placement", () => {
     expect(nowSource).not.toContain('title="Privacy"');
   });
 
-  it("offers Ask for location beside Share location in Quick actions", () => {
-    // The Now hub listed every way to give a location out -- Share, Map, Active
-    // shares, Shared with me -- and no way to ask for one; asking was reachable
-    // only from the People tab. It has since moved out of the status list and
-    // into the Quick actions grid, next to Share location: the two are the
-    // same kind of decision (give a location out / ask for one in), so they
-    // belong in the same "things you DO" group, not split across a list and a
-    // grid. The visible label is "Ask for location"; the internal flow name
-    // ("ask") and its voice control id are unchanged.
+  it("offers Request Location inside the unified Actions grid", () => {
+    // Request location is an action, not status or utility. It belongs beside
+    // Share location, Check-In, and SMS in the Actions grid, while
+    // Settings stays quiet in More.
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
 
-    expect(nowSource).toContain('testId="one-location-request-row"');
-    expect(nowSource).toContain('title="Ask for location"');
+    expect(nowSource).toContain('data-testid="one-location-now-actions"');
+    expect(nowSource).toContain('testId: "one-location-request-row"');
+    expect(nowSource).toContain('title: "Request location"');
+    expect(nowSource).toContain('title: "SMS"');
 
-    const requestIndex = nowSource.indexOf('title="Ask for location"');
-    const shareIndex = nowSource.indexOf('title="Share location"');
+    const actionsIndex = nowSource.indexOf("LocationActionGrid");
+    const requestIndex = nowSource.indexOf('title: "Request location"');
+    const activityIndex = nowSource.indexOf("one-location-now-activity");
+    const moreIndex = nowSource.indexOf("one-location-now-more");
     const settingsIndex = nowSource.indexOf('title="Settings"');
-    expect(requestIndex).toBeGreaterThan(-1);
-    expect(shareIndex).toBeGreaterThan(-1);
-    // Same grid, not split across the grid and the status list below it.
-    expect(requestIndex).toBeGreaterThan(shareIndex);
-    expect(settingsIndex).toBeGreaterThan(requestIndex);
+    expect(actionsIndex).toBeGreaterThan(-1);
+    expect(requestIndex).toBeGreaterThan(actionsIndex);
+    expect(activityIndex).toBeGreaterThan(requestIndex);
+    expect(moreIndex).toBeGreaterThan(activityIndex);
+    expect(settingsIndex).toBeGreaterThan(moreIndex);
 
     // Reuses the existing ask flow rather than introducing a second one, so
     // voice and the search bar keep naming a single control.
-    expect(nowSource).toContain('controlId="one-location-action-ask"');
+    expect(nowSource).toContain('controlId: "one-location-action-ask"');
     expect(HUB_SOURCE).toContain('onRequestLocation={() => openFlow("ask")}');
   });
 
-  it("gives Ask for location an icon distinct from Share location", () => {
-    // These two tiles are opposites -- give a location out, ask for one in --
-    // and sit side by side in the same grid. `Send` was used first and reads
-    // as the same paper-plane silhouette as `Navigation` at tile size, so the
-    // pair looked like one repeated icon.
+  it("gives Request Location an icon distinct from Share location", () => {
+    // These two actions are opposites -- give a location out, ask for one in.
+    // They sit in one grid now, so the glyphs must be distinct at a glance.
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
 
     const iconFor = (title: string) => {
-      const titleIndex = nowSource.indexOf(`title="${title}"`);
+      const titleIndex = nowSource.indexOf(`title: "${title}"`);
       expect(titleIndex).toBeGreaterThan(-1);
-      const cardStart = nowSource.lastIndexOf("<QuickActionCard", titleIndex);
-      return /icon=\{<(\w+)/.exec(nowSource.slice(cardStart, titleIndex))?.[1];
+      return /icon: <(\w+) \/>/.exec(
+        nowSource.slice(titleIndex, titleIndex + 180),
+      )?.[1];
     };
 
-    const requestIcon = iconFor("Ask for location");
+    const requestIcon = iconFor("Request location");
     const shareIcon = iconFor("Share location");
 
     expect(requestIcon).toBeTruthy();

@@ -137,8 +137,26 @@ vi.mock("@/lib/morphy-ux/hooks/use-route-transition", () => ({
   beginRouteTransition: navigationHarness.beginRouteTransition,
 }));
 
+// The owner's own identity, as the app already holds it. Mutable so a case can
+// take the photo away and assert the fallback the rest of the product uses.
+const identityHarness = vi.hoisted(() => ({
+  displayName: "Ankit Kumar Singh" as string | null,
+  avatarUrl: "https://avatars.test/ankit.jpg" as string | null,
+}));
+
 vi.mock("@/hooks/use-auth", () => ({
-  useRequireAuth: () => ({ userId: "test-user" }),
+  useAuth: () => ({
+    userId: "test-user",
+    user: { uid: "test-user", displayName: identityHarness.displayName },
+  }),
+  useRequireAuth: () => ({
+    userId: "test-user",
+    user: { uid: "test-user", displayName: identityHarness.displayName },
+  }),
+}));
+
+vi.mock("@/hooks/use-effective-avatar-url", () => ({
+  useEffectiveAvatarUrl: () => identityHarness.avatarUrl,
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -156,9 +174,14 @@ vi.mock("@/lib/capacitor/platform", () => ({
   isNative: () => platformHarness.native,
 }));
 
+// Mutable so a case can assert the build-has-no-Maps-key state, which is the
+// one that reaches the map's unavailable placeholder.
+const mapsKeyHarness = vi.hoisted(() => ({ present: true }));
+
 vi.mock("@/lib/one-location/maps-config", () => ({
-  getBrowserMapsApiKey: () => "browser-test-key",
-  getNativeMapsApiKey: () => "native-test-key",
+  getBrowserMapsApiKey: () =>
+    mapsKeyHarness.present ? "browser-test-key" : "",
+  getNativeMapsApiKey: () => (mapsKeyHarness.present ? "native-test-key" : ""),
 }));
 
 vi.mock("@/lib/one-location/service", () => ({
@@ -329,6 +352,17 @@ vi.mock("@/lib/one-location/encryption", () => ({
 import { toast } from "sonner";
 
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
+import {
+  MAP_CONSENT_PANEL_BOTTOM_PADDING,
+  MAP_CONSENT_PANEL_CLASSNAME,
+  MAP_CONSENT_SUPPORTING_LINE,
+  MAP_CONSENT_TITLE,
+} from "@/components/one-location/map-consent-panel-layout";
+import {
+  MAP_NEUTRAL_WORLD_LATITUDE,
+  neutralWorldCamera,
+  outOfWorldBandPx,
+} from "@/lib/one-location/map-world-view";
 import { beginNearbyPrivateReturn } from "@/lib/one-location/nearby-private-navigation";
 import {
   forgetOneLocationControlPreference,
@@ -359,6 +393,9 @@ Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
 
 beforeEach(() => {
   platformHarness.native = false;
+  mapsKeyHarness.present = true;
+  identityHarness.displayName = "Ankit Kumar Singh";
+  identityHarness.avatarUrl = "https://avatars.test/ankit.jpg";
   trayHeaderHeightStub = 72;
   trayContentHeightStub = 260;
   mapHarness.resetCameraListeners();
@@ -402,6 +439,38 @@ beforeEach(() => {
     disconnect() {}
   }
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+  // Radix's Avatar decides whether to show the photo or the fallback by
+  // preloading `new window.Image()` and waiting for `onload`. jsdom never
+  // fires it, so without this every avatar in every case renders as its
+  // fallback and a photo assertion could not fail. Resolving it here is what
+  // makes the photo/initials branch testable at all.
+  class ImageStub {
+    #listeners = new Map<string, Set<() => void>>();
+    #src = "";
+    referrerPolicy = "";
+    crossOrigin: string | null = null;
+    addEventListener(type: string, handler: () => void) {
+      const set = this.#listeners.get(type) ?? new Set();
+      set.add(handler);
+      this.#listeners.set(type, set);
+    }
+    removeEventListener(type: string, handler: () => void) {
+      this.#listeners.get(type)?.delete(handler);
+    }
+    get src() {
+      return this.#src;
+    }
+    set src(value: string) {
+      this.#src = value;
+      queueMicrotask(() => {
+        for (const handler of this.#listeners.get(value ? "load" : "error") ??
+          []) {
+          handler();
+        }
+      });
+    }
+  }
+  vi.stubGlobal("Image", ImageStub);
   serviceHarness.getMapState.mockResolvedValue({
     markers: [],
     preferences: { presenceMode: "ghost" },
@@ -447,17 +516,73 @@ afterEach(() => {
 });
 
 describe("LocationImmersiveMap demo experience", () => {
-  it("uses a full-width mobile disclosure and a bounded desktop reading measure", () => {
+  it("anchors the consent panel to the bottom edge on a phone and centres it as a dialog on desktop", () => {
     experienceHarness.demoMode = false;
 
     render(<LocationImmersiveMap />);
 
+    // Asserted against the shared class string, so the component and
+    // `e2e/one-location-map-consent-panel.layout.spec.ts` cannot drift apart.
+    // JSDOM proves the classes are rendered; only the browser spec proves what
+    // they do.
     expect(screen.getByTestId("one-location-map-disclosure")).toHaveClass(
-      "inset-x-0",
-      "md:left-1/2",
-      "md:w-[min(52rem,calc(100%-4rem))]",
-      "md:-translate-x-1/2",
+      ...MAP_CONSENT_PANEL_CLASSNAME.split(" "),
     );
+    // The panel touches the bottom edge, so the inset that used to be a gap
+    // beneath a floating card is now padding under the primary action.
+    expect(screen.getByTestId("one-location-map-disclosure")).toHaveStyle({
+      paddingBottom: MAP_CONSENT_PANEL_BOTTOM_PADDING,
+    });
+  });
+
+  it("says the map is unavailable instead of asking for consent to a renderer that cannot start", async () => {
+    // The state that had nothing in it: no Maps key AND consent not yet given.
+    // The loading overlay bails on `unavailable` and the fallback used to wait
+    // for consent, so neither drew -- a blank canvas with a Continue button
+    // floating on it.
+    experienceHarness.demoMode = false;
+    mapsKeyHarness.present = false;
+
+    render(<LocationImmersiveMap />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Maps isn't available")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText("Nothing is wrong with your location."),
+    ).toBeInTheDocument();
+    // No decision to make, so nothing asks for one.
+    expect(
+      screen.queryByTestId("one-location-map-disclosure"),
+    ).not.toBeInTheDocument();
+    // And the screen is still usable: the way out is still there.
+    expect(
+      screen.getByTestId("one-location-map-close"),
+    ).toBeInTheDocument();
+  });
+
+  it("says the title and one short line, and nothing about how the renderer is fed", () => {
+    experienceHarness.demoMode = false;
+
+    render(<LocationImmersiveMap />);
+
+    const panel = screen.getByTestId("one-location-map-disclosure");
+    expect(
+      screen.getByRole("heading", { name: MAP_CONSENT_TITLE }),
+    ).toBeInTheDocument();
+    expect(panel).toHaveTextContent(MAP_CONSENT_SUPPORTING_LINE);
+
+    // The three-sentence paragraph this replaced. Two of its claims were
+    // architecture the person cannot act on; the third belongs to Nearby
+    // Check-In and is still stated on Location Settings, which is the surface
+    // that actually turns Check-In on.
+    expect(panel).not.toHaveTextContent(/Google Maps/i);
+    expect(panel).not.toHaveTextContent(/Nearby Check-In/i);
+    expect(panel).not.toHaveTextContent(/on this device/i);
+
+    // Consent itself is unchanged: this is still the gate, and Continue is
+    // still the only thing that writes the renderer consent version.
+    expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
   });
 
   it("frames demo people, searches locally, focuses, locates, and exits without writes", async () => {
@@ -764,17 +889,32 @@ describe("LocationImmersiveMap demo experience", () => {
         }),
       ]);
     });
-    const searchLegend = screen.getByTestId(
-      "one-location-nearby-search-area-legend",
-    );
-    // The colour key is the legend's own job: only the map can say which dot is
-    // the owner.
-    expect(searchLegend).toHaveTextContent("You are here");
-    // The ring's radius is not. With the drawer open its list is headed "Places
-    // within 500 m" a few centimetres below, and a phone header carrying the
-    // same number twice is what made this screen read as cluttered.
-    expect(searchLegend).not.toHaveTextContent("500 m around you");
+    expect(
+      screen.getByTestId("one-location-nearby-search-area-legend"),
+    ).toHaveTextContent("500 m around you");
     expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+
+    // The overlay is handed a colour a map can actually paint.
+    //
+    // Neither renderer resolves CSS custom properties. The web shim passes the
+    // string straight to `new google.maps.Circle`, which falls back to its own
+    // defaults on anything unparseable — a black ring over a heavy grey disc,
+    // which is exactly what shipped — and the iOS plugin does
+    // `UIColor(hex:) ?? .blue`. So `"var(--app-accent)"` never once drew in the
+    // app's accent, and no `fillOpacity` asked for here reached the fill that
+    // was really produced.
+    const [[[drawnCircle]]] = mapHarness.map.addCircles.mock.calls as Array<
+      [Array<Record<string, unknown>>]
+    >;
+    for (const key of ["fillColor", "strokeColor"] as const) {
+      expect(String(drawnCircle[key])).not.toContain("var(");
+      expect(String(drawnCircle[key])).toMatch(/^#[0-9a-f]{3,8}$/i);
+    }
+    // And it stays subordinate to the map it describes: the radius is a
+    // background fact, the two pins inside it are the subject.
+    expect(Number(drawnCircle.fillOpacity)).toBeLessThanOrEqual(0.08);
+    expect(Number(drawnCircle.strokeOpacity)).toBeLessThanOrEqual(0.4);
+    expect(Number(drawnCircle.strokeWeight)).toBeLessThanOrEqual(2);
 
     fireEvent.click(screen.getByTestId("clear-nearby-search-area"));
     await waitFor(() => {
@@ -935,15 +1075,7 @@ describe("LocationImmersiveMap demo experience", () => {
     const legend = screen.getByTestId("one-location-nearby-search-area-legend");
     expect(legend).toHaveTextContent("You are here");
     expect(legend).toHaveTextContent("Checking in at Hotel Two");
-    // Naming the two pins is the contract; restating the gap between them is
-    // not. The open drawer already says "You're about 180 m from here right
-    // now." under the selected row.
-    expect(legend).not.toHaveTextContent("180 m from you");
-    // And it is a row of the header's own grid now, not a card floating at a
-    // hand-counted offset that the phone's second header row landed on top of.
-    expect(
-      screen.getByRole("banner", { name: "Check in map controls" }),
-    ).toContainElement(legend);
+    expect(legend).toHaveTextContent("180 m from you");
 
     fireEvent.click(screen.getByTestId("clear-nearby-place-focus"));
     await waitFor(() => {
@@ -994,19 +1126,6 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(
       screen.getByTestId("one-location-nearby-search-area-legend"),
     ).toHaveTextContent("Checked in at Hotel Two");
-
-    // Dismissed, this legend is the only thing on screen describing the live
-    // check-in -- the drawer that was stating the distance and the radius in
-    // words is gone -- so it takes them back.
-    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("one-location-nearby-search-area-legend"),
-      ).toHaveTextContent("500 m around your place");
-    });
-    expect(
-      screen.getByTestId("one-location-nearby-search-area-legend"),
-    ).toHaveTextContent("180 m from you");
   });
 
   it("keeps the full search circle in the visible mobile viewport above the sheet", async () => {
@@ -1222,7 +1341,7 @@ describe("LocationImmersiveMap demo experience", () => {
   // here because dismiss no longer consults where the person came from; if it
   // ever starts again, the `query: ""` case is the one that regresses first.
   const CHECK_IN_ENTRIES = [
-    { name: "Map", query: "source=map" },
+    { name: "Your Map", query: "source=map" },
     { name: "the Location hub", query: "" },
     { name: "a legacy deep link", query: "demo=people" },
   ] as const;
@@ -1369,22 +1488,12 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.getByTestId("one-location-map-close")).toHaveAccessibleName(
       "Back to Location",
     );
+    expect(
+      screen.getByTestId("one-location-map-nearby-check-in"),
+    ).toHaveAccessibleName("Check in nearby");
     expect(screen.getByTestId("one-location-map-locate")).toHaveAccessibleName(
       "Show my location",
     );
-    // The drawer opens with this route, and a pill that re-opens an open drawer
-    // is a control with nothing to do -- it spent its width saying "Nearby 0"
-    // directly above a drawer counting the same people. Its whole job is the
-    // dismissed case, so that is when it exists.
-    expect(
-      screen.queryByTestId("one-location-map-nearby-check-in"),
-    ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("one-location-map-nearby-check-in"),
-      ).toHaveAccessibleName("Check in nearby");
-    });
     await waitFor(() => {
       expect(
         screen.getByTestId("one-location-map-sharing-status"),
@@ -1411,39 +1520,6 @@ describe("LocationImmersiveMap demo experience", () => {
     await waitFor(() => {
       expect(screen.queryByText("Ankit Kumar Singh")).not.toBeInTheDocument();
     });
-  });
-
-  it("keeps the top controls clear of the open check-in drawer on both layouts", async () => {
-    experienceHarness.demoMode = false;
-    experienceHarness.nearbyAvailable = true;
-
-    render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() => {
-      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
-        "data-map-ready",
-        "true",
-      );
-    });
-
-    const header = screen.getByRole("banner", {
-      name: "Check in map controls",
-    });
-    // From `md` up the drawer docks down the right edge as a portalled z-[712]
-    // panel, in its own stacking context above this z-30 header. Without the
-    // inset the Locate control renders underneath it -- on screen nowhere and
-    // tappable nowhere -- for as long as the drawer is open.
-    expect(header).toHaveClass("md:pr-[27rem]");
-    // On a phone, with the pill hidden the row has the width back, so Sharing
-    // rides beside the controls instead of taking a band of its own beneath
-    // them -- the band that used to be painted over the legend.
-    expect(header).toHaveClass("grid-cols-[auto_minmax(0,1fr)_auto]");
-
-    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
-    await waitFor(() => {
-      expect(header).not.toHaveClass("md:pr-[27rem]");
-    });
-    expect(header).toHaveClass("grid-cols-[auto_minmax(0,1fr)]");
   });
 
   it("does not build a synthetic history boundary on the check-in route", async () => {
@@ -2069,15 +2145,10 @@ describe("LocationImmersiveMap reported map defects", () => {
     ).toBe(true);
   });
 
-  it("keeps Check in in the header on check-in's own route once the drawer is dismissed", async () => {
+  it("keeps Check in in the header on check-in's own route", async () => {
     // That surface renders no tray at all, and this pill is the only way back
     // into the sheet after dismissing it. Removing it everywhere strands the
     // person on a map with nothing to do.
-    //
-    // "After dismissing it" is also the whole of its job, so it waits for that
-    // moment: while the drawer is up the pill re-opens what is already open,
-    // and spends its width reading "Nearby 0" above a drawer counting the same
-    // people.
     serviceHarness.getState.mockResolvedValue({
       recipients: [],
       ownerGrants: [],
@@ -2090,17 +2161,7 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
     expect(
       header.querySelector('[data-testid="one-location-map-nearby-check-in"]'),
-    ).toBeNull();
-
-    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
-
-    await waitFor(() => {
-      expect(
-        header.querySelector(
-          '[data-testid="one-location-map-nearby-check-in"]',
-        ),
-      ).not.toBeNull();
-    });
+    ).not.toBeNull();
   });
 
   it("answers Everyone instead of sitting disabled when no one shares with you", async () => {
@@ -2217,10 +2278,15 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
   }
 
-  it("names each pin by first name, and your own pin My location", async () => {
+  it("names each pin by first name, and draws you as your own avatar", async () => {
     // The reported gap: two pins and no way to tell who is who without opening
     // the tray. "Ankit Kumar Singh" is what the tray says; a pill over a pin
     // gets the one word he is called.
+    //
+    // The owner is the one marker that never needed a name: the product knows
+    // who they are, so their pin is their face. Both the renderer's generic pin
+    // and the "My location" pill go away with it — three ways of saying "you"
+    // on one coordinate is two too many.
     stubPhoneGeometry();
     serviceHarness.captureCurrentPosition.mockResolvedValue({
       latitude: 25.46,
@@ -2256,59 +2322,223 @@ describe("LocationImmersiveMap reported map defects", () => {
 
     const labels = screen.getAllByTestId("one-location-map-name-label");
     expect(labels.map((label) => label.textContent)).toEqual([
-      "My location",
       "Ankit",
       "Abdul",
     ]);
-    expect(labels[0]).toHaveAttribute("data-kind", "self");
-    expect(labels[1]).toHaveAttribute("data-kind", "person");
+    expect(labels[0]).toHaveAttribute("data-kind", "person");
+    expect(
+      labels.some((label) => label.getAttribute("data-kind") === "self"),
+    ).toBe(false);
+
+    // You, as yourself: the app's existing avatar, at the owner's coordinate.
+    const selfMarkerEl = screen.getByTestId("one-location-map-self-avatar");
+    expect(selfMarkerEl).toHaveAccessibleName("Your location");
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-map-self-avatar-photo"),
+      ).toHaveAttribute("src", "https://avatars.test/ankit.jpg");
+    });
+
+    // And the renderer is no longer asked to draw a pin under it. The last
+    // marker write carries the two incoming people and nothing else.
+    await waitFor(() => {
+      const lastAddMarkers = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as
+        | Array<{ coordinate: { lat: number; lng: number } }>
+        | undefined;
+      expect(lastAddMarkers).toHaveLength(2);
+      expect(
+        lastAddMarkers?.some(
+          (marker) => Math.abs(marker.coordinate.lat - 25.46) < 0.0001,
+        ),
+      ).toBe(false);
+    });
 
     // The boundary the pills are allowed to exist on top of: names are HTML in
     // the WebView, and the renderer is still told nothing but coordinates.
     const markerPayload = JSON.stringify(mapHarness.map.addMarkers.mock.calls);
     expect(markerPayload).not.toContain("Ankit");
     expect(markerPayload).not.toContain("Abdul");
+    // The avatar is HTML too. Nothing about who the owner is reaches the
+    // renderer either -- not the URL, not the name.
+    expect(markerPayload).not.toContain("avatars.test");
   });
 
-  it("tints a fresh circle-member pin distinctly instead of leaving it untinted (#5420)", async () => {
-    // Before this fix, a real (non-demo) person marker carried no `tint` at
-    // all, so `tintColor` reached the native bridge as `undefined` -- the
-    // marker fell back to whatever the platform SDK's default pin color
-    // happens to be, with no guaranteed contrast against map tiles.
-    //
-    // `capturedAt` is set to "now" (rather than reusing the fixed fixture
-    // timestamp `incomingMarker` uses elsewhere) so this marker reads as
-    // fresh regardless of when the suite runs -- a stale pin intentionally
-    // repaints to STALE_TINT, which would otherwise mask this assertion.
+  it("falls back to the app's own initials when there is no profile photo", async () => {
+    identityHarness.avatarUrl = null;
     stubPhoneGeometry();
-    const freshMarker = incomingMarker(ANKIT, 25.4358, 81.8463);
-    const freshCapturedAt = new Date().toISOString();
-    freshMarker.envelope.capturedAt = freshCapturedAt;
-    freshMarker.envelope.plainPointForTest.capturedAt = freshCapturedAt;
-    serviceHarness.getMapState.mockResolvedValue({
-      markers: [freshMarker],
-      preferences: { presenceMode: "ghost" },
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "ios",
+    });
+
+    await renderReadyMap();
+    await reportCamera();
+
+    expect(
+      screen.queryByTestId("one-location-map-self-avatar-photo"),
+    ).not.toBeInTheDocument();
+    // The same two initials the top bar and the profile screen show. No third
+    // placeholder system.
+    expect(
+      screen.getByTestId("one-location-map-self-avatar-fallback"),
+    ).toHaveTextContent("AK");
+  });
+
+  it("leaves the check-in map's two pins and its colour legend alone", async () => {
+    // Check-in asks a different question -- how far am I from the place I am
+    // checking in to -- and answers it with two pins, a connector, and a legend
+    // whose swatch IS the owner's pin colour. A photo in place of one of those
+    // pins breaks the comparison and leaves the legend keying nothing.
+    experienceHarness.nearbyAvailable = true;
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "ios",
+    });
+
+    await renderReadyMap({ surface: "check-in" });
+    await reportCamera();
+
+    expect(
+      screen.queryByTestId("one-location-map-self-avatar"),
+    ).not.toBeInTheDocument();
+    const lastAddMarkers = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as
+      | Array<{ coordinate: { lat: number; lng: number } }>
+      | undefined;
+    expect(
+      lastAddMarkers?.some(
+        (marker) => Math.abs(marker.coordinate.lat - 25.46) < 0.0001,
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps the renderer's own pin when the renderer never reports a camera", async () => {
+    // A renderer too old to emit onBoundsChanged/onCameraIdle can project
+    // nothing, so the avatar layer has no coordinates to draw at. Losing the
+    // owner's marker entirely would be worse than a plain pin, so the pin
+    // stays. Both listeners are already wrapped in a try/catch at create; this
+    // is the state that leaves behind.
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "ios",
     });
 
     await renderReadyMap();
     await waitFor(() => {
-      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
-        "data-map-marker-count",
-        "1",
-      );
+      expect(mapHarness.map.addMarkers).toHaveBeenCalled();
     });
 
-    await waitFor(() => {
-      const drawn = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as Array<{
-        tintColor?: { r: number; g: number; b: number; a: number };
-      }>;
-      // The batch may also include the self pin (its own, different tint);
-      // find the incoming circle-member pin specifically.
-      const personMarker = drawn?.find(
-        (marker) => marker.tintColor && marker.tintColor.r !== 0,
-      );
-      expect(personMarker?.tintColor).toEqual({ r: 88, g: 86, b: 214, a: 255 });
+    // No reportCamera() in this case, on purpose.
+    expect(
+      screen.queryByTestId("one-location-map-self-avatar"),
+    ).not.toBeInTheDocument();
+    const lastAddMarkers = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as
+      | Array<{ coordinate: { lat: number; lng: number } }>
+      | undefined;
+    expect(
+      lastAddMarkers?.some(
+        (marker) => Math.abs(marker.coordinate.lat - 25.46) < 0.0001,
+      ),
+    ).toBe(true);
+  });
+
+  it("answers a tap on your avatar the way the renderer answered a tap on your pin", async () => {
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "ios",
     });
+
+    await renderReadyMap();
+    await reportCamera();
+    mapHarness.map.setCamera.mockClear();
+
+    fireEvent.click(screen.getByTestId("one-location-map-self-avatar"));
+
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coordinate: { lat: 25.46, lng: 81.85 },
+          zoom: 15,
+          animate: true,
+        }),
+      );
+    });
+  });
+
+  it("opens the pre-consent world view on a camera that fills the box it was given", async () => {
+    // The blank strip above the map. The container was never wrong
+    // (`h-[100dvh]`, renderer `absolute inset-0`); the camera was. A fixed
+    // `{ lat: 20, lng: 0 }, zoom: 2` puts a 1024 px world in front of a viewport
+    // that can be taller than the 908 px that camera is able to cover, and
+    // Google paints its out-of-world backdrop in the difference.
+    experienceHarness.demoMode = false;
+    stubPhoneGeometry();
+
+    render(<LocationImmersiveMap />);
+
+    await waitFor(() => {
+      expect(mapHarness.create).toHaveBeenCalled();
+    });
+    const config = (
+      mapHarness.create.mock.calls.at(-1)?.[0] as unknown as {
+        config: { center: { lat: number; lng: number }; zoom: number };
+      }
+    ).config;
+
+    // stubPhoneGeometry reports the renderer at 390x844 -- an iPhone 15. That
+    // box is coverable from latitude 20 at zoom 2, so nothing moves.
+    expect(config.zoom).toBe(2);
+    expect(config.center.lat).toBe(MAP_NEUTRAL_WORLD_LATITUDE);
+    expect(
+      outOfWorldBandPx(
+        { center: config.center, zoom: config.zoom },
+        { width: 390, height: 844 },
+      ),
+    ).toBe(0);
+  });
+
+  it("moves the pre-consent camera off latitude 20 on a box that cannot be covered from there", () => {
+    // The same arithmetic, on the devices where the old camera did leak. This
+    // is a pure check on purpose: the failure is device geometry, and pinning
+    // it to a renderer would make it look like a rendering bug.
+    const boxes = [
+      { name: "iPhone SE", width: 375, height: 667 },
+      { name: "iPhone 15", width: 390, height: 844 },
+      { name: "iPhone 15 Pro Max", width: 430, height: 932 },
+      { name: "the reported browser window", width: 552, height: 1080 },
+      { name: "landscape Pro Max", width: 932, height: 430 },
+    ];
+
+    for (const box of boxes) {
+      const camera = neutralWorldCamera(box);
+      expect(
+        outOfWorldBandPx(camera, box),
+        `${box.name} (${box.width}x${box.height}) must show no backdrop`,
+      ).toBe(0);
+      // And the OLD camera is what this replaced: on the two tallest boxes it
+      // could not have covered them.
+      const previous = { center: { lat: 20, lng: 0 }, zoom: 2 };
+      if (box.height > 908) {
+        expect(
+          outOfWorldBandPx(previous, box),
+          `${box.name} is a box the previous fixed camera left a band on`,
+        ).toBeGreaterThan(0);
+      }
+    }
   });
 
   it("draws no name over a rotated map, and none for a pin off screen", async () => {

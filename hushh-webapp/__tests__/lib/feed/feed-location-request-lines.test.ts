@@ -127,6 +127,19 @@ describe("the requester's side of the same exchange", () => {
     );
   });
 
+  it("makes owner-side share rows clear", () => {
+    const presented = presentFeedItem(
+      item({
+        event_type: "location_share_created",
+        metadata: {
+          counterpart_label: "Abdul Rashid",
+        },
+      }),
+    );
+    expect(presented.label).toBe("Abdul Rashid");
+    expect(presented.description).toBe("You started sharing location");
+  });
+
   it("says a refused extension leaves current access alone", () => {
     const presented = presentFeedItem(
       item({
@@ -142,45 +155,6 @@ describe("the requester's side of the same exchange", () => {
     expect(presented.description).toBe(
       "Declined the extra time — your current access is unchanged",
     );
-  });
-});
-
-describe("the sharer's own side of a location share", () => {
-  it("names the sharer as the one who acted, not the other person", () => {
-    // Read as a headline ("Neelesh: Started sharing location"), the old bare
-    // copy implied Neelesh was the one who acted, when the current user is the
-    // one who shared. The row's title is always the OTHER person's name, so the
-    // description needs its own subject to read correctly.
-    const presented = presentFeedItem(
-      item({
-        event_type: "location_share_created",
-        metadata: { counterpart_label: "Neelesh" },
-      }),
-    );
-    expect(presented.label).toBe("Neelesh");
-    expect(presented.description).toBe("You shared your location");
-  });
-
-  it("keeps the duration suffix on the sharer's own row", () => {
-    const presented = presentFeedItem(
-      item({
-        event_type: "location_share_created",
-        metadata: { counterpart_label: "Neelesh", duration_hours: 1 },
-      }),
-    );
-    expect(presented.description).toBe("You shared your location for 1 hour");
-  });
-
-  it("still reads the recipient's own row as something done to them", () => {
-    // The mirror case: unchanged by this fix, kept here so the two sides of
-    // the same event stay pinned together in one place.
-    const presented = presentFeedItem(
-      item({
-        event_type: "location_share_created",
-        metadata: { counterpart_label: "Neelesh", feed_audience: "recipient" },
-      }),
-    );
-    expect(presented.description).toBe("Shared their location with you");
   });
 });
 
@@ -220,34 +194,5 @@ describe("shortening", () => {
         }),
       ).description,
     ).toBe("Gave back their remaining time early");
-  });
-
-  // Shrinking to 15 min and regrowing to 30 (still under the owner's
-  // ceiling) emits this same event type -- it must not read as a shorten.
-  it("names a within-ceiling regrow instead of calling it a shorten", () => {
-    expect(
-      presentFeedItem(
-        item({
-          event_type: "location_share_shortened",
-          metadata: {
-            counterpart_label: "Ankit",
-            reason: "recipient_shorten",
-            direction: "extended",
-          },
-        }),
-      ).description,
-    ).toBe("Adjusted their viewing time, within what was already approved");
-    expect(
-      presentFeedItem(
-        item({
-          event_type: "location_share_shortened",
-          metadata: {
-            counterpart_label: "Ankit",
-            reason: "owner_shorten",
-            direction: "extended",
-          },
-        }),
-      ).description,
-    ).toBe("You adjusted their location access time");
   });
 });

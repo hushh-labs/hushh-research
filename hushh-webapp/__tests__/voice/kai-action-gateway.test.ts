@@ -521,7 +521,7 @@ describe("kai-action-gateway", () => {
     expect(firstUnavailableIndex).toBeGreaterThan(0);
     expect(
       results.some(
-        (entry) => entry.availability.reason === "Unlock to use this action."
+        (entry) => entry.availability.reason === "Unlock the vault to use this action."
       )
     ).toBe(true);
     expect(

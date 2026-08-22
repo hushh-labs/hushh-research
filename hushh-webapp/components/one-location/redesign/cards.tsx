@@ -15,23 +15,24 @@ import {
   AlertTriangle,
   ChevronDown,
   Clock3,
+  Copy,
   ExternalLink,
   Loader2,
   MapPin,
+  Pencil,
   RefreshCw,
+  Share2,
   ShieldCheck,
-  Siren,
   User,
   X,
+  Siren,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Button } from "@/components/ui/button";
-import { formatLocationDurationLabel } from "@/lib/one-location/duration-copy";
 import { Avatar, StatusPill } from "./primitives";
-import { DurationSelector } from "./selectors";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 
 function initialsFrom(name: string): string {
@@ -49,7 +50,6 @@ function initialsFrom(name: string): string {
 
 export function TrustedPersonCard({
   name,
-  nameSuffix,
   subtitle,
   tone = "ready",
   statusLabel,
@@ -67,8 +67,6 @@ export function TrustedPersonCard({
   expandedContent,
 }: {
   name: string;
-  /** "till 12:29 PM" -- the live share's absolute end time, next to the name. */
-  nameSuffix?: string;
   subtitle?: string;
   tone?: "ready" | "pending" | "neutral";
   statusLabel?: string;
@@ -78,9 +76,9 @@ export function TrustedPersonCard({
   actionBusy?: boolean;
   actionDisabled?: boolean;
   selected?: boolean;
-  /** Open/close the compact "add minutes" control for this person's live grant. */
+  /** Edit this person's live grant duration (shorten now / ask for more). */
   onEdit?: () => void;
-  /** True while `expandedContent` is the open add-time control for this row. */
+  /** True while `expandedContent` is the open duration editor for this row. */
   editActive?: boolean;
   /** Revoke this person's live grant. */
   onRemove?: () => void;
@@ -111,14 +109,9 @@ export function TrustedPersonCard({
       <div className="flex items-center gap-3">
         <Avatar initials={initialsFrom(name)} />
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-x-1.5">
-            <p className="break-words text-[15px] font-semibold leading-5 text-foreground [overflow-wrap:anywhere] sm:text-[17px] sm:leading-[22px]">
-              {name}
-            </p>
-            {nameSuffix ? (
-              <span className={cn(MUTED_TEXT, "shrink-0")}>· {nameSuffix}</span>
-            ) : null}
-          </div>
+          <p className="break-words text-[15px] font-semibold leading-5 text-foreground [overflow-wrap:anywhere] sm:text-[17px] sm:leading-[22px]">
+            {name}
+          </p>
           {subtitle ? (
             <p
               className={cn(
@@ -140,11 +133,11 @@ export function TrustedPersonCard({
           <ShellActionSurface
             variant="icon"
             className="h-9 w-9 shrink-0"
-            aria-label={`${editActive ? "Close add time for" : "Add time for"} ${name}`}
+            aria-label={`${editActive ? "Cancel editing" : "Edit"} access for ${name}`}
             aria-pressed={editActive}
             onClick={onEdit}
           >
-            <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
+            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
           </ShellActionSurface>
         ) : null}
         {onRemove ? (
@@ -260,25 +253,13 @@ export function RequestCard({
   approveLabel = "Approve",
   onApprove,
   onDecline,
-  durationOptions,
-  durationSeed,
 }: {
   name: string;
   promptLine: string;
   reason?: string;
   approveLabel?: string;
-  /** `durationOverrideHours` is set only when the owner actually touched the
-   *  picker below and picked something other than what was asked — omitted
-   *  entirely otherwise, so the caller's own "grant exactly what was
-   *  requested" default path runs untouched. */
-  onApprove: (durationOverrideHours?: number) => void;
+  onApprove: () => void;
   onDecline: () => void;
-  /** Present (and non-empty) only for a timed ask — an "until I stop" request
-   *  keeps its existing single-button approval, no picker. */
-  durationOptions?: { value: string; label: string }[];
-  /** The exact amount that was asked for, as a picker value — always one of
-   *  `durationOptions` when both are given. */
-  durationSeed?: string;
 }) {
   // Latch the decision on THIS card, the moment it is pressed.
   //
@@ -292,14 +273,6 @@ export function RequestCard({
   // latch blocks a second press, which is what makes the optimism safe.
   const [decision, setDecision] = useState<"approved" | "declined" | null>(null);
   const decided = decision !== null;
-
-  const showDurationPicker = Boolean(durationOptions && durationOptions.length > 0);
-  const [duration, setDuration] = useState(durationSeed ?? "");
-  const durationChanged = showDurationPicker && duration !== (durationSeed ?? "");
-  const liveApproveLabel =
-    durationChanged && Number(duration) > 0
-      ? `Approve ${formatLocationDurationLabel(Number(duration))}`
-      : approveLabel;
 
   return (
     <div className={cn(SUBCARD_SURFACE, "p-4")}>
@@ -330,46 +303,32 @@ export function RequestCard({
           {decision === "approved" ? "Approved" : "Declined"}
         </p>
       ) : (
-        <>
-          {showDurationPicker ? (
-            <div className="mt-3.5">
-              <DurationSelector
-                value={duration}
-                onChange={setDuration}
-                options={durationOptions}
-                label="Share for"
-                presentation="select"
-                maxWidthClassName={null}
-              />
-            </div>
-          ) : null}
-          <div className="mt-3.5 flex gap-2.5">
-            <Button
-              onClick={() => {
-                if (decided) return;
-                setDecision("approved");
-                onApprove(durationChanged ? Number(duration) : undefined);
-              }}
-              disabled={decided}
-              // Deliberately not `isLoading`: the card has already answered. A
-              // spinner here would reintroduce the wait it was pressed to remove.
-              className="h-11 flex-1 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-            >
-              {liveApproveLabel}
-            </Button>
-            <Button
-              onClick={() => {
-                if (decided) return;
-                setDecision("declined");
-                onDecline();
-              }}
-              disabled={decided}
-              className="h-11 flex-1 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-sm font-semibold text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]/80 dark:bg-white/10"
-            >
-              Decline
-            </Button>
-          </div>
-        </>
+        <div className="mt-3.5 flex gap-2.5">
+          <Button
+            onClick={() => {
+              if (decided) return;
+              setDecision("approved");
+              onApprove();
+            }}
+            disabled={decided}
+            // Deliberately not `isLoading`: the card has already answered. A
+            // spinner here would reintroduce the wait it was pressed to remove.
+            className="h-11 flex-1 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+          >
+            {approveLabel}
+          </Button>
+          <Button
+            onClick={() => {
+              if (decided) return;
+              setDecision("declined");
+              onDecline();
+            }}
+            disabled={decided}
+            className="h-11 flex-1 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-sm font-semibold text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]/80 dark:bg-white/10"
+          >
+            Decline
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -717,29 +676,23 @@ export function TemporaryLinkCard({
         </div>
         <StatusPill tone="live">Live</StatusPill>
       </div>
-      {/* One action group, one geometry. Height, horizontal padding and label
-          size all come from `size="sm"`, so the only thing this row states is
-          the pill radius every compact action on the Links surface shares.
-          The three used to disagree: `h-9` restated the size variant, and only
-          two of them carried an icon, so the odd cell read shorter than its
-          neighbours inside equal grid columns. Labels stay icon-free because at
-          a 320px viewport each column is ~81px, which an icon plus "Revoke"
-          overflows. */}
       <div className="grid grid-cols-3 gap-2">
         <Button
           variant="outline"
           size="sm"
           onClick={onCopy}
-          className="rounded-full"
+          className="h-9 rounded-full text-sm"
         >
+          <Copy className="mr-1 h-3.5 w-3.5" />
           Copy
         </Button>
         <Button
           variant="outline"
           size="sm"
           onClick={onShare}
-          className="rounded-full"
+          className="h-9 rounded-full text-sm"
         >
+          <Share2 className="mr-1 h-3.5 w-3.5" />
           Share
         </Button>
         <Button
@@ -747,7 +700,7 @@ export function TemporaryLinkCard({
           size="sm"
           onClick={onRevoke}
           isLoading={revokeBusy}
-          className="rounded-full"
+          className="h-9 rounded-full text-sm"
         >
           Revoke
         </Button>

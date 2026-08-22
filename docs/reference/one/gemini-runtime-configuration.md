@@ -56,8 +56,11 @@ The bounded credential/readiness probe uses the same manifest-owned
 `gemini-3.7-flash` model as normal typed private-agent reasoning. Successful
 setup therefore proves authentication, exact-model access, billing/quota
 availability, and one minimal generation before a key can be saved. Managed
-voice uses `gemini-live-2.5-flash-native-audio`. No standalone TTS fallback is
-configured.
+voice uses `gemini-3.1-flash-live-preview` over the Gemini Developer API with
+the Hussh-managed live key (`HUSHH_MANAGED_GEMINI_LIVE_API_KEY`); the model is
+not published on Vertex, and `gemini-live-2.5-flash-native-audio` (GA, Vertex)
+remains the declared rollback via `AGENT_ONE_ADK_MODEL`. No standalone TTS
+fallback is configured.
 
 Gemini 3.7 text requests use the global Vertex endpoint and omit legacy
 sampling controls. The runtime retains `thinking_level` for bounded reasoning;
@@ -66,12 +69,16 @@ it does not send `temperature`, `top_p`, `top_k`, `candidate_count`, or
 
 ## Live Compatibility Registry
 
-Hussh-managed Vertex remains the default. BYOK Live is disabled unless an
+Hussh-managed credentials remain the default. BYOK Live is disabled unless an
 operator explicitly enables a registry-approved model after an ADK UAT
-rehearsal. `gemini-2.5-flash-live-preview` is the current candidate because it
-supports the relay's mid-session client-content updates. Gemini 3.1 Live is
-not eligible: its current contract limits `send_client_content` to initial
-history, while One needs later route-state and action-settlement updates.
+rehearsal. `gemini-3.1-flash-live-preview` is the canonical registry entry: the
+2026-08-21 ADK rehearsal verified that the relay's later route-state and
+action-settlement updates reach it mid-session — google-adk transposes each
+single-text-part `send_content` into `send_realtime_input(text=...)` on Gemini
+3.x Live names, and the rehearsal additionally confirmed mid-session
+`send_client_content` is honored on the current preview build.
+`gemini-2.5-flash-live-preview` and `gemini-live-2.5-flash-native-audio` stay
+registry-approved as client-content-channel models.
 
 Google Cloud Vertex API-key BYOK is available for typed turns. It is not yet a
 voice-compatible transport, so the app keeps it out of the live relay and

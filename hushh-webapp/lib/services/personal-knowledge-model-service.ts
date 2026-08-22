@@ -2198,6 +2198,8 @@ export class PersonalKnowledgeModelService {
         };
       }
       const errorText = await response.text();
+      console.log("STORE DOMAIN PAYLOAD:", JSON.stringify(payload, null, 2));
+      console.log("STORE DOMAIN ERROR TEXT:", errorText);
       throw new Error(`Failed to store domain data: ${response.status} - ${errorText}`);
     }
 

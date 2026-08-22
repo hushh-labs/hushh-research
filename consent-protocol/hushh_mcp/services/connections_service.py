@@ -161,13 +161,6 @@ def _default_notifier(
     )
 
 
-def _default_accept_notifier(*, requester_user_id: str, approver_user_id: str) -> None:
-    """Best-effort real push (deferred import keeps Firebase off the import path)."""
-    from hushh_mcp.services.push_notifications import send_connection_accepted_push
-
-    send_connection_accepted_push(requester_user_id, approver_user_id)
-
-
 def _default_scope_entries_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     """Read discoverable scope metadata only; never materialized information."""
     from hushh_mcp.consent.scope_generator import DynamicScopeGenerator
@@ -184,16 +177,12 @@ class ConnectionsService:
         directory_visible: Callable[[str, str], bool] | None = None,
         scope_entries_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
         notifier: Callable[..., Any] | None = None,
-        accept_notifier: Callable[..., Any] | None = None,
     ) -> None:
         self._directory_lookup = directory_lookup or _default_directory_lookup
         self._directory_search = directory_search or _default_directory_search
         self._directory_visible = directory_visible or _default_directory_visible
         self._scope_entries_lookup = scope_entries_lookup or _default_scope_entries_lookup
         self._notifier = notifier if notifier is not None else _default_notifier
-        self._accept_notifier = (
-            accept_notifier if accept_notifier is not None else _default_accept_notifier
-        )
 
     # ---- DB seam ----
     def _execute_one(self, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -1080,29 +1069,6 @@ class ConnectionsService:
         except Exception as exc:  # noqa: BLE001
             logger.warning("connections.notify_failed error=%s", exc)
 
-    def _notify_accepted(self, requester_user_id: str, approver_user_id: str) -> None:
-        """Fire the (best-effort) requester nudge. Never raises.
-
-        Guarded even though `connection_requests` and `connections` both carry
-        a `requester != addressee` / `user_a != user_b` CHECK constraint that
-        already makes requester == approver impossible -- matching the
-        actor-exclusion pattern used by every other symmetric-event notifier
-        in this codebase (see one_location_circle_service.send_circle_code_joined_push
-        call site) rather than relying solely on the DB invariant.
-        """
-        notifier = getattr(self, "_accept_notifier", None)
-        if notifier is None:
-            return
-        if not requester_user_id or requester_user_id == approver_user_id:
-            return
-        try:
-            notifier(
-                requester_user_id=requester_user_id,
-                approver_user_id=approver_user_id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("connections.accept_notify_failed error=%s", exc)
-
     def _load_request(self, request_id: str, *, for_update: bool = False) -> dict[str, Any]:
         lock_clause = " FOR UPDATE" if for_update else ""
         row = self._execute_one(
@@ -1419,6 +1385,48 @@ class ConnectionsService:
                 reason=reason,
             )
 
+    def _end_one_location_circle_memberships(
+        self,
+        *,
+        user_a_id: str,
+        user_b_id: str,
+    ) -> None:
+        """Take a disconnected pair out of each other's Circles.
+
+        Revoking the connection is not enough on its own. One Location decides
+        whether a location may be delivered by asking for an active non-Circle
+        connection origin OR a shared active Circle -- so a membership that
+        outlives the connection keeps the second arm of that OR true, and the
+        person who disconnected keeps receiving live location and, through the
+        system Circle's roster, an address in an emergency SMS.
+
+        Runs on this transaction's connection so it commits with the
+        disconnect, and AFTER the connection row is revoked: the grant
+        reconciliation inside asks whether an independent relationship still
+        supports each share, and would answer yes to a connection this
+        statement is in the middle of ending.
+        """
+
+        connection = getattr(self, "_transaction_connection", None)
+        if connection is None:
+            # Only reachable behind the lightweight doubles `_transaction`
+            # falls back to; a real runtime database always exposes
+            # `engine.begin`. Loud, because silently skipping this leaves a
+            # live location path open.
+            logger.warning(
+                "connections.disconnect_circle_cleanup_skipped_no_transaction",
+            )
+            return
+        from hushh_mcp.services.one_location_circle_service import (
+            OneLocationCircleService,
+        )
+
+        OneLocationCircleService.end_memberships_for_disconnected_pair(
+            connection,
+            user_a_id=user_a_id,
+            user_b_id=user_b_id,
+        )
+
     def _revoke_pair_capabilities(
         self,
         *,
@@ -1688,13 +1696,6 @@ class ConnectionsService:
                 )
             except Exception:  # noqa: BLE001 - feed projection cannot roll back consent
                 logger.exception("connections.accepted_feed_projection_failed")
-
-        # Push is a best-effort, post-commit nudge, same as the feed
-        # projection above. Requester-only: `user_id` here is the approver
-        # who just tapped Accept and does not need a push confirming their
-        # own action (see #5423 -- this notification did not exist at all
-        # before, on either side).
-        self._notify_accepted(requester, user_id)
 
         # Accepting a connection grants nothing on its own. Location sharing is
         # opt-in and one-directional: it starts only when a person explicitly
@@ -2229,6 +2230,11 @@ class ConnectionsService:
                 """,
                 {"id": (connection_id or "").strip()},
             )
+            if conn:
+                self._end_one_location_circle_memberships(
+                    user_a_id=str(user_a or ""),
+                    user_b_id=str(user_b or ""),
+                )
         if conn:
             user_a_id = str(user_a or "")
             user_b_id = str(user_b or "")

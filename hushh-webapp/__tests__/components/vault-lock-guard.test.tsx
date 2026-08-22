@@ -2,10 +2,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
-import {
-  resolveUserEntryState,
-  type UserEntryState,
-} from "@/lib/onboarding/user-entry-state";
 
 const mocks = vi.hoisted(() => ({
   checkVault: vi.fn(),
@@ -17,7 +13,6 @@ const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   signOut: vi.fn(),
   vaultUnlocked: false,
-  entry: null as UserEntryState | null,
   authState: {
     user: { uid: "user_1" } as { uid: string } | null,
     loading: false,
@@ -40,19 +35,6 @@ vi.mock("@/hooks/use-auth", () => ({
     user: mocks.authState.user,
     loading: mocks.authState.loading,
     signOut: mocks.signOut,
-  }),
-}));
-
-// The guard reads the app-wide entry decision to know whether the lock is this
-// person's step at all. Mocking the context keeps this a unit test of the guard
-// and avoids pulling the provider's Capacitor dependencies into jsdom.
-vi.mock("@/lib/onboarding/onboarding-entry-context", () => ({
-  useOnboardingEntry: () => ({
-    entry: mocks.entry,
-    activeCapability: null,
-    hasVault: null,
-    failed: false,
-    retry: vi.fn(),
   }),
 }));
 
@@ -107,24 +89,9 @@ vi.mock("@/components/vault/vault-unlock-dialog", () => ({
   ),
 }));
 
-/** A resolved decision whose step permits the lock surface. */
-function lockIsThisPersonsStep(): UserEntryState {
-  return resolveUserEntryState({
-    environmentResolved: true,
-    authResolved: true,
-    userId: "user_1",
-    phoneVerified: true,
-    hasVault: true,
-    vaultUnlocked: false,
-    setupCompleted: true,
-    phoneMandateWaived: false,
-  });
-}
-
 describe("VaultLockGuard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.entry = lockIsThisPersonsStep();
     mocks.authState.user = { uid: "user_1" };
     mocks.authState.loading = false;
     mocks.hasIncompleteNativeUiFlowSession.mockReturnValue(false);
@@ -255,77 +222,5 @@ describe("VaultLockGuard", () => {
 
     expect(screen.getByRole("alert")).toBeTruthy();
     expect(screen.queryByText("Protected route")).toBeNull();
-  });
-
-  describe("the lock only appears when the lock is the step", () => {
-    it("does not paint the lock over somebody who still has to verify a phone", async () => {
-      // The lock dialog is a portal over an opaque backdrop, so it covers
-      // whatever is underneath. Somebody on their way to phone verification
-      // must never get it on top of the phone form.
-      mocks.entry = resolveUserEntryState({
-        environmentResolved: true,
-        authResolved: true,
-        userId: "user_1",
-        phoneVerified: false,
-        hasVault: true,
-        vaultUnlocked: false,
-        setupCompleted: true,
-        phoneMandateWaived: false,
-      });
-      expect(mocks.entry.step).toBe("phone_auth");
-      mocks.peekVaultPresence.mockReturnValue(true);
-      mocks.checkVault.mockResolvedValue(true);
-
-      render(
-        <VaultLockGuard>
-          <p>protected content</p>
-        </VaultLockGuard>,
-      );
-
-      await waitFor(() => {
-        expect(screen.queryByTestId("vault-unlock-dialog")).toBeNull();
-      });
-      expect(screen.queryByText("protected content")).toBeNull();
-    });
-
-    it("shows no lock while the decision is still unresolved", async () => {
-      mocks.entry = resolveUserEntryState({
-        environmentResolved: false,
-        authResolved: true,
-        userId: "user_1",
-        phoneVerified: true,
-        hasVault: true,
-        vaultUnlocked: false,
-        setupCompleted: true,
-        phoneMandateWaived: false,
-      });
-      mocks.peekVaultPresence.mockReturnValue(true);
-      mocks.checkVault.mockResolvedValue(true);
-
-      render(
-        <VaultLockGuard>
-          <p>protected content</p>
-        </VaultLockGuard>,
-      );
-
-      await waitFor(() => {
-        expect(screen.queryByTestId("vault-unlock-dialog")).toBeNull();
-      });
-    });
-
-    it("still shows the lock when opening it is genuinely the next thing", async () => {
-      mocks.peekVaultPresence.mockReturnValue(true);
-      mocks.checkVault.mockResolvedValue(true);
-
-      render(
-        <VaultLockGuard>
-          <p>protected content</p>
-        </VaultLockGuard>,
-      );
-
-      expect(
-        await screen.findByTestId("vault-unlock-dialog"),
-      ).toBeTruthy();
-    });
   });
 });

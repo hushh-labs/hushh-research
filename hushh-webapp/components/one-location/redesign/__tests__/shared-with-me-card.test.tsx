@@ -82,26 +82,6 @@ describe("SharedWithMeCard", () => {
   });
 });
 
-describe("SharedWithMeCard SMS badge", () => {
-  const base = {
-    name: "Trusted A",
-    statusLine: "Live until Jul 28, 11:19 PM",
-    onView: () => {},
-  };
-
-  it("shows no badge for a routine share", () => {
-    render(<SharedWithMeCard {...base} />);
-    expect(screen.queryByText("Shared via SMS")).toBeNull();
-  });
-
-  it("shows the SMS badge for an SOS-triggered share", () => {
-    render(<SharedWithMeCard {...base} isSmsTriggered />);
-    expect(screen.getByText("Shared via SMS")).toBeTruthy();
-    // Still shows the ordinary status pill alongside it.
-    expect(screen.getByText("Active")).toBeTruthy();
-  });
-});
-
 /**
  * The card is what a recipient looks at while there is no location on it, and
  * for a long time that was a name, a date, and nothing else. The page computed

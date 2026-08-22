@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 import contextvars
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -30,6 +32,7 @@ from hushh_mcp.operons.location.policy import (
     normalize_duration_mode,
     normalize_source_platform,
 )
+from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.types import AgentID, UserID
 from mcp_modules.log_redaction import redact_log_field, redact_log_value
 
@@ -446,6 +449,100 @@ def _hash_public_value(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+# The public-link token is DERIVED from the invite row's UUID rather than
+# generated at random, so the owner can read their own live link back.
+#
+# It used to be `secrets.token_urlsafe(32)`, hashed on the way in and returned
+# exactly once in the create response. Nothing could recover it afterwards --
+# not the owner, not a second device, not the same tab after a reload -- so an
+# invite the server reported as active had a link the product could no longer
+# show. Copy and Share silently did nothing, and the only way back was to
+# revoke.
+#
+# The row UUID is not secret; the app signing key supplies the entropy, exactly
+# as `one_location_circle_service._code_for_invite_id` does for Circle codes. A
+# database-only compromise still yields nothing but the UUID and a keyed
+# digest. Rows minted before this carry no version marker, so their token stays
+# unrecoverable and the payload simply omits the URL -- unchanged behaviour for
+# them, rather than a wrong link.
+# A public link is readable by anyone who holds it, so its ceiling is one hour
+# and the screen says so.
+#
+# The screen was the ONLY thing saying so. `normalize_duration_hours` allows up
+# to 24, the Pydantic field allows up to 24, and the DB CHECK allows up to 24 --
+# all three are the private-share ceiling, which is a different promise made to
+# a named person who can be un-shared. A request carrying `durationHours: 24`
+# was accepted and minted a public link that watched the owner for a day.
+#
+# Rejected rather than clamped: silently shortening what was asked for is how
+# the client-side clamp hid this in the first place, and no shipped client can
+# reach this branch -- every public-link caller already clamps to one hour
+# before it posts.
+PUBLIC_INVITE_MAX_DURATION_HOURS = 1.0
+
+_PUBLIC_INVITE_TOKEN_DOMAIN = b"one-location-public-invite-token:v1:"
+_PUBLIC_INVITE_CODE_VERSION = "derived-v1"
+
+
+def _public_invite_signing_key() -> bytes:
+    return get_core_security_settings().app_signing_key.encode("utf-8")
+
+
+def _public_invite_token_for_id(invite_id: str) -> str:
+    """The share token belonging to one invite row, re-derivable on every read."""
+
+    normalized_invite_id = str(uuid.UUID(str(invite_id)))
+    digest = hmac.new(
+        _public_invite_signing_key(),
+        _PUBLIC_INVITE_TOKEN_DOMAIN + normalized_invite_id.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _public_invite_token_if_derivable(row: dict[str, Any] | None) -> str | None:
+    """The share token for an invite row, or None if it cannot be recovered.
+
+    Re-derives the token from the row's UUID and checks it against the
+    digest that was stored when the row was written. Two rows fail that
+    check, and both must fail closed:
+
+      - anything minted before tokens were derived from the id, which
+        carries no `codeVersion` and whose random token is gone for good
+      - a row whose stored digest no longer matches, which means the
+        signing key rotated or the row was tampered with
+
+    Returning a token that does not resolve would be worse than returning
+    none: the owner would copy a link that 404s and have no reason to think
+    it was ever broken.
+    """
+
+    if not row:
+        return None
+    metadata = _loads_json(row.get("metadata")) or {}
+    if not isinstance(metadata, dict):
+        return None
+    if metadata.get("codeVersion") != _PUBLIC_INVITE_CODE_VERSION:
+        return None
+    invite_id = str(row.get("id") or "")
+    if not invite_id:
+        return None
+    try:
+        token = _public_invite_token_for_id(invite_id)
+    except (ValueError, AttributeError):
+        return None
+    stored_hash = str(row.get("public_code_hash") or "")
+    if not stored_hash:
+        return None
+    if not hmac.compare_digest(stored_hash, _hash_public_value(token)):
+        logger.warning(
+            "one_location.public_invite_token_integrity_failed invite=%s",
+            redact_log_field("invite_id", invite_id),
+        )
+        return None
+    return token
+
+
 def _public_invite_url(token: str) -> str:
     return f"/one/location/request/{token}"
 
@@ -500,21 +597,12 @@ def _identity_notification_label(
     truthful answer rather than a missing one.
     """
 
-    if not row:
-        return fallback
-    # The ladder is run against the row already in hand rather than through
-    # `resolve_requester_label`, which would re-query the same row for its email
-    # rung. Same helpers, same order, one read instead of two.
-    from hushh_mcp.services.requester_identity import (
-        _email_handle,
-        looks_technical_label,
-    )
+    # Run against the row already in hand rather than through
+    # `resolve_requester_label`, which would re-query the same row for its
+    # email rung. Same ladder, one read instead of two.
+    from hushh_mcp.services.requester_identity import label_from_identity_row
 
-    user_id = str(row.get("user_id") or "")
-    display_name = str(row.get("display_name") or "").strip()
-    if display_name and not looks_technical_label(display_name, user_id=user_id):
-        return display_name
-    return _email_handle(row.get("email")) or fallback
+    return label_from_identity_row(row, fallback=fallback)
 
 
 def _notification_safe_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -1407,13 +1495,40 @@ class OneLocationAgentService:
             return None
 
     @staticmethod
-    def _recipient_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _recipient_payload(
+        row: dict[str, Any] | None,
+        *,
+        allow_email_handle: bool = False,
+    ) -> dict[str, Any] | None:
+        """Project one person for a client list.
+
+        ``allow_email_handle`` is a privacy boundary, not a default. This same
+        projection serves two lists: the recipients list, scoped to people the
+        viewer is connected to or shares a Circle with, and the discovery
+        directory, which includes phone-verified strangers. An email's local
+        part is a name to the first group and an identifier about the second,
+        so only the relationship-scoped caller opts in.
+
+        Off, the behaviour is exactly what it was: the masked phone, then
+        "Verified user".
+        """
+
         if not row:
             return None
-        display_name = str(row.get("display_name") or "").strip()
+        from hushh_mcp.services.requester_identity import label_from_identity_row
+
         email = str(row.get("email") or "").strip()
         masked_phone = _mask_phone(row.get("phone_number"))
         user_id = str(row.get("user_id") or "")
+        # The masked phone stays a rung, below the name and the handle. It is
+        # the one the client rejects on sight (MASKED_PHONE_ONLY_PATTERN) and
+        # replaces with "A trusted person", so anything resolvable above it is
+        # the difference between a name and a generic line.
+        display_name = label_from_identity_row(
+            row,
+            allow_email_handle=allow_email_handle,
+            fallback="",
+        )
         return {
             "userId": user_id,
             "displayName": display_name or masked_phone or "Verified user",
@@ -2317,10 +2432,6 @@ class OneLocationAgentService:
                 float(row.get("duration_hours")) if row.get("duration_hours") is not None else None
             ),
             "expiresAt": _iso(row.get("expires_at")),
-            # Furthest-out expiry the owner has explicitly authorized. Lets a
-            # duration edit tell "still within what was approved" (no consent
-            # needed) apart from "asking for more" (needs request_access).
-            "ceilingExpiresAt": _iso(row.get("ceiling_expires_at")),
             "createdAt": _iso(row.get("created_at")),
             "updatedAt": _iso(row.get("updated_at")),
             "revokedAt": _iso(row.get("revoked_at")),
@@ -2438,6 +2549,21 @@ class OneLocationAgentService:
         }
         if safe_label:
             payload["ownerLabel"] = safe_label
+        # The owner's own link, handed back on every read.
+        #
+        # This branch is owner-only -- the `public` branch above is what a
+        # recipient sees, and it must never carry the token. For the owner the
+        # link is the whole point of the object: without it the product could
+        # report "you have a live link" and then have nothing to copy, which is
+        # exactly what happened after any reload.
+        #
+        # Only while the invite can still be used. A revoked or expired row's
+        # token no longer resolves, so offering it would hand over a link that
+        # 404s.
+        if str(row.get("status") or "") == "active":
+            token = _public_invite_token_if_derivable(row)
+            if token:
+                payload["publicUrl"] = _public_invite_url(token)
         return payload
 
     @staticmethod
@@ -3446,7 +3572,11 @@ class OneLocationAgentService:
                 "This secure key id is already bound to different key material.",
                 status_code=409,
             )
-        return self._recipient_payload(row) or {}
+        # The caller's own record, handed straight back to them. There is no
+        # privacy line to draw against yourself, and withholding it here would
+        # show a person their own masked phone where every other surface now
+        # shows their name.
+        return self._recipient_payload(row, allow_email_handle=True) or {}
 
     def list_verified_recipients(
         self, *, owner_user_id: str, limit: int = 50
@@ -3514,7 +3644,14 @@ class OneLocationAgentService:
             {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
         )
 
-        recipients = [payload for row in rows if (payload := self._recipient_payload(row))]
+        # Relationship-scoped: the statement above admits a person only on an
+        # active connection or a shared active Circle, so a name resolved from
+        # their email handle is a name about someone the viewer already knows.
+        recipients = [
+            payload
+            for row in rows
+            if (payload := self._recipient_payload(row, allow_email_handle=True))
+        ]
         return self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,
@@ -3793,9 +3930,10 @@ class OneLocationAgentService:
                 "LOCATION_RECIPIENT_UNAVAILABLE",
                 unavailable_message
                 or (
-                    "They are in your One Network but their secure location key "
-                    "isn't ready yet. Ask them to open One Location and unlock "
-                    "their vault once, then try again."
+                    # Two lines in a toast. The old copy explained the whole
+                    # mechanism and ran to four; what the reader needs is the
+                    # one action that fixes it.
+                    "Ask them to open One Location and unlock once, then try again."
                 ),
                 status_code=409,
             )
@@ -4418,13 +4556,12 @@ class OneLocationAgentService:
                             INSERT INTO one_location_share_grants (
                               owner_user_id, recipient_user_id, recipient_key_id, status,
                               consent_scope, capability_scopes, duration_hours, expires_at,
-                              ceiling_expires_at, duration_mode, source_circle_id,
-                              created_at, updated_at, metadata
+                              duration_mode, source_circle_id, created_at, updated_at, metadata
                             )
                             VALUES (
                               :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                               'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                              :duration_hours, :expires_at, :ceiling_expires_at, :duration_mode,
+                              :duration_hours, :expires_at, :duration_mode,
                               CAST(:source_circle_id AS UUID), NOW(), NOW(),
                               CAST(:metadata_json AS JSONB)
                             )
@@ -4599,11 +4736,6 @@ class OneLocationAgentService:
             "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
             "duration_hours": duration,
             "expires_at": expires_at,
-            # The owner is authorizing this expiry right now -- at creation
-            # time the ceiling and the live expiry are the same moment. A
-            # later self-serve shrink/regrow (shorten_grant) will move
-            # expires_at without ever touching this.
-            "ceiling_expires_at": expires_at,
             "duration_mode": resolved_duration_mode,
             "source_circle_id": source_circle_id,
             "metadata_json": _json_param(metadata),
@@ -4649,13 +4781,12 @@ class OneLocationAgentService:
                 INSERT INTO one_location_share_grants (
                   owner_user_id, recipient_user_id, recipient_key_id, status,
                   consent_scope, capability_scopes, duration_hours, expires_at,
-                  ceiling_expires_at, duration_mode, source_circle_id,
-                  created_at, updated_at, metadata
+                  duration_mode, source_circle_id, created_at, updated_at, metadata
                 )
                 VALUES (
                   :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                   'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                  :duration_hours, :expires_at, :ceiling_expires_at, :duration_mode,
+                  :duration_hours, :expires_at, :duration_mode,
                   CAST(:source_circle_id AS UUID), NOW(), NOW(),
                   CAST(:metadata_json AS JSONB)
                 )
@@ -4965,14 +5096,13 @@ class OneLocationAgentService:
               INSERT INTO one_location_share_grants (
                 id, owner_user_id, recipient_user_id, recipient_key_id,
                 status, consent_scope, capability_scopes, duration_hours,
-                expires_at, ceiling_expires_at, duration_mode, source_circle_id,
-                created_at, updated_at, metadata
+                expires_at, duration_mode, source_circle_id, created_at, updated_at, metadata
               )
               SELECT
                 CAST(:grant_id AS UUID),
                 :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                 'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                :duration_hours, :expires_at, :expires_at, :duration_mode,
+                :duration_hours, :expires_at, :duration_mode,
                 CAST(:source_circle_id AS UUID), NOW(), NOW(),
                 CAST(:metadata_json AS JSONB)
               FROM eligible_recipient
@@ -5693,26 +5823,107 @@ class OneLocationAgentService:
                 str(exc),
                 status_code=422,
             ) from exc
-        raw_token = secrets.token_urlsafe(32)
+        if duration > PUBLIC_INVITE_MAX_DURATION_HOURS:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_INVALID",
+                "A public location link can stay live for at most 1 hour.",
+                status_code=422,
+            )
+        # Expiry is written lazily -- `_expire_public_invite` only flips a row
+        # when something reads it -- so a link whose time has passed can still
+        # be sitting at status 'active'. Settle that here first, or the reuse
+        # check below hands back a dead link instead of minting a fresh one.
+        self._execute_one(
+            """
+            UPDATE one_location_public_invites
+            SET status = 'expired', updated_at = NOW()
+            WHERE owner_user_id = :owner_user_id
+              AND status = 'active'
+              AND expires_at <= NOW()
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+
+        # One live public link per person, enforced where it can actually hold.
+        #
+        # Nothing stopped a second: no unique index, no lookup, just an INSERT.
+        # A reload, a second device or a double tap therefore left two links
+        # resolvable while the screen showed one, and revoking the one on
+        # screen left the other watching. The client now hides its create
+        # control while a link is live, but a client rule is not an invariant --
+        # a stale tab defeats it.
+        #
+        # Reuse rather than reject: this is the same call the person makes when
+        # they mean "give me my link", and a 409 would be a dead end on a
+        # screen whose whole job is to hand it over. Matches
+        # `one_location_circle_service.create_invite_code`, which returns the
+        # circle's existing active code rather than minting a second.
+        existing = self._execute_one(
+            """
+            SELECT *
+            FROM one_location_public_invites
+            WHERE owner_user_id = :owner_user_id
+              AND status = 'active'
+              AND expires_at > NOW()
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+        if existing:
+            existing_token = _public_invite_token_if_derivable(existing)
+            if existing_token:
+                existing_payload = self._public_invite_payload(existing)
+                if existing_payload:
+                    return {
+                        "invite": existing_payload,
+                        "publicToken": existing_token,
+                        "publicUrl": _public_invite_url(existing_token),
+                        # The caller asked for a link and got one; it is simply
+                        # the one that was already live. Named so a client can
+                        # tell "created" from "here is the one you have" without
+                        # comparing timestamps.
+                        "reused": True,
+                    }
+            # A row minted before tokens were derivable, or one whose digest no
+            # longer verifies. Its token is genuinely unrecoverable, so leaving
+            # it active would strand the owner behind a link nothing can show.
+            # Retire it and mint a replacement rather than refuse.
+            self._execute_one(
+                """
+                UPDATE one_location_public_invites
+                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                WHERE id = CAST(:invite_id AS UUID)
+                  AND status = 'active'
+                """,
+                {"invite_id": str(existing.get("id") or "")},
+            )
+
+        # The id is chosen here rather than by the default, because the token is
+        # derived FROM it and has to be known before the row exists.
+        invite_id = str(uuid.uuid4())
+        raw_token = _public_invite_token_for_id(invite_id)
         token_hash = _hash_public_value(raw_token)
         expires_at = _utcnow() + timedelta(hours=duration)
         public_location = self._public_location_snapshot_payload(location_snapshot)
-        metadata: dict[str, Any] = {}
+        metadata: dict[str, Any] = {"codeVersion": _PUBLIC_INVITE_CODE_VERSION}
         if public_location:
             metadata["publicLocation"] = public_location
         row = self._execute_one(
             """
             INSERT INTO one_location_public_invites (
-              owner_user_id, public_code_hash, status, duration_hours,
+              id, owner_user_id, public_code_hash, status, duration_hours,
               expires_at, created_at, updated_at, metadata
             )
             VALUES (
+              CAST(:invite_id AS UUID),
               :owner_user_id, :public_code_hash, 'active', :duration_hours,
               :expires_at, NOW(), NOW(), CAST(:metadata_json AS JSONB)
             )
             RETURNING *
             """,
             {
+                "invite_id": invite_id,
                 "owner_user_id": owner_user_id,
                 "public_code_hash": token_hash,
                 "duration_hours": duration,
@@ -6700,29 +6911,21 @@ class OneLocationAgentService:
     def shorten_grant(
         self, *, caller_user_id: str, grant_id: str, duration_hours: float
     ) -> dict[str, Any]:
-        """Move a grant's expiry anywhere the owner already authorized. Either side may do this.
+        """Bring a grant's expiry earlier. Either side may do this; neither may extend.
 
-        The owner already agreed to be seen up to `ceiling_expires_at` --
-        moving the live expiry to anything at or under that ceiling, in
-        either direction, needs no fresh consent from the other party: a
-        decrease is a partial early revoke, and a later increase back toward
-        the ceiling is just returning to what was already agreed, not asking
-        for anything new. Only a candidate PAST the ceiling grows how long
-        the recipient can see the owner, which is the owner's consent to
-        give again, not something either side can hand themselves through
-        this endpoint -- that goes through request_access instead, and the
-        owner approves it like any other request (which also mints a fresh
-        ceiling for the grant it produces).
-
-        A grant with no known ceiling (an until_stopped share, or a row from
-        before the ceiling existed) falls back to the live `expires_at` as
-        its own bound, which reproduces this endpoint's original shorten-only
-        behavior exactly.
+        Shortening only ever reduces exposure, so it needs no fresh consent
+        from the other party -- the owner already agreed to be seen at least
+        this long, and the recipient giving back time early is just an
+        early, partial revoke. Extending is a different question: it grows
+        how long the recipient can see the owner, and that is the owner's
+        consent to give again, not something either side can hand
+        themselves through this endpoint. A person who wants more time goes
+        through request_access instead, and the owner approves it like any
+        other request.
         """
         row = self._execute_one(
             """
-            SELECT id, owner_user_id, recipient_user_id, expires_at,
-                   ceiling_expires_at, status
+            SELECT id, owner_user_id, recipient_user_id, expires_at, status
             FROM one_location_share_grants
             WHERE id = CAST(:grant_id AS UUID)
               AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
@@ -6747,18 +6950,13 @@ class OneLocationAgentService:
             ) from exc
         candidate_expires_at = datetime.now(timezone.utc) + timedelta(hours=duration)
         current_expires_at = row.get("expires_at")
-        ceiling_expires_at = row.get("ceiling_expires_at")
-        # No ceiling on record -- fall back to the live expiry, which is
-        # exactly the original shorten-only bound this endpoint had before
-        # ceilings existed.
-        bound = ceiling_expires_at if ceiling_expires_at is not None else current_expires_at
-        if bound is not None:
-            if bound.tzinfo is None:
-                bound = bound.replace(tzinfo=timezone.utc)
-            if candidate_expires_at > bound:
+        if current_expires_at is not None:
+            if current_expires_at.tzinfo is None:
+                current_expires_at = current_expires_at.replace(tzinfo=timezone.utc)
+            if candidate_expires_at >= current_expires_at:
                 raise OneLocationAgentError(
                     "LOCATION_GRANT_SHORTEN_ONLY",
-                    "This can only move within what was already approved.",
+                    "This can only make a share end sooner, not later.",
                     status_code=422,
                 )
 
@@ -6772,11 +6970,6 @@ class OneLocationAgentService:
             WHERE id = CAST(:grant_id AS UUID)
               AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
               AND status = 'active'
-              -- Re-checked atomically against whatever the row's bound is
-              -- RIGHT NOW, not the possibly-stale value read above -- closes
-              -- the window where a concurrent set_grant_duration lowers the
-              -- ceiling between this function's read and this write.
-              AND :new_expires_at <= COALESCE(ceiling_expires_at, expires_at)
             RETURNING *
             """,
             {
@@ -6787,9 +6980,8 @@ class OneLocationAgentService:
             },
         )
         if not updated:
-            # Revoked, or raced past a since-lowered ceiling, between the
-            # read above and this write -- report the grant as it now
-            # stands rather than raising on a race.
+            # Revoked between the read above and this write -- report the
+            # grant as it now stands rather than raising on a race.
             existing_row = self._execute_one(
                 """
                 SELECT * FROM one_location_share_grants
@@ -6806,15 +6998,6 @@ class OneLocationAgentService:
         owner_label = _identity_notification_label(owner_identity)
         recipient_identity = self._identity_row(recipient_user_id or "")
         recipient_label = _identity_notification_label(recipient_identity)
-        # Which way this particular call moved the expiry -- shrinking to 15
-        # min and then regrowing to 30 (still under the ceiling) is a real
-        # increase, and must not be reported to either party as a shorten.
-        direction = _share_duration_change_direction(
-            previous_expires_at=current_expires_at,
-            new_expires_at=candidate_expires_at,
-            new_mode="timed",
-        )
-        grew = direction == "extended"
         self._insert_event(
             owner_user_id=str(row.get("owner_user_id") or caller_user_id),
             actor_user_id=caller_user_id,
@@ -6823,32 +7006,21 @@ class OneLocationAgentService:
             event_type="location_share_shortened",
             metadata={
                 "reason": "owner_shorten" if actor_is_owner else "recipient_shorten",
-                "direction": direction,
                 "counterpart_label": recipient_label,
             },
         )
         notification_user_id = (
             recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")
         )
-        if grew:
-            notification_title = "Location access time changed"
-            notification_body = (
-                f"{owner_label} adjusted the shared time, within what was already approved."
-                if actor_is_owner
-                else f"{recipient_label} adjusted their viewing time, within what you already approved."
-            )
-        else:
-            notification_title = "Location access shortened"
-            notification_body = (
-                f"{owner_label} shortened your location access."
-                if actor_is_owner
-                else f"{recipient_label} gave back some of their remaining time early."
-            )
         self._send_metadata_notification(
             user_id=notification_user_id,
             notification_type="location_share_shortened",
-            title=notification_title,
-            body=notification_body,
+            title="Location access shortened",
+            body=(
+                f"{owner_label} shortened your location access."
+                if actor_is_owner
+                else f"{recipient_label} gave back some of their remaining time early."
+            ),
             notification_tag=f"one-location-shortened:{grant_id}",
             request_url=_one_location_url(
                 grantId=grant_id, section="shared" if actor_is_owner else "people"
@@ -6859,7 +7031,6 @@ class OneLocationAgentService:
                 "owner_display_label": owner_label,
                 "recipient_user_id": recipient_user_id,
                 "recipient_display_label": recipient_label,
-                "direction": direction,
             },
         )
         return self._grant_payload(updated) or {}
@@ -6977,11 +7148,6 @@ class OneLocationAgentService:
             SET duration_mode = :duration_mode,
                 duration_hours = :duration_hours,
                 expires_at = :new_expires_at,
-                -- The owner is re-authorizing this share right now, in
-                -- whichever direction they moved it -- their explicit choice
-                -- is the new ceiling a later self-serve shrink/regrow (via
-                -- shorten_grant) can move freely within, same as at creation.
-                ceiling_expires_at = :new_expires_at,
                 updated_at = NOW()
             WHERE id = CAST(:grant_id AS UUID)
               AND owner_user_id = :owner_user_id
@@ -7331,7 +7497,7 @@ class OneLocationAgentService:
         was_extension = bool(str(request_row.get("extends_grant_id") or "").strip())
         if duration_hours is None and duration_mode is None:
             resolved_mode = requested_mode or TIMED_LOCATION_SHARE_DURATION_MODE
-            delta_hours = (
+            resolved_hours = (
                 None
                 if _is_until_stopped_share(resolved_mode)
                 else (
@@ -7342,29 +7508,7 @@ class OneLocationAgentService:
             )
         else:
             resolved_mode = duration_mode or TIMED_LOCATION_SHARE_DURATION_MODE
-            delta_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
-        # For an extension, `delta_hours` is the extra amount being granted --
-        # what the requester asked for (or the owner's override), not the
-        # share's new total. The actual grant still needs the total (it
-        # replaces the live grant wholesale), so add the delta to however much
-        # time that grant has left right now -- read fresh here rather than
-        # trusting a total computed back when the ask was made, so a slow
-        # approval does not silently drift the result.
-        resolved_hours = delta_hours
-        if was_extension and delta_hours is not None:
-            existing_grant = self._active_grant_between(
-                owner_user_id=owner_user_id,
-                recipient_user_id=requester_user_id,
-                is_sos_lane=False,
-            )
-            existing_expires_at = existing_grant.get("expires_at") if existing_grant else None
-            if existing_expires_at is not None:
-                remaining_hours = max(
-                    0.0, (existing_expires_at - _utcnow()).total_seconds() / 3600.0
-                )
-                resolved_hours = remaining_hours + delta_hours
-            # else: nothing live to extend (expired/revoked since the ask) --
-            # grant exactly the delta, same as a fresh share.
+            resolved_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
         grant = self.create_grant(
             owner_user_id=owner_user_id,
             recipient_user_id=requester_user_id,
@@ -7390,15 +7534,10 @@ class OneLocationAgentService:
         owner_label = _identity_notification_label(owner_identity)
         granted_hours = _duration_metadata_value(grant.get("durationHours"))
         granted_mode = grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE
-        # The recipient does not need the share's new total repeated back at
-        # them -- they already knew that a second ago. What is new is how much
-        # MORE they just got, so an extension's notification and feed row name
-        # the delta actually applied, not the resulting total.
-        display_hours = delta_hours if was_extension else granted_hours
         granted_label = (
             "for as long as you need"
             if _is_until_stopped_share(str(granted_mode))
-            else format_duration_label(display_hours)
+            else format_duration_label(granted_hours)
         )
         self._insert_event(
             owner_user_id=owner_user_id,
@@ -7408,7 +7547,7 @@ class OneLocationAgentService:
             request_id=request_id,
             event_type="location_access_approved",
             metadata={
-                "duration_hours": display_hours,
+                "duration_hours": granted_hours,
                 "duration_mode": granted_mode,
                 "counterpart_label": requester_label,
                 # Swapped in for the requester's copy of this feed row, so they
@@ -7444,7 +7583,7 @@ class OneLocationAgentService:
                 "grant_id": grant["id"],
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
-                "duration_hours": display_hours,
+                "duration_hours": granted_hours,
                 "duration_mode": granted_mode,
                 "expires_at": grant.get("expiresAt"),
                 "is_extension": "true" if was_extension else None,

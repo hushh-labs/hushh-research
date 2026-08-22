@@ -37,7 +37,7 @@ describe("RenaissanceVerdictCard", () => {
       "Constructive bias on the active advisor list.",
     );
     expect(container.textContent).toContain(
-      "This is market context, not a personalized instruction.",
+      "One presents this as market context, not a personalized instruction.",
     );
     expect(container.textContent).not.toContain("Investment thesis");
     expect(container.textContent).not.toContain("Key signals");

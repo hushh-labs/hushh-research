@@ -17,7 +17,10 @@ import type { PlainLocationPoint } from "@/lib/one-location/types";
  */
 
 /** Web Mercator, and the map itself, stop making sense outside these. */
-function isDrawableCoordinate(point: PlainLocationPoint): boolean {
+function isDrawableCoordinate(point: {
+  latitude: number;
+  longitude: number;
+}): boolean {
   const { latitude, longitude } = point;
   return (
     Number.isFinite(latitude) &&
@@ -63,6 +66,47 @@ export function resolveOnboardingMapPoint(
   for (const point of [sources.draft, sources.confirmed, sources.workspace]) {
     if (!point || !isDrawableCoordinate(point)) continue;
     return { lat: point.latitude, lng: point.longitude };
+  }
+  return null;
+}
+
+/**
+ * One step further out than `resolveOnboardingMapPoint`, and the last word on
+ * where the finale's camera goes.
+ *
+ * All three sources above belong to the Location page, and all three are empty
+ * on a real and ordinary run: someone who declined the save-place step, or
+ * granted Location on the features screen and walked straight through, reaches
+ * "You're on the map." with nothing captured under any of those names. The
+ * screen then showed a picture of a map they were not on.
+ *
+ * The shared LocationBus is the account's position for the whole app -- one
+ * subscription, one device read, and a fix that survives a reload sealed to the
+ * owner's own key. It is the honest answer to "where is this person", and it is
+ * the reason the finale can now open on their own street when every
+ * onboarding-owned source is empty.
+ *
+ * Last, never first. A coordinate the person confirmed in this run is a
+ * statement of intent; the bus is whatever the device last managed to measure.
+ */
+export function resolveOnboardingFinaleMapPoint(sources: {
+  /** What the Location page resolved from the three sources it owns. */
+  onboarding: { lat: number; lng: number } | null;
+  /** The shared LocationBus snapshot, if this session is holding one. */
+  device?: { latitude: number; longitude: number } | null;
+}): { lat: number; lng: number } | null {
+  const { onboarding, device } = sources;
+  if (
+    onboarding &&
+    isDrawableCoordinate({
+      latitude: onboarding.lat,
+      longitude: onboarding.lng,
+    })
+  ) {
+    return onboarding;
+  }
+  if (device && isDrawableCoordinate(device)) {
+    return { lat: device.latitude, lng: device.longitude };
   }
   return null;
 }

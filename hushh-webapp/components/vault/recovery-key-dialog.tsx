@@ -46,7 +46,7 @@ export function RecoveryKeyDialog({
   };
 
   const handleDownload = async () => {
-    const content = `Hussh Recovery Key\n\n${recoveryKey}\n\nKeep this safe! You'll need it if you forget your passphrase.`;
+    const content = `Hussh Vault Recovery Key\n\n${recoveryKey}\n\nKeep this safe! You'll need it if you forget your passphrase.`;
     const success = await downloadTextFile(content, 'hushh-recovery-key.txt');
     if (success) {
       setDownloaded(true);
@@ -62,7 +62,7 @@ export function RecoveryKeyDialog({
             Save Your Recovery Key
           </DialogTitle>
           <DialogDescription>
-            This is the ONLY way to recover access if you forget your passphrase.
+            This is the ONLY way to recover your vault if you forget your passphrase.
             Save it somewhere safe!
           </DialogDescription>
         </DialogHeader>

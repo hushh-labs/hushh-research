@@ -5,9 +5,9 @@
     "exemptionReason": "Anonymous auth-split entry route redirects signed-in users to /one and intentionally does not own the signed-in dashboard shell.",
     "voicePlaybook": {
       "playbookId": "route.one.intro",
-      "purpose": "Welcome a new person and help them get started with One.",
+      "purpose": "Welcome a new person and help them claim their private agent.",
       "screen": "one_intro",
-      "entryCue": "Say ‘Get started’ whenever you are ready.",
+      "entryCue": "Say ‘Claim your One’ whenever you are ready.",
       "proactivity": "on_entry",
       "primaryActionId": "onboarding.claim_one",
       "happyPathActionIds": [
@@ -4137,6 +4137,33 @@
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
       "nextRoute": null,
       "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/products/hushh-tech/launch",
+    "mode": "hidden",
+    "exemptionReason": "Cross-product sign-in handoff intentionally suppresses the signed-in app shell while it validates and completes the one-time launch.",
+    "voicePlaybook": {
+      "playbookId": "route.products.hushh.tech.launch",
+      "purpose": "Complete the verified Hushh Tech sign-in handoff without exposing credentials.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain that the handoff cannot continue and return to Hushh Tech.",
+        "cancelled": "Respect the cancellation and return to Hushh Tech.",
+        "failed": "Return to Hushh Tech without claiming sign-in succeeded.",
+        "timeout": "Return to Hushh Tech and offer one safe retry.",
+        "callbackError": "Return to Hushh Tech without exposing the launch code.",
+        "routeMismatch": "Use only the verified Hushh Tech launch route."
+      },
+      "completionBoundary": "The handoff completes only after the signed-in Firebase user receives a bound one-time launch code and the browser reaches the exact allowlisted Hushh Tech callback.",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   }

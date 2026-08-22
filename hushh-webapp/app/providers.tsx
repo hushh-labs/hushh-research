@@ -17,7 +17,6 @@ import { AuthProvider } from "@/lib/firebase";
 import { VaultProvider } from "@/lib/vault/vault-context";
 import { StepProgressProvider } from "@/lib/progress/step-progress-context";
 import { StepProgressBar } from "@/components/app-ui/step-progress-bar";
-import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { CacheProvider } from "@/lib/cache/cache-context";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
@@ -42,7 +41,6 @@ import {
 } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOnboardingSyncBridge";
 import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
-import { OnboardingEntryProvider } from "@/lib/onboarding/onboarding-entry-context";
 import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { Capacitor } from "@capacitor/core";
@@ -242,7 +240,7 @@ function AppShellFrame({ children }: ProvidersProps) {
         "--app-scroll-bottom-pad": hidesPersistentChrome
           ? "0px"
           : isRiaRoute(pathname)
-            ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
+            ? "var(--bottom-chrome-stack-height)"
             : isOneSetupSurfaceRoute(pathname)
               ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
               : hideGlobalChrome || isPublicStandaloneRoute
@@ -449,11 +447,6 @@ function AppShellFrame({ children }: ProvidersProps) {
       <PersonaProvider>
         <RiaSurfaceScopeSync />
         <VaultProvider>
-          {/* One decision for the whole app: where does this person belong?
-              Every guard below reads the answer from here instead of resolving
-              its own copy, which is what keeps the onboarding states mutually
-              exclusive and stops a screen painting from a default value. */}
-          <OnboardingEntryProvider>
           <AgentRuntimeStateProvider>
             <AgentPopoverProvider>
               <NativeTestRouter />
@@ -529,18 +522,11 @@ function AppShellFrame({ children }: ProvidersProps) {
                               : "min-h-0"
                           }
                         >
-                          {/* Chrome only. This fallback must NOT build a
-                              second copy of the route and its guards: React
-                              keeps the committed tree in the document while a
-                              fallback is up, so rendering {children} here gave
-                              the app two live OnboardingJourneyGuards, two
-                              pages, and two sets of redirect effects at once —
-                              and the lock surface is a portal, so the second
-                              tree's copy painted straight over the first one's
-                              screen. That is the shape people reported as the
-                              lock screen and the phone screen arriving
-                              together. */}
-                          <HushhLoader variant="page" label="Loading..." />
+                          <TopShellRouteSwipe tabSet={routeSwipeTabSet}>
+                            <OnboardingJourneyGuard>
+                              {children}
+                            </OnboardingJourneyGuard>
+                          </TopShellRouteSwipe>
                         </div>
                       </div>
                     </div>
@@ -613,7 +599,6 @@ function AppShellFrame({ children }: ProvidersProps) {
               </Suspense>
             </AgentPopoverProvider>
           </AgentRuntimeStateProvider>
-          </OnboardingEntryProvider>
         </VaultProvider>
       </PersonaProvider>
     </CacheProvider>

@@ -150,15 +150,6 @@ export type OneLocationGrant = {
   durationMode?: OneLocationShareDurationMode | string | null;
   durationHours: number | null;
   expiresAt?: string | null;
-  /**
-   * Furthest-out expiry the owner has explicitly authorized for this grant
-   * (set at creation, at approval, or on the owner's own duration edit).
-   * A duration edit at or under this needs nobody's approval, in either
-   * direction; only a candidate past it requires a fresh request. Null means
-   * no known ceiling (an until_stopped share, or a grant from before this
-   * field existed) -- edits then fall back to comparing against `expiresAt`.
-   */
-  ceilingExpiresAt?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   revokedAt?: string | null;
@@ -239,6 +230,20 @@ export type OneLocationPublicInvite = {
   createdAt?: string | null;
   updatedAt?: string | null;
   revokedAt?: string | null;
+  /**
+   * The owner's own share link, app-relative (`/one/location/request/<token>`).
+   *
+   * Present only for the owner, and only while the invite is still usable. The
+   * token used to be returned exactly once, at creation, and nothing could
+   * recover it afterwards -- so after a reload the app knew a link was live and
+   * had nothing to copy. The server now derives it from the invite id and hands
+   * it back on every read.
+   *
+   * Still optional, and callers must treat it that way: an invite minted before
+   * the token was derivable has no recoverable link, and the field is absent
+   * rather than wrong.
+   */
+  publicUrl?: string | null;
 };
 
 export type OneLocationPublicInviteSubmission = {

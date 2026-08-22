@@ -76,7 +76,7 @@ export const UI_FLOWS = [
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[0] },
       { type: "click_button", name: "Get started" },
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[1] },
-      { type: "click_button", name: "Find my people" },
+      { type: "click_button", name: "Continue" },
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[2] },
       // "Not now" rather than "Check my contacts": the reviewer run must not
       // trigger an OS contacts prompt, and declining is the path every person

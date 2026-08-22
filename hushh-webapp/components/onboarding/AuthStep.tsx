@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Lock, Shield } from "lucide-react";
+import { ArrowLeft, Shield } from "lucide-react";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -25,7 +25,12 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
-import { buildWelcomeRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildWelcomeRoute,
+  isFirebaseSessionOnlyRoute,
+  normalizeInternalRouteHref,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { type KaiLegalDocumentType } from "@/lib/legal/kai-legal-content";
 import { trackEvent } from "@/lib/observability/client";
 import {
@@ -48,46 +53,17 @@ const AUTH_CANCEL_CODES = new Set([
   "auth/user-cancelled",
 ]);
 
-// One first choice, one quiet alternative — in BOTH themes.
-//
-// Apple is the high-contrast card and Google the quiet one, which means they
-// swap colours with the sheet: black-on-light becomes white-on-dark, exactly
-// as Apple's own sign-in button does. Painting Apple black in dark mode too
-// would leave a black card on a black canvas next to a bright white Google
-// button, and the *quiet* option would be the one that shouts. Google keeps a
-// light label and a visible edge in both themes so it never reads as switched
-// off. Reviewer stays an outlined tertiary.
-//
-// Three sizing rules this file learned the hard way:
-//  * `size="lg"` sets BOTH h-[50px] and min-h-[50px] (components/ui/button.tsx)
-//    and tailwind-merge treats them as separate groups, so a height override
-//    must set both or the control silently keeps the other value.
-//  * `rounded-full` is applied three times up the stack; only a later
-//    `rounded-*` replaces it.
-//  * `.ui-text-button-label` (globals.css) forces `opacity: 1 !important`, so
-//    the primitive's `disabled:opacity-50` never paints here. The busy state
-//    has to be a solid colour swap, or a disabled button still looks tappable.
-const SHARED_PROVIDER_BTN_CLASS =
-  "h-[56px] min-h-[56px] rounded-[18px] shadow-none";
-const APPLE_BTN_EDGE = "border border-transparent";
-const GOOGLE_BTN_EDGE = "border border-black/10 dark:border-white/15";
-
-// Idle and busy are two whole treatments, never a base plus a `disabled:`
-// override. Measured in Chromium: a `disabled:!bg-*` utility loses the cascade
-// to the plain `!bg-*` it is meant to replace, so the button stayed fully
-// black while sign-in was in flight — a dead control that still looked
-// tappable. Swapping the entire class string means only one background rule
-// is ever in the list.
+// Provider-button treatments MATCH the theme (light surfaces in light mode,
+// dark surfaces in dark mode) so the sheet reads as one coherent material:
+// Apple/Google are white cards with ink text on the light sheet, and deep
+// charcoal cards with light text on the dark sheet. Reviewer stays a quiet
+// outlined tertiary in both themes.
 const APPLE_BTN_CLASS =
-  `${SHARED_PROVIDER_BTN_CLASS} ${APPLE_BTN_EDGE} !bg-black !text-white hover:!bg-[#141414] hover:text-white dark:!bg-white dark:!text-black dark:hover:!bg-[#eaeaec]`;
-const APPLE_BTN_BUSY_CLASS =
-  `${SHARED_PROVIDER_BTN_CLASS} ${APPLE_BTN_EDGE} !bg-[#8a8a8e] !text-white dark:!bg-[#3a3a3c] dark:!text-white/70`;
+  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
 const GOOGLE_BTN_CLASS =
-  `${SHARED_PROVIDER_BTN_CLASS} ${GOOGLE_BTN_EDGE} !bg-white !text-[#1d1d1f] hover:!bg-[#f5f5f7] hover:text-[#1d1d1f] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:hover:!bg-[#26262a]`;
-const GOOGLE_BTN_BUSY_CLASS =
-  `${SHARED_PROVIDER_BTN_CLASS} ${GOOGLE_BTN_EDGE} !bg-[#e5e5ea] !text-[#6e6e73] dark:!bg-[#2c2c2e] dark:!text-white/50`;
+  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
 const REVIEWER_BTN_CLASS =
-  `${SHARED_PROVIDER_BTN_CLASS} !bg-transparent !text-[#6b6b70] border border-black/10 hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]`;
+  "!bg-transparent !text-[#6b6b70] border border-black/10 shadow-none hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]";
 
 type AuthProviderId = "google" | "apple";
 type ProviderAttemptPhase =
@@ -361,12 +337,12 @@ export function AuthStep({
       phoneNumber?: string | null,
       resumeTarget?: string,
     ) => {
-      const targetPath = resumeTarget || redirectPath;
-      const navigationKey = `${userId}:${targetPath || ROUTES.KAI_HOME}`;
+      const targetPath =
+        normalizeInternalRouteHref(resumeTarget || redirectPath) ??
+        ROUTES.KAI_HOME;
+      const navigationKey = `${userId}:${targetPath}`;
       if (lastNavigationKeyRef.current === navigationKey) {
-        return (
-          lastResolvedNavigationPathRef.current || targetPath || ROUTES.ONE_HOME
-        );
+        return lastResolvedNavigationPathRef.current || targetPath;
       }
       lastNavigationKeyRef.current = navigationKey;
 
@@ -386,11 +362,7 @@ export function AuthStep({
           redirectPath: targetPath,
           idToken: resolvedIdToken,
           phoneNumber,
-        // The one-time nudge into the setup hub is deliberately not requested
-        // any more. It only ever fired for somebody whose setup was ALREADY
-        // resolved, which is the exact thing the funnel is now closed to — the
-        // guard would send them straight back out, so the nudge could only ever
-        // be seen as a flash of the setup screen on the way to the app.
+          enableFirstRunSetupGate: true,
         });
 
         const resumeImportFlow =
@@ -402,22 +374,33 @@ export function AuthStep({
         // user. The provider launch itself remains a `started` settlement;
         // the durable journey is never advanced merely because a redirect was
         // opened or a popup was requested.
-        await PreVaultUserStateService.syncOnboardingJourney({
-          userId,
-          phase:
-            nextPath === ROUTES.PHONE_MANDATE ? "phone_required" : "setup_hub",
-          callbackState: "succeeded",
-          idToken: resolvedIdToken,
-        }).catch((journeyError) => {
-          // The existing post-auth route remains the rollback path while the
-          // additive journey migration rolls out.
-          console.warn(
-            "[AuthStep] Failed to persist onboarding journey:",
-            journeyError,
-          );
-        });
-        setOnboardingRequiredCookie(nextPath === ROUTES.ONE_SETUP);
-        setOnboardingFlowActiveCookie(nextPath === ROUTES.KAI_IMPORT);
+        const firebaseSessionOnly = isFirebaseSessionOnlyRoute(nextPath);
+        if (!firebaseSessionOnly) {
+          await PreVaultUserStateService.syncOnboardingJourney({
+            userId,
+            phase:
+              nextPath === ROUTES.PHONE_MANDATE
+                ? "phone_required"
+                : "setup_hub",
+            callbackState: "succeeded",
+            idToken: resolvedIdToken,
+          }).catch((journeyError) => {
+            // The existing post-auth route remains the rollback path while the
+            // additive journey migration rolls out.
+            console.warn(
+              "[AuthStep] Failed to persist onboarding journey:",
+              journeyError,
+            );
+          });
+        }
+        // Product handoffs require only the settled Firebase session. They do
+        // not start or resume One setup and never create a private-place gate.
+        setOnboardingRequiredCookie(
+          !firebaseSessionOnly && nextPath === ROUTES.ONE_SETUP,
+        );
+        setOnboardingFlowActiveCookie(
+          !firebaseSessionOnly && nextPath === ROUTES.KAI_IMPORT,
+        );
         // Replace, not push: the login screen must not stay on the back stack,
         // so an onboarded user pressing Back never lands back on /login or the
         // setup hub it forwards to.
@@ -426,13 +409,12 @@ export function AuthStep({
         return nextPath;
       } catch (error) {
         console.warn("[AuthStep] Failed to resolve post-auth route:", error);
-        const fallbackPath = targetPath || ROUTES.KAI_HOME;
         const safeFallbackPath =
-          fallbackPath === ROUTES.ONE_SETUP ||
-          fallbackPath === ROUTES.ONE_SETUP_FINANCE ||
-          fallbackPath === ROUTES.KAI_IMPORT
+          targetPath === ROUTES.ONE_SETUP ||
+          targetPath === ROUTES.ONE_SETUP_FINANCE ||
+          targetPath === ROUTES.KAI_IMPORT
             ? ROUTES.KAI_HOME
-            : fallbackPath;
+            : targetPath;
         setOnboardingRequiredCookie(safeFallbackPath === ROUTES.ONE_SETUP);
         setOnboardingFlowActiveCookie(safeFallbackPath === ROUTES.KAI_IMPORT);
         router.replace(safeFallbackPath);
@@ -839,7 +821,7 @@ export function AuthStep({
       screenId: "login",
       title: "Sign in to One",
       purpose:
-        "This is the sign-in screen. Help the person sign in with Apple or Google so they can open their private place. Terms and Privacy Policy open as inline documents.",
+        "This is the sign-in screen. Help the person sign in with Apple or Google so they can open their private vault. Terms and Privacy Policy open as inline documents.",
       actions: [
         ...(!providerBusy
           ? [
@@ -1030,22 +1012,15 @@ export function AuthStep({
       // parser requires escaped whitespace around the minus sign
       // ("100dvh_-_var(...)"); without it the whole declaration is invalid
       // CSS and silently dropped, which is what happened here before.
-      //
-      // min-height, NOT height. A fixed height plus overflow-hidden does not
-      // scroll when the content outgrows it — it silently CUTS the content,
-      // with no scrollbar and no error. At 200% text the bottom reservation
-      // doubles too (it is measured in rem), and the mark and title were being
-      // clipped off the top edge. With a minimum, the block still fills exactly
-      // one viewport at normal size (measured: 0px of scroll at 320-430 wide)
-      // and grows into the scroll root only when the text genuinely needs it.
       className="relative w-full overflow-hidden"
       style={{
-        minHeight: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
+        height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
+        minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
       }}
       data-testid="auth-step-primary"
     >
       {/* Shared immersive gradient backdrop (welcome / login / carousel). */}
-      <OnboardingHeroBackground variant="plain" />
+      <OnboardingHeroBackground />
       <NativeTestBeacon
         routeId="/login"
         marker="native-route-login"
@@ -1086,7 +1061,8 @@ export function AuthStep({
       <div
         className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center"
         style={{
-          minHeight: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
+          height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
+          minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
         }}
         data-auth-content-block
       >
@@ -1099,50 +1075,26 @@ export function AuthStep({
           data-auth-signin-clusters
         >
           <div className="flex flex-col items-center gap-4">
-            {/* The One mark, at the size and wash the approved design gives
-                it and identical to the welcome screen's — the two entry
-                screens must not disagree about how big the brand is. The
-                glyph is the logo, so it is never restyled; the geometry is a
-                168px box carrying a closest-side accent wash, which keeps the
-                halo a circle regardless of how the emoji font measures. */}
+            {/* Quiet mark: the bare 🤫 over a soft accent glow, no medallion
+                chrome (badge circle removed by design). */}
             <div
-              className="relative flex h-[168px] w-[168px] items-center justify-center [@media(max-height:780px)]:h-[116px] [@media(max-height:780px)]:w-[116px]"
+              className="relative flex h-[92px] w-[92px] items-center justify-center"
               aria-hidden="true"
             >
-              <span
-                className="pointer-events-none absolute inset-0 rounded-full blur-[5px]"
-                style={{
-                  background:
-                    "radial-gradient(closest-side, color-mix(in oklab, var(--app-accent-deep) 28%, transparent), color-mix(in oklab, var(--app-accent-deep) 7%, transparent) 56%, transparent 74%)",
-                }}
-              />
-              <span className="relative select-none font-[family-name:'Apple_Color_Emoji','Segoe_UI_Emoji','Noto_Color_Emoji'] text-[80px] leading-none [@media(max-height:780px)]:text-[58px]">
+              <span className="pointer-events-none absolute h-28 w-28 rounded-full bg-accent/20 blur-2xl" />
+              <span className="relative select-none text-[56px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
                 🤫
               </span>
             </div>
-            {/* Title and its one supporting line are a tight pair (gap-1.5);
-                the 16px rhythm belongs between the mark and this pair. The
-                line is a SIBLING of the h1, never a child, because the smoke
-                test matches the heading by accessible name.
-
-                The h1 sets no size, line-height or weight on purpose: the base
-                `h1` rule in globals.css locks all three with !important
-                (28px / 700 at 390px wide), so a Tailwind size class here
-                paints nothing and only misleads the next reader. Tracking is
-                the one property that rule leaves overridable. */}
-            <div className="flex flex-col items-center gap-1.5">
-              <h1
-                role="heading"
-                aria-level={1}
-                aria-label="Welcome to One"
-                className="font-[family-name:var(--font-app-display)] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
-              >
-                Welcome to One
-              </h1>
-              <p className="type-callout text-[color:var(--app-secondary-label)]">
-                Sign in to continue.
-              </p>
-            </div>
+            <h1
+              role="heading"
+              aria-level={1}
+              aria-label="Welcome to One"
+              className="font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
+            >
+              Welcome to One
+              <span style={{ color: "var(--app-accent)" }}>.</span>
+            </h1>
           </div>
 
           {/* Buttons sit directly on the shared hero background (no card/sheet
@@ -1173,13 +1125,7 @@ export function AuthStep({
                   disabled={providerBusy}
                   voiceControlId={`auth_${option.id}`}
                   className={cn(
-                    option.id === "apple"
-                      ? providerBusy
-                        ? APPLE_BTN_BUSY_CLASS
-                        : APPLE_BTN_CLASS
-                      : providerBusy
-                        ? GOOGLE_BTN_BUSY_CLASS
-                        : GOOGLE_BTN_CLASS,
+                    option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS,
                   )}
                 />
               ))}
@@ -1195,27 +1141,23 @@ export function AuthStep({
               ) : null}
             </div>
 
-            <div className="flex flex-col items-center gap-3" data-auth-supporting-content>
-              {/* Reassurance, not a control. The blue pill read as a tappable
-                  filter, and accent-blue body text on the #f2f2f7 canvas sits
-                  under the 4.5:1 contrast floor — so the words moved to the
-                  secondary label colour and only the lock stays accent.
-                  Both this line and the legal line below use
-                  --app-secondary-label: the tertiary grey measures 2.9:1 on
-                  this canvas, which fails AA. Hierarchy is carried by size
-                  (15px here, 13px below), not by an unreadable grey. */}
-              <div className="flex items-center gap-1.5">
+            <div
+              className="flex flex-col items-center gap-3"
+              data-auth-supporting-content
+            >
+              {/* Consent-first reassurance chip. */}
+              <div className="flex w-fit items-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1.5 dark:bg-white/[0.06]">
                 <Icon
-                  icon={Lock}
+                  icon={Shield}
                   size="sm"
-                  className="text-[color:var(--app-accent-deep)]"
+                  className="text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]"
                 />
-                <span className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
+                <span className="type-footnote text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]">
                   You choose what One can see.
                 </span>
               </div>
 
-              <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[color:var(--app-secondary-label)]">
+              <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[#86868b] dark:text-white/45">
                 By continuing you agree to our{" "}
                 <button
                   type="button"
@@ -1253,7 +1195,7 @@ export function AuthStep({
 
 function GoogleIcon() {
   return (
-    <svg className="size-5" viewBox="0 0 24 24" aria-hidden>
+    <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden>
       <title>Google</title>
       <path
         fill="#4285F4"
@@ -1278,7 +1220,7 @@ function GoogleIcon() {
 function AppleIcon() {
   return (
     <svg
-      className="size-5"
+      className="h-5 w-5"
       viewBox="0 0 24 24"
       fill="currentColor"
       aria-hidden

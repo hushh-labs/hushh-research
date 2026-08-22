@@ -52,6 +52,13 @@ function renderFlow(
     onBack: vi.fn(),
     onComplete: vi.fn(),
     onSkip: vi.fn(),
+    // The finale HAS a coordinate on an ordinary run -- Location is granted on
+    // the features screen and the save-place step captures a fix two screens
+    // before this one. Defaulting to null here modelled the bug rather than the
+    // product, and it is the reason a screen that always drew its fallback had
+    // a suite that never noticed. Cases about the empty band pass `null`
+    // explicitly.
+    mapPoint: { lat: 19.076, lng: 72.8777 },
     ...overrides,
   };
 
@@ -69,17 +76,10 @@ function renderFlow(
   };
 }
 
-/**
- * welcome -> features -> contacts.
- *
- * Step two is a permission primer (#5395): its CTA asks for Location on the
- * first tap and moves on with the second. Nothing fires the OS dialog on the
- * way in any more, so this walk has to make the ask explicitly.
- */
+/** welcome -> features -> contacts. */
 function openContactsScreen() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-  fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-  fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 }
 
 /** ...and on to the invite screen, declining the contacts step. */
@@ -146,8 +146,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     const advance = [
       ["one-location-onboarding-welcome", "Get started"],
-      ["one-location-onboarding-features", "Allow location"],
-      ["one-location-onboarding-features", "Choose my people"],
+      ["one-location-onboarding-features", "Continue"],
       ["one-location-onboarding-contacts", "Not now"],
       ["one-location-onboarding-invite", null],
     ] as const;
@@ -180,8 +179,7 @@ describe("OneLocationOnboardingFlow", () => {
     record("one-location-onboarding-welcome");
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
     record("one-location-onboarding-features");
-    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     record("one-location-onboarding-contacts");
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     record("one-location-onboarding-invite");
@@ -218,14 +216,13 @@ describe("OneLocationOnboardingFlow", () => {
     const featureGrid = document.querySelector("[data-one-feature-grid]");
     expect(featureGrid?.className).toContain("mt-6");
     expect(featureGrid?.className).toContain("shrink-0");
+    const featureNavigation = document.querySelector(
+      "[data-one-onboarding-navigation]",
+    );
+    expect(featureNavigation?.className).toContain("max-w-[1040px]");
     const lowerGrid = document.querySelector("[data-one-feature-lower-grid]");
     expect(lowerGrid?.className).toContain("grid-cols-2");
-    // mt-3, not mt-4. The subtitle spacing was tightened in the shipped
-    // component but this assertion was never updated, so it has been failing
-    // on main independently of this change. Matched to what actually renders.
-    expect(
-      document.querySelector("[data-one-feature-subtitle]")?.className,
-    ).toContain("mt-3");
+    expect(document.querySelector("[data-one-feature-subtitle]")).toBeNull();
     const featureCta = document.querySelector("[data-one-feature-cta]");
     expect(featureCta?.className).not.toContain("mt-auto");
     expect(featureCta?.querySelector("button")?.className).toContain(
@@ -240,7 +237,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(responsiveStyles).not.toContain(
       "grid-template-rows: minmax(0, 0.82fr) minmax(0, 1fr)",
     );
-    expect(responsiveStyles).toContain("@media (min-width: 1024px)");
+    expect(responsiveStyles).toContain("@media (min-width: 768px)");
     expect(responsiveStyles).toContain("flex: 0 0 auto");
     expect(responsiveStyles).toContain("font-size: clamp(14px, 9.5cqw, 15px)");
     expect(responsiveStyles).toContain("--type-agent-title-size: 34px");
@@ -254,6 +251,7 @@ describe("OneLocationOnboardingFlow", () => {
     );
     expect(responsiveStyles).toContain('"share checkin sms"');
     expect(responsiveStyles).toContain("min-height: 390px");
+    expect(responsiveStyles).toContain("height: 54%");
     expect(responsiveStyles).not.toContain("width: 58%");
     expect(responsiveStyles).toContain("font-size: 20px");
     expect(responsiveStyles).toContain("font-size: 15px");
@@ -262,9 +260,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(responsiveStyles).toContain(
       "font-size: clamp(15px, calc(5vw - 4.5px), 17px)",
     );
-    expect(responsiveStyles).toContain(
-      "bottom: clamp(54px, calc(65vh - 486.6px), 120px)",
-    );
+    expect(responsiveStyles).toContain("inset: auto 0 42px 0");
     expect(responsiveStyles).toContain("align-items: flex-start");
     expect(responsiveStyles).toContain("--one-feature-copy-gap: 12px");
     expect(responsiveStyles).toContain("gap: var(--one-feature-copy-gap)");
@@ -273,10 +269,9 @@ describe("OneLocationOnboardingFlow", () => {
     expect(responsiveStyles).toContain(
       "@media (max-width: 431px) and (max-height: 560px)",
     );
-    expect(responsiveStyles).toContain("@media (max-width: 359px)");
+    expect(responsiveStyles).toContain("@media (max-width: 380px)");
     expect(responsiveStyles).toContain("grid-template-columns: minmax(0, 1fr)");
-    expect(responsiveStyles).not.toMatch(/font-size:\s*(?:8|9|9\.5|10)px/u);
-    expect(responsiveStyles).not.toContain("min-height: 42px");
+    expect(responsiveStyles).toContain("height: 54%");
 
     const cards = document.querySelectorAll("[data-one-use-case-card]");
     expect(cards).toHaveLength(3);
@@ -305,39 +300,30 @@ describe("OneLocationOnboardingFlow", () => {
       }
     }
 
-    // The hero slot (testid "location-use-case-trip") now carries Check-In \u2014
-    // the real Check-In flow only tells chosen people you arrived, so it gets
-    // this fallback copy rather than a hotel/key-pickup claim the flow cannot
-    // back up. Share moves to the first compact slot, SOS keeps the second.
-    const heroCard = screen.getByTestId("location-use-case-trip");
-    const shareCard = screen.getByTestId("location-use-case-checkin");
-    const sosCard = screen.getByTestId("location-use-case-sos");
-
     expect(
       Array.from(
-        heroCard.querySelectorAll("[data-one-feature-title-line]"),
-      ).map((line) => line.textContent),
-    ).toEqual(["Can\u2019t find", "each other?"]);
-    expect(
-      Array.from(
-        shareCard.querySelectorAll("[data-one-feature-title-line]"),
+        screen
+          .getByTestId("location-use-case-trip")
+          .querySelectorAll("[data-one-feature-title-line]"),
       ).map((line) => line.textContent),
     ).toEqual(["Can\u2019t explain", "where you are?"]);
     expect(
       Array.from(
-        sosCard.querySelectorAll("[data-one-feature-title-line]"),
+        screen
+          .getByTestId("location-use-case-checkin")
+          .querySelectorAll("[data-one-feature-title-line]"),
       ).map((line) => line.textContent),
-    ).toEqual(["Can\u2019t call", "for help?"]);
+    ).toEqual(["Stuck in the", "check-in line?"]);
+    expect(
+      Array.from(
+        screen
+          .getByTestId("location-use-case-sos")
+          .querySelectorAll("[data-one-feature-title-line]"),
+      ).map((line) => line.textContent),
+    ).toEqual(["Need help but", "can\u2019t talk?"]);
 
     expect(
-      screen.getByRole("heading", { name: "Location that helps" }),
-    ).toBeTruthy();
-    expect(screen.getByText("Share, check in, or get help.")).toBeTruthy();
-    expect(
-      screen.getByRole("heading", { name: "Can\u2019t find each other?" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByText("Check in once. Everyone knows you arrived."),
+      screen.getByRole("heading", { name: "Keep your people updated." }),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
@@ -345,25 +331,35 @@ describe("OneLocationOnboardingFlow", () => {
       }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("heading", { name: "Can\u2019t call for help?" }),
+      screen.getByText("Share your live location with your Circle in one tap."),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        name: "Stuck in the check-in line?",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        name: "Need help but can\u2019t talk?",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Check in early, pick up your key, and skip the front desk.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Send an SMS with your location in seconds."),
     ).toBeTruthy();
 
-    expect(
-      heroCard.querySelector("[data-one-use-case-tag]")?.textContent,
-    ).toBe("Check in");
-    expect(
-      shareCard.querySelector("[data-one-use-case-tag]")?.textContent,
-    ).toBe("Share");
-    // "SOS" also labels the radar core below, so this must stay scoped to
-    // the tag pill or it collides with that second "SOS" text node.
-    expect(
-      sosCard.querySelector("[data-one-use-case-tag]")?.textContent,
-    ).toBe("SOS");
-    expect(screen.getByText("Checked in")).toBeTruthy();
-    expect(screen.getByText("Sharing")).toBeTruthy();
-    expect(screen.getByText("Help sent")).toBeTruthy();
+    expect(screen.getByText("Share location")).toBeTruthy();
+    expect(screen.getByText("Check in")).toBeTruthy();
+    expect(screen.getByText("SMS \u00b7 Save My Soul")).toBeTruthy();
+    expect(screen.getByText("Sharing with Mom, Driver +1")).toBeTruthy();
+    expect(screen.getByText("Checked in at Hotel Grand")).toBeTruthy();
+    expect(screen.getByText("Alerted 3 contacts")).toBeTruthy();
 
-    const smsCard = sosCard;
+    const smsCard = screen.getByTestId("location-use-case-sos");
     const smsCore = smsCard.querySelector("[data-one-sms-core]");
     const smsLabel = smsCard.querySelector("[data-one-sms-label]");
     const smsPulse = smsCard.querySelector("[data-one-sms-core-pulse]");
@@ -373,7 +369,6 @@ describe("OneLocationOnboardingFlow", () => {
       "[data-one-sms-radar-clearance]",
     );
     const smsRadar = smsCard.querySelector("[data-one-sms-radar]");
-    expect(smsLabel?.textContent).toBe("SOS");
     expect(smsArtRegion?.className).toContain("flex-1");
     expect(smsRadarClearance?.className).toContain("h-[108px]");
     expect(smsRadarClearance?.className).toContain("w-[108px]");
@@ -397,144 +392,55 @@ describe("OneLocationOnboardingFlow", () => {
       );
     }
 
-    // Hero card: a pin marks the arrival, a checkmark confirms it \u2014 no hotel
-    // art, no key, and no share avatars (those belong to the compact card).
-    expect(heroCard.querySelector("svg.lucide-map-pin")).toBeTruthy();
-    expect(heroCard.querySelector("svg.lucide-check")).toBeTruthy();
+    const checkInCard = screen.getByTestId("location-use-case-checkin");
+    expect(checkInCard.querySelector("[data-one-checkin-pin]")).toBeNull();
+    expect(checkInCard.querySelector("[data-one-checkin-map-backdrop]")).toBeTruthy();
     expect(
-      heroCard.querySelector(
-        'img[src="/one-location/onboarding/feature-checkin-house-transparent.webp"]',
-      ),
-    ).toBeNull();
-    expect(
-      heroCard.querySelector('img[src*="/feature-share-person-"]'),
-    ).toBeNull();
+      checkInCard.querySelector("[data-one-use-case-art]")?.className,
+    ).toContain("h-[52%]");
+    const hotelArt = checkInCard.querySelector(
+      'img[src="/one-location/onboarding/feature-checkin-house-transparent.webp"]',
+    );
+    const hotelFrame = checkInCard.querySelector("[data-one-checkin-art]");
+    expect(hotelArt).toBeTruthy();
+    expect(hotelFrame?.className).toContain("w-[54%]");
+    expect(hotelFrame).toHaveStyle({
+      perspective: "320px",
+      perspectiveOrigin: "50% 100%",
+    });
+    expect(hotelArt).toHaveStyle({ transform: "rotateY(8deg)" });
+    expect(hotelArt?.className).not.toContain("rotate-");
 
-    // Compact Share card: one trusted-person avatar, no hotel art.
-    expect(
-      shareCard.querySelector(
-        'img[src="/one-location/onboarding/feature-share-person-1.webp"]',
-      ),
-    ).toBeTruthy();
-    expect(
-      shareCard.querySelector(
-        'img[src="/one-location/onboarding/feature-checkin-house-transparent.webp"]',
-      ),
-    ).toBeNull();
+    const shareCard = screen.getByTestId("location-use-case-trip");
+    for (const asset of [
+      "feature-share-person-1.webp",
+      "feature-share-person-2.webp",
+      "feature-share-person-3.webp",
+    ]) {
+      expect(
+        shareCard.querySelector(`img[src="/one-location/onboarding/${asset}"]`),
+      ).toBeTruthy();
+    }
+    expect(shareCard.querySelector('img[src*="/orbit-person-"]')).toBeNull();
 
-    expect(screen.getByRole("button", { name: "Choose my people" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
     expect(screen.queryByText("Connected Person")).toBeNull();
   });
 
-  it("never fires the OS prompt on the way into screen two", async () => {
-    // #5395. Arriving at screen two used to fire BOTH native dialogs on the
-    // same tick as the navigation, over a screen nobody had read. iOS grants
-    // exactly one Core Location prompt per install, so a reflexive refusal
-    // was permanent. Nothing may be asked until an explicit tap.
+  it("requests only missing permissions as screen two opens", () => {
     const props = renderFlow();
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    expect(props.onRequestLocation).not.toHaveBeenCalled();
-    expect(props.onRequestNotifications).not.toHaveBeenCalled();
-    expect(props.onLocationReady).not.toHaveBeenCalled();
-
-    // The explainer is on screen BEFORE the ask.
-    expect(
-      screen.getByTestId("one-location-onboarding-location-reason").textContent,
-    ).toBe("Share, check in, or get help.");
-
-    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
-    // Sequenced, not raced: notifications wait for Location to settle so the
-    // two native alerts cannot stack and cover each other.
-    await waitFor(() =>
-      expect(props.onRequestNotifications).toHaveBeenCalledTimes(1),
-    );
+    expect(props.onLocationReady).not.toHaveBeenCalled();
+    expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
-  });
-
-  it("asks for Location before notifications, never both at once", async () => {
-    // Two native alerts opened in parallel put the second one over the first,
-    // so people answered a notifications prompt believing it was the location
-    // prompt they had just asked for.
-    let releaseLocation: (() => void) | null = null;
-    const onRequestLocation = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseLocation = () => resolve();
-        }),
-    );
-    const props = renderFlow({ onRequestLocation });
-
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-
-    expect(onRequestLocation).toHaveBeenCalledTimes(1);
-    expect(props.onRequestNotifications).not.toHaveBeenCalled();
-
-    await act(async () => {
-      releaseLocation?.();
-    });
-    await waitFor(() =>
-      expect(props.onRequestNotifications).toHaveBeenCalledTimes(1),
-    );
-  });
-
-  it("offers a way past a refused Location instead of trapping the screen", () => {
-    // A refusal is recoverable state, not a dead end: everything except live
-    // sharing still works, so the flow stays open unless Location is required.
-    const props = renderFlow({
-      locationPermission: {
-        state: "denied",
-        precise: false,
-        background: "restricted",
-        locationServicesEnabled: true,
-      },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-
-    // No Allow button: the OS will not show the alert again, so offering to
-    // ask would be a button that does nothing.
-    expect(screen.queryByRole("button", { name: "Allow location" })).toBeNull();
-    expect(
-      screen.getByTestId("one-location-onboarding-location-reason").textContent,
-    ).toBe("Location is off. Turn it on in Settings.");
-
-    fireEvent.click(
-      screen.getByTestId("one-location-onboarding-skip-location"),
-    );
-    expect(screen.getByTestId("one-location-onboarding-contacts")).toBeTruthy();
-    expect(props.onRequestLocation).not.toHaveBeenCalled();
-  });
-
-  it("holds a refused device on screen two when Location is required", () => {
-    const props = renderFlow({
-      requireLocationToComplete: true,
-      locationPermission: {
-        state: "denied",
-        precise: false,
-        background: "restricted",
-        locationServicesEnabled: true,
-      },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    // No escape hatch when the caller made Location mandatory — the only
-    // control is the one that can actually fix the refusal.
-    expect(
-      screen.queryByTestId("one-location-onboarding-skip-location"),
-    ).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
-    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
   });
 
   it("runs Location-ready onboarding work without re-requesting permission", async () => {
@@ -554,11 +460,11 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onRequestNotifications).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Choose my people" }),
+        screen.getByRole("button", { name: "Continue" }),
       ).toBeEnabled(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onLocationReady).toHaveBeenCalledTimes(1);
   });
@@ -575,9 +481,7 @@ describe("OneLocationOnboardingFlow", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    // Refused on arrival, so there is no Allow button to press -- the person
-    // leaves for Settings and comes back with the permission changed.
-    expect(props.onRequestLocation).not.toHaveBeenCalled();
+    expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     expect(props.onLocationReady).not.toHaveBeenCalled();
 
     props.rerenderFlow({
@@ -590,10 +494,10 @@ describe("OneLocationOnboardingFlow", () => {
     });
 
     await waitFor(() => expect(props.onLocationReady).toHaveBeenCalledTimes(1));
-    expect(props.onRequestLocation).not.toHaveBeenCalled();
+    expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Choose my people" }),
+        screen.getByRole("button", { name: "Continue" }),
       ).toBeEnabled(),
     );
   });
@@ -621,7 +525,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     await waitFor(() => expect(onLocationReady).toHaveBeenCalledTimes(1));
     expect(
-      screen.getByRole("button", { name: "Choose my people" }),
+      screen.getByRole("button", { name: "Continue" }),
     ).toBeDisabled();
     expect(screen.queryByTestId("one-location-onboarding-people")).toBeNull();
 
@@ -631,7 +535,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Choose my people" }),
+        screen.getByRole("button", { name: "Continue" }),
       ).toBeEnabled(),
     );
   });
@@ -640,9 +544,8 @@ describe("OneLocationOnboardingFlow", () => {
     const props = renderFlow({ requireLocationToComplete: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-    expect(screen.getByRole("button", { name: "Choose my people" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+    expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(props.onRequestLocation).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
@@ -650,16 +553,9 @@ describe("OneLocationOnboardingFlow", () => {
   });
 
   it("supports the previous permissions-only entry through the consolidated screen", async () => {
-    // This entry was the worst version of #5395: it fired both dialogs from a
-    // mount effect, before the person had tapped anything at all. It lands on
-    // the same screen two and now gets the same primer.
     const props = renderFlow({ startAt: "permissions" });
 
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
-    expect(props.onRequestLocation).not.toHaveBeenCalled();
-    expect(props.onRequestNotifications).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
     await waitFor(() => {
       expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
       expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
@@ -730,8 +626,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
@@ -838,12 +733,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(root.className).toContain("sm:[--type-agent-title-size:44px]");
 
     const welcome = screen.getByTestId("one-location-onboarding-welcome");
-    expect(welcome.firstElementChild?.className).toContain(
-      "bg-[color:var(--app-grouped-background)]",
-    );
-    expect(welcome.firstElementChild?.className).not.toMatch(
-      /#087ff5|#073d78/u,
-    );
+    expect(welcome.firstElementChild?.className).toContain("bg-[#087ff5]");
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
     const features = screen.getByTestId("one-location-onboarding-features");
@@ -851,11 +741,15 @@ describe("OneLocationOnboardingFlow", () => {
       "bg-[color:var(--app-grouped-background)]",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     const contactsScreen = screen.getByTestId(
       "one-location-onboarding-contacts",
     );
-    expect(contactsScreen.firstElementChild?.className).toContain(
+    const contactsSurface = screen.getByTestId(
+      "one-location-onboarding-contacts-surface",
+    );
+    expect(contactsScreen).toContainElement(contactsSurface);
+    expect(contactsSurface.className).toContain(
       "bg-[color:var(--app-grouped-background)]",
     );
 
@@ -891,7 +785,7 @@ describe("OneLocationOnboardingFlow", () => {
     it("shows who is behind a code before asking anyone to join", async () => {
       const props = openJoin();
 
-      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.click(screen.getByText("Join with a code"));
       fireEvent.change(screen.getByLabelText("Circle code"), {
         target: { value: "abcd-efgh-jklm" },
       });
@@ -915,7 +809,7 @@ describe("OneLocationOnboardingFlow", () => {
     it("accepts the circle and says when it will take effect", async () => {
       const props = openJoin();
 
-      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.click(screen.getByText("Join with a code"));
       fireEvent.change(screen.getByLabelText("Circle code"), {
         target: { value: "ABCDEFGHJKLM" },
       });
@@ -930,7 +824,7 @@ describe("OneLocationOnboardingFlow", () => {
       // Honest about the delay rather than claiming a join that has not
       // happened: the redeem waits for the vault the wizard has yet to create.
       expect(
-        await screen.findByText(/join Meena Family as soon as One finishes/i),
+        await screen.findByText(/join Meena Family after setup/i),
       ).toBeTruthy();
     });
 
@@ -939,7 +833,7 @@ describe("OneLocationOnboardingFlow", () => {
         onPrepareOnboardingCircleInvite: vi.fn().mockResolvedValue(invite),
       });
 
-      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.click(screen.getByText("Join with a code"));
       fireEvent.change(screen.getByLabelText("Circle code"), {
         target: { value: "ABCDEFGHJKLM" },
       });
@@ -966,7 +860,7 @@ describe("OneLocationOnboardingFlow", () => {
         onPrepareOnboardingCircleInvite: vi.fn().mockResolvedValue(invite),
       });
 
-      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.click(screen.getByText("Join with a code"));
       fireEvent.change(screen.getByLabelText("Circle code"), {
         target: { value: "ABCDEFGHJKLM" },
       });
@@ -989,14 +883,14 @@ describe("OneLocationOnboardingFlow", () => {
           .mockResolvedValue({ ...preview, alreadyMember: true }),
       });
 
-      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.click(screen.getByText("Join with a code"));
       fireEvent.change(screen.getByLabelText("Circle code"), {
         target: { value: "ABCDEFGHJKLM" },
       });
       fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
 
       expect(
-        await screen.findByText("You're already in this circle."),
+        await screen.findByText("Already in this circle."),
       ).toBeTruthy();
       expect(
         screen.queryByRole("button", { name: /Join Meena Family/ }),
@@ -1011,7 +905,7 @@ describe("OneLocationOnboardingFlow", () => {
           .mockRejectedValue(new Error("That code has expired.")),
       });
 
-      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.click(screen.getByText("Join with a code"));
       fireEvent.change(screen.getByLabelText("Circle code"), {
         target: { value: "NOPENOPENOPE" },
       });
@@ -1038,7 +932,7 @@ describe("OneLocationOnboardingFlow", () => {
         ).toContain("ABCD-EFGH-JKLM"),
       );
 
-      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.click(screen.getByText("Join with a code"));
       // Typed the way it is displayed, dashes and all.
       fireEvent.change(screen.getByLabelText("Circle code"), {
         target: { value: "abcd-efgh-jklm" },
@@ -1056,7 +950,7 @@ describe("OneLocationOnboardingFlow", () => {
     it("lets the person back out of a preview to try another code", async () => {
       const props = openJoin();
 
-      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.click(screen.getByText("Join with a code"));
       fireEvent.change(screen.getByLabelText("Circle code"), {
         target: { value: "ABCDEFGHJKLM" },
       });
@@ -1091,7 +985,7 @@ describe("OneLocationOnboardingFlow", () => {
           .mockRejectedValue(new Error("That code has expired.")),
       });
 
-      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.click(screen.getByText("Join with a code"));
       fireEvent.change(screen.getByLabelText("Circle code"), {
         target: { value: "NOPENOPENOPE" },
       });
@@ -1187,56 +1081,6 @@ describe("OneLocationOnboardingFlow", () => {
       );
     });
 
-    it("searches matched contacts once the address book match is large enough to need it", async () => {
-      // A synced address book can match well past a screenful (issue #5564).
-      // Below the shared reveal threshold (10) a search box is noise; above
-      // it, one is required — same rule the contact picker itself uses.
-      const bigMatches = Array.from({ length: 25 }, (_, index) => ({
-        userId: `user_${index}`,
-        displayName: `Synced Contact ${index}`,
-      }));
-      const onSyncOnboardingContacts = vi
-        .fn()
-        .mockResolvedValue({ status: "matched", matches: bigMatches });
-      renderFlow({ onSyncOnboardingContacts });
-      openContactsScreen();
-      fireEvent.click(
-        screen.getByRole("button", { name: "Check my contacts" }),
-      );
-
-      expect(await screen.findByText("Synced Contact 0")).toBeTruthy();
-      const search = screen.getByTestId("onboarding-contact-matches-search");
-
-      fireEvent.change(search, { target: { value: "contact 7" } });
-      expect(screen.getByText("Synced Contact 7")).toBeTruthy();
-      expect(screen.queryByText("Synced Contact 0")).toBeNull();
-
-      fireEvent.change(search, { target: { value: "zzz-nobody" } });
-      expect(
-        await screen.findByText(/No contacts match/),
-      ).toBeTruthy();
-
-      fireEvent.change(search, { target: { value: "" } });
-      expect(await screen.findByText("Synced Contact 0")).toBeTruthy();
-      expect(screen.getByText("Synced Contact 24")).toBeTruthy();
-    });
-
-    it("hides the contact-matches search below the reveal threshold", async () => {
-      const onSyncOnboardingContacts = vi
-        .fn()
-        .mockResolvedValue({ status: "matched", matches });
-      renderFlow({ onSyncOnboardingContacts });
-      openContactsScreen();
-      fireEvent.click(
-        screen.getByRole("button", { name: "Check my contacts" }),
-      );
-
-      expect(await screen.findByText("Trusted B")).toBeTruthy();
-      expect(
-        screen.queryByTestId("onboarding-contact-matches-search"),
-      ).toBeNull();
-    });
-
     it("says so plainly when nobody matched, and still moves on", async () => {
       const onSyncOnboardingContacts = vi
         .fn()
@@ -1319,8 +1163,7 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ contactsStepAvailable: false, onSyncOnboardingContacts });
 
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-      fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
       expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
       expect(
@@ -1333,8 +1176,7 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ contactsStepAvailable: false });
 
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-      fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
       fireEvent.click(screen.getByRole("button", { name: "Go back" }));
 
       // Back must not land on a screen that was never shown.
@@ -1347,8 +1189,7 @@ describe("OneLocationOnboardingFlow", () => {
       const props = renderFlow({ contactsStepAvailable: false });
 
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Allow location" }));
-      fireEvent.click(screen.getByRole("button", { name: "Choose my people" }));
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
       fireEvent.click(finishButton());
 
       expect(props.onComplete).toHaveBeenCalledTimes(1);
@@ -1388,9 +1229,15 @@ describe("OneLocationOnboardingFlow", () => {
           screen.getByTestId("one-location-onboarding-invite-code").textContent,
         ).toContain("ABCD-EFGH-JKLM"),
       );
-      expect(
-        screen.getByText(/Bring your people to Meena Family/),
-      ).toBeTruthy();
+      // The circle's name, and nothing wrapped around it. "Bring your people
+      // to Meena Family" spent five words introducing the code and the Share
+      // button directly beneath it.
+      expect(screen.getByText("Meena Family")).toBeTruthy();
+      expect(screen.queryByText(/Bring your people/i)).toBeNull();
+      // Expiry changes what the person does with the code, so it stays. The
+      // reassurance that followed it did not.
+      expect(screen.getByText("Expires in 72 hours")).toBeTruthy();
+      expect(screen.queryByText(/fresh one any time/i)).toBeNull();
 
       fireEvent.click(screen.getByRole("button", { name: /Copy/ }));
       expect(onCopyOnboardingCircleCode).toHaveBeenCalledWith("ABCDEFGHJKLM");
@@ -1436,7 +1283,7 @@ describe("OneLocationOnboardingFlow", () => {
       openInviteScreen();
 
       expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
-      expect(screen.getByText(/circle code will be ready/i)).toBeTruthy();
+      expect(screen.getByText(/code isn't ready yet/i)).toBeTruthy();
 
       fireEvent.click(finishButton());
       expect(props.onComplete).toHaveBeenCalledTimes(1);
@@ -1453,18 +1300,25 @@ describe("OneLocationOnboardingFlow", () => {
       expect(
         screen.getByRole("heading", { name: /You're on the map/ }),
       ).toBeTruthy();
-      expect(screen.getByTestId("onboarding-live-map")).toBeTruthy();
+      const map = screen.getByTestId("onboarding-live-map");
+      expect(map).toBeTruthy();
+      // A real coordinate reached the map. `data-map-state` cannot prove this
+      // in jsdom -- there is no Google Maps there, so it never says "live" --
+      // but the point either arrived or it did not.
+      expect(map.getAttribute("data-map-point")).toBe("ready");
 
-      // The empty seat, which is the only thing here the map cannot show by
-      // itself and the reason the code below matters.
-      expect(screen.getByTestId("onboarding-ready-empty-seat")).toBeTruthy();
+      // "Your people show up here once they join." is gone, and so is the
+      // dashed empty-seat avatar beside it. The map above and the invite card
+      // below already carry that between them.
+      expect(screen.queryByTestId("onboarding-ready-empty-seat")).toBeNull();
+      expect(screen.queryByText(/show up here once they join/i)).toBeNull();
 
-      // And explicitly NOT a second telling of Share / Check in / SOS: the
+      // And explicitly NOT a second telling of Share / Check in / SMS: the
       // features screen already introduces those, and repeating them turns the
       // payoff into a summary slide.
       expect(screen.queryByText("Share where you are")).toBeNull();
       expect(screen.queryByText("Check in when you arrive")).toBeNull();
-      expect(screen.queryByText("Send an SOS")).toBeNull();
+      expect(screen.queryByText("Send an SMS")).toBeNull();
 
       // Nothing here blocks leaving.
       expect(props.onComplete).not.toHaveBeenCalled();
@@ -1477,7 +1331,7 @@ describe("OneLocationOnboardingFlow", () => {
       openInviteScreen();
 
       const map = screen.getByTestId("onboarding-live-map");
-      const seat = screen.getByTestId("onboarding-ready-empty-seat");
+      const title = screen.getByRole("heading", { name: /You're on the map/ });
       const sheet = screen.getByTestId("one-location-onboarding-ready-panel");
 
       // The map owns a band of its own; the words sit on an opaque sheet below
@@ -1490,7 +1344,9 @@ describe("OneLocationOnboardingFlow", () => {
         "bg-[color:var(--app-primary-surface)]",
       );
       expect(sheet?.className).not.toMatch(/bg-white\/\d/u);
-      expect(map.contains(seat)).toBe(false);
+      // Nothing readable lives inside the map band.
+      expect(map.contains(title)).toBe(false);
+      expect(map.contains(sheet)).toBe(false);
     });
 
     it("centers the invite panel on wide viewports instead of pinning it right", () => {
@@ -1530,26 +1386,89 @@ describe("OneLocationOnboardingFlow", () => {
         .map((n) => n.textContent ?? "")
         .join(" ");
 
-      // 34dvh of map is right on a phone, which is tall. A 1366x768 laptop is
-      // shorter than an iPhone, and there the same fraction pushed "Someone
-      // sent you a code?" below the fold -- the last thing on the screen took
-      // a scroll to discover it existed. The map yields, not the content.
+      // 42dvh of map is right on a phone, which is tall. A 1366x768 laptop is
+      // shorter than an iPhone, and there the same fraction pushed "Join with
+      // a code" below the fold -- the last thing on the screen took a scroll
+      // to discover it existed. The map yields, not the content.
       expect(styles).toContain("max-height: 820px");
-      expect(styles).toContain("24dvh");
+      expect(styles).toContain("30dvh");
     });
 
-    it("renders a composed map even with no point and no Maps key", () => {
+    it("still shows a real map when the Maps script never becomes usable", () => {
       // A missing or referrer-blocked browser key is common enough that it is
-      // the entire local-dev story. The last screen must still look finished:
-      // onboarding cannot end on an error panel.
-      renderFlow({ mapPoint: null });
+      // the entire local-dev story, and it is the whole iOS `App://` story.
+      // jsdom has no Google Maps at all, so this is exactly that state: a
+      // coordinate in hand and no script to draw it with. The answer is the
+      // same keyless embed every other Location surface degrades to -- still a
+      // map of where the person actually is.
+      renderFlow({ mapPoint: { lat: 19.076, lng: 72.8777 } });
       openInviteScreen();
 
       const map = screen.getByTestId("onboarding-live-map");
-      expect(map.getAttribute("data-map-state")).toBe("stylised");
+      expect(map.getAttribute("data-map-state")).toBe("embed");
+      expect(map.getAttribute("data-map-point")).toBe("ready");
+
+      const embed = screen.getByTestId(
+        "onboarding-live-map-embed",
+      ) as HTMLIFrameElement;
+      expect(embed.src).toContain("output=embed");
+      expect(embed.src).toContain(encodeURIComponent("19.076000,72.877700"));
+      // A backdrop, not a map app: panning away from yourself on the one screen
+      // whose point is that you are here would be a strange thing to allow.
+      expect(embed.className).toContain("pointer-events-none");
+
       expect(
         screen.getByRole("heading", { name: /You're on the map/ }),
       ).toBeTruthy();
+      expect(finishButton()).toBeEnabled();
+    });
+
+    it("says why, and drops the pin, when there is no coordinate at all", () => {
+      // The old screen drew a grid, two diagonal streaks and a pulsing blue dot
+      // for this case -- a picture of a map, under a headline claiming the
+      // person was on it, when nothing knew where they were. Both halves of
+      // that lie are gone: the headline stops claiming, and the band says what
+      // is actually true.
+      renderFlow({
+        mapPoint: null,
+        onPreviewCircleCode: vi.fn(),
+        onAcceptCircleCode: vi.fn(),
+      });
+      openInviteScreen();
+
+      const map = screen.getByTestId("onboarding-live-map");
+      expect(map.getAttribute("data-map-state")).toBe("unavailable");
+      expect(map.getAttribute("data-map-point")).toBe("none");
+      expect(map.querySelector("[data-onboarding-map-pulse]")).toBeNull();
+      expect(screen.getByText("Map unavailable")).toBeTruthy();
+      expect(
+        screen.getByRole("heading", { name: /You're all set/ }),
+      ).toBeTruthy();
+      expect(screen.queryByRole("heading", { name: /on the map/ })).toBeNull();
+
+      // Everything that matters still works. A Maps outage is not a reason to
+      // strand someone at the end of setup.
+      expect(screen.getByText("Private until you share.")).toBeTruthy();
+      expect(screen.getByText("Join with a code")).toBeTruthy();
+      expect(finishButton()).toBeEnabled();
+    });
+
+    it("blames Location, not Maps, when Location is the thing that is off", () => {
+      // "Map unavailable" in front of someone who refused Location points at
+      // the wrong thing and hides the only thing they could change.
+      renderFlow({
+        mapPoint: null,
+        locationPermission: {
+          state: "denied",
+          precise: null,
+          background: "foreground-only",
+          locationServicesEnabled: true,
+        },
+      });
+      openInviteScreen();
+
+      expect(screen.getByText("Location is off")).toBeTruthy();
+      expect(screen.queryByText("Map unavailable")).toBeNull();
       expect(finishButton()).toBeEnabled();
     });
 

@@ -68,6 +68,13 @@ button,
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Search controls frequently live inside rounded, clipped grouped cards.
+ * Keep the system focus affordance inside the input so its edges never crop. */
+input[type="search"]:focus,
+input[type="search"]:focus-visible {
+  --tw-ring-inset: inset;
+}
+
 /* Prevent auto-zoom on iOS Safari when focusing inputs */
 @media screen and (max-width: 767px) {
   input,
@@ -1066,10 +1073,7 @@ textarea {
   --app-label: #ffffff;
   --app-secondary-label: #98989d;
   --app-section-label: #98989d;
-  /* Was #636366 (~3.3:1 on the near-black app background — fails WCAG AA's
-     4.5:1 for normal text). #86868b keeps it visibly dimmer than
-     --app-secondary-label while clearing AA (~5.5:1). */
-  --app-tertiary-label: #86868b;
+  --app-tertiary-label: #636366;
   --app-quaternary-label: #48484a;
   --app-separator: rgba(84, 84, 88, 0.65);
   --app-opaque-separator: #38383a;
@@ -3795,21 +3799,6 @@ html.native-ios [data-testid="one-location-onboarding"] {
     letter-spacing: -3.5px;
   }
 
-  /* Phone verification title: the foundation h1 scale above assumes a
-     full-bleed shell, so its size keeps climbing with raw viewport width. This
-     title lives in a card capped at max-w-[440px] (register-phone/page.tsx) —
-     past 440px the text column stops growing while the font kept climbing
-     toward its 40px ceiling, wrapping "Verify your phone number" onto two
-     lines on anything wider than a narrow phone. The ramp here is tuned so it
-     reaches its own 28px ceiling by 440px viewport width — the same point the
-     card itself stops growing — so neither can outrun the other again. */
-  h1.phone-mandate-title {
-    font-size: clamp(1.375rem, 0.1rem + 6vw, 1.75rem) !important;
-    line-height: 1.15 !important;
-    font-weight: 700 !important;
-    letter-spacing: -0.9px;
-  }
-
   h2 {
     font-size: var(--foundation-title2-size) !important;
     line-height: var(--foundation-title2-line) !important;
@@ -4709,24 +4698,6 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .dark .kai-bottom-nav-pill {
   border-color: rgba(84, 84, 88, 0.58) !important;
   background: rgba(28, 28, 30, 0.78) !important;
-}
-
-/* Sign-in (/login) keeps the Talk to One bar and every control inside it, but
-   drops the bar to a quieter material so the two sign-in buttons are clearly
-   the first thing to touch. Scoped to the AuthStep cluster attribute, which
-   only the sign-in screen renders, so no other route moves. The signed-in
-   bottom nav (.kai-bottom-nav-pill) is deliberately excluded — it does not
-   render here, and matching it would reach every signed-in route.
-   !important is required: the base rule above is itself !important. */
-body:has([data-auth-signin-clusters]) .bottom-chrome-surface {
-  border: 0.5px solid rgba(60, 60, 67, 0.1) !important;
-  background: rgba(255, 255, 255, 0.55) !important;
-  box-shadow: none !important;
-}
-
-.dark body:has([data-auth-signin-clusters]) .bottom-chrome-surface {
-  border-color: rgba(84, 84, 88, 0.32) !important;
-  background: rgba(28, 28, 30, 0.55) !important;
 }
 
 .kai-bottom-nav-pill [data-segment-indicator] {

@@ -740,7 +740,7 @@ export function usePortfolioSources({
   const deleteStatementSnapshot = useCallback(
     async (snapshotId: string) => {
       if (!userId || !vaultOwnerToken || !vaultKey) {
-        throw new Error("Unlock to delete this statement.");
+        throw new Error("Unlock your Vault to delete this statement.");
       }
       if (sourceChangeInflightRef.current || statementSnapshotChangeInflightRef.current) {
         throw new Error("Finish the current portfolio change before deleting a statement.");
@@ -797,7 +797,7 @@ export function usePortfolioSources({
   const refreshPlaid = useCallback(
     async (itemId?: string) => {
       if (!userId || !vaultOwnerToken) {
-        throw new Error("Not ready yet. Try again.");
+        throw new Error("Vault owner token missing.");
       }
       const runningRunIds = collectRunningRunIds(plaidStatus, itemId);
       if (runningRunIds.length > 0) {
@@ -827,7 +827,7 @@ export function usePortfolioSources({
         userId,
         kind: "plaid_refresh",
         title: "Refreshing Plaid portfolio",
-        description: "Kai is syncing the latest brokerage data from Plaid.",
+        description: "One is syncing the latest brokerage data from Plaid.",
         routeHref: ROUTES.KAI_PORTFOLIO,
         metadata: {
           runIds,
@@ -848,7 +848,7 @@ export function usePortfolioSources({
   const cancelPlaidRefresh = useCallback(
     async (params?: { itemId?: string; runIds?: string[] }) => {
       if (!userId || !vaultOwnerToken) {
-        throw new Error("Not ready yet. Try again.");
+        throw new Error("Vault owner token missing.");
       }
       const targetRunIds = (
         params?.runIds?.length

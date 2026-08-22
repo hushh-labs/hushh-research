@@ -9,15 +9,10 @@ import {
 
 const NOW = Date.parse("2026-05-20T08:00:00.000Z");
 
-function grant(fields: {
-  expiresAt?: string | null;
-  durationHours?: number | null;
-  ceilingExpiresAt?: string | null;
-}) {
+function grant(fields: { expiresAt?: string | null; durationHours?: number | null }) {
   return {
     expiresAt: fields.expiresAt ?? null,
     durationHours: fields.durationHours ?? null,
-    ceilingExpiresAt: fields.ceilingExpiresAt ?? null,
   };
 }
 
@@ -154,48 +149,5 @@ describe("grantDurationEditIntent", () => {
         nowMs: NOW,
       }),
     ).toBe("shorten");
-  });
-
-  // The reported bug: 1 hour approved, shrunk to 15 min, then asked back up
-  // to 30 -- still inside the hour the owner already agreed to, so it must
-  // apply immediately rather than going back to the owner.
-  it("grows back up without asking, as long as it stays under the ceiling", () => {
-    expect(
-      grantDurationEditIntent({
-        grant: grant({ expiresAt: inMinutes(12), ceilingExpiresAt: inMinutes(60) }),
-        durationHours: 0.5,
-        nowMs: NOW,
-      }),
-    ).toBe("grow");
-  });
-
-  it("still asks when the new duration would run past the ceiling", () => {
-    expect(
-      grantDurationEditIntent({
-        grant: grant({ expiresAt: inMinutes(12), ceilingExpiresAt: inMinutes(60) }),
-        durationHours: 4,
-        nowMs: NOW,
-      }),
-    ).toBe("request");
-  });
-
-  it("lands exactly on the ceiling without asking", () => {
-    expect(
-      grantDurationEditIntent({
-        grant: grant({ expiresAt: inMinutes(12), ceilingExpiresAt: inMinutes(60) }),
-        durationHours: 1,
-        nowMs: NOW,
-      }),
-    ).toBe("grow");
-  });
-
-  it("with no known ceiling, still asks past the current expiry -- unchanged from before ceilings existed", () => {
-    expect(
-      grantDurationEditIntent({
-        grant: grant({ expiresAt: inMinutes(12) }),
-        durationHours: 1,
-        nowMs: NOW,
-      }),
-    ).toBe("request");
   });
 });

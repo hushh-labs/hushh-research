@@ -61,7 +61,7 @@ describe("the circle row's second line", () => {
     // `memberCount` includes the viewer, so a circle of one is a circle with
     // nobody else in it yet -- the exact row in the report.
     renderCircles([circle({ memberCount: 1 })]);
-    expect(screen.getByText("No members yet")).toBeTruthy();
+    expect(screen.getByText("0 members")).toBeTruthy();
   });
 
   it("never names the category the person did not choose", () => {
@@ -77,12 +77,12 @@ describe("the circle row's second line", () => {
     }
   });
 
-  it("still counts everyone but the viewer, and says person once", () => {
+  it("still counts everyone but the viewer, and says member once", () => {
     renderCircles([
       circle({ id: "c_two", name: "Two", memberCount: 2 }),
       circle({ id: "c_four", name: "Four", memberCount: 4 }),
     ]);
-    expect(screen.getByText("1 person")).toBeTruthy();
-    expect(screen.getByText("3 people")).toBeTruthy();
+    expect(screen.getByText("1 member")).toBeTruthy();
+    expect(screen.getByText("3 members")).toBeTruthy();
   });
 });

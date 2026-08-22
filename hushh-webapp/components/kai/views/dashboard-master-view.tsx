@@ -736,8 +736,8 @@ export function DashboardMasterView({
       void refreshPlaid(itemId)
         .then((result) => {
           if (result.status === "already_running") {
-            toast.info("A refresh is already in progress.", {
-              description: "Let it finish or cancel it first.",
+            toast.info("A refresh is already in progress. Let it finish or cancel it first.", {
+              
               action: result.runIds.length
                 ? {
                     label: "Cancel",
@@ -758,7 +758,7 @@ export function DashboardMasterView({
               ? "Refreshing this brokerage in the background."
               : "Refreshing your brokerage data in the background.",
             {
-              description: "We’ll update this portfolio when it finishes.",
+              
               action: {
                 label: "Cancel",
                 onClick: () => {
@@ -768,11 +768,8 @@ export function DashboardMasterView({
             },
           );
         })
-        .catch((error) => {
-          toast.error("Could not refresh Plaid.", {
-            description:
-              error instanceof Error ? error.message : "Please try again.",
-          });
+        .catch(() => {
+          toast.error("Could not refresh Plaid.");
         });
     },
     [cancelPlaidRefresh, refreshPlaid],
@@ -788,11 +785,8 @@ export function DashboardMasterView({
           }
           toast.success("Plaid refresh canceled.");
         })
-        .catch((error) => {
-          toast.error("Could not cancel Plaid refresh.", {
-            description:
-              error instanceof Error ? error.message : "Please try again.",
-          });
+        .catch(() => {
+          toast.error("Could not cancel Plaid refresh.");
         });
     },
     [cancelPlaidRefresh],
@@ -819,11 +813,8 @@ export function DashboardMasterView({
         await deleteStatementSnapshot(snapshotId);
         toast.success("Statement deleted.");
         setStatementSnapshotDeleteId(null);
-      } catch (error) {
-        toast.error("Could not delete that statement.", {
-          description:
-            error instanceof Error ? error.message : "Please try again.",
-        });
+      } catch {
+        toast.error("Could not delete that statement.");
       } finally {
         setIsDeletingStatementSnapshot(false);
       }
@@ -834,7 +825,7 @@ export function DashboardMasterView({
   const openPlaidLinkFlow = useCallback(
     async (itemId?: string, environment?: string | null) => {
       if (!vaultOwnerToken) {
-        toast.error("Unlock and try again.");
+        toast.error("Please unlock your Vault and try again.");
         return;
       }
 
@@ -925,18 +916,12 @@ export function DashboardMasterView({
 
           handler.open();
         });
-      } catch (error) {
+      } catch {
         clearPlaidOAuthResumeSession();
         toast.error(
           itemId
             ? "Could not update this Plaid connection."
             : "Could not start Plaid.",
-          {
-            description:
-              error instanceof Error
-                ? error.message
-                : "Could not start the brokerage connection flow. Please try again.",
-          },
         );
       } finally {
         setIsLinkingPlaid(false);
@@ -1181,7 +1166,7 @@ export function DashboardMasterView({
 
   const openAddHoldingModal = useCallback(() => {
     if (!canEditStatement) {
-      toast.info("Plaid holdings are read-only here.");
+      toast.info("Plaid holdings are read-only in Finance.");
       return;
     }
     setEditingHolding({
@@ -1199,7 +1184,7 @@ export function DashboardMasterView({
 
   const persistHoldingsChanges = useCallback(async () => {
     if (!userId || !vaultKey || !statementEditablePortfolio) {
-      toast.error("Unlock to save holdings.");
+      toast.error("Unlock your Vault to save holdings.");
       return;
     }
 
@@ -1218,7 +1203,7 @@ export function DashboardMasterView({
     });
     if (invalidHolding) {
       toast.error(
-        `Holding ${invalidHolding.symbol || invalidHolding.name || "entry"} has invalid values. Quantity, price, and market value must be greater than 0.`,
+        `${invalidHolding.symbol || invalidHolding.name || "That holding"}: quantity, price and value must all be above zero.`,
       );
       return;
     }
@@ -1363,7 +1348,7 @@ export function DashboardMasterView({
 
   const handleDeletePortfolioData = useCallback(async () => {
     if (!userId || !vaultKey || !vaultOwnerToken) {
-      toast.error("Unlock to delete portfolio data.");
+      toast.error("Unlock your Vault to delete portfolio data.");
       return;
     }
 
@@ -2015,7 +2000,7 @@ export function DashboardMasterView({
               purpose:
                 activeSource === "plaid"
                   ? "Disconnects the Plaid brokerage portfolio and removes the local mirror."
-                  : "Deletes the imported statement portfolio.",
+                  : "Deletes the imported statement portfolio from Finance.",
               voiceAliases: ["delete portfolio", "delete imported data"],
             },
           ]
@@ -2060,7 +2045,7 @@ export function DashboardMasterView({
               purpose:
                 activeSource === "plaid"
                   ? "Disconnects the Plaid brokerage portfolio and removes the local mirror."
-                  : "Deletes the imported statement portfolio.",
+                  : "Deletes the imported statement portfolio from Finance.",
               actionId: "kai.portfolio.delete_portfolio",
               role: "button",
             },
@@ -2193,8 +2178,8 @@ export function DashboardMasterView({
           </AlertDialogTitle>
           <AlertDialogDescription>
             {activeSource === "plaid"
-              ? "This disconnects the Plaid brokerage portfolio and removes the local portfolio mirror. Profile and consent data are kept."
-              : "This removes imported holdings and statement snapshots. Profile and consent data are kept."}
+              ? "This disconnects the Plaid brokerage portfolio and removes the local portfolio mirror from your Vault. Profile and consent data are kept."
+              : "This removes imported holdings and statement snapshots from your Vault. Profile and consent data are kept."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

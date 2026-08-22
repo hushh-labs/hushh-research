@@ -27,23 +27,23 @@ describe("profile security deletion contract", () => {
     expect(profilePageSource).toContain("if (!nextHasVault)");
     expect(profilePageSource).toContain("setShowDeleteConfirm(true);");
     expect(profilePageSource).toContain(
-      "No vault exists yet. This deletes cloud-linked account records.",
+      "Deletes cloud-linked records.",
     );
     expect(profilePageSource).not.toContain("Create vault to delete account");
   });
 
   it("keeps the One account delete confirmation button mobile-safe", () => {
-    expect(profilePageSource).toContain('"Yes, delete my account"');
-    expect(profilePageSource).toContain("!whitespace-normal");
+    expect(profilePageSource).toContain('"Delete account"');
+    expect(profilePageSource).toContain('variant="destructive"');
     expect(profilePageSource).toContain("min-h-10");
-    expect(profilePageSource).toContain("sm:min-w-[12rem]");
+    expect(profilePageSource).toContain("sm:min-w-[10rem]");
   });
 
   it("uses the same destructive settlement from Profile and setup chrome", () => {
     expect(profilePageSource).toContain("executeVerifiedAccountDeletion");
     expect(topAppBarSource).toContain("executeVerifiedAccountDeletion");
     expect(topAppBarSource).toContain("requestDeleteAccount");
-    expect(topAppBarSource).toContain("Unlock to delete account");
+    expect(topAppBarSource).toContain("Unlock Vault to Delete Account");
     expect(topAppBarSource).toContain("skipFcmCleanup: true");
     expect(deleteFlowSource).toContain(
       'AccountService.deleteAccount(params.vaultOwnerToken, "both")',
@@ -58,18 +58,9 @@ describe("profile security deletion contract", () => {
     expect(profilePageSource).not.toContain('"Yes, Delete RIA"');
   });
 
-  it("keeps the delete-account copy short and free of internal vault language", () => {
-    const dialogDescriptionLine =
-      "This can't be undone — it deletes your account, private data, and every connected service.";
-    expect(deleteFlowSource).toContain(dialogDescriptionLine);
-    expect(dialogDescriptionLine.toLowerCase()).not.toContain("vault");
-    expect(topAppBarSource).toContain("Unlock to delete account");
-    expect(topAppBarSource).not.toContain("Unlock Vault to Delete Account");
-  });
-
   it("offers a reset-account path that keeps the account and re-runs setup", () => {
-    expect(profilePageSource).toContain("Reset your One account?");
-    expect(profilePageSource).toContain('"Yes, reset my account"');
+    expect(profilePageSource).toContain("Reset account?");
+    expect(profilePageSource).toContain('"Reset account"');
     expect(profilePageSource).toContain(
       "AccountService.resetAccount(resolution.token)",
     );

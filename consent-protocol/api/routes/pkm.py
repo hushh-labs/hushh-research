@@ -7,6 +7,7 @@ Canonical API surface for PKM.
 
 import logging
 import os
+import time
 from typing import Literal
 
 from fastapi import (
@@ -141,7 +142,9 @@ async def require_pkm_metadata_access(
 
 class PKMAgentLabStructureRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
-    message: str = Field(min_length=1, max_length=12000)
+    # Imported personal profiles routinely exceed a short chat-message limit.
+    # Keep a hard bound for abuse protection while accepting a complete export.
+    message: str = Field(min_length=1, max_length=50000)
     current_domains: list[str] = Field(default_factory=list, max_length=256)
     current_manifests: list[dict] = Field(default_factory=list, max_length=256)
     simulated_state: dict | None = None
@@ -399,20 +402,47 @@ async def get_stock_context(
 async def _generate_pkm_memory_proposals(
     request: PKMAgentLabStructureRequest,
     token_data: dict,
+    *,
+    ingestion_id: str | None = None,
+    chunk_index: int | None = None,
 ):
     if token_data.get("user_id") != request.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Token user_id does not match request user_id",
         )
-    service = get_pkm_agent_lab_service()
-    payload = await service.generate_structure_preview(
-        user_id=request.user_id,
-        message=request.message,
-        current_domains=request.current_domains,
-        current_manifests=request.current_manifests,
-        simulated_state=request.simulated_state,
+    safe_ingestion_id = (
+        "".join(
+            character
+            for character in str(ingestion_id or "")
+            if character.isalnum() or character in "-_"
+        )[:96]
+        or "none"
     )
+    started_at = time.perf_counter()
+    logger.info(
+        "pkm.memory_proposal.started ingestion_id=%s chunk_index=%s message_chars=%s",
+        safe_ingestion_id,
+        chunk_index or 0,
+        len(request.message),
+    )
+    service = get_pkm_agent_lab_service()
+    try:
+        payload = await service.generate_structure_preview(
+            user_id=request.user_id,
+            message=request.message,
+            current_domains=request.current_domains,
+            current_manifests=request.current_manifests,
+            simulated_state=request.simulated_state,
+        )
+    except Exception:
+        logger.exception(
+            "pkm.memory_proposal.failed ingestion_id=%s chunk_index=%s message_chars=%s error_code=proposal_generation_failed",
+            safe_ingestion_id,
+            chunk_index or 0,
+            len(request.message),
+        )
+        raise
     pkm_service = get_pkm_service()
     preview_cards = payload.get("preview_cards") or []
     total_active_recipients = 0
@@ -474,6 +504,14 @@ async def _generate_pkm_memory_proposals(
         **(payload.get("preview_summary") or {}),
         "active_recipient_count": total_active_recipients,
     }
+    logger.info(
+        "pkm.memory_proposal.completed ingestion_id=%s chunk_index=%s message_chars=%s card_count=%s duration_ms=%.2f",
+        safe_ingestion_id,
+        chunk_index or 0,
+        len(request.message),
+        len(preview_cards),
+        (time.perf_counter() - started_at) * 1000,
+    )
     return PKMAgentLabStructureResponse(**payload)
 
 
@@ -481,9 +519,16 @@ async def _generate_pkm_memory_proposals(
 async def propose_pkm_memory(
     request: PKMAgentLabStructureRequest,
     token_data: dict = Depends(require_vault_owner_token),
+    x_pkm_ingestion_id: str | None = Header(default=None, alias="X-PKM-Ingestion-Id"),
+    x_pkm_chunk_index: int | None = Header(default=None, alias="X-PKM-Chunk-Index"),
 ):
     """Product-safe alias over the existing review-before-save proposal pipeline."""
-    return await _generate_pkm_memory_proposals(request, token_data)
+    return await _generate_pkm_memory_proposals(
+        request,
+        token_data,
+        ingestion_id=x_pkm_ingestion_id,
+        chunk_index=x_pkm_chunk_index,
+    )
 
 
 @router.post("/agent-lab/structure", response_model=PKMAgentLabStructureResponse)

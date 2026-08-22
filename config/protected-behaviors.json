@@ -315,7 +315,7 @@
           "assertion_pattern": "expect\\(",
           "min_assertions": 400,
           "required_titles": [
-            "keeps the status card and location toggle grouped as one control"
+            "keeps the heading and location toggle inline as the only header action"
           ]
         },
         {
@@ -359,7 +359,7 @@
     },
     {
       "name": "duration-cells-stay-compact-wherever-they-render",
-      "summary": "Every duration choice in Location renders at the 44px / 15px cell, including the nearby Check-in sheet's \"Stay visible for\" pills, which now reuse the ladder's exported class strings instead of a morphy Button.",
+      "summary": "Every duration choice in Location renders at the 44px / 15px cell, including the nearby Check-in sheet's \"Visible for\" pills, which now reuse the ladder's exported class strings instead of a morphy Button.",
       "fixed_by": "fix/location-polish-round3",
       "why_it_needs_a_lock": [
         "A morphy <Button> at size=\"default\" is 50px tall with a 17px label, and",
@@ -384,93 +384,49 @@
       ]
     },
     {
-      "name": "onboarding-is-a-one-way-funnel",
-      "summary": "One resolver decides which onboarding step somebody is on, and nothing renders an onboarding surface until every input it needs is known. A person who finished the funnel can never reach sign-in, phone verification or the setup hub again by any arrival path, and the lock screen and the phone screen can never be on screen at the same time.",
-      "fixed_by": "fix/onboarding-single-resolver",
+      "name": "check-out-is-never-a-destructive-action",
+      "summary": "The nearby Check-In panel ends a check-in with the neutral secondary button, never the destructive red one, and states the checked-in fact in three lines instead of six.",
+      "fixed_by": "fix/check-in-panel-plain-copy-redesign",
       "why_it_needs_a_lock": [
-        "The bug WAS three guards each resolving their own copy of the same",
-        "state and each redirecting on its own schedule. That shape produced",
-        "three separate user-visible defects, and every one of them comes back",
-        "the moment a guard starts fetching for itself again: a screen rendered",
-        "from a default value and replaced a tick later, two guards deciding at",
-        "once, and an onboarding route no guard claimed.",
+        "Checking out ends a presence that was always going to end on its own",
+        "timer: it flips status, destroys the anchor key, keeps the row, and can be",
+        "redone in three taps. `variant=\"destructive\"` is this product's signal for",
+        "SOS, delete, revoke and stop-sharing, so spending it here both dilutes the",
+        "one colour that means consequence and makes a calm state read as an alarm.",
         "",
-        "The lock surface is a portal painted at z-712 over an opaque backdrop.",
-        "It does not need to share a subtree with the phone screen to cover it,",
-        "so no amount of guard nesting keeps the two apart on its own -- only an",
-        "explicit check against the winning step does. Someone re-nesting a",
-        "guard, or mounting the lock dialog from a new route, reintroduces the",
-        "collision with nothing in review to notice.",
+        "It cannot be locked from JSDOM alone. Every button in this design system",
+        "carries `aria-invalid:ring-destructive/20` in its base class, so",
+        "`className.not.toContain(\"destructive\")` passes on a red button and proves",
+        "nothing. The browser contract compares the COMPUTED background against a",
+        "reference destructive button rendered beside it.",
         "",
-        "The Back defect had no guard at all: /register-phone is exempt from the",
-        "setup gate and outside /one, so nothing ejected an already-verified",
-        "person who arrived there. Adding a route to the funnel without adding",
-        "it to ONBOARDING_ROUTES silently opens that door again."
+        "The panel copy needs the same lock for a different reason: every line that",
+        "came off it -- the 500 m radius, the postal address, the two-sentence",
+        "privacy explanation under People nearby, the privacy paragraph under the",
+        "primary action, the auto-refresh promise in the empty state -- reads as a",
+        "helpful thing to add back one at a time."
       ],
       "tests": [
         {
-          "path": "hushh-webapp/__tests__/onboarding/user-entry-state.test.ts",
+          "path": "hushh-webapp/e2e/one-location-check-in-panel.layout.spec.ts",
           "assertion_pattern": "expect\\(",
-          "min_assertions": 40,
+          "min_assertions": 20,
           "required_titles": [
-            "boots while the phone claim is unknown, instead of assuming unverified",
-            "boots while setup completion is unknown, instead of assuming incomplete",
-            "no unresolved state ever names a credential surface",
-            "never allows the lock surface and the phone surface at the same time",
-            "allows no credential surface at all while booting",
-            "names every screen of the funnel"
+            "Check out is not painted as destruction",
+            "Category chips stay on one usable row",
+            "Place rows survive the longest venue name",
+            "The desktop rail does not outgrow the map"
           ]
         },
         {
-          "path": "hushh-webapp/__tests__/onboarding/onboarding-funnel.regression.test.tsx",
+          "path": "hushh-webapp/components/one-location/nearby-check-in/__tests__/nearby-check-in-sheet.test.tsx",
           "assertion_pattern": "expect\\(",
-          "min_assertions": 25,
+          "min_assertions": 30,
           "required_titles": [
-            "walks a brand new person through every step, once, in order",
-            "shows no lock screen anywhere between the code and the app",
-            "cannot be re-entered by pressing Back",
-            "does not send a finished person back through it on a refresh",
-            "opens straight into the app on a cold start, with nothing flashing first",
-            "never renders both in the same pass, in any of these states"
-          ]
-        },
-        {
-          "path": "hushh-webapp/__tests__/components/onboarding-journey-guard.test.tsx",
-          "assertion_pattern": "expect\\(",
-          "min_assertions": 40,
-          "required_titles": [
-            "holds every private route while the decision is unresolved",
-            "never leaves a funnel screen in history when it moves somebody",
-            "stands aside while the hub is committing its own completion",
-            "sends a capability handoff to that capability's own workspace, not home: %s",
-            "still sends the bare setup hub home — it names no capability to hand off to",
-            "labels a capability handoff honestly instead of claiming to return to setup"
-          ]
-        },
-        {
-          "path": "hushh-webapp/__tests__/components/vault-lock-guard.test.tsx",
-          "assertion_pattern": "expect\\(",
-          "min_assertions": 15,
-          "required_titles": [
-            "does not paint the lock over somebody who still has to verify a phone",
-            "shows no lock while the decision is still unresolved"
-          ]
-        },
-        {
-          "path": "hushh-webapp/__tests__/onboarding/lock-gate-coverage.contract.test.ts",
-          "assertion_pattern": "expect\\(",
-          "min_assertions": 2,
-          "required_titles": [
-            "finds the lock gate mount sites at all"
-          ]
-        },
-        {
-          "path": "hushh-webapp/__tests__/onboarding/intro-gate.test.tsx",
-          "assertion_pattern": "expect\\(",
-          "min_assertions": 8,
-          "required_titles": [
-            "mounts the app underneath instead of withholding it while the greeting plays",
-            "does not replay on a native cold start that emptied local storage"
+            "states the checked-in fact in three lines and nothing more",
+            "ends the check-in with a neutral action, not a destructive one",
+            "keeps the pre-check-in panel to where, how long, and check in",
+            "keeps the required consent visible and drops the optional preference a level"
           ]
         }
       ]

@@ -138,8 +138,14 @@
     "157_hussh_crm_delete_operation.sql",
     "158_one_location_circle_member_limit_100.sql",
     "159_one_location_circle_invite_max_uses_100.sql",
-    "160_one_location_system_circles.sql"
+    "160_one_location_system_circles.sql",
+    "161_atomic_pkm_scope_exposure.sql"
   ],
+  "environment_overlays": {
+    "uat": [
+      "162_hushh_tech_uat_client_foundation.sql"
+    ]
+  },
   "groups": {
     "iam": [
       "020_ria_iam_foundation.sql",
@@ -253,7 +259,8 @@
       "123_pkm_device_sync.sql",
       "128_private_analysis_history_redaction.sql",
       "129_ria_pick_legacy_retirement.sql",
-      "142_source_library_scope_retirement.sql"
+      "142_source_library_scope_retirement.sql",
+      "161_atomic_pkm_scope_exposure.sql"
     ],
     "developer": [
       "070_developer_registry.sql",

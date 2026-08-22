@@ -130,7 +130,7 @@ export default function KaiAlpacaOauthReturnPage() {
           <HushhLoader
             label={
               stage === "redirecting"
-                ? "Returning..."
+                ? "Returning to Finance..."
                 : "Completing Alpaca login..."
             }
           />
@@ -164,7 +164,7 @@ export default function KaiAlpacaOauthReturnPage() {
               onClick={() => router.replace(returnPath)}
               className="w-full"
             >
-              Back home
+              Back to Finance
             </Button>
             <Button
               variant="none"

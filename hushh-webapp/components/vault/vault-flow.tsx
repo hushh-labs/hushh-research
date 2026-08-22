@@ -1164,7 +1164,7 @@ export function VaultFlow({
             <div className="space-y-2.5">
               <VaultFlowHeader
                 icon={isGeneratedVaultMode ? Fingerprint : Lock}
-                title="Unlock One"
+                title="Open your private place"
                 description={
                   isGeneratedVaultMode
                     ? "Confirm with your device."

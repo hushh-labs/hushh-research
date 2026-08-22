@@ -247,6 +247,33 @@ describe("top shell breadcrumbs", () => {
     ).toBe("/one");
   });
 
+  it("shows shared top-left back navigation for the RIA claim flow", () => {
+    expect(resolveTopShellBreadcrumb("/ria/claim")).toEqual({
+      backHref: "/ria/onboarding",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "RIA", href: "/ria/onboarding" },
+        { label: "Claim profile" },
+      ],
+    });
+
+    const returnToSetup = new URLSearchParams();
+    returnToSetup.set("return_to", "/one/setup");
+
+    expect(resolveTopShellBreadcrumb("/ria/claim", returnToSetup)).toEqual({
+      backHref: "/one/setup",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "RIA", href: "/one/setup" },
+        { label: "Claim profile" },
+      ],
+    });
+  });
+
   it("gives per-capability setup steps a back affordance to the hub", () => {
     expect(resolveTopShellBreadcrumb("/one/setup/finance")).toEqual({
       backHref: "/one/setup",
@@ -446,7 +473,7 @@ describe("top shell breadcrumbs", () => {
       items: [
         { label: "Profile", href: "/one/profile" },
         { label: "Security", href: "/one/profile/security" },
-        { label: "Lock methods" },
+        { label: "Vault methods" },
       ],
     });
 
@@ -543,8 +570,8 @@ describe("top shell breadcrumbs", () => {
     const cases: Array<[string, string]> = [
       ["check-in", "Check-In"],
       ["private-check-in", "Private Check-In"],
-      // The crumb mirrors the screen's own <h1>, which reads "Emergency help".
-      ["sos", "Emergency help"],
+      // The crumb mirrors the screen's own <h1>, which reads "Save my Soul".
+      ["sos", "Save my Soul"],
       // NOTE: sms-contacts is deliberately absent from this table — it is the
       // one flow whose back target is not the hub (it retraces to whoever
       // opened it), so its label and back href are asserted separately below.

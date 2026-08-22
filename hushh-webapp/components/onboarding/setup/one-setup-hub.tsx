@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PlugZap } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   AppPageContentRegion,
@@ -18,11 +19,9 @@ import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-compl
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
-import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
-import { useOnboardingEntry } from "@/lib/onboarding/onboarding-entry-context";
 import {
   isOneSetupSurfaceRoute,
   normalizeInternalRouteHref,
@@ -74,7 +73,6 @@ export function OneSetupHub() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const { beginFunnelExit } = useOnboardingEntry();
   const { byId, isLoading, isEnriching } = useCapabilitySetupStates({
     enrichVault: true,
     enrichOauth: true,
@@ -242,35 +240,13 @@ export function OneSetupHub() {
       });
       notifyGeminiRuntimeConfigurationChanged(user.uid);
 
-      // Completion is written durably below, and the app-wide decision follows
-      // it within the same frame. Claim the move first so the guard does not
-      // eject this hub before the navigation two blocks down can run — that
-      // destination is sometimes the portfolio-import step, which only this
-      // component knows about.
-      beginFunnelExit();
-
-      try {
-        await acknowledgeOneSetupExit({
-          userId: user.uid,
-          skipped: false,
-          isVaultUnlocked: true,
-          vaultKey,
-          vaultOwnerToken,
-        });
-      } catch (exitSyncError) {
-        // acknowledgeOneSetupExit primes the local completion latch
-        // SYNCHRONOUSLY, before it ever awaits the durable cross-device
-        // write (see one-setup-exit-service.ts) -- a flaky retry of that
-        // write rejecting here must not trap the person behind the
-        // undismissable lock dialog. That is exactly the "glitch, then
-        // setup comes up again" report: the dialog can't be dismissed while
-        // the recovery key is showing, so an error thrown past this point
-        // froze the screen with no visible way out.
-        console.warn(
-          "[OneSetupHub] Setup exit durable write did not land yet:",
-          exitSyncError,
-        );
-      }
+      await acknowledgeOneSetupExit({
+        userId: user.uid,
+        skipped: false,
+        isVaultUnlocked: true,
+        vaultKey,
+        vaultOwnerToken,
+      });
       setVaultDialogOpen(false);
       setVaultInvitationOpen(false);
       // Finance source intents intentionally remain process-memory-only until
@@ -286,24 +262,18 @@ export function OneSetupHub() {
     try {
       await finalize;
     } catch (error) {
-      const message =
+      setFinalizationError(
         error instanceof Error
           ? error.message
-          : "Couldn't save your setup. Try again.";
-      setFinalizationError(message);
-      // The retry banner this sets lives on the hub page, underneath the
-      // still-open (and, while the recovery key shows, undismissable) lock
-      // dialog -- so it is invisible exactly when it matters most. A toast
-      // renders above the dialog and is the only way the person learns
-      // anything went wrong instead of the screen just going quiet.
-      toast.error(message);
+          : "Couldn't save your setup. Try again.",
+      );
       throw error;
     } finally {
       if (finalizationInFlightRef.current === finalize) {
         finalizationInFlightRef.current = null;
       }
     }
-  }, [beginFunnelExit, completionTarget, router, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [completionTarget, router, user?.uid, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     if (
@@ -369,6 +339,20 @@ export function OneSetupHub() {
         }
       }
       if (!runtimeChoiceConfirmed) {
+        // The action stays tappable precisely so this can fire. A permanent
+        // line under the button was the only thing naming the blocker before,
+        // and it sat there unread until someone had already tapped and got
+        // nothing back; the phone action had a `title` tooltip, which a touch
+        // device never shows at all. A toast answers the tap that asked, and
+        // carries the way out with it.
+        //
+        // One block, no description: the toast ceiling is two lines.
+        toast.info("Choose your AI first.", {
+          action: {
+            label: "Choose",
+            onClick: () => router.push(ROUTES.ONE_SETUP_CONNECTIONS),
+          },
+        });
         return {
           status: "blocked" as const,
           summary: "Choose your AI first.",
@@ -415,7 +399,7 @@ export function OneSetupHub() {
   const summary = hubStateLoading
     ? "One moment…"
     : allReady
-      ? "All set."
+      ? "Add more any time."
       : !runtimeChoiceComplete
         ? "Choose your AI first."
         : `${remaining} left.`;
@@ -467,15 +451,16 @@ export function OneSetupHub() {
             <button
               type="button"
               onClick={() => void handleMasterAck()}
-              disabled={dismissing || !runtimeChoiceComplete}
-              title={
-                !runtimeChoiceComplete ? "Choose your AI first." : undefined
-              }
+              disabled={dismissing}
+              aria-disabled={!runtimeChoiceComplete || undefined}
               data-testid="one-setup-master-ack-mobile"
               // Same rule as the desktop footer: the accent is reserved for a
               // tap that can actually finish. A faded accent still reads blue,
-              // so a blocked finish goes neutral rather than dimmed.
-              className="mt-1 shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:text-muted-foreground disabled:opacity-100 sm:hidden"
+              // so a blocked finish goes neutral rather than dimmed -- but it
+              // stays tappable, because the `title` tooltip that used to carry
+              // the reason here is invisible on the touch devices this action
+              // exists for. The tap raises the toast instead.
+              className="mt-1 shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:text-muted-foreground disabled:opacity-100 aria-disabled:text-muted-foreground aria-disabled:hover:bg-transparent sm:hidden"
             >
               {masterActionLabel}
             </button>
@@ -593,18 +578,18 @@ export function OneSetupHub() {
                 label={masterActionLabel}
                 onComplete={() => void handleMasterAck()}
                 busy={dismissing}
-                disabled={!runtimeChoiceComplete}
+                blocked={!runtimeChoiceComplete}
                 controlId="one-setup-master-ack"
                 actionId="setup.hub_master_ack"
                 testId="one-setup-master-ack"
                 purpose={
                   "Finish setup and protect what you save."
                 }
-                supportingText={
-                  !runtimeChoiceComplete
-                    ? "Choose your AI first."
-                    : "Set up the rest later."
-                }
+                // The blocker is no longer named here. It was permanent copy
+                // that had to be read before the tap to be any use, and the
+                // tap is exactly when people want the answer -- so it moved
+                // into the toast the blocked tap now raises.
+                supportingText="Set up the rest later."
                 variant="blue-gradient"
                 effect="fill"
               />

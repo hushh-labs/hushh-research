@@ -64,17 +64,13 @@ function oneLocationActionLabel(action: string): string {
     "temp-link": "Public link",
     "check-in": "Check-In",
     "private-check-in": "Private Check-In",
-    // Matches the flow's own `TaskFlowHeader title` so the crumb and the
-    // on-screen title read as the same place — otherwise it fell back to
-    // `titleizeSegment` ("Create Circle"), which disagreed with the screen.
-    "create-circle": "Create a circle",
     "active-shares": "Active shares",
     "shared-with-me": "Shared with me",
     "needs-review": "Needs my review",
     // The crumb must match the on-screen title of the flow it names. The SOS
-    // screen's TaskFlowHeader reads "Emergency help", so the crumb does too —
-    // a crumb saying "Safety" for a screen titled otherwise breaks the trail.
-    sos: "Emergency help",
+    // screen's TaskFlowHeader reads "Save my Soul", so the crumb does too — a
+    // crumb saying "Safety" for a screen titled otherwise breaks the trail.
+    sos: "Save my Soul",
     "sms-contacts": "SMS contacts",
     settings: "Settings",
     privacy: "Settings",
@@ -167,10 +163,10 @@ function profileDetailLabel(detail: string | null): string | null {
   if (detail.startsWith("domain:")) return "Domain detail";
   if (detail.startsWith("connection:")) return "Connection detail";
   if (detail === "appearance") return "Appearance";
-  if (detail === "kai-preferences") return "Kai preferences";
+  if (detail === "kai-preferences") return "Finance preferences";
   if (detail === "gemini") return "Gemini";
   if (detail === "device") return "On-device first";
-  if (detail === "vault") return "Lock methods";
+  if (detail === "vault") return "Vault methods";
   if (detail === "session") return "Session";
   if (detail === "danger") return "Danger zone";
   if (detail === "gmail-connection") return "Connection";
@@ -512,6 +508,22 @@ function resolveTopShellBreadcrumbInner(
         ],
       };
     }
+  }
+
+  if (pathname === ROUTES.RIA_CLAIM) {
+    const returnHref =
+      normalizeInternalRouteHref(searchParams?.get("return_to")) ||
+      ROUTES.RIA_ONBOARDING;
+    return {
+      backHref: returnHref,
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "RIA", href: returnHref },
+        { label: "Claim profile" },
+      ],
+    };
   }
 
   if (pathname === ROUTES.RIA_ONBOARDING) {

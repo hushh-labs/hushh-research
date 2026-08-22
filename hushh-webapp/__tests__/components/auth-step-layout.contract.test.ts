@@ -15,6 +15,21 @@ describe("AuthStep layout contract", () => {
     expect(source).not.toContain("router.back()");
   });
 
+  it("canonicalizes the post-auth target before every navigation branch", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/onboarding/AuthStep.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "normalizeInternalRouteHref(resumeTarget || redirectPath) ??",
+    );
+    expect(source).not.toContain("const fallbackPath = targetPath ||");
+    expect(source).not.toContain(
+      "lastResolvedNavigationPathRef.current || targetPath ||",
+    );
+  });
+
   it("keeps the reviewer fixture out of normal sign-in UI", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/AuthStep.tsx"),
@@ -41,19 +56,10 @@ describe("AuthStep layout contract", () => {
     expect(source).toContain(
       "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
     );
+    expect(source).toContain(
+      "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
+    );
     expect(source).toContain("overflow-hidden");
-
-    // A MINIMUM, never a fixed height. Paired with overflow-hidden, a fixed
-    // height does not scroll when the content outgrows the box — it cuts the
-    // content off with no scrollbar and no error. That is exactly what
-    // happened at 200% text, where the rem-based bottom reservation doubles
-    // and ate the mark and the title. Both boxes must stay min-height only.
-    expect(source).not.toContain(
-      'height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))"',
-    );
-    expect(source).not.toContain(
-      'height: "calc(100svh - var(--app-scroll-bottom-pad, 0px))"',
-    );
     expect(source).toContain("data-auth-content-block");
     expect(source).toContain(
       'className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center"',
@@ -75,9 +81,7 @@ describe("AuthStep layout contract", () => {
       "pb-[calc(20px+56px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))]",
     );
     expect(source).not.toContain("rounded-t-[36px]");
-    expect(source).not.toContain(
-      "absolute inset-x-6 bottom-[calc(20px+56px",
-    );
+    expect(source).not.toContain("absolute inset-x-6 bottom-[calc(20px+56px");
     expect(source).not.toContain("mt-auto flex-none pt-8");
     expect(source).not.toContain("min-h-[100dvh]");
   });

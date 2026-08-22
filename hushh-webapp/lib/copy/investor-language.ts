@@ -49,11 +49,11 @@ export function toInvestorMessage(
     case "ONBOARDING_STATE_UNAVAILABLE":
       return "We could not load your onboarding progress. Please try again.";
     case "VAULT_STATUS_UNAVAILABLE":
-      return "We could not reach it right now. Check your connection and try again.";
+      return "We could not reach Vault right now. Check your connection and try again.";
     case "LOCAL_BACKEND_UNAVAILABLE":
       return "Local backend information is unavailable right now. Start the local backend with the proxy-aware launcher, then try again.";
     case "VAULT_UNLOCK_FAILED":
-      return "We could not unlock it. Please confirm your details and try again.";
+      return "We could not unlock your Vault. Please confirm your details and try again.";
     case "VAULT_PASSKEY_ENROLL_REQUIRED":
       return "This passkey was enrolled under an older domain. Use your passphrase once, then enable passkey again for one.hushh.ai.";
     case "MARKET_DATA_UNAVAILABLE":
@@ -89,7 +89,7 @@ export function toInvestorVaultUnlockError(value: unknown): string {
   }
 
   if (lowered.includes("bluetooth")) {
-    return "Turn on Bluetooth to use a passkey from another device, or use your passphrase or recovery key below.";
+    return "Turn on Bluetooth to use a passkey from another device, or use your Vault Key or Recovery Key below.";
   }
 
   if (
@@ -102,7 +102,7 @@ export function toInvestorVaultUnlockError(value: unknown): string {
     lowered.includes("cancelled") ||
     lowered.includes("canceled")
   ) {
-    return "Passkey unlock did not finish. Try again, or use your passphrase or recovery key below.";
+    return "Passkey unlock did not finish. Try again, or use your Vault Key or Recovery Key below.";
   }
 
   if (
@@ -110,7 +110,7 @@ export function toInvestorVaultUnlockError(value: unknown): string {
     lowered.includes("quick unlock is not enabled") ||
     lowered.includes("not enabled on this device")
   ) {
-    return "Passkey unlock is not ready on this device yet. Use your passphrase once, then try passkey again.";
+    return "Passkey unlock is not ready on this device yet. Use your Vault Key once, then try passkey again.";
   }
 
   if (
@@ -136,7 +136,7 @@ export function toInvestorLoading(stage: InvestorLoadingStage): string {
     case "ANALYSIS":
       return "Preparing your analysis...";
     case "VAULT":
-      return "Opening...";
+      return "Opening your Vault...";
     default:
       return "Loading...";
   }

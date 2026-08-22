@@ -842,7 +842,7 @@ export function evaluateKaiActionAvailability(input: {
   if (action.execution_policy === "manual_only") {
     return {
       status: "manual_only",
-      reason: "This action remains manual in the current Kai workflow.",
+      reason: "This action remains manual in the current Finance workflow.",
       target_persona: null,
       blocked_guidance: action.workflow?.blocked_guidance || null,
     };
@@ -891,7 +891,7 @@ export function evaluateKaiActionAvailability(input: {
           appRuntimeState?.persona?.ria_setup_available
             ? "RIA actions stay locked until you finish RIA setup."
             : requiredPersonas.includes("investor")
-              ? "Switch to the Investor workspace before using Kai finance actions."
+              ? "Switch to the Investor workspace before using Finance actions."
               : "This action is not available in the active workspace.",
         target_persona: requiredPersonas[0] || null,
         blocked_guidance:
@@ -900,7 +900,7 @@ export function evaluateKaiActionAvailability(input: {
           appRuntimeState?.persona?.ria_setup_available
             ? "Complete RIA setup to unlock this workspace."
             : requiredPersonas.includes("investor")
-              ? "Switch to Investor to use this Kai finance action."
+              ? "Switch to Investor to use this Finance action."
               : null),
       };
     }
@@ -924,7 +924,7 @@ export function evaluateKaiActionAvailability(input: {
     ) {
       return {
         status: "blocked",
-        reason: "Unlock to use this action.",
+        reason: "Unlock the vault to use this action.",
         target_persona: null,
         blocked_guidance: null,
       };

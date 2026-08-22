@@ -190,23 +190,14 @@ export function buildOneLocationNotificationPayloads(
       addValue(payload, "owner_user_id", request.ownerUserId);
       addValue(payload, "owner_display_label", ownerLabel);
       addAskValues(payload, request);
+      // What was actually granted, read off the grant the approval produced —
+      // which is the only number that is true. The requested amount is what was
+      // asked for, and an owner is free to give less.
       const approvedGrant = (state.receivedGrants ?? []).find(
         (grant) => grant.id === request.approvedGrantId,
       );
-      if (request.isExtension || request.extendsGrantId) {
-        // The grant's own duration is its new TOTAL remaining time, not how
-        // much this approval added -- showing that as "X more" is the bug
-        // this guards against. The request already carries the extra amount
-        // that was asked for (and, absent an owner override this app has no
-        // control for yet, actually granted), so that is the true number.
-        addValue(payload, "duration_hours", request.requestedDurationHours);
-      } else if (approvedGrant) {
-        // No baseline to subtract on a fresh share: the grant's total *is*
-        // what was granted, read off the grant since an owner is free to
-        // give less than was asked.
-        addValue(payload, "duration_hours", approvedGrant.durationHours);
-      }
       if (approvedGrant) {
+        addValue(payload, "duration_hours", approvedGrant.durationHours);
         addValue(payload, "duration_mode", approvedGrant.durationMode);
         addValue(payload, "expires_at", approvedGrant.expiresAt);
       }

@@ -58,7 +58,7 @@ export function humanizeConsentScope(scope: string | null | undefined): string {
       .replace(/\b\w/g, (char) => char.toUpperCase());
   }
 
-  if (normalized === "vault.owner") return "Full private access";
+  if (normalized === "vault.owner") return "Full vault access";
   if (normalized === "pkm.read") return "Personal Knowledge Model access";
   if (normalized === "pkm.write") return "Personal Knowledge Model updates";
 

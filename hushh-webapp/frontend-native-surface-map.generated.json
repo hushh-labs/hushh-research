@@ -208,6 +208,14 @@
       "file": "app/api/portfolio/share-link/route.ts"
     },
     {
+      "template": "/api/products/hushh-tech/launch/authorize",
+      "file": "app/api/products/hushh-tech/launch/authorize/route.ts"
+    },
+    {
+      "template": "/api/products/hushh-tech/launch/exchange",
+      "file": "app/api/products/hushh-tech/launch/exchange/route.ts"
+    },
+    {
       "template": "/api/ria/{path*}",
       "file": "app/api/ria/[...path]/route.ts"
     },
@@ -303,9 +311,9 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.intro",
-          "purpose": "Welcome a new person and help them get started with One.",
+          "purpose": "Welcome a new person and help them claim their private agent.",
           "screen": "one_intro",
-          "entry_cue": "Say ‘Get started’ whenever you are ready.",
+          "entry_cue": "Say ‘Claim your One’ whenever you are ready.",
           "proactivity": "on_entry",
           "primary_action_id": "onboarding.claim_one",
           "happy_path_action_ids": [
@@ -7605,6 +7613,55 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/products/hushh-tech/launch",
+      "page_file": "app/products/hushh-tech/launch/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Cross-product sign-in handoff intentionally suppresses the signed-in app shell while it validates and completes the one-time launch.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.products.hushh.tech.launch",
+          "purpose": "Complete the verified Hushh Tech sign-in handoff without exposing credentials.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain that the handoff cannot continue and return to Hushh Tech.",
+            "cancelled": "Respect the cancellation and return to Hushh Tech.",
+            "failed": "Return to Hushh Tech without claiming sign-in succeeded.",
+            "timeout": "Return to Hushh Tech and offer one safe retry.",
+            "callback_error": "Return to Hushh Tech without exposing the launch code.",
+            "route_mismatch": "Use only the verified Hushh Tech launch route."
+          },
+          "completion_boundary": "The handoff completes only after the signed-in Firebase user receives a bound one-time launch code and the browser reaches the exact allowlisted Hushh Tech callback.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/profile/google/oauth/return",
       "page_file": "app/profile/google/oauth/return/page.tsx",
       "physical_page_exists": true,
@@ -8671,5 +8728,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "b18819f6c7b2be2e87c6dec042137a87763f2c2db5dd630052ecfe79ee7cae64"
+  "content_sha256": "be6ed6394edcd7b1df08ee9f9c663595e4994516d260e747e19f3191e7531513"
 }

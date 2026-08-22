@@ -13,7 +13,6 @@ import {
   ArrowLeft,
   Briefcase,
   Check,
-  ChevronDown,
   Home,
   Loader2,
   Map as MapIcon,
@@ -32,7 +31,7 @@ import {
 } from "@/components/one-location/onboarding/location-picker-map";
 import {
   ADDRESS_LABEL_ROW_CLASSNAME,
-  DOOR_DETAILS_TOGGLE_CLASSNAME,
+  DIALOG_SURFACE_CLASSNAME,
   OPTIONAL_BADGE_CLASSNAME,
   REQUIRED_BADGE_CLASSNAME,
   SHEET_BODY_CLASSNAME,
@@ -40,6 +39,9 @@ import {
   SHEET_FOOTER_CLASSNAME,
   SHEET_HEADER_CLASSNAME,
   SHEET_INDICATOR_SLOT_CLASSNAME,
+  SHEET_PLAIN_SHELL_CLASSNAME,
+  SHEET_PRESENTATION_QUERY,
+  SHEET_SURFACE_CLASSNAME,
   STEP_DOT_REACHED_CLASSNAME,
   STEP_DOT_UPCOMING_CLASSNAME,
 } from "@/components/one-location/onboarding/save-location-sheet-layout";
@@ -52,8 +54,8 @@ import {
 } from "@/lib/one-location/saved-locations";
 import {
   EMPTY_SAVED_LOCATION_ADDRESS_DETAILS,
+  inferPostalCode,
   inferSavedLocationAddressDetails,
-  isValidPostalCode,
   normalizeSavedLocationAddressDetails,
   stripPlusCodeSegment,
   type SavedLocationAddressDetails,
@@ -89,7 +91,7 @@ const controlLabelClassName =
   "mb-1.5 block text-[13px] font-semibold leading-[18px] text-muted-foreground";
 
 const controlInputClassName =
-  "h-12 w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] px-4 text-[15px] leading-5 text-foreground outline-none transition-colors placeholder:text-[color:var(--app-tertiary-label)] focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent)]/25 disabled:opacity-60";
+  "h-12 w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] px-4 text-[15px] leading-5 text-foreground outline-none transition-colors placeholder:text-[color:var(--app-tertiary-label)] focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-inset focus:ring-[color:var(--app-accent)]/25 disabled:opacity-60";
 
 /**
  * Blue is a promise that the tap moves you forward. When it cannot, the button
@@ -105,38 +107,12 @@ function primaryActionClassName(enabled: boolean): string {
   );
 }
 
-/*
- * THE STEP INDICATOR SLOT (#5396).
- *
- * This sheet used to emit its indicator three different ways, one per pane:
- * nothing at all on "summary", a 44px-tall dot rail at the BOTTOM of "map",
- * and an 18px-tall rail at the TOP of "details" — or a plain grabber where
- * the carousel had collapsed. Same two steps, three different headers, so
- * the rail appeared to move and resize as the person advanced.
- *
- * `SHEET_INDICATOR_SLOT_CLASSNAME` is now the one slot every pane renders,
- * in the pinned-header position, at one height. It doubles as the iOS
- * grabber, which is why 18px is load-bearing: a taller rail reintroduces
- * the third stacked header row that e2e/save-location-sheet.layout.spec.ts
- * measures at six widths.
- *
- * The fills were the other half of the bug. The inactive pill was
- * --app-neutral-fill-strong, which composites to #E4E4E6 on the white sheet
- * (1.27:1) and #47474C on the dark one (1.51:1) — against the 3:1 WCAG 2.2
- * SC 1.4.11 sets for a control that carries state. And there were only two
- * states, so a step already finished looked exactly like one not reached.
- *
- * The three class constants live in save-location-sheet-layout.ts beside the
- * rest of this sheet's measured geometry, so the Playwright contract imports
- * the exact strings this file paints.
- */
-
 /**
  * Where you are in the pin-then-details pair, and a way to move without
  * hunting for the button. Replaces the "Step 1 of 2" / "Step 2 of 2" labels,
  * which announced the flow as longer than it is.
  *
- * Three visual states, not two — colour says "reached", width says "here":
+ * Three visual states, not two -- colour says "reached", width says "here":
  *
  *   completed  7px accent    upcoming  7px grey    active  24px accent
  */
@@ -177,9 +153,9 @@ function CarouselDots({
             }
             // A real 44x44 each, laid out rather than faked, because two dots
             // sit side by side and overlapping hit regions would send a tap
-            // near the boundary to the wrong slide. The rail itself stays
-            // 18px so the pinned header stays a header; the rest of the
-            // target is given back vertically by the painted `::after` box.
+            // near the boundary to the wrong slide. The rail itself stays 18px
+            // so the pinned header stays a header; the rest of the target is
+            // given back vertically by the painted `::after` box.
             className={cn(
               "relative flex h-[18px] w-11 items-center justify-center after:h-11 after:w-11 disabled:cursor-not-allowed",
               touchTargetClassName,
@@ -221,7 +197,12 @@ function SheetGrabber() {
 
 /**
  * The single indicator every pane renders, in the same place, at the same
- * height — dots when there are steps, the grabber when there are not.
+ * height -- dots when there are steps, the grabber when there are not.
+ *
+ * It used to be emitted two different ways: nothing at all on the summary
+ * pane, and a 44px rail at the BOTTOM of the map pane, under the buttons. Same
+ * two steps, two different headers, so the rail appeared to move and resize as
+ * the person advanced.
  */
 function SheetIndicator({
   carouselMode,
@@ -289,13 +270,6 @@ function SheetDragRegion({
     </div>
   );
 }
-
-/**
- * The width at which this surface stops being a bottom sheet and becomes a
- * centred dialog. The same 640px boundary its own `sm:` classes switch on --
- * one number, so the presentation and the styling can never disagree.
- */
-const SHEET_PRESENTATION_QUERY = "(max-width: 639.98px)";
 
 function sheetPresentationSupported(): boolean {
   return (
@@ -422,21 +396,37 @@ type SaveLocationFlowStep = "summary" | "map" | "details";
  * Fold what a detected address can tell us into the form, leaving anything the
  * person typed alone.
  *
- * Defined outside the component and taking its "has been edited" flags as an
- * argument so the rule reads as one thing rather than as three closures that
- * each have to remember to check a ref.
+ * Only House or flat is filled here, because only House or flat is still a box
+ * on screen. The PIN is derived at save time from the address line as it
+ * actually stands -- see `derivedPostalCode` -- so nobody is asked to retype a
+ * number that is already sitting in the line above it.
  */
 function detectedAddressDetails(
   current: SavedLocationAddressDetails,
   address: string | null,
-  edited: { houseOrFlat: boolean; postalCode: boolean },
+  houseOrFlatEdited: boolean,
 ): SavedLocationAddressDetails {
   const inferred = inferSavedLocationAddressDetails(address);
   return {
     ...current,
-    houseOrFlat: edited.houseOrFlat ? current.houseOrFlat : inferred.houseOrFlat,
-    postalCode: edited.postalCode ? current.postalCode : inferred.postalCode,
+    houseOrFlat: houseOrFlatEdited ? current.houseOrFlat : inferred.houseOrFlat,
   };
+}
+
+/**
+ * The PIN / postcode, worked out rather than requested.
+ *
+ * It used to be a box on the form, sitting directly under an address line that
+ * already contained the number -- so the sheet showed you "…, Pune, Maharashtra
+ * 411045, India" and then asked you for 411045.
+ *
+ * Read from the line as it stands at save time, so retyping the address
+ * carries its postcode with it. `seeded` is the value a place being EDITED was
+ * saved with: when a line carries no recognisable code, keep what that place
+ * already had instead of quietly dropping it.
+ */
+function derivedPostalCode(addressLine: string, seeded: string): string {
+  return inferPostalCode(addressLine) || seeded;
 }
 
 const CATEGORY_OPTIONS: {
@@ -527,12 +517,6 @@ export function SaveLocationModal({
   const [editingPlace, setEditingPlace] = useState(false);
   const [flowStep, setFlowStep] = useState<SaveLocationFlowStep>("summary");
   const [pickedAddress, setPickedAddress] = useState<string | null>(null);
-  /**
-   * Ticked: the fields below are filled from whatever the pin resolves to, and
-   * keep following it as the pin moves. Unticked: they are cleared and left
-   * alone. Anything typed by hand wins either way -- see the edited refs.
-   */
-  const [useDetectedAddress, setUseDetectedAddress] = useState(true);
   const [addressDetails, setAddressDetails] =
     useState<SavedLocationAddressDetails>(EMPTY_SAVED_LOCATION_ADDRESS_DETAILS);
   const [placeQuery, setPlaceQuery] = useState("");
@@ -551,10 +535,7 @@ export function SaveLocationModal({
   const [mapReady, setMapReady] = useState(false);
   const rendererReady = rendererDisclosureReady || rendererDisclosureAccepted;
   const descriptionId = useId();
-  const postalCodeErrorId = useId();
-  const addressHelpId = useId();
   const addressLineErrorId = useId();
-  const doorDetailsId = useId();
   const mapTitleRef = useRef<HTMLHeadingElement | null>(null);
   const detailsTitleRef = useRef<HTMLHeadingElement | null>(null);
   // The pin, its settle state and its resolved address all live inside the
@@ -564,47 +545,61 @@ export function SaveLocationModal({
   // A field the person has typed in is theirs. The pin may fill a blank field
   // and refill it as it moves, but it must never overwrite an answer someone
   // gave -- a prefill that fights the typing is worse than no prefill.
-  const postalCodeEditedRef = useRef(false);
   const houseOrFlatEditedRef = useRef(false);
-  // The address line itself, editable and separate from the entrance-detail
-  // fields below it -- it IS the detected address, not something inferred
-  // from it, so it is not governed by the "fill the fields below" checkbox.
-  const addressLineEditedRef = useRef(false);
-  const [addressLineValue, setAddressLineValue] = useState("");
+  /**
+   * The address line itself, editable and separate from the entrance-detail
+   * fields below it -- it IS the detected address, not something inferred from
+   * it.
+   *
+   * `null` means "nobody has typed here", which is what makes the box track
+   * the pin. It is a nullable STATE rather than the `useRef(edited)` + `""`
+   * state pair it used to be, and that is a bug fix, not a tidy-up: with a
+   * ref, clearing the box called `setAddressLineValue("")` when the state was
+   * ALREADY `""`, so React bailed out of the re-render, the ref flip was never
+   * reflected, and the detected address snapped straight back into the field.
+   * Selecting all and pressing delete did visibly nothing.
+   */
+  const [addressLineValue, setAddressLineValue] = useState<string | null>(null);
   /**
    * An empty required field is not an error until the person has had a turn at
-   * it. Flipped by leaving the box, or by pressing Save -- so the sheet never
-   * opens already shouting, and never lets a press land on nothing.
+   * it. Flipped by leaving the box -- so the sheet never opens already
+   * shouting, and never lets a press land on nothing.
    */
   const [addressTouched, setAddressTouched] = useState(false);
-  /** Progressive disclosure for the details that are polish, not address. */
-  const [doorDetailsOpen, setDoorDetailsOpen] = useState(false);
-  const sheetPresentation = useSheetPresentation();
+  /**
+   * Which presentation this surface opened in, held for as long as it stays
+   * open.
+   *
+   * Swapping between Sheet and Dialog swaps the parent element type, so React
+   * unmounts and remounts everything inside -- including `LocationPickerMap`,
+   * which re-creates the NATIVE map. Rotating an iPhone 15 Pro Max to
+   * landscape crosses 640px (932 points wide), so a live read would tear down
+   * and rebuild the map under the hand of someone in the middle of placing a
+   * pin. That is the exact lifecycle that produces a blank map (bug log B23 /
+   * B24), and a presented sheet changing presentation style on rotation is not
+   * how iOS behaves anyway.
+   *
+   * Written during render on purpose: while closed it is a pure mirror of the
+   * live value, so the surface always OPENS in the right presentation; the
+   * moment it opens it stops following.
+   */
+  const livePresentation = useSheetPresentation();
+  const openedPresentationRef = useRef(livePresentation);
+  if (!open) openedPresentationRef.current = livePresentation;
+  const sheetPresentation = openedPresentationRef.current;
 
   // Reset internal selection each time the modal (re)opens. When editing an
   // existing saved place, seed the category/label/detail fields from the
   // provided initial values so the same add flow doubles as an update flow.
   useEffect(() => {
     if (open) {
-      // Treat provided initial details (edit mode) as already user-authored so
-      // the inferred-postal effect does not clobber them.
-      postalCodeEditedRef.current = Boolean(
-        initialDetails && initialDetails.postalCode,
-      );
+      // Treat a provided House or flat (edit mode) as already user-authored so
+      // the detected-address effect does not clobber it.
       houseOrFlatEditedRef.current = Boolean(
         initialDetails && initialDetails.houseOrFlat,
       );
-      addressLineEditedRef.current = false;
-      setAddressLineValue("");
+      setAddressLineValue(null);
       setAddressTouched(false);
-      // Open the polish step only when it already holds an answer, so editing
-      // a saved place never hides something the person typed last time.
-      setDoorDetailsOpen(
-        Boolean(
-          initialDetails &&
-            (initialDetails.landmark || initialDetails.buildingColor),
-        ),
-      );
       // Editing keeps the place's own label; a new place opens on the first
       // label still free, so the primary button is live on arrival instead of
       // waiting behind "Pick Home, Work or Other first."
@@ -614,7 +609,6 @@ export function SaveLocationModal({
       setCustomLabel(initialCustomLabel ?? "");
       setEditingPlace(false);
       setPickedAddress(null);
-      setUseDetectedAddress(true);
       setAddressDetails(
         initialDetails
           ? { ...EMPTY_SAVED_LOCATION_ADDRESS_DETAILS, ...initialDetails }
@@ -704,18 +698,14 @@ export function SaveLocationModal({
     if (!open) return;
     const next = (address && address.trim()) || null;
     if (next) setPickedAddress(next);
-    if (!useDetectedAddress) return;
-    // Spread the detected address across the fields it can actually answer.
-    // It was previously only mined for a postal code, so a person looking at
+    // Spread the detected address across the field it can actually answer. It
+    // was previously only mined for a postal code, so a person looking at
     // "B-284/3, Rd Number 1, ..." on screen still had to retype B-284/3 into
     // the box directly underneath it.
     setAddressDetails((current) =>
-      detectedAddressDetails(current, next, {
-        houseOrFlat: houseOrFlatEditedRef.current,
-        postalCode: postalCodeEditedRef.current,
-      }),
+      detectedAddressDetails(current, next, houseOrFlatEditedRef.current),
     );
-  }, [address, open, useDetectedAddress]);
+  }, [address, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -734,24 +724,21 @@ export function SaveLocationModal({
     stripPlusCodeSegment(pickedAddress) || resolvedAddress || "";
   /**
    * The Address line box tracks the detected address until the person types
-   * over it -- the same "typed wins" rule as House/flat and PIN, just for the
-   * line those fields are extracted from rather than for one piece of it.
+   * over it -- the same "typed wins" rule as House or flat, just for the line
+   * that field is extracted from rather than for one piece of it.
    */
-  const effectiveAddressLine = addressLineEditedRef.current
-    ? addressLineValue
-    : detectedAddress;
+  const effectiveAddressLine = addressLineValue ?? detectedAddress;
   /**
-   * The one field a saved place cannot do without. It is required, and it is
-   * marked required on screen -- an address box that quietly accepted nothing
-   * was read as optional, and the save then failed for a reason nobody could
-   * see.
+   * The one field a saved place cannot do without, so it is first and it is
+   * marked required. An unmarked box that quietly accepted nothing read as
+   * optional right up until the save would not go.
    *
    * Requiring it is safe precisely because the box is editable. A pinned point
    * does not always come back with an address: on the native build before the
    * vault exists there is no server reverse-geocode and no browser geocoder
    * either, so the lookup returns nothing however good the pin is. That person
-   * is not stuck -- they type the line themselves, in the box that is already
-   * in front of them, and the save unblocks.
+   * is not stuck -- they type the line themselves, in the box already in front
+   * of them, and the save unblocks.
    */
   const addressLineMissing =
     collectAddressDetails && effectiveAddressLine.trim().length === 0;
@@ -765,19 +752,15 @@ export function SaveLocationModal({
   const addressLineError =
     addressLineMissing &&
     !loadingAddress &&
-    (addressTouched || !addressLineEditedRef.current);
-  const postalCodeInvalid =
-    normalizedAddressDetails.postalCode.length > 0 &&
-    !isValidPostalCode(normalizedAddressDetails.postalCode);
+    (addressTouched || addressLineValue === null);
   /**
    * Why the primary button is off, in the person's own terms, or null when it
-   * is on. This exists because the button used to just sit there dead: House,
-   * flat was required and blank, so "Update location" could not be pressed and
+   * is on. This exists because the button used to just sit there dead and
    * nothing on screen said why -- which is what "saving address not working"
    * looked like from the outside.
    *
-   * The gate is now the one thing saving an address actually needs: an
-   * address. The entrance details are enrichment and no longer block a save.
+   * The gate is the one thing saving an address actually needs: an address.
+   * House or flat and Landmark are enrichment and never block a save.
    */
   const saveBlockedReason: string | null =
     saving || changingPlace || loadingAddress || editingPlace || flowStep === "map"
@@ -790,13 +773,7 @@ export function SaveLocationModal({
             // twice on one screen reads as a stutter rather than as two places
             // worth looking.
             "Add the address above."
-          : postalCodeInvalid
-            ? // Not the field's own wording. The invalid PIN already says
-              // "Enter a valid PIN or postcode." right next to itself, and
-              // the same sentence twice on one screen reads as a stutter
-              // rather than as two places worth looking.
-              "Check the PIN or postcode above."
-            : null;
+          : null;
   const canSave =
     category !== null &&
     !saving &&
@@ -896,14 +873,13 @@ export function SaveLocationModal({
   const handleConfirmMapPick = (picked: PickedLocation) => {
     onPickExactLocation?.(picked);
     setPickedAddress(picked.address);
-    if (useDetectedAddress) {
-      setAddressDetails((current) =>
-        detectedAddressDetails(current, picked.address, {
-          houseOrFlat: houseOrFlatEditedRef.current,
-          postalCode: postalCodeEditedRef.current,
-        }),
-      );
-    }
+    setAddressDetails((current) =>
+      detectedAddressDetails(
+        current,
+        picked.address,
+        houseOrFlatEditedRef.current,
+      ),
+    );
     setSlideFrom("right");
     setMapReady(false);
     setFlowStep(collectAddressDetails ? "details" : "summary");
@@ -919,11 +895,22 @@ export function SaveLocationModal({
     const label =
       category === "other" ? customLabel.trim() || "Other" : undefined;
     if (collectAddressDetails) {
+      const addressLine = effectiveAddressLine.trim();
       onSave(
         category,
         label ?? "",
-        normalizedAddressDetails,
-        effectiveAddressLine.trim() || null,
+        {
+          ...normalizedAddressDetails,
+          // Worked out from the line being saved, not asked for. `buildingColor`
+          // rides through untouched from `initialDetails`: the form stopped
+          // asking for it, which is not the same as throwing away what a place
+          // was already saved with.
+          postalCode: derivedPostalCode(
+            addressLine,
+            normalizedAddressDetails.postalCode,
+          ),
+        },
+        addressLine || null,
       );
       return;
     }
@@ -934,7 +921,6 @@ export function SaveLocationModal({
     key: keyof SavedLocationAddressDetails,
     value: string,
   ) => {
-    if (key === "postalCode") postalCodeEditedRef.current = true;
     if (key === "houseOrFlat") houseOrFlatEditedRef.current = true;
     setAddressDetails((current) => ({ ...current, [key]: value }));
   };
@@ -955,13 +941,13 @@ export function SaveLocationModal({
     "z-[600]",
     nativeMapShowing
       ? // The native map is not part of the page: @capacitor/google-maps draws
-        // it BELOW the WebView and the WebView is punched through to reveal
-        // it. This overlay is a Radix sibling of the sheet, so the rule that
-        // clears backgrounds inside [data-testid="save-location-modal"] never
-        // reached it -- and a 55% black scrim with a 10px blur sat over the
-        // whole screen, hiding the map while the HTML pin and cards stayed
-        // crisp on top. That is exactly the "no map behind it, just one pin"
-        // report: the map was rendering the whole time, behind the scrim.
+        // it BELOW the WebView and the WebView is punched through to reveal it.
+        // This overlay is a Radix sibling of the sheet, so the rule that clears
+        // backgrounds inside [data-testid="save-location-modal"] never reached
+        // it -- and a 55% black scrim with a 10px blur sat over the whole
+        // screen, hiding the map while the HTML pin and cards stayed crisp on
+        // top. That is exactly the "no map behind it, just one pin" report: the
+        // map was rendering the whole time, behind the scrim.
         "bg-transparent backdrop-blur-none [-webkit-backdrop-filter:none]"
       : "bg-black/55 backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)]",
   );
@@ -969,10 +955,10 @@ export function SaveLocationModal({
   // A real edge and a real lift, so the surface reads as a layer above the
   // screen rather than a rectangle pasted onto it.
   const surfaceEdgeClassName =
-    "border border-black/[0.06] bg-[color:var(--app-card-surface-default-solid)] dark:border-white/[0.08]";
+    "border-black/[0.06] bg-[color:var(--app-card-surface-default-solid)] dark:border-white/[0.08]";
   const surfacePaddingClassName = detailsPaneActive
     ? SHEET_DETAILS_SHELL_CLASSNAME
-    : "gap-5 overflow-y-auto p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] sm:p-6 sm:pb-6";
+    : SHEET_PLAIN_SHELL_CLASSNAME;
   // `!` because the arbitrary shadow does not merge away the primitive's own
   // `shadow-[var(--app-card-shadow-feature)]`: tailwind-merge leaves both
   // classes on the element and the base one wins on stylesheet order, so the
@@ -985,17 +971,20 @@ export function SaveLocationModal({
       <style>{CAROUSEL_KEYFRAMES}</style>
         {flowStep === "map" && canPickOnMap ? (
           <div {...paneProps}>
-            {/* Top of the pane, same slot as every other pane. This rail used
-                to sit at the BOTTOM of this one pane and at twice the height,
-                so advancing a step appeared to move the indicator. */}
-            <SheetIndicator
-              carouselMode={carouselMode}
-              index={0}
-              count={2}
-              labels={carouselLabels}
-              canAdvance={mapReady}
-              onSelect={goToSlide}
-            />
+            {/* Top of the pane, the same slot every other pane uses. This rail
+                used to sit at the BOTTOM of this one pane, under the buttons,
+                so advancing a step appeared to move the indicator. On a phone
+                the row is also the sheet's grabber. */}
+            <SheetDragRegion>
+              <SheetIndicator
+                carouselMode={carouselMode}
+                index={0}
+                count={2}
+                labels={carouselLabels}
+                canAdvance={mapReady}
+                onSelect={goToSlide}
+              />
+            </SheetDragRegion>
             <DialogTitle ref={mapTitleRef} tabIndex={-1} className="sr-only">
               {rendererReady ? "Pin your entrance" : "Before Google Maps opens"}
             </DialogTitle>
@@ -1081,10 +1070,11 @@ export function SaveLocationModal({
                 </button>
               </div>
               {/* The sentence that used to sit under the title. The card below
-                  shows the address and the group label below that says the
-                  fields are optional, so on screen it only repeated them. */}
+                  shows the address and each field carries its own Required or
+                  Optional badge, so on screen it only repeated them. Kept for
+                  screen readers, which do not have the badges in view. */}
               <p id={descriptionId} className="sr-only">
-                Optional details that help someone reach your door.
+                Check the address. The rest helps someone reach your door.
               </p>
             </header>
 
@@ -1150,12 +1140,6 @@ export function SaveLocationModal({
                     Required
                   </span>
                 </div>
-                <p
-                  id={addressHelpId}
-                  className="mb-1.5 text-[13px] leading-[18px] text-muted-foreground"
-                >
-                  Used to find your door.
-                </p>
                 <input
                   id="saved-location-address-line"
                   type="text"
@@ -1163,13 +1147,10 @@ export function SaveLocationModal({
                   aria-required="true"
                   aria-invalid={addressLineError}
                   aria-describedby={
-                    addressLineError
-                      ? `${addressHelpId} ${addressLineErrorId}`
-                      : addressHelpId
+                    addressLineError ? addressLineErrorId : undefined
                   }
                   value={effectiveAddressLine}
                   onChange={(event) => {
-                    addressLineEditedRef.current = true;
                     setAddressLineValue(event.target.value);
                   }}
                   onBlur={() => setAddressTouched(true)}
@@ -1195,10 +1176,78 @@ export function SaveLocationModal({
                 ) : null}
               </div>
 
-              {/* Second, because naming the place is the other thing the save
-                  genuinely needs. It used to sit under four optional boxes, so
-                  the two required answers were separated by everything that
-                  was not one. */}
+              {/* Two boxes, both optional, both things only the person standing
+                  at the door knows.
+
+                  This group used to be four: Building colour and PIN /
+                  postcode were here too. The PIN sat directly under a line
+                  that already contained it -- the sheet showed you "…, Pune,
+                  Maharashtra 411045, India" and then asked you for 411045 --
+                  so it is worked out at save time instead. Building colour is
+                  a question almost nobody answers and nothing downstream needs;
+                  it is still saved for places that already carry one, it is
+                  just no longer asked for.
+
+                  The badge sits on each field rather than as one caption above
+                  the group. A box shaped exactly like the required Address box
+                  reads as required no matter what a sentence higher up said --
+                  people go by the shape of the box. */}
+              <div className="space-y-3.5">
+                <div>
+                  <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
+                    <label
+                      htmlFor="saved-location-house-or-flat"
+                      className={cn(controlLabelClassName, "mb-0")}
+                    >
+                      House or flat
+                    </label>
+                    <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
+                      Optional
+                    </span>
+                  </div>
+                  <input
+                    id="saved-location-house-or-flat"
+                    type="text"
+                    value={addressDetails.houseOrFlat}
+                    onChange={(event) =>
+                      updateAddressDetail("houseOrFlat", event.target.value)
+                    }
+                    disabled={interactionBusy}
+                    maxLength={80}
+                    autoComplete={deferredUntilVault ? "off" : "address-line1"}
+                    placeholder="Flat 4B, Tower 2"
+                    className={controlInputClassName}
+                  />
+                </div>
+
+                <div>
+                  <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
+                    <label
+                      htmlFor="saved-location-landmark"
+                      className={cn(controlLabelClassName, "mb-0")}
+                    >
+                      Landmark
+                    </label>
+                    <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
+                      Optional
+                    </span>
+                  </div>
+                  <input
+                    id="saved-location-landmark"
+                    type="text"
+                    value={addressDetails.landmark}
+                    onChange={(event) =>
+                      updateAddressDetail("landmark", event.target.value)
+                    }
+                    disabled={interactionBusy}
+                    maxLength={100}
+                    autoComplete={deferredUntilVault ? "off" : "address-line2"}
+                    placeholder="Near the main gate"
+                    className={controlInputClassName}
+                  />
+                </div>
+              </div>
+
               <SavedLocationCategoryPicker
                 value={category}
                 disabled={interactionBusy}
@@ -1226,209 +1275,13 @@ export function SaveLocationModal({
                 </div>
               ) : null}
 
-              {/* Ticked, the fields below are filled from that address and keep
-                  following the pin. Unticked, they are cleared and left alone.
-                  Anything typed by hand survives either way. */}
-              <label className="flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={useDetectedAddress}
-                  onChange={(event) => {
-                    const next = event.target.checked;
-                    setUseDetectedAddress(next);
-                    // Both directions act now rather than at the next pin move,
-                    // so the box never reads as on while the fields disagree
-                    // with it. Unticking forgets that anything was typed, which
-                    // is what makes re-ticking a clean redo.
-                    houseOrFlatEditedRef.current = false;
-                    postalCodeEditedRef.current = false;
-                    setAddressDetails((current) =>
-                      detectedAddressDetails(current, next ? detectedAddress : null, {
-                        houseOrFlat: false,
-                        postalCode: false,
-                      }),
-                    );
-                  }}
-                  disabled={interactionBusy}
-                  className="h-[15px] w-[15px] shrink-0 accent-[color:var(--app-accent)] disabled:opacity-45"
-                />
-                Fill from this address
-              </label>
-
-              <div className="space-y-3.5">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div>
-                    {/* A badge on the field itself, the same place Address
-                        carries "Required" -- a box shaped exactly like the
-                        required Address box above it reads as required no
-                        matter what a sentence higher up the screen said. */}
-                    <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                      <label
-                        htmlFor="saved-location-house-or-flat"
-                        className={cn(controlLabelClassName, "mb-0")}
-                      >
-                        House or flat
-                      </label>
-                      <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
-                        Optional
-                      </span>
-                    </div>
-                    <input
-                      id="saved-location-house-or-flat"
-                      type="text"
-                      value={addressDetails.houseOrFlat}
-                      onChange={(event) =>
-                        updateAddressDetail("houseOrFlat", event.target.value)
-                      }
-                      disabled={interactionBusy}
-                      maxLength={80}
-                      autoComplete={deferredUntilVault ? "off" : "address-line1"}
-                      placeholder="Flat 4B, Tower 2"
-                      className={controlInputClassName}
-                    />
-                  </div>
-                  <div>
-                    <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                      <label
-                        htmlFor="saved-location-postal-code"
-                        className={cn(controlLabelClassName, "mb-0")}
-                      >
-                        PIN / postcode
-                      </label>
-                      <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
-                        Optional
-                      </span>
-                    </div>
-                    <input
-                      id="saved-location-postal-code"
-                      type="text"
-                      value={addressDetails.postalCode}
-                      onChange={(event) =>
-                        updateAddressDetail("postalCode", event.target.value)
-                      }
-                      disabled={interactionBusy}
-                      maxLength={12}
-                      inputMode="text"
-                      autoComplete={deferredUntilVault ? "off" : "postal-code"}
-                      aria-describedby={
-                        addressDetails.postalCode.length > 0 &&
-                        !isValidPostalCode(addressDetails.postalCode)
-                          ? postalCodeErrorId
-                          : undefined
-                      }
-                      aria-invalid={
-                        addressDetails.postalCode.length > 0 &&
-                        !isValidPostalCode(addressDetails.postalCode)
-                      }
-                      placeholder="560001"
-                      className={cn(
-                        controlInputClassName,
-                        "aria-[invalid=true]:border-[color:var(--app-destructive)]",
-                      )}
-                    />
-                    {addressDetails.postalCode.length > 0 &&
-                    !isValidPostalCode(addressDetails.postalCode) ? (
-                      <p
-                        id={postalCodeErrorId}
-                        role="alert"
-                        className="mt-1.5 text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
-                      >
-                        Enter a valid PIN or postcode.
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-
-                {/* Behind a tap, not in front of one. Being asked the colour of
-                    your building before you have finished saying where it is
-                    reads as an odd question; asked later, of someone who chose
-                    to open this, it reads as care. Kept mounted so anything
-                    already typed survives collapsing, and opened on arrival
-                    when it holds an answer. */}
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setDoorDetailsOpen((shown) => !shown)}
-                    disabled={interactionBusy}
-                    aria-expanded={doorDetailsOpen}
-                    aria-controls={doorDetailsId}
-                    data-testid="save-location-door-details-toggle"
-                    className={DOOR_DETAILS_TOGGLE_CLASSNAME}
-                  >
-                    <span className="text-[15px] font-semibold leading-5 text-foreground">
-                      More door details
-                    </span>
-                    <ChevronDown
-                      className={cn(
-                        "h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform duration-200",
-                        doorDetailsOpen && "rotate-180",
-                      )}
-                      strokeWidth={2.2}
-                      aria-hidden
-                    />
-                  </button>
-                  <div
-                    id={doorDetailsId}
-                    hidden={!doorDetailsOpen}
-                    className="mt-3.5 space-y-3.5"
-                  >
-                    <div>
-                      <label
-                        htmlFor="saved-location-landmark"
-                        className={controlLabelClassName}
-                      >
-                        Landmark
-                      </label>
-                      <input
-                        id="saved-location-landmark"
-                        type="text"
-                        value={addressDetails.landmark}
-                        onChange={(event) =>
-                          updateAddressDetail("landmark", event.target.value)
-                        }
-                        disabled={interactionBusy}
-                        maxLength={100}
-                        autoComplete={
-                          deferredUntilVault ? "off" : "address-line2"
-                        }
-                        placeholder="Opposite City Mall"
-                        className={controlInputClassName}
-                      />
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="saved-location-building-color"
-                        className={controlLabelClassName}
-                      >
-                        Building colour
-                      </label>
-                      <input
-                        id="saved-location-building-color"
-                        type="text"
-                        value={addressDetails.buildingColor}
-                        onChange={(event) =>
-                          updateAddressDetail("buildingColor", event.target.value)
-                        }
-                        disabled={interactionBusy}
-                        maxLength={40}
-                        autoComplete="off"
-                        placeholder="Blue gate"
-                        className={controlInputClassName}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Only shown pre-vault, where it is new information: the save
-                  is deferred. Once a vault exists the place saves right away,
-                  and "private to you" was already said on the summary pane --
-                  repeating it here answered a question nobody was asking. */}
-              {deferredUntilVault ? (
-                <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
-                  Saves once your lock is set.
-                </p>
-              ) : null}
+              {/* A caption, not a card. It reassures; it is not a control, and
+                  the panel it used to sit in gave it a control's weight. */}
+              <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
+                {deferredUntilVault
+                  ? "Saves once your lock is set."
+                  : "Private to you."}
+              </p>
             </div>
 
             <div className={SHEET_FOOTER_CLASSNAME}>
@@ -1481,18 +1334,20 @@ export function SaveLocationModal({
             </button>
 
             {/* This pane rendered no indicator and no grabber at all, so the
-                sheet's header geometry changed the moment you advanced. It
-                is also the pane a cold start lands on most often: both call
-                sites pass `startWithMapPicker`, but `mapInitial` is null
-                until the GPS fix resolves, which collapses `carouselMode`. */}
-            <SheetIndicator
-              carouselMode={carouselMode}
-              index={0}
-              count={2}
-              labels={carouselLabels}
-              canAdvance={canPickOnMap}
-              onSelect={goToSlide}
-            />
+                sheet's header geometry changed the moment you advanced. It is
+                also the pane a cold start lands on most often: both call sites
+                pass `startWithMapPicker`, but `mapInitial` is null until the
+                GPS fix resolves, which collapses `carouselMode`. */}
+            <SheetDragRegion>
+              <SheetIndicator
+                carouselMode={carouselMode}
+                index={0}
+                count={2}
+                labels={carouselLabels}
+                canAdvance={canPickOnMap}
+                onSelect={goToSlide}
+              />
+            </SheetDragRegion>
 
             <header className="pr-8">
               <span className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
@@ -1711,14 +1566,23 @@ export function SaveLocationModal({
 
   /**
    * On a phone this is the app's own bottom sheet -- the same component, drag
-   * handle and drag-to-dismiss the Market surfaces use -- rather than a
-   * dialog wearing a sheet's corners. Above 640px it stays the centred dialog
-   * it already was.
+   * handle and drag-to-dismiss the rest of the app uses -- rather than a dialog
+   * wearing a sheet's corners. Above 640px it stays the centred dialog it
+   * already was.
    *
    * `contentDragDismiss` is off because the details pane is a fixed frame with
-   * its own inner scroller: the outer surface never scrolls, so a body drag
-   * would engage on every downward swipe and cancel the scroll it was meant to
-   * be. The header row is the drag surface instead -- see `SheetDragRegion`.
+   * its own inner scroller: the outer surface never scrolls, so its `scrollTop`
+   * is permanently 0, a body drag would engage on every downward swipe and
+   * `preventDefault()` the scroll it was meant to be. The header row is the
+   * drag surface instead -- see `SheetDragRegion`.
+   *
+   * It is off for the map pane too, and there the reason is stronger: dragging
+   * DOWN on a map is how you move the pin north. A body-origin dismissal would
+   * take that gesture and close the sheet instead, on the one screen whose
+   * whole job is moving the pin. One drag surface, and it is the rail.
+   *
+   * No `max-w` and no `mx-auto`: a bottom sheet spans the bottom of the screen.
+   * See `SHEET_SURFACE_CLASSNAME`.
    */
   if (sheetPresentation) {
     return (
@@ -1743,7 +1607,8 @@ export function SaveLocationModal({
             if (interactionBusy || flowStep === "map") event.preventDefault();
           }}
           className={cn(
-            "z-[601] mx-auto max-h-[min(92dvh,760px)] w-full max-w-[420px] rounded-t-[24px]",
+            "z-[601]",
+            SHEET_SURFACE_CLASSNAME,
             surfaceEdgeClassName,
             surfacePaddingClassName,
             surfaceShadowClassName,
@@ -1774,8 +1639,8 @@ export function SaveLocationModal({
           if (interactionBusy || flowStep === "map") event.preventDefault();
         }}
         className={cn(
-          "z-[601] bottom-[var(--kb-height,0px)] top-auto max-h-[min(92dvh,760px)] w-full max-w-[420px] translate-y-0",
-          "rounded-b-none rounded-t-[24px] sm:bottom-auto sm:top-[50%] sm:translate-y-[-50%] sm:rounded-[20px]",
+          "z-[601] rounded-[20px] border",
+          DIALOG_SURFACE_CLASSNAME,
           surfaceEdgeClassName,
           surfacePaddingClassName,
           surfaceShadowClassName,

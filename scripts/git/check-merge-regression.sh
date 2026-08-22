@@ -48,7 +48,14 @@ TARGET="${3:-HEAD}"
 
 MODE="${MERGE_REGRESSION_MODE:-warn}"
 MIN_LEN="${MERGE_REGRESSION_MIN_LINE_LEN:-12}"
-THRESHOLD="${MERGE_REGRESSION_THRESHOLD_PCT:-40}"
+# 30, not 40: re-running the actual 2026-08-19 incident through this script
+# after fixing the hook-wiring bugs scored 33% -- just under a 40% default,
+# a real miss on the textbook case this tool exists for. 30 catches it while
+# staying clean on every confirmed-benign case tested (a shared test-list
+# line, a repeated boilerplate signature). Still just a threshold on a text
+# heuristic -- see the skill for the false-negative classes no threshold
+# value can fix (MIN_LEN, the exclude list, reformatting, cross-file breaks).
+THRESHOLD="${MERGE_REGRESSION_THRESHOLD_PCT:-30}"
 
 # Generated/derived files churn on every regen and are covered by their own
 # generation-check gates elsewhere in CI; they are pure noise here.
@@ -73,13 +80,39 @@ read_target_file() {
 
 CHANGED_FILES="$(git diff --name-only --diff-filter=M "$BASE" "$UPSTREAM" | grep -Ev "$EXCLUDE_RE" || true)"
 
+# Optional narrowing to the files a specific diff range touches. Used by the
+# CI orchestrator's wide-window pass: over a 7- or 14-day window main modifies
+# hundreds of files, but a PR can only have dropped content from files the PR
+# itself touches. Intersecting the two makes the wide pass both fast and
+# quiet — every file outside the PR's own diff is, by construction, unchanged
+# by it and can only produce noise.
+if [ -n "${MERGE_REGRESSION_LIMIT_TO:-}" ] && [ -n "$CHANGED_FILES" ]; then
+  LIMIT_FILES="$(git diff --name-only $MERGE_REGRESSION_LIMIT_TO 2>/dev/null || true)"
+  if [ -z "$LIMIT_FILES" ]; then
+    CHANGED_FILES=""
+  else
+    CHANGED_FILES="$(comm -12 <(printf '%s\n' "$CHANGED_FILES" | sort -u) <(printf '%s\n' "$LIMIT_FILES" | sort -u))"
+  fi
+fi
+
 if [ -z "$CHANGED_FILES" ]; then
   echo "[merge-regression] No modified-file overlap between $BASE and $UPSTREAM to check."
   exit 0
 fi
 
 TMP_REPORT="$(mktemp)"
-trap 'rm -f "$TMP_REPORT"' EXIT
+# Dump whatever was collected if this script dies for any reason other than
+# its own two designed exits (0 clean, 1 flagged-in-block-mode). The report is
+# built into a temp file and only printed at the end, so an unexpected death
+# mid-scan used to destroy the finding AND — under `continue-on-error` in CI —
+# look exactly like a pass. A silent detector is worse than no detector.
+trap 'rc=$?
+      if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then
+        echo "[merge-regression] INTERNAL ERROR — exited $rc mid-scan. Partial findings:" >&2
+        cat "$TMP_REPORT" >&2 2>/dev/null || true
+        echo "[merge-regression] Treat this run as INCONCLUSIVE, not clean." >&2
+      fi
+      rm -f "$TMP_REPORT"' EXIT
 
 FLAGGED=0
 CHECKED=0
@@ -176,7 +209,12 @@ while IFS= read -r f; do
       echo ""
       echo "FILE: $f"
       echo "  Landed on $UPSTREAM via:"
-      git log --format='    %h %an: %s' "$BASE".."$UPSTREAM" -- "$f" | head -5
+      # `git log -n 5`, never `git log | head -5`. Under `set -o pipefail`,
+      # head closing the pipe early sends git SIGPIPE, the pipeline reports
+      # 141, and `set -e` kills the script — at the FIRST flagged file whose
+      # history is longer than five commits, before anything is printed. That
+      # made every real finding invisible while the check still looked green.
+      git log -n 5 --format='    %h %an: %s' "$BASE".."$UPSTREAM" -- "$f"
       if [ "$added_pct" -ge "$THRESHOLD" ]; then
         echo "  ${missing}/${added_total} of upstream's added lines are MISSING (${added_pct}%):"
         for m in "${missing_lines[@]:0:8}"; do
@@ -199,6 +237,7 @@ if [ "$FLAGGED" -eq 1 ]; then
   echo "============================================================"
   echo "[merge-regression] POSSIBLE REGRESSION — resolved content is missing"
   echo "lines that $UPSTREAM already had for this file since $BASE."
+  echo "Checked $CHECKED file(s); flagged the ones below."
   echo "============================================================"
   cat "$TMP_REPORT"
   echo ""

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { PageHeader, SectionHeader } from "@/components/app-ui/page-sections";
 
 describe("PageHeader", () => {
-  it("uses the shared mobile stacking and description clamp slots", () => {
+  it("uses the shared mobile stacking and keeps the full description", () => {
     const { container } = render(
       <PageHeader
         eyebrow="Picks"
@@ -26,15 +26,15 @@ describe("PageHeader", () => {
     expect(leading?.className).toContain("self-stretch");
     expect(row?.className).toContain("flex-col");
     expect(row?.className).toContain("sm:flex-row");
-    expect(description?.className).toContain("line-clamp-1");
-    expect(description?.className).not.toContain("sm:line-clamp-none");
+    expect(description?.className).toContain("ui-text-page-subtitle");
+    expect(description?.className).not.toContain("line-clamp");
     expect(actions?.className).toContain("sm:shrink-0");
     expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
   });
 });
 
 describe("SectionHeader", () => {
-  it("applies the same mobile clamp and action layout rules", () => {
+  it("applies the same full-description and action layout rules", () => {
     const { container } = render(
       <SectionHeader
         eyebrow="My list"
@@ -55,8 +55,8 @@ describe("SectionHeader", () => {
     expect(leading?.className).toContain("self-stretch");
     expect(row?.className).toContain("flex-col");
     expect(row?.className).toContain("sm:flex-row");
-    expect(description?.className).toContain("line-clamp-1");
-    expect(description?.className).not.toContain("sm:line-clamp-none");
+    expect(description?.className).toContain("ui-text-page-subtitle");
+    expect(description?.className).not.toContain("line-clamp");
     expect(actions?.className).toContain("sm:justify-end");
     expect(screen.getByRole("button", { name: "Template" })).toBeTruthy();
   });

@@ -907,7 +907,7 @@ export function KaiFlow({
                     id: "portfolio_review",
                     title: "Review imported portfolio",
                     purpose:
-                      "Lets you inspect parsed holdings before saving them.",
+                      "Lets you inspect parsed holdings before saving them into Finance.",
                   },
                 ]
               : [
@@ -1608,9 +1608,7 @@ export function KaiFlow({
       const detail = (event as CustomEvent<{ userId?: string; error?: string }>)
         .detail;
       if (!detail || detail.userId !== userId) return;
-      toast.error("Background portfolio save failed.", {
-        description: detail.error || "Reopen import and try saving again.",
-      });
+      toast.error("Background portfolio save failed.");
     };
 
     window.addEventListener("kai:portfolio-saved", handlePortfolioSaved);
@@ -1842,7 +1840,7 @@ export function KaiFlow({
           });
           setError(null);
           toast.info(
-            "Your statement will import after you set a lock.",
+            "Your statement will import after you finish setting up your private vault.",
           );
           router.push(ROUTES.ONE_SETUP);
           return;
@@ -1851,7 +1849,7 @@ export function KaiFlow({
         setResumeImportAfterVault(false);
         setVaultDialogOpen(true);
         setError(null);
-        toast.info("Set a lock, or unlock it, to import a portfolio.");
+        toast.info("Set up or open your private vault to import a portfolio.");
         return;
       }
 
@@ -1963,10 +1961,7 @@ export function KaiFlow({
           setStreaming(snapshot.streaming);
           setError(null);
           setState("importing");
-          toast.message("Portfolio import is already running.", {
-            description:
-              "You can continue now or review it later from background tasks.",
-          });
+          toast.message("Portfolio import is already running.");
           return;
         }
         if (snapshot && snapshot.status === "completed") {
@@ -1984,9 +1979,7 @@ export function KaiFlow({
             ...prev,
             parsedPortfolio: undefined,
           }));
-          toast.message("Starting a new portfolio import.", {
-            description: "Previous import snapshot was cleared.",
-          });
+          toast.message("Starting a new portfolio import. Previous import snapshot was cleared.");
         }
         if (snapshot && snapshot.status !== "completed") {
           if (snapshot.taskId) {
@@ -1998,9 +1991,7 @@ export function KaiFlow({
           activeImportTaskIdRef.current = null;
           activeImportRunIdRef.current = null;
           activeImportCursorRef.current = 0;
-          toast.message("Recovered a stale import lock.", {
-            description: "Starting a fresh import now.",
-          });
+          toast.message("Recovered a stale import lock. Starting a fresh import now.");
         }
       } else {
         const snapshot = loadImportBackgroundSnapshot(userId);
@@ -2013,10 +2004,7 @@ export function KaiFlow({
           setStreaming(snapshot.streaming);
           setError(null);
           setState("importing");
-          toast.message("Portfolio import is already running.", {
-            description:
-              "You can continue now or review it later from background tasks.",
-          });
+          toast.message("Portfolio import is already running.");
           return;
         }
         if (snapshot?.status === "completed") {
@@ -2034,9 +2022,7 @@ export function KaiFlow({
             ...prev,
             parsedPortfolio: undefined,
           }));
-          toast.message("Starting a new portfolio import.", {
-            description: "Previous import snapshot was cleared.",
-          });
+          toast.message("Starting a new portfolio import. Previous import snapshot was cleared.");
         }
         if (snapshot?.status === "failed") {
           if (snapshot.taskId) {
@@ -2069,17 +2055,12 @@ export function KaiFlow({
           "portfolio_import_stream",
         )
       ) {
-        toast.message("Another portfolio import is already running.", {
-          description:
-            "Please wait for it to finish before starting a new one.",
-        });
+        toast.message("Another portfolio import is already running.");
         return;
       }
 
       if (importStartInFlightRef.current) {
-        toast.message("Portfolio import is already starting.", {
-          description: "Please wait a moment before starting another import.",
-        });
+        toast.message("Portfolio import is already starting.");
         return;
       }
       importStartInFlightRef.current = true;
@@ -3379,7 +3360,7 @@ export function KaiFlow({
             environment: environment ?? null,
           });
           toast.info(
-            "Plaid will open after you set a lock.",
+            "Plaid will open after you finish setting up your private vault.",
           );
           router.push(ROUTES.ONE_SETUP);
           return;
@@ -3387,7 +3368,7 @@ export function KaiFlow({
         setPendingPlaidConnection(true);
         setResumePlaidAfterVault(false);
         setVaultDialogOpen(true);
-        toast.info("Set a lock to connect your portfolio.");
+        toast.info("Set up your private vault to connect your portfolio.");
         return;
       }
       setIsConnectingPlaid(true);
@@ -3508,7 +3489,7 @@ export function KaiFlow({
                     setResumePlaidAfterVault(false);
                     setVaultDialogOpen(true);
                     toast.info(
-                      "Set a lock, or unlock it, to save Plaid details.",
+                      "Set up or open your private vault to save Plaid details.",
                     );
                   } else if (mode === "import") {
                     if (onSetupSourceSettled && !shouldSettleSetupSource) {
@@ -3567,17 +3548,12 @@ export function KaiFlow({
 
           handler.open();
         });
-      } catch (plaidError) {
+      } catch {
         clearPlaidOAuthResumeSession();
         if (onboardingAttemptId) {
           await onSetupConnectorAttemptSettled?.("failed", onboardingAttemptId);
         }
-        toast.error("Could not connect Plaid.", {
-          description:
-            plaidError instanceof Error
-              ? plaidError.message
-              : "Please try again.",
-        });
+        toast.error("Could not connect Plaid.");
       } finally {
         setIsConnectingPlaid(false);
         await loadPlaidStatusSnapshot();
@@ -3660,7 +3636,7 @@ export function KaiFlow({
       setError(null);
       toast.success(
         vaultKey
-          ? "Sample brokerage information loaded. Review and save."
+          ? "Sample brokerage information loaded. Review and save to Vault."
           : "Sample brokerage information loaded. Review it and continue setup when ready.",
       );
     } catch (preloadError) {
@@ -3729,7 +3705,7 @@ export function KaiFlow({
   const handleAnalyzeStock = useCallback(
     (symbol: string, _options?: AnalysisLaunchOptions) => {
       if (!symbol || !effectiveVaultOwnerToken) {
-        toast.error("Set a lock, or unlock it, first.");
+        toast.error("Set up or open your private vault first.");
         return;
       }
       useKaiSession.getState().setAnalysisParams(null);
@@ -3770,7 +3746,7 @@ export function KaiFlow({
   }
 
   return (
-    <div className="flex w-full flex-col">
+    <div className="flex w-full flex-col h-full overflow-hidden">
       {/* State-based rendering */}
       {state === "import_required" && (
         <PortfolioImportView
@@ -3942,13 +3918,13 @@ export function KaiFlow({
           onOpenChange={setVaultDialogOpen}
           title={
             pendingPlaidConnection
-              ? "Set a lock for Plaid"
-              : "Set a lock for Finance"
+              ? "Set up your private vault for Plaid"
+              : "Set up your private vault for Finance"
           }
           description={
             pendingPlaidConnection
-              ? "Unlock so One can save the Plaid portfolio details you approved."
-              : "Set a lock, or unlock it, before importing your statement."
+              ? "Open your private vault so One can save the Plaid portfolio details you approved."
+              : "Set up or open your private vault before importing your statement."
           }
           enableGeneratedDefault={!preferPassphraseUnlockForAutomation()}
           onSuccess={() => {

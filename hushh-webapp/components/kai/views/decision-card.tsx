@@ -1277,8 +1277,8 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
 
         {/* DISCLAIMER */}
         <div className="pt-4">
-          <p className="text-[10px] text-muted-foreground/70 text-center leading-relaxed max-w-xs mx-auto">
-            This is an educational tool and does not constitute investment advice. Always consult a qualified
+          <p className="text-[10px] text-muted-foreground/50 text-center leading-relaxed max-w-xs mx-auto">
+            Agent One is an educational tool and does not constitute investment advice. Always consult a qualified
             financial advisor.
           </p>
         </div>

@@ -45,7 +45,6 @@ import {
   type CircleRecipientSelection,
 } from "@/lib/one-location/circle-recipient-selection";
 import { CircleGrowActions } from "@/components/one-location/redesign/circles/circle-grow-actions";
-import { circleListMemberCountLabel } from "@/components/one-location/redesign/circles/named-circle-flows";
 
 import { TaskFlowHeader } from "./primitives";
 import type { LocationHubViewModel } from "./location-redesign-hub";
@@ -659,7 +658,7 @@ export function CheckInFlow({
                   <span className="block text-[15px] leading-5 text-muted-foreground">
                     {selected
                       ? `${circleSelection.ready.length} ready now`
-                      : circleListMemberCountLabel(circle.memberCount)}
+                      : `${circle.memberCount} members`}
                   </span>
                 </span>
                 <span className="text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)]">
@@ -715,7 +714,10 @@ export function CheckInFlow({
       ) : null}
 
       <div
-        className={cn(CARD, "mb-2 flex items-center gap-2 px-[14px] py-[11px]")}
+        className={cn(
+          CARD,
+          "mb-2 flex items-center gap-2 px-[14px] py-[11px] focus-within:ring-2 focus-within:ring-inset focus-within:ring-[color:var(--app-accent-ring)]",
+        )}
       >
         <Search className="h-3.5 w-3.5 shrink-0 text-[color:var(--app-tertiary-label)]" />
         <input

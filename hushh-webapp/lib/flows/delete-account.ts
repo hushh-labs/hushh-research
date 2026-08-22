@@ -19,9 +19,9 @@ export type DeleteAccountAuthResolution =
  * whether its entry point is Profile or the onboarding shell. Keep the copy
  * and confirmed mutation here so route-local affordances cannot drift.
  */
-export const DELETE_ACCOUNT_DIALOG_TITLE = "Delete your One account?";
+export const DELETE_ACCOUNT_DIALOG_TITLE = "Delete One account?";
 export const DELETE_ACCOUNT_DIALOG_DESCRIPTION =
-  "This can't be undone — it deletes your account, private data, and every connected service.";
+  "Deletes your account, vault, saved details, and connected services. This cannot be undone.";
 
 export async function resolveDeleteAccountAuth(params: {
   userId: string;

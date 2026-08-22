@@ -47,11 +47,15 @@ BEGIN
 END
 $$;
 
--- Same name, dropped and re-added together: the DO block above deliberately
--- leaves a constraint already carrying this name untouched, so a replay
--- against an environment where this migration already ran would otherwise
--- collide with the ADD below -- exactly the bug 158 shipped with, caught here
--- before it could repeat.
+-- Replay-safe: the DO block above deliberately spares this constraint so it
+-- does not drop the one it is about to create, which is right on a first run
+-- and fatal on a replay -- `ALTER TABLE ... ADD CONSTRAINT` has no
+-- IF NOT EXISTS in Postgres, so a second pass raised DuplicateObjectError and
+-- aborted the whole transaction. The UAT lane runs
+-- `db/migrate.py --release --migration-mode replay`, so re-running this file
+-- against a database that already has it is the normal case, not the
+-- exception. Dropping first makes the pair idempotent; re-adding revalidates
+-- the same widened bound inside this transaction.
 ALTER TABLE one_location_circle_invite_codes
   DROP CONSTRAINT IF EXISTS one_location_circle_invite_codes_max_uses_bounds;
 

@@ -8,7 +8,7 @@ export const HOME_FAQ: readonly FaqItem[] = [
   {
     question: "What is Hussh?",
     answer:
-      "Hussh is the platform and trust infrastructure for consent-first private AI agents. It provides scoped access, bring-your-own-key (BYOK), zero-knowledge encryption, and encrypted personal knowledge memory (PKM), so your information stays yours.",
+      "Hussh is the platform and trust infrastructure for consent-first private AI agents. It provides scoped access, bring-your-own-key (BYOK), a zero-knowledge vault, and encrypted personal knowledge memory (PKM), so your information stays yours.",
   },
   {
     question: "What is One?",
@@ -18,12 +18,12 @@ export const HOME_FAQ: readonly FaqItem[] = [
   {
     question: "What are Kai, Nav, and KYC?",
     answer:
-      "Kai is the finance specialist for portfolio, market intelligence, and investing workflows. Nav is the privacy and consent guardian for scope review, access, and deletion. KYC is the identity workflow specialist for verification and structured PKM writeback.",
+      "Kai is the finance specialist for portfolio, market intelligence, and investing workflows. Nav is the privacy and consent guardian for scope review, vault, and deletion. KYC is the identity workflow specialist for verification and structured PKM writeback.",
   },
   {
     question: "How does Hussh protect my information?",
     answer:
-      "Every read or action happens only after you grant a scoped consent token. Keys are yours through BYOK, storage is zero-knowledge, and your personal knowledge memory is encrypted. There are no silent reads and no implied platform access.",
+      "Every read or action happens only after you grant a scoped consent token. Keys are yours through BYOK, the vault is zero-knowledge, and your personal knowledge memory is encrypted. There are no silent reads and no implied platform access.",
   },
   {
     question: "Is Hussh available on mobile?",

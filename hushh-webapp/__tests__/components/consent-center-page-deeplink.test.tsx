@@ -780,7 +780,7 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     render(<ConsentCenterPage />);
 
-    expect(await screen.findByText("Unlock to review")).toBeTruthy();
+    expect(await screen.findByText("Unlock vault to review")).toBeTruthy();
     expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
   });
 

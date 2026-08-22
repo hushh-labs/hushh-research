@@ -382,6 +382,37 @@ describe("agent PKM memory helpers", () => {
     });
   });
 
+  it("redacts rejected proposal payloads from the user-facing error", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    apiFetchMock.mockResolvedValue({
+      ok: false,
+      status: 422,
+      json: async () => ({
+        detail: [{ type: "string_too_long", input: "private imported profile must not escape" }],
+      }),
+    });
+
+    await expect(previewAgentPkmMemory({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      message: "private imported profile must not escape",
+      currentDomains: ["identity"],
+      ingestionId: "ingestion-1",
+      chunkIndex: 2,
+    })).rejects.toThrow("Memory preparation failed (string_too_long). Please try again.");
+
+    expect(consoleError).toHaveBeenCalledWith(
+      "[PKM_INGEST] proposal_failed",
+      expect.objectContaining({
+        ingestion_id: "ingestion-1",
+        chunk_index: 2,
+        status: 422,
+        error_code: "string_too_long",
+      }),
+    );
+    consoleError.mockRestore();
+  });
+
   it("saves reviewed PKM cards through the write coordinator and invalidates cached context", async () => {
     await loadAgentPkmContext({
       userId: "user_1",
@@ -435,6 +466,82 @@ describe("agent PKM memory helpers", () => {
     expect(plan.summary).not.toHaveProperty("message_excerpt");
     expect(plan.summary).not.toHaveProperty("card_id");
     expect(peekAgentPkmContext({ userId: "user_1", message: "writing" })).toBeNull();
+  });
+
+  it("writes independent domains concurrently while preserving per-domain merge order", async () => {
+    const pendingWrites = new Map<string, Array<() => void>>();
+    pkmSavePreparedDomainMock.mockImplementation(({ domain }: { domain: string }) =>
+      new Promise((resolve) => {
+        const resolvers = pendingWrites.get(domain) || [];
+        resolvers.push(() => resolve({ success: true, saveState: "saved", message: "Saved", fullBlob: {} }));
+        pendingWrites.set(domain, resolvers);
+      }),
+    );
+
+    const saveTask = addToPKM({
+      userId: "user_1",
+      cards: [
+        {
+          card_id: "preference-1",
+          source_text: "I prefer concise summaries.",
+          write_mode: "can_save",
+          target_domain: "preferences",
+          candidate_payload: { writing: { default_style: "concise" } },
+          structure_decision: { target_domain: "preferences" },
+        },
+        {
+          card_id: "education-1",
+          source_text: "I study engineering.",
+          write_mode: "can_save",
+          target_domain: "education",
+          candidate_payload: { field: "engineering" },
+          structure_decision: { target_domain: "education" },
+        },
+        {
+          card_id: "preference-2",
+          source_text: "I like gaming laptops.",
+          write_mode: "can_save",
+          target_domain: "preferences",
+          candidate_payload: { hardware: { preference: "gaming laptop" } },
+          structure_decision: { target_domain: "preferences" },
+        },
+      ],
+      sourceMessage: "Imported profile",
+      vaultKey: "vault_key",
+      vaultOwnerToken: "owner-token",
+      confirmation: {
+        confirmedByUser: true,
+        surface: "chat",
+        source: "agent_chat_review_button",
+      },
+    });
+
+    expect(pkmSavePreparedDomainMock.mock.calls.map(([params]) => params.domain)).toEqual([
+      "preferences",
+      "education",
+    ]);
+    expect(pendingWrites.get("preferences")).toHaveLength(1);
+
+    pendingWrites.get("education")?.[0]?.();
+    pendingWrites.get("preferences")?.[0]?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(pkmSavePreparedDomainMock.mock.calls.map(([params]) => params.domain)).toEqual([
+      "preferences",
+      "education",
+      "preferences",
+    ]);
+    pendingWrites.get("preferences")?.[1]?.();
+
+    await expect(saveTask).resolves.toMatchObject({
+      saved: 3,
+      results: [
+        { cardId: "preference-1", success: true },
+        { cardId: "education-1", success: true },
+        { cardId: "preference-2", success: true },
+      ],
+    });
   });
 
   it("returns a scoped, private-agent save receipt for a reviewed preference", async () => {

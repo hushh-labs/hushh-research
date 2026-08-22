@@ -484,7 +484,7 @@ export function AgentHistorySidebar({
           ) : null}
 
           {!collapsed && !loading && conversations.length === 0 ? (
-            <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-black/10 px-3 text-center text-xs text-[rgba(0,0,0,0.46)] dark:border-white/10 dark:text-zinc-400">
+            <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-black/10 px-3 text-center text-xs text-[rgba(0,0,0,0.46)] dark:border-white/10 dark:text-zinc-500">
               No chats yet
             </div>
           ) : null}
@@ -493,7 +493,7 @@ export function AgentHistorySidebar({
           !loading &&
           conversations.length > 0 &&
           filteredConversations.length === 0 ? (
-            <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-black/10 px-3 text-center text-xs text-[rgba(0,0,0,0.46)] dark:border-white/10 dark:text-zinc-400">
+            <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-black/10 px-3 text-center text-xs text-[rgba(0,0,0,0.46)] dark:border-white/10 dark:text-zinc-500">
               No chats match &ldquo;{searchQuery.trim()}&rdquo;
             </div>
           ) : null}

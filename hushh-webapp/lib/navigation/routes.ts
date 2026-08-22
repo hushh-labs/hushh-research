@@ -7,6 +7,8 @@ export { ONE_SETUP_CAPABILITY_IDS } from "@/lib/onboarding/setup-capability-ids"
 
 /** The Finance workspace is a One-owned query-tabbed route, not a nested market page. */
 export const KAI_MARKET_PATH = "/one/kai";
+/** Browser-only Firebase handoff; never part of signed-in app navigation. */
+export const HUSHH_TECH_LAUNCH_PATH = "/products/hushh-tech/launch";
 
 export type KaiMarketTab = "market" | "portfolio" | "analysis";
 export type KaiPortfolioSection =
@@ -75,7 +77,8 @@ export const ROUTES = {
   PROFILE_PREFERENCES_GEMINI: "/one/profile/preferences/gemini",
   PROFILE_PREFERENCES_DEVICE: "/one/profile/preferences/device",
   PROFILE_PREFERENCES_VOICE: "/one/profile/preferences/voice",
-  PROFILE_PREFERENCES_VOICE_CHANGELOG: "/one/profile/preferences/voice/changelog",
+  PROFILE_PREFERENCES_VOICE_CHANGELOG:
+    "/one/profile/preferences/voice/changelog",
   PROFILE_SECURITY: "/one/profile/security",
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",
@@ -212,8 +215,15 @@ export function normalizeInternalRouteHref(
   const href = String(value ?? "").trim();
   if (!href) return null;
   if (!href.startsWith("/") || href.startsWith("//")) return null;
-  if (/[\r\n]/.test(href)) return null;
-  return href;
+  if (/[\\\u0000-\u001f\u007f]/.test(href) || /%5c/i.test(href)) return null;
+  try {
+    const parsed = new URL(href, "https://one.local");
+    if (parsed.origin !== "https://one.local") return null;
+    const canonical = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return canonical === href ? canonical : null;
+  } catch {
+    return null;
+  }
 }
 
 export function resolveInternalRouteHref(
@@ -261,26 +271,6 @@ export const SETUP_CAPABILITY_ROUTES: Readonly<Record<string, string>> = {
   ria: ROUTES.ONE_SETUP_RIA,
   "connected-systems": ROUTES.ONE_SETUP_CONNECTED_SYSTEMS,
 };
-
-/**
- * The capability, if any, whose setup workspace owns this exact path. Inverse
- * of {@link buildOneSetupCapabilityRoute}. Used to land a person who is
- * already past the funnel — but standing on a stale `/one/setup/<id>` link,
- * a back-navigation, or a bookmark — on that capability's own workspace
- * instead of a bare admission fallback that forgets which capability they
- * were actually after.
- */
-export function resolveSetupCapabilityIdForPath(
-  pathname: string,
-): string | null {
-  const normalizedPathname = normalizeStaticExportPathname(pathname);
-  for (const [capabilityId, route] of Object.entries(
-    SETUP_CAPABILITY_ROUTES,
-  )) {
-    if (route === normalizedPathname) return capabilityId;
-  }
-  return null;
-}
 
 /**
  * Setup-owned routes that configure the root private agent but are not agent
@@ -450,6 +440,7 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
     normalizedPathname === ROUTES.LOGIN ||
+    isFirebaseSessionOnlyRoute(normalizedPathname) ||
     normalizedPathname === ROUTES.GETTING_STARTED ||
     normalizedPathname === ROUTES.PHONE_MANDATE ||
     // Reached straight from the phone mandate when the number the adviser just
@@ -460,6 +451,12 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
     normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
   );
+}
+
+/** Routes that require Firebase identity, but no setup or private-place state. */
+export function isFirebaseSessionOnlyRoute(pathname: string): boolean {
+  const pathOnly = String(pathname || "/").split(/[?#]/, 1)[0] || "/";
+  return normalizeStaticExportPathname(pathOnly) === HUSHH_TECH_LAUNCH_PATH;
 }
 
 /**

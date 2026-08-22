@@ -19,22 +19,8 @@
  * anything the first time one changes.
  */
 
-/**
- * One word. The narrowest supported phone has to be able to read all of it.
- *
- * Two words did not, once the layout contract started measuring the typeface the
- * app actually ships instead of the one the test machine happened to have:
- * "Search people" needs 116.2px of the 116.0px the field gives it at 320px. The
- * previous fix was calibrated against a narrower fallback face and landed on the
- * boundary, which is the same clipping QA reported ("Search people by nam"),
- * two words later.
- *
- * The field already carries a magnifier glyph and sits above a list of people,
- * and its accessible name stays "Search people" (see `aria-label` in
- * page-client.tsx), so the word the placeholder drops is the one the screen was
- * already saying twice.
- */
-export const CONNECT_SEARCH_PLACEHOLDER = "Search";
+/** Two words. The narrowest supported phone has to be able to read all of it. */
+export const CONNECT_SEARCH_PLACEHOLDER = "Search people";
 
 /** Left inset clears the search glyph; the right one is conditional. */
 export const CONNECT_SEARCH_INPUT_CLASSNAME = "h-10 pl-11";

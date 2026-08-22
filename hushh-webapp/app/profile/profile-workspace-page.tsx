@@ -437,14 +437,22 @@ function isPasskeyVaultMethod(method: VaultMethod | null): boolean {
 }
 
 const VAULT_INLINE_CONTROL_CLASS =
-  "inline-flex h-11 w-[7.5rem] items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium";
+  "inline-flex h-8 w-[7.5rem] items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium";
 const VAULT_INLINE_BADGE_CLASS =
-  "inline-flex h-11 w-[7.5rem] items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium";
+  "inline-flex h-8 w-[7.5rem] items-center justify-center whitespace-nowrap rounded-full px-3 text-xs font-medium";
 
 function vaultWrapperKey(
   wrapper: Pick<VaultWrapper, "method" | "wrapperId">,
 ): string {
   return `${wrapper.method}:${wrapper.wrapperId ?? "default"}`;
+}
+
+function formatPasskeyIdentifier(wrapper: VaultWrapper): string {
+  const raw = wrapper.passkeyCredentialId || wrapper.wrapperId || "";
+  if (!raw) return "Identifier unavailable";
+  const compact = raw.replace(/\s+/g, "");
+  if (compact.length <= 10) return `Identifier ${compact}`;
+  return `Identifier ending ${compact.slice(-6)}`;
 }
 
 function formatPasskeyLabel(wrapper: VaultWrapper): string {
@@ -454,12 +462,9 @@ function formatPasskeyLabel(wrapper: VaultWrapper): string {
   return "Saved passkey";
 }
 
-// A raw credential-id fragment ("Identifier ending FnkQ==") reads as broken
-// output, not information — nobody can act on it. The row title already
-// numbers multiple passkeys ("Passkey 1", "Passkey 2"), so the label alone
-// is enough to tell them apart.
 function describePasskeyWrapper(wrapper: VaultWrapper): string {
-  return formatPasskeyLabel(wrapper);
+  const parts = [formatPasskeyLabel(wrapper), formatPasskeyIdentifier(wrapper)];
+  return parts.join(" / ");
 }
 
 function VaultComingSoonLogos() {
@@ -836,7 +841,7 @@ function ProfilePageContent() {
         status: "updating" as const,
         label: "Unlock required",
         description:
-          "These details stay readable while locked. Unlock to manage section-level sharing controls.",
+          "These details stay readable while locked. Unlock the vault to manage section-level sharing controls.",
         canManagePermissions: false,
       };
     }
@@ -1361,7 +1366,7 @@ function ProfilePageContent() {
 
     if (resolution.kind === "needs_unlock") {
       morphyToast.info(
-        "Unlock first to delete your account.",
+        "Please unlock your vault first to delete your account.",
       );
       setIsDeleting(false);
       setShowDeleteConfirm(false);
@@ -1453,7 +1458,7 @@ function ProfilePageContent() {
     }
 
     if (resolution.kind === "needs_unlock") {
-      morphyToast.info("Unlock first to reset your account.");
+      morphyToast.info("Please unlock your vault first to reset your account.");
       setIsResetting(false);
       setShowResetConfirm(false);
       setVaultUnlockReason("reset_account");
@@ -1742,7 +1747,7 @@ function ProfilePageContent() {
     if (!user?.uid) return;
 
     if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock to change security method.");
+      toast.info("Unlock your vault to change security method.");
       requestVaultUnlock("profile_data");
       return;
     }
@@ -1758,7 +1763,7 @@ function ProfilePageContent() {
 
       setVaultMethod(result.method);
       toast.success(
-        `Unlock method updated to ${readableMethod(result.method)}.`,
+        `Vault method updated to ${readableMethod(result.method)}.`,
       );
       await refreshVaultMethodState(user.uid);
     } catch (error) {
@@ -1780,7 +1785,7 @@ function ProfilePageContent() {
     if (!user?.uid) return;
 
     if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock to change security method.");
+      toast.info("Unlock your vault to change security method.");
       requestVaultUnlock("profile_data");
       return;
     }
@@ -1816,7 +1821,7 @@ function ProfilePageContent() {
     if (!user?.uid) return;
 
     if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock to change security method.");
+      toast.info("Unlock your vault to change security method.");
       requestVaultUnlock("profile_data");
       return;
     }
@@ -1847,12 +1852,12 @@ function ProfilePageContent() {
     if (!user?.uid) return;
 
     if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock to remove a passkey.");
+      toast.info("Unlock your vault to remove a passkey.");
       requestVaultUnlock("profile_data");
       return;
     }
     if (!vaultOwnerToken) {
-      toast.info("Unlock to remove a passkey.");
+      toast.info("Unlock your vault to remove a passkey.");
       requestVaultUnlock("profile_data");
       return;
     }
@@ -1888,7 +1893,7 @@ function ProfilePageContent() {
     if (!user?.uid) return;
 
     if (!vaultAccess.canMutateSecureData || !vaultKey) {
-      toast.info("Unlock to change passphrase.");
+      toast.info("Unlock your vault to change passphrase.");
       requestVaultUnlock("profile_data");
       return;
     }
@@ -1932,7 +1937,7 @@ function ProfilePageContent() {
     "Clears saved details. Keeps sign-in.";
   const resetDialogTitle = "Reset account?";
   const resetDialogDescription =
-    "This clears your connected services, consents, and saved data. Your sign-in and lock remain safe.";
+    "Clears saved details and setup progress. Your sign-in and vault stay.";
 
   const handleVaultUnlockOpenChange = (open: boolean) => {
     setShowVaultUnlock(open);
@@ -1954,12 +1959,12 @@ function ProfilePageContent() {
       ? "Unlock to delete"
       : vaultUnlockReason === "reset_account"
         ? "Unlock to reset"
-        : "Unlock";
+        : "Unlock vault";
   const unlockDialogDescription =
     vaultUnlockReason === "delete_account"
       ? "This permanently removes encrypted records."
       : vaultUnlockReason === "reset_account"
-        ? "Saved details reset. Account and lock stay."
+        ? "Saved details reset. Account and vault stay."
         : "Unlock to continue.";
 
   const displayedUnlockMethod = effectiveVaultMethod ?? vaultMethod;
@@ -1992,9 +1997,9 @@ function ProfilePageContent() {
   );
   const defaultUnlockDescription =
     vaultMethod === "passphrase"
-      ? "Passphrase opens it by default."
+      ? "Passphrase opens your vault by default."
       : vaultMethod
-        ? `${readableMethod(vaultMethod)} opens it by default.`
+        ? `${readableMethod(vaultMethod)} opens your vault by default.`
         : "Default unlock is not set.";
   const canEditKaiPreferences = Boolean(
     user?.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData,
@@ -2037,7 +2042,7 @@ function ProfilePageContent() {
       ? (activeDetail.slice("support-compose:".length) as SupportMessageKind)
       : null;
   const securitySummaryText = vaultAccess.needsVaultCreation
-    ? "No lock yet"
+    ? "Vault not created yet"
     : loadingVaultMethod
       ? "Loading methods…"
       : vaultAccess.needsUnlock
@@ -2062,14 +2067,14 @@ function ProfilePageContent() {
       {
         id: "profile_security",
         label: PROFILE_LABELS.security,
-        purpose: "opens your lock, account access, and account deletion controls.",
+        purpose: "opens vault, account access, and account deletion controls.",
         actionId: "route.profile_security_panel",
         role: "card",
         voiceAliases: [
-          "lock",
-          "set a lock",
-          "unlock",
-          "lock security",
+          "vault",
+          "create your vault",
+          "unlock vault",
+          "vault security",
         ],
       },
       {
@@ -2195,8 +2200,8 @@ function ProfilePageContent() {
                 : activePanel === "security"
                   ? [
                       vaultAccess.needsVaultCreation
-                        ? "Set a lock"
-                        : "Unlock",
+                        ? "Create your vault"
+                        : "Unlock vault",
                       "Change passphrase",
                       "Delete account",
                     ]
@@ -2227,7 +2232,7 @@ function ProfilePageContent() {
                         : PROFILE_LABELS.support
           : "Profile",
         purpose:
-          "This surface manages account details, appearance, help, and your lock's privacy.",
+          "This surface manages account details, appearance, help, and vault privacy.",
         sections: [
           {
             id: "account",
@@ -2242,7 +2247,7 @@ function ProfilePageContent() {
           {
             id: "security",
             title: PROFILE_LABELS.security,
-            purpose: "Your lock and account access controls.",
+            purpose: "Vault and account access controls.",
           },
           {
             id: "support",
@@ -3214,7 +3219,7 @@ function ProfilePageContent() {
       <SettingsGroup>
         <SettingsRow
           icon={Fingerprint}
-          title="Lock methods"
+          title="Vault methods"
           description="Passphrase, passkey, and unlock method."
           chevron
           onClick={() =>
@@ -3305,11 +3310,11 @@ function ProfilePageContent() {
 
   const vaultMethodsContent = (
     <div className="space-y-4 sm:space-y-5">
-      <SettingsGroup title="Lock">
+      <SettingsGroup title="Vault">
         {vaultAccess.needsVaultCreation ? (
           <SettingsRow
             icon={KeyRound}
-            title="Set a lock"
+            title="Create your vault"
             description="Secure saved details."
             chevron
             onClick={() => setShowVaultCreation(true)}
@@ -3319,7 +3324,7 @@ function ProfilePageContent() {
         {vaultAccess.hasVault && loadingVaultMethod ? (
           <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
             <Icon icon={Loader2} size="sm" className="animate-spin" />
-            Loading lock methods...
+            Loading vault methods...
           </SurfaceInset>
         ) : null}
 
@@ -3377,7 +3382,7 @@ function ProfilePageContent() {
             {!vaultAccess.canMutateSecureData ? (
               <SettingsRow
                 icon={KeyRound}
-                title="Unlock"
+                title="Unlock vault"
                 description="Change methods or passphrase."
                 chevron
                 onClick={() => requestVaultUnlock("profile_data")}
@@ -3474,7 +3479,7 @@ function ProfilePageContent() {
               <SettingsRow
                 icon={RefreshCw}
                 title="Change passphrase"
-                description="Update your lock."
+                description="Update vault protection."
                 disabled={switchingVaultMethod}
                 chevron
                 onClick={() => setPassphraseDialogOpen(true)}
@@ -3885,7 +3890,7 @@ function ProfilePageContent() {
     if (activeDetail === "kai-preferences") {
       profileStackEntries.push({
         key: "detail:kai-preferences",
-        title: "Investing preferences",
+        title: "Finance preferences",
         description: "Investing preferences.",
         content: (
           <ProfileKaiPreferencesPanel
@@ -3941,13 +3946,13 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:security",
       title: PROFILE_LABELS.security,
-      description: "Your lock and sign-in.",
+      description: "Vault and sign-in.",
       content: securityContent,
     });
     if (activeDetail === "vault") {
       profileStackEntries.push({
         key: "detail:vault",
-        title: "Lock methods",
+        title: "Vault methods",
         description: "Unlock methods.",
         content: vaultMethodsContent,
       });
@@ -4070,7 +4075,7 @@ function ProfilePageContent() {
                 voiceControlId="profile_security"
                 voiceActionId="route.profile_security_panel"
                 voiceLabel={PROFILE_LABELS.security}
-                voicePurpose="Opens your lock, account access, and account deletion controls."
+                voicePurpose="Opens vault, account access, and account deletion controls."
                 onClick={openSecurityPanel}
               />
               <SettingsRow
@@ -4166,7 +4171,7 @@ function ProfilePageContent() {
               setTimeout(() => {
                 vaultUnlockCompletingRef.current = false;
               }, 0);
-              toast.success("Unlocked.");
+              toast.success("Vault unlocked.");
               return;
             }
             if (pendingProfileTarget) {
@@ -4182,7 +4187,7 @@ function ProfilePageContent() {
             setTimeout(() => {
               vaultUnlockCompletingRef.current = false;
             }, 0);
-            toast.success("Unlocked.");
+            toast.success("Vault unlocked.");
           }}
         />
       )}
@@ -4192,7 +4197,7 @@ function ProfilePageContent() {
           user={user}
           open={showVaultCreation}
           onOpenChange={setShowVaultCreation}
-          title="Set a lock"
+          title="Create your vault"
           description="Set up a passphrase to secure your saved details."
           onSuccess={() => {
             setShowVaultCreation(false);
@@ -4203,7 +4208,7 @@ function ProfilePageContent() {
               vaultReturnToRef.current = null;
               router.replace(returnTo);
             }
-            toast.success("Lock created.");
+            toast.success("Vault created and unlocked.");
           }}
         />
       )}
@@ -4215,7 +4220,7 @@ function ProfilePageContent() {
         <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md">
           <DialogTitle>Change passphrase</DialogTitle>
           <DialogDescription>
-            Set a new passphrase to unlock. Your passkey and biometric
+            Set a new passphrase for Vault unlock. Your passkey and biometric
             methods stay active.
           </DialogDescription>
           <div className="space-y-3 pt-2">
@@ -4307,7 +4312,7 @@ function ProfilePageContent() {
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle className="app-critical-title flex items-center gap-2">
+            <AlertDialogTitle className="flex items-center gap-2 text-[color:var(--app-destructive)]">
               <Icon icon={AlertTriangle} size="md" />
               {deleteDialogTitle}
             </AlertDialogTitle>
@@ -4323,15 +4328,15 @@ function ProfilePageContent() {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              variant="default"
-              className="app-critical-action min-h-10 w-full !whitespace-normal px-4 py-2 text-center leading-tight opacity-90 transition-opacity hover:opacity-100 sm:w-auto sm:min-w-[12rem]"
+              variant="destructive"
+              className="min-h-10 w-full px-4 py-2 text-center leading-tight sm:w-auto sm:min-w-[10rem]"
               onClick={(event) => {
                 event.preventDefault();
                 void handleDeleteAccount();
               }}
               disabled={isDeleting}
             >
-              {isDeleting ? "Deleting..." : "Yes, delete my account"}
+              {isDeleting ? "Deleting..." : "Delete account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -4357,7 +4362,7 @@ function ProfilePageContent() {
             </AlertDialogCancel>
             <AlertDialogAction
               variant="default"
-              className="min-h-10 w-full !whitespace-normal px-4 py-2 text-center leading-tight sm:w-auto sm:min-w-[12rem]"
+              className="min-h-10 w-full px-4 py-2 text-center leading-tight sm:w-auto sm:min-w-[10rem]"
               onClick={(event) => {
                 event.preventDefault();
                 void handleResetAccount();

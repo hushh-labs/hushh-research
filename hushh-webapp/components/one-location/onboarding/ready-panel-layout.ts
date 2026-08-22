@@ -20,11 +20,56 @@
 
 /** Full-bleed surface the map and panel sit in. Owns the positioning context. */
 export const READY_SURFACE_CLASSNAME =
-  "relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white dark:bg-[#14171d] md:bg-[#eef3f8] md:dark:bg-[#070a0f]";
+  "relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--app-grouped-background)]";
 
-/** A band of its own on phones; the full backdrop from `md:` up. */
+/**
+ * A band of its own on phones; the full backdrop from `md:` up.
+ *
+ * 42dvh, not the 34dvh it carried while it drew a decorative grid. The band was
+ * sized for a picture nobody was meant to look at, and the screen paid for that
+ * twice: too little map to read as a place, and a panel with a hand's width of
+ * empty white in the middle of it once the copy below it came down to what it
+ * needed to be. The 400px cap keeps a 932pt phone from turning the finale into
+ * a map with a strip of content, and `min-h` holds a usable band on a short
+ * landscape window.
+ */
 export const READY_MAP_CLASSNAME =
-  "h-[34dvh] max-h-[300px] min-h-[190px] w-full shrink-0 md:absolute md:inset-0 md:h-full md:max-h-none md:min-h-0";
+  "h-[42dvh] max-h-[400px] min-h-[190px] w-full shrink-0 md:absolute md:inset-0 md:h-full md:max-h-none md:min-h-0";
+
+/**
+ * Where the band yields.
+ *
+ * 42dvh is right on a phone, which is tall. A 1366x768 laptop is shorter than
+ * an iPhone, and there the same fraction pushed "Join with a code" below the
+ * fold -- so the last thing on the screen needed a scroll to discover it
+ * existed. The map yields the height, since it is atmosphere and the link is a
+ * way in. iPhone SE is 667pt and lands here too: 30dvh is 200px there, which
+ * still reads as a place rather than a texture.
+ *
+ * Exported rather than inlined for the same reason as the class strings above:
+ * `e2e/one-location-ready-panel.layout.spec.ts` measures the composition this
+ * produces, and it can only do that if it is reading the same source the
+ * component renders.
+ */
+export const READY_MAP_SHORT_WINDOW_CSS = `
+  @media (max-width: 767px) and (max-height: 820px) {
+    [data-testid="onboarding-live-map"] { height: 30dvh; min-height: 168px; }
+  }
+`;
+
+/**
+ * The invite code itself.
+ *
+ * Here rather than inline for the same reason as the panel: this string is the
+ * one thing on the screen that must survive every width intact. It is twelve
+ * characters plus two separators of fixed-width type, so it cannot reflow --
+ * it either fits or it clips, and clipping a code makes it useless. `clamp`
+ * with a `6vw` middle term is what keeps it inside a 320px phone;
+ * `e2e/one-location-ready-panel.layout.spec.ts` measures that rather than
+ * trusting the arithmetic.
+ */
+export const READY_CODE_CLASSNAME =
+  "mt-2 select-all whitespace-nowrap font-mono text-[clamp(20px,6vw,28px)] font-bold uppercase leading-[1.15] tracking-[0.12em] text-[#151b26] dark:text-[#f5f7fb]";
 
 /**
  * Phones keep the full-width sheet in normal flow -- that is also what the iOS

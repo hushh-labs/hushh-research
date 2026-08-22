@@ -22,6 +22,10 @@ import { cn } from "@/lib/utils";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { DurationWheelPicker } from "./duration-wheel-picker";
 import { DurationPresetPicker } from "./duration-presets";
+import type { DurationRung } from "./duration-presets";
+
+export const LOCATION_SEARCH_INPUT_CLASSNAME =
+  "h-11 w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-inset focus:ring-[color:var(--app-accent-ring)] [&::-webkit-search-cancel-button]:appearance-none";
 
 /**
  * Mirrors the existing page DURATION_OPTIONS so the Select/menu values stay
@@ -47,6 +51,7 @@ export function DurationSelector({
   untilStopValue,
   allowUntilStop = true,
   maxWidthClassName = "max-w-[420px]",
+  rungs,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -79,6 +84,8 @@ export function DurationSelector({
    * of sitting short inside its own card.
    */
   maxWidthClassName?: string | null;
+  /** Presets used by the visible ladder presentation. */
+  rungs?: DurationRung[];
 }) {
   const labelId = useId();
 
@@ -99,10 +106,7 @@ export function DurationSelector({
         // far apart they read.
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           {label ? (
-            <p
-              id={labelId}
-              className="text-sm font-semibold text-foreground"
-            >
+            <p id={labelId} className="text-sm font-semibold text-foreground">
               {label}
             </p>
           ) : (
@@ -119,6 +123,7 @@ export function DurationSelector({
         <DurationPresetPicker
           value={value}
           onChange={onChange}
+          {...(rungs ? { rungs } : {})}
           allowUntilStop={allowUntilStop}
           labelledBy={label ? labelId : undefined}
           {...(untilStopValue ? { untilStopValue } : {})}
@@ -135,13 +140,7 @@ export function DurationSelector({
           <SelectTrigger
             aria-label={label || "Duration"}
             aria-labelledby={label ? labelId : undefined}
-            // `!h-11`, not `h-11`: SelectTrigger's own `data-[size=default]:h-9`
-            // compiles to a compound selector (class + [data-size]) that
-            // outranks a plain `.h-11` on specificity alone, regardless of
-            // source order -- this control was silently rendering at 36px,
-            // under the platform's 44px minimum touch target, on every
-            // screen already using this presentation.
-            className="!h-11 w-full rounded-[14px] border-border/70 bg-[color:var(--app-card-surface-compact)] text-sm shadow-none"
+            className="h-11 w-full rounded-[14px] border-border/70 bg-[color:var(--app-card-surface-compact)] text-sm shadow-none"
           >
             <SelectValue />
           </SelectTrigger>
@@ -233,7 +232,8 @@ export function LocationTypeSelector({
               className={cn(
                 SUBCARD_SURFACE,
                 "flex items-center justify-between p-3.5 text-left transition-colors",
-                active && "border-[color:var(--app-accent)]/50 ring-1 ring-[color:var(--app-accent-ring)]",
+                active &&
+                  "border-[color:var(--app-accent)]/50 ring-1 ring-[color:var(--app-accent-ring)]",
               )}
             >
               <span>
@@ -265,10 +265,7 @@ export function LocationTypeSelector({
 }
 
 export type ReasonValue =
-  | "Safety check-in"
-  | "Meeting nearby"
-  | "Pick-up"
-  | "Other";
+  "Safety check-in" | "Meeting nearby" | "Pick-up" | "Other";
 
 export const REASON_CHIPS: ReasonValue[] = [
   "Safety check-in",
@@ -313,7 +310,11 @@ export function ReasonChips({
           >
             <SelectValue placeholder={placeholder} />
           </SelectTrigger>
-          <SelectContent align="start" position="popper" className="rounded-[14px]">
+          <SelectContent
+            align="start"
+            position="popper"
+            className="rounded-[14px]"
+          >
             {REASON_CHIPS.map((reason) => (
               <SelectItem key={reason} value={reason}>
                 {reason}
@@ -405,7 +406,7 @@ export function PersonSearchInput({
             field.scrollIntoView({ block: "center", behavior: "smooth" });
           }, 250);
         }}
-        className="h-11 w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-[color:var(--app-accent-ring)] [&::-webkit-search-cancel-button]:appearance-none"
+        className={LOCATION_SEARCH_INPUT_CLASSNAME}
       />
     </div>
   );

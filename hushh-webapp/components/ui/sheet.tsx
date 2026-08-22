@@ -272,9 +272,16 @@ function SheetContent(
           drag-dismiss region, this was a genuinely hard target to hit on a
           phone, and a close button that needs two or three tries is
           indistinguishable from one that does not work.
+
+          `z-10` finishes that job. The 44px hit region reaches up to y=10,
+          and the drag handle above it is a full-width `z-[5] touch-none` band
+          occupying y=0..44 -- so on every bottom sheet that shows both, the
+          handle was painted over three quarters of the close target and
+          swallowed its taps. Sitting the close button above the handle leaves
+          the handle draggable everywhere except the corner it never owned.
         */}
         {showCloseButton && (
-          <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-4 right-4 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity after:absolute after:-inset-1.5 after:content-[''] hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+          <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-4 right-4 z-10 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity after:absolute after:-inset-1.5 after:content-[''] hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
             <XIcon className="size-4" />
             <span className="sr-only">Close</span>
           </SheetPrimitive.Close>

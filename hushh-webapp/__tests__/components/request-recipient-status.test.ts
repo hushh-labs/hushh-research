@@ -122,7 +122,7 @@ describe("someone already sharing with you", () => {
     // Asking somebody to share while they already are is the clearest possible
     // sign the list is not looking at anything.
     const status = statusFor({ receivedGrants: [grant({})] });
-    expect(status.subtitle).toBe("Sharing with you, 55 min");
+    expect(status.subtitle).toBe("Sharing with you, 55 more min");
     expect(status.statusLabel).toBe("Live");
     expect(status.selectable).toBe(false);
   });
@@ -130,14 +130,14 @@ describe("someone already sharing with you", () => {
   it("says both when there is also an unanswered ask, because both are true", () => {
     // "Live" used to win outright. But a request for MORE time is made by
     // somebody who is already being shared with, so the row showed "Sharing
-    // with you, 55 min" and nothing else -- the extra time they had just
+    // with you, 55 more min" and nothing else -- the extra time they had just
     // asked for left no trace on the screen they asked it from.
     const status = statusFor({
       requestedByMe: [request({ requestedDurationHours: 4 })],
       receivedGrants: [grant({})],
     });
     expect(status.subtitle).toBe(
-      "Sharing with you, 55 min · asked for 4 hours more",
+      "Sharing with you, 55 more min · asked for 4 hours more",
     );
     expect(status.statusLabel).toBe("Asked");
     expect(status.selectable).toBe(false);
@@ -157,7 +157,7 @@ describe("someone already sharing with you", () => {
       receivedGrants: [grant({})],
     });
     expect(status.subtitle).toBe(
-      "Sharing with you, 55 min · asked for more time",
+      "Sharing with you, 55 more min · asked for more time",
     );
   });
 
@@ -167,7 +167,7 @@ describe("someone already sharing with you", () => {
       receivedGrants: [grant({})],
     });
     expect(status.subtitle).toBe(
-      "Sharing with you, 55 min · asked for no end time",
+      "Sharing with you, 55 more min · asked for no end time",
     );
   });
 
@@ -205,16 +205,16 @@ describe("relative labels", () => {
 
   it("never reports remaining time on access that already ended", () => {
     expect(shortRemaining(NOW - 1, NOW)).toBeNull();
-    expect(shortRemaining(NOW + 55 * 60_000, NOW)).toBe("55 min");
-    expect(shortRemaining(NOW + 60 * 60_000, NOW)).toBe("1 hour");
-    expect(shortRemaining(NOW + 3 * 3_600_000, NOW)).toBe("3 hours");
+    expect(shortRemaining(NOW + 55 * 60_000, NOW)).toBe("55 more min");
+    expect(shortRemaining(NOW + 60 * 60_000, NOW)).toBe("1 more hour");
+    expect(shortRemaining(NOW + 3 * 3_600_000, NOW)).toBe("3 more hours");
   });
 
   it("never overstates the time left", () => {
-    // 90 minutes used to round to "2 hours". A countdown that claims more
+    // 90 minutes used to round to "2 more hours". A countdown that claims more
     // time than exists is worse than none: it is the number people use to
     // decide when to leave, or when to ask for more.
-    expect(shortRemaining(NOW + 90 * 60_000, NOW)).toBe("1h 30m");
-    expect(shortRemaining(NOW + 119 * 60_000, NOW)).toBe("1h 59m");
+    expect(shortRemaining(NOW + 90 * 60_000, NOW)).toBe("1h 30m more");
+    expect(shortRemaining(NOW + 119 * 60_000, NOW)).toBe("1h 59m more");
   });
 });

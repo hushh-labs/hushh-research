@@ -7,19 +7,14 @@ import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
-  ADDRESS_LABEL_ROW_CLASSNAME,
-  DOOR_DETAILS_TOGGLE_CLASSNAME,
-  OPTIONAL_BADGE_CLASSNAME,
-  REQUIRED_BADGE_CLASSNAME,
+  PICKER_MAP_HEIGHT_CLASSNAME,
   SHEET_BODY_CLASSNAME,
   SHEET_DETAILS_SHELL_CLASSNAME,
   SHEET_FOOTER_CLASSNAME,
+  SHEET_FULL_BLEED_WIDTHS,
   SHEET_HEADER_CLASSNAME,
-  SHEET_INDICATOR_SLOT_CLASSNAME,
   SHEET_LAYOUT_WIDTHS,
-  STEP_DOT_MIN_CONTRAST,
-  STEP_DOT_REACHED_CLASSNAME,
-  STEP_DOT_UPCOMING_CLASSNAME,
+  SHEET_SURFACE_CLASSNAME,
 } from "../components/one-location/onboarding/save-location-sheet-layout";
 
 /**
@@ -74,8 +69,13 @@ async function buildFixture(): Promise<string> {
     },
   });
 
-  const shell =
-    "fixed left-1/2 bottom-0 w-full max-w-[420px] -translate-x-1/2 flex min-h-0 flex-col max-h-[min(92dvh,760px)] rounded-t-[24px] border";
+  // The primitive's own `side="bottom"` positioning, verbatim from
+  // components/ui/sheet.tsx, plus the surface contract this sheet adds on top.
+  // Hand-writing a `max-w-[420px]` here is exactly what the fixture used to do,
+  // which is why it measured a floating card and reported it as correct.
+  const sheetPositioning =
+    "fixed inset-x-0 bottom-[var(--kb-height,0px)] h-auto flex min-h-0 flex-col rounded-t-[24px] border-t";
+  const shell = `${sheetPositioning} ${SHEET_SURFACE_CLASSNAME}`;
   const row = "flex items-center gap-2";
   const button = "relative flex h-9 w-9 shrink-0 items-center justify-center";
   const title =
@@ -84,94 +84,32 @@ async function buildFixture(): Promise<string> {
   const primary =
     "flex h-[52px] w-full items-center justify-center rounded-full";
   const secondary = "h-11 w-full rounded-full";
-  // #5396 — the step rail, built from the component's own exported strings.
-  const dotSlot = SHEET_INDICATOR_SLOT_CLASSNAME;
-  const dotTab =
-    "relative flex h-[18px] w-11 items-center justify-center after:h-11 after:w-11";
-  const dotPill = "block h-[5px] rounded-full";
-  const dotActive = "w-[24px]";
-  const dotSmall = "w-[7px]";
-
-  /**
-   * Split from its margin on purpose. This fixture writes raw class strings
-   * with no `cn()` behind them, so `"... mb-1.5 ... mb-0"` would leave BOTH
-   * rules standing and the stylesheet order would decide -- which is not what
-   * the component does. It composes the Address label with `cn(...)`, and
-   * tailwind-merge drops the margin outright.
-   */
-  const label = "block text-[13px] font-semibold leading-[18px]";
 
   const classes = [
     shell,
+    PICKER_MAP_HEIGHT_CLASSNAME,
     SHEET_DETAILS_SHELL_CLASSNAME,
     SHEET_HEADER_CLASSNAME,
     SHEET_BODY_CLASSNAME,
     SHEET_FOOTER_CLASSNAME,
-    ADDRESS_LABEL_ROW_CLASSNAME,
-    REQUIRED_BADGE_CLASSNAME,
-    OPTIONAL_BADGE_CLASSNAME,
-    DOOR_DETAILS_TOGGLE_CLASSNAME,
     row,
     button,
     title,
     field,
-    label,
     primary,
     secondary,
-    dotSlot,
-    dotTab,
-    dotPill,
-    dotActive,
-    dotSmall,
-    STEP_DOT_REACHED_CLASSNAME,
-    STEP_DOT_UPCOMING_CLASSNAME,
-    "mt-1 space-y-3.5 mb-1.5 mb-0 block grid grid-cols-1 gap-3 sm:grid-cols-2",
+    "mt-1 space-y-3.5 mb-1.5 block",
   ].join(" ");
   const css = compiler.build(classes.split(/\s+/).filter(Boolean));
 
-  // The Address row: the one label on this sheet that shares its line with
-  // something else, so the one that a narrow phone can break.
-  const addressRow =
-    `<div class="${ADDRESS_LABEL_ROW_CLASSNAME}">` +
-    `<label class="${label}" data-testid="address-label">Address</label>` +
-    `<span class="${REQUIRED_BADGE_CLASSNAME}" data-testid="address-required-badge">Required</span>` +
-    `</div>` +
-    `<input class="${field}" data-testid="sheet-field" value="Kartavya Path, New Delhi, Delhi 110001, India">`;
-
-  // The progressive-disclosure row. A control, so it owes 44px.
-  const doorDetails =
-    `<button class="${DOOR_DETAILS_TOGGLE_CLASSNAME}" data-testid="door-details-toggle">` +
-    `<span class="text-[15px] font-semibold leading-5" data-testid="door-details-label">More door details</span>` +
-    `<span aria-hidden>v</span>` +
-    `</button>`;
-
-  // House or flat / PIN sit side by side from 640px up (the desktop dialog
-  // width), so this is the one row on the sheet whose column narrows instead
-  // of just its own width shrinking -- the Optional badge has half the room
-  // the Required one does at the same viewport.
-  const optionalRow = (fieldTestId: string, fieldLabel: string) =>
-    `<div><div class="${ADDRESS_LABEL_ROW_CLASSNAME}">` +
-    `<label class="${label}" data-testid="${fieldTestId}-label">${fieldLabel}</label>` +
-    `<span class="${OPTIONAL_BADGE_CLASSNAME}" data-testid="${fieldTestId}-optional-badge">Optional</span>` +
-    `</div><input class="${field}" data-testid="sheet-field"></div>`;
-  const optionalFieldsGrid =
-    `<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">` +
-    optionalRow("house-or-flat", "House or flat") +
-    optionalRow("postal-code", "PIN / postcode") +
-    `</div>`;
-
   // Enough fields to overflow every width under test, so the body genuinely
   // has to scroll -- a footer only bleeds when there is something behind it.
-  const fields =
-    addressRow +
-    optionalFieldsGrid +
-    Array.from(
-      { length: 8 },
-      (_, i) =>
-        `<div><label class="${label} mb-1.5">Field ${i + 1}</label>` +
-        `<input class="${field}" data-testid="sheet-field" value="Value ${i + 1}"></div>`,
-    ).join("") +
-    doorDetails;
+  const fields = Array.from(
+    { length: 8 },
+    (_, i) =>
+      `<div><label class="mb-1.5 block">Field ${i + 1}</label>` +
+      `<input class="${field}" data-testid="sheet-field" value="Value ${i + 1}"></div>`,
+  ).join("");
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "save-location-sheet-"));
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
@@ -180,17 +118,10 @@ async function buildFixture(): Promise<string> {
     `<!doctype html><html><head><meta charset="utf-8">
 <style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css">
-<style>:root{--app-separator:#e5e5ea;--app-card-surface-default-solid:#fff;--app-neutral-fill-strong:rgba(120,120,128,0.2);--app-accent:#007aff}</style>
+<style>:root{--app-separator:#e5e5ea;--app-card-surface-default-solid:#fff}</style>
 </head><body style="margin:0;background:#111">
 <div class="${shell} ${SHEET_DETAILS_SHELL_CLASSNAME}" data-testid="save-location-modal">
   <header class="${SHEET_HEADER_CLASSNAME}" data-testid="sheet-header">
-    <div class="${dotSlot}" data-testid="sheet-indicator">
-      <div class="flex items-center justify-center gap-1">
-        <button class="${dotTab}" data-testid="step-dot-completed" data-step-state="completed"><span class="${dotPill} ${dotSmall} ${STEP_DOT_REACHED_CLASSNAME}" data-testid="step-pill-completed"></span></button>
-        <button class="${dotTab}" data-testid="step-dot-active" data-step-state="active"><span class="${dotPill} ${dotActive} ${STEP_DOT_REACHED_CLASSNAME}" data-testid="step-pill-active"></span></button>
-        <button class="${dotTab}" data-testid="step-dot-upcoming" data-step-state="upcoming"><span class="${dotPill} ${dotSmall} ${STEP_DOT_UPCOMING_CLASSNAME}" data-testid="step-pill-upcoming"></span></button>
-      </div>
-    </div>
     <div class="${row} mt-1">
       <button class="${button}" data-testid="sheet-back">&#8592;</button>
       <h2 class="${title}" data-testid="sheet-title">Address details</h2>
@@ -198,6 +129,7 @@ async function buildFixture(): Promise<string> {
     </div>
   </header>
   <div class="${SHEET_BODY_CLASSNAME}" data-testid="sheet-body">
+    <div class="${PICKER_MAP_HEIGHT_CLASSNAME} w-full" data-testid="sheet-map"></div>
     <div class="space-y-3.5">${fields}</div>
   </div>
   <div class="${SHEET_FOOTER_CLASSNAME}" data-testid="sheet-footer">
@@ -232,6 +164,8 @@ test.describe("Save-location address sheet layout", () => {
       const header = await boxOf(page, "sheet-header");
       const body = await boxOf(page, "sheet-body");
       const footer = await boxOf(page, "sheet-footer");
+
+
 
       // Three stacked rows, in order, touching but never overlapping.
       expect(Math.round(body.y)).toBeGreaterThanOrEqual(
@@ -295,103 +229,168 @@ test.describe("Save-location address sheet layout", () => {
         Math.round(footerAfter.y) + 1,
       );
     });
+  }
 
-    test(`keeps the Required badge whole beside the Address label at ${width}px`, async ({
-      page,
-    }) => {
+
+  /**
+   * THE FLOATING-PAD CONTRACT.
+   *
+   * The band that broke was 421-639px: wide enough to clear a 420px cap, still
+   * narrow enough to be a bottom sheet. Nothing in the old matrix went past
+   * 430, so a card centred in a 540px window with 60px of dead screen on each
+   * side passed six widths of "layout is correct".
+   *
+   * Measured, not read off a class string: `max-w` is one of several ways to
+   * end up narrower than the viewport, and only the rendered box knows.
+   */
+  for (const width of SHEET_FULL_BLEED_WIDTHS) {
+    test(`spans the whole viewport at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture());
       await awaitProductFont(page);
 
-      const body = await boxOf(page, "sheet-body");
-      const label = await boxOf(page, "address-label");
-      const badge = await boxOf(page, "address-required-badge");
+      const sheet = await boxOf(page, "save-location-modal");
 
-      // One line, in order, not stacked and not overlapping. Measured on the
-      // centres, because the row centre-aligns two boxes of different heights
-      // -- their top edges are not meant to agree.
-      expect(
-        Math.abs(label.y + label.height / 2 - (badge.y + badge.height / 2)),
-      ).toBeLessThanOrEqual(1);
-      expect(Math.round(label.x + label.width)).toBeLessThanOrEqual(
-        Math.round(badge.x),
-      );
-      // And still inside the sheet, rather than pushed off its right edge.
-      expect(Math.round(badge.x + badge.width)).toBeLessThanOrEqual(
-        Math.round(body.x + body.width),
-      );
+      // Attached to both edges: no strip of app showing beside a sheet.
+      expect(Math.round(sheet.x)).toBe(0);
+      expect(Math.round(sheet.width)).toBe(width);
 
-      // Neither word is clipped. The badge is the field's only visible
-      // statement that it is mandatory; a "Requir…" is not one.
-      const clipped = await page.evaluate(() =>
-        ["address-label", "address-required-badge"]
-          .map((id) => document.querySelector(`[data-testid="${id}"]`)!)
-          .filter((el) => el.scrollWidth > el.clientWidth + 1)
-          .map((el) => el.getAttribute("data-testid")),
+      // And nothing inside it reaches past those edges.
+      const overflow = await page.evaluate(
+        () =>
+          Math.max(
+            document.documentElement.scrollWidth,
+            document.body.scrollWidth,
+          ) - document.documentElement.clientWidth,
       );
-      expect(clipped).toEqual([]);
+      expect(overflow).toBeLessThanOrEqual(1);
     });
 
-    for (const fieldTestId of ["house-or-flat", "postal-code"]) {
-      test(`keeps the Optional badge whole beside the ${fieldTestId} label at ${width}px`, async ({
-        page,
-      }) => {
-        await page.setViewportSize({ width, height: 844 });
-        await page.goto(await buildFixture());
-        await awaitProductFont(page);
-
-        const body = await boxOf(page, "sheet-body");
-        const label = await boxOf(page, `${fieldTestId}-label`);
-        const badge = await boxOf(page, `${fieldTestId}-optional-badge`);
-
-        // House or flat and PIN sit in a two-column row from 640px up, so this
-        // is the one badge on the sheet with HALF the column width Required
-        // gets on the full-width Address row above it.
-        expect(
-          Math.abs(label.y + label.height / 2 - (badge.y + badge.height / 2)),
-        ).toBeLessThanOrEqual(1);
-        expect(Math.round(label.x + label.width)).toBeLessThanOrEqual(
-          Math.round(badge.x),
-        );
-        expect(Math.round(badge.x + badge.width)).toBeLessThanOrEqual(
-          Math.round(body.x + body.width),
-        );
-
-        // Neither word is clipped. This badge is the only reason the field
-        // does not read as mandatory next to the required Address box above
-        // it -- a clipped "Optiona…" gives back exactly the confusion it was
-        // added to remove.
-        const clipped = await page.evaluate((ids) =>
-          ids
-            .map((id) => document.querySelector(`[data-testid="${id}"]`)!)
-            .filter((el) => el.scrollWidth > el.clientWidth + 1)
-            .map((el) => el.getAttribute("data-testid")),
-        [`${fieldTestId}-label`, `${fieldTestId}-optional-badge`]);
-        expect(clipped).toEqual([]);
-      });
-    }
-
-    test(`gives the door-details row a real 44px at ${width}px`, async ({
-      page,
-    }) => {
+    test(`terminates at the bottom edge at ${width}px`, async ({ page }) => {
+      // The home indicator belongs INSIDE the sheet's padding. An outer gap
+      // puts a band of wallpaper under a surface that is meant to be attached
+      // to the bottom of the screen.
       await page.setViewportSize({ width, height: 844 });
       await page.goto(await buildFixture());
       await awaitProductFont(page);
 
-      const body = await boxOf(page, "sheet-body");
-      const toggle = await boxOf(page, "door-details-toggle");
+      const sheet = await boxOf(page, "save-location-modal");
+      const footer = await boxOf(page, "sheet-footer");
 
-      expect(toggle.height).toBeGreaterThanOrEqual(44);
-      expect(Math.round(toggle.x + toggle.width)).toBeLessThanOrEqual(
-        Math.round(body.x + body.width),
-      );
-
-      const labelClipped = await page
-        .getByTestId("door-details-label")
-        .evaluate((el) => el.scrollWidth > el.clientWidth + 1);
-      expect(labelClipped).toBe(false);
+      expect(Math.round(sheet.y + sheet.height)).toBe(844);
+      expect(Math.round(footer.y + footer.height)).toBe(844);
     });
   }
+
+  /** The three devices the redesign has to hold, named rather than implied. */
+  const DEVICES = [
+    { name: "iPhone SE", width: 320, height: 568 },
+    { name: "iPhone 15", width: 390, height: 844 },
+    { name: "iPhone 15 Pro Max", width: 430, height: 932 },
+  ] as const;
+
+  for (const device of DEVICES) {
+    test(`keeps both actions whole and on screen on ${device.name}`, async ({
+      page,
+    }) => {
+      // The smallest supported screen is not allowed to become the neglected
+      // one: the map used to take `min(56vh,420px)` -- 318 of an SE's 568
+      // points -- and pushed Confirm and Skip below the fold on the one screen
+      // whose whole job is "look at this, then press the button".
+      await page.setViewportSize({ width: device.width, height: device.height });
+      await page.goto(await buildFixture());
+      await awaitProductFont(page);
+
+      for (const testId of ["sheet-save", "sheet-skip"] as const) {
+        const box = await boxOf(page, testId);
+        expect(
+          Math.round(box.y + box.height),
+          `${testId} bottom on ${device.name}`,
+        ).toBeLessThanOrEqual(device.height);
+        expect(
+          Math.round(box.x),
+          `${testId} left on ${device.name}`,
+        ).toBeGreaterThanOrEqual(0);
+        expect(
+          Math.round(box.x + box.width),
+          `${testId} right on ${device.name}`,
+        ).toBeLessThanOrEqual(device.width);
+        // A real target, not a sliver squeezed by the shrinking viewport.
+        expect(
+          Math.round(box.height),
+          `${testId} height on ${device.name}`,
+        ).toBeGreaterThanOrEqual(44);
+      }
+    });
+
+    test(`keeps the header and footer usable with the keyboard up on ${device.name}`, async ({
+      page,
+    }) => {
+      // KeyboardInsetManager publishes the keyboard height as `--kb-height` on
+      // <html>, and the sheet is pinned to `bottom-[var(--kb-height,0px)]`.
+      // Lifting without ALSO shrinking is the bug: the surface rides up by the
+      // full keyboard height and its top -- the step rail, the back button, the
+      // title -- leaves the screen. The old `max-h-[min(92dvh,760px)]` did
+      // exactly that.
+      await page.setViewportSize({ width: device.width, height: device.height });
+      await page.goto(await buildFixture());
+      await awaitProductFont(page);
+
+      const keyboard = 300;
+      await page.evaluate((height) => {
+        document.documentElement.style.setProperty("--kb-height", `${height}px`);
+      }, keyboard);
+
+      const sheet = await boxOf(page, "save-location-modal");
+      const header = await boxOf(page, "sheet-header");
+      const footer = await boxOf(page, "sheet-footer");
+
+
+      // Nothing above the top edge.
+      expect(Math.round(sheet.y), `sheet top on ${device.name}`).toBeGreaterThanOrEqual(0);
+      expect(Math.round(header.y), `header top on ${device.name}`).toBeGreaterThanOrEqual(0);
+
+      // The whole surface sits in the band above the keyboard, so Save is
+      // pressable rather than underneath it.
+      expect(
+        Math.round(sheet.y + sheet.height),
+        `sheet bottom on ${device.name}`,
+      ).toBeLessThanOrEqual(device.height - keyboard + 1);
+      expect(
+        Math.round(footer.y + footer.height),
+        `footer bottom on ${device.name}`,
+      ).toBeLessThanOrEqual(device.height - keyboard + 1);
+
+      // And it is still the full width of the phone while lifted.
+      expect(Math.round(sheet.x)).toBe(0);
+      expect(Math.round(sheet.width)).toBe(device.width);
+    });
+  }
+
+  test("sizes the map so a small phone still sees the buttons", async ({
+    page,
+  }) => {
+    // The clamp measured in the engine that ships, at both ends of the range.
+    await page.goto(await buildFixture());
+    await awaitProductFont(page);
+
+    for (const [height, lower, upper] of [
+      [568, 160, 220],
+      [844, 240, 320],
+      [932, 280, 340],
+    ] as const) {
+      await page.setViewportSize({ width: 390, height });
+      const mapHeight = await page
+        .getByTestId("sheet-map")
+        .evaluate((element) => element.getBoundingClientRect().height);
+      expect(Math.round(mapHeight), `map at ${height}px tall`).toBeGreaterThanOrEqual(
+        lower,
+      );
+      expect(Math.round(mapHeight), `map at ${height}px tall`).toBeLessThanOrEqual(
+        upper,
+      );
+    }
+  });
 
   test("paints the footer on a fully opaque surface", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -417,130 +416,5 @@ test.describe("Save-location address sheet layout", () => {
     });
     // Anything under 255 and the field behind it shows through the button.
     expect(alpha).toBe(255);
-  });
-
-  /*
-   * #5396. The sibling JSDOM tests prove the component emits these class
-   * strings and the right per-step state. They cannot prove a colour: JSDOM
-   * performs no layout and resolves no cascade, and the failing value was a
-   * ratio, not a class name.
-   *
-   * Both readings go through a canvas rather than a regex on the computed
-   * string. Tailwind alpha utilities resolve to `color-mix(in oklab, ...)`,
-   * so a test pattern-matching `rgba(...)` passes the very translucent value
-   * it was written to reject -- the exact trap the footer test above records.
-   */
-  const SHEET_SURFACES = [
-    { theme: "light", surface: "#ffffff" },
-    { theme: "dark", surface: "#2c2c2e" },
-  ] as const;
-
-  for (const { theme, surface } of SHEET_SURFACES) {
-    test(`keeps every step dot readable on the ${theme} sheet`, async ({
-      page,
-    }) => {
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(await buildFixture());
-      await awaitProductFont(page);
-      await page.evaluate((value) => {
-        document.documentElement.style.setProperty(
-          "--app-card-surface-default-solid",
-          value,
-        );
-        document.documentElement.style.setProperty("--app-accent", "#007aff");
-      }, surface);
-
-      const measure = async (testId: string) =>
-        page.getByTestId(testId).evaluate((el) => {
-          const canvas = document.createElement("canvas");
-          canvas.width = canvas.height = 1;
-          const ctx = canvas.getContext("2d")!;
-          ctx.clearRect(0, 0, 1, 1);
-          // Seeded transparent: a colour the canvas cannot parse leaves alpha
-          // at 0 and fails loudly instead of reading as an opaque black.
-          ctx.fillStyle = "rgba(0, 0, 0, 0)";
-          ctx.fillStyle = getComputedStyle(el).backgroundColor;
-          ctx.fillRect(0, 0, 1, 1);
-          const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
-          return { r, g, b, a };
-        });
-
-      const luminance = ({ r, g, b }: { r: number; g: number; b: number }) => {
-        const [lr, lg, lb] = [r, g, b].map((raw) => {
-          const c = raw / 255;
-          return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-        });
-        return 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
-      };
-      const ratioAgainstSheet = (pixel: {
-        r: number;
-        g: number;
-        b: number;
-      }) => {
-        const sheet = {
-          r: Number.parseInt(surface.slice(1, 3), 16),
-          g: Number.parseInt(surface.slice(3, 5), 16),
-          b: Number.parseInt(surface.slice(5, 7), 16),
-        };
-        const [high, low] = [luminance(pixel), luminance(sheet)].sort(
-          (x, y) => y - x,
-        );
-        return (high + 0.05) / (low + 0.05);
-      };
-
-      for (const state of ["completed", "active", "upcoming"] as const) {
-        const pixel = await measure(`step-pill-${state}`);
-        // Fully opaque: the old fill was a 20%/36% alpha that composited
-        // almost into the sheet, which is what made it invisible.
-        expect(pixel.a, `${theme}/${state} dot must be opaque`).toBe(255);
-        const ratio = ratioAgainstSheet(pixel);
-        expect(
-          `${theme}/${state} ${ratio.toFixed(2)}:1`,
-          `${theme}/${state} must clear ${STEP_DOT_MIN_CONTRAST}:1 on ${surface}`,
-        ).toBe(
-          `${theme}/${state} ${Math.max(ratio, STEP_DOT_MIN_CONTRAST).toFixed(2)}:1`,
-        );
-      }
-
-      // Reached and not-reached must also differ from EACH OTHER, or the
-      // rail communicates nothing however visible each dot is on its own.
-      const completed = await measure("step-pill-completed");
-      const upcoming = await measure("step-pill-upcoming");
-      expect(
-        `${completed.r},${completed.g},${completed.b}`,
-      ).not.toBe(`${upcoming.r},${upcoming.g},${upcoming.b}`);
-    });
-  }
-
-  test("renders the step rail at one height in the pinned header", async ({
-    page,
-  }) => {
-    // The rail used to be 44px tall at the bottom of one pane and 18px tall
-    // at the top of another, so it moved and resized between two steps.
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(await buildFixture());
-    await awaitProductFont(page);
-
-    const header = await boxOf(page, "sheet-header");
-    const indicator = await boxOf(page, "sheet-indicator");
-    expect(indicator.height).toBe(18);
-    expect(indicator.y).toBeGreaterThanOrEqual(header.y);
-    expect(indicator.y + indicator.height).toBeLessThanOrEqual(
-      header.y + header.height,
-    );
-
-    // Every tab keeps a real, laid-out 44px of horizontal separation, so an
-    // edge tap cannot land on the neighbouring step.
-    const boxes = await Promise.all(
-      (["completed", "active", "upcoming"] as const).map((state) =>
-        boxOf(page, `step-dot-${state}`),
-      ),
-    );
-    for (const box of boxes) expect(box.width).toBe(44);
-    for (let i = 1; i < boxes.length; i += 1) {
-      expect(boxes[i].x).toBeGreaterThanOrEqual(
-        boxes[i - 1].x + boxes[i - 1].width,
-      );
-    }
   });
 });

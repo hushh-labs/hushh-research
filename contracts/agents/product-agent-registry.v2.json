@@ -1019,7 +1019,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "2360dad3a8262808f4dbf91848ee7ae7144773f09bd007f4baf057d847be7083",
+      "system_instruction_sha256": "61fe62b269c02c1c33dd555e2195cd228a91784f95f27618391ba9feac91f478",
       "telemetry_namespace": "agent.unclassified",
       "tools": [
         {
@@ -1458,7 +1458,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Splits one natural-language prompt into up to four PKM memory candidates before downstream intent and structure planning.",
+      "description": "Splits one natural-language prompt into up to eight PKM memory candidates before downstream intent and structure planning.",
       "evaluations": [],
       "failure_states": [],
       "icon": null,
@@ -1541,7 +1541,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "8c98d95f54a97253d743e0c66ce0531a38d0ae9a5001d989b04c55db4833df71",
+      "system_instruction_sha256": "fe3f0683065e67e48dc57b2186deb7754e79b80e099b27148fe2a0d0a8ea6f6f",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
@@ -1759,7 +1759,7 @@
       },
       "capabilities": {
         "heads": {
-          "live": "gemini-live-2.5-flash-native-audio",
+          "live": "gemini-3.1-flash-live-preview",
           "specialist_text": "gemini-3.7-flash",
           "text": "gemini-3.7-flash"
         },
