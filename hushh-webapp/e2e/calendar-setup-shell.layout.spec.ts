@@ -146,6 +146,7 @@ function screenMarkup(shellClassName: string) {
 
 const CANDIDATES = [
   ...CALENDAR_SETUP_SHELL_CLASSNAME.split(/\s+/),
+  "gap-4",
   ...REGRESSED_SHELL_CLASSNAME.split(/\s+/),
   ...CALENDAR_SETUP_REGION_CLASSNAME.split(/\s+/),
   "app-page-shell",
@@ -243,13 +244,48 @@ test.describe("Calendar setup shell", () => {
 
       // The invariant that actually broke: every part of the card must be
       // REACHABLE. In normal flow the shell grows with its content, so the card
-      // never extends past it, and a viewport shorter than the page scrolls.
+      // never extends past it, and a viewport shorter than the page scrolls
+      // far enough to reach the card's last pixel.
+      //
+      // Both comparisons carry a 1px tolerance because getBoundingClientRect
+      // returns fractions while scrollHeight is an integer: a card ending at
+      // 320.5 in a 320 viewport is not a clipped card, it is a rounded one, and
+      // the first version of this assertion failed on exactly that.
       expect(m.card!.bottom).toBeLessThanOrEqual(m.shell!.bottom + 1);
-      if (m.card!.bottom > m.viewportHeight) {
-        expect(m.docScrollHeight).toBeGreaterThan(m.viewportHeight);
+      if (m.card!.bottom > m.viewportHeight + 1) {
+        expect(m.docScrollHeight).toBeGreaterThanOrEqual(
+          Math.floor(m.card!.bottom),
+        );
       }
     });
   }
+
+  test("centres the card when the screen has room for it", async ({ page }) => {
+    // What "clean" means on a desktop-height screen, and what the first fix
+    // gave away: the card sat at the very top of a tall empty page. `min-h` +
+    // justify-center restores the composition without reintroducing the clip,
+    // because a floor grows and a fixed height does not.
+    await page.setViewportSize({ width: VIEWPORT_WIDTH, height: 900 });
+    const url = await buildFixture(
+      "calendar-shell-tall",
+      `<div style="padding:0 ${PAGE_PADDING_PX}px">${screenMarkup(
+        CALENDAR_SETUP_SHELL_CLASSNAME,
+      )}</div>`,
+      CANDIDATES,
+    );
+    await page.goto(url);
+    await awaitProductFont(page);
+
+    const m = await boxes(page);
+    const above = m.card!.top - m.shell!.top;
+    const below = m.shell!.bottom - m.card!.bottom;
+
+    // Not pinned to the top: there is real space above the card.
+    expect(above).toBeGreaterThan(40);
+    // And it is balanced. Generous tolerance -- the header sits above the card
+    // inside the same centred stack, so the two gaps are close, not identical.
+    expect(Math.abs(above - below)).toBeLessThan(120);
+  });
 
   test("the shell it replaced collapsed the card on a short viewport", async ({
     page,
