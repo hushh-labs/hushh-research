@@ -3651,6 +3651,15 @@ class OneLocationAgentService:
                    -- So for a Circle the product manages, one side has to be its owner.
                    -- Circles a person made themselves are untouched: those members chose
                    -- each other's company.
+                   -- Trusted is excluded outright, not merely owner-scoped.
+                   -- Everyone in it is already a connection, so they satisfy the
+                   -- connection arm above and lose nothing here. What it closes is the
+                   -- other direction: contact sync (#5458) puts matched people into
+                   -- Trusted before they have accepted anything, and membership must not
+                   -- be what makes them shareable. Authority comes from the connection.
+                   -- Trusted records who you are connected to; it never decides who can
+                   -- see you.
+                   AND circle.system_kind IS DISTINCT FROM 'trusted'
                    AND (
                      (circle.system_kind IS NULL AND NOT circle.is_system)
                      OR circle.owner_user_id = mine.user_id
@@ -4092,6 +4101,15 @@ class OneLocationAgentService:
                  -- So for a Circle the product manages, one side has to be its owner.
                  -- Circles a person made themselves are untouched: those members chose
                  -- each other's company.
+                 -- Trusted is excluded outright, not merely owner-scoped.
+                 -- Everyone in it is already a connection, so they satisfy the
+                 -- connection arm above and lose nothing here. What it closes is the
+                 -- other direction: contact sync (#5458) puts matched people into
+                 -- Trusted before they have accepted anything, and membership must not
+                 -- be what makes them shareable. Authority comes from the connection.
+                 -- Trusted records who you are connected to; it never decides who can
+                 -- see you.
+                 AND circle.system_kind IS DISTINCT FROM 'trusted'
                  AND (
                    (circle.system_kind IS NULL AND NOT circle.is_system)
                    OR circle.owner_user_id = mine.user_id
@@ -4236,6 +4254,15 @@ class OneLocationAgentService:
                    -- So for a Circle the product manages, one side has to be its owner.
                    -- Circles a person made themselves are untouched: those members chose
                    -- each other's company.
+                   -- Trusted is excluded outright, not merely owner-scoped.
+                   -- Everyone in it is already a connection, so they satisfy the
+                   -- connection arm above and lose nothing here. What it closes is the
+                   -- other direction: contact sync (#5458) puts matched people into
+                   -- Trusted before they have accepted anything, and membership must not
+                   -- be what makes them shareable. Authority comes from the connection.
+                   -- Trusted records who you are connected to; it never decides who can
+                   -- see you.
+                   AND circle.system_kind IS DISTINCT FROM 'trusted'
                    AND (
                      (circle.system_kind IS NULL AND NOT circle.is_system)
                      OR circle.owner_user_id = mine.user_id
@@ -4543,6 +4570,15 @@ class OneLocationAgentService:
                          -- So for a Circle the product manages, one side has to be its owner.
                          -- Circles a person made themselves are untouched: those members chose
                          -- each other's company.
+                         -- Trusted is excluded outright, not merely owner-scoped.
+                         -- Everyone in it is already a connection, so they satisfy the
+                         -- connection arm above and lose nothing here. What it closes is the
+                         -- other direction: contact sync (#5458) puts matched people into
+                         -- Trusted before they have accepted anything, and membership must not
+                         -- be what makes them shareable. Authority comes from the connection.
+                         -- Trusted records who you are connected to; it never decides who can
+                         -- see you.
+                         AND circle.system_kind IS DISTINCT FROM 'trusted'
                          AND (
                            (circle.system_kind IS NULL AND NOT circle.is_system)
                            OR circle.owner_user_id = mine.user_id
@@ -5199,6 +5235,15 @@ class OneLocationAgentService:
                      -- So for a Circle the product manages, one side has to be its owner.
                      -- Circles a person made themselves are untouched: those members chose
                      -- each other's company.
+                     -- Trusted is excluded outright, not merely owner-scoped.
+                     -- Everyone in it is already a connection, so they satisfy the
+                     -- connection arm above and lose nothing here. What it closes is the
+                     -- other direction: contact sync (#5458) puts matched people into
+                     -- Trusted before they have accepted anything, and membership must not
+                     -- be what makes them shareable. Authority comes from the connection.
+                     -- Trusted records who you are connected to; it never decides who can
+                     -- see you.
+                     AND circle.system_kind IS DISTINCT FROM 'trusted'
                      AND (
                        (circle.system_kind IS NULL AND NOT circle.is_system)
                        OR circle.owner_user_id = mine.user_id
@@ -6886,6 +6931,15 @@ class OneLocationAgentService:
                            -- So for a Circle the product manages, one side has to be its owner.
                            -- Circles a person made themselves are untouched: those members chose
                            -- each other's company.
+                           -- Trusted is excluded outright, not merely owner-scoped.
+                           -- Everyone in it is already a connection, so they satisfy the
+                           -- connection arm above and lose nothing here. What it closes is the
+                           -- other direction: contact sync (#5458) puts matched people into
+                           -- Trusted before they have accepted anything, and membership must not
+                           -- be what makes them shareable. Authority comes from the connection.
+                           -- Trusted records who you are connected to; it never decides who can
+                           -- see you.
+                           AND circle.system_kind IS DISTINCT FROM 'trusted'
                            AND (
                              (circle.system_kind IS NULL AND NOT circle.is_system)
                              OR circle.owner_user_id = mine.user_id
