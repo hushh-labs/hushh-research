@@ -56,6 +56,37 @@ a competent report. Founder bar, verbatim: *"blow my mind, nothing less than awe
 - **Motion budget 90/10:** one orchestrated scroll set-piece; everything else one-shot reveals
   fired once. Only `transform`/`opacity`; nothing loops.
 
+## Charts, components, and the shadcn MCP
+
+Pick the chart that IS the argument, not a default. Before drawing, name the one thing the reader
+must see, then choose the form that shows it:
+
+- proportion / belonging / "where it lives" → dot-density, a waffle, or a labelled territory split — not a pie
+- one number that must land → a single hero numeral (Fraunces, tabular), optionally with a slopegraph or bar for context
+- a few named quantities compared → a horizontal bar or a slopegraph (two labelled ends are the axis, no gridlines)
+- a state machine / flow / where value goes → a Sankey/ribbon or a directed graph, with ONE coloured path for the exception
+- change across a sequence → a self-drawing line, direct-labelled, at most one reference line
+- two architectures compared → draw them side by side and highlight the ONE edge that differs
+
+Chart chrome is Tufte-minimal: no gridline field, no axis lines, direct labels, and colour encodes
+meaning only (accent = "you / owned", one warm or coral hue = the exception). Every figure carries a
+one-line caption stating what it shows.
+
+**Use the shadcn MCP** as the resource for chart and component patterns (tools:
+`search_items_in_registries`, `view_items_in_registries`, `get_item_examples_from_registries`;
+registry `@shadcn`, "new-york" style — the same one `hushh-webapp/components.json` configures). It
+carries the full component set plus ~78 chart blocks (bar / line / area / pie / radar / radial), and
+its principles are the bar: a chart wrapped in a card with a title/description and a "what it means"
+footer, axes stripped (`axisLine`/`tickLine` off), colour via CSS variables, rounded marks, muted
+secondary text, an accessibility layer.
+
+- **shadcn is React + Recharts.** For a **React artifact**, add the components directly (get the
+  install command from the MCP). For a **self-contained HTML artifact** (the CSP forbids React and
+  CDN scripts) you CANNOT embed them — use the MCP to study the exact pattern, then reproduce that
+  quality in inline SVG in the artifact's own type and colour system.
+- Do not force a generic bar/pie where a bespoke narrative visualisation (dot-density, a territory
+  split, a Sankey) makes the argument better. The chart serves the sentence, not the library.
+
 ## Procedure
 
 1. **Load context:** the `artifact-design` skill (calibrate treatment), the brand contract,
