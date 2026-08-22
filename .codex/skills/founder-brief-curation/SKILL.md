@@ -45,9 +45,10 @@ Non-owned surfaces:
 1. `.codex/skills/founder-brief-curation/references/brief-curation-rules.md`
 2. `.codex/skills/founder-brief-curation/references/founder-brief-kernel.md`
 3. `.codex/skills/founder-brief-curation/references/pdf-artifact-generation.md`
-4. `.codex/skills/founder-brief-curation/references/architecture-diagram-standard.md`
-5. `.codex/skills/docs-governance/references/founder-document-cadence.md`
-6. `docs/reference/operations/documentation-architecture-map.md`
+4. `.codex/skills/founder-brief-curation/references/world-class-artifact-standard.md`
+5. `.codex/skills/founder-brief-curation/references/architecture-diagram-standard.md`
+6. `.codex/skills/docs-governance/references/founder-document-cadence.md`
+7. `docs/reference/operations/documentation-architecture-map.md`
 
 ## Workflow
 
@@ -57,7 +58,8 @@ Non-owned surfaces:
 4. Keep private wiki evidence local-only unless the user asks for an internal private artifact.
 5. Build the narrative, ontology, diagrams, PDF rhythm, and honesty boundaries through `founder-brief-kernel.md`.
 6. For generic Markdown-to-PDF rendering, use `pdf-artifact-generation.md` before trying ad hoc shell, npm, or OS conversion tools.
-7. Apply `architecture-diagram-standard.md` whenever the artifact contains a system, sequence, deployment, or information-boundary view.
+7. For a founder/organisation-facing HTML artifact that must be genuinely world-class (editorial, information-dense, dual-audience), follow `world-class-artifact-standard.md`: real brand, single-source tokens, four themes, verified facts, plain-language boxes, headless rendered verification.
+8. Apply `architecture-diagram-standard.md` whenever the artifact contains a system, sequence, deployment, or information-boundary view.
 8. Render and inspect actual PDFs before calling them shareable.
 
 ## Handoff Rules
