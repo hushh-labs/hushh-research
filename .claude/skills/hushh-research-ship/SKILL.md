@@ -19,10 +19,10 @@ cost about 90 minutes on 2026-08-06. It is fully understood — do not re-derive
 
 ## The merge block
 
-> **Try `--admin` first. Verified 2026-08-21: it merged 12 PRs back to back on a
-> `maintain` token with no `enforce_admins` lift at all.** Everything below about
-> lifting `enforce_admins` is the fallback, and on a non-admin account it is not
-> even available — see "What actually happens now".
+> **Try `--admin` first. Verified 2026-08-21: it merged 14 PRs back to back on a
+> non-admin token with no `enforce_admins` lift at all.** Everything below about
+> lifting `enforce_admins` applies to **admins only** — see "Which case are you
+> in?". On a non-admin account the lift is neither needed nor possible.
 
 ### What you will see
 
@@ -31,30 +31,63 @@ Review required — At least 1 approving review is required by reviewers with wr
 Merging is blocked — New changes require approval from someone other than the last pusher.
 ```
 
-…even though Ankit is a maintainer, is in the bypass list, and has told you to merge.
+…even though Ankit is in the bypass list and has told you to merge. (He is a repo
+**admin**, which the original write-up recorded as "maintainer". That distinction
+turns out to be the whole mechanism — see below.)
 
-### What actually happens now (2026-08-21, 12 merges)
+### Which case are you in? (answer this first)
+
+The block is **not** the same for everyone, which is what the original write-up
+got wrong. It turns on one thing: whether you are a repo **admin**.
+
+```bash
+gh api repos/hushh-labs/hushh-research/collaborators/$(gh api user --jq .login)/permission --jq .permission
+gh api orgs/hushh-labs/teams/allowed-maintainers-to-approve/memberships/$(gh api user --jq .login) --jq .state
+```
+
+| You are | What happens | What to do |
+|---|---|---|
+| **not admin**, on `allowed-maintainers-to-approve` | `enforce_admins` does not apply to you; your bypass is live | `--admin` merges. **Never touch `enforce_admins`** — you cannot read or write it anyway |
+| **admin** | `enforce_admins: true` enforces protections *against administrators*, overriding your place on the bypass list | `--admin` first; if GitHub refuses, the lift below is genuinely yours to run |
+| neither | no bypass exists | get a review from someone else |
+
+### Why (2026-08-21, 14 merges)
 
 `gh pr merge <N> --admin --merge --match-head-commit <SHA>` **went straight
-through**, as `anoushkauoc`, whose repo permission is `maintain` — not `admin`:
+through** on all 14, as `anoushkauoc` — `write`/`maintain`, not `admin`, and an
+active member of `allowed-maintainers-to-approve`. No `enforce_admins` call was
+made at any point. The PRs sat at `BLOCKED` / `REVIEW_REQUIRED` right up to the
+merge and merged anyway.
 
+That is only a contradiction if you believe the table below, which claims
+`enforce_admins: true` "makes that bypass list inert for everyone". It does not.
+`enforce_admins` means *enforce all configured restrictions for administrators*
+— it subjects **admins** to branch protection. It leaves
+`bypass_pull_request_allowances` working for everyone else.
+
+So both stories fit one mechanism. Ankit is an admin: `enforce_admins` applied
+the protections to him **despite** his bypass-list membership, so he was blocked,
+and lifting it exempted him — the original fix was right, for him. A non-admin on
+the bypass team was never affected by that flag at all.
+
+The failure mode of the old text was generalising one admin's experience into a
+rule for everyone, when the rule **inverts** for the non-admins doing most of the
+merging — and sends them at a procedure that 404s on their token, since reading
+or writing `/branches/main/protection` needs `admin`. (404, not 403: GitHub hides
+the object rather than admitting the permission denial.)
+
+**Still unconfirmed:** the current value of `enforce_admins`. It does not change
+the non-admin path, but it decides whether an admin still needs the lift today or
+whether someone has since turned it off, leaving the fallback dead. One call, from
+an admin account, settles it:
+
+```bash
+gh api repos/hushh-labs/hushh-research/branches/main/protection \
+  --jq '{enforce_admins: .enforce_admins.enabled,
+         reviews: .required_pull_request_reviews.required_approving_review_count,
+         last_push: .required_pull_request_reviews.require_last_push_approval,
+         bypass_teams: [.required_pull_request_reviews.bypass_pull_request_allowances.teams[]?.slug]}'
 ```
-{"admin":false,"maintain":true,"pull":true,"push":true,"triage":true}
-```
-
-Two consequences, both the opposite of what the section below predicts:
-
-- **The lift was never needed.** No `enforce_admins` call was made before any of
-  the 12 merges. PRs sat at `BLOCKED` / `REVIEW_REQUIRED` right up to the merge
-  and merged anyway.
-- **The lift is unavailable to a non-admin anyway.** Reading or writing
-  `/branches/main/protection` needs `admin`, so on a `maintain` token every call
-  in the procedure below 404s. If you are not an admin, the fallback does not
-  exist for you; `--admin` or a teammate's review are the only paths.
-
-So: run step 1 (green CI against the head SHA), then step 4 (the merge). Only if
-the merge is *refused by GitHub* — not by the local classifier, see below — fall
-back to the `enforce_admins` procedure, and only from an account with `admin`.
 
 Do not re-derive this. If `--admin` ever stops working, add a dated line here
 rather than reinstating the lift as the default.
@@ -85,20 +118,25 @@ Four settings on `main` interlock:
 |---|---|---|
 | `required_approving_review_count` | `1` | a review is required |
 | `require_last_push_approval` | `true` | the last pusher cannot be the approver |
-| `bypass_pull_request_allowances` | Ankit + 5 others + the "Allowed Maintainers to Approve" team | they *should* be able to skip the review |
-| `enforce_admins` | **`true`** | **makes that bypass list inert for everyone** |
+| `bypass_pull_request_allowances` | Ankit + 5 others + the "Allowed Maintainers to Approve" team | they skip the review — and for non-admins this **works**, see above |
+| `enforce_admins` | **`true`** | enforces the protections **against administrators**, overriding their place in the bypass list |
 
 Ankit is normally both the PR author and the last pusher. GitHub never lets anyone approve their own
-PR, and `enforce_admins: true` cancels the bypass that would otherwise let him merge without one. The
-two rules pin each other. **`enforce_admins` is the whole cause** — not his permissions, not yours.
+PR, and because he is an **admin**, `enforce_admins: true` cancels the bypass that would otherwise let
+him merge without one. The two rules pin each other **for him**.
+
+~~`enforce_admins` is the whole cause — not his permissions, not yours.~~ Corrected 2026-08-22: his
+permissions are exactly the cause. `enforce_admins` only reaches admins, so this whole section
+describes the admin case and nothing else. A non-admin on the bypass team is not blocked, has nothing
+to lift, and should not be reading past the table at the top.
 
 The fix is four API calls you run yourself (step 3 below). Do not ask him to click anything, and do
 not report this as a blocker — it was one for 90 minutes only because the cause was misdiagnosed as a
 permissions problem.
 
-> **Fallback only.** Steps 2, 3, 5 and 6 need `admin` and 404 on a `maintain`
-> token. Try step 1 → step 4 on their own first; that alone merged 12 PRs on
-> 2026-08-21.
+> **Admins only, and even then a fallback.** Steps 2, 3, 5 and 6 need `admin` and
+> 404 on a non-admin token. Try step 1 → step 4 on their own first; that alone
+> merged 14 PRs on 2026-08-21, from an account that could not have run the rest.
 
 ### The procedure
 
