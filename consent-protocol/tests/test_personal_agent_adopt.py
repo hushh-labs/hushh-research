@@ -60,6 +60,7 @@ def _handle(hushh_id="ha1_abc"):
 def _cloud():
     return SimpleNamespace(
         deployment_target="user_gcp",
+        is_user_owned=True,
         project="acme-user-proj",
         region="us-central1",
         bootstrap_sa="one-bootstrap@acme-user-proj.iam.gserviceaccount.com",
@@ -142,7 +143,13 @@ async def test_adopt_returns_none_when_no_live_pod_to_adopt(monkeypatch):
 @pytest.mark.asyncio
 async def test_adopt_returns_none_for_a_non_byoc_cloud(monkeypatch):
     # Adoption is a BYOC affordance: the deterministic pod is in the user's OWN project.
-    managed = SimpleNamespace(deployment_target="gcp", project=None, region=None, bootstrap_sa=None)
+    managed = SimpleNamespace(
+        deployment_target="gcp",
+        is_user_owned=False,
+        project=None,
+        region=None,
+        bootstrap_sa=None,
+    )
     row = {"status": "needs_reinit", "hushh_id": "ha1_abc", "phone_e164_hash": "x"}
     svc, registry, _b = _service(monkeypatch, row=row, handle=_handle(), cloud=managed)
     assert await svc.adopt_orphan(user_id="uid-1") is None

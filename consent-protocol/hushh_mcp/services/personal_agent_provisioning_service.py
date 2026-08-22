@@ -60,7 +60,6 @@ from typing import Any, Optional, Protocol
 
 from hushh_mcp.runtime_settings import personal_agent_enabled, personal_agent_max_pods
 from hushh_mcp.services.compute_backend import (
-    BACKEND_USER_GCP,
     BackendHandle,
     ComputeBackend,
     NullBackend,
@@ -906,9 +905,11 @@ class PersonalAgentProvisioningService:
         if not hushh_id or not phone_hash:
             return None
         cloud = await resolve_user_cloud(user_id, repo=self._registry)
-        if cloud is None or cloud.deployment_target != BACKEND_USER_GCP:
-            # Adoption is a BYOC affordance: the deterministic pod lives in the user's
-            # OWN project, which is the only place discover can reach it.
+        if cloud is None or not cloud.is_user_owned:
+            # Adoption is a user-owned-cloud affordance: the deterministic pod lives in
+            # the person's OWN project, the only place discover can reach it. The neutral
+            # `is_user_owned` predicate keeps this orchestrator from naming any provider
+            # (test_deployment_boundary_holds) -- the adapter owns the provider name.
             return None
         spec = PodSpec(
             hushh_id=hushh_id,
