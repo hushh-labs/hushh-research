@@ -530,7 +530,7 @@ export function LocationImmersiveMap({
   // the map, and none is added by drawing the owner's pin as their face.
   const selfAvatarUrl = useEffectiveAvatarUrl();
   const selfDisplayName = auth.user?.displayName ?? null;
-  const { vaultOwnerToken } = useVault();
+  const { vaultOwnerToken, vaultKey } = useVault();
   const demoAvailable = isLocationMapDemoAvailable();
   const nearbyCheckInAvailable = isOneLocationNearbyCheckInAvailable();
   const initialDemoMode = isLocationMapDemoEnabled(searchParams.get("demo"));
@@ -3472,6 +3472,7 @@ export function LocationImmersiveMap({
           open={nearbyCheckInOpen}
           ownerId={auth.userId}
           vaultOwnerToken={vaultOwnerToken}
+          vaultKey={vaultKey}
           captureCurrentPosition={captureAndRememberCurrentLocation}
           onOpenChange={(nextOpen) => {
             if (nextOpen) {
