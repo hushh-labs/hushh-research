@@ -425,6 +425,18 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     relay_ticket = websocket.query_params.get("relay_ticket")
     # Shared consumer: nonce single-use holds across workers and instances
     # (Postgres registry, migration 084; Redis swap seam documented there).
+    #
+    # Deliberately no cap on concurrent live sessions per user, decided here
+    # rather than left an accident: each socket gets its own session_id, its
+    # own ephemeral ADK session, and its own live-voice-context keyed by that
+    # id (clear_live_voice_context below), so two sessions for the same
+    # person share no mutable state to corrupt -- a phone and a laptop tab
+    # open at once is ordinary, ungated by design elsewhere in the app. The
+    # actual bound is issuance, not concurrency: AGENT_CHAT's 30/minute limit
+    # on minting a new relay_ticket (this function's own decorator) is what
+    # keeps a runaway loop from opening sessions faster than a person could
+    # ever use them, not a session-count cap that would also punish someone
+    # legitimately signed in on two devices.
     accepted, uid, _persona_tier = await consume_relay_ticket_shared(relay_ticket)
     if not accepted:
         logger.info("one_adk_live_relay_ticket_rejected")
@@ -1724,15 +1736,45 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             if isinstance(task_error, WebSocketDisconnect):
                 close_reason = "client_disconnect"
                 continue
-            # Only the exception class name -- never the message, which can
-            # carry provider response text. Classified into the summary line
-            # below; the class name is the only thing distinguishing a quota
-            # error from a malformed response from a transport failure today.
+            # This is the catch-all behind BOTH pump tasks, not just the
+            # model-facing one -- an exception reaching here from
+            # pump_browser_to_queue is almost always our own message-handling
+            # code, not the provider. classify_provider_error already
+            # separates that case (RuntimeError/ValueError/KeyError ->
+            # CANDIDATE_MISCONFIGURED, "ours to fix") from a genuine outage,
+            # so reusing it here rather than a second classifier keeps that
+            # distinction instead of collapsing everything back down to a
+            # bare exception class name. Only the classification and class
+            # name are logged or sent -- never the message, which can carry
+            # provider response text.
+            classification = classify_provider_error(task_error)
+            resumable = classification == PROVIDER_UNAVAILABLE
+            record_capability_failure("voice", classification, task_error)
             pump_error_count += 1
-            close_reason = f"pump_failed:{task_error.__class__.__name__}"
+            close_reason = f"pump_failed:{classification}"
             logger.warning(
-                "one_adk_live_relay_pump_failed error=%s", task_error.__class__.__name__
+                "one_adk_live_relay_pump_failed classification=%s error=%s",
+                classification,
+                task_error.__class__.__name__,
             )
+            # Best-effort: the socket may already be in a bad enough state
+            # that this itself fails, which is fine -- _close_quietly in the
+            # finally block below is the real safety net either way.
+            try:
+                await websocket.send_text(
+                    json.dumps(
+                        {
+                            "sessionEnded": {
+                                "reason": (
+                                    "provider_unavailable" if resumable else "runtime_error"
+                                ),
+                                "resumable": resumable,
+                            }
+                        }
+                    )
+                )
+            except Exception:  # noqa: BLE001 - best-effort, socket may already be gone
+                logger.debug("one_adk_live_pump_failure_notice_undeliverable")
     except WebSocketDisconnect:
         close_reason = "client_disconnect"
     finally:
