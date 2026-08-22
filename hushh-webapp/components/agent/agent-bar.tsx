@@ -26,6 +26,7 @@ import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provid
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import { VoiceActionCard } from "@/components/agent/voice-action-card";
 import { VoiceWalkthroughPanel } from "@/components/agent/voice-walkthrough-panel";
+import { VoiceErrorCard } from "@/components/agent/voice-error-card";
 import { useAuth } from "@/hooks/use-auth";
 import {
   executeAgentGatewayAction,
@@ -288,6 +289,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // the bar highlights and an ambient waveform animates in place, reacting to
   // the user's voice (listening) and the agent's reply (speaking).
   const [conversationActive, setConversationActive] = useState(false);
+  // Bumped to trigger a deferred (re)start -- manual retry or automatic
+  // reconnect -- once conversationActive has genuinely settled. See the
+  // effect near startConversation for why this can't just call it directly.
+  const [retryNonce, setRetryNonce] = useState(0);
   const [pendingConfirmation, setPendingConfirmation] =
     useState<PendingVoiceConfirmation | null>(null);
   // The journey approval lives in module scope, not component state: it has
@@ -420,10 +425,32 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // Tracks whether the active session ended with an error, so the bar can keep
   // showing the error status (instead of snapping shut) until it is dismissed.
   const erroredRef = useRef(false);
+  // Set only when the relay's own sessionEnded frame said the failure is
+  // resumable; cleared on every "closed" so a later unsignaled drop (a raw
+  // network blip, carrying no opinion either way) never inherits a stale
+  // "yes, reconnect" from an unrelated earlier failure.
+  const lastErrorResumableRef = useRef(false);
+  // The provider's own continuation token, handed off in the "closed" event
+  // just before the client instance carrying it is torn down. Consumed by
+  // the next start() -- manual retry or automatic reconnect alike -- so the
+  // provider continues the SAME conversation instead of starting fresh.
+  const lastResumptionHandleRef = useRef<string | null>(null);
+  const pendingResumptionHandleRef = useRef<string | null>(null);
+  // Deliberately conservative: at most ONE automatic reconnect for the whole
+  // life of this bar, not one per failure. A provider that keeps failing the
+  // same resumed conversation must never be able to loop silently -- a
+  // person tapping Try Again by hand (which re-arms this in retryConversation)
+  // is always a safe, bounded way past that cap, so nothing is actually lost
+  // by keeping the automatic side of this strict.
+  const autoReconnectedRef = useRef(false);
   // Ref indirection lets the idle-timer callback always call the CURRENT
   // stopConversation without needing it in handleTransportEvent's deps
   // (stopConversation is declared further down, after handleTransportEvent).
   const stopConversationRef = useRef<() => void>(() => {});
+  // Same indirection: startConversation is declared even further down, but
+  // handleTransportEvent needs to be able to trigger a reconnect the moment
+  // a resumable session closes.
+  const startConversationRef = useRef<() => void>(() => {});
   const handleTransportEventRef = useRef<(event: OneVoiceSessionEvent) => void>(
     () => {},
   );
@@ -555,6 +582,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           "The confirmation was cancelled because the voice session hit an error.",
         );
         erroredRef.current = true;
+        lastErrorResumableRef.current = event.resumable === true;
         setVoiceStatus("error", event.message, eventOptions);
         return;
       }
@@ -1095,7 +1123,26 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         voiceLeaseRef.current?.release("transport_closed");
         voiceLeaseRef.current = null;
         activeRuntimeModeRef.current = null;
-        if (erroredRef.current) return;
+        lastResumptionHandleRef.current = event.resumptionHandle ?? null;
+        if (erroredRef.current) {
+          // A resumable failure gets one automatic attempt to pick the same
+          // conversation back up before this becomes something the person
+          // has to notice and act on themselves -- that is the entire point
+          // of the relay bothering to say "resumable" in the first place.
+          if (lastErrorResumableRef.current && !autoReconnectedRef.current) {
+            autoReconnectedRef.current = true;
+            pendingResumptionHandleRef.current = lastResumptionHandleRef.current;
+            erroredRef.current = false;
+            lastErrorResumableRef.current = false;
+            // Not just skipped this time -- startConversation's own guard
+            // treats a still-true conversationActive as "already running"
+            // and would route straight to stopConversation instead of
+            // actually reconnecting.
+            setConversationActive(false);
+            setRetryNonce((current) => current + 1);
+          }
+          return;
+        }
         setConversationActive(false);
       }
     },
@@ -1462,6 +1509,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     lastPushedContextRef.current = context
       ? actionableContextKey(context)
       : null;
+    // Consumed once: a resumption handle belongs to the session that just
+    // ended, not to whatever the person starts after it. Reading it here
+    // and clearing it in the same breath means an ordinary, unrelated later
+    // start never accidentally inherits a stale one.
+    const resumptionHandle = pendingResumptionHandleRef.current;
+    pendingResumptionHandleRef.current = null;
     void client.start({
       context,
       accessTier: runtime?.tier ?? null,
@@ -1474,6 +1527,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       runtimeCredentialTransport: runtimeConnection.transport,
       runtimeVertexProject: runtimeConnection.vertexProject,
       runtimeVertexLocation: runtimeConnection.vertexLocation,
+      resumptionHandle,
     });
   }, [
     conversationActive,
@@ -1487,6 +1541,37 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     user?.uid,
     setVoiceStatus,
   ]);
+
+  // Retrying from an error is stop-then-start, but not in the same tick:
+  // startConversation's own guard reads `conversationActive` from THIS
+  // render's closure, which is still whatever it was before stopConversation
+  // just changed it -- calling both back to back here would see the stale
+  // value and hit the "already active" branch again instead of actually
+  // starting. A pre-setup failure (mic blocked, no device) never set
+  // conversationActive true in the first place, so waiting for it to CHANGE
+  // would wait forever for exactly that case -- the counter always changes,
+  // regardless of whether conversationActive does, so the effect below is
+  // guaranteed to run on every retry.
+  useEffect(() => {
+    startConversationRef.current = () => void startConversation();
+  }, [startConversation]);
+  // A manual retry gets the same continuation token an automatic reconnect
+  // would use, and resets the one-per-session automatic budget: a person
+  // choosing to retry by hand is a fresh decision, not a continuation of
+  // whatever already failed once automatically.
+  const retryConversation = useCallback(() => {
+    pendingResumptionHandleRef.current = lastResumptionHandleRef.current;
+    autoReconnectedRef.current = false;
+    stopConversation();
+    setRetryNonce((current) => current + 1);
+  }, [stopConversation]);
+  useEffect(() => {
+    if (retryNonce === 0) return;
+    startConversationRef.current();
+    // Only a fresh retry request should re-fire this -- startConversationRef
+    // is a ref, kept current by the effect above, and reading .current here
+    // does not need to be declared as a dependency.
+  }, [retryNonce]);
 
   // Continuous voice context: when the user navigates while a live session is
   // active, push the fresh redacted snapshot into the session so One always
@@ -1809,9 +1894,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     pendingAction?.activation_policy === "trusted_activation_required";
   const pendingActionLabel = pendingAction?.label || "Continue this action";
 
-  // The specific reason (e.g. mic blocked, no device) now has its own card
-  // below, so the pill only ever needs the short, generic status label --
-  // showing the full reason here too just repeated it, truncated mid-word.
+  // The specific reason (mic blocked, no device, setup timeout) now lives in
+  // VoiceErrorCard, which shows it in full. This pill is a compact status
+  // strip with real estate for maybe half a sentence -- long enough to
+  // truncate any real reason into an ellipsis that told nobody what to do.
   const voiceStatusLabel =
     activeActionRun?.message ?? getAgentVoiceStatusLabel(voiceStatus);
   const nativeVoiceMode = !conversationActive
@@ -1932,10 +2018,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             className={cn(
               "shrink-0 text-[12px] font-medium",
               voiceStatus === "error"
-                ? "min-w-0 max-w-[60%] flex-1 truncate text-right text-destructive/80"
+                ? "text-destructive/80"
                 : "tabular-nums text-current/60",
             )}
-            title={voiceStatus === "error" ? voiceStatusLabel : undefined}
           >
             {voiceStatusLabel}
           </span>
@@ -2060,30 +2145,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           ) : null}
         </div>
       ) : null}
-      {/* A connection-level failure (mic blocked, no device, unsupported
-          browser) happens before any session exists, so there is nothing to
-          confirm and nothing pending -- just a reason and a way out. Shown
-          as its own card instead of packed into the pill's truncated status
-          text, which cut mid-sentence on anything longer than a few words. */}
-      {voiceStatus === "error" && voiceMessage ? (
-        <div
-          role="alertdialog"
-          aria-label="Voice error"
-          className="agent-approval-glass pointer-events-auto w-full max-w-[min(calc(100vw-3rem),392px)] rounded-3xl p-4 text-[#1d1d1f] dark:text-[#f5f5f7]"
-        >
-          <p className="text-[13px] font-medium text-muted-foreground">
-            Voice couldn&apos;t start
-          </p>
-          <p className="mt-1 text-[14px] leading-relaxed">{voiceMessage}</p>
-          <button
-            type="button"
-            onClick={stopConversation}
-            className="mt-4 h-12 w-full rounded-full bg-black/[0.05] text-[15px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
-          >
-            Close
-          </button>
-        </div>
-      ) : null}
+      <VoiceErrorCard
+        message={voiceStatus === "error" ? voiceMessage : null}
+        onRetry={retryConversation}
+        onClose={stopConversation}
+      />
       {pendingConfirmation ? (
         <div
           role="dialog"
