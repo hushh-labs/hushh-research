@@ -89,6 +89,7 @@ export const RIA_COPY = {
       title: "Verify your advisor account first",
       description: "Finish verification in onboarding to access investors.",
       body: "Locked until verification is complete.",
+      cta: "Complete verification",
     },
   },
 
