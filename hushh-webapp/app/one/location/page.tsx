@@ -244,6 +244,7 @@ import {
   loadLiveShareEntries,
   pruneLiveShareEntries,
   reconcileLiveShareEntries,
+  resolveStoppableGrantId,
   saveLiveShareEntries,
   summarizeLiveShareEntries,
   type LiveShareSessionEntry,
@@ -386,6 +387,9 @@ const SHARE_VOICE_DURATION_VALUES = new Set<string>([
   ...SHARE_DURATION_LADDER.map((rung) => rung.value),
   SHARE_DURATION_UNTIL_STOP_VALUE,
   "0.5",
+  "2",
+  "4",
+  "8",
   "24",
 ]);
 
@@ -1096,6 +1100,19 @@ const CIRCLE_INVITE_MAX_DURATION_HOURS = 24;
  * thing enforcing this, and it was not enforcing it.
  */
 const PUBLIC_INVITE_MAX_DURATION_HOURS = 1;
+
+/**
+ * An ISO expiry as epoch ms, or null when there is nothing usable to compare.
+ *
+ * Null means "do not expire this locally" rather than "expired": a missing or
+ * unparseable timestamp is not evidence the link has run out, and treating it
+ * as such would hide a working link.
+ */
+function parseExpiryMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 function publicInviteDurationHours(value: string): number {
   return inviteDurationHours(value, PUBLIC_INVITE_MAX_DURATION_HOURS);
@@ -2500,7 +2517,37 @@ export function OneLocationAgentPageContent({
   const [referralTargets, setReferralTargets] = useState<
     Record<string, string>
   >({});
-  const [publicInviteUrl, setPublicInviteUrl] = useState("");
+  /**
+   * The link as it came back from the create call, this session only.
+   *
+   * Kept because the server's copy arrives one refetch later: between "created"
+   * and the next `getState` there is a window where the only place the URL
+   * exists is this variable. `publicInviteUrl` below prefers the server's copy
+   * and falls back to this one.
+   *
+   * It carries its own expiry, and that is not decoration. A bare string
+   * outlived the link it named: once the invite ran out, the server stopped
+   * reporting it as active but this variable still held a URL, so the Links tab
+   * -- which hides its create control whenever a link is live -- kept showing a
+   * dead link with no way past it. The expiry here is the one the SERVER
+   * stamped, not the duration that was asked for, so the two agree.
+   */
+  const [createdPublicInvite, setCreatedPublicInvite] = useState<{
+    url: string;
+    expiresAtMs: number | null;
+  } | null>(null);
+  /**
+   * The public link's own duration, deliberately not the shared `durationHours`.
+   *
+   * One `durationHours` string is written by the Ask composer and the Circle
+   * invite screen and read by all three lanes, which is how a public link ended
+   * up posting the 24 hours somebody picked on another screen. The clamp at
+   * post time caught that, but only by silently shortening what the person had
+   * been shown. Now that the control lives permanently on the Links tab rather
+   * than behind a button, it would be writing that shared string every time
+   * anyone browsed past it.
+   */
+  const [publicLinkDurationHours, setPublicLinkDurationHours] = useState("1");
   const [circleInviteUrl, setCircleInviteUrl] = useState("");
   const [
     incomingCircleMemberInvites,
@@ -3060,16 +3107,25 @@ export function OneLocationAgentPageContent({
       // Names come from the server state only. The device record stays
       // coordinate- and identity-free, so a cold start shows "2 people" rather
       // than inventing who they are.
-      names: activeOwnerGrants
-        .filter((grant) => liveGrantIds.has(grant.id))
-        .map((grant) => grantCounterpartyLabel(grant))
-        .filter(Boolean),
+      //
+      // One name per PERSON, matching the count beside it. A pair can hold two
+      // live grants at once, and mapping the grant list straight to labels put
+      // the same friend in here twice -- which the card turns into "Sharing
+      // with 2 people" via `Math.max(names.length, count)`, a headline that
+      // names one person and counts two.
+      names: Array.from(
+        new Map(
+          activeOwnerGrants
+            .filter((grant) => liveGrantIds.has(grant.id))
+            .map((grant) => [
+              grant.recipientUserId || grant.id,
+              grantCounterpartyLabel(grant),
+            ]),
+        ).values(),
+      ).filter(Boolean),
       startedAt: shareWindow.startedAt,
       endsAt: shareWindow.endsAt,
-      stoppableGrantId:
-        liveShareEntries.length === 1
-          ? (liveShareEntries[0]?.grantId ?? null)
-          : null,
+      stoppableGrantId: resolveStoppableGrantId(liveShareEntries),
     };
   }, [activeOwnerGrants, liveShareEntries]);
 
@@ -3148,14 +3204,66 @@ export function OneLocationAgentPageContent({
     () => selectShareReadyRecipients(rankedRecipients),
     [rankedRecipients],
   );
-  const smsContactUserIds = useMemo(
+  const legacySmsContactUserIds = useMemo(
     () => state?.smsContactUserIds ?? [],
     [state?.smsContactUserIds],
+  );
+  /**
+   * The SMS Circle's roster, provisioned and kept by `ensureSmsSystemCircle`.
+   *
+   * Issue #5426 makes this Circle the source of truth for who receives an
+   * emergency SMS. The owner is excluded -- they are a member of their own
+   * Circle and are not one of their own emergency contacts.
+   */
+  const [smsSystemCircleMemberIds, setSmsSystemCircleMemberIds] = useState<
+    string[] | null
+  >(null);
+
+  /**
+   * Circle first, legacy list as the fallback.
+   *
+   * Not belt-and-braces -- an ordering guarantee. Provisioning is a network
+   * call that can be slow, fail, or not have run yet on this device, and SOS
+   * must never resolve to an empty recipient list because a migration had not
+   * finished. `null` means "the Circle has not answered yet", which is exactly
+   * when the pre-#5426 source is still the honest one. Once it answers, it
+   * wins outright, including when it is deliberately empty.
+   */
+  const smsContactUserIds = useMemo(
+    () => smsSystemCircleMemberIds ?? legacySmsContactUserIds,
+    [legacySmsContactUserIds, smsSystemCircleMemberIds],
   );
   const smsActionRecipients = useMemo(
     () => selectSmsRecipients(sosActionRecipients, smsContactUserIds),
     [smsContactUserIds, sosActionRecipients],
   );
+
+  // Provision on bootstrap, once the vault token exists. Idempotent server-side,
+  // so a re-run costs one request and changes nothing.
+  useEffect(() => {
+    if (!auth.userId || !vaultOwnerToken) return;
+    let cancelled = false;
+    // Wrapped so a synchronous throw becomes a rejection the catch below can
+    // absorb. Provisioning is an enhancement to where SOS reads its recipients
+    // from; it must never be able to take the Location screen down with it.
+    void Promise.resolve()
+      .then(() => OneLocationService.ensureSmsSystemCircle({ vaultOwnerToken }))
+      .then((circle) => {
+        if (cancelled) return;
+        setSmsSystemCircleMemberIds(
+          (circle.members ?? [])
+            .map((member) => member.userId)
+            .filter((userId) => userId && userId !== auth.userId),
+        );
+      })
+      .catch(() => {
+        // Leave it null: SOS keeps reading the legacy list rather than
+        // resolving to nobody because provisioning failed.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.userId, vaultOwnerToken]);
 
   // Ref kept in sync with the latest sosIncident value so the reconcile effect
   // can read it without adding it as a dependency (preventing infinite loops).
@@ -3196,12 +3304,32 @@ export function OneLocationAgentPageContent({
         isOneLocationGrantUnwatched(auth.userId, grant.id),
     ).length;
   }, [auth.userId, unwatchedTick, state?.receivedGrants]);
+  /**
+   * Links that are live right now, by the clock as well as by the server.
+   *
+   * `status` alone is not enough. Expiry is written server-side only when a row
+   * is READ, and nothing on this screen refetches on a timer -- so a link that
+   * ran out five minutes ago is still `status: "active"` in the state this
+   * session already holds. That was harmless while the Links tab merely listed
+   * it. It is not harmless now: the tab hides its create control whenever a
+   * link is live, so a stale row left the person looking at a dead link with no
+   * way to make another until they reloaded the page.
+   *
+   * `nowMs` ticks every 30s and on return from background, so the create form
+   * comes back on its own, which is exactly the promise the tab makes.
+   *
+   * A row with no `expiresAt` is treated as live: the server sent it as active
+   * and we have nothing to contradict that with.
+   */
   const activePublicInvites = useMemo(
     () =>
-      (state?.publicInvites ?? []).filter(
-        (invite) => invite.status === "active",
-      ),
-    [state?.publicInvites],
+      (state?.publicInvites ?? []).filter((invite) => {
+        if (invite.status !== "active") return false;
+        if (!invite.expiresAt) return true;
+        const expiresAtMs = Date.parse(invite.expiresAt);
+        return !Number.isFinite(expiresAtMs) || expiresAtMs > nowMs;
+      }),
+    [nowMs, state?.publicInvites],
   );
   const latestActivePublicInvite = useMemo(() => {
     const inviteTime = (invite: OneLocationPublicInvite) =>
@@ -3214,6 +3342,37 @@ export function OneLocationAgentPageContent({
       )[0] ?? null
     );
   }, [activePublicInvites]);
+  /**
+   * The live public link, whoever knows it.
+   *
+   * The server's copy wins. It is the only one that survives a reload, a second
+   * device, or a link the agent made -- and until it existed, this was simply
+   * `""` in all three cases, so Copy and Share early-returned and the Links tab
+   * shipped a button that did nothing. The create response is the fallback for
+   * the one moment the server has not caught up yet: `handleCreatePublicInvite`
+   * fires `refresh()` without awaiting it.
+   *
+   * Empty means there is genuinely no link to offer -- either none is live, or
+   * the live one predates derivable tokens and cannot be recovered. Callers
+   * must not read empty as "not loaded yet".
+   */
+  const publicInviteUrl = useMemo(() => {
+    const fromServer = latestActivePublicInvite?.publicUrl;
+    if (fromServer && String(fromServer).trim()) {
+      return publicInviteUrlLabel(String(fromServer).trim());
+    }
+    if (!createdPublicInvite) return "";
+    // The fallback has to expire with the link it names, or it keeps a dead
+    // link on screen after `latestActivePublicInvite` has correctly let go.
+    if (
+      createdPublicInvite.expiresAtMs !== null &&
+      createdPublicInvite.expiresAtMs <= nowMs
+    ) {
+      return "";
+    }
+    return createdPublicInvite.url;
+  }, [createdPublicInvite, latestActivePublicInvite, nowMs]);
+
   const activeCircleInvites = useMemo(
     () =>
       (state?.circleInvites ?? []).filter(
@@ -4711,12 +4870,16 @@ export function OneLocationAgentPageContent({
           const stillNoOne = mail.emailed === 0;
           toast.error(
             stillNoOne
-              ? `Location shared, but no one was alerted — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off. Call emergency services if you need help now.`
-              : `No phones lit up — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off.${mailNote} Call emergency services if you need help now.`,
+              // Action first. A clamp cuts from the bottom, and the one
+              // sentence that must survive is the one telling someone in
+              // trouble what to do. Who has notifications off is on the
+              // screen behind this.
+              ? "Call emergency services now — nobody was alerted."
+              : "Call emergency services now — no phones lit up.",
           );
         } else if (unreachable.length > 0) {
           toast.warning(
-            `Alerted ${reached} of ${readyRecipients.length} contacts. Couldn't reach ${formatNameList(unreachable)} — notifications are off on their end.${mailNote}`,
+            `Alerted ${reached} of ${readyRecipients.length}. The rest have notifications off.`,
           );
         } else {
           toast.success(
@@ -4797,8 +4960,17 @@ export function OneLocationAgentPageContent({
     [auth.userId, busy, refresh, vaultOwnerToken],
   );
 
+  /**
+   * Add some or all of a Circle's SMS-ready members in one pass.
+   *
+   * `memberUserIds` is the picker's hand-picked subset; omitting it keeps the
+   * original whole-Circle behaviour for any caller that still wants it (voice
+   * actions, deep links). Either way the roster is re-resolved here rather than
+   * trusted from the client, so a stale picker cannot smuggle in someone who
+   * has since left the Circle or lost phone verification.
+   */
   const handleAddSmsCircle = useCallback(
-    async (circleId: string) => {
+    async (circleId: string, memberUserIds?: readonly string[]) => {
       if (!auth.userId || !vaultOwnerToken || busy) return;
       setBusy(`sms-circle:${circleId}`);
       try {
@@ -4812,14 +4984,19 @@ export function OneLocationAgentPageContent({
           requirePhoneVerified: true,
         });
         const alreadySelected = new Set(smsContactUserIds);
+        const requested = memberUserIds ? new Set(memberUserIds) : null;
         const targets = selection.ready.filter(
-          (target) => !alreadySelected.has(target.recipient.userId),
+          (target) =>
+            !alreadySelected.has(target.recipient.userId) &&
+            (!requested || requested.has(target.recipient.userId)),
         );
         if (!targets.length) {
           toast.message(
-            selection.ready.length
-              ? `${selection.circle.name} is already in your SMS contacts.`
-              : `${selection.circle.name} has no members ready for SMS yet.`,
+            !selection.ready.length
+              ? `${selection.circle.name} has no members ready for SMS yet.`
+              : requested
+                ? "Those people are already in your SMS contacts."
+                : `${selection.circle.name} is already in your SMS contacts.`,
           );
           return;
         }
@@ -6353,16 +6530,19 @@ export function OneLocationAgentPageContent({
       const point = readiness.point;
       const response = await OneLocationService.createPublicInvite({
         vaultOwnerToken,
-        durationHours: publicInviteDurationHours(durationHours),
+        durationHours: publicInviteDurationHours(publicLinkDurationHours),
         locationSnapshot: point,
       });
       const url = publicInviteUrlLabel(response.publicUrl);
-      setPublicInviteUrl(url);
+      setCreatedPublicInvite({
+        url,
+        expiresAtMs: parseExpiryMs(response.invite?.expiresAt),
+      });
       const copiedToClipboard = url ? await copyToClipboard(url) : false;
       trackEvent("one_location_public_link_created", {
         route_id: "one_location",
         result: "success",
-        duration_bucket: oneLocationDurationBucket(durationHours),
+        duration_bucket: oneLocationDurationBucket(publicLinkDurationHours),
         copied_to_clipboard: copiedToClipboard,
         active_invite_count: activePublicInvites.length + 1,
       });
@@ -6376,7 +6556,7 @@ export function OneLocationAgentPageContent({
       trackEvent("one_location_public_link_created", {
         route_id: "one_location",
         result: "error",
-        duration_bucket: oneLocationDurationBucket(durationHours),
+        duration_bucket: oneLocationDurationBucket(publicLinkDurationHours),
         copied_to_clipboard: false,
         active_invite_count: activePublicInvites.length,
       });
@@ -6391,8 +6571,8 @@ export function OneLocationAgentPageContent({
     }
   }, [
     activePublicInvites.length,
-    durationHours,
     ensureForegroundLocationReady,
+    publicLinkDurationHours,
     refresh,
     vaultOwnerToken,
   ]);
@@ -6443,15 +6623,18 @@ export function OneLocationAgentPageContent({
         const point = readiness.point;
         const response = await OneLocationService.createPublicInvite({
           vaultOwnerToken,
-          durationHours: publicInviteDurationHours(durationHours),
+          durationHours: publicInviteDurationHours(publicLinkDurationHours),
           locationSnapshot: point,
         });
         url = publicInviteUrlLabel(response.publicUrl);
-        setPublicInviteUrl(url);
+        setCreatedPublicInvite({
+          url,
+          expiresAtMs: parseExpiryMs(response.invite?.expiresAt),
+        });
         trackEvent("one_location_public_link_created", {
           route_id: "one_location",
           result: "success",
-          duration_bucket: oneLocationDurationBucket(durationHours),
+          duration_bucket: oneLocationDurationBucket(publicLinkDurationHours),
           copied_to_clipboard: false,
           active_invite_count: activePublicInvites.length + 1,
         });
@@ -6472,7 +6655,7 @@ export function OneLocationAgentPageContent({
       trackEvent("one_location_public_link_created", {
         route_id: "one_location",
         result: "error",
-        duration_bucket: oneLocationDurationBucket(durationHours),
+        duration_bucket: oneLocationDurationBucket(publicLinkDurationHours),
         copied_to_clipboard: false,
         active_invite_count: activePublicInvites.length,
       });
@@ -6482,9 +6665,9 @@ export function OneLocationAgentPageContent({
     }
   }, [
     activePublicInvites.length,
-    durationHours,
     ensureForegroundLocationReady,
     publicInviteUrl,
+    publicLinkDurationHours,
     refresh,
     vaultOwnerToken,
   ]);
@@ -6662,6 +6845,37 @@ export function OneLocationAgentPageContent({
       }
     },
     [vaultOwnerToken],
+  );
+
+  const handleConnectCircleMember = useCallback(
+    async (circleId: string, memberUserId: string) => {
+      // Sharing a Circle does not connect two people -- a joiner is paired with
+      // whoever invited them and nobody else -- so this is a real request the
+      // other person answers, exactly like one sent from anywhere else.
+      const idToken = await auth.user?.getIdToken();
+      if (!idToken) {
+        toast.error("Sign in again to send a connection request.");
+        return;
+      }
+      try {
+        await ConnectionsService.sendRequest({
+          idToken,
+          addresseeUserId: memberUserId,
+        });
+        toast.success("Connection request sent.");
+        // Re-read the Circle so the row moves to "Requested" from the server's
+        // answer rather than from an optimistic guess this screen made.
+        await handleLoadNamedCircle(circleId).catch(() => null);
+      } catch (error) {
+        toast.error(
+          oneLocationErrorMessage(
+            error,
+            "Could not send the connection request.",
+          ),
+        );
+      }
+    },
+    [auth.user, handleLoadNamedCircle],
   );
 
   const handleResolveNamedCircleRecipients = useCallback(
@@ -7202,7 +7416,7 @@ export function OneLocationAgentPageContent({
         throw new Error(
           oneLocationErrorMessage(
             error,
-            "Could not send the Circle invitation.",
+            "Could not add them to the Circle.",
           ),
         );
       } finally {
@@ -7355,20 +7569,50 @@ export function OneLocationAgentPageContent({
   );
 
   const prepareNamedCircleShare = useCallback(
-    (circleId: string, recipientUserId: string) => {
-      setSelectedShareCircleSelection(null);
-      setNamedCircleShareContext({
-        circleId,
-        circleName:
-          namedCircles.find((circle) => circle.id === circleId)?.name ??
-          "Circle",
-        recipientUserIds: [recipientUserId],
-      });
-      setSelectedRecipientId(recipientUserId);
-      setSelectedRecipientIds([recipientUserId]);
-      setShareReviewOpen(false);
+    async (
+      circleId: string,
+      recipientUserId: string,
+    ): Promise<boolean> => {
+      setBusy("shareCircle");
+      try {
+        const selection =
+          await handleResolveNamedCircleRecipients(circleId, "location");
+        const target = selection.ready.find(
+          ({ recipient }) => recipient.userId === recipientUserId,
+        );
+        if (!target) {
+          throw new Error(
+            "This Circle member is not ready to receive location yet.",
+          );
+        }
+        setSelectedShareCircleSelection({
+          ...selection,
+          ready: [target],
+        });
+        setNamedCircleShareContext({
+          circleId: selection.circle.id,
+          circleName: selection.circle.name,
+          recipientUserIds: [target.recipient.userId],
+        });
+        setSelectedRecipientId(target.recipient.userId);
+        setSelectedRecipientIds([target.recipient.userId]);
+        setShareReviewOpen(false);
+        setShareDurationHours(ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS);
+        setShareMessage("");
+        return true;
+      } catch (error) {
+        toast.error(
+          oneLocationErrorMessage(
+            error,
+            "Could not prepare this member for sharing.",
+          ),
+        );
+        return false;
+      } finally {
+        setBusy(null);
+      }
     },
-    [namedCircles, setSelectedRecipientIds],
+    [handleResolveNamedCircleRecipients, setSelectedRecipientIds],
   );
 
   const clearNamedCircleShareContext = useCallback(() => {
@@ -7385,7 +7629,7 @@ export function OneLocationAgentPageContent({
           vaultOwnerToken,
           inviteId: invite.id,
         });
-        setPublicInviteUrl("");
+        setCreatedPublicInvite(null);
         toast.success("Public location link revoked.");
         void refresh().catch(() => null);
       } catch (error) {
@@ -11386,12 +11630,14 @@ export function OneLocationAgentPageContent({
     requestMessage,
     shareReviewOpen,
     publicInviteUrl,
+    publicLinkDurationHours,
     circleInviteUrl,
     setRecipientSearch,
     setShareRecipientSearch,
     setShareDurationHours,
     setShareMessage,
     setDurationHours,
+    setPublicLinkDurationHours,
     setRequestMessage,
     setShareReviewOpen,
     resetShareComposer,
@@ -11461,6 +11707,7 @@ export function OneLocationAgentPageContent({
     onCopyNamedCircleCode: handleCopyNamedCircleCode,
     onShareNamedCircleCode: handleShareNamedCircleCode,
     onShareNamedCircleCodeById: handleShareNamedCircleCodeById,
+    onConnectCircleMember: handleConnectCircleMember,
     onRemoveNamedCircleMember: handleRemoveNamedCircleMember,
 
     onLoadNamedCircleEligibleConnections:
@@ -11842,7 +12089,7 @@ export function OneLocationAgentPageContent({
                       onChange={(event) =>
                         setRecipientSearch(event.target.value)
                       }
-                      className="h-10 w-full rounded-[14px] border border-black/[0.04] bg-white pl-10 pr-4 text-[15px] text-[#1c1c1e] shadow-sm outline-none transition-shadow placeholder:text-[#8e8e93] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white"
+                      className="h-10 w-full rounded-[14px] border border-black/[0.04] bg-white pl-10 pr-4 text-[15px] text-[#1c1c1e] shadow-sm outline-none transition-shadow placeholder:text-[#8e8e93] focus:ring-2 focus:ring-inset focus:ring-[color:var(--app-accent-ring)] dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white"
                       placeholder="Search One Network..."
                       type="text"
                     />

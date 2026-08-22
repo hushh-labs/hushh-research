@@ -25,7 +25,12 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
-import { buildWelcomeRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildWelcomeRoute,
+  isFirebaseSessionOnlyRoute,
+  normalizeInternalRouteHref,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { type KaiLegalDocumentType } from "@/lib/legal/kai-legal-content";
 import { trackEvent } from "@/lib/observability/client";
 import {
@@ -332,12 +337,12 @@ export function AuthStep({
       phoneNumber?: string | null,
       resumeTarget?: string,
     ) => {
-      const targetPath = resumeTarget || redirectPath;
-      const navigationKey = `${userId}:${targetPath || ROUTES.KAI_HOME}`;
+      const targetPath =
+        normalizeInternalRouteHref(resumeTarget || redirectPath) ??
+        ROUTES.KAI_HOME;
+      const navigationKey = `${userId}:${targetPath}`;
       if (lastNavigationKeyRef.current === navigationKey) {
-        return (
-          lastResolvedNavigationPathRef.current || targetPath || ROUTES.ONE_HOME
-        );
+        return lastResolvedNavigationPathRef.current || targetPath;
       }
       lastNavigationKeyRef.current = navigationKey;
 
@@ -369,22 +374,33 @@ export function AuthStep({
         // user. The provider launch itself remains a `started` settlement;
         // the durable journey is never advanced merely because a redirect was
         // opened or a popup was requested.
-        await PreVaultUserStateService.syncOnboardingJourney({
-          userId,
-          phase:
-            nextPath === ROUTES.PHONE_MANDATE ? "phone_required" : "setup_hub",
-          callbackState: "succeeded",
-          idToken: resolvedIdToken,
-        }).catch((journeyError) => {
-          // The existing post-auth route remains the rollback path while the
-          // additive journey migration rolls out.
-          console.warn(
-            "[AuthStep] Failed to persist onboarding journey:",
-            journeyError,
-          );
-        });
-        setOnboardingRequiredCookie(nextPath === ROUTES.ONE_SETUP);
-        setOnboardingFlowActiveCookie(nextPath === ROUTES.KAI_IMPORT);
+        const firebaseSessionOnly = isFirebaseSessionOnlyRoute(nextPath);
+        if (!firebaseSessionOnly) {
+          await PreVaultUserStateService.syncOnboardingJourney({
+            userId,
+            phase:
+              nextPath === ROUTES.PHONE_MANDATE
+                ? "phone_required"
+                : "setup_hub",
+            callbackState: "succeeded",
+            idToken: resolvedIdToken,
+          }).catch((journeyError) => {
+            // The existing post-auth route remains the rollback path while the
+            // additive journey migration rolls out.
+            console.warn(
+              "[AuthStep] Failed to persist onboarding journey:",
+              journeyError,
+            );
+          });
+        }
+        // Product handoffs require only the settled Firebase session. They do
+        // not start or resume One setup and never create a private-place gate.
+        setOnboardingRequiredCookie(
+          !firebaseSessionOnly && nextPath === ROUTES.ONE_SETUP,
+        );
+        setOnboardingFlowActiveCookie(
+          !firebaseSessionOnly && nextPath === ROUTES.KAI_IMPORT,
+        );
         // Replace, not push: the login screen must not stay on the back stack,
         // so an onboarded user pressing Back never lands back on /login or the
         // setup hub it forwards to.
@@ -393,13 +409,12 @@ export function AuthStep({
         return nextPath;
       } catch (error) {
         console.warn("[AuthStep] Failed to resolve post-auth route:", error);
-        const fallbackPath = targetPath || ROUTES.KAI_HOME;
         const safeFallbackPath =
-          fallbackPath === ROUTES.ONE_SETUP ||
-          fallbackPath === ROUTES.ONE_SETUP_FINANCE ||
-          fallbackPath === ROUTES.KAI_IMPORT
+          targetPath === ROUTES.ONE_SETUP ||
+          targetPath === ROUTES.ONE_SETUP_FINANCE ||
+          targetPath === ROUTES.KAI_IMPORT
             ? ROUTES.KAI_HOME
-            : fallbackPath;
+            : targetPath;
         setOnboardingRequiredCookie(safeFallbackPath === ROUTES.ONE_SETUP);
         setOnboardingFlowActiveCookie(safeFallbackPath === ROUTES.KAI_IMPORT);
         router.replace(safeFallbackPath);
@@ -1077,7 +1092,8 @@ export function AuthStep({
               aria-label="Welcome to One"
               className="font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
             >
-              Welcome to One<span style={{ color: "var(--app-accent)" }}>.</span>
+              Welcome to One
+              <span style={{ color: "var(--app-accent)" }}>.</span>
             </h1>
           </div>
 
@@ -1125,7 +1141,10 @@ export function AuthStep({
               ) : null}
             </div>
 
-            <div className="flex flex-col items-center gap-3" data-auth-supporting-content>
+            <div
+              className="flex flex-col items-center gap-3"
+              data-auth-supporting-content
+            >
               {/* Consent-first reassurance chip. */}
               <div className="flex w-fit items-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1.5 dark:bg-white/[0.06]">
                 <Icon

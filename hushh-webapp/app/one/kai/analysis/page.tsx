@@ -511,7 +511,7 @@ export function KaiAnalysisPageContent() {
       if (summaryLoadingToastIdRef.current === null) {
         summaryLoadingToastIdRef.current = toast.info("Saving to history…", {
           duration: Infinity,
-          description: "Final recommendation is ready. Kai is storing this analysis in your PKM.",
+          
         });
       }
       setLiveEntry(entry);
@@ -849,10 +849,8 @@ export function KaiAnalysisPageContent() {
           }),
         );
       })
-      .catch((error) => {
-        toast.error("Could not start debate.", {
-          description: error instanceof Error ? error.message : "Please try again.",
-        });
+      .catch(() => {
+        toast.error("Could not start debate.");
       })
       .finally(() => {
         setStartingPreviewDebate(false);
@@ -1087,7 +1085,7 @@ export function KaiAnalysisPageContent() {
           </p>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <MorphyButton onClick={() => router.push(ROUTES.KAI_HOME)}>
-              Return to Kai
+              Return to Finance
             </MorphyButton>
             <MorphyButton
               variant="none"
@@ -1107,7 +1105,7 @@ export function KaiAnalysisPageContent() {
     <>
       {showWorkspace ? (
         <div
-          className="w-full min-w-0 max-w-full"
+          className="w-full min-w-0 max-w-full h-full overflow-hidden"
           data-testid={liveIntentReady ? "kai-analysis-active-run" : "kai-analysis-primary"}
         >
           <NativeTestBeacon
@@ -1253,7 +1251,7 @@ export function KaiAnalysisPageContent() {
                   <div className="space-y-3">
                     {focusedRunTask?.persistenceState === "pending" ? (
                       <div className="rounded-2xl border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
-                        Kai is saving this debate to your PKM history.
+                        One is saving this debate to your PKM history.
                       </div>
                     ) : null}
                     {focusedRunTask?.persistenceState === "failed" ? (
@@ -1308,7 +1306,7 @@ export function KaiAnalysisPageContent() {
           </AppPageContentRegion>
         </div>
       ) : !resolvingEntry ? (
-        <div className="w-full min-w-0 max-w-full" data-testid="kai-analysis-primary">
+        <div className="w-full min-w-0 max-w-full h-full overflow-hidden" data-testid="kai-analysis-primary">
           <NativeTestBeacon
             routeId={ROUTES.KAI_ANALYSIS}
             marker="native-route-kai-analysis"

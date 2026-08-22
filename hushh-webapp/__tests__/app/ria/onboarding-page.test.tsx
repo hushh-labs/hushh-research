@@ -228,7 +228,7 @@ vi.mock("@/components/ria/onboarding/onboarding-step-services", () => ({
     <div data-testid="step-services">
       <span data-testid="services-bio">{bio}</span>
       <button data-testid="draft-bio" onClick={onDraftBio}>
-        Ask Kai to draft a bio
+        Ask One to draft a bio
       </button>
       <span data-testid="services-city">{city}</span>
       <span data-testid="services-area">{areaLocality}</span>
@@ -266,7 +266,7 @@ vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
         Edit Services
       </button>
       <button data-testid="ask-kai-update" onClick={onAskKaiUpdateAnything}>
-        Ask Kai to update anything
+        Ask One to update anything
       </button>
     </div>
   ),
@@ -880,8 +880,7 @@ describe("RiaOnboardingPage", () => {
       );
     });
     expect(mocks.toast.success).toHaveBeenCalledWith(
-      "Bio drafted",
-      expect.any(Object),
+      "Bio drafted. Review the draft before submitting your profile.",
     );
   });
 
@@ -914,10 +913,7 @@ describe("RiaOnboardingPage", () => {
     });
 
     expect(mocks.openKaiCommandBar).toHaveBeenCalledTimes(1);
-    expect(mocks.toast.info).toHaveBeenCalledWith(
-      "Kai command opened",
-      expect.any(Object),
-    );
+    expect(mocks.toast.info).toHaveBeenCalledWith("Command bar opened");
   });
 
   it("does not force a second live verification after license verification", async () => {
@@ -1057,10 +1053,7 @@ describe("RiaOnboardingPage", () => {
       ).toBeTruthy();
     });
     expect(mocks.toast.error).toHaveBeenCalledWith(
-      "Could not submit verification",
-      expect.objectContaining({
-        description: expect.stringMatching(/regulator-backed CRD/i),
-      }),
+      expect.stringMatching(/regulator-backed CRD/i),
     );
   });
 

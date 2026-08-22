@@ -72,10 +72,10 @@ export const RIA_COPY = {
   clients: {
     eyebrow: "Clients",
     title: "Client roster",
-    description: "One workspace per client — status, access, Kai, explorer.",
+    description: "One workspace per client — status, access, research, explorer.",
     section: {
       title: "Connected investors",
-      description: "Status, access, Kai, and explorer in one place.",
+      description: "Status, access, research, and explorer in one place.",
     },
     loading: "Loading clients…",
     empty: "No connected investors yet.",
@@ -95,7 +95,7 @@ export const RIA_COPY = {
   picks: {
     eyebrow: "Picks",
     title: "Stock universe",
-    description: "Switch Kai's package and yours — avoid and screening stay.",
+    description: "Switch between the suggested package and yours — avoid and screening stay.",
     screening: {
       investable: {
         title: "Investable requirements",
@@ -113,11 +113,11 @@ export const RIA_COPY = {
     emptyMyList: {
       title: "Build your live package",
       description:
-        "Shape the package your investors debate. Start from Kai, edit tiers, or upload a CSV.",
+        "Shape the package your investors debate. Start from the suggested list, edit tiers, or upload a CSV.",
     },
     avoidEmpty: {
       title: "Avoid list is empty",
-      description: "Add names for Kai to exclude from debates.",
+      description: "Add names for One to exclude from debates.",
     },
     unlockRail: "Unlock the vault to edit or publish.",
   },
@@ -125,14 +125,18 @@ export const RIA_COPY = {
   debate: {
     eyebrow: "Debate",
     title: "Debate config",
-    description: "The rules Kai's investor debate runs on.",
+    description: "The rules One's investor debate runs on.",
     banner: {
       title: "This is your debate config",
       description:
-        "Kai's multi-agent debate scores every name against these screening rules and conviction bands.",
+        "One's multi-agent debate scores every name against these screening rules and conviction bands.",
     },
+    // Deliberately names no agent. This is securities-adjacent language on a
+    // regulated RIA surface, so it carries the disclosure and nothing else --
+    // putting a product name here would make the brand the subject of the
+    // legal sentence and require a compliance read every time the brand moves.
     disclaimer:
-      "Agent Kai is an educational and informational tool and is not investment advice. Always consult a licensed financial professional before making investment decisions.",
+      "This is an educational and informational tool and is not investment advice. Always consult a licensed financial professional before making investment decisions.",
   },
 
   connect: {

@@ -20,7 +20,7 @@
 
 /** Full-bleed surface the map and panel sit in. Owns the positioning context. */
 export const READY_SURFACE_CLASSNAME =
-  "relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white dark:bg-[#14171d] md:bg-[#eef3f8] md:dark:bg-[#070a0f]";
+  "relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--app-grouped-background)]";
 
 /**
  * A band of its own on phones; the full backdrop from `md:` up.

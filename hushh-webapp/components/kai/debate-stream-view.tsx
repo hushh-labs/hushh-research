@@ -1099,9 +1099,7 @@ export function DebateStreamView({
             setKaiThinking("Preparing your final recommendation...");
             if (!finalizingNotifiedRef.current) {
               finalizingNotifiedRef.current = true;
-              toast.message("Final recommendation in progress", {
-                description: "Final consensus is being prepared.",
-              });
+              toast.message("Final recommendation in progress. Final consensus is being prepared.");
             }
           }
           break;

@@ -127,6 +127,19 @@ describe("the requester's side of the same exchange", () => {
     );
   });
 
+  it("makes owner-side share rows clear", () => {
+    const presented = presentFeedItem(
+      item({
+        event_type: "location_share_created",
+        metadata: {
+          counterpart_label: "Abdul Rashid",
+        },
+      }),
+    );
+    expect(presented.label).toBe("Abdul Rashid");
+    expect(presented.description).toBe("You started sharing location");
+  });
+
   it("says a refused extension leaves current access alone", () => {
     const presented = presentFeedItem(
       item({

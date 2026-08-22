@@ -234,6 +234,10 @@ function portfolioViewHelper(status?: string | null) {
 function requestTemplateLabel(template: RiaRequestScopeTemplate) {
   const value = String(template.template_name || "").trim();
   if (!value) return "Client information";
+  // Kept after the label itself stopped saying "Kai": the server now sends
+  // "Portfolio + data" directly, but grants issued before that change still
+  // carry the old template_name in the database, and this is the only thing
+  // standing between a stored row and the word "Kai" reaching an advisor.
   if (/kai/i.test(value)) return "Portfolio + data";
   return value;
 }
@@ -311,9 +315,7 @@ export function RiaClientWorkspace({
         idToken,
         investor_user_id: detail.investor_user_id,
       });
-      toast.success("Relationship disconnected", {
-        description: "Access ended immediately. History stays available if you reconnect.",
-      });
+      toast.success("Relationship disconnected");
       router.push(ROUTES.RIA_CLIENTS);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to disconnect relationship");
@@ -343,9 +345,7 @@ export function RiaClientWorkspace({
         selected_account_ids: activeTemplate.requires_account_selection ? selectedAccountIds : [],
         reason: requestReason.trim() || undefined,
       });
-      toast.success("Access request sent", {
-        description: "The client can review it in Access Manager.",
-      });
+      toast.success("Access request sent. The client can review it in Access Manager.");
       setRequestReason("");
       await refreshWorkspace();
     } catch (error) {

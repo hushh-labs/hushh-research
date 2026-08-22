@@ -45,13 +45,13 @@ export async function downloadTextFile(
       // Show platform-specific success message
       if (platform === "ios") {
         toast.success("Saved to Files app", {
-          description: `Check "On My iPhone" → "Hussh" → ${filename}`,
+          
           duration: 5000,
         });
       } else {
         // Android
         toast.success("Saved to Documents", {
-          description: filename,
+          
           duration: 5000,
         });
       }
@@ -59,9 +59,7 @@ export async function downloadTextFile(
       return true;
     } catch (error) {
       console.error("[Download] Native save failed:", error);
-      toast.error("Failed to save file", {
-        description: "Please try again or use copy instead",
-      });
+      toast.error("Failed to save file. Please try again or use copy instead");
       // Fall through to web method as backup
     }
   }
