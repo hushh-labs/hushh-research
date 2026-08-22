@@ -5659,3 +5659,31 @@ def test_a_product_managed_circle_introduces_nobody() -> None:
         f"expected at least 17 owner-scoping clauses across the "
         f"shared-Circle joins, found {owner_clauses} -- one has been removed"
     )
+
+
+def test_location_and_connect_read_one_circle_list() -> None:
+    """Both surfaces must show the same Circles, structurally.
+
+    Connect's Circles tab reads `GET /api/one/location/circles`, which is
+    `OneLocationCircleService.list_circles`. The Location agent's People tab
+    reads `state.circles` from `list_state`. Issue #5458 asks for one shared
+    grouping rather than a copy per surface, and the owner's own requirement
+    was that a Circle made in Location onboarding shows up on Connect.
+
+    That holds today because `list_state` calls the same method rather than
+    running its own query -- so this asserts it still does. A second query here
+    would drift silently: the two surfaces would agree until the day one of
+    them grew a filter, and the symptom would be a Circle that exists in one
+    place and not the other.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as agent_module
+
+    source = inspect.getsource(agent_module.OneLocationAgentService.list_state)
+    assert "circle_service.list_circles(user_id=user_id)" in source
+    # And it is handed to the caller unchanged -- no per-surface filtering.
+    assert '"circles": named_circles,' in source
+    # Never its own SQL against the Circle tables.
+    assert "FROM one_location_circles" not in source
