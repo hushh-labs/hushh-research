@@ -1099,7 +1099,7 @@ export default function RiaOnboardingPage({
 
     if (!user) {
       return (
-        <div className="rounded-[24px] border border-dashed px-4 py-6 text-sm text-muted-foreground">
+        <div className="rounded-[var(--ria-card-radius)] border border-dashed px-4 py-6 text-sm text-muted-foreground">
           Sign in to continue the RIA onboarding flow.
         </div>
       );
@@ -1107,7 +1107,7 @@ export default function RiaOnboardingPage({
 
     if (iamUnavailable) {
       return (
-        <div className="rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-6 text-sm text-foreground">
+        <div className="rounded-[var(--ria-card-radius)] border border-amber-200 bg-amber-50 px-4 py-6 text-sm text-foreground">
           RIA onboarding is unavailable in this environment. The backend IAM
           schema has not been activated yet.
         </div>
@@ -1280,7 +1280,7 @@ export default function RiaOnboardingPage({
             {renderStep()}
 
             {error ? (
-              <div className="mt-4 rounded-[24px] border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400">
+              <div className="mt-4 rounded-[var(--ria-card-radius)] border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400">
                 {error}
               </div>
             ) : null}

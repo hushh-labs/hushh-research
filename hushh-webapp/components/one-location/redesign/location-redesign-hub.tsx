@@ -2996,8 +2996,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
       <div className="flex items-start gap-2 px-1">
         <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <p className={MUTED_TEXT}>
-          You choose how long — up to 1 hour for a location link, 24 hours for
-          an invite.
+          Up to 1 hour for a location link, 24 hours for an invite.
         </p>
       </div>
     </div>
