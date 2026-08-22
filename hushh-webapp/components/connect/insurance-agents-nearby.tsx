@@ -1,16 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Building2 } from "lucide-react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { InsuranceAgentDetailSurface } from "@/components/connect/insurance-agent-detail-surface";
 import {
   DirectoryAttributionFooter,
   DirectoryLoadingRows,
+  ExpandRadiusButton,
   LocationPrompt,
+  NearbyDirectorySearch,
+  NearbyDistanceBadge,
+  NearbyTagBadge,
   PostalCodeForm,
   QuietBlock,
 } from "@/components/connect/nearby-directory-ui";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { Button } from "@/lib/morphy-ux/button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { useCurrentLocation } from "@/lib/one-location/use-current-location";
@@ -67,6 +73,8 @@ export function InsuranceAgentsNearby({
   /** A failed extra page. Kept apart from `error` so it never hides the list. */
   const [pageError, setPageError] = useState<string | null>(null);
   const [selected, setSelected] = useState<InsuranceAgentCard | null>(null);
+  const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, 200);
 
   const requestRef = useRef(0);
 
@@ -152,6 +160,20 @@ export function InsuranceAgentsNearby({
     setAnchor({ kind: "postal", postalCode });
   }, []);
 
+  const filteredCards = useMemo(() => {
+    const needle = debouncedQuery.trim().toLowerCase();
+    if (!needle) return cards;
+    return cards.filter((card) =>
+      [card.name, card.agencyType, card.tier, card.city, card.state]
+        .filter((field): field is string => Boolean(field))
+        .some((field) => field.toLowerCase().includes(needle)),
+    );
+  }, [cards, debouncedQuery]);
+
+  const nextRadiusMi = INSURANCE_AGENT_RADIUS_OPTIONS_MI.find(
+    (mi) => mi > radiusMi,
+  );
+
   if (!anchor) {
     return (
       <LocationPrompt
@@ -177,6 +199,15 @@ export function InsuranceAgentsNearby({
         options={RADIUS_OPTIONS}
         disabled={loading}
       />
+
+      {!error && !loading && cards.length > 0 ? (
+        <NearbyDirectorySearch
+          value={query}
+          onChange={setQuery}
+          placeholder="Search agencies"
+          testId="insurance-agents-search"
+        />
+      ) : null}
 
       {error && !loading ? (
         // Same reasoning as the advisers directory: keep the ZIP box reachable
@@ -212,24 +243,50 @@ export function InsuranceAgentsNearby({
         // can actually help rather than a dead end.
         <QuietBlock
           title="Nothing nearby"
-          subtitle="Try a US ZIP."
+          subtitle="Try a US ZIP, or search a wider radius."
           testId="insurance-agents-empty"
         >
-          <PostalCodeForm
-            busy={loading}
-            initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
-            onSearch={handlePostalCode}
-            testId="insurance-agents-postal-input"
-          />
+          <div className="flex w-full flex-col items-center gap-4">
+            <PostalCodeForm
+              busy={loading}
+              initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
+              onSearch={handlePostalCode}
+              testId="insurance-agents-postal-input"
+            />
+            <ExpandRadiusButton
+              nextRadiusMi={nextRadiusMi}
+              onExpand={setRadiusMi}
+            />
+          </div>
         </QuietBlock>
       ) : null}
 
-      {error || (!loading && cards.length === 0) ? null : (
+      {!error && !loading && cards.length > 0 && filteredCards.length === 0 ? (
+        <QuietBlock
+          title="No matches"
+          subtitle="Try a different name."
+          testId="insurance-agents-search-empty"
+        >
+          <Button
+            type="button"
+            variant="none"
+            effect="fill"
+            size="sm"
+            onClick={() => setQuery("")}
+          >
+            Clear search
+          </Button>
+        </QuietBlock>
+      ) : null}
+
+      {error ||
+      (!loading && cards.length === 0) ||
+      (!loading && filteredCards.length === 0) ? null : (
         <SettingsGroup title="Agencies" separatorInset>
           {loading ? (
             <DirectoryLoadingRows testId="insurance-agents-loading" />
           ) : (
-            cards.map((card) => {
+            filteredCards.map((card) => {
               const distance = formatAgentDistance(card.distanceMiles);
               // Roughly one agency in fifty carries a standing status; the rest
               // share one default that is dropped rather than repeated on every
@@ -238,9 +295,12 @@ export function InsuranceAgentsNearby({
               return (
                 <SettingsRow
                   key={card.id}
+                  icon={Building2}
+                  iconTone="blue"
                   title={
                     <span className="flex min-w-0 items-center gap-2">
                       <span className="truncate">{card.name ?? "Agency"}</span>
+                      <NearbyTagBadge>Agency</NearbyTagBadge>
                       {status ? (
                         <span className="type-caption shrink-0 rounded-full bg-[color:var(--app-accent)]/10 px-1.5 py-0.5 text-[color:var(--app-accent)]">
                           {status}
@@ -252,13 +312,7 @@ export function InsuranceAgentsNearby({
                   density="compact"
                   chevron
                   onClick={() => setSelected(card)}
-                  trailing={
-                    distance ? (
-                      <span className="type-footnote shrink-0 tabular-nums text-muted-foreground">
-                        {distance}
-                      </span>
-                    ) : undefined
-                  }
+                  trailing={<NearbyDistanceBadge distance={distance} />}
                 />
               );
             })

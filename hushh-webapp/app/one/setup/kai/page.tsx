@@ -429,7 +429,7 @@ function KaiOnboardingPageContent({
   // Hooks; the handler itself is a no-op unless a user session exists.
   useLocalOnboardingActionHandler("kai.setup.launch_dashboard", async () => {
     if (!user) {
-      return { status: "blocked", summary: "Sign in to finish Kai setup." };
+      return { status: "blocked", summary: "Sign in to finish Finance setup." };
     }
     if (stage !== "persona") {
       return {
@@ -447,10 +447,10 @@ function KaiOnboardingPageContent({
     stage === "wizard" || stage === "persona"
       ? {
           screenId: "one_setup_finance",
-          title: "Kai investor preferences",
+          title: "Finance investor preferences",
           purpose:
             stage === "wizard"
-              ? "Three quick questions tune Kai to your investing style."
+              ? "Three quick questions tune One to your investing style."
               : "Review your computed investor persona and launch the dashboard.",
           actions:
             stage === "wizard"
@@ -582,6 +582,7 @@ function KaiOnboardingPageContent({
               capabilityId="finance"
               isOperationallyReady={false}
               coordinator={financeSetupCoordinator}
+              supportingText="You can return any time."
             />
           ) : null}
         </div>
@@ -633,14 +634,17 @@ function KaiOnboardingPageContent({
           riskProfile={persona}
           onEditAnswers={() => setStage("wizard")}
           onLaunchDashboard={handleLaunchDashboard}
+          terminalFooter={
+            isStaticFinanceSetupRoute ? (
+              <SetupCapabilityTerminalFooter
+                capabilityId="finance"
+                isOperationallyReady={false}
+                coordinator={financeSetupCoordinator}
+                supportingText="You can return any time."
+              />
+            ) : null
+          }
         />
-        {isStaticFinanceSetupRoute ? (
-          <SetupCapabilityTerminalFooter
-            capabilityId="finance"
-            isOperationallyReady={false}
-            coordinator={financeSetupCoordinator}
-          />
-        ) : null}
       </>
     );
   }
@@ -665,6 +669,7 @@ function KaiOnboardingPageContent({
                 capabilityId="finance"
                 isOperationallyReady={false}
                 coordinator={financeSetupCoordinator}
+                supportingText="You can return any time."
               />
             ) : null
           }

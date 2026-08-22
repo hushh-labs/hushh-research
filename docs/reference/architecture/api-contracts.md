@@ -303,7 +303,7 @@ not the product owner for live location.
 | POST | `/api/one/location/circles/{circle_id}/invite-code` | VAULT_OWNER Bearer | Active-member idempotent ensure/read of the shared reusable 72-hour code; `?rotate=true` is authorized only by canonical `circle.owner_user_id`, responses are `private, no-store`, and only a keyed HMAC digest plus derivation metadata is persisted. An unreadable legacy active code returns `LOCATION_CIRCLE_CODE_ROTATION_REQUIRED` until the owner explicitly rotates it |
 | DELETE | `/api/one/location/circles/{circle_id}/invite-code` | VAULT_OWNER Bearer | Owner-only revoke of the active code |
 | GET | `/api/one/location/circles/{circle_id}/eligible-connections` | VAULT_OWNER Bearer | Active-member list of that caller's own active `direct_request` connections who are not active Circle members or covered by a pending invitation. Owner-removed users are offered only to the canonical Circle owner; `remainingCapacity` is bounded by both Circle capacity and the caller's pending-invitation quota |
-| POST | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | Active-member batch create or idempotent reuse of targeted, expiring invitations for the caller's selected direct connections; actor identity comes only from the token. Non-owners may hold at most five pending invitations, terminal invitees have a 12-hour Circle-wide cooldown aligned with terminal-record retention, and only the canonical owner may re-invite an owner-removed user. Creation grants no membership, location, SMS, trusted edge, or capability |
+| POST | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | OWNER-ONLY batch ADD of the owner's selected direct connections. Only the Circle owner may add anyone, and only the owner may read or create the join code: sharing through a Circle is authorized by shared membership alone, so whoever decides membership decides who may receive the owner's location. Details: every person named must already be an active connection of the actor, so membership is written outright rather than invited, and each is notified by name. Actor identity comes only from the token. Terminal invitees keep the 12-hour Circle-wide cooldown so a direct add cannot overrule a decline, someone who LEFT the Circle within the same 12 hours cannot be re-added by anyone including the owner, and only the canonical owner may re-add an owner-removed user. There is no cap on how many Circles a person may belong to. An SMS/Emergency Circle holds at most 10 people, an ordinary Circle 100; existing SMS Circles are lowered to 10 on the owner's next bootstrap and nobody already on one is removed. Any pending invitation for an added person is marked accepted. Adding grants no location, SMS, or trusted authorization; the response's `invites` array is retained and always empty |
 | GET | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | List the authenticated user's incoming invitations or outgoing invitations authored by that member; Circle owners may also see outgoing invitations for moderation |
 | POST | `/api/one/location/circle-member-invites/{invite_id}/accept` | VAULT_OWNER Bearer | Invitee-only acceptance after Circle-first locking and revalidation that the actual inviter remains an active Circle member and their direct connection remains active; only an owner-authored invitation may restore an owner-removed membership. Acceptance atomically joins and creates source-aware connection origins without location/SMS/trusted authorization |
 | POST | `/api/one/location/circle-member-invites/{invite_id}/decline` | VAULT_OWNER Bearer | Invitee-only decline of a pending targeted Circle invitation |
@@ -389,6 +389,7 @@ RIA relationship bundle note:
 - investor private information -> RIA stays on explicit scope consent
 - RIA active picks feed -> investor is the reserved bilateral capability (`ria_active_picks_feed_v1`)
 - connection acceptance is social only; it grants no information access
+- disconnecting ends BOTH people's One Location Circle memberships in Circles the other OWNS, in the same transaction and after the connection row is revoked. One Location authorizes a delivery on an active non-Circle connection origin OR a shared active Circle, so a membership left behind keeps that permission alive on its own -- including the system Circle SOS reads. A third party's Circle both happen to be in is untouched; either can leave it
 - advisor picks require a current proposal, active relationship-share grant, and active share artifact with matching lineage
 - legacy RIA Picks uploads were product-authorized clean-start retirement; they have no read, migration, fallback, or access route
 
@@ -871,6 +872,25 @@ HCT:<base64(user_id|agent_id|scope|issued_at|expires_at)>.<hmac_sha256_signature
 | 429 | Rate limited | Back off and retry |
 
 ---
+
+## HushhTech UAT Product Client
+
+The complete boundary is [hushh-tech-uat-client.md](./hushh-tech-uat-client.md).
+These routes are UAT-only, disabled by default, and accept only a synthetic
+Firebase UID cohort. Production and Supabase stay unchanged.
+
+| Method | Route | Required proofs | Result |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/products/hushh-tech/launch/authorize` | Research Firebase ID token; exact audience, redirect, and S256 challenge | 60-second single-use code |
+| `POST` | `/api/v1/products/hushh-tech/launch/exchange` | code, verifier, exact audience and redirect | product-bound Firebase custom token and link state |
+| `GET` | `/api/v1/products/hushh-tech/link/status` | Firebase ID token plus server-only HushhTech developer token | `READY` or `LINK_REQUIRED` |
+| `POST` | `/api/v1/products/hushh-tech/link/verify` | recent Firebase authentication, product token, synthetic legacy-session proof | active UID-to-legacy-UUID link or `LINK_CONFLICT` |
+| `POST` | `/api/v1/products/hushh-tech/link/revoke` | recent Firebase authentication plus product token | revoked link and `LINK_REQUIRED` state |
+| `GET` | `/api/v1/products/hushh-tech/compatibility/{record_type}` | Firebase ID token plus product token | one allowlisted synthetic record or a typed fail-closed state |
+
+Email, phone, Apple relay address, and provider identifiers are never mapping
+keys. Link and compatibility routes accept only the exact developer app with
+the `hushh_tech_client` tool group and no broader capability.
 
 ## Response Format
 

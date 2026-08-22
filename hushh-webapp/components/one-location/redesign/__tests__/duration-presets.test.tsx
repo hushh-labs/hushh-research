@@ -35,14 +35,15 @@ describe("DurationPresetPicker", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
-  it("sets exactly two hours in one tap", () => {
+  it("opens custom when the user wants anything beyond the core presets", () => {
     const onChange = vi.fn();
     render(<DurationPresetPicker value="0.25" onChange={onChange} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "2 hours" }));
+    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
 
-    expect(onChange).toHaveBeenCalledWith("2");
-    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("spinbutton", { name: "Hours" })).toBeTruthy();
+    expect(screen.getByRole("spinbutton", { name: "Minutes" })).toBeTruthy();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("emits the caller's open-ended sentinel, not the wheel's own alias", () => {
@@ -136,7 +137,7 @@ describe("DurationPresetPicker", () => {
     }
   });
 
-  it("keeps the whole ladder on one screen: six cells plus the open-ended row", () => {
+  it("keeps the whole ladder focused: two presets, custom, and the open-ended row", () => {
     render(<DurationPresetPicker value="1" onChange={vi.fn()} />);
 
     expect(
@@ -144,9 +145,6 @@ describe("DurationPresetPicker", () => {
     ).toEqual([
       "15 min",
       "1 hour",
-      "2 hours",
-      "4 hours",
-      "8 hours",
       "Custom",
       "Until I stop",
     ]);

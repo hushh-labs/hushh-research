@@ -59,11 +59,8 @@ export function ProfileAvatarEditor() {
     let dataUrl: string | null = null;
     try {
       dataUrl = await pickAvatarDataUrl();
-    } catch (error) {
-      toast.error("Could not update photo", {
-        description:
-          error instanceof Error ? error.message : "Please try again.",
-      });
+    } catch {
+      toast.error("Could not update photo");
       return;
     }
     if (!dataUrl) return; // user cancelled

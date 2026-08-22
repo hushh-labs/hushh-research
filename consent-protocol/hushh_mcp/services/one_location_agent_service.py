@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 import contextvars
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -30,6 +32,7 @@ from hushh_mcp.operons.location.policy import (
     normalize_duration_mode,
     normalize_source_platform,
 )
+from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.types import AgentID, UserID
 from mcp_modules.log_redaction import redact_log_field, redact_log_value
 
@@ -446,6 +449,100 @@ def _hash_public_value(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+# The public-link token is DERIVED from the invite row's UUID rather than
+# generated at random, so the owner can read their own live link back.
+#
+# It used to be `secrets.token_urlsafe(32)`, hashed on the way in and returned
+# exactly once in the create response. Nothing could recover it afterwards --
+# not the owner, not a second device, not the same tab after a reload -- so an
+# invite the server reported as active had a link the product could no longer
+# show. Copy and Share silently did nothing, and the only way back was to
+# revoke.
+#
+# The row UUID is not secret; the app signing key supplies the entropy, exactly
+# as `one_location_circle_service._code_for_invite_id` does for Circle codes. A
+# database-only compromise still yields nothing but the UUID and a keyed
+# digest. Rows minted before this carry no version marker, so their token stays
+# unrecoverable and the payload simply omits the URL -- unchanged behaviour for
+# them, rather than a wrong link.
+# A public link is readable by anyone who holds it, so its ceiling is one hour
+# and the screen says so.
+#
+# The screen was the ONLY thing saying so. `normalize_duration_hours` allows up
+# to 24, the Pydantic field allows up to 24, and the DB CHECK allows up to 24 --
+# all three are the private-share ceiling, which is a different promise made to
+# a named person who can be un-shared. A request carrying `durationHours: 24`
+# was accepted and minted a public link that watched the owner for a day.
+#
+# Rejected rather than clamped: silently shortening what was asked for is how
+# the client-side clamp hid this in the first place, and no shipped client can
+# reach this branch -- every public-link caller already clamps to one hour
+# before it posts.
+PUBLIC_INVITE_MAX_DURATION_HOURS = 1.0
+
+_PUBLIC_INVITE_TOKEN_DOMAIN = b"one-location-public-invite-token:v1:"
+_PUBLIC_INVITE_CODE_VERSION = "derived-v1"
+
+
+def _public_invite_signing_key() -> bytes:
+    return get_core_security_settings().app_signing_key.encode("utf-8")
+
+
+def _public_invite_token_for_id(invite_id: str) -> str:
+    """The share token belonging to one invite row, re-derivable on every read."""
+
+    normalized_invite_id = str(uuid.UUID(str(invite_id)))
+    digest = hmac.new(
+        _public_invite_signing_key(),
+        _PUBLIC_INVITE_TOKEN_DOMAIN + normalized_invite_id.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _public_invite_token_if_derivable(row: dict[str, Any] | None) -> str | None:
+    """The share token for an invite row, or None if it cannot be recovered.
+
+    Re-derives the token from the row's UUID and checks it against the
+    digest that was stored when the row was written. Two rows fail that
+    check, and both must fail closed:
+
+      - anything minted before tokens were derived from the id, which
+        carries no `codeVersion` and whose random token is gone for good
+      - a row whose stored digest no longer matches, which means the
+        signing key rotated or the row was tampered with
+
+    Returning a token that does not resolve would be worse than returning
+    none: the owner would copy a link that 404s and have no reason to think
+    it was ever broken.
+    """
+
+    if not row:
+        return None
+    metadata = _loads_json(row.get("metadata")) or {}
+    if not isinstance(metadata, dict):
+        return None
+    if metadata.get("codeVersion") != _PUBLIC_INVITE_CODE_VERSION:
+        return None
+    invite_id = str(row.get("id") or "")
+    if not invite_id:
+        return None
+    try:
+        token = _public_invite_token_for_id(invite_id)
+    except (ValueError, AttributeError):
+        return None
+    stored_hash = str(row.get("public_code_hash") or "")
+    if not stored_hash:
+        return None
+    if not hmac.compare_digest(stored_hash, _hash_public_value(token)):
+        logger.warning(
+            "one_location.public_invite_token_integrity_failed invite=%s",
+            redact_log_field("invite_id", invite_id),
+        )
+        return None
+    return token
+
+
 def _public_invite_url(token: str) -> str:
     return f"/one/location/request/{token}"
 
@@ -487,10 +584,25 @@ def _identity_notification_label(
     row: dict[str, Any] | None,
     fallback: str = "A trusted person",
 ) -> str:
-    """Return a lock-screen-safe identity label without phone-derived data."""
-    if not row:
-        return fallback
-    return str(row.get("display_name") or "").strip() or fallback
+    """Return a lock-screen-safe identity label without phone-derived data.
+
+    Delegates the ladder to `resolve_requester_label` -- the resolver #5442
+    added when connection-request pushes were reading "Someone wants to connect
+    with you". It tries the display name, rejects values that are identifiers
+    rather than names (a UUID, the raw user id, an opaque token), and falls back
+    to the handle from the account's email.
+
+    `fallback` survives as the last resort, for an account that genuinely
+    resolves to nothing. That is the one case where a generic phrase is the
+    truthful answer rather than a missing one.
+    """
+
+    # Run against the row already in hand rather than through
+    # `resolve_requester_label`, which would re-query the same row for its
+    # email rung. Same ladder, one read instead of two.
+    from hushh_mcp.services.requester_identity import label_from_identity_row
+
+    return label_from_identity_row(row, fallback=fallback)
 
 
 def _notification_safe_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -526,6 +638,54 @@ _INTERNAL_SHARE_REASONS = {
     _DRIVE_TO_SHARE_REASON,
     _CHECK_IN_SHARE_REASON,
 }
+
+
+# Which replacement lane a grant belongs to. Replacement of a live share is
+# scoped to a LANE, and there are exactly TWO of them: the emergency lane
+# (``share_kind == 'sos'``) and everything else. This is deliberately NOT one
+# lane per share kind. `_classify_share_kind` below can return four kinds, the
+# `/api/one/location/grants` route accepts `share_kind` as free text up to 40
+# characters with no enum, and the web client already sends values this module
+# never produces (e.g. `pick_me_up`). Per-exact-kind scoping would therefore let
+# a single owner/recipient pair accumulate an unbounded number of live grants
+# that no surface exposes a Stop for. Two lanes caps a pair at exactly two live
+# grants: one normal share and one SOS.
+#
+# The invariant this enforces: an SOS grant must never supersede a normal share,
+# and a normal share must never supersede an SOS grant. Within a lane, the newest
+# grant still replaces the older one exactly as it always has -- `drive_to`,
+# `check_in`, `pick_me_up` and plain `share` all sit in the non-emergency lane
+# together and keep replacing each other.
+#
+# Bound as ``:is_sos_lane`` (a boolean) by every caller. The second arm reads the
+# legacy `reason` marker for rows written before `share_kind` was persisted in
+# metadata; it is belt-and-braces only and must never be relied on alone, because
+# a user-typed SOS message REPLACES the `sos_panic` reason on the way in.
+#
+# Defined once, on purpose. Three hand-copied divergent versions of the
+# replacement UPDATE are exactly what let an SMS alert silently revoke a normal
+# share (#5506); a fourth write path must not be addable without this predicate.
+_SHARE_LANE_MATCH_SQL = """
+                AND (
+                  COALESCE({alias}metadata->>'share_kind', '') = 'sos'
+                  OR (
+                    {alias}metadata->>'share_kind' IS NULL
+                    AND {alias}metadata->>'reason' = 'sos_panic'
+                  )
+                ) = CAST(:is_sos_lane AS BOOLEAN)"""
+
+
+def _share_lane_match_sql(alias: str = "") -> str:
+    """The lane predicate, optionally qualified for an aliased UPDATE target."""
+    return _SHARE_LANE_MATCH_SQL.format(alias=f"{alias}." if alias else "")
+
+
+def _is_sos_lane(share_kind: str | None) -> bool:
+    """True when a grant belongs to the emergency replacement lane.
+
+    The lane split is `sos` vs everything-else -- NOT one lane per share kind.
+    """
+    return str(share_kind or "").strip() == "sos"
 
 
 def _classify_share_kind(reason: str | None) -> str:
@@ -1291,7 +1451,7 @@ class OneLocationAgentService:
         try:
             return self._execute_one(
                 """
-                SELECT user_id, display_name, phone_number, phone_verified
+                SELECT user_id, display_name, email, phone_number, phone_verified
                 FROM actor_identity_cache
                 WHERE user_id = :user_id
                 LIMIT 1
@@ -1335,13 +1495,40 @@ class OneLocationAgentService:
             return None
 
     @staticmethod
-    def _recipient_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _recipient_payload(
+        row: dict[str, Any] | None,
+        *,
+        allow_email_handle: bool = False,
+    ) -> dict[str, Any] | None:
+        """Project one person for a client list.
+
+        ``allow_email_handle`` is a privacy boundary, not a default. This same
+        projection serves two lists: the recipients list, scoped to people the
+        viewer is connected to or shares a Circle with, and the discovery
+        directory, which includes phone-verified strangers. An email's local
+        part is a name to the first group and an identifier about the second,
+        so only the relationship-scoped caller opts in.
+
+        Off, the behaviour is exactly what it was: the masked phone, then
+        "Verified user".
+        """
+
         if not row:
             return None
-        display_name = str(row.get("display_name") or "").strip()
+        from hushh_mcp.services.requester_identity import label_from_identity_row
+
         email = str(row.get("email") or "").strip()
         masked_phone = _mask_phone(row.get("phone_number"))
         user_id = str(row.get("user_id") or "")
+        # The masked phone stays a rung, below the name and the handle. It is
+        # the one the client rejects on sight (MASKED_PHONE_ONLY_PATTERN) and
+        # replaces with "A trusted person", so anything resolvable above it is
+        # the difference between a name and a generic line.
+        display_name = label_from_identity_row(
+            row,
+            allow_email_handle=allow_email_handle,
+            fallback="",
+        )
         return {
             "userId": user_id,
             "displayName": display_name or masked_phone or "Verified user",
@@ -2362,6 +2549,21 @@ class OneLocationAgentService:
         }
         if safe_label:
             payload["ownerLabel"] = safe_label
+        # The owner's own link, handed back on every read.
+        #
+        # This branch is owner-only -- the `public` branch above is what a
+        # recipient sees, and it must never carry the token. For the owner the
+        # link is the whole point of the object: without it the product could
+        # report "you have a live link" and then have nothing to copy, which is
+        # exactly what happened after any reload.
+        #
+        # Only while the invite can still be used. A revoked or expired row's
+        # token no longer resolves, so offering it would hand over a link that
+        # 404s.
+        if str(row.get("status") or "") == "active":
+            token = _public_invite_token_if_derivable(row)
+            if token:
+                payload["publicUrl"] = _public_invite_url(token)
         return payload
 
     @staticmethod
@@ -2568,11 +2770,27 @@ class OneLocationAgentService:
                 else f"You viewed {owner_label}'s update"
             )
         elif event_type == "location_share_revoked":
-            title = (
-                f"Sharing stopped with {recipient_label}"
-                if owner_user_id == user_id
-                else f"{owner_label} stopped sharing"
+            # The feed lists both lanes together, so an entry that does not say
+            # which one ended reads as ambiguous next to a still-live share
+            # with the same person.
+            revoked_via_sms = (
+                str((_loads_json(row.get("metadata")) or {}).get("share_kind") or "")
+                .strip()
+                .lower()
+                == "sos"
             )
+            if revoked_via_sms:
+                title = (
+                    f"SMS sharing stopped with {recipient_label}"
+                    if owner_user_id == user_id
+                    else f"{owner_label} stopped SMS location sharing"
+                )
+            else:
+                title = (
+                    f"Sharing stopped with {recipient_label}"
+                    if owner_user_id == user_id
+                    else f"{owner_label} stopped sharing"
+                )
         elif event_type == "location_share_expired":
             title = (
                 f"Share expired for {recipient_label}"
@@ -3354,7 +3572,11 @@ class OneLocationAgentService:
                 "This secure key id is already bound to different key material.",
                 status_code=409,
             )
-        return self._recipient_payload(row) or {}
+        # The caller's own record, handed straight back to them. There is no
+        # privacy line to draw against yourself, and withholding it here would
+        # show a person their own masked phone where every other surface now
+        # shows their name.
+        return self._recipient_payload(row, allow_email_handle=True) or {}
 
     def list_verified_recipients(
         self, *, owner_user_id: str, limit: int = 50
@@ -3422,7 +3644,14 @@ class OneLocationAgentService:
             {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
         )
 
-        recipients = [payload for row in rows if (payload := self._recipient_payload(row))]
+        # Relationship-scoped: the statement above admits a person only on an
+        # active connection or a shared active Circle, so a name resolved from
+        # their email handle is a name about someone the viewer already knows.
+        recipients = [
+            payload
+            for row in rows
+            if (payload := self._recipient_payload(row, allow_email_handle=True))
+        ]
         return self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,
@@ -3701,9 +3930,10 @@ class OneLocationAgentService:
                 "LOCATION_RECIPIENT_UNAVAILABLE",
                 unavailable_message
                 or (
-                    "They are in your One Network but their secure location key "
-                    "isn't ready yet. Ask them to open One Location and unlock "
-                    "their vault once, then try again."
+                    # Two lines in a toast. The old copy explained the whole
+                    # mechanism and ran to four; what the reader needs is the
+                    # one action that fixes it.
+                    "Ask them to open One Location and unlock once, then try again."
                 ),
                 status_code=409,
             )
@@ -4292,6 +4522,16 @@ class OneLocationAgentService:
                     ),
                     "source_circle_id": source_circle_id,
                 }
+                # Replacement is scoped to ONE LANE, and there are exactly two
+                # of them: the emergency lane (`share_kind == 'sos'`) and
+                # everything else. An SOS grant must never supersede a normal
+                # share, and a normal share must never supersede an SOS grant --
+                # a person who shared their location for four hours and then
+                # raised an SMS alert with the same person had the four-hour
+                # share silently revoked at SEND time (#5506). This is two lanes,
+                # NOT one lane per share kind: `drive_to`, `check_in`,
+                # `pick_me_up` and plain `share` all sit in the non-emergency
+                # lane together and go on replacing each other exactly as before.
                 conn.execute(
                     text(
                         """
@@ -4299,7 +4539,12 @@ class OneLocationAgentService:
                         SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                         WHERE owner_user_id = :owner_user_id
                           AND recipient_user_id = :recipient_user_id
-                          AND status = 'active'
+                          AND status = 'active'"""  # nosec B608 - the lane predicate
+                        # below is a module-level constant of static SQL text and the
+                        # lane itself is BOUND as `:is_sos_lane`; nothing
+                        # caller-supplied reaches this statement.
+                        + _share_lane_match_sql()
+                        + """
                         """
                     ),
                     params,
@@ -4479,10 +4724,15 @@ class OneLocationAgentService:
         }
         if capability is not None:
             metadata["capability_token"] = capability["token"]
+        # Which of the two replacement lanes this grant lands in. Bound into
+        # BOTH write paths below -- the enforced transaction reads it out of
+        # `grant_params`, the non-enforced branch binds it on its own revoke.
+        is_sos_lane = _is_sos_lane(resolved_kind)
         grant_params = {
             "owner_user_id": owner_user_id,
             "recipient_user_id": recipient_user_id,
             "recipient_key_id": key_id,
+            "is_sos_lane": is_sos_lane,
             "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
             "duration_hours": duration,
             "expires_at": expires_at,
@@ -4500,18 +4750,30 @@ class OneLocationAgentService:
                 grant_params=grant_params,
             )
         else:
+            # Same two-lane replacement rule as the enforced path above: an
+            # SOS grant never supersedes a normal share and vice versa, and the
+            # split is `sos` vs everything-else rather than one lane per share
+            # kind. This is the branch `approve_request` reaches (it calls
+            # `create_grant` without `enforce_connection`), so approving a
+            # plain access request must not tear down a live SOS share either.
             self._execute_many(
                 """
                 UPDATE one_location_share_grants
                 SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                 WHERE owner_user_id = :owner_user_id
                   AND recipient_user_id = :recipient_user_id
-                  AND status = 'active'
+                  AND status = 'active'"""  # nosec B608 - the lane predicate below
+                # is a module-level constant of static SQL text and the lane itself is
+                # BOUND as `:is_sos_lane`; nothing caller-supplied reaches this
+                # statement.
+                + _share_lane_match_sql()
+                + """
                 RETURNING id
                 """,
                 {
                     "owner_user_id": owner_user_id,
                     "recipient_user_id": recipient_user_id,
+                    "is_sos_lane": is_sos_lane,
                 },
             )
             row = self._execute_one(
@@ -4811,11 +5073,21 @@ class OneLocationAgentService:
               LIMIT 1
             ),
             revoked_grants AS (
+              -- Two-lane replacement, same invariant as the two non-atomic
+              -- create paths: replacement is scoped to the emergency lane, so
+              -- an SOS grant never supersedes a normal share and a normal share
+              -- never supersedes an SOS grant. Two lanes (`sos` vs
+              -- everything-else), NOT one lane per share kind.
               UPDATE one_location_share_grants g
               SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
               WHERE g.owner_user_id = :owner_user_id
                 AND g.recipient_user_id = :recipient_user_id
-                AND g.status = 'active'
+                AND g.status = 'active'"""  # nosec B608 - the lane predicate below
+            # is a module-level constant of static SQL text with a fixed alias
+            # substituted, and the lane itself is BOUND as `:is_sos_lane`; nothing
+            # caller-supplied reaches this statement.
+            + _share_lane_match_sql("g")
+            + """
                 AND EXISTS (SELECT 1 FROM eligible_recipient)
                 AND NOT EXISTS (SELECT 1 FROM replayed_grant)
               RETURNING g.id
@@ -4947,6 +5219,10 @@ class OneLocationAgentService:
                 "enforce_connection": enforce_connection,
                 "source_circle_id": grant_source_circle_id,
                 "require_sms_contact": resolved_kind == "sos",
+                # The `revoked_grants` CTE above is lane-scoped. This dict is
+                # built independently of `create_grant`'s, so a missing bind
+                # here fails OPEN to the old kind-blind replacement.
+                "is_sos_lane": _is_sos_lane(resolved_kind),
                 "envelope_metadata_json": envelope_fields["metadata_json"],
                 **{key: value for key, value in envelope_fields.items() if key != "metadata_json"},
             },
@@ -5547,26 +5823,107 @@ class OneLocationAgentService:
                 str(exc),
                 status_code=422,
             ) from exc
-        raw_token = secrets.token_urlsafe(32)
+        if duration > PUBLIC_INVITE_MAX_DURATION_HOURS:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_INVALID",
+                "A public location link can stay live for at most 1 hour.",
+                status_code=422,
+            )
+        # Expiry is written lazily -- `_expire_public_invite` only flips a row
+        # when something reads it -- so a link whose time has passed can still
+        # be sitting at status 'active'. Settle that here first, or the reuse
+        # check below hands back a dead link instead of minting a fresh one.
+        self._execute_one(
+            """
+            UPDATE one_location_public_invites
+            SET status = 'expired', updated_at = NOW()
+            WHERE owner_user_id = :owner_user_id
+              AND status = 'active'
+              AND expires_at <= NOW()
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+
+        # One live public link per person, enforced where it can actually hold.
+        #
+        # Nothing stopped a second: no unique index, no lookup, just an INSERT.
+        # A reload, a second device or a double tap therefore left two links
+        # resolvable while the screen showed one, and revoking the one on
+        # screen left the other watching. The client now hides its create
+        # control while a link is live, but a client rule is not an invariant --
+        # a stale tab defeats it.
+        #
+        # Reuse rather than reject: this is the same call the person makes when
+        # they mean "give me my link", and a 409 would be a dead end on a
+        # screen whose whole job is to hand it over. Matches
+        # `one_location_circle_service.create_invite_code`, which returns the
+        # circle's existing active code rather than minting a second.
+        existing = self._execute_one(
+            """
+            SELECT *
+            FROM one_location_public_invites
+            WHERE owner_user_id = :owner_user_id
+              AND status = 'active'
+              AND expires_at > NOW()
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+        if existing:
+            existing_token = _public_invite_token_if_derivable(existing)
+            if existing_token:
+                existing_payload = self._public_invite_payload(existing)
+                if existing_payload:
+                    return {
+                        "invite": existing_payload,
+                        "publicToken": existing_token,
+                        "publicUrl": _public_invite_url(existing_token),
+                        # The caller asked for a link and got one; it is simply
+                        # the one that was already live. Named so a client can
+                        # tell "created" from "here is the one you have" without
+                        # comparing timestamps.
+                        "reused": True,
+                    }
+            # A row minted before tokens were derivable, or one whose digest no
+            # longer verifies. Its token is genuinely unrecoverable, so leaving
+            # it active would strand the owner behind a link nothing can show.
+            # Retire it and mint a replacement rather than refuse.
+            self._execute_one(
+                """
+                UPDATE one_location_public_invites
+                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                WHERE id = CAST(:invite_id AS UUID)
+                  AND status = 'active'
+                """,
+                {"invite_id": str(existing.get("id") or "")},
+            )
+
+        # The id is chosen here rather than by the default, because the token is
+        # derived FROM it and has to be known before the row exists.
+        invite_id = str(uuid.uuid4())
+        raw_token = _public_invite_token_for_id(invite_id)
         token_hash = _hash_public_value(raw_token)
         expires_at = _utcnow() + timedelta(hours=duration)
         public_location = self._public_location_snapshot_payload(location_snapshot)
-        metadata: dict[str, Any] = {}
+        metadata: dict[str, Any] = {"codeVersion": _PUBLIC_INVITE_CODE_VERSION}
         if public_location:
             metadata["publicLocation"] = public_location
         row = self._execute_one(
             """
             INSERT INTO one_location_public_invites (
-              owner_user_id, public_code_hash, status, duration_hours,
+              id, owner_user_id, public_code_hash, status, duration_hours,
               expires_at, created_at, updated_at, metadata
             )
             VALUES (
+              CAST(:invite_id AS UUID),
               :owner_user_id, :public_code_hash, 'active', :duration_hours,
               :expires_at, NOW(), NOW(), CAST(:metadata_json AS JSONB)
             )
             RETURNING *
             """,
             {
+                "invite_id": invite_id,
                 "owner_user_id": owner_user_id,
                 "public_code_hash": token_hash,
                 "duration_hours": duration,
@@ -6490,6 +6847,12 @@ class OneLocationAgentService:
         owner_label = _identity_notification_label(owner_identity)
         recipient_identity = self._identity_row(recipient_user_id or "")
         recipient_label = _identity_notification_label(recipient_identity)
+        # Which lane ended. #5552 made `share_kind` the discriminator between
+        # the emergency (SMS / Save My Soul) lane and every other share, and a
+        # person can hold one of each at the same time -- so "a share ended"
+        # without naming the lane is genuinely ambiguous to the recipient.
+        revoked_share_kind = str(row.get("share_kind") or "").strip().lower()
+        revoked_via_sms = revoked_share_kind == "sos"
         self._insert_event(
             owner_user_id=str(row.get("owner_user_id") or owner_user_id),
             actor_user_id=owner_user_id,
@@ -6499,6 +6862,7 @@ class OneLocationAgentService:
             metadata={
                 "reason": "owner_revoke" if actor_is_owner else "recipient_revoke",
                 "counterpart_label": recipient_label,
+                "share_kind": revoked_share_kind or "standard",
             },
         )
         notification_user_id = (
@@ -6507,11 +6871,24 @@ class OneLocationAgentService:
         self._send_metadata_notification(
             user_id=notification_user_id,
             notification_type="location_share_revoked",
-            title="Location access revoked",
+            # "SMS location sharing" is the recipient's name for this, not
+            # "SOS" -- an SMS alert is how it reached them, and the phrase has
+            # to match what they remember receiving.
+            title=(
+                "SMS location sharing stopped" if revoked_via_sms else "Location access revoked"
+            ),
             body=(
-                f"{owner_label} removed your location access."
+                (
+                    f"{owner_label} stopped sharing their location with you over SMS."
+                    if revoked_via_sms
+                    else f"{owner_label} removed your location access."
+                )
                 if actor_is_owner
-                else f"{recipient_label} stopped receiving your location share."
+                else (
+                    f"{recipient_label} stopped receiving your SMS location sharing."
+                    if revoked_via_sms
+                    else f"{recipient_label} stopped receiving your location share."
+                )
             ),
             notification_tag=f"one-location-revoked:{grant_id}",
             request_url=_one_location_url(
@@ -6523,6 +6900,10 @@ class OneLocationAgentService:
                 "owner_display_label": owner_label,
                 "recipient_user_id": recipient_user_id,
                 "recipient_display_label": recipient_label,
+                # Carried so the client's own fallback copy can name the same
+                # lane instead of re-deriving it from a grant it may no longer
+                # be holding -- the grant is revoked by the time this arrives.
+                "share_kind": revoked_share_kind or "standard",
             },
         )
         return self._grant_payload(row) or {}
@@ -6655,9 +7036,23 @@ class OneLocationAgentService:
         return self._grant_payload(updated) or {}
 
     def _active_grant_between(
-        self, *, owner_user_id: str, recipient_user_id: str
+        self, *, owner_user_id: str, recipient_user_id: str, is_sos_lane: bool | None
     ) -> dict[str, Any] | None:
-        """The live share from owner to recipient, if there is one right now."""
+        """The live share from owner to recipient IN ONE LANE, if there is one.
+
+        A pair can now hold two live grants at once -- one normal share and one
+        SOS -- so "the live share between these two people" is no longer a
+        single well-defined row and this read must say which one it means.
+        ``is_sos_lane`` is required for exactly that reason: left implicit, the
+        ``ORDER BY created_at DESC`` below silently resolves to whichever grant
+        was created most recently, which during an emergency is the SOS grant.
+
+        Pass ``False`` for the normal-share lane, ``True`` for the emergency
+        lane, or ``None`` to deliberately mean "either lane, newest wins" --
+        which is the pre-#5506 behaviour and is almost never what a caller
+        wants.
+        """
+        lane_predicate = "" if is_sos_lane is None else _share_lane_match_sql()
         return self._execute_one(
             """
             SELECT id, expires_at, duration_mode, duration_hours
@@ -6665,11 +7060,20 @@ class OneLocationAgentService:
             WHERE owner_user_id = :owner_user_id
               AND recipient_user_id = :recipient_user_id
               AND status = 'active'
-              AND (expires_at IS NULL OR expires_at > NOW())
+              AND (expires_at IS NULL OR expires_at > NOW())"""  # nosec B608 -
+            # `lane_predicate` is either empty or a module-level constant of static
+            # SQL text, and the lane itself is BOUND as `:is_sos_lane`; nothing
+            # caller-supplied reaches this statement.
+            + lane_predicate
+            + """
             ORDER BY created_at DESC
             LIMIT 1
             """,
-            {"owner_user_id": owner_user_id, "recipient_user_id": recipient_user_id},
+            {
+                "owner_user_id": owner_user_id,
+                "recipient_user_id": recipient_user_id,
+                "is_sos_lane": bool(is_sos_lane),
+            },
         )
 
     def set_grant_duration(
@@ -6866,8 +7270,18 @@ class OneLocationAgentService:
         # crafted id cannot attach an ask to somebody else's grant. When it does
         # not check out we fall back to the real active grant rather than
         # failing: the person is asking for time either way.
+        # Scoped to the NORMAL-SHARE lane on purpose. An access request is an
+        # ask for ordinary visibility, and the only grant it can sensibly be an
+        # extension of is the ordinary one. Unscoped, this read returns the
+        # newest live grant -- so while the owner has an SOS share running with
+        # this same person, a client correctly naming the share it wants
+        # extended was silently redirected onto the SOS grant by the mismatch
+        # fallback below, and `remaining_label` then quoted the SOS grant's
+        # hours back at them. Nobody may extend an emergency share by asking.
         active_grant = self._active_grant_between(
-            owner_user_id=owner_user_id, recipient_user_id=requester_user_id
+            owner_user_id=owner_user_id,
+            recipient_user_id=requester_user_id,
+            is_sos_lane=False,
         )
         active_grant_id = str(active_grant.get("id") or "") if active_grant else ""
         requested_grant_id = str(extends_grant_id or "").strip()

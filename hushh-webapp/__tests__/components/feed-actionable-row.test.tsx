@@ -116,7 +116,7 @@ describe("FeedActionableRow", () => {
         />,
       );
 
-      expect(screen.getByText(/^Today - 3:45\s?PM$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^Today - 03:45\s?PM$/i)).toBeInTheDocument();
     });
 
     it("shows no time label when displayTimestamp is null", () => {
@@ -146,7 +146,7 @@ describe("FeedActionableRow", () => {
         />,
       );
 
-      expect(screen.getByText(/^Today - 3:45\s?PM$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^Today - 03:45\s?PM$/i)).toBeInTheDocument();
       expect(screen.getByText("Row description")).toBeInTheDocument();
     });
   });

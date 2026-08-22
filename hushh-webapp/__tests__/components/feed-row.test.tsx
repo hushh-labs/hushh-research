@@ -41,7 +41,7 @@ describe("FeedRow", () => {
   it("shows the absolute day/time label next to the description", () => {
     render(<FeedRow item={feedItem()} onOpen={() => {}} />);
 
-    expect(screen.getByText(/^Today - \d{1,2}:\d{2}\s?[AP]M$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Today - \d{2}:\d{2}\s?[AP]M$/i)).toBeInTheDocument();
     expect(screen.getByText("A routine location share.")).toBeInTheDocument();
   });
 

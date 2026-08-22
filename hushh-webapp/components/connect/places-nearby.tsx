@@ -1,16 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MapPin } from "lucide-react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
   DirectoryAttributionFooter,
   DirectoryLoadingRows,
+  ExpandRadiusButton,
   LocationPrompt,
+  NearbyDirectorySearch,
+  NearbyDistanceBadge,
+  NearbyTagBadge,
   PostalCodeForm,
   QuietBlock,
 } from "@/components/connect/nearby-directory-ui";
 import { PlaceDetailSurface } from "@/components/connect/place-detail-surface";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/morphy-ux/cn";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
@@ -76,6 +82,8 @@ export function PlacesNearby({
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<PlaceCard | null>(null);
+  const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, 200);
 
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -214,24 +222,67 @@ export function PlacesNearby({
     setAnchor({ kind: "postal", postalCode });
   }, []);
 
-  const visible = useMemo(() => {
+  const categoryVisible = useMemo(() => {
     if (chip !== ALL_CHIP) return byCategory[chip] ?? [];
-    // The merged view is nearest-first across every bucket that has answered,
-    // de-duplicated: a bank inside a shopping centre can legitimately arrive in
-    // two categories and should still be one row.
+    // "All" interleaves the buckets rather than sorting the union by distance,
+    // because distance and usefulness are not the same thing here.
+    //
+    // Sorting the union put whichever category is densest on top, and the
+    // densest categories are the ones nobody opened this tab for: `banking`
+    // includes `atm`, `transit` includes `bus_stop` and `parking`. In a city
+    // block those types cluster tens of metres apart, so the first screen of
+    // "All" was cash machines and bus stops while the nearest restaurant --
+    // 300 m away, and the actual reason for the visit -- sat below the fold.
+    // Density decided the ranking, and density is a property of the street
+    // furniture, not of what the reader wants.
+    //
+    // Round-robin instead: rank 0 of every bucket in declared order, then rank
+    // 1 of every bucket, and so on. Each bucket arrives nearest-first from the
+    // provider, so this reads as "the nearest hotel, the nearest place to eat,
+    // the nearest clinic, ..." and only then the second of each. The top of
+    // the list is one row per category by construction, so no amount of
+    // clustering can crowd a whole category off the screen.
+    //
+    // The order within a round is CATEGORY_SLUGS order, which is deliberate
+    // (see PLACES_CATEGORIES) rather than incidental -- keeping it makes the
+    // head of the list stable as later categories stream in, instead of
+    // resorting under the reader on every frame.
+    //
+    // De-duplication stays global and first-claim-wins: a bank inside a
+    // shopping centre legitimately arrives in two buckets and is still one
+    // row, credited to whichever category reaches it first.
     const seen = new Set<string>();
     const merged: PlaceCard[] = [];
-    for (const slug of CATEGORY_SLUGS) {
-      for (const card of byCategory[slug] ?? []) {
-        if (seen.has(card.placeId)) continue;
+    const buckets = CATEGORY_SLUGS.map((slug) => byCategory[slug] ?? []);
+    const deepest = buckets.reduce((max, bucket) => Math.max(max, bucket.length), 0);
+    for (let rank = 0; rank < deepest; rank += 1) {
+      for (const bucket of buckets) {
+        const card = bucket[rank];
+        if (!card || seen.has(card.placeId)) continue;
         seen.add(card.placeId);
         merged.push(card);
       }
     }
-    return merged.sort((a, b) => a.distanceMeters - b.distanceMeters);
+    return merged;
   }, [byCategory, chip]);
 
+  const visible = useMemo(() => {
+    const needle = debouncedQuery.trim().toLowerCase();
+    if (!needle) return categoryVisible;
+    return categoryVisible.filter((card) =>
+      [
+        card.name,
+        card.categoryLabel,
+        placesCategoryLabel(card.category),
+        card.address,
+      ]
+        .filter((field): field is string => Boolean(field))
+        .some((field) => field.toLowerCase().includes(needle)),
+    );
+  }, [categoryVisible, debouncedQuery]);
+
   const answered = Object.keys(byCategory).length;
+  const nextRadiusMi = PLACES_RADIUS_OPTIONS_MI.find((mi) => mi > radiusMi);
 
   if (!anchor) {
     return (
@@ -249,7 +300,7 @@ export function PlacesNearby({
         // Google Places is worldwide. Calling this a ZIP, as the two US
         // registers correctly do, would tell a reader in Bengaluru the surface
         // is not for them.
-        postalLabel="Postcode"
+        postalLabel="Area or postcode"
         postalNumericOnly={false}
       />
     );
@@ -301,6 +352,15 @@ export function PlacesNearby({
         })}
       </div>
 
+      {!error && categoryVisible.length > 0 ? (
+        <NearbyDirectorySearch
+          value={query}
+          onChange={setQuery}
+          placeholder="Search places"
+          testId="places-search"
+        />
+      ) : null}
+
       {error ? (
         <QuietBlock
           title={error}
@@ -322,14 +382,14 @@ export function PlacesNearby({
               initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
               onSearch={handlePostalCode}
               testId="places-postal-input"
-              label="Postcode"
+              label="Area or postcode"
               numericOnly={false}
             />
           </div>
         </QuietBlock>
       ) : null}
 
-      {!error && !streaming && visible.length === 0 ? (
+      {!error && !streaming && categoryVisible.length === 0 ? (
         // Coordinates can be perfectly good and still match nothing — a radius
         // of one mile in open country is an honest empty. Offer the two things
         // that help: a wider radius above, and a different place to look.
@@ -338,23 +398,52 @@ export function PlacesNearby({
           subtitle="Try a wider radius, or another postcode."
           testId="places-empty"
         >
-          <PostalCodeForm
-            busy={streaming}
-            initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
-            onSearch={handlePostalCode}
-            testId="places-postal-input"
-            label="Postcode"
-            numericOnly={false}
-          />
+          <div className="flex w-full flex-col items-center gap-4">
+            <PostalCodeForm
+              busy={streaming}
+              initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
+              onSearch={handlePostalCode}
+              testId="places-postal-input"
+              label="Area or postcode"
+              numericOnly={false}
+            />
+            <ExpandRadiusButton
+              nextRadiusMi={nextRadiusMi}
+              onExpand={setRadiusMi}
+            />
+          </div>
         </QuietBlock>
       ) : null}
 
-      {error || (!streaming && visible.length === 0) ? null : (
+      {!error &&
+      !streaming &&
+      categoryVisible.length > 0 &&
+      visible.length === 0 ? (
+        <QuietBlock
+          title="No matches"
+          subtitle="Try a different name or category."
+          testId="places-search-empty"
+        >
+          <Button
+            type="button"
+            variant="none"
+            effect="fill"
+            size="sm"
+            onClick={() => setQuery("")}
+          >
+            Clear search
+          </Button>
+        </QuietBlock>
+      ) : null}
+
+      {error ||
+      (!streaming && categoryVisible.length === 0) ||
+      (!streaming && visible.length === 0) ? null : (
         <SettingsGroup
           title={chip === ALL_CHIP ? "Nearby" : placesCategoryLabel(chip)}
           separatorInset
         >
-          {visible.length === 0 ? (
+          {categoryVisible.length === 0 ? (
             <DirectoryLoadingRows testId="places-loading" />
           ) : (
             visible.map((card) => {
@@ -362,18 +451,21 @@ export function PlacesNearby({
               return (
                 <SettingsRow
                   key={card.placeId}
-                  title={<span className="truncate">{card.name}</span>}
+                  icon={MapPin}
+                  iconTone="gray"
+                  title={
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate">{card.name}</span>
+                      <NearbyTagBadge>
+                        {placesCategoryLabel(card.category)}
+                      </NearbyTagBadge>
+                    </span>
+                  }
                   description={formatPlaceSubtitle(card) ?? undefined}
                   density="compact"
                   chevron
                   onClick={() => setSelected(card)}
-                  trailing={
-                    distance ? (
-                      <span className="type-footnote shrink-0 tabular-nums text-muted-foreground">
-                        {distance}
-                      </span>
-                    ) : undefined
-                  }
+                  trailing={<NearbyDistanceBadge distance={distance} />}
                 />
               );
             })

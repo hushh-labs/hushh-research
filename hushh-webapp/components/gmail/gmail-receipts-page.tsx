@@ -618,7 +618,7 @@ export default function GmailReceiptsPage({
 
     if (Capacitor.isNativePlatform()) {
       toast.error(
-        "Gmail connection needs the native Google handoff. Open Gmail on the web app to connect this inbox for now.",
+        "Connect this inbox from the web app for now.",
       );
       return Promise.resolve(false);
     }
@@ -1358,7 +1358,10 @@ export default function GmailReceiptsPage({
     >
       <AppPageHeaderRegion>
         <PageHeader
-          title="Receipts"
+          // Named for the source, not the artefact: the breadcrumb on both
+          // routes that render this page says "Gmail", and the setup checklist
+          // row that leads here says "Connect Gmail".
+          title="Gmail"
           description={pageTitle}
           actions={
             isConnected ? (

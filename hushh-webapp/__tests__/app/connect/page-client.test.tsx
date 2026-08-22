@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   searchDirectory: vi.fn(),
@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => ({
   searchInformationScopes: vi.fn(),
   onConnectionCapabilityMutated: vi.fn(),
   routerPush: vi.fn(),
+  shareLink: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastError: vi.fn(),
   // The real hook hands back the same user across renders. Rebuilding it per
   // render would retrigger every effect keyed on it and spin forever, which
   // would say nothing about the page.
@@ -63,10 +66,22 @@ vi.mock("@/components/connect/nearby-directories", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: mocks.toastSuccess, error: mocks.toastError },
 }));
 
+// The ladder itself (native sheet -> Web Share -> clipboard) is proved in
+// __tests__/share/share-link.test.ts. What belongs here is the page's half of
+// the contract: when an invite is offered, and what it hands over.
+vi.mock("@/lib/share/share-link", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/lib/share/share-link")>(
+      "@/lib/share/share-link",
+    );
+  return { ...actual, shareLink: mocks.shareLink };
+});
+
 import ConnectPageClient from "@/app/connect/page-client";
+import { ShareUnavailableError } from "@/lib/share/share-link";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { parseVoiceCard, parseVoiceConfirm } from "@/lib/voice/voice-action-card";
 
@@ -1085,6 +1100,31 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(classes.has("justify-end")).toBe(true);
   });
 
+  it("keeps My connections scrollable when the list grows", async () => {
+    // Three connections fit naturally. A hundred should not turn the top of
+    // Connect into a full-page receipt before the search field appears.
+    mocks.listConnections.mockResolvedValue(
+      Array.from({ length: 12 }, (_, index) => ({
+        connectionId: `c-${index}`,
+        userId: `u-${index}`,
+        displayName: `Trusted Person ${index + 1}`,
+        maskedEmail: `t***${index}@example.com`,
+      })),
+    );
+
+    const { container } = render(<ConnectPageClient />);
+    expect(await screen.findByText("My connections (12)")).toBeTruthy();
+
+    const list = container.querySelector(
+      '[data-testid="connect-my-connections-group"] [data-inset-separators="true"]',
+    );
+    expect(list).toBeTruthy();
+    expect(list!.className).toContain("max-h-[232px]");
+    expect(list!.className).toContain("overflow-y-auto");
+    expect(list!.className).toContain("overscroll-contain");
+    expect(list!.className).toContain("sm:max-h-[320px]");
+  });
+
   it("asks for the search field in two words", async () => {
     render(<ConnectPageClient />);
     expect(await screen.findByPlaceholderText("Search people")).toBeTruthy();
@@ -1155,5 +1195,223 @@ describe("Connect — the phone-width geometry QA reported", () => {
     );
     // Not a single bare verb: the label has to carry the plural.
     expect(toggle.textContent!.split(/\s+/).length).toBeGreaterThan(1);
+  });
+});
+
+describe("Connect — inviting someone who is not on One yet", () => {
+  // jsdom serves the page from http://localhost, which is exactly the origin a
+  // recipient cannot open, so the build origin stands in for it here the same
+  // way it does inside the iOS and Android shells.
+  const REAL_APP_URL = process.env.NEXT_PUBLIC_APP_URL;
+
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://one.hushh.ai";
+    mocks.shareLink.mockResolvedValue("native-share");
+  });
+
+  afterEach(() => {
+    if (REAL_APP_URL === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+    else process.env.NEXT_PUBLIC_APP_URL = REAL_APP_URL;
+  });
+
+  async function searchForNobody(query = "Bob Kanjilal") {
+    mocks.searchDirectory.mockResolvedValue({
+      items: [],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: query },
+    });
+    return screen.findByText(`No one matches "${query}"`);
+  }
+
+  it("offers an invite instead of stopping at the dead end", async () => {
+    // The whole point of the issue: "No one matches" is a true statement and
+    // an unhelpful one, because the likeliest reason a name is missing is that
+    // the person has not joined.
+    await searchForNobody();
+
+    expect(await screen.findByText("Invite them to One")).toBeTruthy();
+    expect(
+      screen.getByText("Send them the app. You can connect once they join."),
+    ).toBeTruthy();
+  });
+
+  it("leaves the no-results row inert, so only the invite is tappable", async () => {
+    // "No one matches Bob" states a fact. Making it a control would mean
+    // tapping a sentence to do something it does not describe.
+    const row = await searchForNobody();
+    const factRow = row.closest("[data-testid='settings-row']");
+    expect(factRow).toBeTruthy();
+    expect(factRow?.querySelector("button")).toBeNull();
+  });
+
+  it("shares the app itself, with nothing attached to it", async () => {
+    await searchForNobody();
+    fireEvent.click(await screen.findByText("Invite them to One"));
+
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalledTimes(1));
+    const sent = mocks.shareLink.mock.calls[0][0];
+    // Option B: no token, no code, no pending connection. Nobody is added to
+    // anything by receiving this, and consent is still asked for later through
+    // the normal request flow.
+    expect(sent.url).toBe("https://one.hushh.ai/");
+    expect(new URL(sent.url).search).toBe("");
+    // The link lives in `url` only -- WhatsApp and Messages append it to
+    // `text`, and a link in both is delivered twice.
+    expect(sent.text).not.toContain("http");
+  });
+
+  it("does not name the person who was searched for", async () => {
+    // The query is a string somebody typed, not a verified identity, and the
+    // recipient of the message is not that string. Putting it in the invite
+    // would deliver "invite Bob Kanjilal" to whoever the sender picks.
+    await searchForNobody("Bob Kanjilal");
+    fireEvent.click(await screen.findByText("Invite them to One"));
+
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalled());
+    expect(JSON.stringify(mocks.shareLink.mock.calls[0][0])).not.toContain(
+      "Bob Kanjilal",
+    );
+  });
+
+  it("says nothing extra when the sheet did the talking", async () => {
+    await searchForNobody();
+    fireEvent.click(await screen.findByText("Invite them to One"));
+
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalled());
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("confirms the clipboard fallback, which is the one send nobody sees", async () => {
+    mocks.shareLink.mockResolvedValue("copied");
+    await searchForNobody();
+    fireEvent.click(await screen.findByText("Invite them to One"));
+
+    await waitFor(() =>
+      expect(mocks.toastSuccess).toHaveBeenCalledWith("Invite link copied."),
+    );
+  });
+
+  it("treats a dismissed sheet as a decision, not a failure", async () => {
+    const cancelled = new Error("Share canceled");
+    cancelled.name = "AbortError";
+    mocks.shareLink.mockRejectedValue(cancelled);
+
+    await searchForNobody();
+    fireEvent.click(await screen.findByText("Invite them to One"));
+
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalled());
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("tells a browser that cannot share that there is nothing to retry", async () => {
+    mocks.shareLink.mockRejectedValue(new ShareUnavailableError());
+
+    await searchForNobody();
+    fireEvent.click(await screen.findByText("Invite them to One"));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "This browser cannot share links.",
+      ),
+    );
+  });
+
+  it("reports a share that failed inside a channel that does exist", async () => {
+    mocks.shareLink.mockRejectedValue(new Error("Something went wrong"));
+
+    await searchForNobody();
+    fireEvent.click(await screen.findByText("Invite them to One"));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "Could not share the invite.",
+      ),
+    );
+  });
+
+  it("does not open a second sheet when the row is tapped twice", async () => {
+    // On iOS the promise settles only when the sheet is dismissed, and asking
+    // to present a second sheet over the first is rejected outright -- so a
+    // double tap used to earn an error toast.
+    let release: (value: string) => void = () => {};
+    mocks.shareLink.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    await searchForNobody();
+    const invite = await screen.findByText("Invite them to One");
+    fireEvent.click(invite);
+    fireEvent.click(invite);
+
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      release("native-share");
+    });
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("can be used again once the first sheet closes", async () => {
+    await searchForNobody();
+    const invite = await screen.findByText("Invite them to One");
+    fireEvent.click(invite);
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(invite);
+    await waitFor(() => expect(mocks.shareLink).toHaveBeenCalledTimes(2));
+  });
+
+  it("is not offered before anyone has searched", async () => {
+    // Nothing has been looked for, so nothing is missing. The unsearched
+    // surface is a starting point, not a failure.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("No people yet")).toBeTruthy();
+    expect(screen.queryByText("Invite them to One")).toBeNull();
+  });
+
+  it("is not offered on RIAs, where a missing name means something else", async () => {
+    // A name absent from RIAs means their adviser profile is not verified --
+    // very often a person who is already on One. An app link does not fix that
+    // and would send someone to invite an existing member.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "RIAs" }));
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "Bob Kanjilal" },
+    });
+
+    expect(
+      await screen.findByText('No one matches "Bob Kanjilal"'),
+    ).toBeTruthy();
+    expect(screen.queryByText("Invite them to One")).toBeNull();
+  });
+
+  it("is not offered when this build has no link a recipient could open", async () => {
+    // A native build with no origin baked in. Offering a button that cannot
+    // produce a working link is worse than not offering one.
+    delete process.env.NEXT_PUBLIC_APP_URL;
+
+    await searchForNobody();
+    expect(screen.queryByText("Invite them to One")).toBeNull();
   });
 });

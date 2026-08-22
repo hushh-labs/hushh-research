@@ -10,12 +10,12 @@ function read(relativePath: string) {
 }
 
 describe("canonical workspace hierarchy", () => {
-  it("keeps nested Profile pages behind the stack-owned shared header", () => {
+  it("keeps nested Profile pages behind the stack-owned shared PageHeader", () => {
     const stack = read("components/profile/profile-stack-navigator.tsx");
 
-    expect(stack).toContain("function StackHeader");
     expect(stack).toContain("<PageHeader");
     expect(stack).toContain('data-profile-stack-content="true"');
+    expect(stack).not.toContain("function StackHeader");
     expect(stack).not.toContain("<AppPageShell");
   });
 

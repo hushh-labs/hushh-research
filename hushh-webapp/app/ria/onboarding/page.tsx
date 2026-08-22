@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
@@ -201,6 +201,7 @@ export default function RiaOnboardingPage({
   onSetupSkip?: () => void | Promise<void>;
 } = {}) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, phoneNumber } = useAuth();
   const {
@@ -217,6 +218,7 @@ export default function RiaOnboardingPage({
   //   ?reinitiate=1   → re-run the whole 5-step wizard (start at welcome)
   // A generic ?step= is also honoured.
   const editParam = searchParams?.get("edit") ?? null;
+  const currentRoute = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ""}`;
   const setupOrigin =
     setupMode ||
     normalizeInternalRouteHref(searchParams?.get("from")) === ROUTES.ONE_SETUP;
@@ -534,7 +536,7 @@ export default function RiaOnboardingPage({
           { signal: controller.signal },
         ).finally(() => clearTimeout(timer));
         if (isClaimableLookupOutcome(lookup)) {
-          router.replace(buildRiaClaimRoute(phone));
+          router.replace(buildRiaClaimRoute(phone, { returnTo: currentRoute }));
         }
       } catch {
         /* stay in the wizard */
@@ -542,7 +544,7 @@ export default function RiaOnboardingPage({
     })();
     // phoneNumber is in the deps so the probe re-runs once the backend phone
     // hydrates, which happens after the first render for a Google sign-in.
-  }, [entryMode, user, phoneNumber, router]);
+  }, [currentRoute, entryMode, user, phoneNumber, router]);
 
   useEffect(() => {
     if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;
@@ -983,24 +985,16 @@ export default function RiaOnboardingPage({
       if (advisoryOutcome === "verified" || advisoryOutcome === "active") {
         await RiaOnboardingDraftLocalService.clear(user.uid);
         setShouldPersistDraft(false);
-        toast.success("Credentials verified", {
-          description: "Your advisor profile is now live in the RIA directory.",
-        });
+        toast.success("Credentials verified. Your advisor profile is now live in the RIA directory.");
       } else if (advisoryOutcome === "rejected") {
-        toast.error("Verification failed", {
-          description:
-            result.verification_message || "The license could not be verified.",
-        });
+        toast.error("Verification failed");
         setError(result.verification_message || "Verification was rejected.");
       } else {
         // Onboarding is complete; the verified badge is a separate layer that
         // unlocks after live/manual verification succeeds. Do not block here.
         await RiaOnboardingDraftLocalService.clear(user.uid);
         setShouldPersistDraft(false);
-        toast.success("Profile created", {
-          description:
-            "Your RIA profile is live as pending verification. The verified badge unlocks once your licence is confirmed.",
-        });
+        toast.success("Profile created");
       }
 
       setStatus((current) => ({
@@ -1042,9 +1036,10 @@ export default function RiaOnboardingPage({
         localVerificationBypassEnabled,
       });
       setError(submitErrorMessage);
-      toast.error("Could not submit verification", {
-        description: submitErrorMessage,
-      });
+      // The resolved message is the useful half -- it names what the
+      // regulator needs. It is also on the page via setError, so the
+      // clamp bounding it here costs nothing.
+      toast.error(submitErrorMessage);
     } finally {
       submitInFlightRef.current = false;
       setSaving(false);
@@ -1065,10 +1060,7 @@ export default function RiaOnboardingPage({
   function handleDraftBio() {
     const suggestion = buildRiaOnboardingBioSuggestion(draft);
     if (!suggestion) {
-      toast.info("Verify your licence first", {
-        description:
-          "One needs regulator-backed details before drafting a bio.",
-      });
+      toast.info("Verify your licence first. One needs regulator-backed details before drafting a bio.");
       return;
     }
     updateDraft({
@@ -1077,17 +1069,12 @@ export default function RiaOnboardingPage({
         ? draft.strategySummary
         : suggestion,
     });
-    toast.success("Bio drafted", {
-      description: "Review the draft before submitting your profile.",
-    });
+    toast.success("Bio drafted. Review the draft before submitting your profile.");
   }
 
   function handleAskKaiUpdateAnything() {
     openKaiCommandBar();
-    toast.info("Command bar opened", {
-      description:
-        "Ask One what to update, or use Edit on any section for direct changes.",
-    });
+    toast.info("Command bar opened");
   }
 
   const isEnriching = Boolean(draft.scrapeJobId && scrapePollingRef.current);

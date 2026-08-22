@@ -880,8 +880,7 @@ describe("RiaOnboardingPage", () => {
       );
     });
     expect(mocks.toast.success).toHaveBeenCalledWith(
-      "Bio drafted",
-      expect.any(Object),
+      "Bio drafted. Review the draft before submitting your profile.",
     );
   });
 
@@ -914,10 +913,7 @@ describe("RiaOnboardingPage", () => {
     });
 
     expect(mocks.openKaiCommandBar).toHaveBeenCalledTimes(1);
-    expect(mocks.toast.info).toHaveBeenCalledWith(
-      "Command bar opened",
-      expect.any(Object),
-    );
+    expect(mocks.toast.info).toHaveBeenCalledWith("Command bar opened");
   });
 
   it("does not force a second live verification after license verification", async () => {
@@ -1057,10 +1053,7 @@ describe("RiaOnboardingPage", () => {
       ).toBeTruthy();
     });
     expect(mocks.toast.error).toHaveBeenCalledWith(
-      "Could not submit verification",
-      expect.objectContaining({
-        description: expect.stringMatching(/regulator-backed CRD/i),
-      }),
+      expect.stringMatching(/regulator-backed CRD/i),
     );
   });
 
