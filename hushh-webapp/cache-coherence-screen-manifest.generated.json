@@ -11,7 +11,7 @@
   },
   "summary": {
     "total_screens": 129,
-    "physical_page_count": 0,
+    "physical_page_count": 129,
     "route_contract_count": 129,
     "surface_map_count": 129,
     "class_counts": {
@@ -5765,5 +5765,5 @@
       ]
     }
   ],
-  "content_sha256": "661459cab76caa2c10512faf2e7b9274242646ed8aae2813c17739b80fa5562d"
+  "content_sha256": "b620b8ca4590bef2ecac89687f4c905b2a9c31bf6f3723a59bc0879ec24bb402"
 }
