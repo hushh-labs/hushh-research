@@ -1385,6 +1385,50 @@ class ConnectionsService:
                 reason=reason,
             )
 
+    def _join_trusted_system_circles(
+        self,
+        *,
+        user_a_id: str,
+        user_b_id: str,
+    ) -> None:
+        """Put a newly connected pair into each other's Trusted Circle.
+
+        The mirror image of `_end_one_location_circle_memberships`, which does
+        the reverse on disconnect. Runs on this transaction's connection so the
+        membership and the connection commit together -- the Circle is a
+        projection of the connection, and the two should never be seen apart.
+
+        Contained in a savepoint on purpose. Accepting a connection is a consent
+        transition; the roster is a view of it. A view that fails must not
+        refuse a consent that succeeded. It can only ever lag, never over-grant
+        -- Trusted is excluded from every location-eligibility query in
+        `one_location_agent_service` -- and `ensure_trusted_system_circle` heals
+        it on the owner's next bootstrap.
+        """
+
+        connection = getattr(self, "_transaction_connection", None)
+        if connection is None:
+            # Only reachable behind the lightweight doubles `_transaction`
+            # falls back to. Quiet, unlike the disconnect path above: a missing
+            # membership grants nothing and self-heals, where a missing
+            # teardown leaves a live location path open.
+            logger.info("connections.trusted_circle_join_skipped_no_transaction")
+            return
+        from hushh_mcp.services.one_location_circle_service import (
+            OneLocationCircleService,
+        )
+
+        try:
+            with self._scope_activation_savepoint():
+                OneLocationCircleService.ensure_trusted_membership_for_pair(
+                    connection,
+                    user_a_id=user_a_id,
+                    user_b_id=user_b_id,
+                    source="connection",
+                )
+        except Exception:  # noqa: BLE001 - a projection cannot roll back consent
+            logger.exception("connections.trusted_circle_join_failed")
+
     def _end_one_location_circle_memberships(
         self,
         *,
@@ -1660,6 +1704,16 @@ class ConnectionsService:
             # Mirror both directional trusted edges so location/SOS readers keep working.
             self._mirror_trusted_edge(requester, user_id)
             self._mirror_trusted_edge(user_id, requester)
+            # And the same fact once more, as a Circle, because Connect shows
+            # "Trusted" as a real grouping rather than recomputing a tier per
+            # response. A projection, not a permission: the row inserted above
+            # is the consent, and Trusted membership authorizes nothing on its
+            # own.
+            # The canonical pair the RETURNING gave back, not the Python-ordered
+            # one: connections_service already carries a note about Python
+            # bytewise ordering disagreeing with Postgres collation and breaking
+            # 88 of 390 accepts.
+            self._join_trusted_system_circles(user_a_id=user_a, user_b_id=user_b)
             scope_results = self._resolve_scope_proposals(
                 request_id=str(req.get("id") or ""),
                 actor_user_id=user_id,
