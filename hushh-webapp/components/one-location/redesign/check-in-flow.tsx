@@ -714,7 +714,10 @@ export function CheckInFlow({
       ) : null}
 
       <div
-        className={cn(CARD, "mb-2 flex items-center gap-2 px-[14px] py-[11px]")}
+        className={cn(
+          CARD,
+          "mb-2 flex items-center gap-2 px-[14px] py-[11px] focus-within:ring-2 focus-within:ring-inset focus-within:ring-[color:var(--app-accent-ring)]",
+        )}
       >
         <Search className="h-3.5 w-3.5 shrink-0 text-[color:var(--app-tertiary-label)]" />
         <input

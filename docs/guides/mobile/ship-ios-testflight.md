@@ -11,7 +11,7 @@ Canonical visual owner: [Mobile Guide](../mobile.md).
 ## What this is
 
 One click cuts a Hussh One iOS build from an explicitly selected green `main` SHA, builds the Capacitor app against the
-**UAT backend + UAT Firebase**, signs it with **Apple-managed signing via an App Store Connect
+**UAT backend + shared Firebase authority**, signs it with **Apple-managed signing via an App Store Connect
 API key**, and **uploads it to TestFlight**. No manual "Missing Compliance" click, no public App
 Store submission.
 
@@ -19,7 +19,7 @@ Store submission.
 - **Skill:** say `ship ios` (see `.claude/skills/ship-ios-testflight/SKILL.md`).
 - **Runner:** GitHub-hosted `macos-15` (GCP has no macOS instances; only the *dispatch* is local).
 - **Target:** bundle `com.hushh.app`, the repository's current `MARKETING_VERSION`, TestFlight
-  internal testers (no Beta App Review), UAT backend + Firebase `hushh-pda-uat`.
+  internal testers (no Beta App Review), UAT backend + Firebase `hushh-pda`.
 
 ### Version Cadence & Closed Pre-Release Trains
 
@@ -50,9 +50,11 @@ upload out of "Missing Compliance".
 
 ## One-time setup (secret-touching — the operator does this)
 
-All signing + Firebase material lives in **GCP Secret Manager**, project **`hushh-pda-uat`** (the
-store `deploy/README.md` already designates for native signing assets). Nothing App Store-related
-is a GitHub secret. The workflow reads these with the existing `GCP_SA_KEY_UAT` service account.
+All signing + Firebase configuration material lives in **GCP Secret Manager**, project
+**`hushh-pda-uat`** (the store `deploy/README.md` already designates for native signing assets).
+The Firebase configuration itself targets the shared **`hushh-pda`** identity authority. Nothing
+App Store-related is a GitHub secret. The workflow reads these with the existing
+`GCP_SA_KEY_UAT` service account.
 
 ### 1. App Store Connect API key
 

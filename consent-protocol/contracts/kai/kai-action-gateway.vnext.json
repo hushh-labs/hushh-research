@@ -3530,7 +3530,7 @@
           },
           {
             "name": "pick_source",
-            "prompt": "Which list should Kai use for this debate?",
+            "prompt": "Which list should One use for this debate?",
             "required": true,
             "slot": "pickSource",
             "resolver": "kai_pick_source",
@@ -15171,7 +15171,7 @@
     {
       "action_id": "ria.picks.open_source_kai",
       "surface_id": "ria_picks",
-      "label": "Show Kai Picks Source",
+      "label": "Show Suggested Picks Source",
       "aliases": [
         "show kai list",
         "switch to kai picks",
@@ -15245,7 +15245,7 @@
           {
             "type": "action",
             "action_id": "ria.picks.open_source_kai",
-            "label": "Show Kai Picks Source",
+            "label": "Show Suggested Picks Source",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/ria/picks?source=kai",
@@ -16135,7 +16135,7 @@
     {
       "action_id": "ria.picks.copy_from_kai",
       "surface_id": "ria_picks",
-      "label": "Copy Kai Package Into My List",
+      "label": "Copy Suggested Package Into My List",
       "aliases": [
         "copy from kai",
         "use kai list as my list",
@@ -16218,7 +16218,7 @@
           {
             "type": "action",
             "action_id": "ria.picks.copy_from_kai",
-            "label": "Copy Kai Package Into My List",
+            "label": "Copy Suggested Package Into My List",
             "failure_behavior": "stop"
           }
         ],

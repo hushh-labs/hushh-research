@@ -102,3 +102,37 @@ def test_firebase_project_contract_fails_closed_on_project_mismatch(monkeypatch)
         "status": "mismatch",
         "credentials": "mismatch",
     }
+
+
+def test_firebase_project_contract_accepts_exact_expected_project(monkeypatch) -> None:
+    values = {
+        "FIREBASE_ADMIN_CREDENTIALS_JSON": '{"project_id":"hushh-pda"}',
+        "NEXT_PUBLIC_FIREBASE_PROJECT_ID": "hushh-pda",
+    }
+    monkeypatch.setattr(parity, "_read_secret_value", lambda _project, key: values.get(key))
+
+    assert parity._firebase_project_contract(
+        "hushh-pda-uat",
+        expected_project="hushh-pda",
+    ) == {
+        "status": "valid",
+        "credentials": "valid",
+        "expected": "valid",
+    }
+
+
+def test_firebase_project_contract_rejects_matching_but_unexpected_project(monkeypatch) -> None:
+    values = {
+        "FIREBASE_ADMIN_CREDENTIALS_JSON": '{"project_id":"hushh-pda-uat"}',
+        "NEXT_PUBLIC_FIREBASE_PROJECT_ID": "hushh-pda-uat",
+    }
+    monkeypatch.setattr(parity, "_read_secret_value", lambda _project, key: values.get(key))
+
+    assert parity._firebase_project_contract(
+        "hushh-pda-uat",
+        expected_project="hushh-pda",
+    ) == {
+        "status": "unexpected_project",
+        "credentials": "valid",
+        "expected": "mismatch",
+    }

@@ -1429,7 +1429,7 @@ function OnboardingRouteActions() {
           <DropdownMenuItem
             variant="destructive"
             onClick={() => void requestDeleteAccount()}
-            className="cursor-pointer rounded-[10px] hover:!bg-red-600 hover:!text-white hover:[&_svg]:!stroke-white hover:[&_svg]:!text-white focus:!bg-red-600 focus:!text-white focus:[&_svg]:!stroke-white focus:[&_svg]:!text-white focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
+            className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-destructive)] hover:!text-[color:var(--app-destructive-fg)] hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)] hover:[&_svg]:!text-[color:var(--app-destructive-fg)] focus:!bg-[color:var(--app-destructive)] focus:!text-[color:var(--app-destructive-fg)] focus:[&_svg]:!stroke-[color:var(--app-destructive-fg)] focus:[&_svg]:!text-[color:var(--app-destructive-fg)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
           >
             <Trash2 className="h-4 w-4 text-current" />
             Delete account
@@ -1466,10 +1466,10 @@ function OnboardingRouteActions() {
                 event.preventDefault();
                 if (!isDeleting) void handleDeleteAccount();
               }}
-              className="bg-red-600 text-white hover:bg-red-700"
+              variant="destructive"
               disabled={isDeleting}
             >
-              {isDeleting ? "Deleting..." : "Yes, delete my account"}
+              {isDeleting ? "Deleting..." : "Delete account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

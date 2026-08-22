@@ -91,6 +91,14 @@ steps:
 
         secrets="BACKEND_URL=BACKEND_URL:latest,DEVELOPER_API_URL=BACKEND_URL:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest,APPLE_TEAM_ID=APPLE_TEAM_ID:latest,NEXT_PUBLIC_IOS_BUNDLE_ID=NEXT_PUBLIC_IOS_BUNDLE_ID:latest,NEXT_PUBLIC_ANDROID_APP_ID=NEXT_PUBLIC_ANDROID_APP_ID:latest,ANDROID_SHA256_CERT_FINGERPRINTS=ANDROID_SHA256_CERT_FINGERPRINTS:latest"
 
+        if [[ -n "${_RATE_LIMIT_STORAGE_URI_SECRET}" ]]; then
+          if ! gcloud secrets describe "${_RATE_LIMIT_STORAGE_URI_SECRET}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+            echo "Missing required shared rate-limit secret ${_RATE_LIMIT_STORAGE_URI_SECRET}."
+            exit 1
+          fi
+          secrets="${secrets},RATE_LIMIT_STORAGE_URI=${_RATE_LIMIT_STORAGE_URI_SECRET}:latest"
+        fi
+
         # `hushh-mail-api` key for One's lifecycle mail. Optional on purpose, the
         # same way backend.cloudbuild.yaml treats its add-on secrets: binding a
         # secret that does not exist yet would fail the whole deploy. While it is
@@ -114,9 +122,16 @@ steps:
           "--max-instances=10"
           "--min-instances=1"
           "--labels=managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
-          "--set-env-vars=NEXT_PUBLIC_APP_ENV=${_APP_ENV},HUSHH_DEPLOY_ENV=${_DEPLOY_ENV},HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE},HUSHH_DEPLOY_SHA=${_DEPLOY_SHA},HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID},RIA_ONBOARDING_PROXY_TIMEOUT_MS=90000,MAIL_API_ENDPOINT=${_MAIL_API_ENDPOINT}"
+          "--set-env-vars=NEXT_PUBLIC_APP_ENV=${_APP_ENV},HUSHH_DEPLOY_ENV=${_DEPLOY_ENV},HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE},HUSHH_DEPLOY_SHA=${_DEPLOY_SHA},HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID},HUSSH_TECH_CLIENT_ENABLED=${_HUSHH_TECH_CLIENT_ENABLED},HUSSH_TECH_PROXY_AUDIENCE=${_HUSHH_TECH_PROXY_AUDIENCE},HUSSH_TECH_FRONTEND_TRUSTED_PROXY_HOPS=${_HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS},RIA_ONBOARDING_PROXY_TIMEOUT_MS=90000,MAIL_API_ENDPOINT=${_MAIL_API_ENDPOINT}"
           "--set-secrets=${secrets}"
         )
+
+        if [[ -n "${_VPC_CONNECTOR}" ]]; then
+          cmd+=("--vpc-connector=${_VPC_CONNECTOR}" "--vpc-egress=private-ranges-only")
+        fi
+        if [[ -n "${_FRONTEND_RUNTIME_SERVICE_ACCOUNT}" ]]; then
+          cmd+=("--service-account=${_FRONTEND_RUNTIME_SERVICE_ACCOUNT}")
+        fi
 
         if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then
           cmd+=("--no-traffic")
@@ -134,6 +149,7 @@ timeout: "1800s"
 
 substitutions:
   _FRONTEND_SERVICE: hushh-webapp
+  _FRONTEND_RUNTIME_SERVICE_ACCOUNT: ""
   _REGION: us-central1
   _APP_ENV: production
   # Wallet Profile owner entry point. Empty/false keeps the Profile row hidden;
@@ -155,6 +171,11 @@ substitutions:
   # environment-shaped gate reads every store install as non-production and
   # hands real users a map of fabricated people.
   _LOCATION_MAP_DEMO: "false"
+  _HUSHH_TECH_CLIENT_ENABLED: "false"
+  _HUSHH_TECH_PROXY_AUDIENCE: ""
+  _HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS: "0"
+  _RATE_LIMIT_STORAGE_URI_SECRET: ""
+  _VPC_CONNECTOR: ""
   # `hushh-mail-api` in hushh-tech-prod. One key per consuming project, so this
   # single endpoint serves UAT and production.
   _MAIL_API_ENDPOINT: "https://hushh-mail-api-646258530541.us-central1.run.app"
