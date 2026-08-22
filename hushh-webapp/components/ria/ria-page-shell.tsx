@@ -3,9 +3,12 @@
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { BriefcaseBusiness, ShieldAlert, ShieldCheck, TriangleAlert } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { ROUTES } from "@/lib/navigation/routes";
 import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
+import { Button } from "@/lib/morphy-ux/button";
 
 import {
   AppPageContentRegion,
@@ -262,6 +265,7 @@ export function isRiaVerified(status?: string | null): boolean {
 }
 
 export function RiaVerificationGate({ children }: { children: ReactNode }) {
+  const router = useRouter();
   const { riaOnboardingStatus, loading } = usePersonaState();
   const status = riaOnboardingStatus?.advisory_status || riaOnboardingStatus?.verification_status;
 
@@ -280,6 +284,13 @@ export function RiaVerificationGate({ children }: { children: ReactNode }) {
           <p className="text-sm leading-6 text-muted-foreground">
             {RIA_COPY.clients.verifyGate.body}
           </p>
+          <Button
+            className="mt-4"
+            onClick={() => router.push(ROUTES.RIA_ONBOARDING)}
+            data-testid="ria-clients-verify-gate-cta"
+          >
+            {RIA_COPY.clients.verifyGate.cta}
+          </Button>
         </RiaSurface>
       </section>
     );
