@@ -1983,7 +1983,7 @@ export function OneKycWorkspace({
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="size-8"
+                            className="h-11 w-11 shrink-0"
                             aria-label="Remove request"
                             // Removing a request only opens the confirm dialog and is
                             // its own action; it must not be blocked by a background
@@ -2520,7 +2520,7 @@ export function OneKycWorkspace({
                 </SettingsGroup>
               ) : (
                 <SettingsGroup embedded title="Actions">
-                  <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+                  <div className="flex flex-col sm:flex-row gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)] [&_button]:w-full sm:[&_button]:w-auto">
                     <button
                       type="button"
                       className={cn(BTN_OUTLINE)}
