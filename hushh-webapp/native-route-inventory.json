@@ -1,6 +1,6 @@
 {
   "generated_at": "2026-08-02",
-  "total_routes": 113,
+  "total_routes": 114,
   "native_required_routes": 99,
   "excluded_routes": 10,
   "routes": [
@@ -36,6 +36,10 @@
     },
     {
       "route": "/blog/[slug]",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/circle/join",
       "classification": "excluded-web-only"
     },
     {

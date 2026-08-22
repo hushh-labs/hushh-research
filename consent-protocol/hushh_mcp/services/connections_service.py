@@ -15,6 +15,7 @@ import inspect
 import logging
 from contextlib import contextmanager
 from typing import Any, Callable
+from uuid import UUID
 
 from sqlalchemy import text
 
@@ -1865,7 +1866,29 @@ class ConnectionsService:
         request_id = (request_id or "").strip()
         with self._transaction():
             req = None
+            # The fallback below has always been intended, and was unreachable.
+            #
+            # Callers that hold only the other person's user id -- a Circle
+            # roster row, a directory row whose outgoing-request map has not
+            # loaded yet -- pass that instead of a request id, and this method
+            # was written to accept it. But `_load_request` casts the string to
+            # a UUID primary key, so a Firebase uid raised a driver error, not
+            # the `ConnectionsError` the `except` was waiting for: the person
+            # got "Request failed (500)" and the request stayed pending.
+            #
+            # Asking whether it parses first is what makes the fallback real.
+            looks_like_request_id = True
             try:
+                UUID(request_id)
+            except (TypeError, ValueError):
+                looks_like_request_id = False
+            try:
+                if not looks_like_request_id:
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_NOT_FOUND",
+                        "Request not found.",
+                        status_code=404,
+                    )
                 req = self._load_request(request_id, for_update=True)
             except ConnectionsError as err:
                 if err.code == "CONNECTION_REQUEST_NOT_FOUND":

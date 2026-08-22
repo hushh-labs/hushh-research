@@ -30,6 +30,7 @@ import {
   UsersRound,
 } from "lucide-react";
 
+import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
@@ -658,7 +659,7 @@ export function CheckInFlow({
                   <span className="block text-[15px] leading-5 text-muted-foreground">
                     {selected
                       ? `${circleSelection.ready.length} ready now`
-                      : `${circle.memberCount} members`}
+                      : circleMemberCountLabel(circle.memberCount)}
                   </span>
                 </span>
                 <span className="text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)]">

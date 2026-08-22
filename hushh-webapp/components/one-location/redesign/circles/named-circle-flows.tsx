@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import {
   Check,
@@ -42,6 +43,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  SheetClose,
   Sheet,
   SheetContent,
   SheetDescription,
@@ -60,6 +62,7 @@ import {
   MUTED_TEXT,
 } from "@/components/one-location/redesign/tokens";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
+import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   CIRCLE_NAME_ACTION_CLASSNAME,
@@ -93,6 +96,10 @@ import {
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
 import { relationshipCta } from "@/lib/connections/relationship-label";
+import {
+  circleMemberCountLabel,
+  othersCountLabel,
+} from "@/lib/one-location/circle-member-count";
 import { cn } from "@/lib/utils";
 
 const CIRCLES_GROUP_SURFACE =
@@ -179,18 +186,12 @@ function circleInitials(value: string): string {
  * There are three kinds and nothing on this screen acts on any of them, so
  * the word was decoration in front of the fact. The count stands alone.
  */
-/** Wording for a member count that has already excluded the viewer. The
- *  Circle detail screen phrases the same number as people rather than
- *  members; the list row's own label stays with the wording main uses. */
-export function othersCountLabel(others: number): string {
-  if (others <= 0) return "No members yet";
-  return `${others} ${others === 1 ? "person" : "people"}`;
-}
+/** Re-exported so existing importers keep working; the rule itself now lives
+ *  in `lib/one-location/circle-member-count`, because four other screens were
+ *  rendering the raw server count and disagreeing with this one. */
+export { othersCountLabel };
 
-function circleListMemberCountLabel(memberCount: number): string {
-  const others = Math.max(0, memberCount - 1);
-  return `${others} ${others === 1 ? "member" : "members"}`;
-}
+const circleListMemberCountLabel = circleMemberCountLabel;
 
 function circleFlowErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim()
@@ -540,10 +541,22 @@ export function CreateCircleFlow({
   // from anyone naming a circle "A", with nothing on screen saying why.
   const canSubmit = name.trim().length >= 1 && !busy;
 
+  // Held past the caller's `busy` flag on purpose.
+  //
+  // A host that clears busy in a `finally` clears it BEFORE the navigation it
+  // then starts has committed, so there is a guaranteed render with this form
+  // still mounted, the name still in state and the button live again. One
+  // impatient double-tap made two identically-named Circles and two success
+  // toasts. Reset only on failure: after a success this form is on its way off
+  // screen and must not accept another submission on the way.
+  const submittingRef = useRef(false);
   const submit = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     try {
       await onSubmit(name.trim(), kind);
     } catch (error) {
+      submittingRef.current = false;
       toast.error(
         circleFlowErrorMessage(error, "Could not create this Circle."),
       );
@@ -679,11 +692,17 @@ export function JoinCircleFlow({
     }
   };
 
+  // Same guard as CreateCircleFlow, for the same reason: joining navigates on
+  // success, and the button comes back before the navigation lands.
+  const joiningRef = useRef(false);
   const join = async () => {
     if (!resolved) return;
+    if (joiningRef.current) return;
+    joiningRef.current = true;
     try {
       await onJoin(resolved.code);
     } catch (error) {
+      joiningRef.current = false;
       toast.error(
         circleFlowErrorMessage(error, "Could not join this Circle."),
       );
@@ -793,6 +812,9 @@ function CircleMemberRow({
   onRemove,
   onConnect,
   connecting = false,
+  onCancelRequest,
+  cancelling = false,
+  membersRemovable = true,
 }: {
   member: OneLocationCircleMember;
   currentUserId: string | null;
@@ -803,12 +825,25 @@ function CircleMemberRow({
   /** Sends a connection request to this member. Absent when none is possible. */
   onConnect?: () => Promise<void>;
   connecting?: boolean;
+  /** Takes back a request this person has not answered yet.
+   *
+   *  Absent on a surface that cannot cancel, where the row falls back to a
+   *  plain "Requested" status. */
+  onCancelRequest?: () => Promise<void>;
+  cancelling?: boolean;
+  /** False where the roster is not the owner's to edit.
+   *
+   *  A Trusted Circle's membership is derived from the connection, so
+   *  `_end_membership` refuses a removal with
+   *  LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION -- the connection is the thing
+   *  to end. Offering Remove there is offering a control that cannot work. */
+  membersRemovable?: boolean;
 }) {
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const isCurrentUser = member.userId === currentUserId;
   const canShare =
     !isCurrentUser && member.phoneVerified && member.secureLocationReady;
-  const canRemove = isOwner && member.role !== "owner";
+  const canRemove = isOwner && member.role !== "owner" && membersRemovable;
   const hasMenu = canShare || canRemove;
 
   const relationship =
@@ -832,12 +867,18 @@ function CircleMemberRow({
    * and the two states that are NOT the default keep their own affordance.
    */
   const actionCta = cta && cta.action !== "none" ? cta : null;
-  /** Waiting on them. Real news, but nothing here can act on it, so it is a
-   *  status and not a button. */
+  /** Waiting on them.
+   *
+   *  This used to be a status and nothing more, on the reasoning that nothing
+   *  here could act on it. The Connect directory has always been able to --
+   *  it offers Cancel on exactly this state -- so the roster showed the same
+   *  fact with one fewer thing you could do about it. Where a caller can
+   *  cancel, the row does; where it cannot, the status is still the answer. */
   const pendingLabel =
     cta && cta.action === "none" && relationship === "pending_outgoing"
       ? cta.label
       : null;
+  const canCancelRequest = Boolean(pendingLabel && onCancelRequest);
 
   const secondaryLine =
     member.role === "owner"
@@ -888,13 +929,31 @@ function CircleMemberRow({
         ) : null}
       </div>
       <div className={CIRCLE_MEMBER_TRAILING_CLASSNAME}>
-        {pendingLabel ? (
+        {pendingLabel && !canCancelRequest ? (
           <span
             className="px-1 text-[13px] font-medium leading-5 text-muted-foreground"
             data-testid={`circle-member-relationship-${member.userId}`}
           >
             {pendingLabel}
           </span>
+        ) : null}
+        {canCancelRequest ? (
+          // One word, at the width the other actions in this column use. The
+          // directory settled that: "Cancel request" made the widest control
+          // on the screen the one belonging to the least common row state.
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy || cancelling}
+            isLoading={cancelling}
+            aria-label={`Cancel your request to ${member.displayName}`}
+            data-testid={`circle-member-cancel-${member.userId}`}
+            className={CIRCLE_MEMBER_ACTION_CLASSNAME}
+            onClick={() => void onCancelRequest?.()}
+          >
+            Cancel
+          </Button>
         ) : null}
         {actionCta?.action === "connect" ? (
           <Button
@@ -916,17 +975,31 @@ function CircleMemberRow({
             all. Answering an incoming request lives on Connect, and this is
             now the link that goes there. */}
         {actionCta?.action === "respond" ? (
-          <a
-            href={ROUTES.CONNECT}
-            aria-label={`Respond to the connection request from ${member.displayName}`}
-            data-testid={`circle-member-respond-${member.userId}`}
-            className={cn(
-              buttonVariants({ variant: "outline", size: "sm" }),
-              CIRCLE_MEMBER_ACTION_CLASSNAME,
-            )}
-          >
-            {actionCta.label}
-          </a>
+          <>
+          {/* `Link`, not a bare anchor. An <a href> is a full document
+              load, and the vault key lives only in React state -- so the
+              one control offered here relocked the vault on the way to
+              using it. */}
+            <Link
+              // The consent centre, not `/one/connect`.
+              //
+              // From a Circle hosted ON Connect, a bare `/one/connect` href is
+              // a navigation whose only change is the query string
+              // disappearing -- which this repo has measured the App Router to
+              // refuse -- so the one row with something waiting on it did
+              // nothing at all when tapped. Connect's own Respond goes here
+              // too, and a different pathname works from either host.
+              href={buildConsentCenterHref("pending")}
+              aria-label={`Respond to the connection request from ${member.displayName}`}
+              data-testid={`circle-member-respond-${member.userId}`}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                CIRCLE_MEMBER_ACTION_CLASSNAME,
+              )}
+            >
+              {actionCta.label}
+            </Link>
+          </>
         ) : null}
         {hasMenu ? (
           <DropdownMenu>
@@ -1015,6 +1088,8 @@ export function CircleDetailFlow({
   onShareWithMember,
   onRemoveMember,
   onConnectMember,
+  onCancelMemberRequest,
+  reloadSignal = 0,
   onLoadEligibleConnections,
   onInviteConnections,
   onCancelMemberInvite,
@@ -1048,7 +1123,25 @@ export function CircleDetailFlow({
    * whoever invited them and nobody else -- so the roster is where that
    * introduction can be asked for explicitly, and answered by the other person.
    */
-  onConnectMember: (circleId: string, userId: string) => Promise<void>;
+  /** `displayName` and `photoUrl` are passed so a caller can put this person
+   *  in front of the same capability review the Connect directory uses,
+   *  which needs a name to show. Optional so an older caller still compiles. */
+  onConnectMember: (
+    circleId: string,
+    userId: string,
+    person?: { displayName: string | null; photoUrl: string | null },
+  ) => Promise<void>;
+  /** Takes back a request this viewer sent to a co-member. Absent on a
+   *  surface that cannot cancel, where the row shows a plain "Requested". */
+  onCancelMemberRequest?: (circleId: string, userId: string) => Promise<void>;
+  /** Re-read this Circle without disturbing what the person is doing.
+   *
+   *  Bumped by the caller when something outside this screen changed the
+   *  roster -- a request sent, a member added, somebody joining with a code.
+   *  Deliberately NOT a `key` remount: that would close an open add-people
+   *  sheet, clear a half-typed search and drop the selection, which is a
+   *  worse answer than a stale row. */
+  reloadSignal?: number;
   onLoadEligibleConnections: (
     circleId: string,
   ) => Promise<OneLocationCircleEligibleConnections>;
@@ -1062,6 +1155,7 @@ export function CircleDetailFlow({
 }) {
   const [loadedCircle, setCircle] =
     useState<OneLocationCircleDetail | null>(null);
+  const [cancellingUserId, setCancellingUserId] = useState<string | null>(null);
   const [inviteCode, setInviteCode] =
     useState<OneLocationCircleInviteCode | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1142,9 +1236,32 @@ export function CircleDetailFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [circleId]);
 
+  // A re-read the caller asked for. Unlike the effect above it resets nothing:
+  // the sheet stays open, the search keeps its text, the selection survives.
+  const lastReloadSignalRef = useRef(reloadSignal);
+  useEffect(() => {
+    if (reloadSignal === lastReloadSignalRef.current) return;
+    lastReloadSignalRef.current = reloadSignal;
+    if (!circleId) return;
+    void reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadSignal]);
+
   const circle =
     loadedCircle?.id === circleId ? loadedCircle : null;
   const isOwner = circle?.role === "owner";
+  // Stated by the server rather than inferred here.
+  //
+  // "Owner" and "not the emergency one" stopped being the right test when
+  // Trusted arrived: it is deliberately NOT `is_system`, so it fell through to
+  // the Delete button, which the API and a database trigger both refuse. The
+  // fallbacks reproduce the old inference for a server that does not send the
+  // fields yet.
+  const canDeleteCircle =
+    circle?.viewerCapabilities?.canDeleteCircle ??
+    (isOwner && !circle?.isSystem);
+  const canLeaveCircle =
+    circle?.viewerCapabilities?.canLeaveCircle ?? !isOwner;
   // Dirty-tracked rename: the trailing control only presents as an explicit
   // "Save" once the typed name differs from the one every member currently
   // sees, so an untouched field never offers a no-op write.
@@ -1435,7 +1552,17 @@ export function CircleDetailFlow({
 
       {circle ? (
         <>
-          {isOwner ? (
+          {/* Renaming a Trusted Circle is withheld, the SMS Circle's is not.
+            *
+            * That is not an inconsistency. `ensure_sms_system_circle` says in
+            * so many words that its rename "heals our default, it does not
+            * overwrite a person's decision" -- the emergency roster is a list
+            * you curate, so its name is yours. A Trusted Circle's name is
+            * derived exactly like its roster is, and renaming it produced the
+            * one thing this move exists to end: the write landed and toasted
+            * success, then Connect went on calling it "Trusted" while Location
+            * showed the new name. One Circle, two names, in one app. */}
+          {isOwner && circle.systemKind !== "trusted" ? (
             <div className={CIRCLE_DETAIL_CARD}>
               <label
                 htmlFor={CIRCLE_NAME_INPUT_ID}
@@ -1510,9 +1637,20 @@ export function CircleDetailFlow({
                   <p className="text-[15px] font-semibold leading-5 text-foreground">
                     Invite people
                   </p>
+                  {/* What the API actually permits.
+                    *
+                    * "Every Circle member can invite … or share the same
+                    * Circle code" was false on every kind: both
+                    * `create_member_invites` and `create_invite_code` refuse a
+                    * non-owner, this card only renders to the owner anyway,
+                    * and a product-managed Circle can never have a code at
+                    * all. The sentence tracked an old docstring rather than
+                    * the code, on the one screen whose job is to say who may
+                    * do what. */}
                   <p className={cn(MUTED_TEXT, "mt-1")}>
-                    Every Circle member can invite an existing connection or
-                    share the same Circle code.
+                    {canViewInviteCode
+                      ? "Only you can add an existing connection and share this Circle's code."
+                      : "Only you can add an existing connection. This Circle has no shareable code."}
                   </p>
                 </div>
               </div>
@@ -1778,7 +1916,29 @@ export function CircleDetailFlow({
                               ? "Circle is full."
                               : peopleSearch.trim()
                                 ? "Try a different name."
-                                : "Add someone in Connect first."
+                                : "You can invite people to this Circle once you're connected to them — or share its code with anyone."
+                          }
+                          // A sentence pointing at Connect, shown inside a
+                          // sheet that covers Connect, with nothing to press.
+                          // A first-run person reaches this two taps after
+                          // being told "invite people you're connected to",
+                          // having none.
+                          action={
+                            remainingCapacity !== 0 && !peopleSearch.trim() ? (
+                              <SheetClose asChild>
+                                <Link
+                                  href={`${ROUTES.CONNECT}?tab=all`}
+                                  className={cn(
+                                    buttonVariants({
+                                      variant: "outline",
+                                      size: "sm",
+                                    }),
+                                  )}
+                                >
+                                  Find people
+                                </Link>
+                              </SheetClose>
+                            ) : undefined
                           }
                         />
                       )}
@@ -1905,6 +2065,23 @@ export function CircleDetailFlow({
                     currentUserId={currentUserId}
                     isOwner={Boolean(isOwner)}
                     busy={busy}
+                    membersRemovable={circle.systemKind !== "trusted"}
+                    cancelling={cancellingUserId === member.userId}
+                    onCancelRequest={
+                      onCancelMemberRequest
+                        ? async () => {
+                            setCancellingUserId(member.userId);
+                            try {
+                              await onCancelMemberRequest(
+                                circle.id,
+                                member.userId,
+                              );
+                            } finally {
+                              setCancellingUserId(null);
+                            }
+                          }
+                        : undefined
+                    }
                     onShare={() =>
                       onShareWithMember(circle.id, member.userId)
                     }
@@ -1916,7 +2093,10 @@ export function CircleDetailFlow({
                       if (connectingUserId) return;
                       setConnectingUserId(member.userId);
                       try {
-                        await onConnectMember(circle.id, member.userId);
+                        await onConnectMember(circle.id, member.userId, {
+                          displayName: member.displayName ?? null,
+                          photoUrl: member.photoUrl ?? null,
+                        });
                       } finally {
                         setConnectingUserId(null);
                       }
@@ -1932,6 +2112,57 @@ export function CircleDetailFlow({
                 />
               </div>
             )}
+
+            {/* Shown BESIDE the roster, not instead of it.
+              *
+              * The viewer is always in `filteredMembers`, so that list is
+              * never empty on a Circle they can see -- which is why the empty
+              * case used to be unreachable and a Circle holding nobody
+              * rendered one row (themselves) and nothing else. The question a
+              * person has there is "how do I put someone in this", and the
+              * screen did not answer it.
+              *
+              * Three Circles reach this state without being asked for: the SMS
+              * Circle and Trusted arrive on their own, and onboarding makes
+              * one more. So it is the first thing many people ever see here. */}
+            {!memberSearch.trim() && externalMembersCount === 0 ? (
+              <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
+                <EmptyState
+                  title="No one's in this Circle yet"
+                  description={
+                    circle.systemKind === "trusted"
+                      ? "Everyone you connect with lands here on its own. Connect with someone to start it off."
+                      : canInviteMembers
+                        ? "Add someone you're connected to, using the card above — or share this Circle's code."
+                        : "Its owner hasn't added anyone yet."
+                  }
+                  action={
+                    // Only where nothing else on the screen already offers the
+                    // way forward.
+                    //
+                    // A Circle you can add to already has an "Add people" card
+                    // right here, and a second identical button is not a
+                    // second option -- it is the same one twice, and it made
+                    // "Add people" ambiguous to anything looking for it.
+                    //
+                    // Trusted is the case with no card at all: its roster
+                    // follows the connection, so it cannot be added to by hand
+                    // and the way to fill it is to connect with somebody.
+                    circle.systemKind === "trusted" ? (
+                      <Link
+                        href={`${ROUTES.CONNECT}?tab=all`}
+                        data-testid="one-location-circle-empty-find-people"
+                        className={cn(
+                          buttonVariants({ variant: "outline", size: "sm" }),
+                        )}
+                      >
+                        Find people
+                      </Link>
+                    ) : undefined
+                  }
+                />
+              </div>
+            ) : null}
           </section>
 
           {/* A system Circle (today: SMS Contacts) is provisioned by the product
@@ -1940,8 +2171,8 @@ export function CircleDetailFlow({
               rename, invite, remove. The API and a database trigger refuse the
               delete too; this only keeps the person from being offered
               something that cannot happen. */}
-          {isOwner && circle.isSystem ? (
-            // The owner of a system Circle gets neither door, and is told why.
+          {!canDeleteCircle && !canLeaveCircle ? (
+            // Neither door, and the reader is told why.
             //
             // The branch below used to be a two-way `isOwner && !isSystem`, so
             // this person fell through to "Leave circle" -- which
@@ -1952,10 +2183,20 @@ export function CircleDetailFlow({
             // A sentence rather than a disabled button: there is nothing to
             // enable later, and a greyed control invites a press and a guess.
             <p className={cn(MUTED_TEXT, "px-1 pt-1")}>
-              This Circle is managed for you, so it can&apos;t be left or
-              deleted. You can still rename it and choose who is in it.
+              {circle.systemKind === "trusted" ? (
+                <>
+                  Everyone you&apos;re connected to is in this Circle, so it
+                  can&apos;t be left or deleted. To take somebody out,
+                  disconnect from them.
+                </>
+              ) : (
+                <>
+                  This Circle is managed for you, so it can&apos;t be left or
+                  deleted. You can still rename it and choose who is in it.
+                </>
+              )}
             </p>
-          ) : isOwner ? (
+          ) : canDeleteCircle ? (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button

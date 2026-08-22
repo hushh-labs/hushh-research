@@ -208,7 +208,18 @@ async function boxes(page: Page) {
       shell: read("shell"),
       card: read("card"),
       connect: read("connect"),
-      docScrollHeight: document.documentElement.scrollHeight,
+      // NOT documentElement alone. globals.css sets `html, body { height:
+      // 100%; overflow-x: hidden }`, and CSS computes the unspecified axis of
+      // an overflow pair to `auto` -- so body is a scroll container pinned to
+      // the viewport, and the page's overflow scrolls INSIDE it.
+      // `documentElement.scrollHeight` therefore reports the viewport height
+      // forever while the real scroller grows, which read as "the card is
+      // unreachable" for a card that scrolls perfectly well. Measured: a 324px
+      // child in a 320px viewport gives documentElement 320 and body 324.
+      docScrollHeight: Math.max(
+        document.documentElement.scrollHeight,
+        document.body.scrollHeight,
+      ),
       viewportHeight: window.innerHeight,
     };
   });

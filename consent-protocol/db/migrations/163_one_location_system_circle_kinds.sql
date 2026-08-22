@@ -104,24 +104,37 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Account deletion demotes with `SET is_system = FALSE` and then deletes
--- (account_service.py). That escape has to keep working for both kinds, so the
--- guard reads system_kind too and the demotion must clear it. The service does;
--- this comment is here because the CHECK below cannot express "unless you are
--- on your way out".
+-- Account deletion demotes and then deletes (account_service.py). That escape
+-- has to keep working for both kinds, so the guard above reads system_kind --
+-- and the demotion has to clear BOTH the flag and the kind, or this guard is
+-- what refuses the DELETE it exists to permit. The service clears both; the
+-- test that proves it is in tests/services/test_account_service_cleanup_tables.py.
 
--- A Trusted Circle mirrors the connection graph, and connections are not
--- capped. 158's 2..100 is a product decision about a Circle a person curates
--- by hand; it is not one about a projection. Widening a CHECK can never
--- invalidate a row that already satisfies it, so no NOT VALID escape is needed.
-ALTER TABLE one_location_circles
-  DROP CONSTRAINT IF EXISTS one_location_circles_member_limit_bounds;
-ALTER TABLE one_location_circles
-  ADD CONSTRAINT one_location_circles_member_limit_bounds
-    CHECK (
-      member_limit BETWEEN 2
-      AND (CASE WHEN system_kind = 'trusted' THEN 32767 ELSE 100 END)
-    );
+-- WHAT THIS MIGRATION DELIBERATELY DOES NOT DO: widen the member_limit CHECK.
+--
+-- A Trusted Circle mirrors the connection graph and connections are not
+-- capped, so 158's 2..100 looks like the wrong bound for it and an earlier
+-- draft of this file widened the constraint to allow SMALLINT's ceiling for
+-- `system_kind = 'trusted'`.
+--
+-- That is unsafe under replay, and not for the reason the REPLAY TRAP note
+-- above describes. Every environment deploys with `--migration-mode replay`,
+-- which runs every file in the manifest on every deploy, in manifest order --
+-- and 158 sits at index 135, ahead of this file at 139. 158 ends with a plain
+-- DROP CONSTRAINT / ADD CONSTRAINT ... CHECK (member_limit BETWEEN 2 AND 100),
+-- with no NOT VALID, so the ADD validates the whole table. Widening the bound
+-- here does not stop 158 re-narrowing it on the NEXT deploy, by which time
+-- Trusted Circles exist: 158 then raises 23514 and every subsequent UAT and
+-- production release fails at the migration step until somebody repairs the
+-- database by hand. Reproduced on Postgres 16.
+--
+-- So the ceiling stays where 158 put it and a Trusted Circle stores the
+-- ordinary default instead. Nothing is lost by that: no Trusted write path
+-- consults member_limit -- the reconcile is one INSERT ... SELECT with no
+-- capacity check, by design, and the accept hook is a plain upsert -- and
+-- `_circle_summary` reports `memberLimit: null` for a Trusted Circle from
+-- `is_trusted`, never from the stored number. The column is a default for
+-- Circles a person curates by hand, and it goes on meaning only that.
 
 COMMENT ON COLUMN one_location_circles.system_kind IS
   'Which product-managed Circle this is: ''sms'' (emergency roster, SOS reads it) or ''trusted'' (a projection of the accepted-connection graph). NULL for every Circle a person named themselves. At most one live Circle per (owner, kind). A trusted Circle deliberately leaves is_system FALSE so that pre-163 code, whose system-Circle lookup is `WHERE is_system ... LIMIT 1` with no ORDER BY, can never mistake it for the SMS Circle.';
