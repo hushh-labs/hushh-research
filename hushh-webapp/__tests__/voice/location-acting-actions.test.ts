@@ -49,16 +49,17 @@ describe("what a spoken Location action is allowed to do", () => {
     expect(slots.join(" ")).not.toMatch(/recipient|person|contact|name|who/i);
   });
 
-  it("offers only durations the composer itself has buttons for", () => {
+  it("offers only durations the composer itself has buttons for, and always asks", () => {
     // Bounded so a spoken number cannot become an arbitrary grant length.
     const input = getKaiActionById(SHARE)?.goal?.required_inputs?.find(
       (spec) => spec.slot === "duration_hours",
     );
     expect(input?.options).toEqual(["0.5", "1", "4", "24"]);
-    // Not required: saying "share with them" keeps whatever the composer
-    // already shows rather than blocking on a number the person never
-    // intended to give.
-    expect(input?.required).toBe(false);
+    // Required: how long a live location stays visible is a real decision,
+    // not something to assume from whatever the composer happened to be
+    // showing. "Share with them" alone gets asked how long, every time,
+    // the same way an unresolved name gets asked which one.
+    expect(input?.required).toBe(true);
   });
 });
 
