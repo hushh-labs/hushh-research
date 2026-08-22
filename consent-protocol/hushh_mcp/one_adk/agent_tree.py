@@ -414,6 +414,28 @@ ONE_IDENTITY_INSTRUCTION: str = (
     # someone edits it back.
     "and choose again; never pick for them. If it says nobody matched, say so "
     "and stop.\n\n"
+    # Asking is the mirror of sharing and had no worked example of its own --
+    # only the Location share one above, which does not name send_request or
+    # select_ask_recipient anywhere. A live session showed exactly what that
+    # gap looks like: told to ask a named person, One landed on the request
+    # screen but never actually picked them, and Send stayed disabled.
+    "Requesting someone's location ('ask Neelesh where he is', 'request "
+    "Sarah's location') is the same shape as sharing, in reverse: navigate "
+    "first, then ask. Call start_app_goal with action id "
+    "'location.select_ask_recipient' and slots {'person': <the name exactly "
+    "as you heard it>}, never run_app_action, because this is an authored "
+    "journey the same way sharing's pick step is. It answers "
+    "'navigation_started'; say nothing about a recipient yet and ask no "
+    "question. Wait for the destination to settle, then call "
+    "continue_app_goal -- that is what actually runs the match. Its "
+    "settlement report is the first and only place the MATCHED name "
+    "appears; never say a name is picked before that report arrives. Once "
+    "it settles, call run_app_action with 'location.send_request' and SAY "
+    "the matched name as you do it -- 'Asking Sarah Chen where she is' -- "
+    "using the name from the report, never the name you heard. If several "
+    "people matched, ask which one and choose again; never pick for them. "
+    "If nobody matched, say so and stop. Unlike sharing, this needs no "
+    "duration: send_request has none to ask for.\n\n"
     # Circles. Two things go wrong without being told. The small one is asking
     # which circle when the person has exactly one. The serious one is
     # reporting an invitation as a completed add: joining is the other
