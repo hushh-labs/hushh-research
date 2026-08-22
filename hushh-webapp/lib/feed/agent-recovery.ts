@@ -50,9 +50,19 @@ export async function classifyAgentRecovery(options: {
     const wake = await ApiService.wakePod();
     if (wake.state === "awake") return { kind: "reconnected" };
     if (wake.state === "waking") return { kind: "waking", etaMs: wake.etaMs };
-    // gone: a fresh-setup flag means the host/project is gone -> reinit, never a
-    // rebuild into a dead project. Without it, a rebuild (new identity) is the
-    // honest last resort.
+    // gone: before deciding reinit vs rebuild, try to ADOPT. The registry row may be
+    // lost while the person's pod is still running in their own project (they
+    // uninstalled and came back). Adoption reconnects to that existing pod, preserving
+    // identity and memory -- the WAKE/RECONNECT side of the north star, so it is the
+    // automatic preference, not a user choice. Its success IS reconnected (or waking,
+    // if the adopted pod is still warming). Only when nothing is adoptable do we fall
+    // through to reinit (project gone) or rebuild (new identity, last resort).
+    const adopted = await ApiService.adoptOrphanPod().catch(() => null);
+    if (adopted?.adopted) {
+      return adopted.status === "provisioned"
+        ? { kind: "reconnected" }
+        : { kind: "waking", etaMs: wake.etaMs };
+    }
     return wake.needsFreshSetup ? { kind: "needs_reinit" } : { kind: "rebuildable" };
   } catch (error) {
     return {

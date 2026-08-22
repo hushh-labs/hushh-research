@@ -25,6 +25,7 @@ tests/test_bootstrap_token_blames_the_right_party.py
 tests/test_byoc_bootstrap_and_custody.py
 tests/test_byoc_project_naming.py
 tests/test_byoc_project_save_route.py
+tests/test_byoc_setup_job_repo.py
 tests/test_byoc_substrate.py
 tests/test_byoc_tenancy_is_per_person.py
 tests/test_campaign_context_tool.py
@@ -90,6 +91,7 @@ tests/test_personal_agent_feed_events.py
 tests/test_personal_agent_fleet_cap.py
 tests/test_personal_agent_grant_service.py
 tests/test_personal_agent_health_presence.py
+tests/test_personal_agent_adopt.py
 tests/test_personal_agent_identity_service.py
 tests/test_personal_agent_provisioning_service.py
 tests/test_personal_agent_reconcile_attach.py
@@ -131,6 +133,7 @@ tests/test_pod_memory_service.py
 tests/test_pod_mode.py
 tests/test_pod_no_trace_reset.py
 tests/test_pod_observability_contract.py
+tests/test_pod_reconcile.py
 tests/test_pod_resource_tier_is_per_person.py
 tests/test_pod_relay.py
 tests/test_pod_server.py
@@ -141,6 +144,7 @@ tests/test_pod_storage.py
 tests/test_pod_turn_grounding.py
 tests/test_pod_turn_relay.py
 tests/test_pod_turn_route.py
+tests/test_pod_wake_reachability.py
 tests/test_vault_keys_metadata.py
 tests/services/test_connections_service.py
 tests/routes/test_connections_route.py

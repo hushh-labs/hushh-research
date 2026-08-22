@@ -60,6 +60,7 @@ from typing import Any, Optional, Protocol
 
 from hushh_mcp.runtime_settings import personal_agent_enabled, personal_agent_max_pods
 from hushh_mcp.services.compute_backend import (
+    BACKEND_USER_GCP,
     BackendHandle,
     ComputeBackend,
     NullBackend,
@@ -875,6 +876,80 @@ class PersonalAgentProvisioningService:
         await record_provisioning_feed_event_safe(user_id=user_id, event_type=FEED_EVENT_RESERVED)
         logger.info("personal_agent.registered_pending hushh_id=%s", hushh_id or "<none>")
         return {"hushhId": hushh_id, "status": "pending"}
+
+    async def adopt_orphan(self, *, user_id: str) -> Optional[dict[str, Any]]:
+        """Reconnect to a pod that ALREADY exists in the user's project, not rebuild it.
+
+        The case: a returning user whose registry row was lost or flipped to
+        ``needs_reinit``, but whose deterministically-named pod is still running in
+        THEIR own project (they uninstalled and came back, or the row was reaped). This
+        is ``provision`` minus ``create``: it reconstructs a ``connecting`` row from the
+        discovered live handle and lets the SAME key-collector finish it, so identity and
+        memory are preserved. It NEVER creates compute and NEVER mints a new identity.
+
+        Returns None (caller falls through to reinit/rebuild) when there is no adoptable
+        pod: no row, no BYOC cloud recorded, or discover finds nothing labelled ours.
+        Adoption can only ever restore, so it needs no destructive flag -- but it does
+        require the feature to be on, like every other lifecycle write here.
+        """
+        if not personal_agent_enabled():
+            raise PersonalAgentDisabledError(
+                "adopt_orphan requested while PERSONAL_AGENT_ENABLED is off"
+            )
+        row = await self._registry.get(user_id)
+        if row is None:
+            return None
+        if str(row.get("status") or "") == "provisioned":
+            return None  # already whole; nothing to adopt
+        hushh_id = str(row.get("hushh_id") or "").strip()
+        phone_hash = str(row.get("phone_e164_hash") or "").strip()
+        if not hushh_id or not phone_hash:
+            return None
+        cloud = await resolve_user_cloud(user_id, repo=self._registry)
+        if cloud is None or cloud.deployment_target != BACKEND_USER_GCP:
+            # Adoption is a BYOC affordance: the deterministic pod lives in the user's
+            # OWN project, which is the only place discover can reach it.
+            return None
+        spec = PodSpec(
+            hushh_id=hushh_id,
+            phone_e164_hash=phone_hash,
+            pod_pubkey="",
+            deployment_target=cloud.deployment_target,
+            user_cloud_project=cloud.project,
+            user_cloud_region=cloud.region,
+            user_cloud_bootstrap_sa=cloud.bootstrap_sa,
+        )
+        backend = self._backend_for(spec)
+        discover = getattr(backend, "discover", None)
+        if discover is None:
+            return None
+        handle = await discover(hushh_id)
+        if handle is None:
+            return None  # no live pod to adopt -> caller reinits/rebuilds
+        # Reconstruct the connecting row BEFORE the key pull: attach_pod_public_key
+        # requires an existing row, and the pull mints a standing read that a row must
+        # own. The handle's url is what the collector pulls the pod public key from.
+        await self._registry.upsert(
+            user_id=user_id,
+            hushh_id=hushh_id,
+            phone_e164_hash=phone_hash,
+            status="connecting",
+            external_agent_id=handle.external_agent_id,
+            a2a_route=handle.a2a_route,
+            backend=handle.backend,
+            backend_metadata=handle.backend_metadata,
+        )
+        row2 = await self._registry.get(user_id)
+        from hushh_mcp.services.pod_key_collector import refresh_pod_key  # noqa: PLC0415
+
+        # allow_rotation via refresh_pod_key is safe: the key is PULLED from the URL
+        # Cloud Run just returned, never accepted from a caller. A pod that restarted
+        # since its row was lost may present a fresh key, which is correct to accept.
+        status = await refresh_pod_key(row2, service=self)
+        logger.info(
+            "personal_agent.adopted hushh_id=%s status=%s", hushh_id, status or "connecting"
+        )
+        return {"hushhId": hushh_id, "status": status or "connecting", "adopted": True}
 
     async def deprovision(
         self,

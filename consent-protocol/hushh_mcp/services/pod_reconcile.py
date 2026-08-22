@@ -96,4 +96,52 @@ async def reclaim_orphan(
     return {"service": name, "action": "reclaimed", "deleted": True}
 
 
-__all__ = ["ACTIVE_STATUSES", "classify_fleet_registry_mismatch", "reclaim_orphan"]
+def suggest_adoptions(
+    *, direction_b: list[dict[str, Any]], user_by_service: dict[str, str]
+) -> list[dict[str, Any]]:
+    """Turn Direction-B orphans (live services no active row claims) into ADOPTION
+    candidates by naming the user each belongs to. Pure: no I/O, no flags.
+
+    ``user_by_service`` is the reverse index the caller builds from
+    ``byoc_setup_jobs.project_id`` (which user set up which project) crossed with the
+    deterministic service name. A service with no known owner is ``unowned`` -- reported,
+    never adopted, because adopting requires knowing whose identity and memory it holds.
+
+    This is the safe, non-destructive twin of the reclaim suggestion: the worst it can do
+    is propose reconnecting a user to a pod that is already theirs.
+    """
+    out: list[dict[str, Any]] = []
+    for d in direction_b or []:
+        svc = str((d or {}).get("service") or "").strip()
+        if not svc:
+            continue
+        uid = user_by_service.get(svc)
+        out.append({"service": svc, "user_id": uid, "action": "adoptable" if uid else "unowned"})
+    return out
+
+
+async def adopt_orphan(service_name: str, *, adopter: Any) -> dict[str, Any]:
+    """Reconnect ONE orphan to its owner. The non-destructive twin of ``reclaim_orphan``:
+    it needs NO flag and NO dry_run, because reconnecting can only ever RESTORE a row to a
+    pod that already exists -- it never deletes, and never mints a new identity.
+
+    ``adopter`` is the injected async callable ``(service_name) -> dict|None`` that does
+    the real adoption (in practice ``PersonalAgentProvisioningService.adopt_orphan`` bound
+    to the owning user). ``None`` means nothing adoptable was found -- reported as
+    ``unresolved``, not an error."""
+    name = str(service_name or "").strip()
+    if not name:
+        return {"service": name, "action": "skipped", "reason": "no_service"}
+    result = await adopter(name)
+    if result is None:
+        return {"service": name, "action": "unresolved", "adopted": False}
+    return {"service": name, "action": "adopted", "adopted": True, **result}
+
+
+__all__ = [
+    "ACTIVE_STATUSES",
+    "adopt_orphan",
+    "classify_fleet_registry_mismatch",
+    "reclaim_orphan",
+    "suggest_adoptions",
+]

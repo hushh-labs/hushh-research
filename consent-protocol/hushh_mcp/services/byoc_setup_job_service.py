@@ -117,6 +117,21 @@ class ByocSetupJobRepo:
         rows = response.data or []
         return dict(rows[0]) if rows else None
 
+    async def find_by_project(self, project_id: str) -> list[dict]:
+        """The reverse index the cross-project orphan sweep needs: which user(s) set up
+        this project. A fleet-first sweep sees a bare service name in a user's project and
+        must map it back to an owner before it can propose adoption; ``project_id`` is the
+        only stored link from a project to the user who named it.
+
+        Returns every matching job row (normally one). The caller resolves ties by
+        preferring the registry row's CURRENT ``user_cloud_project`` over a superseded job,
+        since a person can switch clouds and leave a stale job row behind."""
+        normalized = str(project_id or "").strip()
+        if not normalized:
+            return []
+        response = self._db().table(_JOBS).select("*").eq("project_id", normalized).execute()
+        return [dict(r) for r in (response.data or [])]
+
     async def _guarded_update(self, *, user_id: str, job_id: str, data: dict) -> None:
         current = await self._current(user_id)
         if not current or current.get("job_id") != job_id:

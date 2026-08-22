@@ -409,6 +409,26 @@ async def provision_personal_agent(
     return {"success": True, **result}
 
 
+@router.post("/adopt")
+async def adopt_personal_agent(
+    user_id: str = Depends(require_firebase_auth),
+):
+    """Reconnect the caller to a pod that ALREADY exists in their own project.
+
+    Owner-authenticated but NOT vault-gated, unlike ``/provision``: adoption can only
+    RESTORE a lost row to a pod that is already running, never mint a new identity or
+    create compute, so it needs no vault-owner token. Returns ``{adopted: false}`` when
+    there is nothing to adopt (no orphan pod, or no BYOC cloud recorded) -- the caller
+    then falls through to reinit or rebuild. The recovery classifier tries this FIRST,
+    because reconnecting preserves the agent's identity and memory.
+    """
+    _require_enabled()
+    result = await _service().adopt_orphan(user_id=user_id)
+    if not result:
+        return {"adopted": False}
+    return {"adopted": True, **result}
+
+
 @router.post("/deprovision")
 async def deprovision_personal_agent(
     token_data: dict = Depends(require_vault_owner_token),

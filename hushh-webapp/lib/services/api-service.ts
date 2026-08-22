@@ -3683,6 +3683,29 @@ export class ApiService {
   }
 
   /**
+   * Reconnect to a pod that already exists in the caller's own cloud, instead of
+   * rebuilding it. Owner-authenticated, NOT vault-gated: adoption can only restore a
+   * lost registry row to a pod that is still running, so it never mints a new identity
+   * and never needs the vault unlocked. Returns { adopted: false } when there is
+   * nothing to adopt (no orphan pod, no BYOC cloud) -- the caller then falls through
+   * to reinit or rebuild. The recovery classifier tries this FIRST because it
+   * preserves the agent's identity and memory.
+   */
+  static async adoptOrphanPod(): Promise<{ adopted: boolean; status?: string; hushhId?: string }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/personal-agent/adopt", {
+      method: "POST",
+      headers: {
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`pod adopt failed: HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
    * Owner-authorized reachability probe of the caller's OWN pod, for login/resume.
    * Round-trips through the hub relay to the pod's /pod/info (the only door to a
    * pod). Returns the relay envelope { hushhId, podStatus, pod }: a podStatus of

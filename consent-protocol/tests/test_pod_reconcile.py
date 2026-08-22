@@ -12,8 +12,10 @@ import pytest
 
 from hushh_mcp.services.gcp_backend import _service_name
 from hushh_mcp.services.pod_reconcile import (
+    adopt_orphan,
     classify_fleet_registry_mismatch,
     reclaim_orphan,
+    suggest_adoptions,
 )
 
 
@@ -83,3 +85,55 @@ async def test_reclaim_deletes_only_with_both_guards_open(monkeypatch):
     r = await reclaim_orphan("one-pod-x", deleter=_deleter, dry_run=False)
     assert r["deleted"] is True
     assert calls == ["one-pod-x"]
+
+
+# --- adoption: the non-destructive twin (reconnect an orphan to its owner) --------
+
+
+def test_suggest_adoptions_names_owners_and_flags_the_unowned():
+    direction_b = [{"service": "one-pod-a"}, {"service": "one-pod-b"}, {"service": ""}]
+    user_by_service = {"one-pod-a": "uid-1"}
+    out = suggest_adoptions(direction_b=direction_b, user_by_service=user_by_service)
+    # The empty service name is dropped; a known owner is adoptable, an unknown is unowned.
+    assert out == [
+        {"service": "one-pod-a", "user_id": "uid-1", "action": "adoptable"},
+        {"service": "one-pod-b", "user_id": None, "action": "unowned"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_adopt_orphan_calls_the_injected_adopter():
+    seen: list = []
+
+    async def _adopter(name):
+        seen.append(name)
+        return {"hushhId": "ha1_x", "status": "provisioned"}
+
+    r = await adopt_orphan("one-pod-x", adopter=_adopter)
+    assert r["action"] == "adopted"
+    assert r["adopted"] is True
+    assert r["status"] == "provisioned"  # the adopter's result is merged in
+    assert seen == ["one-pod-x"]
+
+
+@pytest.mark.asyncio
+async def test_adopt_orphan_reports_unresolved_when_nothing_adoptable():
+    async def _adopter(name):
+        return None  # discover found no live pod for this identity
+
+    r = await adopt_orphan("one-pod-x", adopter=_adopter)
+    assert r["action"] == "unresolved"
+    assert r["adopted"] is False
+
+
+@pytest.mark.asyncio
+async def test_adopt_orphan_skips_an_empty_service_without_calling_the_adopter():
+    calls: list = []
+
+    async def _adopter(name):
+        calls.append(name)
+        return {}
+
+    r = await adopt_orphan("   ", adopter=_adopter)
+    assert r["action"] == "skipped"
+    assert calls == []  # reconnecting needs a service name; never guess
