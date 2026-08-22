@@ -316,6 +316,18 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       setWalkthroughModeEnabled(next.walkthroughMode),
     );
   }, [user?.uid]);
+  // Present only while the current screen has genuinely stopped -- e.g. no
+  // connections to share location with -- and names the one action that
+  // unsticks it. Already computed and reactive (screen-context-builder.ts
+  // moves the context revision whenever it appears or clears); today it only
+  // ever reaches the model as a spoken hint. Shown here too, so the same
+  // "you're stuck, here's the way out" reaches someone who never asked out
+  // loud and is just looking at a dead screen.
+  const deadEnd = runtime?.oneVoiceContextSnapshot.ui.dead_end ?? null;
+  const deadEndRemedyAction = deadEnd
+    ? getKaiActionById(deadEnd.remedy_action_id)
+    : null;
+  const [deadEndRemedyBusy, setDeadEndRemedyBusy] = useState(false);
   const pendingConfirmationRef = useRef<PendingVoiceConfirmation | null>(null);
   const voiceStatus = useAgentVoiceState((s) => s.status);
   const voiceMessage = useAgentVoiceState((s) => s.message);
@@ -1177,6 +1189,46 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     setConversationActive(false);
     resetVoice();
   }, [abandonPendingConfirmation, clearVoiceIdleTimer, resetVoice]);
+
+  const runDeadEndRemedy = useCallback(() => {
+    if (!deadEndRemedyAction || deadEndRemedyBusy) return;
+    const runtimeState = runtime?.appRuntimeState;
+    if (!runtimeState) return;
+    // A tap is its own confirmation, the same trust the pending-confirmation
+    // card's own Authorize button and every VoiceActionCard row already
+    // extend -- so this runs through the same direct execution path they do,
+    // not the spoken/ledger-confirmed one a voice command would take.
+    const execute =
+      deadEndRemedyAction.activation_policy === "trusted_activation_required"
+        ? executeTrustedActivationGatewayAction
+        : executeAgentGatewayAction;
+    setDeadEndRemedyBusy(true);
+    void execute({
+      actionId: deadEndRemedyAction.action_id,
+      slots: {},
+      userId: user?.uid ?? "",
+      router,
+      appRuntimeState: runtimeState,
+      surfaceMetadata: getVoiceSurfaceMetadata(),
+      allowedActionIds:
+        runtime?.oneVoiceContextSnapshot.available_action_ids ?? null,
+      hasPortfolioData:
+        runtimeState.portfolio.has_portfolio_data ||
+        runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
+      busyOperations,
+      setAnalysisParams,
+      switchPersona,
+    }).finally(() => setDeadEndRemedyBusy(false));
+  }, [
+    deadEndRemedyAction,
+    deadEndRemedyBusy,
+    runtime,
+    user?.uid,
+    router,
+    busyOperations,
+    setAnalysisParams,
+    switchPersona,
+  ]);
 
   const settlePendingConfirmation = useCallback(
     (confirmed: boolean) => {
@@ -2070,6 +2122,29 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           pending to confirm at the same moment. */}
       <VoiceActionCard />
       <VoiceWalkthroughPanel enabled={walkthroughModeEnabled} />
+      {/* Only while nothing more immediate is already up: a confirmation or
+          error is the person's next decision, and a dead end describing a
+          state the screen has already moved past would be stale advice
+          competing with it. */}
+      {deadEnd && !pendingConfirmation ? (
+        <div
+          role="status"
+          aria-label="What's blocking this screen"
+          className="agent-approval-glass pointer-events-auto w-full max-w-[min(calc(100vw-3rem),392px)] rounded-3xl p-4 text-[#1d1d1f] dark:text-[#f5f5f7]"
+        >
+          <p className="text-[13px] leading-relaxed">{deadEnd.reason}</p>
+          {deadEndRemedyAction ? (
+            <button
+              type="button"
+              onClick={runDeadEndRemedy}
+              disabled={deadEndRemedyBusy}
+              className="mt-4 h-12 w-full rounded-full bg-primary text-[15px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:opacity-50"
+            >
+              {deadEndRemedyBusy ? "Working…" : deadEndRemedyAction.label}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <VoiceErrorCard
         message={voiceStatus === "error" ? voiceMessage : null}
         onRetry={retryConversation}
