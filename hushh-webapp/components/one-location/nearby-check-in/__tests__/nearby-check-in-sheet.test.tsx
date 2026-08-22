@@ -58,6 +58,24 @@ vi.mock("sonner", () => ({
   },
 }));
 
+const savedPlaces = vi.hoisted(() => ({
+  loadSavedLocations: vi.fn(),
+  addSavedLocation: vi.fn(),
+}));
+
+// Only the two vault-backed calls are stubbed. `findDuplicateSavedLocation`
+// stays REAL so the suppression test exercises the actual 25 m radius rule
+// rather than a mock that agrees with whatever the component asks it.
+vi.mock("@/lib/one-location/saved-locations", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/one-location/saved-locations")>();
+  return {
+    ...actual,
+    loadSavedLocations: savedPlaces.loadSavedLocations,
+    addSavedLocation: savedPlaces.addSavedLocation,
+  };
+});
+
 import { NearbyCheckInSheet } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
 
 const point = {
@@ -2098,6 +2116,150 @@ describe("NearbyCheckInSheet", () => {
           afterMount,
         );
       });
+    });
+  });
+
+  describe("post-checkout Saved Places offer", () => {
+    const anchoredPresence = {
+      presence: {
+        status: "active" as const,
+        audience: "all_opted_in" as const,
+        radiusMeters: 500,
+        allowConnectionRequests: false,
+        consentVersion: "one-location-nearby-presence-v3",
+        checkedInAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        placeLabel: "Blue Bottle Coffee",
+        placeLat: 37.4275,
+        placeLng: -122.1697,
+      },
+      attendees: [],
+    };
+
+    const renderAndCheckOut = async (vaultKey: string | null = "vault-key") => {
+      service.getNearbyPresence.mockResolvedValue(anchoredPresence);
+      service.checkoutNearby.mockResolvedValue({
+        presence: null,
+        attendees: [],
+        checkedOut: true,
+      });
+
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          vaultKey={vaultKey}
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      await screen.findByTestId("nearby-presence-active");
+      fireEvent.click(screen.getByRole("button", { name: "Check out" }));
+      await screen.findByTestId("nearby-presence-setup");
+    };
+
+    it("offers the checked-out venue when it is not already saved", async () => {
+      savedPlaces.loadSavedLocations.mockResolvedValue([]);
+
+      await renderAndCheckOut();
+
+      const prompt = await screen.findByTestId("nearby-save-place-prompt");
+      expect(prompt.textContent).toContain("Blue Bottle Coffee");
+    });
+
+    it("suppresses the offer when that venue is already saved", async () => {
+      // 37.42755/-122.16975 is a few metres from the anchor, inside the 25 m
+      // duplicate radius, so this must read as the same place.
+      savedPlaces.loadSavedLocations.mockResolvedValue([
+        {
+          id: "other-1",
+          category: "other" as const,
+          label: "Blue Bottle",
+          latitude: 37.42755,
+          longitude: -122.16975,
+          savedAt: new Date().toISOString(),
+        },
+      ]);
+
+      await renderAndCheckOut();
+
+      await waitFor(() => {
+        expect(savedPlaces.loadSavedLocations).toHaveBeenCalled();
+      });
+      expect(
+        screen.queryByTestId("nearby-save-place-prompt"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("does not offer when the vault is locked", async () => {
+      await renderAndCheckOut(null);
+
+      expect(savedPlaces.loadSavedLocations).not.toHaveBeenCalled();
+      expect(
+        screen.queryByTestId("nearby-save-place-prompt"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("saves a checked-out venue as 'other', never as home", async () => {
+      savedPlaces.loadSavedLocations.mockResolvedValue([]);
+      savedPlaces.addSavedLocation.mockResolvedValue([]);
+
+      await renderAndCheckOut();
+      await screen.findByTestId("nearby-save-place-prompt");
+      fireEvent.click(screen.getByRole("button", { name: /Save to Places/ }));
+
+      await waitFor(() => {
+        expect(savedPlaces.addSavedLocation).toHaveBeenCalledTimes(1);
+      });
+      // An empty Saved Places would make `defaultSavedLocationCategory` return
+      // "home"; a venue you checked out of must never be filed as home.
+      expect(savedPlaces.addSavedLocation.mock.calls[0]?.[0]).toMatchObject({
+        input: {
+          category: "other",
+          label: "Blue Bottle Coffee",
+          latitude: 37.4275,
+          longitude: -122.1697,
+        },
+      });
+    });
+
+    it("dismisses the offer without saving", async () => {
+      savedPlaces.loadSavedLocations.mockResolvedValue([]);
+
+      await renderAndCheckOut();
+      await screen.findByTestId("nearby-save-place-prompt");
+      fireEvent.click(
+        screen.getByRole("button", { name: "Dismiss saved place suggestion" }),
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.queryByTestId("nearby-save-place-prompt"),
+        ).not.toBeInTheDocument();
+      });
+      expect(savedPlaces.addSavedLocation).not.toHaveBeenCalled();
+    });
+
+    it("keeps Check out styled as a neutral action, not a destructive one", async () => {
+      service.getNearbyPresence.mockResolvedValue(anchoredPresence);
+
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      await screen.findByTestId("nearby-presence-active");
+      const checkOut = screen.getByRole("button", { name: "Check out" });
+      // Red is reserved for dangerous and irreversible actions. Checking out is
+      // neither — you can check back in.
+      expect(checkOut.className).not.toContain("app-destructive");
     });
   });
 });
