@@ -19,7 +19,7 @@ const KAI_TEST_DISPLAY_NAME = "Kai Test User";
 const KAI_TEST_EMAIL = "test@hushh.ai";
 const KAI_TEST_SECONDARY_LABEL = "Data explorer example";
 const KAI_TEST_HEADLINE =
-  "Sanitized investor example for access management, Kai parity, and portfolio explorer validation.";
+  "Sanitized investor example for access management, One parity, and portfolio explorer validation.";
 const KAI_TEST_STRATEGY_SUMMARY =
   "Preloaded PKM-aligned portfolio, profile, analysis history, and runtime context for advisor-side explorer rehearsal.";
 const KAI_TEST_LOCATION_HINT = "Reusable PKM payload rehearsal";
@@ -64,7 +64,7 @@ function testRequestHistory() {
       issued_at: "2026-04-06T18:30:00.000Z",
       expires_at: "2026-04-13T18:30:00.000Z",
       bundle_id: RIA_KAI_SPECIALIZED_BUNDLE_KEY,
-      bundle_label: "Kai specialized access",
+      bundle_label: "Portfolio + data",
       scope_metadata: {
         scope: "attr.financial.portfolio.*",
         label: "Portfolio",
@@ -105,7 +105,7 @@ function testAvailableScopeMetadata(): RiaAvailableScopeMetadata[] {
     {
       scope: "attr.financial.analysis_history.*",
       label: "Analysis history",
-      description: "Saved decisions and prior Kai review history.",
+      description: "Saved decisions and prior One review history.",
       kind: "kai_specialized",
       summary_only: false,
       available: true,
@@ -134,9 +134,9 @@ function testKaiBundle(): RiaKaiSpecializedBundle {
   return {
     bundle_key: RIA_KAI_SPECIALIZED_BUNDLE_KEY,
     template_id: RIA_KAI_SPECIALIZED_TEMPLATE_ID,
-    label: "Kai specialized access",
+    label: "Portfolio + data",
     description:
-      "Advisor-side Kai and explorer access for portfolio, profile, analysis history, and runtime context.",
+      "Advisor-side One and explorer access for portfolio, profile, analysis history, and runtime context.",
     presentations: ["kai", "explorer"],
     requires_account_selection: true,
     status: "active",
@@ -151,7 +151,7 @@ function testKaiBundle(): RiaKaiSpecializedBundle {
 function testScopeTemplate(): RiaRequestScopeTemplate {
   return {
     template_id: RIA_KAI_SPECIALIZED_TEMPLATE_ID,
-    template_name: "Kai specialized access",
+    template_name: "Portfolio + data",
     description:
       "Bundle investor portfolio, profile, history, and runtime context into the advisor workspace.",
     default_duration_hours: 24 * 7,
@@ -301,7 +301,7 @@ export function buildKaiTestMarketplaceInvestor(userId: string): MarketplaceInve
     source_type: "hushh_user",
     user_id: userId,
     display_name: KAI_TEST_DISPLAY_NAME,
-    headline: "Advisor-side Kai and Explorer rehearsal for the current PKM payload contract.",
+    headline: "Advisor-side One and Explorer rehearsal for the current PKM payload contract.",
     location_hint: KAI_TEST_LOCATION_HINT,
     strategy_summary: KAI_TEST_STRATEGY_SUMMARY,
     connectable: true,

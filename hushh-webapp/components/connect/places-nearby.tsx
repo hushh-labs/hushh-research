@@ -224,19 +224,46 @@ export function PlacesNearby({
 
   const categoryVisible = useMemo(() => {
     if (chip !== ALL_CHIP) return byCategory[chip] ?? [];
-    // The merged view is nearest-first across every bucket that has answered,
-    // de-duplicated: a bank inside a shopping centre can legitimately arrive in
-    // two categories and should still be one row.
+    // "All" interleaves the buckets rather than sorting the union by distance,
+    // because distance and usefulness are not the same thing here.
+    //
+    // Sorting the union put whichever category is densest on top, and the
+    // densest categories are the ones nobody opened this tab for: `banking`
+    // includes `atm`, `transit` includes `bus_stop` and `parking`. In a city
+    // block those types cluster tens of metres apart, so the first screen of
+    // "All" was cash machines and bus stops while the nearest restaurant --
+    // 300 m away, and the actual reason for the visit -- sat below the fold.
+    // Density decided the ranking, and density is a property of the street
+    // furniture, not of what the reader wants.
+    //
+    // Round-robin instead: rank 0 of every bucket in declared order, then rank
+    // 1 of every bucket, and so on. Each bucket arrives nearest-first from the
+    // provider, so this reads as "the nearest hotel, the nearest place to eat,
+    // the nearest clinic, ..." and only then the second of each. The top of
+    // the list is one row per category by construction, so no amount of
+    // clustering can crowd a whole category off the screen.
+    //
+    // The order within a round is CATEGORY_SLUGS order, which is deliberate
+    // (see PLACES_CATEGORIES) rather than incidental -- keeping it makes the
+    // head of the list stable as later categories stream in, instead of
+    // resorting under the reader on every frame.
+    //
+    // De-duplication stays global and first-claim-wins: a bank inside a
+    // shopping centre legitimately arrives in two buckets and is still one
+    // row, credited to whichever category reaches it first.
     const seen = new Set<string>();
     const merged: PlaceCard[] = [];
-    for (const slug of CATEGORY_SLUGS) {
-      for (const card of byCategory[slug] ?? []) {
-        if (seen.has(card.placeId)) continue;
+    const buckets = CATEGORY_SLUGS.map((slug) => byCategory[slug] ?? []);
+    const deepest = buckets.reduce((max, bucket) => Math.max(max, bucket.length), 0);
+    for (let rank = 0; rank < deepest; rank += 1) {
+      for (const bucket of buckets) {
+        const card = bucket[rank];
+        if (!card || seen.has(card.placeId)) continue;
         seen.add(card.placeId);
         merged.push(card);
       }
     }
-    return merged.sort((a, b) => a.distanceMeters - b.distanceMeters);
+    return merged;
   }, [byCategory, chip]);
 
   const visible = useMemo(() => {
@@ -273,7 +300,7 @@ export function PlacesNearby({
         // Google Places is worldwide. Calling this a ZIP, as the two US
         // registers correctly do, would tell a reader in Bengaluru the surface
         // is not for them.
-        postalLabel="Postcode"
+        postalLabel="Area or postcode"
         postalNumericOnly={false}
       />
     );
@@ -355,7 +382,7 @@ export function PlacesNearby({
               initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
               onSearch={handlePostalCode}
               testId="places-postal-input"
-              label="Postcode"
+              label="Area or postcode"
               numericOnly={false}
             />
           </div>
@@ -377,7 +404,7 @@ export function PlacesNearby({
               initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
               onSearch={handlePostalCode}
               testId="places-postal-input"
-              label="Postcode"
+              label="Area or postcode"
               numericOnly={false}
             />
             <ExpandRadiusButton
