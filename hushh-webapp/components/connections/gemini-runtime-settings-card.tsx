@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2, Trash2 } from "lucide-react";
+
+import { ROUTES } from "@/lib/navigation/routes";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
@@ -89,6 +92,7 @@ export function GeminiRuntimeSettingsCard({
   onPreVaultDraftStaged,
   onPreVaultDraftCleared,
 }: GeminiRuntimeSettingsCardProps) {
+  const router = useRouter();
   const [mode, setMode] = useState<RuntimeCredentialMode>("hushh_managed_vertex");
   // The person's own recorded cloud, when one exists. For them "Use Hussh's
   // AI" does NOT mean a shared runtime: their pod thinks with their own
@@ -272,6 +276,23 @@ export function GeminiRuntimeSettingsCard({
     } catch (error) {
       setMode(previousMode);
       setHasExplicitSelection(previousSelection);
+      // The schedule-time cloud verdicts route to the exact recovery, not a generic
+      // retry: a gone project needs reconnecting (reinit), a revoked grant needs the
+      // authorization step re-run. Both land on the cloud setup page.
+      if (error instanceof Error && error.message === "CLOUD_PROJECT_GONE") {
+        toast.error(
+          "We can’t find your cloud project. Reconnect your cloud to continue.",
+        );
+        router.push(ROUTES.ONE_SETUP_CLOUD);
+        return;
+      }
+      if (error instanceof Error && error.message === "CLOUD_GRANT_REVOKED") {
+        toast.error(
+          "Hushh’s access to your project was removed. Re-run the authorization step, then try again.",
+        );
+        router.push(ROUTES.ONE_SETUP_CLOUD);
+        return;
+      }
       toast.error(
         error instanceof Error && error.message === "PKM_CONFLICT"
           ? "This setting changed on another device. Refresh and try again."

@@ -223,6 +223,7 @@ async def test_a_proven_byoc_cloud_schedules_without_touching_the_fleet_probe(mo
         )
 
     monkeypatch.setattr(runtime_route, "resolve_user_cloud", _byoc_cloud)
+    _patch_liveness(monkeypatch, "live")
 
     result = await runtime_route.select_managed_gemini(request=None, firebase_uid="u1")
 
@@ -258,3 +259,98 @@ async def test_an_unauthorized_byoc_cloud_still_faces_the_fleet_probe(monkeypatc
 
     assert exc.value.status_code == 503
     assert gate.calls == []
+
+
+# -- schedule-time project-liveness re-proof (Step 6) -----------------------------
+# Authorization is sticky, so a proven BYOC cloud must be RE-checked at schedule time:
+# a project the user deleted after authorizing must be caught here, not scheduled into.
+
+
+def _byoc(authorized=True):
+    from hushh_mcp.services.user_cloud_service import UserCloud
+
+    async def _cloud(_uid):
+        return UserCloud(
+            deployment_target="user_gcp",
+            model_credential_mode="user_adc",
+            project="hussh-one-kt3d9x",
+            region="us-central1",
+            bootstrap_sa="one-bootstrap@hussh-one-kt3d9x.iam.gserviceaccount.com",
+            authorized=authorized,
+        )
+
+    return _cloud
+
+
+def _patch_liveness(monkeypatch, state):
+    from hushh_mcp.services.user_gcp_bootstrap import LivenessVerdict
+
+    status = {"live": 200, "gone": 404, "forbidden": 403, "unknown": 0}[state]
+
+    def _probe(**_kwargs):
+        return LivenessVerdict(state, status)
+
+    monkeypatch.setattr("hushh_mcp.services.user_gcp_bootstrap.probe_project_liveness", _probe)
+
+
+class _Registry:
+    def __init__(self):
+        self.reinit_calls: list[str] = []
+
+    async def mark_needs_reinit(self, user_id):
+        self.reinit_calls.append(user_id)
+        return True
+
+
+async def test_a_gone_project_refuses_and_marks_needs_reinit(monkeypatch):
+    gate = _Gate()
+    monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
+    monkeypatch.setattr(runtime_route, "resolve_user_cloud", _byoc())
+    _patch_liveness(monkeypatch, "gone")
+    reg = _Registry()
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo",
+        lambda: reg,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await runtime_route.select_managed_gemini(request=None, firebase_uid="u1")
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "CLOUD_PROJECT_GONE"
+    assert reg.reinit_calls == ["u1"]  # only a conclusive gone unsticks the auth
+    assert gate.calls == []  # never scheduled into a dead project
+
+
+async def test_a_revoked_grant_refuses_but_does_not_unstick(monkeypatch):
+    gate = _Gate()
+    monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
+    monkeypatch.setattr(runtime_route, "resolve_user_cloud", _byoc())
+    _patch_liveness(monkeypatch, "forbidden")
+    reg = _Registry()
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo",
+        lambda: reg,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await runtime_route.select_managed_gemini(request=None, firebase_uid="u1")
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "CLOUD_GRANT_REVOKED"
+    assert reg.reinit_calls == []  # a revoked grant must NOT strand a running pod
+    assert gate.calls == []
+
+
+async def test_an_unknown_liveness_proceeds_never_strands(monkeypatch):
+    # A transient blip is not gone: the schedule proceeds, and a genuine gone is caught
+    # later by provision/pod_wake. Blocking here would re-couple to hushh-side outages.
+    gate = _Gate()
+    monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
+    monkeypatch.setattr(runtime_route, "resolve_user_cloud", _byoc())
+    _patch_liveness(monkeypatch, "unknown")
+
+    result = await runtime_route.select_managed_gemini(request=None, firebase_uid="u1")
+
+    assert result.status == "ready"
+    assert gate.calls[0]["provider"] == "hushh_managed_vertex"

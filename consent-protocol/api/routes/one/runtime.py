@@ -167,6 +167,49 @@ async def select_managed_gemini(
     """
     cloud = await resolve_user_cloud(firebase_uid)
     if cloud is not None and cloud.is_user_owned and cloud.is_ready_to_provision:
+        # Re-prove the project is still alive AT SCHEDULE TIME, not just once at save.
+        # Authorization is sticky (user_cloud_authorized_at), so without this a user who
+        # deleted their project after authorizing would schedule a pod into nothing. The
+        # bootstrap SA is the one hushh was authorized to impersonate; a fresh probe of it
+        # distinguishes a deleted project (GONE) from a revoked grant (FORBIDDEN) from a
+        # transient blip (UNKNOWN, which must never strand a working agent).
+        from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
+            PersonalAgentRegistryRepo,
+        )
+        from hushh_mcp.services.user_gcp_bootstrap import (  # noqa: PLC0415
+            probe_project_liveness,
+        )
+
+        bootstrap_sa = (cloud.bootstrap_sa or "").strip()
+        if bootstrap_sa:
+            liveness = await asyncio.to_thread(probe_project_liveness, bootstrap_sa=bootstrap_sa)
+            if liveness.is_gone:
+                # Confirmed gone: unstick the authorization and route to reinit. Only a
+                # conclusive gone writes, mirroring pod_wake's confirmed-gone rule.
+                try:
+                    await PersonalAgentRegistryRepo().mark_needs_reinit(firebase_uid)
+                except Exception:  # noqa: BLE001 - the refusal must return regardless
+                    logger.warning("managed_select.mark_needs_reinit_failed")
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "CLOUD_PROJECT_GONE",
+                        "message": "We can't find your cloud project. Reconnect your cloud "
+                        "to rebuild your agent.",
+                    },
+                )
+            if liveness.is_forbidden:
+                # The project lives but the grant was pulled. Do NOT clear the sticky proof
+                # (a running pod, if any, must not be stranded) -- ask them to re-authorize.
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "CLOUD_GRANT_REVOKED",
+                        "message": "Hushh's access to your project was removed. Re-run the "
+                        "authorization step in your cloud, then try again.",
+                    },
+                )
+            # live OR unknown falls through: uncertainty is not gone.
         verdict = await on_ai_connection_verified(
             user_id=firebase_uid,
             provider="hushh_managed_vertex",

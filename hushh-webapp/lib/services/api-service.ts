@@ -3316,6 +3316,15 @@ export class ApiService {
       },
     );
     if (!response.ok) {
+      // Surface the typed schedule-time cloud verdicts so the UI can route a person
+      // to the right recovery (reconnect a gone project vs re-authorize a revoked
+      // grant) instead of a generic "not ready". Anything else stays the generic code.
+      const body = await response.json().catch(() => null);
+      const code =
+        typeof body?.detail?.code === "string" ? body.detail.code : null;
+      if (code === "CLOUD_PROJECT_GONE" || code === "CLOUD_GRANT_REVOKED") {
+        throw new Error(code);
+      }
       throw new Error("MANAGED_RUNTIME_NOT_READY");
     }
     return response.json();
@@ -3573,7 +3582,15 @@ export class ApiService {
       },
     );
     if (!response.ok) {
-      throw new Error("BYOC_SAVE_FAILED");
+      // Revive the verbatim server reason (today collapsed into a generic string, so
+      // even NO_AGENT_RECORD / "Verify your phone number first" never reached the
+      // page). detail may be a bare string or a typed { code, message }.
+      const body = await response.json().catch(() => null);
+      const msg =
+        typeof body?.detail === "string"
+          ? body.detail
+          : (body?.detail?.message ?? "");
+      throw new Error(msg || "BYOC_SAVE_FAILED");
     }
     return response.json();
   }

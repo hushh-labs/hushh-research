@@ -43,6 +43,7 @@ import base64
 import json
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -109,18 +110,53 @@ class BootstrapError(RuntimeError):
     """A bootstrap step failed. Never partially reported as success."""
 
 
-def mint_bootstrap_token(
+@dataclass(frozen=True)
+class LivenessVerdict:
+    """Whether the user's authorized project is still reachable, as a TRI-state.
+
+    ``live`` (200): the project exists and hushh can still impersonate the bootstrap SA.
+    ``gone`` (404): the project or the bootstrap SA no longer resolves -- the user deleted
+        it. Identity-preserving reinit is the answer.
+    ``forbidden`` (403): the project exists but the tokenCreator grant was revoked or IAM
+        changed. Re-authorize, do NOT clear the sticky proof (the pod, if any, still lives).
+    ``unknown`` (0/401/anything else): a transient blip or a hushh-side fault -- never
+        treated as gone, or a network hiccup would strand a working agent's identity.
+    """
+
+    state: str
+    status: int
+    detail: str = ""
+
+    @property
+    def is_live(self) -> bool:
+        return self.state == "live"
+
+    @property
+    def is_gone(self) -> bool:
+        return self.state == "gone"
+
+    @property
+    def is_forbidden(self) -> bool:
+        return self.state == "forbidden"
+
+    @property
+    def is_conclusive(self) -> bool:
+        return self.state in ("live", "forbidden", "gone")
+
+
+def _generate_access_token(
     *,
     bootstrap_sa: str,
     session: Any = None,
     source_token: Optional[str] = None,
     lifetime: str = _BOOTSTRAP_LIFETIME,
-) -> str:
-    """Impersonate the user's bootstrap SA and return a short-lived access token.
+) -> tuple[int, Optional[dict], str]:
+    """The raw impersonation round-trip, shared by mint and the liveness probe.
 
-    This is the whole keyless story in one call. It fails loudly rather than falling
-    back to hushh's own identity: a silent fallback would let the applier keep working
-    after the user revoked their grant, which is precisely the control being tested.
+    Returns ``(status_code, parsed_json_or_None, text[:200])`` and RAISES only for a
+    hushh-side missing-credential fault (which must never be reported as the customer's
+    problem). Callers decide what a non-200 STATUS means: mint raises with blame, the
+    liveness probe classifies. Factored out so those two readings cannot drift.
     """
     if session is None:
         import requests as session  # noqa: PLC0415
@@ -158,6 +194,26 @@ def mint_bootstrap_token(
         timeout=60,
     )
     status = getattr(response, "status_code", 0)
+    body = response.json() if status == 200 else None
+    return status, body, str(getattr(response, "text", "") or "")[:200]
+
+
+def mint_bootstrap_token(
+    *,
+    bootstrap_sa: str,
+    session: Any = None,
+    source_token: Optional[str] = None,
+    lifetime: str = _BOOTSTRAP_LIFETIME,
+) -> str:
+    """Impersonate the user's bootstrap SA and return a short-lived access token.
+
+    This is the whole keyless story in one call. It fails loudly rather than falling
+    back to hushh's own identity: a silent fallback would let the applier keep working
+    after the user revoked their grant, which is precisely the control being tested.
+    """
+    status, body, text = _generate_access_token(
+        bootstrap_sa=bootstrap_sa, session=session, source_token=source_token, lifetime=lifetime
+    )
     if status != 200:
         # 403 is the customer's binding; 401 is ours. Naming the wrong one costs an
         # operator a trip into a project they cannot see, looking for a grant that is
@@ -171,10 +227,46 @@ def mint_bootstrap_token(
             else "IAM refused the impersonation"
         )
         raise BootstrapError(
-            f"could not impersonate {bootstrap_sa} ({status or '?'}). "
-            f"{blame}: {getattr(response, 'text', '')[:200]}"
+            f"could not impersonate {bootstrap_sa} ({status or '?'}). {blame}: {text}"
         )
-    return str(response.json()["accessToken"])
+    return str((body or {})["accessToken"])
+
+
+def probe_project_liveness(
+    *,
+    bootstrap_sa: str,
+    session: Any = None,
+    source_token: Optional[str] = None,
+    lifetime: str = _BOOTSTRAP_LIFETIME,
+) -> LivenessVerdict:
+    """Is the user's authorized project still reachable? A non-raising TRI-state probe.
+
+    It makes the SAME impersonation call mint makes, but CLASSIFIES the result instead of
+    raising, so a schedule-time check can branch: GONE -> reinit, FORBIDDEN -> re-authorize,
+    LIVE/UNKNOWN -> proceed. Uncertainty is deliberately NOT gone: a hushh-side missing
+    credential or an unreachable endpoint returns ``unknown``, never ``gone``, because a
+    spurious gone verdict would strand a working agent (see pod_wake's identical rule).
+    """
+    try:
+        status, _body, text = _generate_access_token(
+            bootstrap_sa=bootstrap_sa,
+            session=session,
+            source_token=source_token,
+            lifetime=lifetime,
+        )
+    except BootstrapError:
+        # hushh has no caller credential -> our fault, not the user's project being gone.
+        return LivenessVerdict("unknown", 0, "hushh-side: no caller credential")
+    except Exception:  # noqa: BLE001 - the impersonation endpoint was unreachable
+        return LivenessVerdict("unknown", 0, "impersonation endpoint unreachable")
+    if status == 200:
+        return LivenessVerdict("live", 200)
+    if status == 404:
+        return LivenessVerdict("gone", 404, text)
+    if status == 403:
+        return LivenessVerdict("forbidden", 403, text)
+    # 401 (hushh-side) and anything else are NOT conclusive about the user's project.
+    return LivenessVerdict("unknown", status, text)
 
 
 class UserGcpBootstrap:
@@ -1051,7 +1143,9 @@ def authorization_request(
 __all__ = [
     "BOOTSTRAP_ROLES",
     "BootstrapError",
+    "LivenessVerdict",
     "UserGcpBootstrap",
     "authorization_request",
     "mint_bootstrap_token",
+    "probe_project_liveness",
 ]
