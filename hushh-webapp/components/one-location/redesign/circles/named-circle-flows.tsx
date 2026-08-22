@@ -96,6 +96,10 @@ import {
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
 import { relationshipCta } from "@/lib/connections/relationship-label";
+import {
+  circleMemberCountLabel,
+  othersCountLabel,
+} from "@/lib/one-location/circle-member-count";
 import { cn } from "@/lib/utils";
 
 const CIRCLES_GROUP_SURFACE =
@@ -182,18 +186,12 @@ function circleInitials(value: string): string {
  * There are three kinds and nothing on this screen acts on any of them, so
  * the word was decoration in front of the fact. The count stands alone.
  */
-/** Wording for a member count that has already excluded the viewer. The
- *  Circle detail screen phrases the same number as people rather than
- *  members; the list row's own label stays with the wording main uses. */
-export function othersCountLabel(others: number): string {
-  if (others <= 0) return "No members yet";
-  return `${others} ${others === 1 ? "person" : "people"}`;
-}
+/** Re-exported so existing importers keep working; the rule itself now lives
+ *  in `lib/one-location/circle-member-count`, because four other screens were
+ *  rendering the raw server count and disagreeing with this one. */
+export { othersCountLabel };
 
-function circleListMemberCountLabel(memberCount: number): string {
-  const others = Math.max(0, memberCount - 1);
-  return `${others} ${others === 1 ? "member" : "members"}`;
-}
+const circleListMemberCountLabel = circleMemberCountLabel;
 
 function circleFlowErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim()
@@ -2114,6 +2112,57 @@ export function CircleDetailFlow({
                 />
               </div>
             )}
+
+            {/* Shown BESIDE the roster, not instead of it.
+              *
+              * The viewer is always in `filteredMembers`, so that list is
+              * never empty on a Circle they can see -- which is why the empty
+              * case used to be unreachable and a Circle holding nobody
+              * rendered one row (themselves) and nothing else. The question a
+              * person has there is "how do I put someone in this", and the
+              * screen did not answer it.
+              *
+              * Three Circles reach this state without being asked for: the SMS
+              * Circle and Trusted arrive on their own, and onboarding makes
+              * one more. So it is the first thing many people ever see here. */}
+            {!memberSearch.trim() && externalMembersCount === 0 ? (
+              <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
+                <EmptyState
+                  title="No one's in this Circle yet"
+                  description={
+                    circle.systemKind === "trusted"
+                      ? "Everyone you connect with lands here on its own. Connect with someone to start it off."
+                      : canInviteMembers
+                        ? "Add someone you're connected to, using the card above — or share this Circle's code."
+                        : "Its owner hasn't added anyone yet."
+                  }
+                  action={
+                    // Only where nothing else on the screen already offers the
+                    // way forward.
+                    //
+                    // A Circle you can add to already has an "Add people" card
+                    // right here, and a second identical button is not a
+                    // second option -- it is the same one twice, and it made
+                    // "Add people" ambiguous to anything looking for it.
+                    //
+                    // Trusted is the case with no card at all: its roster
+                    // follows the connection, so it cannot be added to by hand
+                    // and the way to fill it is to connect with somebody.
+                    circle.systemKind === "trusted" ? (
+                      <Link
+                        href={`${ROUTES.CONNECT}?tab=all`}
+                        data-testid="one-location-circle-empty-find-people"
+                        className={cn(
+                          buttonVariants({ variant: "outline", size: "sm" }),
+                        )}
+                      >
+                        Find people
+                      </Link>
+                    ) : undefined
+                  }
+                />
+              </div>
+            ) : null}
           </section>
 
           {/* A system Circle (today: SMS Contacts) is provisioned by the product

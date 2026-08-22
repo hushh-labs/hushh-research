@@ -3309,3 +3309,65 @@ def test_the_trusted_refusal_comes_before_the_ownership_check() -> None:
 
     invites = inspect.getsource(OneLocationCircleService.create_member_invites)
     assert invites.index('== "trusted"') < invites.index("LOCATION_CIRCLE_OWNER_REQUIRED")
+
+
+def test_a_user_id_is_never_shown_where_a_name_belongs() -> None:
+    """The identity cache can hold the uid as the display name.
+
+    For an account with no display name the sync has been observed to store the
+    Firebase uid itself, and a Circle row rendered it verbatim:
+    "6mRRECV04CYyKrGQT1sGe2zszdt1's SMS Circle" on a real screen -- an opaque
+    28-character token where a person's name belongs.
+
+    Fixing the sync is its own change. Nothing that formats a name for a reader
+    should trust it in the meantime.
+    """
+
+    from hushh_mcp.services.one_location_circle_service import _human_display_name
+
+    uid = "6mRRECV04CYyKrGQT1sGe2zszdt1"
+    # The name IS the id it is keyed by.
+    assert _human_display_name(uid, uid) == ""
+    # Or is uid-shaped even when keyed by somebody else.
+    assert _human_display_name(uid, "another-user") == ""
+    assert _human_display_name("", uid) == ""
+    # Real names survive, including ones with unusual casing or a single word.
+    assert _human_display_name("John Smith", uid) == "John Smith"
+    assert _human_display_name("hushh Social", uid) == "hushh Social"
+    assert _human_display_name("Anastasia", uid) == "Anastasia"
+
+
+def test_a_shared_system_circle_falls_back_rather_than_showing_the_uid() -> None:
+    """What the reader actually sees once the name is refused."""
+
+    summary = OneLocationCircleService._circle_summary(
+        {
+            "id": "circle-1",
+            "owner_user_id": "6mRRECV04CYyKrGQT1sGe2zszdt1",
+            "name": "SMS Circle",
+            "is_system": True,
+            "system_kind": "sms",
+            "member_count": 3,
+            "member_limit": 10,
+            "owner_display_name": "6mRRECV04CYyKrGQT1sGe2zszdt1",
+            "viewer_user_id": "83gXHbAmS6eh4vhprEhO20ASjrL2",
+        }
+    )
+    assert summary["name"] == "Shared SMS Circle"
+
+    # And a real owner name still disambiguates, which is the whole point of
+    # the rename: three friends' rosters must not be three identical rows.
+    named = OneLocationCircleService._circle_summary(
+        {
+            "id": "circle-2",
+            "owner_user_id": "PJc45gn3Qqb9wO42oHOks1NBVD83",
+            "name": "SMS Circle",
+            "is_system": True,
+            "system_kind": "sms",
+            "member_count": 3,
+            "member_limit": 10,
+            "owner_display_name": "hushh Social",
+            "viewer_user_id": "83gXHbAmS6eh4vhprEhO20ASjrL2",
+        }
+    )
+    assert named["name"] == "hushh Social's SMS Circle"

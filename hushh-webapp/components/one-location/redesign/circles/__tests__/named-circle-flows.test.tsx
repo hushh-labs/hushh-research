@@ -1853,3 +1853,105 @@ describe("an impatient second tap never makes a second Circle", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
   });
 });
+
+describe("an empty Circle is never a dead end", () => {
+  function emptyCircle(
+    systemKind: "trusted" | "sms" | null,
+    canInvite = true,
+  ): OneLocationCircleDetail {
+    return {
+      id: "circle-1",
+      name: systemKind === "trusted" ? "Trusted" : "SMS Circle",
+      kind: "other",
+      role: "owner",
+      memberCount: 1,
+      memberLimit: systemKind === "trusted" ? null : 100,
+      isSystem: systemKind === "sms",
+      systemKind,
+      viewerCapabilities: {
+        // What the server actually sends: Trusted's roster is derived, so
+        // nobody may add to it by hand -- `is_owner and not is_trusted`.
+        canInviteMembers: systemKind === "trusted" ? false : canInvite,
+        canViewInviteCode: systemKind === null,
+        canRotateInviteCode: systemKind === null,
+        canManageCircle: true,
+        canModerateInvites: true,
+      },
+      members: [
+        {
+          userId: "owner-user",
+          displayName: "Owner",
+          role: "owner",
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+      ],
+    } as OneLocationCircleDetail;
+  }
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("does not blame a search the person never ran", async () => {
+    // Both branches used to be one, so a Circle with nobody in it said
+    // "No members found · Try a different name" and offered nothing. Three
+    // Circles reach this state without being asked for -- the SMS Circle and
+    // Trusted arrive on their own, and onboarding makes one more -- so it is
+    // the first thing many people ever see here.
+    const onLoad = vi.fn(async () => emptyCircle("sms"));
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    expect(await screen.findByText("No one's in this Circle yet")).toBeTruthy();
+    expect(screen.queryByText("Try a different name.")).toBeNull();
+  });
+
+  it("points at the card that fills it, without a second identical button", async () => {
+    // A Circle you can add to already has an "Add people" card on this screen.
+    // A second identical button is not a second option, it is the same one
+    // twice -- and it made "Add people" ambiguous to anything looking for it.
+    const onLoad = vi.fn(async () => emptyCircle("sms"));
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    await screen.findByText("No one's in this Circle yet");
+    expect(screen.getAllByRole("button", { name: /Add people/i })).toHaveLength(
+      1,
+    );
+    expect(
+      screen.queryByTestId("one-location-circle-empty-find-people"),
+    ).toBeNull();
+  });
+
+  it("sends you to find people when the Circle fills itself", async () => {
+    // Trusted's roster follows the connection, so there is nothing to add by
+    // hand -- the way to fill it is to connect with somebody.
+    const onLoad = vi.fn(async () => emptyCircle("trusted"));
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    const find = await screen.findByTestId(
+      "one-location-circle-empty-find-people",
+    );
+    expect(find.getAttribute("href")).toContain("/one/connect");
+    // And no add-people card at all, because Trusted cannot be added to.
+    expect(screen.queryByRole("button", { name: /Add people/i })).toBeNull();
+  });
+
+  it("still says what is going on when the reader cannot act", async () => {
+    const onLoad = vi.fn(async () => emptyCircle("sms", false));
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    expect(await screen.findByText("No one's in this Circle yet")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add people/i })).toBeNull();
+  });
+
+  it("keeps the search empty state when a search really was run", async () => {
+    const onLoad = vi.fn(async () => circle("circle-1", "K Family"));
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    await screen.findByText("K Family");
+    const search = screen.queryByTestId("one-location-circle-member-search");
+    if (!search) return;
+    fireEvent.change(search, { target: { value: "zzzzzz" } });
+    expect(await screen.findByText("No members found")).toBeTruthy();
+  });
+});

@@ -176,6 +176,32 @@ def _all(result: Any) -> list[dict[str, Any]]:
     return [payload for row in result.fetchall() if (payload := _row_dict(row)) is not None]
 
 
+def _human_display_name(name: Any, user_id: Any) -> str:
+    """A display name, or "" when what we hold is not one.
+
+    The identity cache stores whatever the account gave it, and for an account
+    with no display name that has been observed to be the Firebase uid itself.
+    Rendering it produced "6mRRECV04CYyKrGQT1sGe2zszdt1's SMS Circle" on a
+    real screen -- an opaque 28-character token where a person's name belongs.
+
+    Fixing the sync is its own change. Nothing that formats a name for a reader
+    should trust it in the meantime: a "name" identical to the id it is keyed
+    by is not a name, and neither is a bare uid-shaped string.
+    """
+
+    cleaned = str(name or "").strip()
+    if not cleaned:
+        return ""
+    if cleaned == str(user_id or "").strip():
+        return ""
+    # Firebase uids are 28 characters of mixed-case alphanumerics with no
+    # spaces. A real display name that shape is vanishingly unlikely; a uid
+    # that shape is certain.
+    if len(cleaned) >= 20 and " " not in cleaned and cleaned.isalnum():
+        return ""
+    return cleaned
+
+
 def _is_product_managed(row: dict[str, Any]) -> bool:
     """Is this a Circle the product provisions, rather than one a person made?
 
@@ -421,7 +447,7 @@ class OneLocationCircleService:
         # under the same product-chosen name as their own. Saying whose it is
         # turns three identical rows back into three distinct ones.
         if is_system and not is_owner:
-            owner_name = str(row.get("owner_display_name") or "").strip()
+            owner_name = _human_display_name(row.get("owner_display_name"), owner_user_id)
             name = f"{owner_name}'s {name}" if owner_name else f"Shared {name}"
         return {
             "id": str(row.get("id") or ""),
@@ -1801,6 +1827,7 @@ class OneLocationCircleService:
                 """
                 SELECT
                   circle.name, circle.kind, code.expires_at,
+                  circle.owner_user_id,
                   identity.display_name AS owner_display_name,
                   COUNT(membership.user_id) AS member_count,
                   BOOL_OR(
@@ -1822,7 +1849,7 @@ class OneLocationCircleService:
                   AND code.use_count < code.max_uses
                 GROUP BY
                   circle.id, circle.name, circle.kind, code.expires_at,
-                  identity.display_name
+                  circle.owner_user_id, identity.display_name
                 """,
                 {"code_hash": code_hash, "user_id": user_id},
             )
@@ -1836,7 +1863,10 @@ class OneLocationCircleService:
             return {
                 "name": str(row.get("name") or ""),
                 "kind": str(row.get("kind") or "other"),
-                "ownerDisplayName": str(row.get("owner_display_name") or "A Circle owner"),
+                "ownerDisplayName": (
+                    _human_display_name(row.get("owner_display_name"), row.get("owner_user_id"))
+                    or "A Circle owner"
+                ),
                 "memberCount": int(row.get("member_count") or 0),
                 "expiresAt": _iso(row.get("expires_at")),
                 "alreadyMember": bool(row.get("already_member")),

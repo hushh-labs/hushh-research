@@ -14,6 +14,7 @@ import {
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import type { OneLocationCircleSummary } from "@/lib/one-location/types";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
+import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { cn } from "@/lib/utils";
 
 type MemberRow = {
@@ -211,7 +212,7 @@ export function CircleMemberPicker({
             {circle.name}
           </span>
           <span className="mt-0.5 block text-[15px] leading-5 text-muted-foreground">
-            {circle.memberCount} members
+            {circleMemberCountLabel(circle.memberCount)}
             {alreadyAddedCount ? " · " + alreadyAddedCount + " added" : ""}
           </span>
         </span>

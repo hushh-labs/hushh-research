@@ -243,6 +243,7 @@ import {
   isOneLocationNearbyCheckInAvailable,
   ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
 } from "@/lib/one-location/nearby-check-in-availability";
+import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveOnboardingMapPoint } from "@/lib/one-location/onboarding-map-point";
 // One rule, one place: Connect owns the Circle screens now and needs the
@@ -10592,7 +10593,7 @@ export function OneLocationAgentPageContent({
             prompt: `Delete ${circle.name}? Everyone in it loses access through it.`,
             subject: {
               name: circle.name,
-              detail: `${circle.memberCount} member${circle.memberCount === 1 ? "" : "s"}`,
+              detail: circleMemberCountLabel(circle.memberCount),
             },
             consequence:
               getKaiActionById("location.delete_circle")?.meaning ?? null,

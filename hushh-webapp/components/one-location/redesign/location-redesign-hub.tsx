@@ -146,6 +146,7 @@ import {
   sectionRecipients,
 } from "@/lib/one-location/recipient-sections";
 import { ROUTES } from "@/lib/navigation/routes";
+import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
 import { resolveSmsContactsBackAction } from "@/lib/navigation/top-shell-breadcrumbs";
@@ -3469,9 +3470,7 @@ function ShareFlow({
                     ? "Loading…"
                     : selected
                       ? `${selectedReady.length} ready now`
-                      : `${circle.memberCount} ${
-                          circle.memberCount === 1 ? "member" : "members"
-                        }`
+                      : circleMemberCountLabel(circle.memberCount)
                 }
                 trailing={<SelectionDot selected={selected} />}
               />
