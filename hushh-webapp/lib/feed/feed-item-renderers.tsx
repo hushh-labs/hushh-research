@@ -36,7 +36,7 @@ const DOMAIN_ICON: Record<FeedSourceDomain, LucideIcon> = {
 const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
   consent: "Consent",
   location: "Location",
-  kai: "Kai",
+  kai: "Finance",
   kyc: "KYC",
   connected_systems: "Connected systems",
   connections: "Connections",
@@ -350,7 +350,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Analysis ready",
-        description: ticker ? `Kai finished analyzing ${ticker}.` : "Kai finished an analysis.",
+        description: ticker ? `One finished analyzing ${ticker}.` : "One finished an analysis.",
         href: ticker
           ? buildKaiMarketRoute("analysis", { ticker })
           : buildKaiMarketRoute("analysis"),
