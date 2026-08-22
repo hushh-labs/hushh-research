@@ -204,9 +204,9 @@ async function boxes(page: Page) {
       return { top: r.top, bottom: r.bottom, height: r.height, width: r.width };
     };
     return {
+      shell: read("shell"),
       card: read("card"),
       connect: read("connect"),
-      title: read("title" as string) ?? read("page-title"),
       docScrollHeight: document.documentElement.scrollHeight,
       viewportHeight: window.innerHeight,
     };
@@ -233,17 +233,19 @@ test.describe("Calendar setup shell", () => {
       expect(m.card, "card must render").not.toBeNull();
       expect(m.connect, "connect button must render").not.toBeNull();
 
-      // The card is the tall thing. It must keep its own height rather than be
-      // squeezed: header + button + helper line cannot fit in a sliver.
+      // The card keeps its own height rather than being squeezed: a header,
+      // a button and a helper line cannot fit in a sliver.
       expect(m.card!.height).toBeGreaterThan(140);
 
-      // And the button must sit INSIDE it. This is the reported symptom: the
-      // button hung out of a collapsed card, top and bottom.
+      // The button sits inside its card.
       expect(m.connect!.top).toBeGreaterThanOrEqual(m.card!.top - 1);
       expect(m.connect!.bottom).toBeLessThanOrEqual(m.card!.bottom + 1);
 
-      // Short viewport costs a scroll, never the content.
-      if (m.card!.height > m.viewportHeight) {
+      // The invariant that actually broke: every part of the card must be
+      // REACHABLE. In normal flow the shell grows with its content, so the card
+      // never extends past it, and a viewport shorter than the page scrolls.
+      expect(m.card!.bottom).toBeLessThanOrEqual(m.shell!.bottom + 1);
+      if (m.card!.bottom > m.viewportHeight) {
         expect(m.docScrollHeight).toBeGreaterThan(m.viewportHeight);
       }
     });
@@ -267,14 +269,22 @@ test.describe("Calendar setup shell", () => {
     await awaitProductFont(page);
 
     const m = await boxes(page);
-    const collapsed = m.card!.height < 140;
-    const clipped =
-      m.connect!.bottom > m.card!.bottom + 1 ||
-      m.connect!.top < m.card!.top - 1;
+
+    // The card does not shrink -- it keeps its height and the SHELL cuts it,
+    // which is the part the first version of this test measured wrongly. The
+    // symptom is unreachable content: the card runs past the shell's clipped
+    // box, and because the shell is `fixed` the document does not scroll, so
+    // there is no gesture that brings the rest back.
+    const clippedByShell = m.card!.bottom > m.shell!.bottom + 1;
+    const cannotScrollToIt = m.docScrollHeight <= m.viewportHeight;
 
     expect(
-      collapsed || clipped,
-      "the old fixed/overflow-hidden shell should squeeze or clip the card at 320px tall",
+      clippedByShell,
+      "the old fixed/overflow-hidden shell should cut the card off at 320px tall",
+    ).toBe(true);
+    expect(
+      cannotScrollToIt,
+      "and being `fixed`, it should leave no scroll to reach the cut-off part",
     ).toBe(true);
   });
 });
