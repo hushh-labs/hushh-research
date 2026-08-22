@@ -387,7 +387,7 @@ function RiaVerificationChip({ verified }: { verified: boolean }) {
         "inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-[12px] font-medium",
         verified
           ? "border-[rgba(18,161,80,0.35)] bg-[rgba(18,161,80,0.08)] text-[#12A150]"
-          : "border-[rgba(201,139,46,0.3)] bg-[rgba(201,139,46,0.08)] text-[color:var(--ria-gold,#C8923A)]",
+          : "border-[color:var(--ria-gold)]/30 bg-[color:var(--ria-gold)]/[0.08] text-[color:var(--ria-gold)]",
       )}
     >
       {verified ? (
