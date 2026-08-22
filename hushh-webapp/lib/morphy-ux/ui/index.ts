@@ -23,6 +23,7 @@ export * from "./icon-chip";
 export * from "./feature-rail";
 export * from "./onboarding-feature-list";
 export * from "./segmented-pill";
+export * from "./filter-chip";
 export * from "./segmented-tabs";
 export * from "./surface-primitives";
 export * from "./swipe-views";

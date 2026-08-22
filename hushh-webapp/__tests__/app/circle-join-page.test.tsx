@@ -111,7 +111,7 @@ describe("/circle/join landing", () => {
     expect(container.textContent).toBe("");
     await waitFor(() =>
       expect(mockReplace).toHaveBeenCalledWith(
-        "/one/location?action=join-circle",
+        "/one/connect?tab=circles&action=join-circle",
       ),
     );
   });
@@ -143,7 +143,7 @@ describe("/circle/join landing", () => {
       "You're already in this Circle.",
     );
     expect(screen.getByTestId("circle-join-continue")).toHaveTextContent(
-      "Open One Location",
+      "Open One",
     );
   });
 
@@ -196,7 +196,7 @@ describe("/circle/join landing", () => {
 
     // A failed lookup is never the end of the road -- the hub takes a retype.
     expect(screen.getByTestId("circle-join-continue")).toHaveTextContent(
-      "Open One Location",
+      "Open One",
     );
   });
 
@@ -233,10 +233,15 @@ describe("/circle/join landing", () => {
     );
   });
 
-  // #5307: /circle/join now renders for a mid-setup recipient (it is exempt
-  // from OnboardingJourneyGuard -- see routes.test.ts), but /one/location,
-  // where "Join this Circle" hands off to, still is not. Without parking the
-  // code here first, that redirect into /one/setup drops it silently.
+  // #5307: /circle/join renders for a mid-setup recipient (it is exempt from
+  // OnboardingJourneyGuard -- see routes.test.ts), but the surface it hands
+  // off to is not. Without parking the code here first, that redirect into
+  // /one/setup drops it silently.
+  //
+  // #5458 repointed the handoff from /one/location to Connect: the Location
+  // agent runs a first-run onboarding takeover that no query parameter
+  // bypasses, so a recipient who had never used Location was shown "Share your
+  // location easily with anyone" instead of the code they had been handed.
   it("parks the code before handing off when setup has not resolved (#5307)", async () => {
     signedIn();
     mockIsResolved.mockReturnValue(false);
@@ -248,7 +253,7 @@ describe("/circle/join landing", () => {
 
     expect(mockRememberPendingCircleJoin).toHaveBeenCalledWith(USER_ID, CODE);
     expect(mockReplace).toHaveBeenCalledWith(
-      `/one/location?action=join-circle&code=${CODE}`,
+      `/one/connect?tab=circles&action=join-circle&code=${CODE}`,
     );
   });
 
@@ -263,7 +268,7 @@ describe("/circle/join landing", () => {
 
     expect(mockRememberPendingCircleJoin).not.toHaveBeenCalled();
     expect(mockReplace).toHaveBeenCalledWith(
-      `/one/location?action=join-circle&code=${CODE}`,
+      `/one/connect?tab=circles&action=join-circle&code=${CODE}`,
     );
   });
 });

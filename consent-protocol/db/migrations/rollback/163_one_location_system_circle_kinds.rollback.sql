@@ -43,18 +43,16 @@ $$ LANGUAGE plpgsql;
 
 DROP INDEX IF EXISTS uq_one_location_circles_owner_system_kind;
 
--- A trusted Circle carries a ceiling the restored 2..100 bound would reject.
--- Clamp before restoring it, or the ALTER fails and the whole rollback aborts.
-ALTER TABLE one_location_circles
-  DROP CONSTRAINT IF EXISTS one_location_circles_member_limit_bounds;
-
-UPDATE one_location_circles
-SET member_limit = 100, updated_at = now()
-WHERE member_limit > 100;
-
-ALTER TABLE one_location_circles
-  ADD CONSTRAINT one_location_circles_member_limit_bounds
-    CHECK (member_limit BETWEEN 2 AND 100);
+-- The member_limit CHECK is deliberately untouched here, because the forward
+-- migration no longer touches it either. An earlier draft of 163 widened it so
+-- a Trusted Circle could carry SMALLINT's ceiling; that turned out to be unsafe
+-- under replay -- 158 sits ahead of 163 in the manifest and re-narrows the
+-- bound on every deploy -- so a Trusted Circle now stores the ordinary default
+-- and 158's 2..100 is the only definition this column has ever had after 158.
+--
+-- The clamp that used to live here is gone with it. Nothing this rollback drops
+-- can leave a row outside 2..100, so there is nothing to repair before the
+-- column goes.
 
 ALTER TABLE one_location_circles
   DROP CONSTRAINT IF EXISTS one_location_circles_system_kind_values;

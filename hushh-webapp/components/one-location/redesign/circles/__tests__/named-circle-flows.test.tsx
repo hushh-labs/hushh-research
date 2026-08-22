@@ -19,6 +19,7 @@ import {
 import { CIRCLE_NAME_ACTION_CLASSNAME } from "@/components/one-location/redesign/circles/circle-name-row-layout";
 import { CIRCLE_MEMBER_MENU_CLASSNAME } from "@/components/one-location/redesign/circles/circle-member-row-layout";
 import { ROUTES } from "@/lib/navigation/routes";
+import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleInvitePreview,
@@ -1105,7 +1106,14 @@ describe("named Circle flows", () => {
     expect(connect).toHaveAccessibleName("Connect with Sharu Khan");
     fireEvent.click(connect);
     await waitFor(() =>
-      expect(onConnectMember).toHaveBeenCalledWith("circle-1", "stranger-user"),
+      // The identity rides along, because the caller puts this person in
+      // front of the same capability review the Connect directory opens, and
+      // that sheet has to name who the request is going to.
+      expect(onConnectMember).toHaveBeenCalledWith(
+        "circle-1",
+        "stranger-user",
+        { displayName: "Sharu Khan", photoUrl: null },
+      ),
     );
   });
 
@@ -1140,7 +1148,15 @@ describe("named Circle flows", () => {
     const respond = await screen.findByTestId(
       "circle-member-respond-asked-user",
     );
-    expect(respond).toHaveAttribute("href", ROUTES.CONNECT);
+    // The consent centre, not `/one/connect`. From a Circle hosted ON Connect,
+    // a bare `/one/connect` href is a navigation whose only change is the query
+    // string disappearing -- which the App Router refuses -- so the one row
+    // with something waiting on it did nothing at all when tapped. A different
+    // pathname works from either host, and it is where Connect's own Respond
+    // already goes.
+    const href = respond.getAttribute("href") ?? "";
+    expect(href).not.toBe(ROUTES.CONNECT);
+    expect(href).toBe(buildConsentCenterHref("pending"));
     fireEvent.click(respond);
     expect(onConnectMember).not.toHaveBeenCalled();
   });
@@ -1566,4 +1582,376 @@ describe("named Circle flows", () => {
     expect(screen.queryByRole("button", { name: /Leave circle/i })).toBeNull();
   });
 
+});
+
+describe("a Trusted Circle offers no control that cannot work", () => {
+  function trustedCircle(): OneLocationCircleDetail {
+    return {
+      id: "trusted-circle",
+      name: "Trusted",
+      kind: "other",
+      role: "owner",
+      memberCount: 2,
+      // No ceiling: the connection graph is not capped.
+      memberLimit: null,
+      isSystem: false,
+      systemKind: "trusted",
+      viewerCapabilities: {
+        canInviteMembers: true,
+        canViewInviteCode: false,
+        canRotateInviteCode: false,
+        canManageCircle: true,
+        canModerateInvites: true,
+        canDeleteCircle: false,
+        canLeaveCircle: false,
+      },
+      members: [
+        {
+          userId: "owner-user",
+          displayName: "Owner",
+          role: "owner",
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+        {
+          userId: "member-user",
+          displayName: "Asha",
+          role: "member",
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+      ],
+    };
+  }
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("shows neither Delete nor Leave, and says why in its own words", async () => {
+    // Trusted is deliberately NOT `is_system`, so the guard written for the SMS
+    // Circle -- `isOwner && circle.isSystem` -- let it fall through to a Delete
+    // button that the API and a database trigger both refuse.
+    const onLoad = vi.fn(async () => trustedCircle());
+    render(<CircleDetailFlow circleId="trusted-circle" {...detailProps(onLoad)} />);
+
+    await screen.findByText("Trusted");
+    expect(screen.queryByRole("button", { name: /Delete circle/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Leave circle/i })).toBeNull();
+
+    // And not the SMS Circle's sentence, which promises a roster you can edit.
+    expect(
+      screen.getByText(/Everyone you're connected to is in this Circle/i),
+    ).toBeTruthy();
+    expect(screen.queryByText(/choose who is in it/i)).toBeNull();
+  });
+
+  it("offers no Remove on its roster, because disconnecting is the way out", async () => {
+    // `_end_membership` refuses a removal here with
+    // LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION: membership is derived from
+    // the connection, so a removal would be undone by the next reconcile.
+    const onLoad = vi.fn(async () => trustedCircle());
+    render(<CircleDetailFlow circleId="trusted-circle" {...detailProps(onLoad)} />);
+
+    await screen.findByText("Asha");
+    expect(
+      screen.queryByRole("button", { name: /Remove from Circle/i }),
+    ).toBeNull();
+    expect(screen.queryByText(/Remove Asha\?/i)).toBeNull();
+  });
+
+  it("still lets an ordinary Circle's owner remove a member", async () => {
+    // The narrowing is about Trusted, not about rosters in general.
+    const ordinary = { ...trustedCircle(), systemKind: null, id: "circle-1" };
+    ordinary.viewerCapabilities = {
+      ...ordinary.viewerCapabilities!,
+      canDeleteCircle: true,
+      canLeaveCircle: false,
+    };
+    const onLoad = vi.fn(async () => ordinary as OneLocationCircleDetail);
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    await screen.findByText("Asha");
+    expect(screen.getByRole("button", { name: /Delete circle/i })).toBeTruthy();
+  });
+});
+
+describe("a roster row can take back a request it sent", () => {
+  function circleWithPending(): OneLocationCircleDetail {
+    return {
+      id: "circle-1",
+      name: "K Family",
+      kind: "family",
+      role: "owner",
+      memberCount: 2,
+      memberLimit: 100,
+      viewerCapabilities: {
+        canInviteMembers: true,
+        canViewInviteCode: true,
+        canRotateInviteCode: true,
+        canManageCircle: true,
+        canModerateInvites: true,
+      },
+      members: [
+        {
+          userId: "owner-user",
+          displayName: "Owner",
+          role: "owner",
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+        {
+          userId: "waiting-user",
+          displayName: "Sharu Khan",
+          role: "member",
+          phoneVerified: true,
+          secureLocationReady: true,
+          relationship: "pending_outgoing",
+        },
+      ],
+    } as OneLocationCircleDetail;
+  }
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("offers Cancel where the caller can act, not a dead status", async () => {
+    // The Connect directory has always offered Cancel on exactly this row
+    // state. The roster showed the same fact -- "Requested" -- with nothing to
+    // do about it, so the two screens disagreed about what a pending request
+    // is: news on one, a decision you can still change on the other.
+    const onCancelMemberRequest = vi.fn(async () => undefined);
+    const onLoad = vi.fn(async () => circleWithPending());
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(onLoad)}
+        onCancelMemberRequest={onCancelMemberRequest}
+      />,
+    );
+
+    const cancel = await screen.findByTestId("circle-member-cancel-waiting-user");
+    expect(cancel).toBeTruthy();
+    // And the bare status is gone, so the row carries one control, not both.
+    expect(
+      screen.queryByTestId("circle-member-relationship-waiting-user"),
+    ).toBeNull();
+
+    fireEvent.click(cancel);
+    await waitFor(() =>
+      expect(onCancelMemberRequest).toHaveBeenCalledWith(
+        "circle-1",
+        "waiting-user",
+      ),
+    );
+  });
+
+  it("falls back to the status where the caller cannot cancel", async () => {
+    // A surface with no cancel of its own must not grow a button that does
+    // nothing. The Location hub is that surface today.
+    const onLoad = vi.fn(async () => circleWithPending());
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    expect(
+      await screen.findByTestId("circle-member-relationship-waiting-user"),
+    ).toHaveTextContent("Requested");
+    expect(
+      screen.queryByTestId("circle-member-cancel-waiting-user"),
+    ).toBeNull();
+  });
+});
+
+describe("a caller-requested re-read keeps the screen where it was", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("re-reads on a bumped signal", async () => {
+    const onLoad = vi.fn(async () => circle("circle-1", "K Family"));
+    const props = detailProps(onLoad);
+    const view = render(
+      <CircleDetailFlow circleId="circle-1" {...props} reloadSignal={0} />,
+    );
+    await waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
+
+    view.rerender(
+      <CircleDetailFlow circleId="circle-1" {...props} reloadSignal={1} />,
+    );
+
+    await waitFor(() => expect(onLoad).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not re-read when the signal has not moved", async () => {
+    // Every unrelated re-render must not put a request on the wire.
+    const onLoad = vi.fn(async () => circle("circle-1", "K Family"));
+    const props = detailProps(onLoad);
+    const view = render(
+      <CircleDetailFlow circleId="circle-1" {...props} reloadSignal={3} />,
+    );
+    await waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1));
+
+    view.rerender(
+      <CircleDetailFlow circleId="circle-1" {...props} reloadSignal={3} />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(onLoad).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("an impatient second tap never makes a second Circle", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("creates once however many times Create is pressed", async () => {
+    // The host clears its busy flag in a `finally`, which runs before the
+    // navigation it then starts has committed -- so there is a guaranteed
+    // render with this form still mounted, the name still in state and the
+    // button live again. Two taps made two identically-named Circles and two
+    // success toasts.
+    let release: (() => void) | undefined;
+    const onSubmit = vi.fn(
+      () => new Promise<void>((resolve) => {
+        release = () => resolve();
+      }),
+    );
+
+    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. Meena Family"), {
+      target: { value: "Roommates" },
+    });
+    const create = screen.getByRole("button", { name: /create/i });
+    fireEvent.click(create);
+    fireEvent.click(create);
+    fireEvent.click(create);
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    release?.();
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+  });
+
+  it("lets a failed create be retried", async () => {
+    // The guard must not outlive a failure, or one server hiccup makes the
+    // form permanently dead with the name still typed into it.
+    const onSubmit = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("nope"))
+      .mockResolvedValueOnce(undefined);
+
+    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
+    fireEvent.change(screen.getByPlaceholderText("e.g. Meena Family"), {
+      target: { value: "Roommates" },
+    });
+    const create = screen.getByRole("button", { name: /create/i });
+
+    fireEvent.click(create);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    fireEvent.click(create);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("an empty Circle is never a dead end", () => {
+  function emptyCircle(
+    systemKind: "trusted" | "sms" | null,
+    canInvite = true,
+  ): OneLocationCircleDetail {
+    return {
+      id: "circle-1",
+      name: systemKind === "trusted" ? "Trusted" : "SMS Circle",
+      kind: "other",
+      role: "owner",
+      memberCount: 1,
+      memberLimit: systemKind === "trusted" ? null : 100,
+      isSystem: systemKind === "sms",
+      systemKind,
+      viewerCapabilities: {
+        // What the server actually sends: Trusted's roster is derived, so
+        // nobody may add to it by hand -- `is_owner and not is_trusted`.
+        canInviteMembers: systemKind === "trusted" ? false : canInvite,
+        canViewInviteCode: systemKind === null,
+        canRotateInviteCode: systemKind === null,
+        canManageCircle: true,
+        canModerateInvites: true,
+      },
+      members: [
+        {
+          userId: "owner-user",
+          displayName: "Owner",
+          role: "owner",
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+      ],
+    } as OneLocationCircleDetail;
+  }
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("does not blame a search the person never ran", async () => {
+    // Both branches used to be one, so a Circle with nobody in it said
+    // "No members found · Try a different name" and offered nothing. Three
+    // Circles reach this state without being asked for -- the SMS Circle and
+    // Trusted arrive on their own, and onboarding makes one more -- so it is
+    // the first thing many people ever see here.
+    const onLoad = vi.fn(async () => emptyCircle("sms"));
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    expect(await screen.findByText("No one's in this Circle yet")).toBeTruthy();
+    expect(screen.queryByText("Try a different name.")).toBeNull();
+  });
+
+  it("points at the card that fills it, without a second identical button", async () => {
+    // A Circle you can add to already has an "Add people" card on this screen.
+    // A second identical button is not a second option, it is the same one
+    // twice -- and it made "Add people" ambiguous to anything looking for it.
+    const onLoad = vi.fn(async () => emptyCircle("sms"));
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    await screen.findByText("No one's in this Circle yet");
+    expect(screen.getAllByRole("button", { name: /Add people/i })).toHaveLength(
+      1,
+    );
+    expect(
+      screen.queryByTestId("one-location-circle-empty-find-people"),
+    ).toBeNull();
+  });
+
+  it("sends you to find people when the Circle fills itself", async () => {
+    // Trusted's roster follows the connection, so there is nothing to add by
+    // hand -- the way to fill it is to connect with somebody.
+    const onLoad = vi.fn(async () => emptyCircle("trusted"));
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    const find = await screen.findByTestId(
+      "one-location-circle-empty-find-people",
+    );
+    expect(find.getAttribute("href")).toContain("/one/connect");
+    // And no add-people card at all, because Trusted cannot be added to.
+    expect(screen.queryByRole("button", { name: /Add people/i })).toBeNull();
+  });
+
+  it("still says what is going on when the reader cannot act", async () => {
+    const onLoad = vi.fn(async () => emptyCircle("sms", false));
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    expect(await screen.findByText("No one's in this Circle yet")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add people/i })).toBeNull();
+  });
+
+  it("keeps the search empty state when a search really was run", async () => {
+    const onLoad = vi.fn(async () => circle("circle-1", "K Family"));
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    await screen.findByText("K Family");
+    const search = screen.queryByTestId("one-location-circle-member-search");
+    if (!search) return;
+    fireEvent.change(search, { target: { value: "zzzzzz" } });
+    expect(await screen.findByText("No members found")).toBeTruthy();
+  });
 });

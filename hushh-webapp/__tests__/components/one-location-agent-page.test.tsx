@@ -714,7 +714,17 @@ async function finishLocationOnboarding() {
 }
 
 async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
-  await finishLocationOnboarding();
+  // There is not always an entry flow to skip.
+  //
+  // A URL that names a destination -- any `?action=` -- no longer gets the
+  // first-run takeover, because arriving ON a screen is not a first run and
+  // the greeting was rendering in front of the thing the link pointed at.
+  // Callers that set an action therefore have nothing to dismiss, and this
+  // helper's job is "get past the entry flow", which is already true.
+  const onboardingShowing = screen.queryByTestId("one-location-onboarding");
+  if (onboardingShowing) {
+    await finishLocationOnboarding();
+  }
 
   // Completion settles asynchronously now that it is driven by a press rather
   // than a timer. Wait for the overlay to actually unmount, or callers assert
