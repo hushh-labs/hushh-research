@@ -838,7 +838,10 @@ export default function GmailReceiptsPage({
             ? "Connected to your Gmail"
             : hasStoredReceipts
               ? "Saved receipts are still available here."
-              : "Sync receipt emails into One.",
+              : // Receipts are one of three things this connection does; the
+                // other two (needs-a-reply threads, upcoming meetings) ship in
+                // GmailNudgesSection and were invisible in the old subheading.
+                "Track replies, meetings, and purchases from your inbox.",
     [
       connectorState,
       gmail.status?.google_email,
