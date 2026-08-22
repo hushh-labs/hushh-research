@@ -329,7 +329,7 @@ export function KaiPreferencesWizard(props: {
                   isPageLayout ? "type-subhead" : "type-footnote"
                 )}
               >
-                We’ll tune Kai to you.
+                We’ll tune One to you.
               </p>
 
               <div

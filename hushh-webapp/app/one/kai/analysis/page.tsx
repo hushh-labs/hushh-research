@@ -1085,7 +1085,7 @@ export function KaiAnalysisPageContent() {
           </p>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <MorphyButton onClick={() => router.push(ROUTES.KAI_HOME)}>
-              Return to Kai
+              Return to Finance
             </MorphyButton>
             <MorphyButton
               variant="none"
@@ -1251,7 +1251,7 @@ export function KaiAnalysisPageContent() {
                   <div className="space-y-3">
                     {focusedRunTask?.persistenceState === "pending" ? (
                       <div className="rounded-2xl border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
-                        Kai is saving this debate to your PKM history.
+                        One is saving this debate to your PKM history.
                       </div>
                     ) : null}
                     {focusedRunTask?.persistenceState === "failed" ? (
