@@ -26,6 +26,7 @@ import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provid
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import { VoiceActionCard } from "@/components/agent/voice-action-card";
 import { VoiceWalkthroughPanel } from "@/components/agent/voice-walkthrough-panel";
+import { VoiceErrorCard } from "@/components/agent/voice-error-card";
 import { useAuth } from "@/hooks/use-auth";
 import {
   executeAgentGatewayAction,
@@ -1757,13 +1758,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     pendingAction?.activation_policy === "trusted_activation_required";
   const pendingActionLabel = pendingAction?.label || "Continue this action";
 
-  // In the error state, prefer the specific reason (e.g. mic blocked, no device)
-  // over the generic "Voice error" so the user knows how to recover.
+  // The specific reason (mic blocked, no device, setup timeout) now lives in
+  // VoiceErrorCard, which shows it in full. This pill is a compact status
+  // strip with real estate for maybe half a sentence -- long enough to
+  // truncate any real reason into an ellipsis that told nobody what to do.
   const voiceStatusLabel =
-    activeActionRun?.message ??
-    (voiceStatus === "error" && voiceMessage
-      ? voiceMessage
-      : getAgentVoiceStatusLabel(voiceStatus));
+    activeActionRun?.message ?? getAgentVoiceStatusLabel(voiceStatus);
   const nativeVoiceMode = !conversationActive
     ? "idle"
     : voiceStatus === "connecting"
@@ -1882,10 +1882,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             className={cn(
               "shrink-0 text-[12px] font-medium",
               voiceStatus === "error"
-                ? "min-w-0 max-w-[60%] flex-1 truncate text-right text-destructive/80"
+                ? "text-destructive/80"
                 : "tabular-nums text-current/60",
             )}
-            title={voiceStatus === "error" ? voiceStatusLabel : undefined}
           >
             {voiceStatusLabel}
           </span>
@@ -1987,6 +1986,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           pending to confirm at the same moment. */}
       <VoiceActionCard />
       <VoiceWalkthroughPanel enabled={walkthroughModeEnabled} />
+      <VoiceErrorCard
+        message={voiceStatus === "error" ? voiceMessage : null}
+        onClose={stopConversation}
+      />
       {pendingConfirmation ? (
         <div
           role="dialog"
