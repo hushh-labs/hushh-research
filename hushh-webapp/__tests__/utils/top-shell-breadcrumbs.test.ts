@@ -247,6 +247,33 @@ describe("top shell breadcrumbs", () => {
     ).toBe("/one");
   });
 
+  it("shows shared top-left back navigation for the RIA claim flow", () => {
+    expect(resolveTopShellBreadcrumb("/ria/claim")).toEqual({
+      backHref: "/ria/onboarding",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "RIA", href: "/ria/onboarding" },
+        { label: "Claim profile" },
+      ],
+    });
+
+    const returnToSetup = new URLSearchParams();
+    returnToSetup.set("return_to", "/one/setup");
+
+    expect(resolveTopShellBreadcrumb("/ria/claim", returnToSetup)).toEqual({
+      backHref: "/one/setup",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "RIA", href: "/one/setup" },
+        { label: "Claim profile" },
+      ],
+    });
+  });
+
   it("gives per-capability setup steps a back affordance to the hub", () => {
     expect(resolveTopShellBreadcrumb("/one/setup/finance")).toEqual({
       backHref: "/one/setup",

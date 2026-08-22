@@ -428,6 +428,8 @@ function isOneLocationWorkflowNotificationType(
     value === "location_public_invite_submitted" ||
     value === "location_one_network_joined" ||
     value === "location_circle_member_invite" ||
+    value === "location_circle_member_invite_accepted" ||
+    value === "location_circle_code_joined" ||
     value === "location_circle_member_added"
   );
 }

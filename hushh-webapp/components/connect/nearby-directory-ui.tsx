@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Search as SearchIcon, X } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,6 +11,7 @@ import {
   RowDescription,
 } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
+import { cn } from "@/lib/morphy-ux/cn";
 
 /**
  * The presentational parts every "near you" directory shares.
@@ -104,6 +106,88 @@ export function PostalCodeForm({
         Search
       </Button>
     </form>
+  );
+}
+
+/** A responsive input that filters directory rows already held in memory. */
+export function NearbyDirectorySearch({
+  value,
+  onChange,
+  placeholder,
+  testId,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  testId: string;
+}) {
+  return (
+    <div className="relative">
+      <SearchIcon
+        className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/80"
+        aria-hidden
+      />
+      <Input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        autoComplete="off"
+        className={cn("h-10 pl-9", value ? "pr-11" : "pr-3.5")}
+        data-testid={testId}
+      />
+      {value ? (
+        <button
+          type="button"
+          aria-label="Clear search"
+          onClick={() => onChange("")}
+          className="absolute right-0 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground/80 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <X className="h-4 w-4" aria-hidden />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Consistent compact distance treatment for every nearby directory row. */
+export function NearbyDistanceBadge({ distance }: { distance: string | null }) {
+  if (!distance) return null;
+  return (
+    <span className="type-caption shrink-0 whitespace-nowrap rounded-full bg-muted px-2 py-0.5 tabular-nums text-muted-foreground">
+      {distance} away
+    </span>
+  );
+}
+
+/** A neutral classification marker used beside nearby result names. */
+export function NearbyTagBadge({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="type-caption shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground">
+      {children}
+    </span>
+  );
+}
+
+/** Offers a wider search only while a larger configured radius remains. */
+export function ExpandRadiusButton({
+  nextRadiusMi,
+  onExpand,
+}: {
+  nextRadiusMi: number | undefined;
+  onExpand: (miles: number) => void;
+}) {
+  if (typeof nextRadiusMi !== "number") return null;
+  return (
+    <Button
+      type="button"
+      variant="none"
+      effect="fade"
+      size="sm"
+      onClick={() => onExpand(nextRadiusMi)}
+    >
+      Search within {nextRadiusMi} mi
+    </Button>
   );
 }
 

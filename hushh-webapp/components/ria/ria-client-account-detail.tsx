@@ -239,7 +239,7 @@ export function RiaClientAccountDetail({
                 />
                 <SettingsRow
                   title="Grant source"
-                  description={accountBranch.granted_by_bundle_key || "Kai specialized access"}
+                  description={accountBranch.granted_by_bundle_key || "Portfolio + data"}
                 />
               </SettingsGroup>
             </section>

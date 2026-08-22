@@ -100,7 +100,13 @@ class PlacesSearchRequest(BaseModel):
 
     lat: float | None = Field(default=None, ge=-90, le=90)
     lng: float | None = Field(default=None, ge=-180, le=180)
-    postal_code: str | None = Field(default=None, alias="postalCode", max_length=12)
+    # 120, not 12. This field is resolved through Places Text Search
+    # (`resolve_place`), which happily takes "San Francisco" or "Koramangala,
+    # Bengaluru" -- but the 12-character bound rejected anything longer than a
+    # postcode before it ever got there, and a schema violation is a 422 whose
+    # body the client could not read as anything but an outage. The input was
+    # always more capable than the limit; this lets an area name through.
+    postal_code: str | None = Field(default=None, alias="postalCode", max_length=120)
     categories: list[str] = Field(default_factory=list, max_length=12)
     radius_mi: float = Field(default=_DEFAULT_RADIUS_MI, alias="radiusMi", gt=0, le=_MAX_RADIUS_MI)
     limit: int = Field(default=_DEFAULT_LIMIT, ge=1, le=20)

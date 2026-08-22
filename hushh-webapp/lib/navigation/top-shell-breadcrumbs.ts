@@ -163,7 +163,7 @@ function profileDetailLabel(detail: string | null): string | null {
   if (detail.startsWith("domain:")) return "Domain detail";
   if (detail.startsWith("connection:")) return "Connection detail";
   if (detail === "appearance") return "Appearance";
-  if (detail === "kai-preferences") return "Kai preferences";
+  if (detail === "kai-preferences") return "Finance preferences";
   if (detail === "gemini") return "Gemini";
   if (detail === "device") return "On-device first";
   if (detail === "vault") return "Vault methods";
@@ -508,6 +508,22 @@ function resolveTopShellBreadcrumbInner(
         ],
       };
     }
+  }
+
+  if (pathname === ROUTES.RIA_CLAIM) {
+    const returnHref =
+      normalizeInternalRouteHref(searchParams?.get("return_to")) ||
+      ROUTES.RIA_ONBOARDING;
+    return {
+      backHref: returnHref,
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "RIA", href: returnHref },
+        { label: "Claim profile" },
+      ],
+    };
   }
 
   if (pathname === ROUTES.RIA_ONBOARDING) {

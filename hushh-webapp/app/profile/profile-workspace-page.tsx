@@ -1937,7 +1937,7 @@ function ProfilePageContent() {
     "Clears saved details. Keeps sign-in.";
   const resetDialogTitle = "Reset account?";
   const resetDialogDescription =
-    "This clears all your saved details: connected services, finance and Gmail, your knowledge base, consents, and saved preferences. It keeps your account, your sign-in, and your vault. You will start onboarding again.";
+    "Clears saved details and setup progress. Your sign-in and vault stay.";
 
   const handleVaultUnlockOpenChange = (open: boolean) => {
     setShowVaultUnlock(open);
@@ -3890,7 +3890,7 @@ function ProfilePageContent() {
     if (activeDetail === "kai-preferences") {
       profileStackEntries.push({
         key: "detail:kai-preferences",
-        title: "Kai preferences",
+        title: "Finance preferences",
         description: "Investing preferences.",
         content: (
           <ProfileKaiPreferencesPanel
@@ -4312,7 +4312,7 @@ function ProfilePageContent() {
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle className="app-critical-title flex items-center gap-2">
+            <AlertDialogTitle className="flex items-center gap-2 text-[color:var(--app-destructive)]">
               <Icon icon={AlertTriangle} size="md" />
               {deleteDialogTitle}
             </AlertDialogTitle>
@@ -4328,15 +4328,15 @@ function ProfilePageContent() {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              variant="default"
-              className="app-critical-action min-h-10 w-full !whitespace-normal px-4 py-2 text-center leading-tight opacity-90 transition-opacity hover:opacity-100 sm:w-auto sm:min-w-[12rem]"
+              variant="destructive"
+              className="min-h-10 w-full px-4 py-2 text-center leading-tight sm:w-auto sm:min-w-[10rem]"
               onClick={(event) => {
                 event.preventDefault();
                 void handleDeleteAccount();
               }}
               disabled={isDeleting}
             >
-              {isDeleting ? "Deleting..." : "Yes, delete my account"}
+              {isDeleting ? "Deleting..." : "Delete account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -4362,14 +4362,14 @@ function ProfilePageContent() {
             </AlertDialogCancel>
             <AlertDialogAction
               variant="default"
-              className="min-h-10 w-full !whitespace-normal px-4 py-2 text-center leading-tight sm:w-auto sm:min-w-[12rem]"
+              className="min-h-10 w-full px-4 py-2 text-center leading-tight sm:w-auto sm:min-w-[10rem]"
               onClick={(event) => {
                 event.preventDefault();
                 void handleResetAccount();
               }}
               disabled={isResetting}
             >
-              {isResetting ? "Resetting..." : "Yes, reset my account"}
+              {isResetting ? "Resetting..." : "Reset account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -2,9 +2,9 @@
 
 import { Phone, User, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildRiaClaimRoute } from "@/lib/ria/ria-claim-entry";
 
 const OPTIONS: {
   value: "individual" | "firm";
@@ -34,6 +34,9 @@ export function OnboardingStepWelcome({
   onSelect: (type: "individual" | "firm") => void;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const currentRoute = `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
   return (
     <SettingsGroup embedded separatorInset>
       <SettingsRow
@@ -42,7 +45,7 @@ export function OnboardingStepWelcome({
         title="Claim your profile"
         description="Use the office number on your SEC filing."
         chevron
-        onClick={() => router.push(ROUTES.RIA_CLAIM)}
+        onClick={() => router.push(buildRiaClaimRoute("", { returnTo: currentRoute }))}
       />
       {OPTIONS.map((option) => {
         const selected = onboardingType === option.value;

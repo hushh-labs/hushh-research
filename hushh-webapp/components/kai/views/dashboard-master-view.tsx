@@ -736,8 +736,8 @@ export function DashboardMasterView({
       void refreshPlaid(itemId)
         .then((result) => {
           if (result.status === "already_running") {
-            toast.info("A refresh is already in progress.", {
-              description: "Let it finish or cancel it first.",
+            toast.info("A refresh is already in progress. Let it finish or cancel it first.", {
+              
               action: result.runIds.length
                 ? {
                     label: "Cancel",
@@ -758,7 +758,7 @@ export function DashboardMasterView({
               ? "Refreshing this brokerage in the background."
               : "Refreshing your brokerage data in the background.",
             {
-              description: "We’ll update this portfolio when it finishes.",
+              
               action: {
                 label: "Cancel",
                 onClick: () => {
@@ -768,11 +768,8 @@ export function DashboardMasterView({
             },
           );
         })
-        .catch((error) => {
-          toast.error("Could not refresh Plaid.", {
-            description:
-              error instanceof Error ? error.message : "Please try again.",
-          });
+        .catch(() => {
+          toast.error("Could not refresh Plaid.");
         });
     },
     [cancelPlaidRefresh, refreshPlaid],
@@ -788,11 +785,8 @@ export function DashboardMasterView({
           }
           toast.success("Plaid refresh canceled.");
         })
-        .catch((error) => {
-          toast.error("Could not cancel Plaid refresh.", {
-            description:
-              error instanceof Error ? error.message : "Please try again.",
-          });
+        .catch(() => {
+          toast.error("Could not cancel Plaid refresh.");
         });
     },
     [cancelPlaidRefresh],
@@ -819,11 +813,8 @@ export function DashboardMasterView({
         await deleteStatementSnapshot(snapshotId);
         toast.success("Statement deleted.");
         setStatementSnapshotDeleteId(null);
-      } catch (error) {
-        toast.error("Could not delete that statement.", {
-          description:
-            error instanceof Error ? error.message : "Please try again.",
-        });
+      } catch {
+        toast.error("Could not delete that statement.");
       } finally {
         setIsDeletingStatementSnapshot(false);
       }
@@ -925,18 +916,12 @@ export function DashboardMasterView({
 
           handler.open();
         });
-      } catch (error) {
+      } catch {
         clearPlaidOAuthResumeSession();
         toast.error(
           itemId
             ? "Could not update this Plaid connection."
             : "Could not start Plaid.",
-          {
-            description:
-              error instanceof Error
-                ? error.message
-                : "Kai could not start the brokerage connection flow. Please try again.",
-          },
         );
       } finally {
         setIsLinkingPlaid(false);
@@ -1181,7 +1166,7 @@ export function DashboardMasterView({
 
   const openAddHoldingModal = useCallback(() => {
     if (!canEditStatement) {
-      toast.info("Plaid holdings are read-only in Kai.");
+      toast.info("Plaid holdings are read-only in Finance.");
       return;
     }
     setEditingHolding({
@@ -1218,7 +1203,7 @@ export function DashboardMasterView({
     });
     if (invalidHolding) {
       toast.error(
-        `Holding ${invalidHolding.symbol || invalidHolding.name || "entry"} has invalid values. Quantity, price, and market value must be greater than 0.`,
+        `${invalidHolding.symbol || invalidHolding.name || "That holding"}: quantity, price and value must all be above zero.`,
       );
       return;
     }
@@ -2015,7 +2000,7 @@ export function DashboardMasterView({
               purpose:
                 activeSource === "plaid"
                   ? "Disconnects the Plaid brokerage portfolio and removes the local mirror."
-                  : "Deletes the imported statement portfolio from Kai.",
+                  : "Deletes the imported statement portfolio from Finance.",
               voiceAliases: ["delete portfolio", "delete imported data"],
             },
           ]
@@ -2060,7 +2045,7 @@ export function DashboardMasterView({
               purpose:
                 activeSource === "plaid"
                   ? "Disconnects the Plaid brokerage portfolio and removes the local mirror."
-                  : "Deletes the imported statement portfolio from Kai.",
+                  : "Deletes the imported statement portfolio from Finance.",
               actionId: "kai.portfolio.delete_portfolio",
               role: "button",
             },

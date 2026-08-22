@@ -30,7 +30,9 @@
       "abdulbeast4-creator",
       "smirthi-dharma",
       "anoushkauoc",
-      "Roopmann30"
+      "Roopmann30",
+      "Divya-rajendran009",
+      "imsharukhan"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
@@ -48,7 +50,9 @@
       "abdulbeast4-creator",
       "smirthi-dharma",
       "anoushkauoc",
-      "Roopmann30"
+      "Roopmann30",
+      "Divya-rajendran009",
+      "imsharukhan"
     ],
     "protected_pipeline_edit_users": [
       "kushaltrivedi5",
@@ -85,7 +89,9 @@
       "abdulbeast4-creator",
       "smirthi-dharma",
       "anoushkauoc",
-      "Roopmann30"
+      "Roopmann30",
+      "Divya-rajendran009",
+      "imsharukhan"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
@@ -103,7 +109,9 @@
       "abdulbeast4-creator",
       "smirthi-dharma",
       "anoushkauoc",
-      "Roopmann30"
+      "Roopmann30",
+      "Divya-rajendran009",
+      "imsharukhan"
     ]
   },
   "dev": {

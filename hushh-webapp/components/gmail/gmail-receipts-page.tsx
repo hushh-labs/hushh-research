@@ -618,7 +618,7 @@ export default function GmailReceiptsPage({
 
     if (Capacitor.isNativePlatform()) {
       toast.error(
-        "Gmail connection needs the native Google handoff. Open Gmail on the web app to connect this inbox for now.",
+        "Connect this inbox from the web app for now.",
       );
       return Promise.resolve(false);
     }
@@ -838,7 +838,10 @@ export default function GmailReceiptsPage({
             ? "Connected to your Gmail"
             : hasStoredReceipts
               ? "Saved receipts are still available here."
-              : "Sync receipt emails into One.",
+              : // Receipts are one of three things this connection does; the
+                // other two (needs-a-reply threads, upcoming meetings) ship in
+                // GmailNudgesSection and were invisible in the old subheading.
+                "Track replies, meetings, and purchases from your inbox.",
     [
       connectorState,
       gmail.status?.google_email,
@@ -1358,7 +1361,10 @@ export default function GmailReceiptsPage({
     >
       <AppPageHeaderRegion>
         <PageHeader
-          title="Receipts"
+          // Named for the source, not the artefact: the breadcrumb on both
+          // routes that render this page says "Gmail", and the setup checklist
+          // row that leads here says "Connect Gmail".
+          title="Gmail"
           description={pageTitle}
           actions={
             isConnected ? (
