@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   currentTaskSteps,
@@ -118,6 +118,73 @@ describe("VoiceWalkthroughPanel", () => {
     expect(screen.getByTestId("voice-walkthrough-panel")).toBeInTheDocument();
     expect(screen.getByText("Ankit Kumar Singh")).toBeInTheDocument();
     expect(screen.getByText("an•••@hushh.ai")).toBeInTheDocument();
+  });
+
+  it("shows a subject-capable single-step task while it is still processing, before any subject is known", () => {
+    // The whole point: "send it" is a lone run for connect.send_request, and
+    // the subject is not known until the handler returns. If the panel
+    // waited for a subject before showing, it would never appear during the
+    // actual processing -- only in the instant before it disappears.
+    appInteractionCoordinator.startActionRun({
+      actionId: "connect.send_request",
+      label: "Send a connection request",
+      source: "voice",
+      phase: "preparing",
+    });
+
+    render(<VoiceWalkthroughPanel enabled />);
+
+    expect(screen.getByTestId("voice-walkthrough-panel")).toBeInTheDocument();
+    expect(screen.getByText("Send a connection request")).toBeInTheDocument();
+  });
+
+  it("closing an active task aborts it and hides the card without it reappearing", () => {
+    vi.useFakeTimers();
+    try {
+      appInteractionCoordinator.startActionRun({
+        actionId: "connect.send_request",
+        label: "Send a connection request",
+        source: "voice",
+      });
+      const onCancel = vi.fn();
+
+      render(<VoiceWalkthroughPanel enabled onCancel={onCancel} />);
+      expect(screen.getByTestId("voice-walkthrough-panel")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Stop this task" }));
+
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId("voice-walkthrough-panel")).toBeNull();
+
+      // The linger effect re-syncs after a phase change. A run this test
+      // never marks cancelled/terminal still must not resurrect the card the
+      // close button just hid.
+      vi.advanceTimersByTime(10_000);
+      expect(screen.queryByTestId("voice-walkthrough-panel")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("closing a settled task just dismisses it, without calling onCancel", () => {
+    const solo = appInteractionCoordinator.startActionRun({
+      actionId: "connect.send_request",
+      label: "Send a connection request",
+      source: "voice",
+    });
+    appInteractionCoordinator.finishActionRunFromSettlement(solo.id, {
+      status: "succeeded",
+      summary: "Connection request sent to Ankit Kumar Singh.",
+    });
+    const onCancel = vi.fn();
+
+    render(<VoiceWalkthroughPanel enabled onCancel={onCancel} />);
+    expect(screen.getByTestId("voice-walkthrough-panel")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("voice-walkthrough-panel")).toBeNull();
   });
 
   it("shows a live step list for a multi-step task when enabled", () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, CircleDashed, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, CircleDashed, Loader2, X, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
@@ -8,6 +8,24 @@ import {
   useActionRuns,
   type ActionRun,
 } from "@/lib/interaction/interaction-intent-coordinator";
+
+/**
+ * Actions whose handler may attach a `subject` once it resolves who the
+ * action is about (see the handlers themselves, and `parseVoiceSubject`).
+ * Named here so a solo run of one of these earns the panel for its whole
+ * processing time -- the loading beat is exactly what "who is this going
+ * to" needs to show before the subject is known, and subject only arrives
+ * once the handler has already returned. A step outside this list stays on
+ * the original rule: a one-off action already has its own status text in
+ * the bar.
+ */
+const SUBJECT_CAPABLE_ACTION_IDS = new Set([
+  "connect.send_request",
+  "location.select_share_recipient",
+  "location.select_ask_recipient",
+  "location.share_selected",
+  "location.send_request",
+]);
 
 /**
  * Steps arriving within this long of the previous step's last update are
@@ -74,11 +92,20 @@ function stepTextClass(phase: ActionRun["phase"]): string {
  * pre-declared multi-step plan: each new call simply appends to, or starts,
  * the visible list.
  *
- * Deliberately hidden for a single-step task: a one-off action already has
- * its own status text in the bar, and this panel earns its place once there
- * is an actual sequence to follow.
+ * Deliberately hidden for a single-step task that never touches a person: a
+ * one-off action already has its own status text in the bar, and this panel
+ * earns its place once there is an actual sequence to follow, or once a
+ * subject-capable step gives it something the bar's one-line pill can't show.
  */
-export function VoiceWalkthroughPanel({ enabled }: { enabled: boolean }) {
+export function VoiceWalkthroughPanel({
+  enabled,
+  onCancel,
+}: {
+  enabled: boolean;
+  /** Aborts whatever the last step is still doing. Only ever called while
+   * that step is active -- there is nothing left to abort once it settles. */
+  onCancel?: () => void;
+}) {
   const runs = useActionRuns();
   const group = enabled ? currentTaskSteps(runs) : [];
   const last = group[group.length - 1] ?? null;
@@ -103,13 +130,33 @@ export function VoiceWalkthroughPanel({ enabled }: { enabled: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, last?.id, last?.phase]);
 
-  // A single step still earns its place here once a handler has named who
-  // it is about -- "who am I sending this to" is exactly the thing the bar's
-  // own one-line status pill has no room for, and it is the reason this
-  // panel exists rather than the separate confirm-everything popup that was
-  // considered and dropped.
-  const hasSubject = group.some((step) => step.subject);
-  if (!enabled || !linger || (group.length < 2 && !hasSubject)) return null;
+  // Tracks the run explicitly dismissed, by id rather than a plain boolean --
+  // cancelling flips `last.phase`, which re-runs the linger effect above and
+  // would otherwise re-open the card for its own "cancelled" state right
+  // after this closes it. Keyed to the id so the NEXT step (a new run) is
+  // unaffected by a dismissal aimed at the one before it.
+  const [dismissedId, setDismissedId] = useState<string | null>(null);
+  const dismissed = last ? last.id === dismissedId : false;
+
+  // A single step still earns its place here once it either has named who
+  // it is about, or belongs to an action that might -- "who am I sending
+  // this to" is exactly the thing the bar's own one-line status pill has no
+  // room for, and it needs to show WHILE that resolves, not only after.
+  const hasSubject = group.some(
+    (step) => step.subject || SUBJECT_CAPABLE_ACTION_IDS.has(step.actionId),
+  );
+  if (!enabled || !linger || dismissed || (group.length < 2 && !hasSubject)) {
+    return null;
+  }
+
+  // Closing always dismisses the card. While the last step is still running
+  // there is a real task to stop, so this doubles as cancelling it; once it
+  // has settled there is nothing left to abort and this only hides the card
+  // before its linger timer would have.
+  const handleClose = () => {
+    if (active) onCancel?.();
+    if (last) setDismissedId(last.id);
+  };
 
   return (
     <div
@@ -118,9 +165,19 @@ export function VoiceWalkthroughPanel({ enabled }: { enabled: boolean }) {
       role="status"
       aria-live="polite"
     >
-      <p className="pb-2 text-[13px] font-medium text-muted-foreground">
-        Working through this
-      </p>
+      <div className="flex items-center justify-between gap-2 pb-2">
+        <p className="text-[13px] font-medium text-muted-foreground">
+          Working through this
+        </p>
+        <button
+          type="button"
+          onClick={handleClose}
+          aria-label={active ? "Stop this task" : "Dismiss"}
+          className="pointer-events-auto flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-black/[0.06] hover:text-foreground dark:hover:bg-white/[0.1]"
+        >
+          <X className="size-3.5" aria-hidden="true" />
+        </button>
+      </div>
       <ul className="flex flex-col gap-2">
         {group.map((step) => (
           <li key={step.id} className="flex flex-col gap-1">

@@ -1125,6 +1125,20 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     handleTransportEventRef.current = handleTransportEvent;
   }, [handleTransportEvent]);
 
+  // Narrower than stopConversation: aborts whatever the walkthrough panel is
+  // currently showing without ending the voice session it belongs to. The
+  // abort is best-effort -- not every handler checks its signal mid-flight --
+  // so cancelActiveActionRuns is what actually makes the UI reflect "stopped"
+  // immediately rather than waiting on work that may keep running unseen.
+  const cancelActiveWalkthroughTask = useCallback(() => {
+    actionAbortControllerRef.current?.abort();
+    appInteractionCoordinator.cancelActiveActionRuns("Cancelled");
+    abandonPendingConfirmation(
+      "cancelled_from_walkthrough",
+      "The confirmation was cancelled.",
+    );
+  }, [abandonPendingConfirmation]);
+
   const stopConversation = useCallback(() => {
     actionAbortControllerRef.current?.abort();
     appInteractionCoordinator.cancelActiveActionRuns("Action cancelled when the voice session ended");
@@ -1999,7 +2013,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           raised when an action could not run at all, so there is nothing
           pending to confirm at the same moment. */}
       <VoiceActionCard />
-      <VoiceWalkthroughPanel enabled={walkthroughModeEnabled} />
+      <VoiceWalkthroughPanel
+        enabled={walkthroughModeEnabled}
+        onCancel={cancelActiveWalkthroughTask}
+      />
       {pendingConfirmation ? (
         <div
           role="dialog"
