@@ -105,6 +105,31 @@ describe("VoicePreferencesPanel", () => {
     expect(onOpenChangelog).toHaveBeenCalledTimes(1);
   });
 
+  it("voice defaults to Default and persists a pick", () => {
+    render(
+      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
+    );
+
+    expect(
+      screen.getByRole("combobox", { name: "Voice" }).textContent,
+    ).toContain("Default");
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Voice" }));
+    fireEvent.click(screen.getByRole("option", { name: "Leda — Youthful" }));
+
+    expect(readVoicePreferences(userId).voiceName).toBe("Leda");
+  });
+
+  it("turning off the master toggle disables the voice picker too", () => {
+    render(
+      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
+    );
+
+    fireEvent.click(screen.getByRole("switch", { name: "Voice control" }));
+
+    expect(screen.getByRole("combobox", { name: "Voice" })).toBeDisabled();
+  });
+
   it("\"What can I say\" opens the examples page", () => {
     const onOpenExamples = vi.fn();
     render(

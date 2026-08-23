@@ -75,6 +75,7 @@ from hushh_mcp.one_adk.action_tools import _slot_fingerprint
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     ONE_LIVE_VOICE_NAME,
+    ONE_LIVE_VOICE_OPTIONS,
     STATE_CONSENT_TOKEN,
     STATE_PENDING_DIRECTIVE,
     STATE_SCREEN,
@@ -255,6 +256,7 @@ async def _receive_runtime_bootstrap(
     str | None,
     str | None,
     str | None,
+    str | None,
 ]:
     """Read the one non-model-visible startup frame.
 
@@ -277,13 +279,29 @@ async def _receive_runtime_bootstrap(
     resumption_handle = str(message.get("resumption_handle") or "").strip()
     if len(resumption_handle) > _RESUMPTION_HANDLE_CAP:
         resumption_handle = ""
+    # A person's Voice Settings pick. Validated against the same curated
+    # allowlist the picker itself offers -- an unrecognized value (a stale
+    # client after the list changes, a tampered frame) falls back to the
+    # deployment default rather than forwarding an arbitrary string into
+    # PrebuiltVoiceConfig.
+    voice_name = str(message.get("voice_name") or "").strip()
+    if voice_name not in ONE_LIVE_VOICE_OPTIONS:
+        voice_name = ""
     mode = message.get("runtime_credential_mode")
     if mode == "hushh_managed_vertex":
         # Never accept a credential in managed mode, even if a buggy client
         # supplied one. This keeps the startup contract unambiguous.
         if message.get("runtime_credential") not in (None, ""):
             raise ValueError("runtime_bootstrap_invalid")
-        return "hushh_managed_vertex", None, "developer_api", None, None, resumption_handle or None
+        return (
+            "hushh_managed_vertex",
+            None,
+            "developer_api",
+            None,
+            None,
+            resumption_handle or None,
+            voice_name or None,
+        )
     if mode != "byok" or not uid:
         raise ValueError("runtime_bootstrap_invalid")
     credential = message.get("runtime_credential")
@@ -300,10 +318,26 @@ async def _receive_runtime_bootstrap(
     if transport == "vertex_api_key":
         if not _VERTEX_PROJECT_RE.fullmatch(project) or not _VERTEX_LOCATION_RE.fullmatch(location):
             raise ValueError("runtime_bootstrap_invalid")
-        return "byok", credential, "vertex_api_key", project, location, resumption_handle or None
+        return (
+            "byok",
+            credential,
+            "vertex_api_key",
+            project,
+            location,
+            resumption_handle or None,
+            voice_name or None,
+        )
     if project or location:
         raise ValueError("runtime_bootstrap_invalid")
-    return "byok", credential, "developer_api", None, None, resumption_handle or None
+    return (
+        "byok",
+        credential,
+        "developer_api",
+        None,
+        None,
+        resumption_handle or None,
+        voice_name or None,
+    )
 
 
 class _InitialGreetingGate:
@@ -452,6 +486,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             runtime_vertex_project,
             runtime_vertex_location,
             resumption_handle,
+            voice_name,
         ) = await _receive_runtime_bootstrap(websocket, uid=uid)
         runner = build_one_live_runner(
             runtime_mode=runtime_mode,
@@ -517,11 +552,14 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         response_modalities=[genai_types.Modality.AUDIO],
         # Pinned explicitly: unset, each live model plays its own default
         # voice, and the two models this relay supports sound audibly
-        # different from each other with nothing set here.
+        # different from each other with nothing set here. A person's Voice
+        # Settings pick (already validated against ONE_LIVE_VOICE_OPTIONS in
+        # _receive_runtime_bootstrap) wins when present; otherwise the
+        # deployment default.
         speech_config=genai_types.SpeechConfig(
             voice_config=genai_types.VoiceConfig(
                 prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(
-                    voice_name=ONE_LIVE_VOICE_NAME
+                    voice_name=voice_name or ONE_LIVE_VOICE_NAME
                 )
             )
         ),

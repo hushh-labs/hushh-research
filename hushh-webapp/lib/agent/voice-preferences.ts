@@ -1,3 +1,5 @@
+import { isVoicePersonaName } from "@/lib/agent/voice-persona-options";
+
 /**
  * Per-user, client-side preferences for One's voice/live-agent runtime.
  *
@@ -9,6 +11,10 @@
  * behavior -- voice on, spoken confirmation accepted, nothing domain-scoped
  * -- never to "block everything". A user who has never opened this panel
  * must see the identical voice experience they always have.
+ *
+ * `voiceName` is the one exception to "restriction only": it is a
+ * preference, not a guard, so its default is `null` (deployment default)
+ * rather than a specific name -- picking a persona is opt-in, not opt-out.
  */
 export type OneVoicePreferencesState = {
   /** Per-user override on top of the deployment-wide NEXT_PUBLIC_AGENT_GEMINI_VOICE_ENABLED flag. */
@@ -22,6 +28,13 @@ export type OneVoicePreferencesState = {
   walkthroughMode: boolean;
   /** Domain keys (see voice-engine-domains.ts) the user has turned voice OFF for. */
   disabledDomains: string[];
+  /**
+   * A Gemini TTS prebuilt voice name from voice-persona-options.ts, or null
+   * to use the deployment default. Sent to the relay on connect; the backend
+   * re-validates against its own copy of the allowlist, so an outdated or
+   * tampered value here just falls back silently rather than erroring.
+   */
+  voiceName: string | null;
 };
 
 const PREFERENCES_KEY_PREFIX = "one_voice_preferences_v1:";
@@ -31,6 +44,7 @@ const DEFAULT_STATE: OneVoicePreferencesState = {
   requireTapConfirmation: false,
   walkthroughMode: true,
   disabledDomains: [],
+  voiceName: null,
 };
 
 const runtimeByUser = new Map<string, OneVoicePreferencesState>();
@@ -64,6 +78,7 @@ function sanitizeState(value: unknown): OneVoicePreferencesState {
     // default, not as the implicit "off" every other flag falls back to.
     walkthroughMode: raw.walkthroughMode !== false,
     disabledDomains,
+    voiceName: isVoicePersonaName(raw.voiceName) ? raw.voiceName : null,
   };
 }
 
