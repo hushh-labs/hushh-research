@@ -5,6 +5,7 @@ import { Share2, Users } from "lucide-react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { useAuth } from "@/lib/firebase/auth-context";
+import { useReferralStream } from "@/lib/referral/use-referral-stream";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   ReferralService,
@@ -58,31 +59,41 @@ export function ReferralsPanel() {
     void load();
   }, [load]);
 
+  // Live push. While this is connected the numbers arrive as they change, and
+  // the timer below stands down.
+  const { connected } = useReferralStream(user, load);
+
   /**
-   * Keep the numbers current without the person having to reload.
+   * Fallback only, for when the stream is not up.
    *
-   * A referral changes state because of something the OTHER person did --
-   * they finished setup, they opened an agent, their minutes crossed the bar --
-   * so a count that only moves on a manual refresh is wrong the moment it is
-   * rendered. Refetch when the tab comes back to the foreground, and slowly
-   * while it is open. A hidden tab polls nothing: it would spend a phone's
-   * battery to update a screen nobody is looking at.
+   * A stream can fail to open for reasons that have nothing to do with us -- an
+   * old browser, a corporate proxy that eats long connections, a captive
+   * network. When that happens the screen must go slow, not stale, so the timer
+   * takes over. While the stream IS connected the interval is not armed at all:
+   * polling on top of a push is the same screen asking a question it has
+   * already been answered.
+   *
+   * The foreground refetch stays either way. A tab that was asleep may have
+   * missed a doorbell while the socket was down, and coming back to a screen
+   * that is quietly out of date is exactly what this whole change is about.
    */
   useEffect(() => {
     const refreshIfVisible = () => {
       if (document.visibilityState === "visible") void load();
     };
 
-    const interval = window.setInterval(refreshIfVisible, 30_000);
+    const interval = connected
+      ? null
+      : window.setInterval(refreshIfVisible, 30_000);
     document.addEventListener("visibilitychange", refreshIfVisible);
     window.addEventListener("focus", refreshIfVisible);
 
     return () => {
-      window.clearInterval(interval);
+      if (interval !== null) window.clearInterval(interval);
       document.removeEventListener("visibilitychange", refreshIfVisible);
       window.removeEventListener("focus", refreshIfVisible);
     };
-  }, [load]);
+  }, [connected, load]);
 
   // Read out of state once. An optional chain inside a dependency array is
   // opaque to the React compiler, which then refuses to preserve the memo.

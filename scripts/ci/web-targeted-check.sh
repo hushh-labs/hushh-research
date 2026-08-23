@@ -139,7 +139,7 @@ fi
 # "render exactly the summary you were handed", so a field removed from
 # one_referral_service.py breaks the screen on a pull request where nothing
 # under hushh-webapp/ was touched at all.
-if has_match '^(hushh-webapp/(components/profile/referrals-panel\.tsx|lib/services/referral-service\.ts|__tests__/(components/referrals-panel|services/referral-(service|attribution))|lib/referral/|app/r/|app/one/profile/referrals/)|consent-protocol/(hushh_mcp/(services/one_referral_service|operons/referral/)|api/routes/one/referrals\.py))'; then
+if has_match '^(hushh-webapp/(components/profile/referrals-panel\.tsx|lib/services/referral-service\.ts|__tests__/(components/referrals-panel|services/referral-(service|attribution|stream))|lib/referral/|app/r/|app/api/one/referrals/|app/one/profile/referrals/)|consent-protocol/(hushh_mcp/(services/one_referral_service|operons/referral/)|api/(routes/one/referrals\.py|referral_listener\.py)))'; then
   run_check "Referral program" npm run verify:referrals
   ran=1
 fi

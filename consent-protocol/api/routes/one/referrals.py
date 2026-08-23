@@ -7,12 +7,17 @@ link exists the first time they look for it and never before.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from sse_starlette.sse import EventSourceResponse
 
 from api.middleware import require_firebase_auth
+from api.referral_listener import get_referral_queue, release_referral_queue
 from hushh_mcp.services.one_referral_service import (
     ReferralProgramDisabled,
     ReferralServiceError,
@@ -93,3 +98,60 @@ async def bind_referral_attribution(
     except Exception:
         logger.exception("[referrals] bind_failed")
         raise HTTPException(status_code=500, detail={"code": "REFERRAL_BIND_FAILED"})
+
+
+# Long enough that a quiet stream is not mistaken for a dead one by any proxy in
+# front of us, short enough that a phone on a train notices the drop quickly.
+_HEARTBEAT_SECONDS = 25
+
+
+async def _referral_event_stream(user_id: str, request: Request):
+    """One referrer's live stream.
+
+    Yields a doorbell -- never data. The client re-reads the summary through the
+    authenticated endpoint that already owns what this referrer may see, so this
+    stream can never become a second, quieter place where that decision is made.
+    """
+    queue = get_referral_queue(user_id)
+    # Tells the client the stream is live, so it can stop polling immediately
+    # rather than after one more interval.
+    yield {"event": "ready", "data": json.dumps({"channel": "referrals"})}
+
+    try:
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                message = await asyncio.wait_for(queue.get(), timeout=_HEARTBEAT_SECONDS)
+            except asyncio.TimeoutError:
+                yield {
+                    "event": "heartbeat",
+                    "data": json.dumps({"timestamp": int(time.time() * 1000)}),
+                }
+                continue
+
+            yield {
+                "event": "referral_changed",
+                "data": json.dumps({"reason": message.get("reason", "changed")}),
+            }
+    except asyncio.CancelledError:
+        raise
+    finally:
+        await release_referral_queue(user_id)
+
+
+@router.get("/events")
+async def referral_events(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Push referral changes to the person they belong to.
+
+    Authenticated like every other referral read, and scoped to the caller by
+    the token rather than by anything in the URL: a stream keyed on a path
+    parameter is a stream someone can point at another person.
+    """
+    return EventSourceResponse(
+        _referral_event_stream(firebase_uid, request),
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
