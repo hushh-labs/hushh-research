@@ -166,6 +166,22 @@ class RateLimits:
     # Owners can rotate/revoke a code, but rapid churn is never a normal flow.
     ONE_LOCATION_CIRCLE_MUTATION = "6/minute"  # noqa: S105
 
+    # Contact discovery. This route answers "is the person behind this phone
+    # number on Hushh", a thousand numbers at a time, and it was the only
+    # identity-revealing route in the product carrying no limit at all --
+    # neither its own nor a global one, because SlowAPIMiddleware is never
+    # installed and GLOBAL_PER_IP is referenced nowhere outside its own test.
+    # An authenticated caller could walk the national number space against the
+    # user base at whatever rate their connection allowed.
+    #
+    # Two ceilings, because one number cannot describe the shape of the abuse.
+    # The per-minute bound stops a tight loop; the daily bound stops a patient
+    # one, which is the realistic version of this attack. A person syncing
+    # their address book does it once, and again occasionally after adding
+    # someone -- even a heavy multi-device day does not approach twenty.
+    CONTACT_DISCOVERY_MATCH = "4/minute"  # noqa: S105
+    CONTACT_DISCOVERY_MATCH_DAILY = "20/day"  # noqa: S105
+
     # The owner's own position heartbeat onto their live public link. Unlike
     # every other mutation on this router this one is SUPPOSED to repeat: the
     # web client publishes on a twenty-second heartbeat plus a movement watch

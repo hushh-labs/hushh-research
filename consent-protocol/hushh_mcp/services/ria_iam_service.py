@@ -9109,7 +9109,18 @@ class RIAIAMService:
                         "kind": kind,
                         "display_name": row["display_name"] or row["identity_display_name"],
                         "headline": row["headline"],
-                        "phone_last4": last4,
+                        # No phone digits, not even four.
+                        #
+                        # The caller derived every digest it sent from its own
+                        # address book, so it already holds the number behind
+                        # each match -- echoing part of it back tells the caller
+                        # nothing it did not have, and costs a real leak the
+                        # moment a response is logged, cached, or rendered into
+                        # a page. Both of those were happening: the marketplace
+                        # deck rendered these four digits into the DOM, and One
+                        # Location stripped them on arrival. A field one client
+                        # has to defend against and another leaks is a field
+                        # that should never have left the server.
                         "profile": profile,
                     }
                 )

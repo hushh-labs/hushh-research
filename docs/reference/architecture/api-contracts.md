@@ -246,6 +246,28 @@ this first release.
 | POST | `/api/one/calendar/proposals` | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google. |
 | POST | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed. |
 
+### Contact Discovery
+
+Matching an address book against the Hushh user directory. The device normalizes each
+number to E.164 and hashes it; **raw phone numbers and contact names never leave the
+device**, and the server **persists nothing** — the request body is consumed in memory and
+discarded, so a contact who is not a Hushh user leaves no trace.
+
+`last4` is an index bucket, not an answer: it narrows the candidate rows so the query can
+use `idx_actor_identity_cache_phone_last4`, and the full digest is what decides a match.
+Nothing about a matched person's phone number is returned.
+
+Rate limited per authenticated user, on two ceilings — see
+`RateLimits.CONTACT_DISCOVERY_MATCH`. One number cannot describe the abuse: the per-minute
+bound stops a tight loop, the per-day bound stops the patient walk that is the realistic way
+to enumerate a user base through a discovery endpoint.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| POST | `/api/marketplace/contacts/match` | Firebase Bearer | Match up to 1000 `{hash, last4}` lookups against the directory. `scope: "one_network"` matches any phone-verified account that has not turned off contact discoverability (what One Location contact sync needs); `scope: "marketplace"` (the default) keeps the Connect deck's publicly-discoverable-profiles policy. Returns `user_id`, `kind`, `display_name`, `headline`, `profile` — and **no phone digits** |
+| GET | `/api/iam/contact-discoverability` | Firebase Bearer | Whether the signed-in account can be found by someone who has their number |
+| POST | `/api/iam/contact-discoverability` | Firebase Bearer | Turn that on or off. Defaults on — a match discloses nothing beyond confirming a number the requester already had |
+
 ### One Location Agent
 
 One Location Agent is One-owned live-location sharing for trusted people. The

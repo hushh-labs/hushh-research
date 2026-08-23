@@ -82,6 +82,33 @@ async function assertContactsReadable(): Promise<void> {
   }
 }
 
+/**
+ * Every match, with any phone-derived field removed.
+ *
+ * The server no longer returns one: `match_marketplace_contacts` used to echo
+ * four digits of the matched person's number, and it stopped, because a client
+ * that has to defend against a field is a field that should not have been sent.
+ *
+ * This guard stays anyway, and it is deliberately keyed on the shape of the
+ * value rather than on one known field name. Two reasons. A deploy is not
+ * atomic, so for the length of a rollout — and for the length of any rollback —
+ * this client can still be talking to a server that returns the old payload.
+ * And the type no longer declares the field, which means TypeScript would have
+ * silently stopped protecting exactly the case that still needs protecting.
+ *
+ * The screens downstream of this render matched people by name. Nothing here
+ * needs a digit, so anything that looks like one is dropped rather than trusted.
+ */
+function withoutPhoneFields(
+  match: MarketplaceContactMatch,
+): MarketplaceContactMatch {
+  const safeMatch: Record<string, unknown> = { ...match };
+  for (const key of Object.keys(safeMatch)) {
+    if (key.toLowerCase().includes("phone")) delete safeMatch[key];
+  }
+  return safeMatch as unknown as MarketplaceContactMatch;
+}
+
 export async function syncOneLocationContactSignals({
   idToken,
   accountPhoneNumber,
@@ -131,11 +158,7 @@ export async function syncOneLocationContactSignals({
     // marketplace profiles are off by default.
     scope: "one_network",
   });
-  const privacySafeMatches = matches.map((match) => {
-    const safeMatch = { ...match };
-    delete safeMatch.phone_last4;
-    return safeMatch as MarketplaceContactMatch;
-  });
+  const privacySafeMatches = matches.map(withoutPhoneFields);
   const matchedUserIds = Array.from(
     new Set(
       privacySafeMatches

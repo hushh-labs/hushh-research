@@ -125,7 +125,6 @@ export interface MarketplaceContactMatch {
   kind: "ria" | "investor" | "one_user";
   display_name: string;
   headline?: string | null;
-  phone_last4?: string | null;
   profile: MarketplaceRia | MarketplaceInvestor;
 }
 
