@@ -140,11 +140,12 @@
     "159_one_location_circle_invite_max_uses_100.sql",
     "160_one_location_system_circles.sql",
     "161_atomic_pkm_scope_exposure.sql",
-    "163_one_location_system_circle_kinds.sql"
+    "163_one_location_system_circle_kinds.sql",
+    "165_one_referral_program.sql"
   ],
   "environment_overlays": {
     "uat": [
-      "164_hushh_tech_uat_client_foundation.sql"
+      "166_hushh_tech_uat_client_foundation.sql"
     ]
   },
   "groups": {
@@ -237,7 +238,8 @@
       "158_one_location_circle_member_limit_100.sql",
       "159_one_location_circle_invite_max_uses_100.sql",
       "160_one_location_system_circles.sql",
-      "163_one_location_system_circle_kinds.sql"
+      "163_one_location_system_circle_kinds.sql",
+      "165_one_referral_program.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
