@@ -140,18 +140,30 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     assert '_DB_SQLALCHEMY_POOL_SIZE: "4"' in backend_build
     assert '_DB_SQLALCHEMY_MAX_OVERFLOW: "0"' in backend_build
 
-    assert "_DB_POOL_MIN_SIZE=1" in uat_workflow
-    assert "_DB_POOL_MAX_SIZE=3" in uat_workflow
-    assert "_DB_SQLALCHEMY_POOL_SIZE=2" in uat_workflow
+    assert "_DB_POOL_MIN_SIZE=2" in uat_workflow
+    assert "_DB_POOL_MAX_SIZE=12" in uat_workflow
+    assert "_DB_SQLALCHEMY_POOL_SIZE=6" in uat_workflow
     assert "_DB_SQLALCHEMY_MAX_OVERFLOW=0" in uat_workflow
     assert "_CLOUD_RUN_MIN_INSTANCES=1" in uat_workflow
     assert "_CLOUD_RUN_MAX_INSTANCES=3" in uat_workflow
     # Each backend instance opens the asyncpg pool (DB_POOL_MAX_SIZE) plus the
     # SQLAlchemy pool (DB_SQLALCHEMY_POOL_SIZE + DB_SQLALCHEMY_MAX_OVERFLOW).
-    # UAT: at most 5 connections per instance and 15 total across 3 instances.
-    uat_per_instance = 3 + 2 + 0
-    assert uat_per_instance == 5
-    assert uat_per_instance * 3 == 15
+    # UAT: at most 18 connections per instance and 54 total across 3 instances.
+    #
+    # This bound was 5 per instance (3 + 2 + 0) until 2026-08-23, when it took
+    # UAT phone verification down for five hours. Cloud Run admits 80 concurrent
+    # requests per instance, and every asyncpg call site does a plain
+    # pool.acquire() with no timeout. Once three connections were held by slow
+    # routes, every later request waited forever and died at Cloud Run's 3600s
+    # request timeout, holding its concurrency slot for the full hour.
+    #
+    # Cloud SQL was never the constraint: it sat at 17-40 open connections
+    # against a ceiling near 400 for the whole outage. Overflow stays pinned at
+    # 0 so the ceiling remains deterministic; the headroom goes into the fixed
+    # pools instead of a burstable QueuePool overflow.
+    uat_per_instance = 12 + 6 + 0
+    assert uat_per_instance == 18
+    assert uat_per_instance * 3 == 54
 
     assert "_DB_POOL_MIN_SIZE=1" in production_workflow
     assert "_DB_POOL_MAX_SIZE=4" in production_workflow
