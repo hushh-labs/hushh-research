@@ -3527,7 +3527,7 @@ function ShareFlow({
       // Share confirm step rather than the shared flow root on purpose: that
       // root also carries SmsContactsFlow, whose 680/720 desktop widths are
       // deliberate and documented, plus two map previews.
-      <div className="mx-auto w-full max-w-[560px] space-y-6">
+      <div className="mx-auto w-full max-w-[560px] space-y-6 pb-[calc(var(--app-bottom-content-clearance,7rem)+2rem)]">
         {/* No description: the summary card directly below states who can see
             you, for how long and when it ends. Repeating that in prose above it
             is the design explaining itself. */}
@@ -3581,7 +3581,7 @@ function ShareFlow({
                         : undefined
                   }
                   placeholder="On my way to the meeting"
-                  className="block min-h-[92px] w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-compact)] px-4 pb-8 pt-3.5 text-[17px] leading-[22px] text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)] aria-invalid:border-destructive aria-invalid:focus:ring-destructive/30"
+                  className="block min-h-[92px] w-full resize-none rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-compact)] px-4 pb-8 pt-3.5 text-[17px] leading-[22px] text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)] aria-invalid:border-destructive aria-invalid:focus:ring-destructive/30"
                 />
                 {showShareNoteCount ? (
                   <span
@@ -3640,7 +3640,7 @@ function ShareFlow({
           <Button
             variant="ghost"
             onClick={onClose}
-            className="h-11 w-full rounded-2xl text-sm"
+            className="h-11 w-full rounded-2xl bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
           >
             Cancel
           </Button>
@@ -4564,51 +4564,72 @@ function SelectedRecipientsRail({
 }) {
   if (!recipients.length) return null;
 
+  const compact = recipients.length > 3;
+
   return (
-    <div className="space-y-2 pt-1">
-      <div className="flex items-end justify-between gap-3 px-1">
-        <AppSectionLabel as="h3">{title}</AppSectionLabel>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3 px-1">
+        <p className="text-[13px] font-normal leading-[18px] text-muted-foreground">
+          {title}
+        </p>
         {trailing}
       </div>
-      <div
-        aria-label={ariaLabel ?? title}
-        aria-roledescription="recipient summary"
-        role="list"
-        className="flex min-h-14 items-center gap-3 rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 shadow-[var(--app-card-shadow-standard)]"
-      >
-        <div className="flex shrink-0 -space-x-2" aria-hidden="true">
-          {recipients.slice(0, 3).map((recipient) => {
-            const label = recipientLabel(recipient);
-            return (
-              <span
-                key={recipient.userId}
-                className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-accent-tint)] text-[13px] font-semibold text-[color:var(--app-accent)]"
-              >
-                {initialsFrom(label)}
-              </span>
-            );
-          })}
-          {recipients.length > 3 ? (
+      {compact ? (
+        <div
+          aria-label={ariaLabel ?? title}
+          aria-roledescription="recipient summary"
+          role="list"
+          className="flex min-h-14 items-center gap-3 rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 shadow-[var(--app-card-shadow-standard)]"
+        >
+          <div className="flex shrink-0 -space-x-2" aria-hidden="true">
+            {recipients.slice(0, 3).map((recipient) => {
+              const label = recipientLabel(recipient);
+              return (
+                <span
+                  key={recipient.userId}
+                  className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-system-fill)] text-[13px] font-semibold text-muted-foreground"
+                >
+                  {initialsFrom(label)}
+                </span>
+              );
+            })}
             <span className="flex h-9 min-w-9 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-system-fill)] px-2 text-[13px] font-semibold text-muted-foreground">
               +{recipients.length - 3}
             </span>
-          ) : null}
+          </div>
+          <div className="min-w-0 flex-1 text-[17px] leading-[22px] text-foreground">
+            {recipients.map((recipient) => (
+              <span key={recipient.userId} className="sr-only">
+                {recipientLabel(recipient)}
+              </span>
+            ))}
+            <span aria-hidden="true">{recipients.length} people</span>
+          </div>
         </div>
-        <div className="min-w-0 flex-1 text-[17px] leading-[22px] text-foreground">
-          {recipients.length === 1 ? (
-            <span>{recipientLabel(recipients[0]!)}</span>
-          ) : (
-            <>
-              {recipients.map((recipient) => (
-                <span key={recipient.userId} className="sr-only">
-                  {recipientLabel(recipient)}
+      ) : (
+        <div
+          aria-label={ariaLabel ?? title}
+          aria-roledescription="recipient summary"
+          role="list"
+          className="divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]"
+        >
+          {recipients.map((recipient) => {
+            const label = recipientLabel(recipient);
+            return (
+              <div
+                key={recipient.userId}
+                role="listitem"
+                className="flex min-h-14 items-center gap-3 px-4 py-2.5"
+              >
+                <ContactAvatar label={label} className="h-8 w-8 text-[13px]" />
+                <span className="min-w-0 flex-1 text-[17px] font-normal leading-[22px] text-foreground">
+                  {label}
                 </span>
-              ))}
-              <span aria-hidden="true">{recipients.length} people</span>
-            </>
-          )}
+              </div>
+            );
+          })}
         </div>
-      </div>
+      )}
     </div>
   );
 }
