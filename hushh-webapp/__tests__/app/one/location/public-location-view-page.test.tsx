@@ -213,7 +213,7 @@ describe("PublicLocationViewPageClient", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mocks.resolvePublicInvite.mockResolvedValueOnce(invitePayload(3_000));
     mocks.resolvePublicInvite.mockRejectedValue(
-      new Error("This request link is no longer active."),
+      new Error("This live location link is no longer active."),
     );
 
     render(<PublicLocationViewPageClient />);
