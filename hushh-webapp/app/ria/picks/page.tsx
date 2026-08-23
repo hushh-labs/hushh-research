@@ -453,7 +453,7 @@ function EmptyMyListState() {
 function InlineValidationBanner({ errors }: { errors: string[] }) {
   if (errors.length === 0) return null;
   return (
-    <div className="rounded-[18px] border border-rose-200/80 bg-rose-50/90 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200">
+    <div className="rounded-[18px] border border-[color:var(--ria-danger-border)] bg-[color:var(--ria-danger-bg)] px-4 py-3 text-sm text-[color:var(--ria-danger-text)]">
       {errors.join(" ")}
     </div>
   );
@@ -462,7 +462,7 @@ function InlineValidationBanner({ errors }: { errors: string[] }) {
 function RowErrorNotice({ errors }: { errors: string[] | undefined }) {
   if (!errors || errors.length === 0) return null;
   return (
-    <div className="rounded-[12px] border border-rose-200/70 bg-rose-50/80 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200">
+    <div className="rounded-[12px] border border-[color:var(--ria-danger-border)] bg-[color:var(--ria-danger-bg)] px-3 py-2 text-xs text-[color:var(--ria-danger-text)]">
       {errors.join(" ")}
     </div>
   );
@@ -486,7 +486,7 @@ function ValidationIssuesPanel({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              <AlertTriangle className="h-4 w-4 text-[color:var(--ria-warning-text)]" />
               <p className="text-sm font-semibold text-foreground">
                 {issues.length} row{issues.length === 1 ? "" : "s"} need attention
               </p>
@@ -511,7 +511,7 @@ function ValidationIssuesPanel({
               key={issue.rowId}
               type="button"
               onClick={() => onJumpToIssue(issue)}
-              className="rounded-[18px] border border-amber-200/80 bg-amber-50/80 px-4 py-3 text-left transition hover:border-amber-300 hover:bg-amber-50 dark:border-amber-500/20 dark:bg-amber-500/10 dark:hover:bg-amber-500/15"
+              className="rounded-[18px] border border-[color:var(--ria-warning-border)] bg-[color:var(--ria-warning-bg)] px-4 py-3 text-left transition hover:brightness-95 dark:hover:brightness-110"
             >
               <p className="text-sm font-semibold text-foreground">{issue.title}</p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">{issue.messages.join(" ")}</p>
@@ -535,7 +535,7 @@ function DenseCellInput(
       {...rest}
       className={cn(
         "h-9 w-full rounded-[var(--ria-chip-radius)] border px-2.5 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70",
-        invalid ? "border-rose-300 dark:border-rose-500/50" : "border-border/80",
+        invalid ? "border-[color:var(--ria-danger-border)]" : "border-border/80",
         tone === "derived"
           ? "bg-muted/[0.72] text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] read-only:cursor-default"
           : "bg-background text-foreground",

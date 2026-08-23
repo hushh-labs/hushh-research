@@ -576,7 +576,7 @@ export default function RiaClaimPage() {
           </header>
 
           {error ? (
-            <p className="text-[14px] text-red-600 dark:text-red-400" role="alert">
+            <p className="text-[14px] text-[color:var(--ria-danger-text)]" role="alert">
               {error}
             </p>
           ) : null}
