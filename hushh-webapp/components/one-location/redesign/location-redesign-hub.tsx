@@ -32,14 +32,10 @@ import { toast } from "sonner";
 
 import {
   Loader2,
-  Lock,
-  Map,
   MapPin,
-  MessageCircleWarning,
   Pencil,
   Send,
   Check,
-  CalendarCheck2,
   Shield,
   ShieldCheck,
   UserRoundPlus,
@@ -746,28 +742,13 @@ function locationHeaderStatusText(vm: LocationHubViewModel): string {
   });
 }
 
-/**
- * The status line for the Location header, rendered UNDER THE SWITCH.
- *
- * Three positions have been tried. Beside the switch, the full string made the
- * actions column wide enough to wrap the 28px "Location Agent" title at every
- * iPhone width. Shortened to one word to fix that, iOS — the platform this
- * control was designed for — got a bare green switch over the word "On", which
- * never said what it switched. Under the TITLE it could say the whole thing,
- * but it read as a subtitle for the screen rather than as the state of the
- * control on the opposite side of the row.
- *
- * So: its own full-width row under the header, right-aligned, which puts it
- * directly beneath the switch it describes while still costing the title no
- * width at all. `block` is load-bearing — `text-right` on an inline span aligns
- * nothing.
- */
+/** The header switch status sits under the switch without becoming a page subtitle. */
 function LocationHeaderStatus({ vm }: { vm: LocationHubViewModel }) {
   return (
     <span
       id={LOCATION_HEADER_STATUS_ID}
       data-testid="one-location-header-status"
-      className="ui-text-helper-text block w-full text-right text-[color:var(--app-secondary-label)]"
+      className="mt-1 block w-full whitespace-nowrap text-center text-[11px] font-normal leading-[14px] tracking-[-0.01em] text-[color:var(--app-secondary-label)]"
     >
       {locationHeaderStatusText(vm)}
     </span>
@@ -791,10 +772,7 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
     <div
       role="group"
       aria-label="Location"
-      // Just the switch now. The status words moved under the title, which is
-      // what lets them be the full "Location on / off / paused / blocked" at
-      // every width instead of the single word "On" that iOS used to get.
-      className="ml-auto flex shrink-0 items-center justify-end"
+      className="ml-auto flex h-[58px] w-[72px] shrink-0 flex-col items-center justify-center overflow-visible"
       data-testid="one-location-header-actions"
     >
       <Switch
@@ -817,8 +795,9 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
         data-voice-control-id="one-location-updates-toggle"
         // No colour override: the shared Switch already carries the iOS
         // system green, so this toggle reads the same as every other one.
-        className={cn(acquiring && "animate-pulse")}
+        className={cn("shrink-0", acquiring && "animate-pulse")}
       />
+      <LocationHeaderStatus vm={vm} />
     </div>
   );
 }
@@ -1240,7 +1219,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     return (
       <div
         ref={flowContainerRef}
-        className="space-y-6 pb-[calc(150px+env(safe-area-inset-bottom))]"
+        className="space-y-6 pb-[calc(112px+env(safe-area-inset-bottom))] sm:pb-[calc(124px+env(safe-area-inset-bottom))]"
         data-ambient-chrome-ignore
         data-testid="one-location-action-flow"
       >
@@ -1386,16 +1365,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   return (
     <div className="space-y-4 sm:space-y-5">
       <PageHeader
-        title="Location Agent"
+        title="Location"
         icon={MapPin}
         accent="location"
         titleRole="agent"
-        description={<LocationHeaderStatus vm={vm} />}
-        // Its own row under the header, not a subtitle indented beside the
-        // title — see LocationHeaderStatus.
-        descriptionFullWidth
         actionsInlineMobile
         actions={<LocationHeaderActions vm={vm} />}
+        className="[&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
       />
 
       {/*
@@ -1509,21 +1485,8 @@ function NowHub({
   onRequestLocation: () => void;
   onOpenSettings: () => void;
 }) {
-  const groupedShellClassName =
-    "[--settings-group-radius:16px] bg-white shadow-none dark:bg-[#1C1C1E]";
-  // The device record keeps counting while the server state reloads, so the row
-  // no longer drops to 0 for the second or two after you re-enter the screen.
-  const activeShareCount = Math.max(
-    vm.activeOwnerGrants.length,
-    vm.liveShare?.count ?? 0,
-  );
-  const hasActivity =
-    activeShareCount > 0 ||
-    vm.receivedGrants.length > 0 ||
-    vm.pendingOwnerRequests.length > 0;
-
   return (
-    <div className="space-y-4" data-testid="one-location-now-hub">
+    <div className="space-y-3" data-testid="one-location-now-hub">
       {/* Sharing is the one thing on this screen that keeps running after you
           leave it, so it reports itself first and keeps its own clock. */}
       {vm.liveShare ? (
@@ -1562,20 +1525,29 @@ function NowHub({
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
           rather than only the screen it lives on. */}
+      {!vm.liveShare ? (
+        <LocationPrimaryShareCard onClick={onStartShare} />
+      ) : null}
       <LocationActionGrid
         items={[
+          ...(vm.liveShare
+            ? [
+                {
+                  title: "Share location",
+                  ariaLabel: "Share location",
+                  icon: <LocationMenuGlyph name="share" size={34} />,
+                  tone: "blue" as const,
+                  onClick: onStartShare,
+                  controlId: "one-location-action-share",
+                  actionId: "location.open_share",
+                  testId: "one-location-share-row",
+                },
+              ]
+            : []),
           {
-            title: "Share location",
-            icon: <Send />,
-            tone: "blue",
-            onClick: onStartShare,
-            controlId: "one-location-action-share",
-            actionId: "location.open_share",
-            testId: "one-location-share-row",
-          },
-          {
-            title: "Request location",
-            icon: <UserRoundPlus />,
+            title: "Ask for location",
+            ariaLabel: "Request location",
+            icon: <LocationMenuGlyph name="ask" size={34} />,
             tone: "blue",
             onClick: onRequestLocation,
             controlId: "one-location-action-ask",
@@ -1583,16 +1555,23 @@ function NowHub({
             testId: "one-location-request-row",
           },
           {
-            title: "Check-In",
-            icon: <CalendarCheck2 />,
+            title: "Check in",
+            ariaLabel: "Check in",
+            icon: <LocationMenuGlyph name="checkIn" size={34} />,
             tone: "blue",
             onClick: onCheckIn,
             controlId: "one-location-action-check-in",
             actionId: "location.open_check_in",
           },
           {
-            title: "SMS",
-            icon: <MessageCircleWarning />,
+            title: "Save My Soul",
+            subtitle: "Emergency Alert",
+            ariaLabel: "SMS",
+            icon: (
+              <span className="text-[10px] font-semibold leading-none">
+                SMS
+              </span>
+            ),
             tone: "red",
             onClick: onSos,
             controlId: "one-location-action-sos",
@@ -1601,81 +1580,58 @@ function NowHub({
         ]}
       />
 
-      {hasActivity ? (
-        <div className="space-y-2">
-          <LocationNowGroupLabel>Activity</LocationNowGroupLabel>
-          <SettingsGroup
-            separatorInset
-            testId="one-location-now-activity"
-            shellClassName={groupedShellClassName}
-          >
-            <SettingsRow
-              icon={UsersRound}
-              iconTone="gray"
-              title="Active shares"
-              density="compact"
-              trailing={activeShareCount}
-              chevron
-              onClick={onOpenActiveShares}
-              voiceControlId="one-location-action-active-shares"
-              voiceActionId="location.open_active_shares"
-            />
-            <SettingsRow
-              icon={MapPin}
-              iconTone="gray"
-              title="Shared with me"
-              density="compact"
-              trailing={vm.receivedGrants.length}
-              chevron
-              onClick={onOpenSharedWithMe}
-              voiceControlId="one-location-action-shared-with-me"
-              voiceActionId="location.open_shared_with_me"
-            />
-            <SettingsRow
-              icon={ShieldCheck}
-              iconTone="gray"
-              title="Needs my review"
-              density="compact"
-              trailing={vm.pendingOwnerRequests.length}
-              chevron
-              onClick={onOpenNeedsReview}
-              voiceControlId="one-location-action-needs-review"
-              voiceActionId="location.open_needs_review"
-            />
-          </SettingsGroup>
-        </div>
-      ) : null}
+      <div className="space-y-2">
+        <LocationNowGroupLabel>Activity</LocationNowGroupLabel>
+        <LocationMenuListGroup testId="one-location-now-activity">
+          <LocationMenuListRow
+            leading={<LocationMenuListIcon name="active" />}
+            title="Active"
+            ariaLabel="Active shares"
+            onClick={onOpenActiveShares}
+            voiceControlId="one-location-action-active-shares"
+            voiceActionId="location.open_active_shares"
+          />
+          <LocationMenuListRow
+            leading={<LocationMenuListIcon name="pin" />}
+            title="Shared With Me"
+            ariaLabel="Shared with me"
+            onClick={onOpenSharedWithMe}
+            voiceControlId="one-location-action-shared-with-me"
+            voiceActionId="location.open_shared_with_me"
+          />
+          <LocationMenuListRow
+            leading={<LocationMenuListIcon name="review" />}
+            title="Needs Review"
+            ariaLabel="Needs my review"
+            onClick={onOpenNeedsReview}
+            voiceControlId="one-location-action-needs-review"
+            voiceActionId="location.open_needs_review"
+          />
+        </LocationMenuListGroup>
+      </div>
 
       <div className="space-y-2">
         <LocationNowGroupLabel>More</LocationNowGroupLabel>
-        <SettingsGroup
-          separatorInset
-          testId="one-location-now-more"
-          shellClassName={groupedShellClassName}
-        >
-          <SettingsRow
-            icon={Map}
-            iconTone="gray"
-            title="Your Map"
-            density="compact"
-            chevron
+        <LocationMenuListGroup testId="one-location-now-more">
+          <LocationMenuListRow
+            leading={<LocationMenuListIcon name="map" />}
+            title="Map"
+            ariaLabel="Your Map"
             onClick={onOpenMap}
             testId="one-location-map-row"
             voiceControlId="one-location-open-map"
             voiceActionId="location.open_map"
           />
-          <SettingsRow
-            icon={Lock}
-            iconTone="gray"
+          <LocationMenuListRow
+            leading={<LocationMenuListIcon name="settings" />}
             title="Settings"
-            density="compact"
-            chevron
+            ariaLabel="Settings"
             onClick={onOpenSettings}
             testId="one-location-settings-entry"
             voiceControlId="one-location-action-settings"
             voiceActionId="location.open_settings"
           />
-        </SettingsGroup>
+        </LocationMenuListGroup>
       </div>
     </div>
   );
@@ -1683,17 +1639,124 @@ function NowHub({
 
 function LocationNowGroupLabel({ children }: { children: ReactNode }) {
   return (
-    <AppSectionLabel
-      as="h2"
-      className="px-[6px] text-[15px] font-medium leading-5 text-[color:var(--app-secondary-label)]"
+    <div
+      role="heading"
+      aria-level={2}
+      className="mb-2 pl-1 text-[15px] font-semibold leading-5 tracking-[-0.01em] text-[#1a1b1f] dark:text-[#f5f5f7]"
     >
       {children}
-    </AppSectionLabel>
+    </div>
+  );
+}
+
+function LocationMenuListGroup({
+  children,
+  testId,
+}: {
+  children: ReactNode;
+  testId: string;
+}) {
+  return (
+    <div
+      data-ui-role="grouped-card"
+      data-testid={testId}
+      className="overflow-hidden rounded-[16px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.045),0_6px_16px_rgba(0,0,0,0.035)] ring-1 ring-inset ring-black/[0.035] dark:bg-[#1c1c1e] dark:ring-white/10"
+    >
+      {children}
+    </div>
+  );
+}
+
+function LocationMenuListRow({
+  leading,
+  title,
+  ariaLabel,
+  onClick,
+  testId,
+  voiceControlId,
+  voiceActionId,
+}: {
+  leading: ReactNode;
+  title: string;
+  ariaLabel: string;
+  onClick: () => void;
+  testId?: string;
+  voiceControlId: string;
+  voiceActionId: string;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      data-voice-control-id={voiceControlId}
+      data-voice-action-id={voiceActionId}
+      data-voice-label={ariaLabel}
+      aria-label={ariaLabel}
+      onClick={onClick}
+      className="flex min-h-[52px] w-full cursor-pointer items-center justify-between border-b border-[#e5e5ea]/80 px-3.5 py-3 text-left transition-colors last:border-b-0 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:border-white/10 dark:hover:bg-white/5"
+    >
+      <span className="flex min-w-0 items-center gap-3">
+        {leading}
+        <span className="min-w-0 truncate text-[16px] font-medium leading-[21px] tracking-[-0.01em] text-[#1a1b1f] dark:text-[#f5f5f7]">
+          {title}
+        </span>
+      </span>
+      <ChevronRight
+        aria-hidden="true"
+        className="h-5 w-5 shrink-0 text-[#c7c7cc] transition-transform group-active:translate-x-0.5"
+      />
+    </button>
+  );
+}
+
+function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
+  return (
+    <section aria-label="Share location" data-testid="one-location-now-primary">
+      <button
+        type="button"
+        data-testid="one-location-share-row"
+        data-voice-control-id="one-location-action-share"
+        data-voice-action-id="location.open_share"
+        data-voice-label="Share location"
+        aria-label="Share location"
+        onClick={onClick}
+        className="group flex w-full flex-col items-center gap-5 rounded-[24px] bg-white px-6 py-8 text-center shadow-[0_8px_28px_rgba(0,0,0,0.035),0_2px_8px_rgba(0,0,0,0.025)] ring-1 ring-inset ring-black/[0.025] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-gray-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:bg-[#1c1c1e] dark:hover:bg-white/5 dark:ring-white/10 sm:min-h-[150px] sm:flex-row sm:justify-between sm:gap-6 sm:px-7 sm:py-6 sm:text-left"
+      >
+        <LocationSharePulseIcon />
+        <span className="min-w-0 space-y-1.5 sm:flex-1">
+          <span className="block text-[22px] font-semibold leading-[28px] tracking-[-0.015em] text-[#1a1b1f] dark:text-[#f5f5f7]">
+            You&apos;re not sharing
+          </span>
+          <span className="block text-[15px] font-normal leading-5 tracking-[-0.01em] text-[#8e8e93]">
+            Choose a Circle or contact to start.
+          </span>
+        </span>
+        <span className="inline-flex min-h-11 w-full max-w-[19.25rem] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-5 text-[17px] font-semibold leading-[22px] tracking-[-0.02em] text-white shadow-[0_8px_20px_rgba(0,122,255,0.22)] transition-transform group-active:scale-[0.99] sm:w-[216px] sm:max-w-[216px]">
+          Share location
+        </span>
+      </button>
+    </section>
+  );
+}
+
+function LocationSharePulseIcon() {
+  return (
+    <span
+      aria-hidden="true"
+      data-location-share-pulse-icon=""
+      className="relative inline-flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-[#eff6ff] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.025)] sm:h-16 sm:w-16"
+    >
+      <span className="absolute inset-[13%] rounded-full bg-[#dcecff]" />
+      <span className="absolute inset-[28%] rounded-full bg-[#b9d7ff]" />
+      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_#ffffff,0_8px_16px_rgba(0,122,255,0.22)] dark:shadow-[0_0_0_4px_#1c1c1e,0_8px_16px_rgba(0,122,255,0.28)]" />
+    </span>
   );
 }
 
 type LocationActionGridItem = {
   title: string;
+  subtitle?: string;
+  ariaLabel: string;
   icon: ReactNode;
   tone: "blue" | "red";
   onClick: () => void;
@@ -1703,15 +1766,21 @@ type LocationActionGridItem = {
 };
 
 function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
+  const regularItems = items.filter((item) => item.tone !== "red");
+  const emergencyItem = items.find((item) => item.tone === "red");
+
   return (
-    <section className="space-y-2" data-testid="one-location-now-actions">
+    <section
+      aria-label="Actions"
+      className="space-y-2"
+      data-testid="one-location-now-actions"
+    >
       <LocationNowGroupLabel>Actions</LocationNowGroupLabel>
       <div
-        data-ui-role="grouped-card"
         data-one-location-action-grid=""
-        className="grid grid-cols-2 gap-2 sm:gap-2.5"
+        className="grid w-full grid-cols-2 gap-3 sm:gap-4"
       >
-        {items.map((item) => (
+        {regularItems.map((item) => (
           <button
             key={item.controlId}
             type="button"
@@ -1719,37 +1788,194 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             data-one-location-action-cell=""
             data-voice-control-id={item.controlId}
             data-voice-action-id={item.actionId}
-            data-voice-label={item.title}
+            data-voice-label={item.ariaLabel}
+            aria-label={item.ariaLabel}
             onClick={item.onClick}
             className={cn(
-              "group flex min-h-24 min-w-0 flex-col items-center justify-center gap-2.5 rounded-[18px] bg-[color:var(--app-primary-surface)] px-3 py-3 text-center shadow-[0_1px_1px_rgba(0,0,0,0.035),0_8px_20px_rgba(0,0,0,0.045)] ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,box-shadow,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-card-surface-default-solid)] hover:shadow-[0_1px_2px_rgba(0,0,0,0.045),0_12px_26px_rgba(0,0,0,0.055)] active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] sm:min-h-[104px]",
+              "group flex min-h-[112px] min-w-0 flex-col items-start justify-between rounded-[16px] bg-white px-5 py-5 text-left shadow-[0_1px_2px_rgba(0,0,0,0.02),0_2px_8px_rgba(0,0,0,0.02)] ring-1 ring-inset ring-black/[0.02] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-gray-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:bg-[#1c1c1e] dark:hover:bg-white/5 dark:ring-white/10 sm:min-h-[116px]",
             )}
           >
             <span
               aria-hidden
               data-one-location-action-icon=""
-              className={cn(
-                "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] transition-transform group-active:scale-95 [&_svg]:h-6 [&_svg]:w-6 [&_svg]:stroke-2",
-                item.tone === "red"
-                  ? "bg-[color:var(--app-destructive-tint)] text-[color:var(--app-destructive)] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--app-destructive)_14%,transparent)]"
-                  : "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent)] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--app-accent)_12%,transparent)]",
-              )}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-[color:var(--app-accent)] transition-transform group-active:scale-95 [&>svg]:h-9 [&>svg]:w-9 sm:h-8 sm:w-8 sm:[&>svg]:h-8 sm:[&>svg]:w-8"
             >
               {item.icon}
             </span>
-            <RowLabel
-              as="span"
-              className={cn(
-                "min-w-0 text-[14px] font-semibold leading-[18px] tracking-[-0.01em] text-[color:var(--app-label)] sm:text-[15px] sm:leading-5",
-                item.tone === "red" && "text-[color:var(--app-destructive)]",
-              )}
-            >
-              {item.title}
-            </RowLabel>
+            <span className="min-w-0">
+              <span className="block min-w-0 truncate text-[16px] font-semibold leading-5 tracking-[-0.015em] text-[#1a1b1f] dark:text-[#f5f5f7]">
+                {item.title}
+              </span>
+              {item.subtitle ? (
+                <span className="mt-1 block min-w-0 truncate text-[12px] font-normal leading-4 tracking-[-0.01em] text-[#8e8e93]">
+                  {item.subtitle}
+                </span>
+              ) : null}
+            </span>
           </button>
         ))}
       </div>
+      {emergencyItem ? (
+        <button
+          key={emergencyItem.controlId}
+          type="button"
+          data-testid={emergencyItem.testId}
+          data-one-location-sms-row=""
+          data-voice-control-id={emergencyItem.controlId}
+          data-voice-action-id={emergencyItem.actionId}
+          data-voice-label={emergencyItem.ariaLabel}
+          aria-label={emergencyItem.ariaLabel}
+          onClick={emergencyItem.onClick}
+          className="group flex min-h-[80px] w-full items-center justify-between rounded-[16px] bg-[#fff5f5] px-5 py-4 text-left shadow-[0_2px_8px_rgba(255,59,48,0.035),0_1px_2px_rgba(0,0,0,0.02)] ring-1 ring-inset ring-[#ff3b30]/10 transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[#fff0f0] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#ff3b30]/40 dark:bg-[#2a1f1f] dark:ring-[#ff3b30]/20 dark:hover:bg-[#302121]"
+        >
+          <span className="flex min-w-0 items-center gap-4">
+            <span
+              aria-hidden
+              data-one-location-action-icon=""
+              className="inline-flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full bg-[#ff3b30] text-white shadow-[0_4px_12px_rgba(255,59,48,0.24)] transition-transform group-active:scale-95"
+            >
+              {emergencyItem.icon}
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-[17px] font-semibold leading-[22px] tracking-[-0.02em] text-[#1a1b1f] dark:text-[#f5f5f7]">
+                {emergencyItem.title}
+              </span>
+              <span className="mt-0.5 block truncate text-[13px] font-normal leading-[18px] tracking-[-0.01em] text-[#ff3b30]">
+                {emergencyItem.subtitle}
+              </span>
+            </span>
+          </span>
+          <ChevronRight
+            aria-hidden="true"
+            className="h-5 w-5 shrink-0 text-[#ff3b30]/40"
+          />
+        </button>
+      ) : null}
     </section>
+  );
+}
+
+type LocationMenuGlyphName =
+  | "share"
+  | "ask"
+  | "checkIn"
+  | "active"
+  | "pin"
+  | "review"
+  | "map"
+  | "settings";
+
+function LocationMenuGlyph({
+  name,
+  size,
+}: {
+  name: LocationMenuGlyphName;
+  size: number;
+}) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      data-location-menu-icon={name}
+      className="block"
+    >
+      {name === "share" ? (
+        <path
+          d="M20.7 3.3 3.9 10.4c-.8.3-.8 1.4.1 1.6l6.4 1.6 1.6 6.4c.2.9 1.3.9 1.6.1l7.1-16.8Z"
+          fill="currentColor"
+        />
+      ) : null}
+      {name === "ask" ? (
+        <>
+          <path
+            d="M9.4 11.6a4.4 4.4 0 1 0 0-8.8 4.4 4.4 0 0 0 0 8.8Zm0 2C6.1 13.6 2 15.2 2 18.4V20h10.7a8.1 8.1 0 0 1-.7-3.2c0-1 .2-2 .6-2.9-1.1-.2-2.2-.3-3.2-.3Z"
+            fill="currentColor"
+          />
+          <path
+            d="M17.7 11.1c-2.9 0-5.2 2.3-5.2 5.1 0 3.8 5.2 7.8 5.2 7.8s5.2-4 5.2-7.8c0-2.8-2.3-5.1-5.2-5.1Zm0 6.9a1.8 1.8 0 1 1 0-3.6 1.8 1.8 0 0 1 0 3.6Z"
+            fill="currentColor"
+          />
+        </>
+      ) : null}
+      {name === "checkIn" ? (
+        <>
+          <path
+            d="M12 2C8.1 2 5 5.1 5 9c0 5.3 7 13 7 13s7-7.7 7-13c0-3.9-3.1-7-7-7Z"
+            fill="currentColor"
+          />
+          <path
+            d="m8.8 9.3 2.1 2.1 4.5-4.7"
+            stroke="white"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </>
+      ) : null}
+      {name === "active" ? (
+        <>
+          <path
+            d="M16 11c1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3 1.3 3 3 3Zm-8 0c1.7 0 3-1.3 3-3S9.7 5 8 5 5 6.3 5 8s1.3 3 3 3Zm0 2c-2.3 0-7 1.2-7 3.5V19h14v-2.5C15 14.2 10.3 13 8 13Z"
+            fill="currentColor"
+          />
+          <path
+            d="M16 13c-.3 0-.7 0-1.1.1 1.2.9 2.1 2 2.1 3.4V19h6v-2.5c0-2.3-4.7-3.5-7-3.5Z"
+            fill="currentColor"
+            opacity=".72"
+          />
+        </>
+      ) : null}
+      {name === "pin" ? (
+        <path
+          d="M12 2C8.1 2 5 5.1 5 9c0 5.3 7 13 7 13s7-7.7 7-13c0-3.9-3.1-7-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5Z"
+          fill="currentColor"
+        />
+      ) : null}
+      {name === "review" ? (
+        <>
+          <path
+            d="M12 1 4 4.6v5.4c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V4.6L12 1Z"
+            fill="currentColor"
+          />
+          <path
+            d="m8.8 10.7 2.2 2.1 4.3-4.5"
+            stroke="white"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </>
+      ) : null}
+      {name === "map" ? (
+        <path
+          d="m20.5 3-.2.1L15 5.2 9 3 3.4 4.9c-.8.3-1.4 1-1.4 1.9V21l7-2.8 6 2.1 5.6-1.9c.8-.3 1.4-1 1.4-1.9V3.9c0-.7-.7-1.1-1.5-.9ZM15 18.3l-6-2.1V5.1l6 2.1v11.1Z"
+          fill="currentColor"
+        />
+      ) : null}
+      {name === "settings" ? (
+        <path
+          d="m19.4 13.5.1-1.5-.1-1.5 2.1-1.6-2-3.5-2.5 1a7.2 7.2 0 0 0-2.6-1.5L14 2h-4l-.4 2.9A7.2 7.2 0 0 0 7 6.4l-2.5-1-2 3.5 2.1 1.6-.1 1.5.1 1.5-2.1 1.6 2 3.5 2.5-1a7.2 7.2 0 0 0 2.6 1.5L10 22h4l.4-2.9a7.2 7.2 0 0 0 2.6-1.5l2.5 1 2-3.5-2.1-1.6ZM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"
+          fill="currentColor"
+        />
+      ) : null}
+    </svg>
+  );
+}
+
+function LocationMenuListIcon({ name }: { name: LocationMenuGlyphName }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f0f4ff] text-[color:var(--app-accent)]"
+      data-location-menu-list-icon=""
+    >
+      <span className="inline-flex h-[18px] w-[18px] items-center justify-center">
+        <LocationMenuGlyph name={name} size={18} />
+      </span>
+    </span>
   );
 }
 
@@ -3842,14 +4068,6 @@ function AskFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
-  const selectedRecipients = useMemo(
-    () =>
-      vm.recipients.filter((recipient) =>
-        vm.selectedRequestOwnerIds.includes(recipient.userId),
-      ),
-    [vm.recipients, vm.selectedRequestOwnerIds],
-  );
-
   // Keep the person on this screen after sending so the confirmation is tied to
   // the specific request they just made, rather than popping straight back to
   // the hub.
@@ -4198,14 +4416,6 @@ function AskFlow({
           Don&apos;t see someone? Manage connections
           <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
         </Link>
-        <SelectedRecipientsRail
-          title="Selected"
-          recipients={selectedRecipients}
-          onRemove={(recipientUserId) =>
-            vm.toggleRequestOwner(recipientUserId, "ask_flow")
-          }
-          recipientLabel={vm.recipientLabel}
-        />
       </section>
 
       <SectionCard>
@@ -4234,7 +4444,7 @@ function AskFlow({
               if (next !== "Other") vm.setRequestMessage("");
             }}
             label="Reason"
-            presentation="select"
+            presentation="buttons"
           />
           {reason === "Other" ? (
             <div className="space-y-2.5">
