@@ -185,9 +185,9 @@ type RiaStatusItem = {
 
 const STATUS_TONE_STYLES: Record<RiaStatusTone, string> = {
   neutral: "border-border/60 bg-[color:var(--app-card-surface-compact)] text-foreground",
-  warning: "border-amber-500/16 bg-[color:var(--app-card-surface-compact)] text-foreground",
-  success: "border-emerald-500/16 bg-[color:var(--app-card-surface-compact)] text-foreground",
-  critical: "border-red-500/16 bg-[color:var(--app-card-surface-compact)] text-foreground",
+  warning: "border-[color:var(--ria-warning-border)] bg-[color:var(--app-card-surface-compact)] text-foreground",
+  success: "border-[color:var(--ria-success-border)] bg-[color:var(--app-card-surface-compact)] text-foreground",
+  critical: "border-[color:var(--ria-danger-border)] bg-[color:var(--app-card-surface-compact)] text-foreground",
 };
 
 export function RiaStatusPanel({

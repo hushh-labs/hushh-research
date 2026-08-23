@@ -748,7 +748,7 @@ function LocationHeaderStatus({ vm }: { vm: LocationHubViewModel }) {
     <span
       id={LOCATION_HEADER_STATUS_ID}
       data-testid="one-location-header-status"
-      className="mt-1 block w-full whitespace-nowrap text-center text-[11px] font-normal leading-[14px] tracking-[-0.01em] text-[color:var(--app-secondary-label)]"
+      className="mt-1 block w-full whitespace-nowrap text-right text-[12px] font-medium leading-4 tracking-[-0.01em] text-[color:var(--app-secondary-label)]"
     >
       {locationHeaderStatusText(vm)}
     </span>
@@ -772,7 +772,7 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
     <div
       role="group"
       aria-label="Location"
-      className="ml-auto flex h-[58px] w-[72px] shrink-0 flex-col items-center justify-center overflow-visible"
+      className="ml-auto flex h-[58px] w-[104px] shrink-0 flex-col items-end justify-center overflow-visible"
       data-testid="one-location-header-actions"
     >
       <Switch
@@ -1509,6 +1509,7 @@ function NowHub({
               ? vm.onEditLiveShareDurationStart
               : undefined
           }
+          onShareMore={onStartShare}
           onEnded={vm.onLiveShareEnded}
         />
       ) : null}
@@ -1530,20 +1531,6 @@ function NowHub({
       ) : null}
       <LocationActionGrid
         items={[
-          ...(vm.liveShare
-            ? [
-                {
-                  title: "Share location",
-                  ariaLabel: "Share location",
-                  icon: <LocationMenuGlyph name="share" size={34} />,
-                  tone: "blue" as const,
-                  onClick: onStartShare,
-                  controlId: "one-location-action-share",
-                  actionId: "location.open_share",
-                  testId: "one-location-share-row",
-                },
-              ]
-            : []),
           {
             title: "Ask for location",
             ariaLabel: "Request location",
@@ -1586,6 +1573,7 @@ function NowHub({
           <LocationMenuListRow
             leading={<LocationMenuListIcon name="active" />}
             title="Active"
+            trailingValue={vm.activeOwnerGrants.length}
             ariaLabel="Active shares"
             onClick={onOpenActiveShares}
             voiceControlId="one-location-action-active-shares"
@@ -1594,6 +1582,7 @@ function NowHub({
           <LocationMenuListRow
             leading={<LocationMenuListIcon name="pin" />}
             title="Shared With Me"
+            trailingValue={vm.receivedGrants.length}
             ariaLabel="Shared with me"
             onClick={onOpenSharedWithMe}
             voiceControlId="one-location-action-shared-with-me"
@@ -1602,6 +1591,7 @@ function NowHub({
           <LocationMenuListRow
             leading={<LocationMenuListIcon name="review" />}
             title="Needs Review"
+            trailingValue={vm.pendingOwnerRequests.length}
             ariaLabel="Needs my review"
             onClick={onOpenNeedsReview}
             voiceControlId="one-location-action-needs-review"
@@ -1670,6 +1660,7 @@ function LocationMenuListGroup({
 function LocationMenuListRow({
   leading,
   title,
+  trailingValue,
   ariaLabel,
   onClick,
   testId,
@@ -1678,6 +1669,7 @@ function LocationMenuListRow({
 }: {
   leading: ReactNode;
   title: string;
+  trailingValue?: number;
   ariaLabel: string;
   onClick: () => void;
   testId?: string;
@@ -1701,10 +1693,17 @@ function LocationMenuListRow({
           {title}
         </span>
       </span>
-      <ChevronRight
-        aria-hidden="true"
-        className="h-5 w-5 shrink-0 text-[#c7c7cc] transition-transform group-active:translate-x-0.5"
-      />
+      <span className="flex shrink-0 items-center gap-2">
+        {typeof trailingValue === "number" ? (
+          <span className="min-w-4 text-right text-[16px] font-normal leading-[21px] tracking-[-0.01em] text-[#8e8e93]">
+            {trailingValue}
+          </span>
+        ) : null}
+        <ChevronRight
+          aria-hidden="true"
+          className="h-5 w-5 shrink-0 text-[#c7c7cc] transition-transform group-active:translate-x-0.5"
+        />
+      </span>
     </button>
   );
 }
@@ -1772,10 +1771,9 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
   return (
     <section
       aria-label="Actions"
-      className="space-y-2"
+      className="space-y-0"
       data-testid="one-location-now-actions"
     >
-      <LocationNowGroupLabel>Actions</LocationNowGroupLabel>
       <div
         data-one-location-action-grid=""
         className="grid w-full grid-cols-2 gap-3 sm:gap-4"
