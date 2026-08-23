@@ -235,16 +235,14 @@ describe("PublicLocationViewPageClient", () => {
     expect(
       await screen.findByText(/Shared securely through Hussh/),
     ).toBeTruthy();
-    // The promise moved with the payload: the name is now shown, on purpose.
-    // The phone number and email address are not, and that is what the
-    // sentence has to keep claiming.
     expect(
       screen.getByText(
-        /does not reveal the sender's phone number or email address/i,
+        /This link shows a location, who shared it, and when it expires\./i,
       ),
     ).toBeTruthy();
 
     const body = document.body.textContent || "";
+    expect(body).not.toMatch(/does not reveal the sender/i);
     expect(body).not.toMatch(/@[a-z0-9-]+\.[a-z]{2,}/i);
     expect(body).not.toMatch(/\+?\d[\d\s()-]{7,}\d/);
   });

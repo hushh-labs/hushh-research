@@ -366,15 +366,7 @@ function PublicLocationMap({
 }
 
 /**
- * What this link does and does not carry, said to the person holding it.
- *
- * The privacy sentence is an assertion about `_public_invite_payload(public=True)`
- * in `one_location_agent_service.py`, which returns status, duration, expiry and
- * a display-name label — never the owner's id, phone number or email address.
- * The name is there because the sender chose one and chose to share this link;
- * the label is resolved with `allow_email_handle=False` precisely so an email
- * local part can never stand in for it. If that payload ever gains another
- * identity field, this sentence stops being true and must change with it.
+ * Compact reassurance shown on public shared-location links.
  */
 function TrustFooter() {
   return (
@@ -386,9 +378,7 @@ function TrustFooter() {
       <div className="min-w-0 space-y-1">
         <Footnote className="font-semibold">Shared securely through Hussh</Footnote>
         <LegalText as="p">
-          This link shows a location, who shared it, and when it expires. It
-          does not reveal the sender&apos;s phone number or email address, and
-          it stops working once the window closes.
+          This link shows a location, who shared it, and when it expires.
         </LegalText>
       </div>
     </footer>
@@ -590,28 +580,25 @@ export default function PublicLocationViewPageClient() {
       <div className="mx-auto flex min-h-screen w-full max-w-[720px] flex-col px-5 pb-10 pt-[max(48px,calc(env(safe-area-inset-top)+28px))] sm:px-6 sm:pt-[max(64px,calc(env(safe-area-inset-top)+40px))]">
         <div className="rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-none sm:p-6">
           <div className="space-y-6">
-            <div className="flex items-start gap-4">
-              <div
-                className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] ${headerTone.tile} ${headerTone.glyph}`}
-              >
-                {error || expiredWhileOpen ? (
-                  <AlertTriangle className="h-[17px] w-[17px]" aria-hidden="true" />
-                ) : showLocation ? (
-                  <CheckCircle2 className="h-[17px] w-[17px]" aria-hidden="true" />
-                ) : (
-                  <MapPin className="h-[17px] w-[17px]" aria-hidden="true" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <SectionLabel>Live location</SectionLabel>
-                {/* The name leads when there is one. A recipient opening a
-                    location out of a chat thread is deciding, in that first
-                    second, whether they know who sent it -- and the page used
-                    to answer with a category ("View shared location") and a
-                    generic sentence underneath. */}
-                <AgentTitle className="mt-1">
+            <div>
+              <SectionLabel>Live location</SectionLabel>
+              <div className="mt-2 flex items-center gap-3">
+                <div
+                  className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] ${headerTone.tile} ${headerTone.glyph}`}
+                >
+                  {error || expiredWhileOpen ? (
+                    <AlertTriangle className="h-[17px] w-[17px]" aria-hidden="true" />
+                  ) : showLocation ? (
+                    <CheckCircle2 className="h-[17px] w-[17px]" aria-hidden="true" />
+                  ) : (
+                    <MapPin className="h-[17px] w-[17px]" aria-hidden="true" />
+                  )}
+                </div>
+                <AgentTitle>
                   {ownerName ? `${ownerName}'s live location` : "Shared location"}
                 </AgentTitle>
+              </div>
+              <div className="min-w-0">
                 <BodyText className="mt-3 text-muted-foreground">
                   {headline}
                 </BodyText>

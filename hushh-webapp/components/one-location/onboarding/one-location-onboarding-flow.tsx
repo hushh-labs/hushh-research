@@ -419,7 +419,7 @@ function WelcomeScreen({
                 strokeWidth={2.5}
                 data-testid="location-agent-heading-icon"
               />
-              Location Agent
+              Location
             </p>
             <h1
               className="mx-auto mt-5 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.015em]"
