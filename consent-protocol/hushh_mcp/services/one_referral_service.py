@@ -34,6 +34,24 @@ from hushh_mcp.operons.referral.slug import (
     normalize_slug,
 )
 
+# What a referrer is told about where someone has reached. Deliberately about
+# the STEP, never the person: no name, no phone, no agent, no device. Four words
+# or fewer, and nothing that reads as an accusation.
+FUNNEL_STEP_LABELS: dict[str, str] = {
+    "attributed": "Opened your link",
+    "signed_up": "Joined",
+    "phone_verified": "Verified phone",
+    "onboarded": "Finished setup",
+    "engaging": "Using an agent",
+    "under_review": "Under review",
+    "qualified": "Qualified",
+    "ineligible": "Expired",
+    "rejected": "Expired",
+    "expired": "Expired",
+    "revoked": "Expired",
+}
+
+
 logger = logging.getLogger(__name__)
 
 # How many times to retry a slug collision before giving up. With 27^4 suffixes
@@ -185,21 +203,34 @@ def get_or_create_referral_code(user_id: str, policy: ReferralPolicy) -> dict:
 def get_referral_summary(user_id: str) -> dict:
     """Everything the Referrals tab renders, and nothing more.
 
-    The rows returned carry a status word and a date. No name, no phone, no
-    email, no user id, no agent, and no reason -- a referrer learning that
-    their friend was held for review would also learn what our checks look at.
+    Each row carries a step, a date, and how far that person has got toward the
+    active-time bar. It carries no name, phone, email, user id, agent or reason.
+    A referrer can see that someone is partway there; they cannot see who, what
+    they used, or why anything was held.
     """
     policy = get_active_policy()
     code = get_or_create_referral_code(user_id, policy)
+    required_minutes = policy.required_active_seconds // 60
 
     with get_db_connection() as connection:
         rows = connection.execute(
             text(
                 """
-                SELECT status, created_at, qualified_at
-                  FROM one_referral_relationships
-                 WHERE referrer_user_id = :uid
-                 ORDER BY created_at DESC
+                SELECT r.status,
+                       r.created_at,
+                       r.qualified_at,
+                       COALESCE(e.credited_seconds, 0)  AS credited_seconds,
+                       COALESCE(e.meaningful_events, 0) AS meaningful_events
+                  FROM one_referral_relationships r
+                  LEFT JOIN LATERAL (
+                        SELECT SUM(s.credited_active_seconds) AS credited_seconds,
+                               SUM(s.meaningful_event_count)  AS meaningful_events
+                          FROM one_agent_engagement_sessions s
+                         WHERE s.user_id = r.referred_user_id
+                           AND s.started_at >= r.created_at
+                  ) e ON TRUE
+                 WHERE r.referrer_user_id = :uid
+                 ORDER BY r.created_at DESC
                  LIMIT 50
                 """
             ),
@@ -210,21 +241,33 @@ def get_referral_summary(user_id: str) -> dict:
     in_progress = sum(1 for row in rows if public_status(row.status) == "In progress")
     under_review = sum(1 for row in rows if public_status(row.status) == "Under review")
 
+    referrals = []
+    for row in rows:
+        credited = int(row.credited_seconds or 0)
+        # Never show more than the bar itself: a person who somehow banked extra
+        # seconds is still just "done", and 17 of 15 reads like a bug.
+        active_minutes = min(credited // 60, required_minutes)
+        referrals.append(
+            {
+                "status": public_status(row.status),
+                "step": FUNNEL_STEP_LABELS.get(row.status, "In progress"),
+                "started_on": (row.created_at or _now()).date().isoformat(),
+                "active_minutes": active_minutes,
+                "required_minutes": required_minutes,
+                "meaningful_events": int(row.meaningful_events or 0),
+                "required_events": policy.minimum_meaningful_events,
+            }
+        )
+
     return {
         "slug": code["slug"],
         "link": f"{referral_base_url()}/r/{code['slug']}",
         "qualified_count": qualified,
         "in_progress_count": in_progress,
         "under_review_count": under_review,
-        "required_active_minutes": policy.required_active_seconds // 60,
+        "required_active_minutes": required_minutes,
         "new_users_only": policy.new_users_only,
-        "referrals": [
-            {
-                "status": public_status(row.status),
-                "started_on": (row.created_at or _now()).date().isoformat(),
-            }
-            for row in rows
-        ],
+        "referrals": referrals,
     }
 
 
