@@ -6311,7 +6311,7 @@ class OneLocationAgentService:
         if not invite:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_CREATE_FAILED",
-                "Could not create the public request link.",
+                "Could not create the live location link.",
                 status_code=500,
             )
         self._insert_event(
@@ -6422,11 +6422,21 @@ class OneLocationAgentService:
         return {"invite": invite}
 
     def _public_invite_row_for_token(self, *, public_token: str) -> dict[str, Any]:
+        """The live row behind a public token, or a refusal the recipient can read.
+
+        Both messages below are rendered verbatim on the recipient's page --
+        `page-client.tsx` takes `loadError.message` straight into the headline --
+        so they are product copy, not internal detail. They said "request link"
+        until the page moved to /view, which left the one screen a person sees
+        when their link has run out describing it as something that asks them
+        for a location rather than shows them one.
+        """
+
         normalized_token = str(public_token or "").strip()
         if len(normalized_token) < 16:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_INVALID",
-                "This request link is invalid.",
+                "This live location link is invalid.",
                 status_code=404,
             )
         row = self._execute_one(
@@ -6442,7 +6452,7 @@ class OneLocationAgentService:
         if not row or str(row.get("status") or "") != "active":
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
-                "This request link is no longer active.",
+                "This live location link is no longer active.",
                 status_code=410 if row else 404,
             )
         return row
