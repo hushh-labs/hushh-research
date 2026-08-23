@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Share2, Users } from "lucide-react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { useAuth } from "@/lib/firebase/auth-context";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   ReferralService,
@@ -20,6 +21,7 @@ type LoadState = "loading" | "ready" | "error";
  * count the client could influence would not be worth showing.
  */
 export function ReferralsPanel() {
+  const { user } = useAuth();
   const [state, setState] = useState<LoadState>("loading");
   const [summary, setSummary] = useState<ReferralSummary | null>(null);
 
@@ -39,7 +41,9 @@ export function ReferralsPanel() {
     const seq = ++requestSeq.current;
     setState("loading");
     try {
-      const next = await ReferralService.getSummary();
+      if (!user) throw new Error("not signed in");
+      const idToken = await user.getIdToken();
+      const next = await ReferralService.getSummary({ idToken });
       if (!mounted.current || seq !== requestSeq.current) return;
       setSummary(next);
       setState("ready");
@@ -47,7 +51,7 @@ export function ReferralsPanel() {
       if (!mounted.current || seq !== requestSeq.current) return;
       setState("error");
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     void load();

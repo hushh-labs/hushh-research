@@ -30,9 +30,19 @@ export type ReferralSummary = {
 };
 
 export const ReferralService = {
-  async getSummary(): Promise<ReferralSummary> {
+  /**
+   * `apiJson` does not attach credentials -- every authenticated /api/one call
+   * in this app passes the Firebase ID token explicitly, and the proxy forwards
+   * the Authorization header it is given. Omitting it is a silent 401 that
+   * surfaces as "Unable to load".
+   */
+  async getSummary(opts: { idToken: string }): Promise<ReferralSummary> {
     return apiJson<ReferralSummary>("/api/one/referrals/summary", {
       method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${opts.idToken}`,
+      },
     });
   },
 };
