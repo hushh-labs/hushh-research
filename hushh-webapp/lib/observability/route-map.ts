@@ -257,11 +257,25 @@ export function resolveRouteId(rawPathname: string): RouteId {
   // folding them together would hide the split from every page-view metric.
   if (pathname === ROUTES.ONE_LOCATION_CHECK_IN) return "one_location_check_in";
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
-  // Both forms: the bare route and a token beneath it. Normalization strips the
-  // trailing slash, so a `startsWith("/one/location/request/")` check alone would send
-  // "/one/location/request/" to "unknown" — and falling through logs the raw pathname on the
-  // one route family whose pathname carries a share token.
-  if (pathname === "/one/location/request" || pathname.startsWith("/one/location/request/"))
+  // Both paths and both forms.
+  //
+  // The page moved from `/one/location/request/<token>` to
+  // `/one/location/view/<token>`; the old path still resolves because links
+  // minted under it are already in messages that were sent. They report the
+  // SAME id on purpose — it is one screen, and splitting it would break every
+  // dashboard reading this route at the moment of the rename, for a name only
+  // this file ever sees.
+  //
+  // Both forms of each: the bare route and a token beneath it. Normalization
+  // strips the trailing slash, so a `startsWith(".../")` check alone would send
+  // "/one/location/view/" to "unknown" — and falling through logs the raw
+  // pathname on the one route family whose pathname carries a share token.
+  if (
+    pathname === "/one/location/view" ||
+    pathname.startsWith("/one/location/view/") ||
+    pathname === "/one/location/request" ||
+    pathname.startsWith("/one/location/request/")
+  )
     return "one_location_public_request";
   // Both forms: the bare route and a token beneath it. Normalization strips the
   // trailing slash, so a `startsWith("/one/location/invite/")` check alone would send

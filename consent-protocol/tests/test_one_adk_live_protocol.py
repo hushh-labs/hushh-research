@@ -1022,9 +1022,7 @@ def test_the_relay_never_sends_activity_signals_while_the_provider_endpoints_its
     # and the comment explaining this fix has to be free to name the call it
     # removed -- an assertion that a string is absent from a file otherwise
     # fails on its own rationale, which is exactly what happened here.
-    code = "\n".join(
-        line for line in source.splitlines() if not line.strip().startswith("#")
-    )
+    code = "\n".join(line for line in source.splitlines() if not line.strip().startswith("#"))
     assert "queue.send_activity_end()" not in code
     assert "queue.send_activity_start()" not in code
     # If someone ever disables automatic detection, this test should be

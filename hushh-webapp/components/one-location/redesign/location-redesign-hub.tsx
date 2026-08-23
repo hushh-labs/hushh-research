@@ -98,7 +98,6 @@ import {
   StatusPill,
   TaskFlowHeader,
   TrustNoteCard,
-  WarningCard,
 } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import {
@@ -2966,11 +2965,14 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
           </div>
         )
       ) : (
+        // No warning banner above the picker. It said two things the screen
+        // already says better: the duration control underneath states exactly
+        // how long the link lives, and the card that replaces this whole block
+        // once a link exists carries "Anyone with this link can view you" on
+        // the object it is actually about. An amber panel repeating both, on
+        // the one screen whose entire purpose is to create the link, read as a
+        // reason not to press the button rather than as information.
         <div className="space-y-4">
-          <WarningCard
-            title="Anyone with this link can see you"
-            description="The link stops on its own."
-          />
           <SettingsGroup title="Duration" separatorInset>
             <SettingsRow
               title="Link stays live for"
@@ -3027,13 +3029,6 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
           />
         </div>
       ) : null}
-
-      <div className="flex items-start gap-2 px-1">
-        <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <p className={MUTED_TEXT}>
-          Up to 1 hour for a location link, 24 hours for an invite.
-        </p>
-      </div>
     </div>
   );
 }

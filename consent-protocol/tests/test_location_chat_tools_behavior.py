@@ -105,14 +105,27 @@ def test_function_declarations_match_control_plane_tools():
 
 async def test_propose_public_link_returns_directive_without_mutation():
     with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
-        out = await propose_public_link.__wrapped__(2)
-    assert out == {"proposed": "create_public_link", "durationHours": 2.0}
+        out = await propose_public_link.__wrapped__(1)
+    assert out == {"proposed": "create_public_link", "durationHours": 1.0}
 
 
 async def test_propose_public_link_rejects_out_of_range_duration():
     with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
         with pytest.raises(ValueError):
             await propose_public_link.__wrapped__(99)
+
+
+async def test_propose_public_link_refuses_a_duration_the_api_would_reject():
+    # 24 was the PRIVATE share ceiling, copied. The route field is le=1 and the
+    # service stops at PUBLIC_INVITE_MAX_DURATION_HOURS, so anything above an
+    # hour was a proposal the person could accept and then watch 422 -- with
+    # the assistant having promised them a two-hour link.
+    with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
+        with pytest.raises(ValueError):
+            await propose_public_link.__wrapped__(2)
+        with pytest.raises(ValueError):
+            await propose_public_link.__wrapped__(0.1)
+        assert (await propose_public_link.__wrapped__(0.5))["durationHours"] == 0.5
 
 
 async def test_propose_location_view_rejects_non_uuid():

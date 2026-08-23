@@ -1088,7 +1088,7 @@ describe("OneLocationAgentPage", () => {
     mockRequestAccess.mockResolvedValue({});
     mockCopyToClipboard.mockResolvedValue(true);
     mockCreatePublicInvite.mockResolvedValue({
-      publicUrl: "/one/location/request/invite_1",
+      publicUrl: "/one/location/view/invite_1",
     });
     mockListCircles.mockResolvedValue([]);
     mockGetCircle.mockResolvedValue(undefined);
@@ -3702,7 +3702,7 @@ describe("OneLocationAgentPage", () => {
 
   it("tracks public location link creation without analytics identity payloads", async () => {
     const longPublicUrl =
-      "https://uat.one.hushh.ai/one/location/request/aQluqHFAdgETh91oLTmG6o7v8A6TAB7PmZjrOJwPcIA";
+      "https://uat.one.hushh.ai/one/location/view/aQluqHFAdgETh91oLTmG6o7v8A6TAB7PmZjrOJwPcIA";
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -5629,7 +5629,7 @@ describe("OneLocationAgentPage", () => {
       durationHours: 1,
       expiresAt: new Date(Date.now() + 45 * 60 * 1000).toISOString(),
       createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-      publicUrl: "/one/location/request/derived-token-abc",
+      publicUrl: "/one/location/view/derived-token-abc",
       ...overrides,
     };
   }
@@ -5654,6 +5654,66 @@ describe("OneLocationAgentPage", () => {
     expect(String(mockCopyToClipboard.mock.calls[0][0])).toContain(
       "derived-token-abc",
     );
+  });
+
+  it("shares the link as a live location, not as an invitation", async () => {
+    // The share sheet used to carry "Join my Location circle" — copy for a
+    // different object entirely (a Circle invite asks a named person to join
+    // something, and lasts a day). This link asks for nothing: it shows the
+    // recipient where the sender is, right now.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      publicInvites: [activePublicInvite()],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+
+    expect(await screen.findByText("Live location link")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Share/i }));
+
+    // jsdom has no navigator.share and is not a native platform, so the
+    // ladder lands on the clipboard — which is where the whole composed
+    // message (copy + URL) is observable.
+    await waitFor(() => expect(mockCopyToClipboard).toHaveBeenCalled());
+    const shared = String(
+      mockCopyToClipboard.mock.calls[
+        mockCopyToClipboard.mock.calls.length - 1
+      ][0],
+    );
+    expect(shared).toContain("View my live location on One");
+    expect(shared).not.toContain("Join my Location circle");
+    expect(shared).toContain("/one/location/view/derived-token-abc");
+    expect(shared).not.toContain("/one/location/request/");
+  });
+
+  it("rewrites a pre-rename link before it is shared again", async () => {
+    // A row minted before the path moved still carries /request. Copying it
+    // verbatim would put the old shape back into circulation long after the
+    // app stopped producing it.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      publicInvites: [
+        activePublicInvite({
+          publicUrl: "/one/location/request/legacy-token-xyz",
+        }),
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+
+    expect(await screen.findByText("Live location link")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Copy/i }));
+
+    await waitFor(() => expect(mockCopyToClipboard).toHaveBeenCalled());
+    const copied = String(mockCopyToClipboard.mock.calls[0][0]);
+    expect(copied).toContain("/one/location/view/legacy-token-xyz");
+    expect(copied).not.toContain("/one/location/request/");
   });
 
   it("offers no way to make a second link while one is live", async () => {

@@ -245,6 +245,12 @@ class CreateCircleMemberInvitesRequest(_CamelModel):
     )
 
 
+class RefreshPublicInviteLocationRequest(_CamelModel):
+    # Required, unlike the create payload's optional snapshot: a heartbeat with
+    # no point is not a heartbeat.
+    location_snapshot: dict[str, Any] = Field(alias="locationSnapshot")
+
+
 class SubmitPublicInviteRequest(_CamelModel):
     visitor_display_name: str = Field(alias="visitorDisplayName", min_length=2, max_length=120)
     phone_number: str = Field(alias="phoneNumber", min_length=8, max_length=32)
@@ -1106,6 +1112,35 @@ def create_public_location_invite(
 def resolve_public_location_invite(public_token: _PublicToken):
     try:
         return _service().resolve_public_invite(public_token=public_token)
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/public-invites/{invite_id}/location")
+@limiter.limit(RateLimits.ONE_LOCATION_PUBLIC_LINK_HEARTBEAT)
+def refresh_public_location_invite_location(
+    request: Request,
+    invite_id: _InviteId,
+    payload: RefreshPublicInviteLocationRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Move the pin on the caller's own live public link.
+
+    Declared above the `{public_token}/submit` route on purpose: FastAPI
+    matches in declaration order, and both live under
+    `/location/public-invites/{...}/`. They cannot actually collide -- the
+    suffixes differ -- but keeping the two owner-scoped, invite-id-keyed
+    routes together is what stops a future third one from being added under
+    the anonymous token prefix by accident.
+    """
+
+    del request
+    try:
+        return _service().refresh_public_invite_location(
+            owner_user_id=_user_id(token_data),
+            invite_id=invite_id,
+            location_snapshot=payload.location_snapshot,
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 

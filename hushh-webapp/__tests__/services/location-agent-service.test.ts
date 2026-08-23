@@ -236,7 +236,7 @@ describe("OneLocationService", () => {
     mockApiJson.mockResolvedValueOnce({
       invite: { id: "invite_1", status: "active" },
       publicToken: "token_1",
-      publicUrl: "/one/location/request/token_1",
+      publicUrl: "/one/location/view/token_1",
     });
     const locationSnapshot = {
       latitude: 28.6139,
