@@ -8861,7 +8861,7 @@ export function OneLocationAgentPageContent({
       if (openFlow === "share" && shareReadySelectedRecipients.length === 0) {
         return {
           reason:
-            "Nobody is picked for this share yet, so starting it will refuse. The share needs a person chosen before it can run.",
+            "No one is chosen for this share yet. Pick who to share with.",
           remedyActionId: "location.select_share_recipient",
         };
       }
