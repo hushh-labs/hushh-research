@@ -98,7 +98,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/oauth/authorize")).toBe("oauth_authorize");
     expect(resolveRouteId("/one/location")).toBe("one_location");
     expect(resolveRouteId("/one/location/map")).toBe("one_location_map");
-    expect(resolveRouteId("/one/location/request/sample")).toBe(
+    expect(resolveRouteId("/one/location/view/sample")).toBe(
       "one_location_public_request",
     );
     expect(resolveRouteId("/one/location/invite/sample")).toBe(
@@ -288,6 +288,12 @@ describe("route ids from the native (trailing-slash) build", () => {
   it("still resolves token routes, which must never fall through", () => {
     // Falling through logs the raw pathname, and on these routes the pathname
     // carries the token.
+    expect(resolveRouteId("/one/location/view/abc123/")).toBe(
+      "one_location_public_request",
+    );
+    // The pre-rename path still resolves to the SAME id: it is one screen,
+    // and splitting it would break every dashboard reading this route at the
+    // moment of the rename.
     expect(resolveRouteId("/one/location/request/abc123/")).toBe(
       "one_location_public_request",
     );

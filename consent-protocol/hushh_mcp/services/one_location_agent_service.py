@@ -544,7 +544,20 @@ def _public_invite_token_if_derivable(row: dict[str, Any] | None) -> str | None:
 
 
 def _public_invite_url(token: str) -> str:
-    return f"/one/location/request/{token}"
+    """The app-relative page a public live-location link points at.
+
+    `/view/`, not `/request/`. The path was named after the submission form the
+    page used to be -- a stranger asking the owner for access -- but the page a
+    shared link opens today SHOWS a live location. "Request" told the recipient
+    the opposite of what the link does, and it is the one part of the URL a
+    person actually reads before deciding whether to tap.
+
+    Links already in the wild keep working: the web proxy redirects
+    `/one/location/request/<token>` here, and the old route stays mounted as a
+    client-side forwarder for the native static export, which has no proxy.
+    """
+
+    return f"/one/location/view/{token}"
 
 
 def _circle_invite_url(token: str) -> str:
@@ -1446,6 +1459,38 @@ class OneLocationAgentService:
             ],
             "withoutEmail": without_email,
         }
+
+    def _public_invite_owner_label(self, owner_user_id: str) -> str:
+        """The sharer's name, for a page anyone holding the URL can open.
+
+        `allow_email_handle=False` is the whole point. The ladder underneath
+        offers a display name and then an email local part, and its own
+        docstring draws the line this call sits on: an email handle "is a name
+        to someone who already knows you and an identifier to someone who does
+        not, so it is offered only on surfaces already scoped to a
+        relationship". A bearer link that can be forwarded to anyone is the
+        broadest surface this product has -- broader than the discovery
+        directory, which already passes False.
+
+        Deliberately NOT `_identity_display_label`, which the Circle invite
+        uses: that one appends a masked phone, and publishing the last four
+        digits of a phone number beside a live map pin is a different promise
+        from the one this link makes. The Circle asymmetry is intentional --
+        a Circle invite is handed to one named person.
+
+        Returns "" when the account resolves to nothing real, so callers
+        choose their own fallback wording.
+        """
+
+        from hushh_mcp.services.requester_identity import label_from_identity_row
+
+        if not owner_user_id:
+            return ""
+        return label_from_identity_row(
+            self._identity_row(owner_user_id),
+            allow_email_handle=False,
+            fallback="",
+        )
 
     def _identity_row(self, user_id: str) -> dict[str, Any] | None:
         try:
@@ -5987,10 +6032,24 @@ class OneLocationAgentService:
         }
 
     def _expire_public_invite(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Settle a public link whose window has closed. The DB clock decides.
+
+        Two clocks used to own this one fact. The window was stamped from the
+        app host's clock, the create path's pre-settle and reuse lookup gated
+        on `NOW()` -- the database's -- and this method compared against the
+        app host's again. An API host running a minute fast therefore killed
+        every link a minute early on the first read, and the owner's countdown,
+        which reads the row, agreed with it; a host running slow let the reuse
+        lookup hand back a link the database already considered dead.
+
+        Now the comparison lives in the statement, beside the write it guards.
+        `updated` is the row only when the database agreed it was past, so
+        there is no branch left that can report an expiry the storage layer
+        does not hold. The cost is one extra statement per read of a live
+        link, which matches at most one row and writes none.
+        """
+
         if not row or str(row.get("status") or "") != "active":
-            return row
-        expires_at = _parse_datetime(row.get("expires_at"), field_name="expires_at")
-        if expires_at > _utcnow():
             return row
         updated = self._execute_one(
             """
@@ -5998,11 +6057,12 @@ class OneLocationAgentService:
             SET status = 'expired', updated_at = NOW()
             WHERE id = CAST(:invite_id AS UUID)
               AND status = 'active'
+              AND expires_at <= NOW()
             RETURNING *
             """,
             {"invite_id": str(row.get("id") or "")},
         )
-        return updated or {**row, "status": "expired"}
+        return updated or row
 
     @staticmethod
     def _project_expired(row: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -6054,6 +6114,15 @@ class OneLocationAgentService:
                 "A public location link can stay live for at most 1 hour.",
                 status_code=422,
             )
+        # Validated before either branch below: a malformed snapshot is a 422
+        # whether this call mints a link or refreshes the live one, and doing it
+        # here means the reuse path cannot write a half-checked point.
+        public_location = self._public_location_snapshot_payload(location_snapshot)
+        # The name the recipient will see, stamped onto the row so a reader
+        # needs no identity lookup. `resolve_public_invite` resolves it again
+        # when the row predates this write.
+        owner_safe_label = self._public_invite_owner_label(owner_user_id)
+
         # Expiry is written lazily -- `_expire_public_invite` only flips a row
         # when something reads it -- so a link whose time has passed can still
         # be sitting at status 'active'. Settle that here first, or the reuse
@@ -6098,8 +6167,80 @@ class OneLocationAgentService:
         if existing:
             existing_token = _public_invite_token_if_derivable(existing)
             if existing_token:
-                existing_payload = self._public_invite_payload(existing)
+                # Reuse used to hand the row back exactly as it was found, and
+                # that made this call lie twice.
+                #
+                # Expiry: the person picked a duration and pressed a control
+                # labelled "Create link". Returning a link with four minutes
+                # left on it because one was minted 56 minutes ago breaks the
+                # only promise the screen makes -- "link stays live for 1 hour"
+                # -- and nothing on screen could contradict it, because the
+                # countdown shown afterwards is read from this row, so it
+                # agreed with the wrong answer. The window is restarted from
+                # now for exactly the duration that was asked for, in both
+                # directions: shortening is equally deliberate, and only the
+                # owner can ask for it.
+                #
+                # Snapshot: the caller has just captured a fresh point (every
+                # entry point runs the readiness gate before it posts). Keeping
+                # the old one meant a reused link opened on where the owner was
+                # up to an hour ago, presented as where they are now.
+                #
+                # Label: written on every pass, so a link minted before the
+                # name was recorded -- or one whose owner has since set a
+                # display name -- stops reading "A trusted person".
+                existing_metadata = _loads_json(existing.get("metadata")) or {}
+                if not isinstance(existing_metadata, dict):
+                    existing_metadata = {}
+                refreshed_metadata = dict(existing_metadata)
+                refreshed_metadata["codeVersion"] = _PUBLIC_INVITE_CODE_VERSION
+                if public_location:
+                    refreshed_metadata["publicLocation"] = public_location
+                if owner_safe_label:
+                    refreshed_metadata["owner_safe_label"] = owner_safe_label
+                refreshed = self._execute_one(
+                    """
+                    UPDATE one_location_public_invites
+                    SET duration_hours = :duration_hours,
+                        expires_at = NOW() + (
+                          CAST(:duration_hours AS double precision) * INTERVAL '1 hour'
+                        ),
+                        metadata = CAST(:metadata_json AS JSONB),
+                        updated_at = NOW()
+                    WHERE id = CAST(:invite_id AS UUID)
+                      AND status = 'active'
+                    RETURNING *
+                    """,
+                    {
+                        "invite_id": str(existing.get("id") or ""),
+                        "duration_hours": duration,
+                        "metadata_json": _json_param_with_public_location(refreshed_metadata),
+                    },
+                )
+                # Only the row the UPDATE actually wrote. The SELECT above and
+                # this UPDATE are separate statements, so a second device -- or
+                # the `revoke_public_link` agent tool -- can revoke the invite
+                # in between; the UPDATE is guarded on `status = 'active'` and
+                # returns nothing when that happens. Falling back to the row
+                # the SELECT read would hand the owner a link whose stored
+                # status still says 'active', so `_public_invite_payload`
+                # would attach a `publicUrl` -- a link they can copy and share
+                # that 410s the first time anyone opens it. Falling through to
+                # the mint path instead gives them a link that works, which is
+                # what they asked for.
+                existing_payload = self._public_invite_payload(refreshed) if refreshed else None
                 if existing_payload:
+                    self._insert_event(
+                        owner_user_id=owner_user_id,
+                        actor_user_id=owner_user_id,
+                        event_type="location_public_invite_created",
+                        metadata={
+                            "invite_id": existing_payload["id"],
+                            "duration_hours": duration,
+                            "location_snapshot": ("attached" if public_location else "none"),
+                            "reused": True,
+                        },
+                    )
                     return {
                         "invite": existing_payload,
                         "publicToken": existing_token,
@@ -6129,11 +6270,21 @@ class OneLocationAgentService:
         invite_id = str(uuid.uuid4())
         raw_token = _public_invite_token_for_id(invite_id)
         token_hash = _hash_public_value(raw_token)
-        expires_at = _utcnow() + timedelta(hours=duration)
-        public_location = self._public_location_snapshot_payload(location_snapshot)
         metadata: dict[str, Any] = {"codeVersion": _PUBLIC_INVITE_CODE_VERSION}
         if public_location:
             metadata["publicLocation"] = public_location
+        # The one field on this row a recipient is ever shown. Circle invites
+        # have recorded it since they shipped; public links never did, which is
+        # the whole reason every shared live location opened as "A trusted
+        # person shared this public location with you" -- the recipient payload
+        # reads `metadata.owner_safe_label` and nothing ever wrote it.
+        if owner_safe_label:
+            metadata["owner_safe_label"] = owner_safe_label
+        # `expires_at` is computed by the database, from the same clock every
+        # read of this row is compared against. Stamping it from the app host
+        # instead put the start of the window on one clock and the end of it on
+        # another, and the difference between them came straight off the time
+        # the owner was promised.
         row = self._execute_one(
             """
             INSERT INTO one_location_public_invites (
@@ -6143,7 +6294,8 @@ class OneLocationAgentService:
             VALUES (
               CAST(:invite_id AS UUID),
               :owner_user_id, :public_code_hash, 'active', :duration_hours,
-              :expires_at, NOW(), NOW(), CAST(:metadata_json AS JSONB)
+              NOW() + (CAST(:duration_hours AS double precision) * INTERVAL '1 hour'),
+              NOW(), NOW(), CAST(:metadata_json AS JSONB)
             )
             RETURNING *
             """,
@@ -6152,7 +6304,6 @@ class OneLocationAgentService:
                 "owner_user_id": owner_user_id,
                 "public_code_hash": token_hash,
                 "duration_hours": duration,
-                "expires_at": expires_at,
                 "metadata_json": _json_param_with_public_location(metadata),
             },
         )
@@ -6178,6 +6329,97 @@ class OneLocationAgentService:
             "publicToken": raw_token,
             "publicUrl": _public_invite_url(raw_token),
         }
+
+    def refresh_public_invite_location(
+        self,
+        *,
+        owner_user_id: str,
+        invite_id: str,
+        location_snapshot: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Move the pin on the owner's live public link to where they are now.
+
+        Without this the snapshot was written once, at create time, and never
+        again -- so a link sold to the recipient as live showed one frozen
+        point for its whole window, under a chip that said "Live" and a share
+        message that said "View my live location". This is the statement that
+        makes those true.
+
+        Deliberately narrow. It writes `metadata.publicLocation` and nothing
+        else: not the window, not the label, not the status. An owner
+        heartbeating their position must never be able to extend their own
+        link past what they agreed to, and `expires_at` is the only thing
+        standing between "I shared for an hour" and "I shared until I
+        remembered to stop".
+
+        Scoped to one owner and one still-live row, so a stale tab that keeps
+        publishing after a revoke gets a 404 rather than quietly resurrecting
+        the pin on a link the owner already stopped.
+        """
+
+        if not owner_user_id:
+            raise OneLocationAgentError(
+                "LOCATION_AUTH_REQUIRED", "A user is required.", status_code=401
+            )
+        public_location = self._public_location_snapshot_payload(location_snapshot)
+        if not public_location:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_LOCATION_INVALID",
+                "Public location links need a valid captured location.",
+                status_code=422,
+            )
+        row = self._execute_one(
+            """
+            SELECT *
+            FROM one_location_public_invites
+            WHERE id = CAST(:invite_id AS UUID)
+              AND owner_user_id = :owner_user_id
+              AND status = 'active'
+              AND expires_at > NOW()
+            LIMIT 1
+            """,
+            {"invite_id": str(invite_id or ""), "owner_user_id": owner_user_id},
+        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
+                "This public location link is no longer active.",
+                status_code=404,
+            )
+        metadata = _loads_json(row.get("metadata")) or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata = dict(metadata)
+        metadata["publicLocation"] = public_location
+        updated = self._execute_one(
+            """
+            UPDATE one_location_public_invites
+            SET metadata = CAST(:metadata_json AS JSONB),
+                updated_at = NOW()
+            WHERE id = CAST(:invite_id AS UUID)
+              AND owner_user_id = :owner_user_id
+              AND status = 'active'
+              AND expires_at > NOW()
+            RETURNING *
+            """,
+            {
+                "invite_id": str(row.get("id") or ""),
+                "owner_user_id": owner_user_id,
+                "metadata_json": _json_param_with_public_location(metadata),
+            },
+        )
+        if not updated:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
+                "This public location link is no longer active.",
+                status_code=404,
+            )
+        invite = self._public_invite_payload(updated)
+        # No event per heartbeat. This runs every twenty seconds for as long as
+        # a link is live; writing an audit row each time would bury the events
+        # that record a decision -- created, revoked, expired -- under a
+        # position log nobody reads.
+        return {"invite": invite}
 
     def _public_invite_row_for_token(self, *, public_token: str) -> dict[str, Any]:
         normalized_token = str(public_token or "").strip()
@@ -6208,6 +6450,24 @@ class OneLocationAgentService:
     def resolve_public_invite(self, *, public_token: str) -> dict[str, Any]:
         row = self._public_invite_row_for_token(public_token=public_token)
         invite = self._public_invite_payload(row, public=True)
+        # Resolved on read as well as stamped on write.
+        #
+        # Every link minted before the write existed carries no
+        # `owner_safe_label`, and those are exactly the links this change
+        # promises to keep working -- they are already inside messages that
+        # were sent. Without this they would read "A trusted person" forever,
+        # which is the bug, still visible, on the only links anyone currently
+        # holds. It also means a sharer who sets or corrects their display name
+        # is named correctly on a link they created before doing so.
+        #
+        # Read-only: no write is issued here. This endpoint is anonymous, and
+        # a write on an unauthenticated read path is a different kind of
+        # problem from the one being fixed.
+        if invite and invite.get("ownerLabel") == PUBLIC_INVITE_DEFAULT_OWNER_LABEL:
+            invite["ownerLabel"] = (
+                self._public_invite_owner_label(str(row.get("owner_user_id") or ""))
+                or PUBLIC_INVITE_DEFAULT_OWNER_LABEL
+            )
         result = {"invite": invite}
         metadata = _loads_json(row.get("metadata")) or {}
         public_location = metadata.get("publicLocation") if isinstance(metadata, dict) else None

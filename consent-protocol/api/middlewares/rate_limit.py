@@ -165,6 +165,14 @@ class RateLimits:
 
     # Owners can rotate/revoke a code, but rapid churn is never a normal flow.
     ONE_LOCATION_CIRCLE_MUTATION = "6/minute"  # noqa: S105
+
+    # The owner's own position heartbeat onto their live public link. Unlike
+    # every other mutation on this router this one is SUPPOSED to repeat: the
+    # web client publishes on a twenty-second heartbeat plus a movement watch
+    # throttled to one publish per eight seconds, so a walking owner can
+    # legitimately reach the high single digits per minute. Sized with headroom
+    # for that and nothing more -- it still writes one row per call.
+    ONE_LOCATION_PUBLIC_LINK_HEARTBEAT = "30/minute"  # noqa: S105
     # UAT-only One Location nearby-presence simulation. The roster is a stable,
     # bounded sample, and these per-principal limits additionally bound polling,
     # check-in churn, and alias-based connection attempts. Shared enforcement

@@ -231,14 +231,20 @@ async def list_public_links() -> dict[str, Any]:
 async def propose_public_link(duration_hours: float) -> dict[str, Any]:
     """Propose creating an owner-confirmed public link. Does NOT create it (the
     browser captures the snapshot and creates it after explicit confirmation).
-    Coordinate-free."""
+    duration_hours must be between 0.25 and 1. Coordinate-free."""
     _ctx()
     try:
         hours = float(duration_hours)
     except (TypeError, ValueError) as exc:
-        raise ValueError("duration_hours must be a number between 0 and 24") from exc
-    if not (0 < hours <= 24):
-        raise ValueError("duration_hours must be greater than 0 and at most 24")
+        raise ValueError("duration_hours must be a number between 0.25 and 1") from exc
+    # 24 was the PRIVATE share ceiling, copied. A public link is readable by
+    # anyone holding it, and both the route field (le=1) and the service
+    # (PUBLIC_INVITE_MAX_DURATION_HOURS) stop at an hour -- so this tool could
+    # propose a duration that was guaranteed to 422 the moment the person
+    # confirmed it. The floor is the shared minimum share length; below it
+    # normalize_duration_hours rejects the request.
+    if not (0.25 <= hours <= 1):
+        raise ValueError("duration_hours must be between 0.25 and 1 for a public link")
     return {"proposed": "create_public_link", "durationHours": hours}
 
 

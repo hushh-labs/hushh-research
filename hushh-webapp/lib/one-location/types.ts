@@ -231,7 +231,7 @@ export type OneLocationPublicInvite = {
   updatedAt?: string | null;
   revokedAt?: string | null;
   /**
-   * The owner's own share link, app-relative (`/one/location/request/<token>`).
+   * The owner's own share link, app-relative (`/one/location/view/<token>`).
    *
    * Present only for the owner, and only while the invite is still usable. The
    * token used to be returned exactly once, at creation, and nothing could

@@ -514,7 +514,24 @@ const ONE_NETWORK_PREVIEW_LIMIT = 3;
 const REQUEST_MESSAGE_MAX_LENGTH = 80;
 
 const ONE_LOCATION_SHARE_TITLE = "Join me on One";
-const ONE_LOCATION_PUBLIC_SHARE_COPY = "Join my Location circle";
+/**
+ * What a public live-location link says about itself in the share sheet.
+ *
+ * It used to read "Join my Location circle", which described a different
+ * object entirely: a Circle invite asks a named person to join something and
+ * lasts a day. This link asks for nothing — it shows the recipient where the
+ * sender is, right now, for up to an hour. The old line set them up to expect
+ * a signup, which is exactly what a stranger receiving a location does not
+ * want to read before they tap.
+ */
+const ONE_LOCATION_PUBLIC_SHARE_COPY = "View my live location on One";
+/**
+ * The share sheet's own title for that link. Deliberately not
+ * ONE_LOCATION_SHARE_TITLE ("Join me on One"): several targets show the title
+ * and drop the text, and on those the public link would have gone back to
+ * announcing itself as an invitation.
+ */
+const ONE_LOCATION_PUBLIC_SHARE_TITLE = ONE_LOCATION_PUBLIC_SHARE_COPY;
 const ONE_LOCATION_CIRCLE_SHARE_COPY = "Join me on One";
 const SHOW_LOCATION_ACTIVITY_SECTION = false;
 const SHOW_OWNER_GRANTS_SECTION = false;
@@ -5513,6 +5530,91 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
+  /**
+   * The public link's own heartbeat.
+   *
+   * A public link is not a grant: it carries no recipient key and no envelope,
+   * so it is invisible to the publisher above, which walks `activeOwnerGrants`.
+   * Nothing else ever wrote to it either -- the snapshot went onto the row once,
+   * at create time -- so a link shared as a LIVE location showed one frozen
+   * point for its entire window, under a chip that says "Live" and a share
+   * message that says "View my live location on One".
+   *
+   * Same cadence and the same gates as the grant heartbeat, and the same point:
+   * `liveHeartbeatPoint()` reads the shared bus the movement watch already
+   * feeds, so this adds no second acquisition and cannot race the watch for the
+   * platform's pending-call slot.
+   *
+   * Deliberately its own effect rather than a branch inside the grant loop. A
+   * public link has to keep updating for someone with no private shares at all,
+   * and folding it in would have made it depend on `activeOwnerGrants.length`
+   * -- the exact "invisible to the publisher" bug this fixes.
+   *
+   * A failure is never surfaced. The window is the promise; the pin going a
+   * tick stale is not something the owner can act on, and a toast once every
+   * twenty seconds is worse than the staleness.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!vaultOwnerToken) return;
+    const inviteId = activePublicInvites[0]?.id;
+    if (!inviteId) return;
+    if (locationControl.paused) return;
+    if (
+      permission?.state === "denied" ||
+      permission?.state === "restricted" ||
+      permission?.state === "unavailable"
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let inFlight = false;
+
+    const publishPublicLink = async () => {
+      if (cancelled || inFlight) return;
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      inFlight = true;
+      try {
+        const point = await liveHeartbeatPoint();
+        // Nothing measured this session. A page that says "Live" must never be
+        // handed a remembered coordinate; the watch will deliver one shortly.
+        if (!point || cancelled) return;
+        await OneLocationService.refreshPublicInviteLocation({
+          vaultOwnerToken,
+          inviteId,
+          locationSnapshot: point,
+        });
+      } catch {
+        // Includes the expected 404 from a link revoked in another tab. The
+        // row is gone; the next state refresh drops it from
+        // `activePublicInvites` and this effect tears itself down.
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const interval = window.setInterval(
+      () => void publishPublicLink(),
+      LIVE_LOCATION_UPDATE_INTERVAL_MS,
+    );
+    void publishPublicLink();
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [
+    activePublicInvites,
+    locationControl.paused,
+    permission?.state,
+    vaultOwnerToken,
+  ]);
+
   // True LIVE tracking (owner side): while a share is active and the app is in
   // the foreground, subscribe to a continuous geolocation watch and re-publish
   // an encrypted envelope to every active grant as soon as the owner MOVES
@@ -6523,10 +6625,20 @@ export function OneLocationAgentPageContent({
         copied_to_clipboard: copiedToClipboard,
         active_invite_count: activePublicInvites.length + 1,
       });
+      // One live link per person, so pressing this while one is already out
+      // there restarts that link's window rather than minting a second URL.
+      // Saying "created" would be a lie the person acts on: they would think
+      // the old link is dead and this one is new, when in fact everyone they
+      // sent it to is still watching through the same URL.
+      const reusedExistingLink = response.reused === true;
       toast.success(
-        copiedToClipboard
-          ? "Public location link created and copied."
-          : "Public location link created.",
+        reusedExistingLink
+          ? copiedToClipboard
+            ? "Your live link now runs for another window, and is copied."
+            : "Your live link now runs for another window."
+          : copiedToClipboard
+            ? "Public location link created and copied."
+            : "Public location link created.",
       );
       void refresh().catch(() => null);
     } catch (error) {
@@ -6572,7 +6684,7 @@ export function OneLocationAgentPageContent({
     if (!publicInviteUrl) return;
     try {
       const delivery = await shareOneLocationLink({
-        title: ONE_LOCATION_SHARE_TITLE,
+        title: ONE_LOCATION_PUBLIC_SHARE_TITLE,
         text: ONE_LOCATION_PUBLIC_SHARE_COPY,
         url: publicInviteUrl,
         dialogTitle: "Share to contacts",
@@ -6619,7 +6731,7 @@ export function OneLocationAgentPageContent({
       }
 
       const delivery = await shareOneLocationLink({
-        title: ONE_LOCATION_SHARE_TITLE,
+        title: ONE_LOCATION_PUBLIC_SHARE_TITLE,
         text: ONE_LOCATION_PUBLIC_SHARE_COPY,
         url,
         dialogTitle: "Share to contacts",

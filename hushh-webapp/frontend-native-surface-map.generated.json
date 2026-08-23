@@ -4315,7 +4315,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "hidden",
-        "exemption_reason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell.",
+        "exemption_reason": "Legacy public one-location link path. Forwards to /one/location/view/[token]; kept only so links minted before the rename keep resolving.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -4323,7 +4323,56 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.location.request.token",
-          "purpose": "Help the person understand and use the request screen through its generated controls.",
+          "purpose": "Forwarding route only: say nothing and let the redirect complete.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/location/view/[token]",
+      "page_file": "app/one/location/view/[token]/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Public one-location live-location view is a standalone recipient page outside the signed-in app shell.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.location.view.token",
+          "purpose": "Help the person read the shared live location through its generated controls.",
           "screen": "app",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -8731,5 +8780,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "201f31f679379cc7e40cfc8ae947743e77ee5abe44cbb3010fd4d0aacc63b198"
+  "content_sha256": "ff06513c3ce01ad6982e1ef62777aeaffd72ab3dcd9e7ee5841fed6c74d8d5bc"
 }

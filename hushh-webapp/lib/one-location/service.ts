@@ -872,6 +872,14 @@ export class OneLocationService {
     invite: OneLocationPublicInvite;
     publicToken: string;
     publicUrl: string;
+    /**
+     * True when the server handed back the link that was already live rather
+     * than minting a second one. Its window is restarted for the duration that
+     * was just asked for, so the link is honestly "live for an hour" either
+     * way -- but it is the SAME URL, and anyone already holding it keeps
+     * watching. Worth saying out loud rather than reporting "link created".
+     */
+    reused?: boolean;
   }> {
     return apiJsonWithRetry(
       "/api/one/location/public-invites",
@@ -895,6 +903,33 @@ export class OneLocationService {
       `/api/one/location/public-invites/${encodeURIComponent(publicToken)}`,
       {},
       1,
+    );
+  }
+
+  /**
+   * Move the pin on the caller's own live public link to where they are now.
+   *
+   * The snapshot used to be written once, at create time, and never again, so
+   * a link shared as a live location showed one frozen point for its whole
+   * window. The owner's foreground heartbeat calls this while a public link is
+   * live.
+   *
+   * Writes the position and nothing else: the server refuses to touch
+   * `expiresAt` here, so a heartbeat can never extend a window past what the
+   * owner agreed to share.
+   */
+  static async refreshPublicInviteLocation(params: {
+    vaultOwnerToken: string;
+    inviteId: string;
+    locationSnapshot: PlainLocationPoint;
+  }): Promise<{ invite: OneLocationPublicInvite }> {
+    return apiJson(
+      `/api/one/location/public-invites/${encodeURIComponent(params.inviteId)}/location`,
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ locationSnapshot: params.locationSnapshot }),
+      },
     );
   }
 

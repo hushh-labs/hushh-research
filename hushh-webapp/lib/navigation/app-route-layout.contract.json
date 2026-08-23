@@ -483,10 +483,37 @@
   {
     "route": "/one/location/request/[token]",
     "mode": "hidden",
-    "exemptionReason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell.",
+    "exemptionReason": "Legacy public one-location link path. Forwards to /one/location/view/[token]; kept only so links minted before the rename keep resolving.",
     "voicePlaybook": {
       "playbookId": "route.one.location.request.token",
-      "purpose": "Help the person understand and use the request screen through its generated controls.",
+      "purpose": "Forwarding route only: say nothing and let the redirect complete.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/location/view/[token]",
+    "mode": "hidden",
+    "exemptionReason": "Public one-location live-location view is a standalone recipient page outside the signed-in app shell.",
+    "voicePlaybook": {
+      "playbookId": "route.one.location.view.token",
+      "purpose": "Help the person read the shared live location through its generated controls.",
       "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",
