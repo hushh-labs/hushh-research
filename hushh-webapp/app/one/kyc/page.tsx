@@ -2094,8 +2094,8 @@ export function OneKycWorkspace({
                     ? selectedEffectiveRequiredFields
                     : ["selected information"]
                   ).map((field) => (
-                    <Badge key={field} variant="outline">
-                      {field.replaceAll("_", " ")}
+                    <Badge key={field} variant="outline" className="max-w-full">
+                      <span className="block truncate">{field.replaceAll("_", " ")}</span>
                     </Badge>
                   ))}
                 </div>
