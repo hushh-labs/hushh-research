@@ -546,7 +546,7 @@ export function RiaClientWorkspace({
 
       {detailError && !iamUnavailable ? (
         <RiaSurface tone="critical" className="p-4">
-          <p className="text-sm text-red-500">{detailError}</p>
+          <p className="text-sm text-[color:var(--ria-danger-text)]">{detailError}</p>
         </RiaSurface>
       ) : null}
 

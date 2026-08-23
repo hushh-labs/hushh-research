@@ -160,7 +160,7 @@ export function RiaClientRequestDetail({
 
       {!loading && detailError ? (
         <div className="rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-[var(--app-card-shadow-standard)]">
-          <p className="text-sm text-red-500">{detailError}</p>
+          <p className="text-sm text-[color:var(--ria-danger-text)]">{detailError}</p>
         </div>
       ) : null}
 
