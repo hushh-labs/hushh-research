@@ -248,10 +248,10 @@ this first release.
 
 ### Contact Discovery
 
-Matching an address book against the Hushh user directory. The device normalizes each
+Matching an address book against the Hussh user directory. The device normalizes each
 number to E.164 and hashes it; **raw phone numbers and contact names never leave the
 device**, and the server **persists nothing** — the request body is consumed in memory and
-discarded, so a contact who is not a Hushh user leaves no trace.
+discarded, so a contact who is not a Hussh user leaves no trace.
 
 `last4` is an index bucket, not an answer: it narrows the candidate rows so the query can
 use `idx_actor_identity_cache_phone_last4`, and the full digest is what decides a match.
