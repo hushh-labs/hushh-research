@@ -1,5 +1,7 @@
 "use client";
 
+import { useRedeemReferralAttribution } from "@/lib/referral/use-redeem-referral-attribution";
+
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -97,6 +99,12 @@ function SignedInGate({ children }: { children: ReactNode }) {
 
 export function OneAuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+
+  // A referral link opened before sign-in left an opaque attribution handle
+  // behind. Entering One is where it is redeemed -- the person being referred
+  // never opens the Referrals tab, so redeeming there would mean no referral
+  // ever completes. Silent by design; see the hook.
+  useRedeemReferralAttribution();
 
   // Mounted outside the guards on purpose: the observer needs to see the
   // pre-authentication state too, and anything rendered as a child of

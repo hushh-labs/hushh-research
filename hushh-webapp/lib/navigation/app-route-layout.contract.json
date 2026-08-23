@@ -139,6 +139,33 @@
     }
   },
   {
+    "route": "/r/[slug]",
+    "mode": "redirect",
+    "exemptionReason": "Public referral landing route. It records the attribution on the server before anyone signs in, keeps the opaque id it is given, and hands off to the normal sign-in journey; it owns no signed-in app shell of its own and never reveals who the referrer is.",
+    "voicePlaybook": {
+      "playbookId": "route.r.slug",
+      "purpose": "Explain that the referral link is being opened and the person is being taken into sign-in.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/circle/join",
     "mode": "redirect",
     "exemptionReason": "Public Circle join landing route reads the invite code from the query string and redirects into the in-app Join-with-code flow; it owns no signed-in app shell of its own.",

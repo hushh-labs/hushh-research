@@ -29,6 +29,22 @@ export type ReferralSummary = {
   referrals: ReferralRow[];
 };
 
+export type ResolveResult = {
+  status: "created" | "unavailable";
+  attribution_id?: string;
+};
+
+export type BindResult = {
+  status:
+    | "bound"
+    | "unavailable"
+    | "already_used"
+    | "expired"
+    | "self_referral"
+    | "already_referred"
+    | "existing_user";
+};
+
 export const ReferralService = {
   /**
    * `apiJson` does not attach credentials -- every authenticated /api/one call
@@ -43,6 +59,32 @@ export const ReferralService = {
         "Content-Type": "application/json",
         Authorization: `Bearer ${opts.idToken}`,
       },
+    });
+  },
+
+  /**
+   * Opening a referral link. Deliberately unauthenticated -- there is no
+   * session yet, which is the whole point: the attribution is recorded on the
+   * server BEFORE the person is sent into sign-in, so nothing downstream has to
+   * trust a slug the client hands back afterwards.
+   */
+  async resolve(slug: string, landingRoute?: string): Promise<ResolveResult> {
+    return apiJson<ResolveResult>("/api/one/referrals/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug, landing_route: landingRoute }),
+    });
+  },
+
+  /** Attach a pending attribution to the person who just signed in. */
+  async bind(opts: { idToken: string; attributionId: string }): Promise<BindResult> {
+    return apiJson<BindResult>("/api/one/referrals/bind", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${opts.idToken}`,
+      },
+      body: JSON.stringify({ attribution_id: opts.attributionId }),
     });
   },
 };
