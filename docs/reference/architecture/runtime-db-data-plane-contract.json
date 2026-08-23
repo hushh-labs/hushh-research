@@ -422,6 +422,27 @@
       "expected_row_growth": "medium_per_user_share"
     },
     {
+      "id": "one_referral_program",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_agent_engagement_sessions",
+        "one_referral_attributions",
+        "one_referral_codes",
+        "one_referral_events",
+        "one_referral_policies",
+        "one_referral_relationships",
+        "one_referral_risk_reviews"
+      ],
+      "primary_access_path": "Hushh One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only.",
+      "retention_policy": "Pending attributions expire with the policy attribution window and are swept. Relationships and their event ledger are retained for the life of the referrer's account as the audit trail behind a public count. Engagement sessions are closed or abandoned once their heartbeat gap passes and are retained only long enough to reconcile a qualification decision.",
+      "deletion_behavior": "Every table cascades from actor_profiles, so deleting either account removes its codes, attributions, engagement sessions, events and risk reviews. A relationship is deleted with either side; the referrer's public count is derived from live rows, so it falls accordingly.",
+      "trust_boundary": "The slug is public and is never a credential: resolving one proves nothing about who holds it, and the referred user still signs in through the existing Hushh identity flow. Installation and network signals are stored only as salted hashes for abuse velocity, never raw and never returned to any client. Internal risk reason codes never reach a user-facing surface.",
+      "plaintext_posture": "metadata_only_no_referred_user_identifiers_exposed",
+      "expected_row_growth": "low_per_user_referral"
+    },
+    {
       "id": "one_location_named_circle_relationships",
       "owner": "iam-consent-governance",
       "data_class": "personal_metadata",
@@ -492,7 +513,7 @@
       "exact_tables": [
         "trusted_connections"
       ],
-      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer→inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
+      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer\u2192inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
       "retention_policy": "Active directed edges persist as the owner's relationship graph; revoked edges are retained only for bounded operational review before compaction.",
       "deletion_behavior": "Delete rows where the deleting account is the owner or the trusted user; revoke active edges before deletion where possible.",
       "trust_boundary": "Backend stores only connection metadata (owner and trusted-user references, status, source, resolution method, optional label, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
