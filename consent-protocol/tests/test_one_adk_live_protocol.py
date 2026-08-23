@@ -97,18 +97,24 @@ async def test_close_quietly_swallows_a_close_failure_on_an_already_gone_client(
 
 @pytest.mark.asyncio
 async def test_runtime_bootstrap_accepts_only_the_authenticated_byok_frame():
-    mode, credential, transport, project, location, _resume, _voice = (
-        await _receive_runtime_bootstrap(
-            _BootstrapSocket(
-                {
-                    "type": "runtime_bootstrap",
-                    "runtime_credential_mode": "byok",
-                    "runtime_credential": "test-key",
-                    "runtime_credential_transport": "developer_api",
-                }
-            ),
-            uid="user_1",
-        )
+    (
+        mode,
+        credential,
+        transport,
+        project,
+        location,
+        _resume,
+        _voice,
+    ) = await _receive_runtime_bootstrap(
+        _BootstrapSocket(
+            {
+                "type": "runtime_bootstrap",
+                "runtime_credential_mode": "byok",
+                "runtime_credential": "test-key",
+                "runtime_credential_transport": "developer_api",
+            }
+        ),
+        uid="user_1",
     )
 
     assert mode == "byok"
@@ -120,20 +126,26 @@ async def test_runtime_bootstrap_accepts_only_the_authenticated_byok_frame():
 
 @pytest.mark.asyncio
 async def test_runtime_bootstrap_accepts_a_vertex_api_key_only_with_explicit_endpoint_metadata():
-    mode, credential, transport, project, location, _resume, _voice = (
-        await _receive_runtime_bootstrap(
-            _BootstrapSocket(
-                {
-                    "type": "runtime_bootstrap",
-                    "runtime_credential_mode": "byok",
-                    "runtime_credential": "test-key",
-                    "runtime_credential_transport": "vertex_api_key",
-                    "runtime_vertex_project": "customer-vertex-project",
-                    "runtime_vertex_location": "us-central1",
-                }
-            ),
-            uid="user_1",
-        )
+    (
+        mode,
+        credential,
+        transport,
+        project,
+        location,
+        _resume,
+        _voice,
+    ) = await _receive_runtime_bootstrap(
+        _BootstrapSocket(
+            {
+                "type": "runtime_bootstrap",
+                "runtime_credential_mode": "byok",
+                "runtime_credential": "test-key",
+                "runtime_credential_transport": "vertex_api_key",
+                "runtime_vertex_project": "customer-vertex-project",
+                "runtime_vertex_location": "us-central1",
+            }
+        ),
+        uid="user_1",
     )
 
     assert (mode, credential, transport, project, location) == (
