@@ -331,7 +331,7 @@ export function ReasonChips({
       {label ? (
         <p className="text-sm font-semibold text-foreground">{label}</p>
       ) : null}
-      <div className="flex flex-wrap gap-2">
+      <div className="grid grid-cols-2 gap-2">
         {REASON_CHIPS.map((reason) => {
           const active = reason === value;
           return (
@@ -340,10 +340,10 @@ export function ReasonChips({
               type="button"
               onClick={() => onChange(reason)}
               className={cn(
-                "h-9 rounded-full border px-3.5 text-sm font-medium transition-colors touch-manipulation",
+                "h-10 rounded-[13px] px-3 text-sm font-semibold transition-colors touch-manipulation",
                 active
-                  ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
-                  : "border-border/70 bg-background text-foreground hover:border-[color:var(--app-accent-ring)]",
+                  ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                  : "bg-[color:var(--app-secondary-system-fill)] text-foreground hover:bg-[color:var(--app-secondary-system-fill)]/80",
               )}
             >
               {reason}

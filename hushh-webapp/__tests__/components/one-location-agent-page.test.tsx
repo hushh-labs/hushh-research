@@ -737,7 +737,7 @@ async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
 
   if (options.expectMain !== false) {
     expect(
-      await screen.findByRole("heading", { name: "Location Agent" }),
+      await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
   }
 
@@ -1150,7 +1150,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     expect(
-      await screen.findByRole("heading", { name: "Location Agent" }),
+      await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
     // "agent", not "reading": the workspace shell was widened in the component
     // and this selector was never updated, so it has been failing on main
@@ -1196,11 +1196,10 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("hides Activity when every Activity count is zero", async () => {
-    // State beats category. Colour on these three rows means "there is
-    // something here", never "this row exists" — an empty Location screen
-    // reporting 0, 0, 0 in three saturated tiles spends colour on nothing and
-    // leaves none for the rows that do carry state.
+  it("keeps the Activity menu visible even when every Activity count is zero", async () => {
+    // Activity is part of the Location menu's information architecture. Empty
+    // rows stay quiet, but the section remains present so the menu shape does
+    // not shift between empty and active states.
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -1211,10 +1210,10 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
-    expect(screen.queryByTestId("one-location-now-activity")).toBeNull();
-    expect(screen.queryByText("Active shares")).toBeNull();
-    expect(screen.queryByText("Shared with me")).toBeNull();
-    expect(screen.queryByText("Needs my review")).toBeNull();
+    const activity = screen.getByTestId("one-location-now-activity");
+    expect(within(activity).getByText("Active")).toBeTruthy();
+    expect(within(activity).getByText("Shared With Me")).toBeTruthy();
+    expect(within(activity).getByText("Needs Review")).toBeTruthy();
   });
 
   it("keeps Activity rows visually quiet even when counts are non-zero", async () => {
@@ -1260,62 +1259,91 @@ describe("OneLocationAgentPage", () => {
         ?.getAttribute("data-icon-tone");
     };
 
-    expect(await toneOf("Active shares")).toBe("gray");
-    expect(await toneOf("Shared with me")).toBe("gray");
-    expect(await toneOf("Needs my review")).toBe("gray");
+    expect(await toneOf("Active")).toBeUndefined();
+    expect(await toneOf("Shared With Me")).toBeUndefined();
+    expect(await toneOf("Needs Review")).toBeUndefined();
   });
 
   it("uses one Actions grid, then quiet Activity and More lists", async () => {
-    // Now has one action home: Share, Request, Check-In, and SMS are peer
-    // choices in a 2x2 panel. Generated state and utility destinations stay in
-    // list groups, which keeps the tab from reading like a dashboard.
+    // Now uses one primary share card, then compact Ask/Check-In choices and a
+    // distinct SMS row. Generated state and utility destinations stay in list
+    // groups, which keeps the tab from reading like a dashboard.
     mockGetState.mockResolvedValue(locationState());
 
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
+    const primary = await screen.findByTestId("one-location-now-primary");
+    expect(
+      within(primary).getByRole("button", { name: "Share location" }),
+    ).toBeTruthy();
+    expect(within(primary).getByText("You're not sharing")).toBeTruthy();
+    expect(
+      within(primary).getByText("Choose a Circle or contact to start."),
+    ).toBeTruthy();
+
     const actions = await screen.findByTestId("one-location-now-actions");
-    expect(within(actions).getByText("Share location")).toBeTruthy();
-    expect(within(actions).getByText("Request location")).toBeTruthy();
-    expect(within(actions).getByText("Check-In")).toBeTruthy();
-    expect(within(actions).getByText("SMS")).toBeTruthy();
+    expect(actions.className).toContain("space-y-2");
+    expect(actions.className).not.toContain("max-w-[282px]");
+    expect(within(actions).getByRole("heading", { name: "Actions" })).toBeTruthy();
+    expect(
+      within(actions).getByRole("button", { name: "Request location" }),
+    ).toBeTruthy();
+    expect(within(actions).getByRole("button", { name: "SMS" })).toBeTruthy();
+    expect(within(actions).getByText("Ask for location")).toBeTruthy();
+    expect(within(actions).getByText("Check in")).toBeTruthy();
+    expect(within(actions).queryByText("Their Location")).toBeNull();
+    expect(within(actions).queryByText("Confirm Arrival")).toBeNull();
+    expect(within(actions).getByText("Save My Soul")).toBeTruthy();
+    expect(within(actions).getByText("Emergency Alert")).toBeTruthy();
 
     const actionGrid = actions.querySelector("[data-one-location-action-grid]");
     expect(actionGrid?.className).toContain("grid-cols-2");
-    expect(actionGrid?.className).toContain("gap-2");
 
     const actionCells = actionGrid?.querySelectorAll(
       "[data-one-location-action-cell]",
     );
-    expect(actionCells).toHaveLength(4);
+    expect(actionCells).toHaveLength(2);
     actionCells?.forEach((cell) => {
-      expect(cell.className).toContain("items-center");
-      expect(cell.className).toContain("text-center");
-      expect(cell.className).toContain("min-h-24");
-      expect(cell.className).toContain("rounded-[18px]");
-      expect(cell.className).toContain("ring-[color:var(--app-separator)]");
+      expect(cell.className).toContain("items-start");
+      expect(cell.className).toContain("text-left");
+      expect(cell.className).toContain("rounded-[16px]");
+      expect(cell.className).toContain("min-h-[112px]");
+      expect(cell.className).toContain("px-5");
     });
     expect(
       actionGrid?.querySelector("[data-one-location-action-icon]")?.className,
-    ).toContain("rounded-[16px]");
+    ).toContain("text-[color:var(--app-accent)]");
     expect(
       actionGrid?.querySelector("[data-one-location-action-icon]")?.className,
-    ).toContain("[&_svg]:h-6");
+    ).toContain("sm:[&>svg]:h-8");
+    expect(
+      actionGrid?.querySelectorAll("[data-one-location-action-icon] svg"),
+    ).toHaveLength(2);
+    expect(
+      actionGrid?.querySelector('[data-location-menu-icon="ask"]'),
+    ).toBeTruthy();
+    expect(
+      actionGrid?.querySelector('[data-location-menu-icon="checkIn"]'),
+    ).toBeTruthy();
+    expect(actions.textContent).not.toContain("near_me");
+    expect(actions.textContent).not.toContain("location_on");
+    expect(actions.textContent).not.toContain("where_to_vote");
+    expect(actions.querySelector("[data-one-location-sms-row]")).toBeTruthy();
 
     const activity = screen.getByTestId("one-location-now-activity");
-    expect(within(activity).getByText("Active shares")).toBeTruthy();
-    expect(within(activity).getByText("Shared with me")).toBeTruthy();
-    expect(within(activity).getByText("Needs my review")).toBeTruthy();
+    expect(within(activity).getByText("Active")).toBeTruthy();
+    expect(within(activity).getByText("Shared With Me")).toBeTruthy();
+    expect(within(activity).getByText("Needs Review")).toBeTruthy();
 
     const more = screen.getByTestId("one-location-now-more");
-    expect(within(more).getByText("Your Map")).toBeTruthy();
+    expect(within(more).getByText("Map")).toBeTruthy();
     expect(within(more).getByText("Settings")).toBeTruthy();
 
-    expect(within(activity).queryByText("Share location")).toBeNull();
+    expect(within(activity).queryByText("Share")).toBeNull();
     expect(within(more).queryByText("Check-In")).toBeNull();
     expect(screen.queryByText("Quick actions")).toBeNull();
-    expect(screen.queryByTestId("one-location-now-primary")).toBeNull();
   });
 
   it("keeps the heading and location toggle inline as the only header action", async () => {
@@ -1331,26 +1359,24 @@ describe("OneLocationAgentPage", () => {
       name: "Location",
     });
     expect(headerActions.className).toContain("ml-auto");
-    expect(headerActions.className).toContain("justify-end");
-    // The actions column holds the switch and nothing else now, so it no
-    // longer needs `max-w-full` to survive wrapping text. The status words that
-    // used to sit here moved to their own row under it — see the status
-    // assertions below.
+    expect(headerActions.className).toContain("items-center");
+    expect(headerActions.className).toContain("justify-center");
+    // The actions column owns the switch and its compact visible status.
     const status = screen.getByTestId("one-location-header-status");
-    expect(headerActions.contains(status)).toBe(false);
-    // Reported from UAT: "location on / location pause toggle ke just neeche
-    // lao". Its own full-width row UNDER the header, right-aligned, so it lands
-    // directly beneath the switch it describes — not indented beside the title
-    // as a subtitle for the whole screen, and not back inside the actions
-    // column, where its width wrapped the title on every iPhone.
+    expect(headerActions.contains(status)).toBe(true);
+    // The status must not become a separate row under the header.
     const headerRowForStatus = status.closest('[data-slot="page-header-row"]');
     expect(
       headerRowForStatus,
-      "the status is back inside the header row",
-    ).toBeNull();
-    expect(status).toHaveClass("block", "w-full", "text-right");
-    // iOS used to get the one-word form: a bare green switch over "On", which
-    // never said what it switched. Reported from the device.
+      "the status escaped the toggle group",
+    ).toBe(headerActions.closest('[data-slot="page-header-row"]'));
+    expect(status).toHaveClass(
+      "mt-1",
+      "w-full",
+      "whitespace-nowrap",
+      "text-center",
+      "text-[11px]",
+    );
     expect(status.textContent).toBe("Location off");
     // Still the switch's description wherever it renders.
     expect(
@@ -1362,7 +1388,7 @@ describe("OneLocationAgentPage", () => {
       screen.queryByRole("button", { name: "Refresh location" }),
     ).toBeNull();
 
-    const heading = screen.getByRole("heading", { name: "Location Agent" });
+    const heading = screen.getByRole("heading", { name: "Location" });
     const headerRow = heading.closest('[data-slot="page-header-row"]');
     expect(headerRow).toBeTruthy();
     expect(headerRow).toHaveClass("flex", "items-start", "justify-between");
@@ -1388,8 +1414,8 @@ describe("OneLocationAgentPage", () => {
     // one-word form on phones, because the full string in the actions column
     // wrapped the 28px title at 320-390px. That fit, and it cost iOS the
     // meaning — the device showed a bare green switch over the word "On". The
-    // status now renders under the title instead of beside the switch, so it
-    // takes no width from the title and never has to abbreviate.
+    // status now stays directly under the switch as one compact caption, so it
+    // keeps meaning visible without wrapping the title.
     expect(locationStatus.querySelector(".sm\\:hidden")).toBeNull();
     expect(locationStatus.querySelector(".hidden.sm\\:inline")).toBeNull();
     expect(locationStatus.textContent).toBe("Location off");
@@ -1397,9 +1423,6 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("switch", { name: "Turn location on" }),
     ).toHaveAttribute("aria-describedby", locationStatus.id);
-    expect(locationStatus.className).toContain(
-      "text-[color:var(--app-secondary-label)]",
-    );
     expect(headerActions.innerHTML).not.toContain("--app-neutral-fill");
 
     mockCaptureCurrentPosition.mockClear();
@@ -2003,7 +2026,7 @@ describe("OneLocationAgentPage", () => {
     mockUseSearchParams.mockReturnValue(hubParams);
     rerender(<OneLocationAgentPage />);
     expect(
-      await screen.findByRole("heading", { name: "Location Agent" }),
+      await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(
@@ -2208,7 +2231,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(
-      await screen.findByRole("heading", { name: "Location Agent" }),
+      await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
 
     mockCaptureCurrentPosition.mockResolvedValueOnce({
@@ -2428,7 +2451,7 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     expect(
-      await screen.findByRole("heading", { name: "Location Agent" }),
+      await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", {
@@ -2832,7 +2855,7 @@ describe("OneLocationAgentPage", () => {
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
-      await screen.findByRole("heading", { name: "Location Agent" }),
+      await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
     // Completing onboarding persists the one-time intro flag so the marketing
     // intro never shows again for this user.
@@ -3049,7 +3072,7 @@ describe("OneLocationAgentPage", () => {
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
-      await screen.findByRole("heading", { name: "Location Agent" }),
+      await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
     // Completing onboarding persists the one-time intro flag.
@@ -3093,7 +3116,7 @@ describe("OneLocationAgentPage", () => {
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
-      await screen.findByRole("heading", { name: "Location Agent" }),
+      await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
 
     // The header agrees with what the person just did.
@@ -3181,7 +3204,7 @@ describe("OneLocationAgentPage", () => {
       render(<OneLocationAgentPage />);
 
       expect(
-        await screen.findByRole("heading", { name: "Location Agent" }),
+        await screen.findByRole("heading", { name: "Location" }),
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
@@ -3359,7 +3382,7 @@ describe("OneLocationAgentPage", () => {
 
       render(<OneLocationAgentPage />);
       expect(
-        await screen.findByRole("heading", { name: "Location Agent" }),
+        await screen.findByRole("heading", { name: "Location" }),
       ).toBeTruthy();
       await waitFor(() => expect(mockGetState).toHaveBeenCalled());
       fireEvent.click(screen.getByRole("button", { name: /Shared with me/i }));
@@ -3603,7 +3626,7 @@ describe("OneLocationAgentPage", () => {
 
     render(<OneLocationAgentPage />);
     expect(
-      await screen.findByRole("heading", { name: "Location Agent" }),
+      await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
