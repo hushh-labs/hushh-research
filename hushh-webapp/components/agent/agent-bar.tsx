@@ -1555,6 +1555,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       runtimeVertexProject: runtimeConnection.vertexProject,
       runtimeVertexLocation: runtimeConnection.vertexLocation,
       resumptionHandle,
+      voiceName: readVoicePreferences(user?.uid).voiceName,
     });
   }, [
     conversationActive,

@@ -264,6 +264,8 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
    * forward.
    */
   private resumptionHandle: string | null = null;
+  /** A Voice Settings persona pick, sent on runtime_bootstrap; null uses the deployment default. */
+  private voiceName: string | null = null;
   private runtimeCredentialTransport: "developer_api" | "vertex_api_key" =
     "developer_api";
   private runtimeVertexProject: string | null = null;
@@ -383,6 +385,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.latestContext = context;
     this.consentToken = options?.consentToken ?? null;
     this.resumptionHandle = options?.resumptionHandle?.trim() || null;
+    this.voiceName = options?.voiceName?.trim() || null;
     this.runtimeCredentialMode =
       options?.runtimeCredentialMode === "byok"
         ? "byok"
@@ -653,6 +656,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
           ...(this.resumptionHandle
             ? { resumption_handle: this.resumptionHandle }
             : {}),
+          ...(this.voiceName ? { voice_name: this.voiceName } : {}),
         }),
       );
       this.runtimeCredential = null;

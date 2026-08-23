@@ -126,6 +126,8 @@ export type OneVoiceTransportStartOptions = {
    * starts as it always did.
    */
   resumptionHandle?: string | null;
+  /** A Gemini TTS prebuilt voice name from voice-persona-options.ts, or null/absent for the deployment default. */
+  voiceName?: string | null;
   signal?: AbortSignal;
 };
 

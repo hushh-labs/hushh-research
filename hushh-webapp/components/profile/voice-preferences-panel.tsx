@@ -7,6 +7,13 @@ import { PageSubtitle } from "@/components/app-ui/typography";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   readVoicePreferences,
   subscribeVoicePreferences,
   updateVoicePreferences,
@@ -17,6 +24,10 @@ import {
   VOICE_ENGINE_VERSION,
 } from "@/lib/agent/voice-engine-changelog";
 import { VOICE_ENGINE_DOMAINS } from "@/lib/agent/voice-engine-domains";
+import { VOICE_PERSONA_OPTIONS } from "@/lib/agent/voice-persona-options";
+
+/** Select has no null option, so the default pick gets its own sentinel value. */
+const VOICE_NAME_DEFAULT_VALUE = "__default__";
 
 const CHANGELOG_PREVIEW_COUNT = 2;
 
@@ -115,6 +126,41 @@ export function VoicePreferencesPanel({
               aria-label="Voice control"
             />
           }
+        />
+        <SettingsRow
+          title="Voice"
+          description="Pick who One sounds like."
+          disabled={!state.voiceEnabled}
+          trailing={
+            <Select
+              value={state.voiceName ?? VOICE_NAME_DEFAULT_VALUE}
+              disabled={!state.voiceEnabled}
+              onValueChange={(value) =>
+                set((current) => ({
+                  ...current,
+                  voiceName: value === VOICE_NAME_DEFAULT_VALUE ? null : value,
+                }))
+              }
+            >
+              <SelectTrigger
+                className="w-full sm:w-60 min-w-[11rem]"
+                aria-label="Voice"
+              >
+                <SelectValue placeholder="Default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={VOICE_NAME_DEFAULT_VALUE}>
+                  Default
+                </SelectItem>
+                {VOICE_PERSONA_OPTIONS.map((option) => (
+                  <SelectItem key={option.name} value={option.name}>
+                    {option.name} — {option.descriptor}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          }
+          stackTrailingOnMobile
         />
       </SettingsGroup>
       <SettingsGroup title="Safety" description="For actions that already ask to confirm.">
