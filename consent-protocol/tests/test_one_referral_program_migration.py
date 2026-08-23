@@ -248,3 +248,51 @@ def test_rollback_drops_every_table_and_leaves_pgcrypto_alone() -> None:
         assert f"DROP TABLE IF EXISTS {table}" in rollback
     assert "DROP TRIGGER IF EXISTS one_referral_relationships_guard_transition" in rollback
     assert "DROP EXTENSION" not in rollback
+
+
+# --------------------------------------------------------------------------
+# 167 -- the live stream's doorbell
+# --------------------------------------------------------------------------
+
+REALTIME_MIGRATION = "167_one_referral_realtime_notify.sql"
+REALTIME_ROLLBACK = "167_one_referral_realtime_notify.rollback.sql"
+
+
+def _realtime() -> str:
+    return (MIGRATIONS_DIR / REALTIME_MIGRATION).read_text(encoding="utf-8")
+
+
+def test_the_notify_migration_is_registered_and_reversible() -> None:
+    manifest = _manifest()
+    assert REALTIME_MIGRATION in manifest["ordered_migrations"]
+    assert REALTIME_MIGRATION in manifest["groups"]["iam"]
+    assert (MIGRATIONS_DIR / "rollback" / REALTIME_ROLLBACK).exists()
+
+
+def test_the_notify_payload_carries_no_referred_user() -> None:
+    # The payload travels to EVERY listening connection on the database, so it
+    # is a doorbell and nothing else: the referrer id and a reason. What that
+    # referrer may see is decided once, by the authenticated summary endpoint;
+    # copying that decision into a trigger would mean maintaining it twice.
+    statements = _statements(_realtime())
+    assert "'referrer_user_id', row_data.referrer_user_id" in statements
+    assert "'referrer_user_id', referrer" in statements
+    assert "referred_user_id," not in statements.split("pg_notify")[1]
+    for leak in ("credited_active_seconds'", "meaningful_event_count'", "agent_key'"):
+        assert leak not in statements
+
+
+def test_a_no_op_write_wakes_nobody() -> None:
+    # A bulk UPDATE that changes nothing must not wake every open stream, and a
+    # heartbeat that earned no credit changes no number on the screen.
+    statements = _statements(_realtime())
+    assert "NEW.status = OLD.status" in statements
+    assert "NEW.credited_active_seconds = OLD.credited_active_seconds" in statements
+
+
+def test_the_engagement_trigger_has_its_index() -> None:
+    # It looks the relationship up by referred user on every credited
+    # heartbeat -- the hot path of the whole program.
+    statements = _statements(_realtime())
+    assert "one_referral_relationships_referred_lookup" in statements
+    assert "ON one_referral_relationships (referred_user_id)" in statements
