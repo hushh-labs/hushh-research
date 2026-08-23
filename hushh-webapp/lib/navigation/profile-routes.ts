@@ -9,6 +9,7 @@ export type ProfilePanel =
   | "connected-systems"
   | "preferences"
   | "security"
+  | "referrals"
   | "support"
   | "gmail";
 
@@ -60,6 +61,7 @@ export function normalizeProfilePanel(value: string | null): ProfilePanel | null
     value === "connected-systems" ||
     value === "preferences" ||
     value === "security" ||
+    value === "referrals" ||
     value === "support" ||
     value === "gmail"
   ) {
@@ -272,6 +274,10 @@ export function buildProfileRoute(params?: {
     return appendQuery(ROUTES.GMAIL, {}, params?.searchParams);
   }
 
+  if (panel === "referrals") {
+    return appendQuery(ROUTES.PROFILE_REFERRALS, {}, params?.searchParams);
+  }
+
   if (panel === "support") {
     if (detail === "support-routing") {
       return appendQuery(ROUTES.PROFILE_SUPPORT_ROUTING, {}, params?.searchParams);
@@ -391,6 +397,10 @@ export function resolveProfileRouteState(
   }
   if (normalizedPath === ROUTES.PROFILE_GMAIL_ACTIONS) {
     return { panel: "gmail", detail: "gmail-actions" };
+  }
+
+  if (normalizedPath === ROUTES.PROFILE_REFERRALS) {
+    return { panel: "referrals", detail: null };
   }
 
   if (normalizedPath === ROUTES.PROFILE_SUPPORT) {

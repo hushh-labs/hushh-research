@@ -94,6 +94,7 @@ export const ROUTES = {
   PROFILE_GMAIL: "/one/profile/gmail",
   PROFILE_GMAIL_CONNECTION: "/one/profile/gmail/connection",
   PROFILE_GMAIL_ACTIONS: "/one/profile/gmail/actions",
+  PROFILE_REFERRALS: "/one/profile/referrals",
   PROFILE_SUPPORT: "/one/profile/support",
   PROFILE_SUPPORT_ROUTING: "/one/profile/support/routing",
   PROFILE_SUPPORT_COMPOSE: "/one/profile/support/compose",

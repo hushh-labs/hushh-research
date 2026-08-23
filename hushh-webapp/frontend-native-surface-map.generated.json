@@ -4616,6 +4616,7 @@
         "route.profile",
         "route.profile_connected_systems",
         "route.profile_pkm_agent_lab",
+        "route.profile_referrals_panel",
         "route.profile_security_panel",
         "route.profile_support_panel"
       ],
@@ -6054,6 +6055,63 @@
           "unavailable-valid"
         ]
       },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/referrals",
+      "page_file": "app/one/profile/referrals/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.support",
+          "purpose": "Help the person understand and use the support screen through its generated controls.",
+          "screen": "profile_referrals_panel",
+          "entry_cue": "You can say “Open Support Panel” to use the primary control on this screen.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.profile_referrals_panel",
+          "happy_path_action_ids": [
+            "route.profile_referrals_panel"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": "/one/profile/referrals",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -8835,5 +8893,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "33acbe225dd23be2f13e015dd74833dc67b6e3edfe3663d70567cc6f7139c36c"
+  "content_sha256": "aeaebed1f3855db5415d8974d0dfaca39cc0321abcbbae3d4cd6a31a732cc53b"
 }

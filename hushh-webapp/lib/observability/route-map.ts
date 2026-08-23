@@ -45,6 +45,7 @@ export const ROUTE_ID_VALUES = [
   "profile_gmail",
   "profile_gmail_connection",
   "profile_gmail_actions",
+  "profile_referrals",
   "profile_support",
   "profile_support_routing",
   "profile_support_compose",
@@ -207,6 +208,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.PROFILE_GMAIL_CONNECTION)
     return "profile_gmail_connection";
   if (pathname === ROUTES.PROFILE_GMAIL_ACTIONS) return "profile_gmail_actions";
+  if (pathname === ROUTES.PROFILE_REFERRALS) return "profile_referrals";
   if (pathname === ROUTES.PROFILE_SUPPORT) return "profile_support";
   if (pathname === ROUTES.PROFILE_SUPPORT_ROUTING)
     return "profile_support_routing";

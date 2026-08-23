@@ -102,6 +102,7 @@ function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "connected-systems") return "Connected Systems";
   if (panel === "preferences") return "Preferences";
   if (panel === "security") return "Security";
+  if (panel === "referrals") return "Invite friends";
   if (panel === "support") return "Support & feedback";
   if (panel === "gmail") return "Gmail receipts";
   if (panel === "regulatory") return "Regulatory profile";
