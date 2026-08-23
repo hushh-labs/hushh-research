@@ -15,7 +15,14 @@ export type ReferralStatus =
 
 export type ReferralRow = {
   status: ReferralStatus;
+  /** Where this person has reached, as a step -- never who they are. */
+  step: string;
   started_on: string;
+  /** Credited active minutes so far, capped at the bar. */
+  active_minutes: number;
+  required_minutes: number;
+  meaningful_events: number;
+  required_events: number;
 };
 
 export type ReferralSummary = {

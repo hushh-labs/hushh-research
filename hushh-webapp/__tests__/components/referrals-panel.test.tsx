@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 
 import { ReferralsPanel } from "@/components/profile/referrals-panel";
 import { ReferralService, type ReferralSummary } from "@/lib/services/referral-service";
@@ -37,8 +37,24 @@ const summary: ReferralSummary = {
   required_active_minutes: 15,
   new_users_only: true,
   referrals: [
-    { status: "Qualified", started_on: "2026-08-20" },
-    { status: "In progress", started_on: "2026-08-22" },
+    {
+      status: "Qualified" as const,
+      step: "Qualified",
+      started_on: "2026-08-20",
+      active_minutes: 15,
+      required_minutes: 15,
+      meaningful_events: 4,
+      required_events: 3,
+    },
+    {
+      status: "In progress" as const,
+      step: "Using an agent",
+      started_on: "2026-08-22",
+      active_minutes: 4,
+      required_minutes: 15,
+      meaningful_events: 1,
+      required_events: 3,
+    },
   ],
 };
 
@@ -147,7 +163,17 @@ describe("ReferralsPanel", () => {
   it("shows the review row when the server reports one", async () => {
     mockSummary({
       under_review_count: 1,
-      referrals: [{ status: "Under review", started_on: "2026-08-21" }],
+      referrals: [
+        {
+          status: "Under review" as const,
+          step: "Under review",
+          started_on: "2026-08-21",
+          active_minutes: 15,
+          required_minutes: 15,
+          meaningful_events: 3,
+          required_events: 3,
+        },
+      ],
     });
     render(<ReferralsPanel />);
     await waitFor(() => expect(screen.getAllByText("Under review").length).toBeGreaterThan(0));
@@ -159,6 +185,81 @@ describe("ReferralsPanel", () => {
     await waitFor(() =>
       expect(screen.getByText(/20 active minutes/)).toBeTruthy(),
     );
+  });
+
+  it("opens the in-progress detail on tap, showing the step and the minutes", async () => {
+    mockSummary();
+    render(<ReferralsPanel />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("referral-in-progress-count")).toBeTruthy(),
+    );
+    // Collapsed by default: the counts are the summary, the detail is a choice.
+    expect(screen.queryByTestId("referral-progress-minutes")).toBeNull();
+
+    // SettingsRow splits into an outer shell (which carries the test id) and an
+    // inner button when it has a trailing element, so the click has to land on
+    // the button, not the shell.
+    fireEvent.click(
+      within(screen.getByTestId("referral-in-progress-row")).getByRole("button"),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("referral-progress-minutes").textContent).toBe(
+        "4/15",
+      ),
+    );
+    expect(screen.getByText("Using an agent")).toBeTruthy();
+  });
+
+  it("names nobody in the in-progress detail", async () => {
+    mockSummary();
+    const { container } = render(<ReferralsPanel />);
+    await waitFor(() =>
+      expect(screen.getByTestId("referral-in-progress-count")).toBeTruthy(),
+    );
+    // SettingsRow splits into an outer shell (which carries the test id) and an
+    // inner button when it has a trailing element, so the click has to land on
+    // the button, not the shell.
+    fireEvent.click(
+      within(screen.getByTestId("referral-in-progress-row")).getByRole("button"),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("referral-progress-minutes")).toBeTruthy(),
+    );
+
+    // The detail is the most tempting place to leak an identity, because it is
+    // the one screen that is genuinely about one other person.
+    const rendered = (container.textContent || "").toLowerCase();
+    for (const leak of ["@", "+91", "user_", "uid", "device", "risk"]) {
+      expect(rendered).not.toContain(leak);
+    }
+  });
+
+  it("does not offer the detail when there is nothing in progress", async () => {
+    mockSummary({ in_progress_count: 0, referrals: [] });
+    render(<ReferralsPanel />);
+    await waitFor(() => expect(screen.getByText("No referrals yet")).toBeTruthy());
+
+    // Not merely empty when opened -- not openable at all. A row that looks
+    // tappable and does nothing is worse than a row that does not invite the tap.
+    const row = screen.getByTestId("referral-in-progress-row");
+    expect(within(row).queryByRole("button")).toBeNull();
+    expect(screen.queryByTestId("referral-progress-minutes")).toBeNull();
+  });
+
+  it("refetches when the tab comes back to the foreground", async () => {
+    // A referral changes state because of what the OTHER person did, so a count
+    // that only moves on a manual reload is wrong the moment it is drawn.
+    const spy = mockSummary();
+    render(<ReferralsPanel />);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(3));
   });
 
   it("does not let a slow first response overwrite a newer one", async () => {

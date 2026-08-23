@@ -23,6 +23,7 @@ type LoadState = "loading" | "ready" | "error";
 export function ReferralsPanel() {
   const { user } = useAuth();
   const [state, setState] = useState<LoadState>("loading");
+  const [showProgress, setShowProgress] = useState(false);
   const [summary, setSummary] = useState<ReferralSummary | null>(null);
 
   // Guards against a slow first request landing after a fast retry and
@@ -55,6 +56,32 @@ export function ReferralsPanel() {
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  /**
+   * Keep the numbers current without the person having to reload.
+   *
+   * A referral changes state because of something the OTHER person did --
+   * they finished setup, they opened an agent, their minutes crossed the bar --
+   * so a count that only moves on a manual refresh is wrong the moment it is
+   * rendered. Refetch when the tab comes back to the foreground, and slowly
+   * while it is open. A hidden tab polls nothing: it would spend a phone's
+   * battery to update a screen nobody is looking at.
+   */
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+
+    const interval = window.setInterval(refreshIfVisible, 30_000);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    window.addEventListener("focus", refreshIfVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+      window.removeEventListener("focus", refreshIfVisible);
+    };
   }, [load]);
 
   // Read out of state once. An optional chain inside a dependency array is
@@ -112,6 +139,9 @@ export function ReferralsPanel() {
   }
 
   const hasReferrals = summary.referrals.length > 0;
+  const inProgressRows = summary.referrals.filter(
+    (row) => row.status === "In progress",
+  );
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -150,8 +180,20 @@ export function ReferralsPanel() {
         <SettingsRow
           icon={Users}
           title="In progress"
-          trailing={<span data-testid="referral-in-progress-count">{summary.in_progress_count}</span>}
+          trailing={
+            <span data-testid="referral-in-progress-count">
+              {summary.in_progress_count}
+            </span>
+          }
           density="compact"
+          testId="referral-in-progress-row"
+          chevron={summary.in_progress_count > 0}
+          onClick={
+            summary.in_progress_count > 0
+              ? () => setShowProgress((open) => !open)
+              : undefined
+          }
+          ariaPressed={summary.in_progress_count > 0 ? showProgress : undefined}
         />
         {summary.under_review_count > 0 ? (
           <SettingsRow
@@ -162,6 +204,28 @@ export function ReferralsPanel() {
           />
         ) : null}
       </SettingsGroup>
+
+      {showProgress && inProgressRows.length > 0 ? (
+        <SettingsGroup
+          title="Progress"
+          description="Nobody is named. You see the step, not the person."
+        >
+          {inProgressRows.map((row, index) => (
+            <SettingsRow
+              key={`progress:${row.started_on}:${index}`}
+              icon={Users}
+              title={row.step}
+              description={`${row.active_minutes} of ${row.required_minutes} active minutes · joined ${row.started_on}`}
+              trailing={
+                <span data-testid="referral-progress-minutes">
+                  {row.active_minutes}/{row.required_minutes}
+                </span>
+              }
+              density="compact"
+            />
+          ))}
+        </SettingsGroup>
+      ) : null}
 
       {hasReferrals ? (
         <SettingsGroup title="Recent">
