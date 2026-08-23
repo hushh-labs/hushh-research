@@ -236,7 +236,22 @@ describe("LiveShareStatusCard", () => {
     expect(onChangeDuration).toHaveBeenCalledTimes(1);
 
     const ends = screen.getByText(/^Ends /);
-    expect(change.parentElement).toBe(ends.parentElement);
+    expect(change.closest("div")).toBe(ends.parentElement);
+  });
+
+  it("opens the share composer from the live timer card for another share", () => {
+    const onShareMore = vi.fn();
+    render(
+      <LiveShareStatusCard
+        status={status()}
+        onManage={vi.fn()}
+        onStop={vi.fn()}
+        onShareMore={onShareMore}
+      />,
+    );
+
+    screen.getByRole("button", { name: "Share more" }).click();
+    expect(onShareMore).toHaveBeenCalledTimes(1);
   });
 
   it("hides Change time when there is no single share to change", () => {

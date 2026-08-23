@@ -820,7 +820,10 @@ async function switchLocationTab(
 }
 
 async function openSharePersonStep() {
-  fireEvent.click(screen.getByRole("button", { name: /^Share location$/i }));
+  fireEvent.click(
+    screen.queryByRole("button", { name: /^Share location$/i }) ??
+      screen.getByRole("button", { name: /^Share more$/i }),
+  );
   expect(
     await screen.findByRole("heading", { name: "Who can see you?" }),
   ).toBeTruthy();
@@ -1214,6 +1217,7 @@ describe("OneLocationAgentPage", () => {
     expect(within(activity).getByText("Active")).toBeTruthy();
     expect(within(activity).getByText("Shared With Me")).toBeTruthy();
     expect(within(activity).getByText("Needs Review")).toBeTruthy();
+    expect(within(activity).getAllByText("0").length).toBeGreaterThanOrEqual(3);
   });
 
   it("keeps Activity rows visually quiet even when counts are non-zero", async () => {
@@ -1284,9 +1288,9 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
 
     const actions = await screen.findByTestId("one-location-now-actions");
-    expect(actions.className).toContain("space-y-2");
+    expect(actions.className).toContain("space-y-0");
     expect(actions.className).not.toContain("max-w-[282px]");
-    expect(within(actions).getByRole("heading", { name: "Actions" })).toBeTruthy();
+    expect(within(actions).queryByRole("heading", { name: "Actions" })).toBeNull();
     expect(
       within(actions).getByRole("button", { name: "Request location" }),
     ).toBeTruthy();
@@ -1359,7 +1363,7 @@ describe("OneLocationAgentPage", () => {
       name: "Location",
     });
     expect(headerActions.className).toContain("ml-auto");
-    expect(headerActions.className).toContain("items-center");
+    expect(headerActions.className).toContain("items-end");
     expect(headerActions.className).toContain("justify-center");
     // The actions column owns the switch and its compact visible status.
     const status = screen.getByTestId("one-location-header-status");
@@ -1374,8 +1378,9 @@ describe("OneLocationAgentPage", () => {
       "mt-1",
       "w-full",
       "whitespace-nowrap",
-      "text-center",
-      "text-[11px]",
+      "text-right",
+      "text-[12px]",
+      "font-medium",
     );
     expect(status.textContent).toBe("Location off");
     // Still the switch's description wherever it renders.
