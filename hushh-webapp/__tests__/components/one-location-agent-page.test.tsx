@@ -747,6 +747,13 @@ async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
   mockCaptureCurrentPosition.mockClear();
 }
 
+function mockLocationSearchParams(query: string) {
+  const params = new URLSearchParams(query);
+  mockSearchParams.toString = () => params.toString();
+  mockSearchParamsGet.mockImplementation((name: string) => params.get(name));
+  mockUseSearchParams.mockReturnValue(mockSearchParams);
+}
+
 /**
  * Hold the next device fix open and hand back its release. Lets a test assert
  * what the UI does DURING the capture — the window the Location switch used to
@@ -1179,9 +1186,8 @@ describe("OneLocationAgentPage", () => {
       screen.queryByRole("heading", { name: "Proximity alerts" }),
     ).toBeNull();
     expect(screen.queryByText("Advisor meetup")).toBeNull();
-    // Now is intentionally compact: capture happens only from Your Map's
-    // explicit Locate me control, never from a dashboard toggle.
-    expect(screen.getByRole("button", { name: "Your Map" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Your Map" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Settings$/i })).toBeNull();
     expect(
       screen.getByRole("button", { name: /^Share location$/i }),
     ).toBeTruthy();
@@ -1199,10 +1205,10 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("keeps the Activity menu visible even when every Activity count is zero", async () => {
-    // Activity is part of the Location menu's information architecture. Empty
-    // rows stay quiet, but the section remains present so the menu shape does
-    // not shift between empty and active states.
+  it("hides the Activity menu when every Activity count is zero", async () => {
+    // Empty Activity rows are visual noise on the Now screen. Keep the real
+    // destinations wired when counts exist, but remove the whole group when
+    // nothing needs attention.
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -1213,11 +1219,9 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
-    const activity = screen.getByTestId("one-location-now-activity");
-    expect(within(activity).getByText("Active")).toBeTruthy();
-    expect(within(activity).getByText("Shared With Me")).toBeTruthy();
-    expect(within(activity).getByText("Needs Review")).toBeTruthy();
-    expect(within(activity).getAllByText("0").length).toBeGreaterThanOrEqual(3);
+    expect(screen.queryByTestId("one-location-now-activity")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Activity" })).toBeNull();
+    expect(screen.queryByText("0")).toBeNull();
   });
 
   it("keeps Activity rows visually quiet even when counts are non-zero", async () => {
@@ -1263,7 +1267,7 @@ describe("OneLocationAgentPage", () => {
         ?.getAttribute("data-icon-tone");
     };
 
-    expect(await toneOf("Active")).toBeUndefined();
+    expect(await toneOf("Active shares")).toBeUndefined();
     expect(await toneOf("Shared With Me")).toBeUndefined();
     expect(await toneOf("Needs Review")).toBeUndefined();
   });
@@ -1284,34 +1288,39 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     expect(within(primary).getByText("You're not sharing")).toBeTruthy();
     expect(
-      within(primary).getByText("Choose a Circle or contact to start."),
+      within(primary).getByText("Choose a Circle or contact."),
     ).toBeTruthy();
 
     const actions = await screen.findByTestId("one-location-now-actions");
-    expect(actions.className).toContain("space-y-0");
+    expect(actions.className).toContain("pt-4");
     expect(actions.className).not.toContain("max-w-[282px]");
-    expect(within(actions).queryByRole("heading", { name: "Actions" })).toBeNull();
+    expect(within(actions).getByRole("heading", { name: "Actions" })).toBeTruthy();
     expect(
       within(actions).getByRole("button", { name: "Request location" }),
     ).toBeTruthy();
-    expect(within(actions).getByRole("button", { name: "SMS" })).toBeTruthy();
+    expect(
+      within(actions).getByRole("button", {
+        name: "Save My Soul emergency alert",
+      }),
+    ).toBeTruthy();
     expect(within(actions).getByText("Ask for location")).toBeTruthy();
     expect(within(actions).getByText("Check in")).toBeTruthy();
     expect(within(actions).queryByText("Their Location")).toBeNull();
     expect(within(actions).queryByText("Confirm Arrival")).toBeNull();
     expect(within(actions).getByText("Save My Soul")).toBeTruthy();
-    expect(within(actions).getByText("Emergency Alert")).toBeTruthy();
+    expect(within(actions).getByText("Emergency alert")).toBeTruthy();
 
     const actionGrid = actions.querySelector("[data-one-location-action-grid]");
-    expect(actionGrid?.className).toContain("grid-cols-2");
+    expect(actionGrid?.className).toContain("grid-cols-1");
+    expect(actionGrid?.className).toContain("min-[360px]:grid-cols-2");
 
     const actionCells = actionGrid?.querySelectorAll(
       "[data-one-location-action-cell]",
     );
     expect(actionCells).toHaveLength(2);
     actionCells?.forEach((cell) => {
-      expect(cell.className).toContain("items-start");
-      expect(cell.className).toContain("text-left");
+      expect(cell.className).toContain("items-center");
+      expect(cell.className).toContain("text-center");
       expect(cell.className).toContain("rounded-[16px]");
       expect(cell.className).toContain("min-h-[112px]");
       expect(cell.className).toContain("px-5");
@@ -1321,7 +1330,7 @@ describe("OneLocationAgentPage", () => {
     ).toContain("text-[color:var(--app-accent)]");
     expect(
       actionGrid?.querySelector("[data-one-location-action-icon]")?.className,
-    ).toContain("sm:[&>svg]:h-8");
+    ).toContain("[&>svg]:h-8");
     expect(
       actionGrid?.querySelectorAll("[data-one-location-action-icon] svg"),
     ).toHaveLength(2);
@@ -1331,22 +1340,22 @@ describe("OneLocationAgentPage", () => {
     expect(
       actionGrid?.querySelector('[data-location-menu-icon="checkIn"]'),
     ).toBeTruthy();
+    expect(
+      actions.querySelector("[data-one-location-emergency-cell]"),
+    ).toBeTruthy();
     expect(actions.textContent).not.toContain("near_me");
     expect(actions.textContent).not.toContain("location_on");
     expect(actions.textContent).not.toContain("where_to_vote");
     expect(actions.querySelector("[data-one-location-sms-row]")).toBeTruthy();
 
     const activity = screen.getByTestId("one-location-now-activity");
-    expect(within(activity).getByText("Active")).toBeTruthy();
-    expect(within(activity).getByText("Shared With Me")).toBeTruthy();
-    expect(within(activity).getByText("Needs Review")).toBeTruthy();
-
-    const more = screen.getByTestId("one-location-now-more");
-    expect(within(more).getByText("Map")).toBeTruthy();
-    expect(within(more).getByText("Settings")).toBeTruthy();
+    expect(within(activity).getByText("Active shares")).toBeTruthy();
+    expect(within(activity).queryByText("Shared With Me")).toBeNull();
+    expect(within(activity).queryByText("Needs Review")).toBeNull();
 
     expect(within(activity).queryByText("Share")).toBeNull();
-    expect(within(more).queryByText("Check-In")).toBeNull();
+    expect(screen.queryByTestId("one-location-now-more")).toBeNull();
+    expect(screen.queryByText("Check-In")).toBeNull();
     expect(screen.queryByText("Quick actions")).toBeNull();
   });
 
@@ -1363,7 +1372,7 @@ describe("OneLocationAgentPage", () => {
       name: "Location",
     });
     expect(headerActions.className).toContain("ml-auto");
-    expect(headerActions.className).toContain("items-end");
+    expect(headerActions.className).toContain("items-center");
     expect(headerActions.className).toContain("justify-center");
     // The actions column owns the switch and its compact visible status.
     const status = screen.getByTestId("one-location-header-status");
@@ -1378,9 +1387,9 @@ describe("OneLocationAgentPage", () => {
       "mt-1",
       "w-full",
       "whitespace-nowrap",
-      "text-right",
+      "text-center",
       "text-[12px]",
-      "font-medium",
+      "font-normal",
     );
     expect(status.textContent).toBe("Location off");
     // Still the switch's description wherever it renders.
@@ -1396,8 +1405,12 @@ describe("OneLocationAgentPage", () => {
     const heading = screen.getByRole("heading", { name: "Location" });
     const headerRow = heading.closest('[data-slot="page-header-row"]');
     expect(headerRow).toBeTruthy();
-    expect(headerRow).toHaveClass("flex", "items-start", "justify-between");
+    expect(headerRow).toHaveClass("flex", "justify-between");
+    expect(screen.getByTestId("page-header").className).toContain(
+      "[&_[data-slot=page-header-row]]:!items-center",
+    );
     expect(heading).toHaveClass("ui-text-agent-title");
+    expect(screen.getByTestId("one-location-header-icon")).toBeTruthy();
     expect(
       headerRow?.contains(
         screen.getByRole("switch", { name: "Turn location on" }),
@@ -1473,16 +1486,10 @@ describe("OneLocationAgentPage", () => {
       attendees: [],
     });
 
+    mockLocationSearchParams("action=settings");
     render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow();
+    await skipLocationEntryFlow({ expectMain: false });
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole("switch", { name: "Turn location off" }),
-      ).toHaveAttribute("aria-checked", "true"),
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
     const pauseSwitch = await screen.findByRole("switch", {
       name: "Pause my location",
     });
@@ -1533,15 +1540,10 @@ describe("OneLocationAgentPage", () => {
     });
     mockCheckoutNearby.mockRejectedValue(new Error("checkout unavailable"));
 
+    mockLocationSearchParams("action=settings");
     render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow();
-    await waitFor(() =>
-      expect(
-        screen.getByRole("switch", { name: "Turn location off" }),
-      ).toHaveAttribute("aria-checked", "true"),
-    );
+    await skipLocationEntryFlow({ expectMain: false });
 
-    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
     const pauseSwitch = await screen.findByRole("switch", {
       name: "Pause my location",
     });
@@ -1557,7 +1559,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("keeps Pause enabled when resuming cannot capture a fresh point", async () => {
-    render(<OneLocationAgentPage />);
+    const { unmount } = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     await waitFor(() =>
       expect(
@@ -1574,7 +1576,11 @@ describe("OneLocationAgentPage", () => {
     mockCaptureCurrentPosition.mockRejectedValue(
       new Error("fresh location unavailable"),
     );
-    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+    unmount();
+    mockLocationSearchParams("action=settings");
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow({ expectMain: false });
+
     const pauseSwitch = await screen.findByRole("switch", {
       name: "Pause my location",
     });
@@ -1765,9 +1771,8 @@ describe("OneLocationAgentPage", () => {
     const alreadySharing = await screen.findByTestId(
       "one-location-share-already-sharing",
     );
-    expect(
-      within(alreadySharing).getByText("Already sharing (1)"),
-    ).toBeTruthy();
+    expect(within(alreadySharing).getByText("Already sharing")).toBeTruthy();
+    expect(within(alreadySharing).getByText("1")).toBeTruthy();
     expect(within(alreadySharing).getByText("Trusted B")).toBeTruthy();
     // The same words the Active shares screen uses for the same grant. Two
     // screens describing one share must not disagree about how long is left.
@@ -1874,6 +1879,8 @@ describe("OneLocationAgentPage", () => {
 
     const note = screen.getByRole("textbox", { name: "Optional note" });
     const startButton = screen.getByRole("button", { name: "Start sharing" });
+    expect(screen.queryByText("0/140")).toBeNull();
+    fireEvent.focus(note);
     expect(screen.getByText("0/140")).toBeTruthy();
 
     fireEvent.change(note, { target: { value: "a".repeat(140) } });
@@ -1965,7 +1972,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Who can see you?" }),
     ).toBeTruthy();
-    expect(screen.getByPlaceholderText("Search trusted people")).toHaveValue(
+    expect(screen.getByPlaceholderText("Search people")).toHaveValue(
       "",
     );
     expect(
@@ -1988,7 +1995,7 @@ describe("OneLocationAgentPage", () => {
     mockUseSearchParams.mockReturnValue(shareParams);
     rerender(<OneLocationAgentPage />);
 
-    fireEvent.change(screen.getByPlaceholderText("Search trusted people"), {
+    fireEvent.change(screen.getByPlaceholderText("Search people"), {
       target: { value: "Trusted" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -2054,7 +2061,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("heading", { name: "Who can see you?" }),
     ).toBeTruthy();
-    expect(screen.getByPlaceholderText("Search trusted people")).toHaveValue(
+    expect(screen.getByPlaceholderText("Search people")).toHaveValue(
       "",
     );
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
@@ -2095,7 +2102,7 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("textbox", { name: "Optional note" })).toHaveValue(
       "",
     );
-    expect(screen.getByText("0/140")).toBeTruthy();
+    expect(screen.queryByText("0/140")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: /^Share location$/i }));
@@ -2173,11 +2180,10 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("button", { name: "Start sharing" })).toBeEnabled();
   });
 
-  it("opens the canonical Location Settings URL and owns Saved Locations there", async () => {
+  it("renders the canonical Location Settings URL and owns Saved Locations there", async () => {
+    mockLocationSearchParams("action=settings");
     render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow();
-
-    fireEvent.click(screen.getByRole("button", { name: /^Settings$/i }));
+    await skipLocationEntryFlow({ expectMain: false });
 
     expect(
       await screen.findByRole("heading", { name: "Settings" }),
@@ -2186,10 +2192,6 @@ describe("OneLocationAgentPage", () => {
       screen.getByRole("region", { name: "Saved Locations" }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Manage sharing" })).toBeNull();
-    expect(mockRouterPush).toHaveBeenCalledWith(
-      "/one/location?action=settings",
-      { scroll: false },
-    );
   });
 
   it("canonicalizes the legacy Location privacy URL without losing its origin", async () => {
@@ -2218,7 +2220,11 @@ describe("OneLocationAgentPage", () => {
     mockCaptureCurrentPosition.mockClear();
     const envelopeWritesBeforeOpen = mockStoreEnvelope.mock.calls.length;
 
-    fireEvent.click(screen.getByRole("button", { name: /^SMS$/i }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Save My Soul emergency alert",
+      }),
+    );
 
     expect(
       await screen.findByRole("heading", { name: "Save my Soul", level: 1 }),
@@ -2260,7 +2266,11 @@ describe("OneLocationAgentPage", () => {
         }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /^SMS$/i }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Save My Soul emergency alert",
+      }),
+    );
 
     expect(
       await screen.findByRole("button", {
@@ -3245,7 +3255,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Menu" }));
     expect(screen.getByRole("button", { name: /Active shares/i })).toBeTruthy();
     await openSharePersonStep();
-    fireEvent.change(screen.getByPlaceholderText("Search trusted people"), {
+    fireEvent.change(screen.getByPlaceholderText("Search people"), {
       target: { value: "advisor" },
     });
 

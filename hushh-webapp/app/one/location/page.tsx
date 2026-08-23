@@ -665,7 +665,7 @@ const LOCATION_VOICE_CONTROLS = [
   // Settings, so both places answer to the same id.
   { id: "one-location-updates-toggle", label: "Location updates", purpose: "Pause or resume location updates from this device.", actionId: "location.pause_updates", role: "switch" },
   { id: "one-location-confirm-share", label: "Start sharing", purpose: "Send the share to the selected people.", actionId: "location.share_selected", role: "button" },
-  { id: "one-location-share-recipient-search", label: "Search trusted people", purpose: "Find and select who to share with.", actionId: "location.select_share_recipient", role: "textbox" },
+  { id: "one-location-share-recipient-search", label: "Search people", purpose: "Find and select who to share with.", actionId: "location.select_share_recipient", role: "textbox" },
 ];
 
 type BusyState =
@@ -12272,6 +12272,7 @@ export function OneLocationAgentPageContent({
     return (
       <AppPageShell
         width="agent"
+        fitContent
         className="relative isolate"
         nativeTest={nativeTestConfig}
       >
