@@ -104,6 +104,7 @@ export function LiveShareStatusCard({
   onStop,
   stopBusy,
   onChangeDuration,
+  onShareMore,
   onEnded,
 }: {
   status: LiveShareStatus;
@@ -121,6 +122,8 @@ export function LiveShareStatusCard({
    * different share to the person watching.
    */
   onChangeDuration?: () => void;
+  /** Opens the existing share composer while a share is already live. */
+  onShareMore?: () => void;
   /** Fired once when the countdown reaches zero, so the page can reconcile. */
   onEnded?: () => void;
 }) {
@@ -275,7 +278,7 @@ export function LiveShareStatusCard({
         </div>
       ) : null}
 
-      {footer || onChangeDuration ? (
+      {footer || onChangeDuration || onShareMore ? (
         <div className={LIVE_SHARE_FOOTER_ROW_CLASSNAME}>
           {footer ? (
             <p
@@ -289,23 +292,42 @@ export function LiveShareStatusCard({
             </p>
           ) : null}
 
-          {onChangeDuration ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onChangeDuration}
-              className={cn(
-                LIVE_SHARE_ACTION_CLASSNAME,
-                "text-[color:var(--app-accent)]",
-              )}
-              data-ui-contract="occlusion-sensitive"
-              data-ui-role="control"
-              data-ui-id="location-live-share-duration"
-              data-testid="one-location-live-share-change-time"
-            >
-              Change time
-            </Button>
-          ) : null}
+          <span className="ml-auto inline-flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            {onChangeDuration ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onChangeDuration}
+                className={cn(
+                  LIVE_SHARE_ACTION_CLASSNAME,
+                  "text-[color:var(--app-accent)]",
+                )}
+                data-ui-contract="occlusion-sensitive"
+                data-ui-role="control"
+                data-ui-id="location-live-share-duration"
+                data-testid="one-location-live-share-change-time"
+              >
+                Change time
+              </Button>
+            ) : null}
+            {onShareMore ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onShareMore}
+                className={cn(
+                  LIVE_SHARE_ACTION_CLASSNAME,
+                  "text-[color:var(--app-accent)]",
+                )}
+                data-ui-contract="occlusion-sensitive"
+                data-ui-role="control"
+                data-ui-id="location-live-share-more"
+                data-testid="one-location-live-share-more"
+              >
+                Share more
+              </Button>
+            ) : null}
+          </span>
         </div>
       ) : null}
     </section>
