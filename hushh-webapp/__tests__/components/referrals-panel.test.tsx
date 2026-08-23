@@ -4,6 +4,20 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { ReferralsPanel } from "@/components/profile/referrals-panel";
 import { ReferralService, type ReferralSummary } from "@/lib/services/referral-service";
 
+// The panel reads the signed-in user to mint an ID token. Stubbing the hook
+// rather than the whole auth provider keeps the token in the assertions --
+// the first version of this suite mocked only the service, which is exactly
+// why it passed while the deployed screen returned 401 on every load.
+// The identity must be STABLE across renders. `user` is a dependency of the
+// panel's loader, so a mock that returns a fresh object each call re-runs the
+// effect on every render and quietly eats the queued mock responses.
+vi.mock("@/lib/firebase/auth-context", () => {
+  const value = {
+    user: { uid: "test_user", getIdToken: () => Promise.resolve("test-id-token") },
+  };
+  return { useAuth: () => value };
+});
+
 /**
  * What the Referrals tab is allowed to show, and what it must never show.
  *
@@ -56,6 +70,14 @@ describe("ReferralsPanel", () => {
     // The two rows must not be mistaken for the counts: the panel renders what
     // the server said (3), not the length of the list it was handed (2).
     expect(summary.referrals.length).not.toBe(summary.qualified_count);
+  });
+
+  it("sends the Firebase ID token, because the endpoint answers 401 without it", async () => {
+    const spy = mockSummary();
+    render(<ReferralsPanel />);
+
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy).toHaveBeenCalledWith({ idToken: "test-id-token" });
   });
 
   it("shows the referral link and copies exactly that link", async () => {
