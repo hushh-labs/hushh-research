@@ -2683,6 +2683,7 @@ function PeopleHub({
       size="sm"
       onClick={vm.onSyncContacts}
       isLoading={vm.busy === "contactSync"}
+      data-voice-control-id="one-location-find-contacts"
       className={PEOPLE_HEADER_ACTION}
     >
       Find contacts
