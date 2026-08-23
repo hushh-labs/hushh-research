@@ -90,3 +90,12 @@ tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py
 tests/services/test_account_service_cleanup_tables.py
 tests/test_pool_acquire_is_bounded.py
+
+# Contact matching correctness.
+#
+# Two ways a real person went unfound, both silent: the server normalizer read
+# a bare ten-digit number as North American (fabricating a US identity, which
+# could disclose a stranger's membership), and the candidate cap truncated the
+# pool on an ordering the query's own comment calls arbitrary. Neither had a
+# test, and this manifest is the only pytest invocation in any lane.
+tests/test_contact_match_correctness.py
