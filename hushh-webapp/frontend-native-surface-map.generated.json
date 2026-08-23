@@ -7876,6 +7876,55 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/r/[slug]",
+      "page_file": "app/r/[slug]/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Public referral landing route. It records the attribution on the server before anyone signs in, keeps the opaque id it is given, and hands off to the normal sign-in journey; it owns no signed-in app shell of its own and never reveals who the referrer is.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.r.slug",
+          "purpose": "Explain that the referral link is being opened and the person is being taken into sign-in.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": true,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/register-phone",
       "page_file": "app/register-phone/page.tsx",
       "physical_page_exists": true,
@@ -8893,5 +8942,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "aeaebed1f3855db5415d8974d0dfaca39cc0321abcbbae3d4cd6a31a732cc53b"
+  "content_sha256": "638459a740e98b977ab4225fa2eccacf204f05edd3dbfbac84301f7452eab819"
 }

@@ -226,3 +226,216 @@ def get_referral_summary(user_id: str) -> dict:
             for row in rows
         ],
     }
+
+
+# Link-preview bots and messaging crawlers open a referral URL the moment it is
+# pasted into a chat. They must never consume an attribution: the first eligible
+# attribution wins, so a crawler that took one would spend the invitation before
+# the human ever clicked it.
+_CRAWLER_MARKERS = (
+    "bot",
+    "crawler",
+    "spider",
+    "preview",
+    "facebookexternalhit",
+    "whatsapp",
+    "telegrambot",
+    "slackbot",
+    "twitterbot",
+    "linkedinbot",
+    "discordbot",
+    "embedly",
+    "quora link preview",
+    "pinterest",
+    "redditbot",
+    "applebot",
+    "skypeuripreview",
+    "vkshare",
+    "w3c_validator",
+    "curl",
+    "wget",
+    "python-requests",
+)
+
+
+def looks_like_a_crawler(user_agent: str | None) -> bool:
+    text = (user_agent or "").strip().lower()
+    if not text:
+        # No user agent at all is not a browser either. Fail closed: refusing to
+        # create an attribution costs a real person nothing (the link still
+        # works, it just re-resolves), while creating one for a crawler costs
+        # the referrer their invitation.
+        return True
+    return any(marker in text for marker in _CRAWLER_MARKERS)
+
+
+def resolve_slug_for_attribution(
+    slug: str,
+    *,
+    user_agent: str | None = None,
+    source: str | None = None,
+    campaign: str | None = None,
+    landing_route: str | None = None,
+    installation_reference_hash: str | None = None,
+) -> dict:
+    """Open a referral link. Creates the attribution server-side, before sign-in.
+
+    Returns the SAME shape for an invalid slug, a disabled slug and a slug whose
+    owner no longer exists: `{"status": "unavailable"}`. Distinguishing them
+    would turn this endpoint into an oracle for which slugs are real, which is
+    the first step of enumerating the people who hold them.
+    """
+    normalized = normalize_slug(slug)
+    if not is_valid_slug(normalized):
+        return {"status": "unavailable"}
+
+    try:
+        policy = get_active_policy()
+    except ReferralProgramDisabled:
+        return {"status": "unavailable"}
+
+    if looks_like_a_crawler(user_agent):
+        # Resolve nothing, record nothing, and say nothing different.
+        return {"status": "unavailable"}
+
+    with get_db_connection() as connection:
+        code = connection.execute(
+            text(
+                """
+                SELECT id, owner_user_id
+                  FROM one_referral_codes
+                 WHERE normalized_slug = :slug AND status = 'active'
+                 LIMIT 1
+                """
+            ),
+            {"slug": normalized},
+        ).fetchone()
+        if code is None:
+            return {"status": "unavailable"}
+
+        row = connection.execute(
+            text(
+                """
+                INSERT INTO one_referral_attributions
+                  (referral_code_id, referrer_user_id, source, campaign,
+                   landing_route, installation_reference_hash, policy_version,
+                   expires_at)
+                VALUES
+                  (:code_id, :owner, :source, :campaign,
+                   :landing_route, :install_hash, :version,
+                   NOW() + make_interval(days => :window_days))
+                RETURNING id
+                """
+            ),
+            {
+                "code_id": code.id,
+                "owner": code.owner_user_id,
+                "source": (source or None),
+                "campaign": (campaign or None),
+                "landing_route": (landing_route or None),
+                "install_hash": (installation_reference_hash or None),
+                "version": policy.version,
+                "window_days": policy.attribution_window_days,
+            },
+        ).fetchone()
+
+    return {"status": "created", "attribution_id": str(row.id)}
+
+
+def bind_attribution(attribution_id: str, user_id: str) -> dict:
+    """Attach a pending attribution to the person who just signed in.
+
+    Every rejection returns a reason the CALLER may see, because these are all
+    things about the caller's own account rather than about the referrer.
+    Nothing here says anything about who the referrer is.
+    """
+    with get_db_connection() as connection:
+        attribution = connection.execute(
+            text(
+                """
+                SELECT id, referrer_user_id, policy_version, status, expires_at
+                  FROM one_referral_attributions
+                 WHERE id = CAST(:aid AS UUID)
+                 LIMIT 1
+                """
+            ),
+            {"aid": attribution_id},
+        ).fetchone()
+
+        if attribution is None:
+            return {"status": "unavailable"}
+        if attribution.status != "pending":
+            return {"status": "already_used"}
+        if attribution.expires_at <= _now():
+            return {"status": "expired"}
+        if attribution.referrer_user_id == user_id:
+            # Opening your own link is not fraud, it is curiosity. Say nothing
+            # accusatory and simply do not create anything.
+            return {"status": "self_referral"}
+
+        existing = connection.execute(
+            text(
+                """
+                SELECT 1 FROM one_referral_relationships
+                 WHERE referred_user_id = :uid LIMIT 1
+                """
+            ),
+            {"uid": user_id},
+        ).fetchone()
+        if existing:
+            # First eligible attribution wins. A later link cannot replace it.
+            return {"status": "already_referred"}
+
+        policy = get_active_policy()
+        if policy.new_users_only:
+            predates = connection.execute(
+                text(
+                    """
+                    SELECT 1
+                      FROM actor_profiles ap
+                     WHERE ap.user_id = :uid
+                       AND ap.created_at < (
+                             SELECT first_seen_at
+                               FROM one_referral_attributions
+                              WHERE id = CAST(:aid AS UUID)
+                           )
+                    """
+                ),
+                {"uid": user_id, "aid": attribution_id},
+            ).fetchone()
+            if predates:
+                # The account existed before the link was ever opened, so this
+                # is not a new member the referrer brought in.
+                return {"status": "existing_user"}
+
+        connection.execute(
+            text(
+                """
+                UPDATE one_referral_attributions
+                   SET bound_user_id = :uid, bound_at = NOW(), status = 'bound'
+                 WHERE id = CAST(:aid AS UUID) AND status = 'pending'
+                """
+            ),
+            {"uid": user_id, "aid": attribution_id},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO one_referral_relationships
+                  (attribution_id, referrer_user_id, referred_user_id,
+                   policy_version, status, signed_up_at)
+                VALUES
+                  (CAST(:aid AS UUID), :referrer, :uid, :version,
+                   'signed_up', NOW())
+                ON CONFLICT DO NOTHING
+                """
+            ),
+            {
+                "aid": attribution_id,
+                "referrer": attribution.referrer_user_id,
+                "uid": user_id,
+                "version": attribution.policy_version,
+            },
+        )
+
+    return {"status": "bound"}
