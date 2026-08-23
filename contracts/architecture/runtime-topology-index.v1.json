@@ -1020,6 +1020,22 @@
       "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection."
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_agent_engagement_sessions",
+        "one_referral_attributions",
+        "one_referral_codes",
+        "one_referral_events",
+        "one_referral_policies",
+        "one_referral_relationships",
+        "one_referral_risk_reviews"
+      ],
+      "id": "one_referral_program",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only."
+    },
+    {
       "data_class": "personal_projection",
       "exact_tables": [
         "one_wallet_cards"
@@ -5064,7 +5080,7 @@
     "action_gateway": "63e2f86721810ab01ed876c07abff8bf09489374c3f77cabbf8b51500881d654",
     "agent_registry": "ee0eeb9ba4cdc177301df5ed35e03b93cdc8d116f4249d7ba6eb69b1362559a5",
     "cache_manifest": "2cd7676ebdcfb3d2b5b386b562a801013ebb343507a8b12c01cd9c7d87e77647",
-    "data_plane": "3b2f555c7835a04a7802b93e72df0014b6e5fbdbcae986e9d3cd019e4aa64846",
+    "data_plane": "de6c6fbf5877feacf40ffa2cb0258f3c3a46d49c8a86e098859dff8ec97e82d1",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "e6e3e5388d1f1660d0f72c295fceb091116bbf66944f00b85454fa7d2c76d768",
     "route_index": "ad663bb44dedcf71b71c208c4f92c2b0ca7b53547c30c7e80dd02f7901cfb38d",
@@ -5083,6 +5099,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 132,
     "semantic_routes": 14,
-    "table_families": 51
+    "table_families": 52
   }
 }
