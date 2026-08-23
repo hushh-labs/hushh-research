@@ -70,9 +70,11 @@ function VoiceChangelog({ onOpenChangelog }: { onOpenChangelog: () => void }) {
 export function VoicePreferencesPanel({
   userId,
   onOpenChangelog,
+  onOpenExamples,
 }: {
   userId: string | null;
   onOpenChangelog: () => void;
+  onOpenExamples: () => void;
 }) {
   const [state, setState] = useState<OneVoicePreferencesState>(() =>
     readVoicePreferences(userId),
@@ -91,6 +93,14 @@ export function VoicePreferencesPanel({
   return (
     <div className="space-y-4">
       <VoiceHeader />
+      <SettingsGroup>
+        <SettingsRow
+          title="What can I say"
+          description="Examples for every part of the app."
+          chevron
+          onClick={onOpenExamples}
+        />
+      </SettingsGroup>
       <VoiceChangelog onOpenChangelog={onOpenChangelog} />
       <SettingsGroup>
         <SettingsRow

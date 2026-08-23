@@ -5,7 +5,7 @@
  * VOICE_ENGINE_VERSION in the same PR, so the version shown in the settings
  * header always matches the changelog under it.
  */
-export const VOICE_ENGINE_VERSION = "1.0";
+export const VOICE_ENGINE_VERSION = "1.3";
 
 export type VoiceEngineChangelogEntry = {
   version: string;
@@ -16,6 +16,27 @@ export type VoiceEngineChangelogEntry = {
 };
 
 export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
+  {
+    version: "1.3",
+    date: "2026-08-23",
+    title: "A dropped connection reconnects on its own",
+    description:
+      "If the voice session drops in a way it can recover from, One now reconnects once by itself, right where the conversation left off, instead of leaving you talking to a dead microphone.",
+  },
+  {
+    version: "1.3",
+    date: "2026-08-23",
+    title: "Voice now says what went wrong, with a way back",
+    description:
+      "When a voice session breaks, you'll see the actual reason and a Try Again button in one tap -- instead of a status line that quietly stops updating.",
+  },
+  {
+    version: "1.3",
+    date: "2026-08-23",
+    title: "Fixed: voice could cut you off or wait too long to respond",
+    description:
+      "A turn-taking bug could make voice interrupt you mid-sentence or leave a longer-than-usual pause before responding. Fixed at the source.",
+  },
   {
     version: "1.0",
     date: "2026-08-22",
