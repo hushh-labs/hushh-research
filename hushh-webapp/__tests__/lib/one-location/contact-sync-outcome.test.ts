@@ -16,7 +16,82 @@ const base = {
   sourcePlatform: "android" as const,
   limited: false,
   truncated: false,
+  inviteCandidateCount: 0,
 };
+
+describe("describeContactSyncOutcome — the people who are NOT on Hushh", () => {
+  // `inviteCandidateCount` has been computed on every sync since this file
+  // shipped and read by nothing except an analytics dimension. The product
+  // learned "forty of your contacts are not here yet", recorded it, and told
+  // the person nothing.
+
+  it("names them, and offers the invite, after a full read that matched", () => {
+    const outcome = describeContactSyncOutcome({
+      ...base,
+      matchedUserIds: ["a", "b"],
+      totalContacts: 50,
+      inviteCandidateCount: 48,
+    });
+    expect(outcome.title).toBe("2 people added as a contact signal.");
+    expect(outcome.description).toBe("48 contacts are not on Hushh yet.");
+    expect(outcome.remedy).toBe("invite");
+  });
+
+  it("offers the invite when a full read matched nobody", () => {
+    // The strongest moment for the loop: every contact is a candidate.
+    const outcome = describeContactSyncOutcome({
+      ...base,
+      totalContacts: 30,
+      inviteCandidateCount: 30,
+    });
+    expect(outcome.title).toBe("No One users matched from this contact scan.");
+    expect(outcome.description).toBe("30 contacts could be invited.");
+    expect(outcome.remedy).toBe("invite");
+  });
+
+  it("says nothing about inviting when everyone is already here", () => {
+    const outcome = describeContactSyncOutcome({
+      ...base,
+      matchedUserIds: ["a", "b"],
+      totalContacts: 2,
+      inviteCandidateCount: 0,
+    });
+    expect(outcome.description).toBeUndefined();
+    expect(outcome.remedy).toBeNull();
+  });
+
+  it("never takes the slot from a remedy that widens a partial read", () => {
+    // A partial read owns the action with "Check more" / "Open Settings".
+    // Widening the read is the better next step than inviting out of a list
+    // the person has not finished choosing from — and the toast has one slot.
+    const web = describeContactSyncOutcome({
+      ...base,
+      totalContacts: 10,
+      sourcePlatform: "web",
+      limited: true,
+      inviteCandidateCount: 10,
+    });
+    expect(web.remedy).toBe("pick_more");
+
+    const ios = describeContactSyncOutcome({
+      ...base,
+      totalContacts: 10,
+      sourcePlatform: "ios",
+      limited: true,
+      inviteCandidateCount: 10,
+    });
+    expect(ios.remedy).toBe("open_settings");
+  });
+
+  it("singularises one candidate", () => {
+    const outcome = describeContactSyncOutcome({
+      ...base,
+      totalContacts: 1,
+      inviteCandidateCount: 1,
+    });
+    expect(outcome.description).toBe("1 contact could be invited.");
+  });
+});
 
 describe("describeContactSyncOutcome", () => {
   it("reports a full read as a plain count with no remedy", () => {
