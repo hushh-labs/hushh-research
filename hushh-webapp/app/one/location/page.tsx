@@ -7003,9 +7003,7 @@ export function OneLocationAgentPageContent({
           (target) => target.recipient.userId,
         );
         if (!recipientUserIds.length) {
-          throw new Error(
-            "No current Circle members are ready to receive encrypted location.",
-          );
+          throw new Error("Add members to your Circle");
         }
         setSelectedShareCircleSelection(selection);
         setNamedCircleShareContext({
