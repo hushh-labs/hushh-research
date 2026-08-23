@@ -1983,7 +1983,7 @@ export function OneKycWorkspace({
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-11 w-11 shrink-0"
+                            className="h-11 w-11 shrink-0 touch-manipulation transition-transform active:scale-90 hover:bg-transparent active:bg-foreground/5 [@media(hover:hover)]:hover:bg-foreground/5"
                             aria-label="Remove request"
                             // Removing a request only opens the confirm dialog and is
                             // its own action; it must not be blocked by a background
