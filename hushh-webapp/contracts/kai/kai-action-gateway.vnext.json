@@ -10186,6 +10186,112 @@
       }
     },
     {
+      "action_id": "route.profile_referrals_panel",
+      "surface_id": "profile_account",
+      "label": "Open Referrals",
+      "aliases": [
+        "open referrals",
+        "invite friends",
+        "my referral link",
+        "show my referrals"
+      ],
+      "search_keywords": [
+        "referral",
+        "referrals",
+        "invite"
+      ],
+      "meaning": "Opens the Referrals tab in Profile, showing your referral link and referral status.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/referrals"
+        ],
+        "screens": [
+          "profile_referrals_panel"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/referrals"
+      },
+      "control_ids": [
+        "profile_referrals"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/referrals"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_referrals_panel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_referrals_panel",
+            "label": "Open Referrals",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/referrals",
+              "screen": "profile_referrals_panel"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.profile_support_panel",
       "surface_id": "profile_account",
       "label": "Open Support Panel",

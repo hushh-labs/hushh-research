@@ -126,6 +126,24 @@ if has_match '^hushh-webapp/(components/one-location/|__tests__/components/one-l
   ran=1
 fi
 
+# The referral program.
+#
+# The Referrals tab renders numbers it must never compute: the qualified count,
+# the status of each referral and the qualification bar all arrive decided by
+# the server. A change that turns any of them into a client-side calculation --
+# counting the rows in the list instead of reading the count, or hardcoding 15
+# minutes instead of rendering what the policy returned -- looks harmless in
+# review and quietly makes the number meaningless.
+#
+# The Python half is in the same pack deliberately. The panel's contract is
+# "render exactly the summary you were handed", so a field removed from
+# one_referral_service.py breaks the screen on a pull request where nothing
+# under hushh-webapp/ was touched at all.
+if has_match '^(hushh-webapp/(components/profile/referrals-panel\.tsx|lib/services/referral-service\.ts|__tests__/components/referrals-panel|app/one/profile/referrals/)|consent-protocol/(hushh_mcp/(services/one_referral_service|operons/referral/)|api/routes/one/referrals\.py))'; then
+  run_check "Referral program" npm run verify:referrals
+  ran=1
+fi
+
 # The accent identity.
 #
 # `lib/theme/accent.ts` owns the one switchable accent, and now also

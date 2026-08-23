@@ -1020,6 +1020,22 @@
       "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection."
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_agent_engagement_sessions",
+        "one_referral_attributions",
+        "one_referral_codes",
+        "one_referral_events",
+        "one_referral_policies",
+        "one_referral_relationships",
+        "one_referral_risk_reviews"
+      ],
+      "id": "one_referral_program",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only."
+    },
+    {
       "data_class": "personal_projection",
       "exact_tables": [
         "one_wallet_cards"
@@ -3320,6 +3336,7 @@
           "route.profile",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
+          "route.profile_referrals_panel",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -3397,6 +3414,7 @@
           "route.profile",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
+          "route.profile_referrals_panel",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -3428,6 +3446,7 @@
           "route.profile",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
+          "route.profile_referrals_panel",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -3882,6 +3901,31 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.receipts"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/profile/referrals/page.tsx",
+      "pathname": "/one/profile/referrals",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.profile_referrals_panel"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.support"
       }
     },
     {
@@ -5033,28 +5077,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "dedae2806a405c9270f5bac388333421aa77b6021afa4914f1bc685e471f3101",
+    "action_gateway": "63e2f86721810ab01ed876c07abff8bf09489374c3f77cabbf8b51500881d654",
     "agent_registry": "ee0eeb9ba4cdc177301df5ed35e03b93cdc8d116f4249d7ba6eb69b1362559a5",
-    "cache_manifest": "21f651c3261477cb5cd678c08750179c3130166fbd614a7e130ed9649f4f87df",
-    "data_plane": "3b2f555c7835a04a7802b93e72df0014b6e5fbdbcae986e9d3cd019e4aa64846",
+    "cache_manifest": "2cd7676ebdcfb3d2b5b386b562a801013ebb343507a8b12c01cd9c7d87e77647",
+    "data_plane": "de6c6fbf5877feacf40ffa2cb0258f3c3a46d49c8a86e098859dff8ec97e82d1",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "e6e3e5388d1f1660d0f72c295fceb091116bbf66944f00b85454fa7d2c76d768",
-    "route_index": "419ef434ac4338c4711a4ce6d6182427b1390072602dfdb22571d29cd4909a1e",
-    "route_layout": "fc199760c1dc52fab1d25b37da324fb10ac9e2b1c1d4130ff5798f8c8fffac05",
-    "surface_map": "511b4cef2b6d1c29eaa3899a7e24f0ed4e469858666f1fa668847afd5a3f0bbd",
+    "route_index": "ad663bb44dedcf71b71c208c4f92c2b0ca7b53547c30c7e80dd02f7901cfb38d",
+    "route_layout": "21d24312d4ed27d1e5caa2d71757a404ae7e1c7556c5dade1d9d15e5ddbf51f1",
+    "surface_map": "9dd60b6603a84619e26863e24cbd4b749950b013b48f70ad995e4fc6525557e0",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 183,
+    "actions": 184,
     "agents": 19,
     "aliases": 3,
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 131,
+    "physical_routes": 132,
     "semantic_routes": 14,
-    "table_families": 51
+    "table_families": 52
   }
 }

@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION_NAME = "164_hushh_tech_uat_client_foundation.sql"
-ROLLBACK_NAME = "164_hushh_tech_uat_client_foundation.rollback.sql"
+MIGRATION_NAME = "166_hushh_tech_uat_client_foundation.sql"
+ROLLBACK_NAME = "166_hushh_tech_uat_client_foundation.rollback.sql"
 MIGRATION = ROOT / "db" / "migrations" / MIGRATION_NAME
 ROLLBACK = ROOT / "db" / "migrations" / "rollback" / ROLLBACK_NAME
 MANIFEST = ROOT / "db" / "release_migration_manifest.json"
