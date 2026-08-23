@@ -703,7 +703,7 @@ export function AdaptiveDetailSurface({
               {children}
             </div>
             {footer ? (
-              <div className="sticky bottom-0 border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-4">
+              <div className="sticky bottom-0 border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
                 {footer}
               </div>
             ) : null}
