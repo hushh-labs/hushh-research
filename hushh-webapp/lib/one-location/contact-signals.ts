@@ -98,15 +98,33 @@ async function assertContactsReadable(): Promise<void> {
  *
  * The screens downstream of this render matched people by name. Nothing here
  * needs a digit, so anything that looks like one is dropped rather than trusted.
+ *
+ * Recursive, not a shallow copy. `profile` is a server-shaped object nested
+ * inside each match, and the rollback case this guard exists for is precisely
+ * the one where the server's shape is not what this client expects — so a
+ * top-level-only sweep would have promised protection it could not give.
  */
+function stripPhoneKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripPhoneKeys);
+  // Plain objects only. A Date, a Map, or anything with a prototype of its own
+  // would be rebuilt as a bare object by the spread below, so those are handed
+  // through untouched — none of them can carry a phone field on this payload,
+  // which is JSON off the wire.
+  if (!value || typeof value !== "object") return value;
+  if (Object.getPrototypeOf(value) !== Object.prototype) return value;
+
+  const copy: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    if (key.toLowerCase().includes("phone")) continue;
+    copy[key] = stripPhoneKeys(nested);
+  }
+  return copy;
+}
+
 function withoutPhoneFields(
   match: MarketplaceContactMatch,
 ): MarketplaceContactMatch {
-  const safeMatch: Record<string, unknown> = { ...match };
-  for (const key of Object.keys(safeMatch)) {
-    if (key.toLowerCase().includes("phone")) delete safeMatch[key];
-  }
-  return safeMatch as unknown as MarketplaceContactMatch;
+  return stripPhoneKeys(match) as MarketplaceContactMatch;
 }
 
 export async function syncOneLocationContactSignals({

@@ -259,8 +259,18 @@ Nothing about a matched person's phone number is returned.
 
 Rate limited per authenticated user, on two ceilings — see
 `RateLimits.CONTACT_DISCOVERY_MATCH`. One number cannot describe the abuse: the per-minute
-bound stops a tight loop, the per-day bound stops the patient walk that is the realistic way
-to enumerate a user base through a discovery endpoint.
+bound stops a tight loop, the per-day bound is the one that stops the patient walk, which is
+the realistic way to enumerate a user base through a discovery endpoint. The minute bound is
+deliberately generous because the web picker returns hand-picked contacts and the product
+offers a "Check more" action that re-runs the sync.
+
+**Both bounds are per worker process, not global.** slowapi falls back to in-process memory
+storage unless `RATE_LIMIT_STORAGE_URI` points at a shared backend. UAT passes that secret;
+production does not, and runs `gunicorn -w 2` on a scale-to-zero Cloud Run service — so in
+production the effective ceiling is the stated number multiplied by however many workers are
+live. That is survivable for a minute bound and materially weakens the day bound. Wiring
+`RATE_LIMIT_STORAGE_URI` into the production backend is what makes the number above the real
+one; until then, read it as a per-worker bound.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |

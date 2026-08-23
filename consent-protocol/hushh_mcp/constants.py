@@ -80,6 +80,9 @@ class ConsentScope(str, Enum):
     # a hard gate is a coordinated client change, and it should be one rather
     # than a silent outage.
     CAP_CONTACT_DISCOVERY = "cap.contact.discovery"
+    # Registered in `_STATIC_SCOPE_META` (hushh_mcp/consent/scope_helpers.py) so
+    # the consent surface renders a sentence rather than title-casing the raw
+    # handle into "Cap Contact Discovery".
 
     # ============ MARKETPLACE / PERSONAL INFORMATION AGENT CAPABILITIES ============
     # Capability scopes for the One Personal Information Agent — the marketplace

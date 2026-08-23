@@ -52,17 +52,32 @@ class TestContactMatchIsRateLimited:
         assert any("minute" in limit for limit in limits), limits
         assert any("day" in limit for limit in limits), limits
 
-    def test_the_bounds_are_small_enough_to_matter(self):
-        # Syncing an address book is a deliberate act, not a loop. A person
-        # does it once, and occasionally again after adding someone. If these
-        # numbers ever drift up to where a scripted walk is comfortable, the
-        # limit has stopped being a limit.
-        limits = _registered_limits()
-        per_minute = next(limit for limit in limits if "minute" in limit)
-        per_day = next(limit for limit in limits if "day" in limit)
+    def test_the_bounds_leave_room_for_the_loop_the_ui_offers(self):
+        """The minute bound must not refuse a person doing what we told them to.
 
-        assert int(per_minute.split()[0]) <= 10, per_minute
-        assert int(per_day.split()[0]) <= 50, per_day
+        On the web the Contact Picker returns only hand-picked entries, so
+        `describeContactSyncOutcome` offers a "Check more" action that re-runs
+        the whole sync — the product actively asks a user to press this
+        repeatedly to cover a large address book. At four a minute the fifth
+        press failed, and the refusal came from a limit meant for an attacker.
+        """
+
+        limits = _registered_limits()
+        per_minute = int(next(limit for limit in limits if "minute" in limit).split()[0])
+
+        # A press every five seconds is faster than a human works the picker.
+        assert per_minute >= 12, per_minute
+
+    def test_the_day_bound_is_the_one_that_stops_a_walk(self):
+        # Nothing is lost by a generous minute bound: the day bound is the
+        # security bound. It has to stay far below what enumerating a number
+        # space needs, and far above what a real address book does across
+        # every surface and device.
+        limits = _registered_limits()
+        per_day = int(next(limit for limit in limits if "day" in limit).split()[0])
+
+        assert per_day <= 100, per_day
+        assert per_day >= 40, per_day
 
     def test_the_limit_is_keyed_per_user_rather_than_per_address(self):
         # The route requires a Firebase identity, so an IP bucket would be the
@@ -73,6 +88,73 @@ class TestContactMatchIsRateLimited:
         from api.middlewares.rate_limit import get_rate_limit_key
 
         assert limiter._key_func is get_rate_limit_key
+
+
+class TestTheRefusalIsReadableByAPerson:
+    """A 429 on this route reaches a human, not a machine.
+
+    slowapi's default body is `{"error": "Rate limit exceeded: 12 per 1 minute"}`,
+    and the web client puts whatever string it finds straight into a toast. That
+    is a fine answer for a developer holding an API key and a poor one for
+    somebody who just pressed "Check more" on their contacts.
+    """
+
+    def _client(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from slowapi.errors import RateLimitExceeded
+
+        from api.middleware import require_firebase_auth
+        from api.middlewares.rate_limit import limiter, rate_limit_exceeded_handler
+        from api.routes import marketplace
+
+        app = FastAPI()
+        app.include_router(marketplace.router)
+        app.state.limiter = limiter
+        app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+        app.dependency_overrides[require_firebase_auth] = lambda: "user_test_429"
+        return TestClient(app, raise_server_exceptions=False)
+
+    def test_the_body_says_something_a_person_can_act_on(self, monkeypatch):
+        # Force the limiter on: the pytest harness disables it so route tests
+        # are not throttled by shared buckets, which also means nothing else
+        # ever exercises this path.
+        from api.middlewares.rate_limit import limiter
+
+        monkeypatch.setattr(limiter, "enabled", True)
+        limiter.reset()
+
+        client = self._client()
+        payload = {"phone_lookups": [], "limit": 10, "scope": "one_network"}
+
+        statuses = [
+            client.post("/api/marketplace/contacts/match", json=payload).status_code
+            for _ in range(14)
+        ]
+        assert 429 in statuses, statuses
+
+        refused = client.post("/api/marketplace/contacts/match", json=payload)
+        assert refused.status_code == 429
+        body = refused.json()
+
+        message = body.get("detail", {}).get("message", "")
+        assert "contacts" in message.lower(), body
+        # The limit's own numbers are an implementation detail, and reading
+        # "12 per 1 minute" in a toast is how a person learns we have no copy
+        # for this state.
+        assert "per 1 minute" not in message, body
+        assert body.get("detail", {}).get("code") == "RATE_LIMITED", body
+        # The marketplace client reads `error`, not `detail.message`. Both
+        # carry the same sentence so neither surface falls back to the raw one.
+        assert body.get("error") == message, body
+
+    def test_other_routes_keep_slowapis_own_answer(self, monkeypatch):
+        # The typed body is opt-in per path. Widening it silently would change
+        # the shape every other rate-limited route returns.
+        from api.middlewares.rate_limit import _TYPED_RATE_LIMIT_PATHS
+
+        assert "/api/marketplace/contacts/match" in _TYPED_RATE_LIMIT_PATHS
+        assert not any(path.startswith("/api/one/location") for path in _TYPED_RATE_LIMIT_PATHS)
 
 
 class TestContactMatchLeaksNoPhoneDigits:

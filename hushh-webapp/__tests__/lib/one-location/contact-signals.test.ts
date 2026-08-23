@@ -110,6 +110,52 @@ describe("one location contact signals", () => {
     expect(JSON.stringify(result)).not.toContain("0101");
   });
 
+  it("strips phone-shaped fields wherever they sit in the payload", async () => {
+    // The server stopped sending `phone_last4`, so this guard exists for the
+    // window a deploy is not atomic in — and for a rollback, where the shape
+    // that comes back is the OLD one. `profile` is the server-shaped object
+    // nested inside each match, so a top-level-only sweep would have promised
+    // protection it could not give.
+    mockBuildMarketplaceContactLookups.mockResolvedValue({
+      totalContacts: 1,
+      sourcePlatform: "ios",
+      region: "IN",
+      limited: false,
+      truncated: false,
+      lookups: [{ hash: "c".repeat(64), last4: "4242", displayName: "Old Payload" }],
+    });
+    mockMatchMarketplaceContacts.mockResolvedValue([
+      {
+        user_id: "user_e",
+        kind: "one_user",
+        display_name: "Old Payload",
+        phone_last4: "4242",
+        mobile_phone: "+919876500000",
+        profile: {
+          user_id: "user_e",
+          display_name: "Old Payload",
+          phone_last4: "4242",
+          contact: { phoneNumber: "+919876500000" },
+        },
+      },
+    ]);
+
+    const result = await syncOneLocationContactSignals({
+      idToken: "id-token",
+      accountPhoneNumber: "+919000000000",
+    });
+
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("4242");
+    expect(serialized).not.toContain("9876500000");
+    expect(serialized).not.toContain("phone");
+    // ...and the fields that are not phone-shaped survive untouched, so the
+    // guard cannot quietly empty the payload it is protecting.
+    expect(result.matches[0].display_name).toBe("Old Payload");
+    expect(result.matches[0].profile).toMatchObject({ user_id: "user_e" });
+    expect(result.matchedUserIds).toEqual(["user_e"]);
+  });
+
   it("returns invite candidates without calling the matcher when contacts have no phones", async () => {
     mockBuildMarketplaceContactLookups.mockResolvedValue({
       totalContacts: 4,

@@ -67,6 +67,7 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
         "cap.location.live.refer_request": ConsentScope.CAP_LOCATION_LIVE_REFER_REQUEST,
         "cap.pkm.marketplace.view": ConsentScope.CAP_PKM_MARKETPLACE_VIEW,
         "cap.pkm.marketplace.manage": ConsentScope.CAP_PKM_MARKETPLACE_MANAGE,
+        "cap.contact.discovery": ConsentScope.CAP_CONTACT_DISCOVERY,
     }
     if scope.startswith("agent."):
         resolved = _AGENT_SCOPE_MAP.get(scope)
@@ -257,6 +258,15 @@ def get_scope_display_metadata(scope: str) -> dict:
             "label": "Refer Location Request",
             "description": "Allow a recipient to refer another person into an owner approval flow",
             "icon_name": "user-plus",
+            "color_hex": "#0F766E",
+        },
+        "cap.contact.discovery": {
+            "label": "Find People You Know",
+            "description": (
+                "Match your address book against Hussh accounts. "
+                "Phone numbers are hashed on your device and never stored"
+            ),
+            "icon_name": "users",
             "color_hex": "#0F766E",
         },
     }
