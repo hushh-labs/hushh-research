@@ -194,6 +194,13 @@ async function settleAgentBarAction(
 // most once per card (see pendingConfirmationNudgeTimerRef).
 const PENDING_CONFIRMATION_NUDGE_MS = 12_000;
 
+// Kill switch for the dead-end insight card, off by request while the
+// experience is reworked. Flip back to true to restore it -- the backend
+// dead_end context and the remedy-action handler are untouched. Typed as
+// `boolean`, not inferred as the literal `false`, so flipping it doesn't
+// also require silencing a "this is always null" narrowing complaint below.
+const DEAD_END_INSIGHTS_ENABLED: boolean = false;
+
 // Screen-aware hint copy. First matching prefix wins, so order longest/most
 // specific routes before their parents. Falls back to a generic prompt.
 const AGENT_BAR_HINTS: ReadonlyArray<{ prefix: string; hint: string }> = [
@@ -324,7 +331,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // ever reaches the model as a spoken hint. Shown here too, so the same
   // "you're stuck, here's the way out" reaches someone who never asked out
   // loud and is just looking at a dead screen.
-  const deadEnd = runtime?.oneVoiceContextSnapshot.ui.dead_end ?? null;
+  //
+  // Temporarily switched off -- gated here rather than deleted, since the
+  // backend/context plumbing is unchanged and this is meant to come back.
+  const deadEnd = DEAD_END_INSIGHTS_ENABLED
+    ? runtime?.oneVoiceContextSnapshot.ui.dead_end ?? null
+    : null;
   const deadEndRemedyAction = deadEnd
     ? getKaiActionById(deadEnd.remedy_action_id)
     : null;
