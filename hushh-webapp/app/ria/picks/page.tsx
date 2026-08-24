@@ -450,6 +450,71 @@ function EmptyMyListState() {
   );
 }
 
+function TopPickMobileCard({ row }: { row: RiaPickRow }) {
+  return (
+    <SurfaceCard>
+      <SurfaceCardContent className="space-y-3 p-4">
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold tracking-tight text-foreground">
+              {row.ticker || "—"}
+            </p>
+            <p className="mt-0.5 break-words text-sm text-foreground">
+              {row.company_name || "—"}
+            </p>
+            <p className="mt-0.5 break-words text-xs text-muted-foreground">
+              {row.sector || "—"}
+            </p>
+          </div>
+          <div className="shrink-0">
+            <TierBadge tier={row.tier} />
+          </div>
+        </div>
+        <p className="break-words text-xs leading-5 text-muted-foreground">
+          {row.investment_thesis || "—"}
+        </p>
+      </SurfaceCardContent>
+    </SurfaceCard>
+  );
+}
+
+function AvoidMobileCard({ row }: { row: RiaAvoidRow }) {
+  return (
+    <SurfaceCard>
+      <SurfaceCardContent className="space-y-3 p-4">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold tracking-tight text-foreground">
+                {row.ticker || "—"}
+              </p>
+              <p className="mt-0.5 break-words text-sm text-foreground">
+                {row.company_name || "—"}
+              </p>
+              <p className="mt-0.5 break-words text-xs text-muted-foreground">
+                {row.sector || "—"}
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
+              {row.category || "Avoid"}
+            </span>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <p className="break-words text-xs leading-5 text-muted-foreground">
+            {row.why_avoid || "—"}
+          </p>
+          {row.note ? (
+            <p className="break-words border-t border-border/30 pt-2 text-xs leading-5 text-muted-foreground">
+              {row.note}
+            </p>
+          ) : null}
+        </div>
+      </SurfaceCardContent>
+    </SurfaceCard>
+  );
+}
+
 function InlineValidationBanner({ errors }: { errors: string[] }) {
   if (errors.length === 0) return null;
   return (
@@ -1668,7 +1733,7 @@ export default function RiaPicksPage() {
         accessorKey: "investment_thesis",
         header: "Thesis",
         cell: ({ row }) => (
-          <p className="max-w-[360px] text-xs leading-5 text-muted-foreground">
+          <p className="max-w-[360px] whitespace-normal break-words text-xs leading-5 text-muted-foreground">
             {row.original.investment_thesis || "—"}
           </p>
         ),
@@ -1709,7 +1774,7 @@ export default function RiaPicksPage() {
         accessorKey: "why_avoid",
         header: "Reason",
         cell: ({ row }) => (
-          <p className="max-w-[380px] text-xs leading-5 text-muted-foreground">
+          <p className="max-w-[380px] whitespace-normal break-words text-xs leading-5 text-muted-foreground">
             {row.original.why_avoid || "—"}
           </p>
         ),
@@ -1718,7 +1783,7 @@ export default function RiaPicksPage() {
         accessorKey: "note",
         header: "Note",
         cell: ({ row }) => (
-          <p className="max-w-[260px] text-xs leading-5 text-muted-foreground">
+          <p className="max-w-[260px] whitespace-normal break-words text-xs leading-5 text-muted-foreground">
             {row.original.note || "—"}
           </p>
         ),
@@ -2679,6 +2744,7 @@ export default function RiaPicksPage() {
                     stickyHeader
                     tableContainerClassName="w-full"
                     tableClassName="w-full min-w-[640px]"
+                    renderMobileCard={(row) => <TopPickMobileCard row={row} />}
                   />
                 </div>
               ) : null}
@@ -2747,6 +2813,7 @@ export default function RiaPicksPage() {
                     stickyHeader
                     tableContainerClassName="w-full"
                     tableClassName="w-full min-w-[700px]"
+                    renderMobileCard={(row) => <AvoidMobileCard row={row} />}
                   />
                 </div>
               ) : null}
