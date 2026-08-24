@@ -438,6 +438,7 @@ vi.mock("@/lib/services/connections-service", () => ({
 // reports, so every test in this file behaves exactly as it did before unless it
 // opts in.
 let mockGoogleAvailability: () => string = () => "unconfigured";
+const mockPreloadGoogleContactsAuth = vi.fn(async () => undefined);
 const mockRequestGoogleContactsToken = vi.fn(async () => "google-token");
 const mockGooglePeopleContactSource = vi.fn(() => vi.fn());
 
@@ -454,6 +455,7 @@ vi.mock("@/lib/contacts/google-contacts-token", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@/lib/contacts/google-contacts-token")
   >()),
+  preloadGoogleContactsAuth: () => mockPreloadGoogleContactsAuth(),
   requestGoogleContactsToken: () => mockRequestGoogleContactsToken(),
 }));
 
@@ -1017,9 +1019,12 @@ describe("OneLocationAgentPage", () => {
     // Back to what a build with no NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID reports,
     // so one opted-in test cannot leak the Google branch into the next.
     mockGoogleAvailability = () => "unconfigured";
+    mockPreloadGoogleContactsAuth.mockReset();
+    mockPreloadGoogleContactsAuth.mockResolvedValue(undefined);
     mockRequestGoogleContactsToken.mockReset();
     mockRequestGoogleContactsToken.mockResolvedValue("google-token");
     mockGooglePeopleContactSource.mockReset();
+    mockGooglePeopleContactSource.mockReturnValue(vi.fn());
     mockGetPermissionState.mockReset();
     mockGetPermissionState.mockResolvedValue({
       state: "granted",
@@ -5299,7 +5304,15 @@ describe("OneLocationAgentPage", () => {
     mockRequestGoogleContactsToken.mockRejectedValueOnce(cancelled);
 
     render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow();
+    await leaveLocationFeatureStep();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Not now" }),
+    );
+    await expectLocationInviteStep();
+    fireEvent.click(await locationFinishButton());
+    await waitFor(() =>
+      expect(screen.queryByTestId("one-location-onboarding")).toBeNull(),
+    );
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole("button", { name: "People" }));
@@ -5666,6 +5679,146 @@ describe("OneLocationAgentPage", () => {
 
     await expectLocationInviteStep();
     expect(screen.queryByTestId("one-location-onboarding-contacts")).toBeNull();
+  });
+
+  it("uses the preloaded Google source during desktop onboarding", async () => {
+    const order: string[] = [];
+    const getIdToken = vi.fn(async () => {
+      order.push("firebase");
+      return "id-token";
+    });
+    mockUseRequireAuth.mockReturnValue({
+      loading: false,
+      isAuthenticated: true,
+      userId: "user_a",
+      user: {
+        uid: "user_a",
+        displayName: "Test User",
+        phoneNumber: "+919876543210",
+        getIdToken,
+      },
+    });
+    mockGoogleAvailability = () => "connectable";
+    mockRequestGoogleContactsToken.mockImplementation(async () => {
+      order.push("google");
+      return "google-token";
+    });
+    const googleSource = vi.fn();
+    mockGooglePeopleContactSource.mockReturnValue(googleSource);
+
+    render(<OneLocationAgentPage />);
+    await waitFor(() =>
+      expect(mockPreloadGoogleContactsAuth).toHaveBeenCalledTimes(1),
+    );
+    await leaveLocationFeatureStep();
+
+    const connect = await screen.findByRole("button", {
+      name: "Connect Google Contacts",
+    });
+    order.length = 0;
+    getIdToken.mockClear();
+    fireEvent.click(connect);
+
+    await waitFor(() =>
+      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith(
+        expect.objectContaining({
+          idToken: "id-token",
+          source: googleSource,
+          accountPhoneNumber: "+919876543210",
+        }),
+      ),
+    );
+    expect(order.slice(0, 2)).toEqual(["google", "firebase"]);
+  });
+
+  it("restores desktop onboarding after Google consent is closed", async () => {
+    mockGoogleAvailability = () => "connectable";
+    const cancelled = new Error("Google contact access was cancelled.");
+    cancelled.name = "AbortError";
+    mockRequestGoogleContactsToken.mockRejectedValueOnce(cancelled);
+
+    render(<OneLocationAgentPage />);
+    await leaveLocationFeatureStep();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Connect Google Contacts",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(mockRequestGoogleContactsToken).toHaveBeenCalledTimes(1),
+    );
+    expect(mockSyncOneLocationContactSignals).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole("button", {
+        name: "Connect Google Contacts",
+      }),
+    ).toBeEnabled();
+    expect(screen.queryByText(/couldn't check your contacts/i)).toBeNull();
+  });
+
+  it("offers a user-gesture retry when Google sign-in is still loading", async () => {
+    mockGoogleAvailability = () => "connectable";
+    mockRequestGoogleContactsToken
+      .mockRejectedValueOnce(
+        new Error("Google Contacts is still getting ready. Try again."),
+      )
+      .mockResolvedValueOnce("google-token");
+
+    render(<OneLocationAgentPage />);
+    await leaveLocationFeatureStep();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Connect Google Contacts",
+      }),
+    );
+
+    expect(
+      await screen.findByText(/Google Contacts is still getting ready/i),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() =>
+      expect(mockRequestGoogleContactsToken).toHaveBeenCalledTimes(2),
+    );
+    await waitFor(() =>
+      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(1),
+    );
+  });
+
+  it("keeps onboarding navigation locked while contact processing owns the screen", async () => {
+    mockGoogleAvailability = () => "connectable";
+    let finishSync: (() => void) | null = null;
+    mockSyncOneLocationContactSignals.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSync = () =>
+            resolve({
+              matches: [],
+              matchedUserIds: [],
+              totalContacts: 0,
+              inviteCandidateCount: 0,
+              sourcePlatform: "google",
+            });
+        }),
+    );
+
+    render(<OneLocationAgentPage />);
+    await leaveLocationFeatureStep();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Connect Google Contacts",
+      }),
+    );
+
+    expect(await screen.findByText(/Checking your contacts/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Go back" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+
+    await act(async () => {
+      finishSync?.();
+    });
   });
 
   /* ------------------------------------------------------------------ *

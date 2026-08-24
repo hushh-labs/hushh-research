@@ -139,6 +139,7 @@ import {
 } from "@/lib/contacts/google-people-source";
 import {
   isGoogleContactsConsentCancelled,
+  preloadGoogleContactsAuth,
   requestGoogleContactsToken,
 } from "@/lib/contacts/google-contacts-token";
 import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matching";
@@ -6556,23 +6557,42 @@ export function OneLocationAgentPageContent({
   // returns a typed result instead of driving hub state: onboarding needs to
   // render the matches inline, and the contact-permission prompt is fired by a
   // deliberate tap on that screen rather than by opening the app.
-  // Can this device read an address book at all? A desktop browser without the
-  // Contact Picker reports "unavailable", and onboarding then skips the step
-  // instead of showing a screen whose only content is that it cannot work.
-  // Assume it can until proven otherwise, so a slow plugin never costs the step
-  // on a phone that does support it.
+  // Resolve the address-book source before the person reaches the contact
+  // action. On desktop and Safari the device source is unavailable, but a
+  // configured Google account source keeps the step usable. GIS is also loaded
+  // here so `requestAccessToken()` can run synchronously inside the later tap;
+  // Safari can block a popup when script loading happens after that gesture.
   const [contactsStepAvailable, setContactsStepAvailable] = useState(true);
+  const [googleContactsFallback, setGoogleContactsFallback] = useState(false);
   useEffect(() => {
     let cancelled = false;
+    const googleConfigured =
+      googleContactsAvailability() === "connectable";
+    const preloadGoogleFallback = () => {
+      if (!googleConfigured) return;
+      void preloadGoogleContactsAuth().catch(() => {
+        // The tap surfaces a retryable, actionable error if GIS is still
+        // unreachable. Loading account UI during mount would violate consent.
+      });
+    };
     void HushhContacts.getPermissionState()
       .then((state) => {
-        if (!cancelled && state?.state === "unavailable") {
-          setContactsStepAvailable(false);
-        }
+        if (cancelled) return;
+        const useGoogle =
+          state?.state === "unavailable" && googleConfigured;
+        setGoogleContactsFallback(useGoogle);
+        setContactsStepAvailable(
+          state?.state !== "unavailable" || useGoogle,
+        );
+        if (useGoogle) preloadGoogleFallback();
       })
       .catch(() => {
-        // No plugin at all is the same answer as "unavailable".
-        if (!cancelled) setContactsStepAvailable(false);
+        if (cancelled) return;
+        // No device plugin is still usable when the web-only Google source is
+        // configured. Native never reports Google as connectable.
+        setGoogleContactsFallback(googleConfigured);
+        setContactsStepAvailable(googleConfigured);
+        preloadGoogleFallback();
       });
     return () => {
       cancelled = true;
@@ -6581,8 +6601,7 @@ export function OneLocationAgentPageContent({
 
   const handleSyncOnboardingContacts =
     useCallback(async (): Promise<OnboardingContactSyncResult> => {
-      const idToken = await auth.user?.getIdToken();
-      if (!idToken) {
+      if (!auth.user?.getIdToken) {
         return {
           status: "failed",
           message: "Sign in to check your contacts.",
@@ -6590,8 +6609,34 @@ export function OneLocationAgentPageContent({
         };
       }
       try {
+        let googleSource: MarketplaceContactSource | undefined;
+        if (googleContactsFallback) {
+          try {
+            // This call invokes GIS synchronously before its promise is
+            // awaited. Keep it ahead of Firebase/network work so Safari still
+            // recognises the explicit button tap that requested the popup.
+            googleSource = googlePeopleContactSource(
+              await requestGoogleContactsToken(),
+            );
+          } catch (error) {
+            if (isGoogleContactsConsentCancelled(error)) {
+              return { status: "cancelled" };
+            }
+            throw error;
+          }
+        }
+
+        const idToken = await auth.user.getIdToken();
+        if (!idToken) {
+          return {
+            status: "failed",
+            message: "Sign in to check your contacts.",
+            canOpenSettings: false,
+          };
+        }
         const result = await syncOneLocationContactSignals({
           idToken,
+          ...(googleSource ? { source: googleSource } : {}),
           accountPhoneNumber: auth.user?.phoneNumber,
         });
         const matches = result.matches
@@ -6622,20 +6667,28 @@ export function OneLocationAgentPageContent({
             : "error";
         const canOpenSettings =
           failure === "denied" || failure === "restricted";
+        const directMessage =
+          failure === "error"
+            ? oneLocationErrorMessage(
+                error,
+                "We couldn't check your contacts. You can try again later.",
+              )
+            : null;
         return {
           status: "failed",
           message:
-            failure === "denied"
+            directMessage ??
+            (failure === "denied"
               ? "One does not have access to your contacts yet."
               : failure === "restricted"
                 ? "Contact access is restricted on this device."
                 : failure === "unavailable"
                   ? "Reading contacts is not available here. You can add people later from the People tab."
-                  : "We couldn't check your contacts. You can try again later.",
+                  : "We couldn't check your contacts. You can try again later."),
           canOpenSettings,
         };
       }
-    }, [auth.user, auth.userId]);
+    }, [auth.user, auth.userId, googleContactsFallback]);
 
   const handleAddOnboardingContact = useCallback(
     async (addresseeUserId: string) => {
@@ -6724,20 +6777,7 @@ export function OneLocationAgentPageContent({
       return;
     }
 
-    // Kept so a cancelled consent sheet can put the card back exactly as it
-    // was. "scanning" is set below before anything can be cancelled, and
-    // leaving it there would strand the card mid-scan forever.
-    const statusBeforeSync = contactSignal.status;
-
-    setBusy("contactSync");
-    setContactSignal((current) => ({
-      ...current,
-      status: "scanning",
-      error: null,
-    }));
-
     try {
-      const idToken = await auth.user.getIdToken();
       // Google Contacts, only where there is no address book to read.
       //
       // `navigator.contacts.select` ships enabled by default in Chrome on
@@ -6755,32 +6795,29 @@ export function OneLocationAgentPageContent({
       // NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID, which keeps the feature invisible
       // until the console work behind it is finished.
       let googleSource: MarketplaceContactSource | undefined;
-      if (googleContactsAvailability() === "connectable") {
-        const deviceState = await HushhContacts.getPermissionState().catch(
-          () => null,
-        );
-        if (!deviceState || deviceState.state === "unavailable") {
-          // Must run inside the click that started this: acquiring the token
-          // can open a consent sheet, and a browser blocks a popup no gesture
-          // asked for.
-          try {
-            googleSource = googlePeopleContactSource(
-              await requestGoogleContactsToken(),
-            );
-          } catch (error) {
-            // Closing the sheet is a choice, not a failure -- the same reading
-            // the device picker has always given an AbortError. Anything else
-            // is a real failure and still belongs in the catch below.
-            if (!isGoogleContactsConsentCancelled(error)) throw error;
-            setContactSignal((current) => ({
-              ...current,
-              status: statusBeforeSync,
-              error: null,
-            }));
-            return;
-          }
+      if (googleContactsFallback) {
+        try {
+          // Invokes GIS before any await or state transition so Safari keeps
+          // the click's transient activation for the popup.
+          const googleToken = requestGoogleContactsToken();
+          setBusy("contactSync");
+          googleSource = googlePeopleContactSource(await googleToken);
+        } catch (error) {
+          // Closing the sheet is a choice, not a failed sync. A blocked popup
+          // is intentionally not AbortError and is surfaced by the catch below.
+          if (!isGoogleContactsConsentCancelled(error)) throw error;
+          return;
         }
       }
+
+      setBusy("contactSync");
+      setContactSignal((current) => ({
+        ...current,
+        status: "scanning",
+        error: null,
+      }));
+
+      const idToken = await auth.user.getIdToken();
       const result = await syncOneLocationContactSignals({
         idToken,
         ...(googleSource ? { source: googleSource } : {}),
@@ -6899,7 +6936,12 @@ export function OneLocationAgentPageContent({
     } finally {
       setBusy(null);
     }
-  }, [auth.user, contactSignal, handleInviteContactCandidates]);
+  }, [
+    auth.user,
+    contactSignal,
+    googleContactsFallback,
+    handleInviteContactCandidates,
+  ]);
 
   useEffect(() => {
     handleSyncContactSignalRef.current = handleSyncContactSignal;
@@ -12652,6 +12694,7 @@ export function OneLocationAgentPageContent({
           // declaration above for the full account.
           mapPoint={onboardingFinaleMapPoint}
           contactsStepAvailable={contactsStepAvailable}
+          contactsSource={googleContactsFallback ? "google" : "device"}
           onPreviewCircleCode={handlePreviewCircleCode}
           onAcceptCircleCode={handleAcceptCircleCode}
           onSyncOnboardingContacts={handleSyncOnboardingContacts}

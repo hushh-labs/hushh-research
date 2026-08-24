@@ -1,222 +1,218 @@
-# Switching on Google Contacts for web contact sync
+# Enable Google Contacts for web contact sync
 
-The code shipped **dark**. `googleContactsAvailability()` returns `"unconfigured"`
-whenever `NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID` is empty, which it is in every
-environment — so web, iOS and Android behave exactly as they did before. This
-file is the rest of the work, and none of it is code.
+Google Contacts is a browser-only fallback for surfaces that cannot read a
+device address book, especially desktop browsers and iPhone Safari. The access
+token and People API response stay in browser memory. Hussh receives only the
+existing contact-match payload: a normalized phone hash plus its last-four
+matching bucket, never Google tokens, names, or full phone numbers.
 
-Everything below needs GCP permissions that an ordinary developer credential does
-not carry. Verified 2026-08-24 with `testIamPermissions` against both
-`hushh-pda` and `hushh-pda-uat`: a normal member account holds
-`resourcemanager.projects.get` and nothing else on this path — no
-`serviceusage.services.enable`, no `secretmanager.secrets.create`, no
-`secretmanager.versions.add`, not even `secretmanager.versions.access`. Secret
-*names* list fine, which reads like access and is not. Run these as a member of
-`gcp-admins@hushh.ai`.
+The implementation is production-grade and environment-isolated from the
+start. Activation is intentionally staged: complete and accept UAT before
+changing production or dev.
 
-## Visual Map
+## Visual Context
 
-Where the client id travels, and the one edge that must not be reversed.
+Canonical visual owner: [IAM and consent scopes](../reference/iam/README.md).
+The configuration path below applies that trust boundary to the browser-only
+Google Contacts fallback without giving Hussh servers a Google token or raw
+contact response.
+
+## Current UAT boundary
+
+As verified on 2026-08-24:
+
+- UAT project: `hushh-pda-uat`
+- UAT web origin: `https://uat.one.hushh.ai`
+- Google Auth Platform audience: External, In production
+- People API: enabled
+- dedicated Web client: `Hussh Contacts Web - UAT`, with the UAT origin only
+  and no redirect URI
+- Data Access: exact `contacts.readonly` scope added; review in progress
+- Branding: verified; the existing consent-screen app name still does not
+  match the homepage name, while the remaining verification checks are under
+  review
+- `NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID`: Secret Manager version `1` enabled
+- the UAT Cloud Build service account already has Secret Manager accessor
+  authority; no IAM change was required
+- production and dev: out of scope until UAT acceptance
+
+Do not reuse the Gmail or Calendar OAuth client. Create a contacts-only Web
+client in each environment's own project. Environment isolation keeps a bad
+origin or future grant change in UAT from widening production authority.
+
+## Configuration path
 
 ```mermaid
 flowchart TD
-    C["OAuth client<br/>(new Web client, same project)"] -->|"step 3"| SM["Secret Manager<br/>NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID<br/>x3 projects"]
-    SM -->|"step 4: availableSecrets"| CB["frontend.cloudbuild.yaml"]
-    CB -->|"--build-arg"| DA["Dockerfile ARG"]
-    DA -->|"ENV"| DE["Dockerfile ENV"]
-    DE -->|"read at build time"| NB["Next.js bundle<br/>process.env"]
-    NB --> AV["googleContactsAvailability()"]
-    AV -->|"empty -> unconfigured"| DARK["feature stays dark<br/>(today, every environment)"]
-    AV -->|"set -> connectable"| GIS["Google Identity Services<br/>token in browser memory"]
-    GIS --> PA["people.googleapis.com<br/>called FROM THE BROWSER"]
-    PA -.->|"never"| SRV["our servers"]
-
-    SM -.->|"step 4 before step 3 =<br/>every frontend build fails,<br/>all 3 envs, every branch"| CB
+    OC["UAT contacts-only Web OAuth client"] --> SM["UAT Secret Manager<br/>NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID"]
+    SM -->|"same-project secret lookup"| CB["frontend.cloudbuild.yaml"]
+    CB --> DA["Docker build ARG + ENV"]
+    DA --> NB["Next.js browser bundle"]
+    NB --> GIS["Google Identity Services<br/>contacts.readonly token"]
+    GIS --> PA["people.googleapis.com<br/>browser request"]
+    PA -. "never" .-> SRV["Hussh servers"]
+    CB -->|"secret absent outside UAT"| DARK["fallback remains dark"]
 ```
 
-The dotted edge back into `frontend.cloudbuild.yaml` is the failure mode this
-document is ordered around. The dotted edge into "our servers" is the one the
-whole design exists to prevent, and it is enforced by a test rather than by
-this diagram.
+The conditional, same-project build read is load-bearing. UAT requires the
+configuration; production/dev remain deployable and dark while their secret is
+absent, then use their own client automatically once explicitly provisioned. A
+top-level Cloud Build
+`availableSecrets` entry is resolved before a step starts and cannot be made
+environment-optional. Adding it while production/dev do not have the secret
+would break their frontend builds.
 
-## Order matters, and getting it wrong breaks every frontend deploy
+## 1. Inspect UAT OAuth scope and client state
 
-Step 3 creates the secret. Step 4 makes `frontend.cloudbuild.yaml` reference it.
-Cloud Build resolves every `availableSecrets` entry before the build starts, so a
-reference to a secret that does not exist yet fails the build — in all three
-environments, on every branch, whether or not it touches contacts. **Do not merge
-the step 4 diff until step 3 has run in all three projects.**
+Open Google Cloud Console in `hushh-pda-uat`:
 
-This is the same ordering rule as R1 in the `safe-changes` skill, in its
-build-time form.
-
----
-
-## Step 1 — Read the consent screen before changing anything
-
-The UAT backend env file on the deploy host carries a **localhost** OAuth
-callback, in a deployed environment. That is what a consent screen still in
-*Testing* looks like. (The file is untracked by design, so this is a thing to go
-and read, not a line to cite.)
-
-If it is in Testing, then today **no Google scope reaches a real user** — Gmail
-included — and only allowlisted test accounts work. Turning contacts on does not
-change that. But publishing the screen, whenever that happens, means a first
-production submission that necessarily includes the restricted `gmail.readonly`
-scope and its CASA assessment. Contacts did not create that debt; it is simply
-the feature that makes you look at it.
-
-Dogfooding is not blocked either way. Add the tester accounts and the flow works.
-
-```
-https://console.cloud.google.com/apis/credentials/consent?project=hushh-pda
+```text
+Google Auth Platform -> Clients
+Google Auth Platform -> Data Access
+Google Auth Platform -> Verification Center
 ```
 
-Read it. Do not publish it as part of this change.
+If a dedicated contacts client already exists, inspect its type and exact
+Authorized JavaScript origins. Do not edit an unrelated client to make it fit.
 
-## Step 2 — Enable the People API
+On Data Access, look for the exact scope:
 
-Per project, all three:
+```text
+https://www.googleapis.com/auth/contacts.readonly
+```
+
+It is a sensitive scope. An External app in production must have sensitive
+scope verification before requesting it without an unverified-app warning. If
+the UAT project is not verified for this scope, choose one explicit UAT path
+before continuing:
+
+- complete Google's sensitive-scope verification; or
+- move only this UAT OAuth app back to Testing and allowlist the acceptance
+  accounts, after confirming no other UAT client depends on public access.
+
+Testing mode limits who can consent and its non-basic grants expire, so it is a
+temporary UAT posture, not the production plan. Do not change publishing status
+blindly: Audience applies to every OAuth client in the project.
+
+If it does not exist, create it with this contract:
+
+- Application type: Web application
+- Name: `Hussh Contacts Web - UAT`
+- Authorized JavaScript origins: `https://uat.one.hushh.ai`
+- Authorized redirect URIs: none
+
+Use the public client id ending in `.apps.googleusercontent.com`. The GIS token
+flow does not use a client secret or redirect handler. Never put a client secret
+in the frontend, repository, issue, chat, build arguments, or Secret Manager
+under this key.
+
+If the scope is absent, add it through Data Access -> Add or Remove Scopes only
+after the verification/testing decision above. The final consent screen must
+show only the contacts read scope for this client.
+
+## 2. Create the UAT build configuration
+
+Store only the public client id in UAT Secret Manager, with no trailing newline:
 
 ```bash
-for p in hushh-pda hushh-pda-uat hushh-pda-dev; do
-  gcloud services enable people.googleapis.com --project="$p"
-done
+PROJECT_ID=hushh-pda-uat
+SECRET_ID=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID
+: "${UAT_GOOGLE_CONTACTS_CLIENT_ID:?set the UAT public OAuth client id first}"
+case "$UAT_GOOGLE_CONTACTS_CLIENT_ID" in
+  *.apps.googleusercontent.com) ;;
+  *) echo "The UAT Google Contacts OAuth client id is malformed." >&2; exit 1 ;;
+esac
 
-# prove it
-for p in hushh-pda hushh-pda-uat hushh-pda-dev; do
-  printf '%-16s ' "$p"
-  gcloud services list --enabled --project="$p" \
-    --filter="config.name=people.googleapis.com" --format='value(config.name)'
-done
+gcloud secrets describe "$SECRET_ID" --project="$PROJECT_ID" >/dev/null 2>&1 || \
+  gcloud secrets create "$SECRET_ID" \
+    --project="$PROJECT_ID" \
+    --replication-policy=automatic
+
+printf '%s' "$UAT_GOOGLE_CONTACTS_CLIENT_ID" | \
+  gcloud secrets versions add "$SECRET_ID" \
+    --project="$PROJECT_ID" \
+    --data-file=-
 ```
 
-Three lines of `people.googleapis.com`, or the browser gets a 403 that looks
-exactly like a consent failure.
-
-## Step 3 — A dedicated browser OAuth client, then the secret
-
-**Create a new Web application client. Do not add JavaScript origins to the Gmail
-client.** Same Cloud project, so it inherits the already-configured consent screen
-and starts no new verification — but a separate client id, so a mistake in the
-contacts origins cannot reach the client Gmail and Calendar authenticate through.
-That client is listed in the `safe-changes` shared-credential table for a reason.
-
-Console → Credentials → Create credentials → OAuth client ID → **Web application**.
-
-Authorized JavaScript origins — origins only, no paths, no trailing slash:
-
-```
-https://one.hushh.ai
-https://uat.one.hushh.ai
-https://dev.one.hushh.ai
-http://localhost:3000
-```
-
-No redirect URIs. The Google Identity Services token flow does not use one.
-
-Native is deliberately absent. `capacitor.config.ts` sets `iosScheme: "App"`, so
-the iOS shell origin is `App://localhost`; Google will not accept a non-https
-custom scheme, and native already has the real address book through the
-first-party plugin. `googleContactsAvailability()` returns `"unconfigured"` on
-native unconditionally, so nothing there ever asks.
-
-Then create the secret — same value in all three projects, because a client id is
-public and ships inside browser JavaScript:
+Keep `UAT_GOOGLE_CONTACTS_CLIENT_ID` in process memory and unset it after the
+version is added. Verify metadata and an enabled version without printing the
+payload:
 
 ```bash
-CLIENT_ID='<the new client id>.apps.googleusercontent.com'
+gcloud secrets versions list "$SECRET_ID" \
+  --project="$PROJECT_ID" \
+  --filter='state=ENABLED' \
+  --format='value(name)'
 
-for p in hushh-pda hushh-pda-uat hushh-pda-dev; do
-  gcloud secrets create NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID \
-    --project="$p" --replication-policy=automatic 2>/dev/null || true
-  printf '%s' "$CLIENT_ID" | gcloud secrets versions add \
-    NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID --project="$p" --data-file=-
-done
+unset UAT_GOOGLE_CONTACTS_CLIENT_ID
 ```
 
-`printf` rather than `echo`: a trailing newline inside the secret becomes a
-trailing newline in the client id, and Google rejects it with a message that
-never mentions whitespace.
+The UAT Cloud Build identity already has same-project Secret Manager access. No
+new broad IAM grant is part of this rollout.
 
-Verify all three before going near step 4:
+## 3. Build and deploy through the governed UAT lane
 
-```bash
-for p in hushh-pda hushh-pda-uat hushh-pda-dev; do
-  printf '%-16s ' "$p"
-  gcloud secrets versions access latest \
-    --secret=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID --project="$p" | tail -c 30
-  echo
-done
-```
+The repository contract is:
 
-No IAM grant is needed here. `roles/secretmanager.secretAccessor` is held at
-project level in each project, so a new secret is readable by that project's
-runtimes the moment it exists. That is only true because all three copies are
-same-project — a cross-project reference would need an explicit per-secret grant
-and would fail silently without one.
+- `deploy/frontend.cloudbuild.yaml` reads a client id only from the current
+  deployment project. UAT fails before image creation when its value is absent
+  or malformed. Production/dev pass an empty value while unconfigured and use
+  their own value automatically after explicit provisioning.
+- `hushh-webapp/Dockerfile` exposes the build argument to Next.js at build time.
+- `googleContactsAvailability()` remains `unconfigured` when the bundled value
+  is empty and always remains `unconfigured` inside native Capacitor shells.
 
-## Step 4 — The build plumbing
+Land changes through the protected PR/main gates. Deploy only the exact landed
+`main` SHA with a successful `Main Post-Merge Smoke`, using `scope=auto` in the
+governed UAT workflow. Do not use direct Cloud Run deployment or manual traffic
+changes.
 
-Only after step 3 shows a value in all three.
+## 4. Perform acceptance last
 
-`deploy/frontend.cloudbuild.yaml`, three edits:
+Run browser acceptance only after the client, secret, code, green `main` SHA,
+and UAT deployment are all in place.
 
-```yaml
-# 1. in the docker build args, beside the other NEXT_PUBLIC_GOOGLE_* lines
-          --build-arg NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=$$NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID_VAL \
+Desktop acceptance on `https://uat.one.hushh.ai`:
 
-# 2. in that step's secretEnv list
-      "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID_VAL",
+1. First-run onboarding keeps the contacts step visible and labels the action
+   `Connect Google Contacts`.
+2. The popup opens from the explicit tap. Closing it returns to idle; a blocked
+   popup shows an actionable error.
+3. The consent sheet requests only
+   `https://www.googleapis.com/auth/contacts.readonly`.
+4. A successful read calls `people.googleapis.com` directly from the browser.
+5. Hussh requests contain no Google token, name, or full phone number.
+6. Matching and invite counts render correctly.
 
-# 3. in availableSecrets
-    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID/versions/latest
-      env: "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID_VAL"
-```
+Repeat the same flow on a real iPhone in Safari. Native iOS/Android apps are a
+separate path and must continue using the first-party contacts plugin without a
+Google popup.
 
-**Do not add it to `required_vars`.** That list hard-fails the build on an empty
-value. Contacts is a fallback that is allowed to be off, and the two Maps keys
-are already precedent for a `NEXT_PUBLIC_` value that is wired but not required.
+## Production after UAT acceptance
 
-`hushh-webapp/Dockerfile`, beside the other `NEXT_PUBLIC_GOOGLE_*` pair:
+Production is a separate authority transition:
 
-```dockerfile
-ARG NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID
-ENV NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID
-```
+1. Review UAT evidence and unresolved OAuth verification warnings.
+2. Enable People API in `hushh-pda` if still disabled.
+3. Create a new production contacts-only Web client with only
+   `https://one.hushh.ai` as an Authorized JavaScript origin.
+4. Add the production project secret version.
+5. Deploy through the existing production build gate; no UAT client id or code
+   fork is reused.
+6. Verify production separately.
 
-Both lines are needed. `ARG` alone reaches the build and not the bundle: Next.js
-reads `process.env` at build time, so without the `ENV` line the value is
-silently empty and the feature stays dark with no error anywhere.
+Dev follows the same pattern later with its own client. Localhost belongs only
+on that non-production client when local browser testing is deliberately
+enabled. Never copy the UAT client across environments merely because client ids
+are public.
 
-Finally add the name to `scripts/ops/verify-env-secrets-parity.py`, so a project
-missing the secret is a CI failure rather than one environment where the button
-quietly does nothing.
+## Never build these shortcuts
 
-## Step 5 — Prove it end to end
-
-```bash
-python3 scripts/ops/verify-env-secrets-parity.py --project hushh-pda-uat
-```
-
-Then in a **desktop** browser on `https://uat.one.hushh.ai` — desktop
-specifically, because that is the surface with no Contact Picker at all and
-therefore the only one where this path is reachable:
-
-1. Open the contacts step. The Google fallback offers itself.
-2. The consent sheet appears, scoped to `contacts.readonly` and nothing else.
-3. Matches come back; DevTools → Network shows `people.googleapis.com` called
-   **from the browser**, and no request to our API carrying a phone number.
-
-That last check is the whole design. If a People API call ever shows up in
-backend logs, `consent-protocol/tests/test_contacts_never_reach_the_server.py`
-should have failed the build first — treat that as a bug in the test rather than
-a tolerable shortcut.
-
-## What stays unverified
-
-Steps 1 and 3 are console actions with no read-back that proves *intent*. The
-origins list can be correct while the consent screen is still in Testing, and
-nothing in CI can tell those apart. The end-to-end check in step 5 on a real
-desktop browser is the only thing that closes the gap, and it cannot be
-automated — the consent sheet needs a human.
+- no server-side People API route
+- no refresh token for contact matching
+- no Google token, contact list, names, or full phone numbers in Hussh logs or
+  persistence
+- no Gmail/Calendar OAuth client reuse
+- no client secret in browser configuration
+- no redirect URI for this GIS token flow
+- no native custom-scheme origin
