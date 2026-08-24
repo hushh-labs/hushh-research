@@ -237,3 +237,54 @@ describe("one location contact signals", () => {
     await expect(openContactPermissionSettings()).resolves.toBe(false);
   });
 });
+
+describe("one location contact signals — an injected source", () => {
+  it("does not run the device pre-flight, which would refuse the browser it exists for", async () => {
+    // `assertContactsReadable` asks the Capacitor plugin whether the DEVICE can
+    // read contacts. On a desktop browser the honest answer is `unavailable` —
+    // and that is exactly the platform where reading Google Contacts is the
+    // whole point. Left in front of an injected source it would refuse the one
+    // case this feature exists to serve.
+    mockGetPermissionState.mockResolvedValue({ state: "unavailable" });
+    mockBuildMarketplaceContactLookups.mockResolvedValue({
+      totalContacts: 2,
+      sourcePlatform: "google",
+      region: "IN",
+      limited: false,
+      truncated: false,
+      lookups: [{ hash: "d".repeat(64), last4: "1234", displayName: "Asha" }],
+    });
+    mockMatchMarketplaceContacts.mockResolvedValue([]);
+
+    const source = vi.fn(async () => ({
+      contacts: [],
+      sourcePlatform: "google" as const,
+      defaultRegion: null,
+      limited: false,
+      truncated: false,
+      totalAvailable: 0,
+    }));
+
+    const result = await syncOneLocationContactSignals({
+      idToken: "id-token",
+      accountPhoneNumber: "+919000000000",
+      source,
+    });
+
+    expect(result.sourcePlatform).toBe("google");
+    expect(mockBuildMarketplaceContactLookups).toHaveBeenCalledWith(
+      expect.objectContaining({ source }),
+    );
+  });
+
+  it("still runs the pre-flight for the device address book", async () => {
+    // The guard has to stay for the default path — a denied device permission
+    // is a real, actionable state with its own copy and its own remedy.
+    mockGetPermissionState.mockResolvedValue({ state: "denied" });
+
+    await expect(
+      syncOneLocationContactSignals({ idToken: "id-token" }),
+    ).rejects.toMatchObject({ failure: "denied" });
+    expect(mockBuildMarketplaceContactLookups).not.toHaveBeenCalled();
+  });
+});

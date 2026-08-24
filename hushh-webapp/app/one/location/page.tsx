@@ -133,6 +133,15 @@ function BodyPortal({ children }: { children: ReactNode }) {
 
 import { HushhContacts } from "@/lib/capacitor";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
+import {
+  googleContactsAvailability,
+  googlePeopleContactSource,
+} from "@/lib/contacts/google-people-source";
+import {
+  isGoogleContactsConsentCancelled,
+  requestGoogleContactsToken,
+} from "@/lib/contacts/google-contacts-token";
+import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matching";
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
@@ -6715,6 +6724,11 @@ export function OneLocationAgentPageContent({
       return;
     }
 
+    // Kept so a cancelled consent sheet can put the card back exactly as it
+    // was. "scanning" is set below before anything can be cancelled, and
+    // leaving it there would strand the card mid-scan forever.
+    const statusBeforeSync = contactSignal.status;
+
     setBusy("contactSync");
     setContactSignal((current) => ({
       ...current,
@@ -6724,8 +6738,52 @@ export function OneLocationAgentPageContent({
 
     try {
       const idToken = await auth.user.getIdToken();
+      // Google Contacts, only where there is no address book to read.
+      //
+      // `navigator.contacts.select` ships enabled by default in Chrome on
+      // Android and nowhere else — iOS Safari has it behind a flag, no desktop
+      // browser has it at all. On those, this control had nothing to read and
+      // said so. A Google account is not a device capability, so it works
+      // everywhere a browser does.
+      //
+      // Deliberately a fallback rather than a second button. The device book is
+      // the better source when it exists: it is the person's actual phone
+      // contacts rather than whichever of them Google happens to hold, and it
+      // needs no consent sheet. This only fires where the alternative is
+      // nothing at all, and only when the build is configured for it —
+      // `googleContactsAvailability()` is "unconfigured" without
+      // NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID, which keeps the feature invisible
+      // until the console work behind it is finished.
+      let googleSource: MarketplaceContactSource | undefined;
+      if (googleContactsAvailability() === "connectable") {
+        const deviceState = await HushhContacts.getPermissionState().catch(
+          () => null,
+        );
+        if (!deviceState || deviceState.state === "unavailable") {
+          // Must run inside the click that started this: acquiring the token
+          // can open a consent sheet, and a browser blocks a popup no gesture
+          // asked for.
+          try {
+            googleSource = googlePeopleContactSource(
+              await requestGoogleContactsToken(),
+            );
+          } catch (error) {
+            // Closing the sheet is a choice, not a failure -- the same reading
+            // the device picker has always given an AbortError. Anything else
+            // is a real failure and still belongs in the catch below.
+            if (!isGoogleContactsConsentCancelled(error)) throw error;
+            setContactSignal((current) => ({
+              ...current,
+              status: statusBeforeSync,
+              error: null,
+            }));
+            return;
+          }
+        }
+      }
       const result = await syncOneLocationContactSignals({
         idToken,
+        ...(googleSource ? { source: googleSource } : {}),
         // Tells the normalizer which region a bare "9876543210" belongs to.
         // Without it every 10-digit contact was read as North American.
         accountPhoneNumber: auth.user.phoneNumber,

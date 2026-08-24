@@ -67,6 +67,15 @@ tests/test_ria_dossier_mail_contract.py
 tests/test_ria_claim_location.py
 tests/test_ria_brochure_profile.py
 
+# The privacy property contact sync is built around, as code instead of prose.
+#
+# A raw phone number belonging to somebody who is NOT a Hushh user must never
+# reach a Hushh server. Adding Google Contacts is ~20 lines if the backend calls
+# the People API — it reuses the working OAuth refresh path and needs no client
+# id, no JS origins, no Capacitor gate. It would read as a simplification in
+# review. This is what makes it a failing test instead of a judgement call.
+tests/test_contacts_never_reach_the_server.py
+
 # Release-gate classification. These guard the rule that a third-party outage
 # must not block a healthy release, and that a candidate defect still must.
 tests/test_dependency_health_classifier.py
