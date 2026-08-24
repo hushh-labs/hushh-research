@@ -32,7 +32,7 @@
  * bug this screen shipped with. Do not reintroduce a hard height here.
  */
 export const CALENDAR_SETUP_SHELL_CLASSNAME =
-  "motion-step-enter flex min-h-[calc(100dvh-var(--top-shell-reserved-height,4rem)-var(--app-bottom-inset,2rem))] w-full flex-col items-center justify-center gap-4 pb-[calc(var(--app-bottom-inset)+1rem)]";
+  "motion-step-enter flex h-[calc(100dvh-var(--top-shell-reserved-height,4rem)-var(--app-bottom-inset,2rem))] max-h-[calc(100dvh-var(--top-shell-reserved-height,4rem)-var(--app-bottom-inset,2rem))] w-full flex-col items-center justify-center gap-4 overflow-hidden py-2";
 
 /** Header and content share one measure so the card never outgrows the title. */
 export const CALENDAR_SETUP_REGION_CLASSNAME = "w-full max-w-md mx-auto";
