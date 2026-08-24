@@ -224,6 +224,15 @@ export type ContactSyncRemedy =
   | "pick_more"
   /** Open OS settings to widen contact access (iOS limited access). */
   | "open_settings"
+  /**
+   * Some contacts are not on Hushh. Offer to invite them.
+   *
+   * Only ever returned where the remedy would otherwise be null. A partial
+   * read owns that slot with the remedy that widens it, and widening is the
+   * better next step than inviting out of a list the person has not finished
+   * choosing from.
+   */
+  | "invite"
   | null;
 
 export type ContactSyncOutcome = {
@@ -243,10 +252,20 @@ function contactsLabel(count: number): string {
 export function describeContactSyncOutcome(
   result: Pick<
     OneLocationContactSignalResult,
-    "matchedUserIds" | "totalContacts" | "sourcePlatform" | "limited" | "truncated"
+    | "matchedUserIds"
+    | "totalContacts"
+    | "sourcePlatform"
+    | "limited"
+    | "truncated"
+    | "inviteCandidateCount"
   >,
 ): ContactSyncOutcome {
   const matched = result.matchedUserIds.length;
+  // The other half of the answer. `inviteCandidateCount` has been computed on
+  // every sync since this file shipped and read by nothing except an analytics
+  // dimension — so the product learned "forty of your contacts are not here
+  // yet", recorded it, and told the person nothing.
+  const inviteCandidates = Math.max(0, result.inviteCandidateCount ?? 0);
 
   // The picker grants per-invocation and has no settings page to open, so
   // offering "Settings" there sends the user somewhere that cannot help —
@@ -260,6 +279,23 @@ export function describeContactSyncOutcome(
       : "open_settings";
 
   if (result.limited) {
+    // Nothing was shared at all, which is not the same as nothing matching.
+    // The web picker returns exactly this shape when it is dismissed
+    // (`contacts-web.ts` treats an AbortError as an empty read), so closing the
+    // sheet was answered with "None of the 0 contacts you shared are on Hushh
+    // yet" -- a sentence shaped like a result, reporting one that was never
+    // asked for. iOS limited access with nothing selected lands here too.
+    if (result.totalContacts === 0) {
+      return {
+        title: "No contacts were shared, so nothing was checked.",
+        description:
+          remedy === "pick_more"
+            ? "Pick the people you want checked and they will be matched."
+            : "Share contacts with Hushh in Settings to have them checked.",
+        remedy,
+      };
+    }
+
     const scanned = contactsLabel(result.totalContacts);
     return {
       title: matched
@@ -276,7 +312,14 @@ export function describeContactSyncOutcome(
   if (!matched) {
     return {
       title: "No One users matched from this contact scan.",
-      remedy: null,
+      description: inviteCandidates
+        ? `${contactsLabel(inviteCandidates)} could be invited.`
+        : undefined,
+      // `invite` only ever appears where `remedy` would have been null. A
+      // partial read already owns that slot with the remedy that widens it,
+      // and widening the read is the better next step than inviting from a
+      // list the person has not finished picking.
+      remedy: inviteCandidates ? "invite" : null,
     };
   }
 
@@ -286,7 +329,9 @@ export function describeContactSyncOutcome(
     // the book was larger than the caps rather than deliberately narrowed.
     description: result.truncated
       ? "Your address book was larger than the sync limit, so some contacts were not checked."
-      : undefined,
-    remedy: null,
+      : inviteCandidates
+        ? `${contactsLabel(inviteCandidates)} are not on Hushh yet.`
+        : undefined,
+    remedy: inviteCandidates ? "invite" : null,
   };
 }

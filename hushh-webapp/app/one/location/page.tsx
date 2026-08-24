@@ -374,6 +374,9 @@ import {
   DRIVE_ETA_MIN_RECOMPUTE_MOVE_METERS,
 } from "@/lib/one-location/eta-recompute";
 import { getApiBaseUrl } from "@/lib/services/api-service";
+import { buildInviteToOneShare } from "@/lib/connect/invite-to-one";
+import { ReferralService } from "@/lib/services/referral-service";
+import { shareLink } from "@/lib/share/share-link";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import {
   buildCircleInviteShareText,
@@ -6638,6 +6641,68 @@ export function OneLocationAgentPageContent({
     [auth.user],
   );
 
+  /**
+   * Share the app with the contacts a scan could not match.
+   *
+   * Sends the person's own REFERRAL link, not the generic invite. That is the
+   * whole difference between a share that is attributed and one that is not:
+   * `/r/<slug>` resolves server-side and records the attribution BEFORE the
+   * recipient reaches sign-in, so nothing downstream has to trust a slug the
+   * client hands back afterwards. `buildInviteToOneShare` is a bare origin with
+   * no token — perfectly correct for its own purpose, and unattributable.
+   *
+   * The generic invite stays as the fallback for the one case the referral
+   * system cannot serve: no link yet, or the summary call fails. Better a
+   * share that works and is not counted than a dead control.
+   *
+   * `rememberLocationInviteSource` is written either way. It is the local
+   * funnel signal, `"contact_sync"` has existed in that enum since it shipped
+   * and has never once been written, and first-touch wins inside it so this
+   * cannot overwrite an earlier, truer source.
+   */
+  const handleInviteContactCandidates = useCallback(async () => {
+    rememberLocationInviteSource("contact_sync");
+
+    let referralLink = "";
+    try {
+      const idToken = await auth.user?.getIdToken();
+      if (idToken) {
+        const summary = await ReferralService.getSummary({ idToken });
+        referralLink = String(summary?.link || "").trim();
+      }
+    } catch {
+      // A referral summary that will not load is not a reason to refuse the
+      // share. Fall through to the generic invite.
+    }
+
+    const share = referralLink
+      ? {
+          title: "Join me on Hushh",
+          text: "Join me on Hushh so we can share location.",
+          url: referralLink,
+          dialogTitle: "Invite to Hushh",
+        }
+      : buildInviteToOneShare();
+
+    if (!share) {
+      // No referral link AND no shareable origin — the same condition that
+      // hides the Connect invite row entirely rather than offering a link that
+      // resolves to nothing.
+      toast.error("Sharing is not available here.");
+      return;
+    }
+
+    try {
+      const delivery = await shareLink(share);
+      if (delivery === "copied") {
+        toast.success("Invite link copied.");
+      }
+    } catch (error) {
+      if (isShareCancellationError(error)) return;
+      toast.error("Could not open the share sheet.");
+    }
+  }, [auth.user]);
+
   const handleSyncContactSignal = useCallback(async () => {
     if (!auth.user?.getIdToken) {
       const message = "Sign in before syncing contacts.";
@@ -6712,7 +6777,25 @@ export function OneLocationAgentPageContent({
                   onClick: () => void openContactPermissionSettings(),
                 },
               }
-            : {}),
+            : outcome.remedy === "invite"
+              ? {
+                  action: {
+                    label: "Invite them",
+                    // The other half of a contact scan. Until now the count of
+                    // people who are NOT on One was computed on every sync and
+                    // read by nothing but an analytics dimension — the product
+                    // learned who was missing, recorded it, and offered the
+                    // person no way to act on it.
+                    //
+                    // Reuses the existing invite share rather than minting a
+                    // second one, and deliberately carries no pre-authorized
+                    // connection: `buildInviteToOneShare` documents why, and
+                    // an invite that consents on the recipient's behalf is not
+                    // an invite.
+                    onClick: () => void handleInviteContactCandidates(),
+                  },
+                }
+              : {}),
       };
       if (result.matchedUserIds.length > 0) {
         toast.success(outcome.title, outcomeOptions);
@@ -6758,7 +6841,7 @@ export function OneLocationAgentPageContent({
     } finally {
       setBusy(null);
     }
-  }, [auth.user, contactSignal]);
+  }, [auth.user, contactSignal, handleInviteContactCandidates]);
 
   useEffect(() => {
     handleSyncContactSignalRef.current = handleSyncContactSignal;
