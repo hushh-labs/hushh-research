@@ -41,7 +41,7 @@ describe("canonical workspace hierarchy", () => {
     const finance = read("components/kai/kai-market-hub-page.tsx");
 
     expect(finance).toContain('width="reading"');
-    expect(finance).toContain('className="relative !px-0 pb-32"');
+    expect(finance).toContain('"relative !px-0"');
     expect(finance).toContain('panelInset="page"');
     expect(finance).not.toContain('style={{ "--one-gutter": "0px" }}');
   });

@@ -1106,7 +1106,7 @@ describe("ProfileReceiptsPage", () => {
 
     await waitFor(() => {
       expect(mocks.toast.error).toHaveBeenCalledWith(
-        "Gmail connection needs the native Google handoff. Open Gmail on the web app to connect this inbox for now.",
+        "Connect this inbox from the web app for now.",
       );
     });
     expect(mocks.gmailOAuthPopup.open).not.toHaveBeenCalled();
