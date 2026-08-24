@@ -109,7 +109,6 @@ export function SosPanel({
   onTrigger,
   onStopSos,
   stopBusy,
-  onClose,
   onEditContacts,
   isRecipientShareReady,
   emergency,
@@ -415,7 +414,6 @@ export function SosPanel({
     // to escape the shell as a pinned full-viewport black overlay, which is
     // what removed all three and forced a second back button into the content.
     <section data-testid="sms-safety-screen">
-      <h1 className="sr-only">Save my Soul</h1>
       <TaskFlowHeader
         title="Save My Soul"
         description="Alerts your emergency contacts with your live location."
@@ -738,13 +736,6 @@ export function SosPanel({
               {stopBusy ? "Stopping…" : "Stop alert"}
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={onClose}
-            className="press-scale flex h-12 w-full items-center justify-center rounded-2xl bg-[color:var(--sos-control-surface)] px-5 text-[17px] font-semibold leading-[22px] text-[color:var(--sos-control-text)] transition-colors hover:bg-[color:var(--sos-control-surface-hover)]"
-          >
-            Cancel
-          </button>
         </div>
       </div>
       <AlertDialog open={stopConfirmOpen} onOpenChange={setStopConfirmOpen}>

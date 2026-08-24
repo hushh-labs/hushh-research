@@ -197,6 +197,7 @@ export function useOneLocationConsentActions(
             const response = await OneLocationService.approveRequest({
               vaultOwnerToken,
               requestId,
+              approvalMode: "manual",
               durationHours: clampApprovalDurationHours(durationHours),
             });
             const point = await OneLocationService.captureCurrentPosition();

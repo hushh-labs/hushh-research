@@ -2,11 +2,12 @@ import type { OneLocationAccessRequest } from "@/lib/one-location/types";
 import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
 
 /**
- * Which pending location requests may be approved without asking.
+ * Which pending location requests this browser may schedule for server review.
  *
- * This is the whole consent rule for auto-approve, kept apart from the screen
- * that runs it so it can be read and tested as one thing. Every branch here
- * refuses; the last line is the only one that lets a request through.
+ * This helper is deliberately not consent authority. The server owns the rule,
+ * timestamp, relationship/Circle proof, and atomic grant decision. Every
+ * browser-side branch here narrows work; the last line only queues a request
+ * for that server validation.
  *
  * The rule the owner asked for: turning the setting on speaks for requests
  * that arrive afterwards, and for nothing else. Someone already waiting when
@@ -17,18 +18,10 @@ import type { AutoApproveScope } from "@/lib/one-location/location-control-state
 export function selectAutoApprovableRequests(input: {
   pendingRequests: readonly OneLocationAccessRequest[];
   enabled: boolean;
-  /** When auto-approve was switched on, ISO-8601, or null while it is off. */
+  /** Server activation time, ISO-8601, or null while the rule is off. */
   enabledAt: string | null;
-  /** Required scope. Missing or unreadable scopes fail closed. */
+  /** Required rule shape. Exact relationship membership is checked by the server. */
   scope: AutoApproveScope | null;
-  /**
-   * Circle membership is authoritative outside this selector. If the caller
-   * cannot prove a requester is in the selected Circle, the request is refused.
-   */
-  isRequesterInScope?: (
-    request: OneLocationAccessRequest,
-    scope: AutoApproveScope,
-  ) => boolean;
   /** "Stop sending my location" outranks every convenience. */
   paused: boolean;
   /** Requests this device already put through; never attempted twice. */
@@ -39,7 +32,6 @@ export function selectAutoApprovableRequests(input: {
     enabled,
     enabledAt,
     scope,
-    isRequesterInScope,
     paused,
     alreadyAttemptedIds,
   } = input;
@@ -55,10 +47,14 @@ export function selectAutoApprovableRequests(input: {
   return pendingRequests.filter((request) => {
     if (request.status !== "pending") return false;
     if (alreadyAttemptedIds.has(request.id)) return false;
+    // A standing people rule does not grant an open-ended duration. Requests
+    // for ongoing access stay visible for an explicit owner decision.
+    if (request.requestedDurationMode === "until_stopped") return false;
     const requestedAtMs = Date.parse(request.requestedAt ?? "");
     if (!Number.isFinite(requestedAtMs)) return false;
     if (requestedAtMs <= enabledAtMs) return false;
-    if (scope.kind === "all_contacts") return true;
-    return Boolean(isRequesterInScope?.(request, scope));
+    // This is only a scheduler. The approval mutation locks the server-owned
+    // rule and proves exact relationship/Circle membership transactionally.
+    return true;
   });
 }

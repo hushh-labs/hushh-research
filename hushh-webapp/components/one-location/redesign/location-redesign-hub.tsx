@@ -1430,10 +1430,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
                   : openFlow("check-in")
               }
               onSos={() => openFlow("sos")}
+              onOpenMap={() => router.push(ROUTES.ONE_LOCATION_MAP)}
               onOpenActiveShares={() => openFlow("active-shares")}
               onOpenSharedWithMe={() => openFlow("shared-with-me")}
               onOpenNeedsReview={() => openFlow("needs-review")}
               onRequestLocation={() => openFlow("ask")}
+              onOpenSettings={() => openFlow("settings")}
             />
           </LocationHubPanel>
 
@@ -1485,19 +1487,23 @@ function NowHub({
   onStartShare,
   onCheckIn,
   onSos,
+  onOpenMap,
   onOpenActiveShares,
   onOpenSharedWithMe,
   onOpenNeedsReview,
   onRequestLocation,
+  onOpenSettings,
 }: {
   vm: LocationHubViewModel;
   onStartShare: () => void;
   onCheckIn: () => void;
   onSos: () => void;
+  onOpenMap: () => void;
   onOpenActiveShares: () => void;
   onOpenSharedWithMe: () => void;
   onOpenNeedsReview: () => void;
   onRequestLocation: () => void;
+  onOpenSettings: () => void;
 }) {
   const activityRows = [
     {
@@ -1630,6 +1636,30 @@ function NowHub({
           </LocationMenuListGroup>
         </div>
       ) : null}
+
+      <div className="space-y-2 pt-4">
+        <LocationNowGroupLabel>More</LocationNowGroupLabel>
+        <LocationMenuListGroup testId="one-location-now-more">
+          <LocationMenuListRow
+            leading={<LocationMenuListIcon name="map" />}
+            title="Map"
+            ariaLabel="Your Map"
+            onClick={onOpenMap}
+            testId="one-location-map-row"
+            voiceControlId="one-location-open-map"
+            voiceActionId="location.open_map"
+          />
+          <LocationMenuListRow
+            leading={<LocationMenuListIcon name="settings" />}
+            title="Settings"
+            ariaLabel="Settings"
+            onClick={onOpenSettings}
+            testId="one-location-settings-entry"
+            voiceControlId="one-location-action-settings"
+            voiceActionId="location.open_settings"
+          />
+        </LocationMenuListGroup>
+      </div>
     </div>
   );
 }
@@ -2577,12 +2607,12 @@ function LocationSettingsFlow({
         vm.onAutoApproveRequestsChange({ enabled: false, scope: null });
         return;
       }
-      vm.onAutoApproveRequestsChange({
-        enabled: true,
-        scope: activeScope ?? allContactsScope,
-      });
+      // Turning this on grants standing permission. Keep it off until the
+      // person explicitly chooses who that permission covers.
+      setDraftScope(activeScope);
+      setScopeSheetOpen(true);
     },
-    [activeScope, allContactsScope, vm],
+    [activeScope, vm],
   );
 
   const commitAutoApproveScope = useCallback(() => {
@@ -2609,6 +2639,7 @@ function LocationSettingsFlow({
               label="Auto-approve requests"
             />
           }
+          trailingInteractive
           onClick={openScopeSheet}
           chevron
           className="[--settings-row-py:14px]"

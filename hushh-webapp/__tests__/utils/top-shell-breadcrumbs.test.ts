@@ -570,8 +570,8 @@ describe("top shell breadcrumbs", () => {
     const cases: Array<[string, string]> = [
       ["check-in", "Check-In"],
       ["private-check-in", "Private Check-In"],
-      // Visible identity stays SMS even though the implementation action id is sos.
-      ["sos", "SMS"],
+      // The implementation action id stays sos; the visible product name is shared.
+      ["sos", "Save My Soul"],
       // NOTE: sms-contacts is deliberately absent from this table — it is the
       // one flow whose back target is not the hub (it retraces to whoever
       // opened it), so its label and back href are asserted separately below.
@@ -678,9 +678,16 @@ describe("top shell breadcrumbs", () => {
     // Settings → SMS contacts → back to the Settings flow (not "Now").
     const fromSettings = new URLSearchParams();
     fromSettings.set("action", "sms-contacts");
-    expect(
-      resolveTopShellBreadcrumb("/one/location", fromSettings)?.backHref,
-    ).toBe("/one/location?action=settings");
+    const settingsTrail = resolveTopShellBreadcrumb(
+      "/one/location",
+      fromSettings,
+    );
+    expect(settingsTrail?.backHref).toBe("/one/location?action=settings");
+    expect(settingsTrail?.items.map((item) => item.label)).toEqual([
+      "One",
+      "Location",
+      "Emergency contacts",
+    ]);
 
     // SOS → SMS contacts → back to SOS. Contacts is reachable mid-emergency,
     // and returning that person to Settings drops them out of the flow they
@@ -688,17 +695,29 @@ describe("top shell breadcrumbs", () => {
     const fromSos = new URLSearchParams();
     fromSos.set("action", "sms-contacts");
     fromSos.set("source", "sos");
-    expect(resolveTopShellBreadcrumb("/one/location", fromSos)?.backHref).toBe(
-      "/one/location?action=sos",
-    );
+    const sosTrail = resolveTopShellBreadcrumb("/one/location", fromSos);
+    expect(sosTrail?.backHref).toBe("/one/location?action=sos");
+    expect(sosTrail?.items.map((item) => item.label)).toEqual([
+      "One",
+      "Location",
+      "Save My Soul",
+      "Emergency contacts",
+    ]);
 
     // An unrecognised source is not an emergency; Settings stays the default.
     const fromUnknown = new URLSearchParams();
     fromUnknown.set("action", "sms-contacts");
     fromUnknown.set("source", "nearby");
-    expect(
-      resolveTopShellBreadcrumb("/one/location", fromUnknown)?.backHref,
-    ).toBe("/one/location?action=settings");
+    const unknownTrail = resolveTopShellBreadcrumb(
+      "/one/location",
+      fromUnknown,
+    );
+    expect(unknownTrail?.backHref).toBe("/one/location?action=settings");
+    expect(unknownTrail?.items.map((item) => item.label)).toEqual([
+      "One",
+      "Location",
+      "Emergency contacts",
+    ]);
   });
 
 

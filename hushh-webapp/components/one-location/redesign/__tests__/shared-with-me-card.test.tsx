@@ -28,13 +28,13 @@ describe("SharedWithMeCard", () => {
     expect(screen.queryByText("Trusted A is sharing with you")).toBeNull();
 
     const viewButton = screen.getByRole("button", {
-      name: "View location",
+      name: "View shared location from Trusted A",
     });
     expect(
-      screen.getByRole("button", {
-        name: "Expand shared location from Trusted A",
+      screen.getAllByRole("button", {
+        name: /shared location from Trusted A/,
       }),
-    ).toBeTruthy();
+    ).toHaveLength(1);
     expect(viewButton.getAttribute("aria-expanded")).toBe("false");
     const previewRegion = document.getElementById(
       viewButton.getAttribute("aria-controls") ?? "",

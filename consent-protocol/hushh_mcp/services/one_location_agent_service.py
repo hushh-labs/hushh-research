@@ -10,7 +10,7 @@ import os
 import secrets
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator
 from uuid import UUID
@@ -1217,6 +1217,7 @@ class OneLocationAgentService:
         request_id: str | None = None,
         referral_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        required: bool = False,
     ) -> None:
         try:
             self._execute_one(
@@ -1245,6 +1246,8 @@ class OneLocationAgentService:
                 },
             )
         except Exception as exc:
+            if required:
+                raise
             logger.warning("one.location.event_insert_failed type=%s error=%s", event_type, exc)
 
     def _send_metadata_notification(
@@ -2505,6 +2508,38 @@ class OneLocationAgentService:
             "publicationContext": str(row.get("publication_context") or "private_foreground"),
             "createdAt": _iso(row.get("created_at")),
             "metadata": _loads_json(row.get("metadata")) or {},
+        }
+
+    @staticmethod
+    def _auto_approve_preference_payload(
+        row: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        enabled = bool((row or {}).get("enabled"))
+        scope_kind = str((row or {}).get("scope_kind") or "")
+        circle_id = str((row or {}).get("circle_id") or "") or None
+        if (
+            not enabled
+            or scope_kind not in {"all_contacts", "circle"}
+            or (scope_kind == "circle" and not circle_id)
+        ):
+            return {
+                "enabled": False,
+                "scope": None,
+                "enabledAt": None,
+                "ruleVersion": int((row or {}).get("rule_version") or 0),
+                "updatedAt": _iso((row or {}).get("updated_at")),
+            }
+        scope = (
+            {"kind": "circle", "circleId": circle_id}
+            if scope_kind == "circle" and circle_id
+            else {"kind": "all_contacts"}
+        )
+        return {
+            "enabled": True,
+            "scope": scope,
+            "enabledAt": _iso((row or {}).get("enabled_at")),
+            "ruleVersion": int((row or {}).get("rule_version") or 0),
+            "updatedAt": _iso((row or {}).get("updated_at")),
         }
 
     @staticmethod
@@ -4528,6 +4563,7 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_user_id: str,
         requested_circle_id: str | None,
+        require_owned_person_circle: bool = False,
     ) -> str | None:
         """Lock and revalidate a relationship before an authority mutation.
 
@@ -4662,10 +4698,22 @@ class OneLocationAgentService:
                     FROM one_location_circles
                     WHERE id = CAST(:circle_id AS UUID)
                       AND status = 'active'
+                      AND (
+                        CAST(:require_owned_person_circle AS BOOLEAN) IS FALSE
+                        OR (
+                          owner_user_id = :owner_user_id
+                          AND system_kind IS NULL
+                          AND NOT is_system
+                        )
+                      )
                     FOR SHARE
                     """
                 ),
-                {"circle_id": cleaned_circle_id},
+                {
+                    "circle_id": cleaned_circle_id,
+                    "owner_user_id": owner_user_id,
+                    "require_owned_person_circle": require_owned_person_circle,
+                },
             )
             .mappings()
             .first()
@@ -4717,13 +4765,22 @@ class OneLocationAgentService:
         grant_params: dict[str, Any],
     ) -> dict[str, Any] | None:
         """Atomically authorize and replace a relationship-backed grant."""
+        bound_connection = getattr(self, "_key_writer_connection", None)
+        transaction = (
+            nullcontext(bound_connection)
+            if bound_connection is not None
+            else get_db().engine.begin()
+        )
         try:
-            with get_db().engine.begin() as conn:
+            with transaction as conn:
                 source_circle_id = self._lock_circle_share_eligibility(
                     conn,
                     owner_user_id=owner_user_id,
                     recipient_user_id=recipient_user_id,
                     requested_circle_id=requested_circle_id,
+                    require_owned_person_circle=bool(
+                        grant_params.get("require_owned_source_circle")
+                    ),
                 )
                 params = {
                     **grant_params,
@@ -4812,6 +4869,10 @@ class OneLocationAgentService:
                                     params.get("recipient_display_name") or ""
                                 ).strip()
                                 or "A trusted person",
+                                # The Feed fan-out suppresses the generic
+                                # share-created row when request approval writes
+                                # its richer event immediately afterwards.
+                                "reason": str(params.get("event_reason") or ""),
                             }
                         ),
                     },
@@ -4840,6 +4901,7 @@ class OneLocationAgentService:
         source_circle_id: str | None = None,
         require_recipient_phone_verified: bool = True,
         enforce_connection: bool = False,
+        require_owned_source_circle: bool = False,
         source: str | None = None,
         _key_writer_guarded: bool = False,
     ) -> dict[str, Any]:
@@ -4865,6 +4927,7 @@ class OneLocationAgentService:
                     source_circle_id=source_circle_id,
                     require_recipient_phone_verified=require_recipient_phone_verified,
                     enforce_connection=enforce_connection,
+                    require_owned_source_circle=require_owned_source_circle,
                     source=source,
                     _key_writer_guarded=True,
                 )
@@ -4895,6 +4958,12 @@ class OneLocationAgentService:
                 "LOCATION_RECIPIENT_NOT_CONNECTED",
                 LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
                 status_code=403,
+            )
+        if require_owned_source_circle and not source_circle_id:
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
+                "Choose who can be auto-approved.",
+                status_code=422,
             )
         resolved_kind = share_kind or _classify_share_kind(reason)
         duration, expires_at, resolved_duration_mode = _resolve_share_duration(
@@ -4948,6 +5017,10 @@ class OneLocationAgentService:
             "expires_at": expires_at,
             "duration_mode": resolved_duration_mode,
             "source_circle_id": source_circle_id,
+            "require_owned_source_circle": require_owned_source_circle,
+            # Feed de-duplication needs this exact internal marker for request
+            # approval. Do not fan arbitrary owner notes into event metadata.
+            "event_reason": "request_approved" if reason == "request_approved" else "",
             "metadata_json": _json_param(metadata),
             "recipient_display_name": recipient.get("display_name"),
             "recipient_phone_number": recipient.get("phone_number"),
@@ -5863,6 +5936,204 @@ class OneLocationAgentService:
             "envelope": self._envelope_payload(row),
             "status": "published",
         }
+
+    def get_auto_approve_preference(self, *, user_id: str) -> dict[str, Any]:
+        """Return the server-authoritative standing approval rule.
+
+        A missing row is off. Browser storage is never authority for this
+        setting because another tab or device must be able to revoke it.
+        """
+        row = self._execute_one(
+            """
+            SELECT enabled, scope_kind, circle_id, enabled_at, rule_version, updated_at
+            FROM one_location_auto_approve_preferences
+            WHERE user_id = :user_id
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+        return self._auto_approve_preference_payload(row)
+
+    def update_auto_approve_preference(
+        self,
+        *,
+        user_id: str,
+        enabled: bool,
+        scope_kind: str | None,
+        circle_id: str | None,
+    ) -> dict[str, Any]:
+        """Write one revocable standing rule using the server clock."""
+        normalized_scope = str(scope_kind or "").strip()
+        normalized_circle_id = str(circle_id or "").strip() or None
+        if not enabled:
+            normalized_scope = ""
+            normalized_circle_id = None
+        elif normalized_scope not in {"all_contacts", "circle"}:
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
+                "Choose who can be auto-approved.",
+                status_code=422,
+            )
+        if enabled and (normalized_scope == "circle") != bool(normalized_circle_id):
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
+                "Choose who can be auto-approved.",
+                status_code=422,
+            )
+        if normalized_circle_id is not None:
+            try:
+                normalized_circle_id = str(UUID(normalized_circle_id))
+            except (TypeError, ValueError, AttributeError) as exc:
+                raise OneLocationAgentError(
+                    "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
+                    "Choose a Circle you created.",
+                    status_code=422,
+                ) from exc
+
+        with get_db_connection() as connection:
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                {"lock_key": f"one-location-auto-approve:{user_id}"},
+            )
+            if normalized_scope == "circle":
+                circle = (
+                    connection.execute(
+                        text(
+                            """
+                            SELECT id
+                            FROM one_location_circles
+                            WHERE id = CAST(:circle_id AS UUID)
+                              AND owner_user_id = :user_id
+                              AND status = 'active'
+                              AND system_kind IS NULL
+                              AND NOT is_system
+                            FOR SHARE
+                            """
+                        ),
+                        {"circle_id": normalized_circle_id, "user_id": user_id},
+                    )
+                    .mappings()
+                    .first()
+                )
+                if not circle:
+                    raise OneLocationAgentError(
+                        "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
+                        "Choose a Circle you created.",
+                        status_code=403,
+                    )
+
+            row = (
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO one_location_auto_approve_preferences (
+                          user_id, enabled, scope_kind, circle_id, enabled_at,
+                          rule_version, created_at, updated_at
+                        ) VALUES (
+                          :user_id, :enabled, :scope_kind,
+                          CAST(:circle_id AS UUID),
+                          CASE WHEN :enabled THEN NOW() ELSE NULL END,
+                          1, NOW(), NOW()
+                        )
+                        ON CONFLICT (user_id) DO UPDATE SET
+                          enabled = EXCLUDED.enabled,
+                          scope_kind = EXCLUDED.scope_kind,
+                          circle_id = EXCLUDED.circle_id,
+                          enabled_at = CASE WHEN EXCLUDED.enabled THEN NOW() ELSE NULL END,
+                          rule_version = one_location_auto_approve_preferences.rule_version + 1,
+                          updated_at = NOW()
+                        RETURNING enabled, scope_kind, circle_id, enabled_at,
+                                  rule_version, updated_at
+                        """
+                    ),
+                    {
+                        "user_id": user_id,
+                        "enabled": enabled,
+                        "scope_kind": normalized_scope or None,
+                        "circle_id": normalized_circle_id,
+                    },
+                )
+                .mappings()
+                .first()
+            )
+            if not row:
+                raise OneLocationAgentError(
+                    "LOCATION_AUTO_APPROVE_UPDATE_FAILED",
+                    "Could not update auto-approve.",
+                    status_code=500,
+                )
+            stored = dict(row)
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO one_location_events (
+                      owner_user_id, actor_user_id, event_type, metadata, created_at
+                    ) VALUES (
+                      :user_id, :user_id, 'location_auto_approve_rule_changed',
+                      CAST(:metadata_json AS JSONB), NOW()
+                    )
+                    """
+                ),
+                {
+                    "user_id": user_id,
+                    "metadata_json": _json_param(
+                        {
+                            "enabled": bool(stored.get("enabled")),
+                            "scope_kind": str(stored.get("scope_kind") or "") or None,
+                            "circle_id": str(stored.get("circle_id") or "") or None,
+                            "enabled_at": _iso(stored.get("enabled_at")),
+                            "rule_version": int(stored.get("rule_version") or 0),
+                        }
+                    ),
+                },
+            )
+        return self._auto_approve_preference_payload(stored)
+
+    def _lock_current_auto_approve_preference(
+        self,
+        *,
+        user_id: str,
+        expected_rule_version: int,
+    ) -> dict[str, Any]:
+        """Lock and return the exact standing rule an automatic grant cites."""
+        bound_connection = getattr(self, "_key_writer_connection", None)
+        if bound_connection is not None:
+            bound_connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                {"lock_key": f"one-location-auto-approve:{user_id}"},
+            )
+        row = self._execute_one(
+            """
+            SELECT enabled, scope_kind, circle_id, enabled_at, rule_version, updated_at
+            FROM one_location_auto_approve_preferences
+            WHERE user_id = :user_id
+            FOR UPDATE
+            """,
+            {"user_id": user_id},
+        )
+        if (
+            not row
+            or not bool(row.get("enabled"))
+            or int(row.get("rule_version") or 0) != int(expected_rule_version)
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_RULE_STALE",
+                "Auto-approve changed. Review this request.",
+                status_code=409,
+            )
+        scope_kind = str(row.get("scope_kind") or "")
+        circle_id = str(row.get("circle_id") or "") or None
+        if (
+            scope_kind not in {"all_contacts", "circle"}
+            or row.get("enabled_at") is None
+            or (scope_kind == "circle") != bool(circle_id)
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_RULE_INVALID",
+                "Auto-approve is unavailable. Review this request.",
+                status_code=409,
+            )
+        return dict(row)
 
     def get_map_preferences(self, *, user_id: str) -> dict[str, Any]:
         """Return the caller's metadata-only Map visibility preference.
@@ -6997,7 +7268,7 @@ class OneLocationAgentService:
         # rarely-used table) must NOT 500 the whole endpoint. A 500 here cascades
         # into the consent-center contributor (which then returns empty buckets)
         # AND breaks the One Location page on every load. Each section below is
-        # fetched by `_run_read_queries_parallel`, which gives every task the
+        # fetched by `_run_read_queries_parallel`, which gives every auxiliary task the
         # same per-section degrade-to-`[]`-and-log resilience a sequential
         # `_safe_many` call gave it before, while running the 10 independent
         # reads concurrently instead of one cross-continent round trip at a
@@ -7057,6 +7328,13 @@ class OneLocationAgentService:
         # vault-key-encrypted private blob. Scoped to this user_id and returned only
         # here (never in the `recipients` list shown to other users), so a device the
         # user signs into can recover the shared keypair after vault unlock.
+        #
+        # Standing permission is different from the auxiliary projections: an
+        # unavailable read must not look like "off" while a live rule remains
+        # enabled on the server. Query it outside the best-effort batch so the
+        # state request fails visibly on database or permission errors. A real
+        # missing row is still projected as off by this method.
+        auto_approve_preference = self.get_auto_approve_preference(user_id=user_id)
         _sections = self._run_read_queries_parallel(
             [
                 (
@@ -7293,6 +7571,7 @@ class OneLocationAgentService:
         return {
             "recipients": recipients,
             "circles": named_circles,
+            "autoApprovePreference": auto_approve_preference,
             "myRecipientKey": my_recipient_key,
             "ownerGrants": [
                 payload
@@ -7909,7 +8188,7 @@ class OneLocationAgentService:
                         requested_duration_mode = :requested_duration_mode,
                         extends_grant_id = CAST(:extends_grant_id AS UUID),
                         request_revision = request_revision + CASE WHEN :ask_changed THEN 1 ELSE 0 END,
-                        requested_at = NOW()
+                        requested_at = CASE WHEN :ask_changed THEN NOW() ELSE requested_at END
                     WHERE id = CAST(:request_id AS UUID)
                       AND status = 'pending'
                     RETURNING *
@@ -8001,10 +8280,12 @@ class OneLocationAgentService:
         *,
         owner_user_id: str,
         request_id: str,
+        approval_mode: str,
         duration_hours: float | None,
         duration_mode: str | None = None,
+        auto_approve_rule_version: int | None = None,
     ) -> dict[str, Any]:
-        """Grant the access that was asked for, defaulting to the amount asked.
+        """Grant the requested access and resolve the ask in one transaction.
 
         ``duration_hours``/``duration_mode`` left as ``None`` means "give them
         what they asked for" -- the owner approved a request that named a
@@ -8013,10 +8294,50 @@ class OneLocationAgentService:
         who had asked for four. An explicitly supplied duration still wins: the
         owner is always free to grant less (or more) than was asked, and the
         approve control sends one whenever they adjust it.
+
+        ``approval_mode`` is required: omission cannot silently turn a cached
+        automatic call into manual consent. Manual approval is the owner's
+        direct action and forbids a rule version. Automatic approval must cite
+        the current server-owned standing-rule version. The pending row,
+        standing rule, relationship, grant, and audit event remain locked until
+        they commit together, so a concurrent denial, withdrawal, or rule
+        revocation cannot be overwritten by a split write.
         """
-        request_row = self._execute_one(
+        normalized_approval_mode = str(approval_mode or "").strip().lower()
+        if normalized_approval_mode not in {"manual", "automatic"}:
+            raise OneLocationAgentError(
+                "LOCATION_APPROVAL_MODE_INVALID",
+                "Refresh and review this request.",
+                status_code=422,
+            )
+        automatic = normalized_approval_mode == "automatic"
+        if automatic and auto_approve_rule_version is None:
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_RULE_INVALID",
+                "Auto-approve is unavailable. Review this request.",
+                status_code=422,
+            )
+        if not automatic and auto_approve_rule_version is not None:
+            raise OneLocationAgentError(
+                "LOCATION_APPROVAL_MODE_INVALID",
+                "Refresh and review this request.",
+                status_code=422,
+            )
+        if automatic and int(auto_approve_rule_version) < 1:
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_RULE_INVALID",
+                "Auto-approve is unavailable. Review this request.",
+                status_code=422,
+            )
+        if automatic and (duration_hours is not None or duration_mode is not None):
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_DURATION_OVERRIDE_INVALID",
+                "Automatic approval must use the requested duration.",
+                status_code=422,
+            )
+        request_identity = self._execute_one(
             """
-            SELECT *
+            SELECT requester_user_id
             FROM one_location_access_requests
             WHERE id = CAST(:request_id AS UUID)
               AND owner_user_id = :owner_user_id
@@ -8025,83 +8346,202 @@ class OneLocationAgentService:
             """,
             {"owner_user_id": owner_user_id, "request_id": request_id},
         )
-        if not request_row:
+        if not request_identity:
             raise OneLocationAgentError(
                 "LOCATION_REQUEST_NOT_FOUND",
                 "Pending location access request was not found.",
                 status_code=404,
             )
-        requester_user_id = str(request_row.get("requester_user_id") or "")
-        requested_hours, requested_mode = _normalized_requested_duration(
-            duration_hours=request_row.get("requested_duration_hours"),
-            duration_mode=request_row.get("requested_duration_mode"),
-        )
-        was_extension = bool(str(request_row.get("extends_grant_id") or "").strip())
-        if duration_hours is None and duration_mode is None:
-            resolved_mode = requested_mode or TIMED_LOCATION_SHARE_DURATION_MODE
-            resolved_hours = (
-                None
-                if _is_until_stopped_share(resolved_mode)
-                else (
-                    requested_hours
-                    if requested_hours is not None
-                    else DEFAULT_APPROVAL_DURATION_HOURS
-                )
+        expected_requester_user_id = str(request_identity.get("requester_user_id") or "")
+
+        with self._key_bound_writer_guard(
+            owner_user_id=owner_user_id,
+            recipient_user_id=expected_requester_user_id,
+        ):
+            request_row = self._execute_one(
+                """
+                SELECT *
+                FROM one_location_access_requests
+                WHERE id = CAST(:request_id AS UUID)
+                  AND owner_user_id = :owner_user_id
+                  AND status = 'pending'
+                LIMIT 1
+                FOR UPDATE
+                """,
+                {"owner_user_id": owner_user_id, "request_id": request_id},
             )
-        else:
-            resolved_mode = duration_mode or TIMED_LOCATION_SHARE_DURATION_MODE
-            resolved_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
-        grant = self.create_grant(
-            owner_user_id=owner_user_id,
-            recipient_user_id=requester_user_id,
-            recipient_key_id=None,
-            duration_hours=resolved_hours,
-            duration_mode=resolved_mode,
-            reason="request_approved",
-            require_recipient_phone_verified=False,
-        )
-        resolved = self._execute_one(
-            """
-            UPDATE one_location_access_requests
-            SET status = 'approved',
-                resolved_at = NOW(),
-                approved_grant_id = CAST(:grant_id AS UUID)
-            WHERE id = CAST(:request_id AS UUID)
-            RETURNING *
-            """,
-            {"request_id": request_id, "grant_id": grant["id"]},
-        )
-        requester_label = _identity_notification_label(self._identity_row(requester_user_id))
-        owner_identity = self._identity_row(owner_user_id)
-        owner_label = _identity_notification_label(owner_identity)
-        granted_hours = _duration_metadata_value(grant.get("durationHours"))
-        granted_mode = grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE
-        granted_label = (
-            "for as long as you need"
-            if _is_until_stopped_share(str(granted_mode))
-            else format_duration_label(granted_hours)
-        )
-        self._insert_event(
-            owner_user_id=owner_user_id,
-            actor_user_id=owner_user_id,
-            recipient_user_id=requester_user_id,
-            grant_id=grant["id"],
-            request_id=request_id,
-            event_type="location_access_approved",
-            metadata={
-                "duration_hours": granted_hours,
-                "duration_mode": granted_mode,
-                "counterpart_label": requester_label,
-                # Swapped in for the requester's copy of this feed row, so they
-                # read the owner's name rather than their own.
-                "owner_label": owner_label,
-                # Kept so the feed can say "You gave them 3 more hours" rather
-                # than reporting an extension as a brand-new share.
-                "is_extension": was_extension,
-                "requested_duration_hours": requested_hours,
-                "requested_duration_mode": requested_mode,
-            },
-        )
+            if not request_row:
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_NOT_FOUND",
+                    "Pending location access request was not found.",
+                    status_code=404,
+                )
+            requester_user_id = str(request_row.get("requester_user_id") or "")
+            if requester_user_id != expected_requester_user_id:
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_CHANGED",
+                    "This request changed. Review it again.",
+                    status_code=409,
+                )
+
+            automatic_preference: dict[str, Any] | None = None
+            automatic_scope = ""
+            automatic_circle_id: str | None = None
+            automatic_enabled_at: datetime | None = None
+            if automatic:
+                automatic_preference = self._lock_current_auto_approve_preference(
+                    user_id=owner_user_id,
+                    expected_rule_version=int(auto_approve_rule_version),
+                )
+                automatic_scope = str(automatic_preference.get("scope_kind") or "")
+                automatic_circle_id = str(automatic_preference.get("circle_id") or "") or None
+                automatic_enabled_at = _parse_datetime(
+                    automatic_preference.get("enabled_at"),
+                    field_name="autoApproveEnabledAt",
+                )
+                requested_at = _parse_datetime(
+                    request_row.get("requested_at"),
+                    field_name="requestedAt",
+                )
+                if requested_at <= automatic_enabled_at:
+                    raise OneLocationAgentError(
+                        "LOCATION_AUTO_APPROVE_REQUEST_OUT_OF_SCOPE",
+                        "This request needs approval.",
+                        status_code=403,
+                    )
+
+            requested_hours, requested_mode = _normalized_requested_duration(
+                duration_hours=request_row.get("requested_duration_hours"),
+                duration_mode=request_row.get("requested_duration_mode"),
+            )
+            was_extension = bool(str(request_row.get("extends_grant_id") or "").strip())
+            if automatic_preference is not None:
+                # Standing permission answers the locked request exactly. A
+                # browser-supplied override is not a fresh owner decision and
+                # must not silently lengthen or reshape what was asked for.
+                resolved_mode = requested_mode or TIMED_LOCATION_SHARE_DURATION_MODE
+                resolved_hours = (
+                    None
+                    if _is_until_stopped_share(resolved_mode)
+                    else (
+                        requested_hours
+                        if requested_hours is not None
+                        else DEFAULT_APPROVAL_DURATION_HOURS
+                    )
+                )
+            elif duration_hours is None and duration_mode is None:
+                resolved_mode = requested_mode or TIMED_LOCATION_SHARE_DURATION_MODE
+                resolved_hours = (
+                    None
+                    if _is_until_stopped_share(resolved_mode)
+                    else (
+                        requested_hours
+                        if requested_hours is not None
+                        else DEFAULT_APPROVAL_DURATION_HOURS
+                    )
+                )
+            else:
+                resolved_mode = duration_mode or TIMED_LOCATION_SHARE_DURATION_MODE
+                resolved_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
+            if automatic_preference and (
+                _is_until_stopped_share(requested_mode) or _is_until_stopped_share(resolved_mode)
+            ):
+                raise OneLocationAgentError(
+                    "LOCATION_AUTO_APPROVE_DURATION_REQUIRES_APPROVAL",
+                    "Approve ongoing access yourself.",
+                    status_code=403,
+                )
+            grant = self.create_grant(
+                owner_user_id=owner_user_id,
+                recipient_user_id=requester_user_id,
+                recipient_key_id=None,
+                duration_hours=resolved_hours,
+                duration_mode=resolved_mode,
+                reason="request_approved",
+                source_circle_id=(automatic_circle_id if automatic_scope == "circle" else None),
+                require_recipient_phone_verified=False,
+                # Manual approval is explicit owner consent. A standing rule is
+                # narrower and must recheck its relationship under this same
+                # transaction before the grant is inserted.
+                enforce_connection=automatic_preference is not None,
+                require_owned_source_circle=automatic_scope == "circle",
+                _key_writer_guarded=True,
+            )
+            approved_recipient = self._recipient_payload(
+                self._recipient_key_row(
+                    recipient_user_id=requester_user_id,
+                    recipient_key_id=str(grant.get("recipientKeyId") or "") or None,
+                    require_phone_verified=False,
+                ),
+                allow_email_handle=True,
+            )
+            resolved = self._execute_one(
+                """
+                UPDATE one_location_access_requests
+                SET status = 'approved',
+                    resolved_at = NOW(),
+                    approved_grant_id = CAST(:grant_id AS UUID)
+                WHERE id = CAST(:request_id AS UUID)
+                  AND owner_user_id = :owner_user_id
+                  AND status = 'pending'
+                RETURNING *
+                """,
+                {
+                    "owner_user_id": owner_user_id,
+                    "request_id": request_id,
+                    "grant_id": grant["id"],
+                },
+            )
+            if not resolved:
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_CHANGED",
+                    "This request changed. Review it again.",
+                    status_code=409,
+                )
+            requester_label = _identity_notification_label(self._identity_row(requester_user_id))
+            owner_identity = self._identity_row(owner_user_id)
+            owner_label = _identity_notification_label(owner_identity)
+            granted_hours = _duration_metadata_value(grant.get("durationHours"))
+            granted_mode = grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE
+            granted_label = (
+                "for as long as you need"
+                if _is_until_stopped_share(str(granted_mode))
+                else format_duration_label(granted_hours)
+            )
+            self._insert_event(
+                owner_user_id=owner_user_id,
+                actor_user_id=owner_user_id,
+                recipient_user_id=requester_user_id,
+                grant_id=grant["id"],
+                request_id=request_id,
+                event_type="location_access_approved",
+                metadata={
+                    "duration_hours": granted_hours,
+                    "duration_mode": granted_mode,
+                    "counterpart_label": requester_label,
+                    "owner_label": owner_label,
+                    "is_extension": was_extension,
+                    "requested_duration_hours": requested_hours,
+                    "requested_duration_mode": requested_mode,
+                    "approval_mode": "automatic" if automatic_preference else "manual",
+                    "auto_approve_rule_version": (
+                        int(automatic_preference.get("rule_version") or 0)
+                        if automatic_preference
+                        else None
+                    ),
+                    "auto_approve_enabled_at": (
+                        _iso(automatic_preference.get("enabled_at"))
+                        if automatic_preference
+                        else None
+                    ),
+                    "auto_approve_scope_kind": automatic_scope or None,
+                    "auto_approve_circle_id": (
+                        automatic_circle_id if automatic_scope == "circle" else None
+                    ),
+                },
+                required=True,
+            )
+
         if granted_label and was_extension:
             approved_body = f"{owner_label} gave you {granted_label} more of their live location."
         elif granted_label:
@@ -8131,7 +8571,11 @@ class OneLocationAgentService:
                 "is_extension": "true" if was_extension else None,
             },
         )
-        return {"request": self._request_payload(resolved), "grant": grant}
+        return {
+            "request": self._request_payload(resolved),
+            "grant": grant,
+            "recipient": approved_recipient,
+        }
 
     def deny_request(self, *, owner_user_id: str, request_id: str) -> dict[str, Any]:
         row = self._execute_one(

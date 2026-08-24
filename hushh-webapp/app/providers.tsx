@@ -156,7 +156,9 @@ function AppShellFrame({ children }: ProvidersProps) {
   const focusedLocationSmsFlow =
     shellPathname === ROUTES.ONE_LOCATION &&
     (locationAction === "sos" || locationAction === "sms-contacts");
-  const bottomChromeHidden = hidesPersistentChrome || focusedLocationSmsFlow;
+  // Query-scoped Location flows may hide navigation, but the persistent Agent
+  // Bar must stay mounted so a live voice task can settle after navigation.
+  const bottomChromeHidden = hidesPersistentChrome;
   const effectiveHideCommandBar =
     chromeState.hideCommandBar || focusedLocationSmsFlow;
   const topShellRouteProfile = useMemo(() => {
@@ -230,10 +232,10 @@ function AppShellFrame({ children }: ProvidersProps) {
             ? "fullscreen-flow"
             : "normal",
         "--bottom-chrome-stack-height": effectiveHideCommandBar
-          ? "var(--app-bottom-inset)"
+          ? "var(--app-bottom-shell-height, calc(var(--onboarding-agent-bar-clearance) + 1.5rem))"
           : "var(--app-bottom-shell-height, calc(var(--app-bottom-inset) + var(--kai-command-fixed-ui)))",
         "--bottom-chrome-full-height": effectiveHideCommandBar
-          ? "calc(var(--onboarding-agent-bar-clearance) + var(--bottom-chrome-fade-overscan) + 1.5rem)"
+          ? "calc(var(--app-bottom-shell-height, calc(var(--onboarding-agent-bar-clearance) + 1.5rem)) + var(--bottom-chrome-fade-overscan))"
           : "calc(var(--app-bottom-shell-height, calc(var(--app-bottom-inset) + var(--kai-command-fixed-ui))) + var(--bottom-chrome-fade-overscan))",
         "--bottom-chrome-search-height": effectiveHideCommandBar
           ? "calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"
@@ -244,7 +246,7 @@ function AppShellFrame({ children }: ProvidersProps) {
         // of them still render the fixed onboarding Agent Bar. The scroll root
         // owns the clearance for that fixed chrome so feature routes do not
         // need to guess at device safe areas or bar geometry.
-        "--app-scroll-bottom-pad": bottomChromeHidden
+        "--app-scroll-bottom-pad": hidesPersistentChrome
           ? "0px"
           : isRiaRoute(pathname)
             ? "var(--bottom-chrome-stack-height)"
@@ -255,9 +257,9 @@ function AppShellFrame({ children }: ProvidersProps) {
                 : "var(--bottom-chrome-stack-height)",
       }) as CSSProperties,
     [
-      bottomChromeHidden,
       effectiveHideCommandBar,
       hideGlobalChrome,
+      hidesPersistentChrome,
       isPublicStandaloneRoute,
       routeLayout.pageTopLocalOffset,
       signedInShellContentOffset.style,

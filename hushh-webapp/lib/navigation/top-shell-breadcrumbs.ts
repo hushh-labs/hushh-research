@@ -67,9 +67,10 @@ function oneLocationActionLabel(action: string): string {
     "active-shares": "Active shares",
     "shared-with-me": "Shared with me",
     "needs-review": "Needs review",
-    // Visible identity stays SMS; implementation identifiers remain `sos`.
-    sos: "SMS",
-    "sms-contacts": "Contacts",
+    // The implementation identifier remains `sos`; visible navigation uses
+    // the same product name as the flow's single TaskFlowHeader.
+    sos: "Save My Soul",
+    "sms-contacts": "Emergency contacts",
     settings: "Settings",
     privacy: "Settings",
   };
@@ -776,8 +777,11 @@ function resolveTopShellBreadcrumbInner(
               ? { label: "Profile", href: ROUTES.PROFILE }
               : { label: "One", href: ROUTES.ONE_HOME },
             { label: "Location", href: ROUTES.ONE_LOCATION },
-            { label: "SMS", href: `${ROUTES.ONE_LOCATION}?action=sos` },
-            { label: "Contacts" },
+            {
+              label: "Save My Soul",
+              href: `${ROUTES.ONE_LOCATION}?action=sos`,
+            },
+            { label: "Emergency contacts" },
           ],
         };
       }

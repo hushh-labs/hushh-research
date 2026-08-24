@@ -537,46 +537,31 @@ export function SharedWithMeCard({
         )
       ) : null}
       {canTogglePreview ? (
-        <>
-          <button
-            type="button"
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-full text-[15px] font-semibold leading-[20px] text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-60"
-            aria-label={
-              isPreviewExpanded
-                ? `Collapse shared location from ${name}`
-                : undefined
-            }
-            aria-expanded={isPreviewExpanded}
-            aria-controls={previewRegionId}
-            disabled={viewBusy && !isPreviewExpanded}
-            onClick={togglePreview}
-          >
-            {viewBusy && !isPreviewExpanded ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : null}
-            {isPreviewExpanded ? "Hide map" : "View location"}
-            <ChevronDown
-              className={cn(
-                "h-4 w-4 transition-transform duration-200",
-                isPreviewExpanded && "rotate-180",
-              )}
-              aria-hidden="true"
-            />
-          </button>
-          {!isPreviewExpanded ? (
-            <button
-              type="button"
-              className="sr-only"
-              aria-label={`Expand shared location from ${name}`}
-              aria-expanded={false}
-              aria-controls={previewRegionId}
-              disabled={viewBusy}
-              onClick={togglePreview}
-            >
-              Expand shared location
-            </button>
+        <button
+          type="button"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-full text-[15px] font-semibold leading-[20px] text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-60"
+          aria-label={
+            isPreviewExpanded
+              ? `Collapse shared location from ${name}`
+              : `View shared location from ${name}`
+          }
+          aria-expanded={isPreviewExpanded}
+          aria-controls={previewRegionId}
+          disabled={viewBusy && !isPreviewExpanded}
+          onClick={togglePreview}
+        >
+          {viewBusy && !isPreviewExpanded ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           ) : null}
-        </>
+          {isPreviewExpanded ? "Hide map" : "View location"}
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 transition-transform duration-200",
+              isPreviewExpanded && "rotate-180",
+            )}
+            aria-hidden="true"
+          />
+        </button>
       ) : null}
       <div id={previewRegionId} hidden={!isPreviewExpanded}>
         <div className="relative overflow-hidden rounded-[14px]">

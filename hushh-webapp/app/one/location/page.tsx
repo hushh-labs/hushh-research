@@ -237,6 +237,7 @@ import {
   type LocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
 import {
+  readOneLocationControlState,
   updateOneLocationControlState,
   type AutoApproveScope,
 } from "@/lib/one-location/location-control-state";
@@ -3048,26 +3049,17 @@ export function OneLocationAgentPageContent({
     () => state?.recipients ?? [],
     [state?.recipients],
   );
-  const namedCircles = useMemo(() => state?.circles ?? [], [state?.circles]);
-  const [autoApproveCircleMemberUserIds, setAutoApproveCircleMemberUserIds] =
-    useState<ReadonlySet<string> | null>(null);
-  const autoApproveCircleId =
-    locationControl.autoApproveRequestsEnabled &&
-    locationControl.autoApproveScope?.kind === "circle"
-      ? locationControl.autoApproveScope.circleId
-      : null;
-  const autoApproveCircleStillAvailable = useMemo(
+  const autoApprovePreference = useMemo(
     () =>
-      autoApproveCircleId
-        ? namedCircles.some(
-            (circle) =>
-              circle.id === autoApproveCircleId &&
-              circle.role === "owner" &&
-              circle.systemKind == null,
-          )
-        : false,
-    [autoApproveCircleId, namedCircles],
+      state?.autoApprovePreference ?? {
+        enabled: false,
+        scope: null,
+        enabledAt: null,
+        ruleVersion: 0,
+      },
+    [state?.autoApprovePreference],
   );
+  const namedCircles = useMemo(() => state?.circles ?? [], [state?.circles]);
   const contactMatchedUserIds = useMemo(
     () => new Set(contactSignal.matchedUserIds),
     [contactSignal.matchedUserIds],
@@ -8032,17 +8024,9 @@ export function OneLocationAgentPageContent({
     ): Promise<boolean> => {
       if (!vaultOwnerToken) return false;
       const automatic = options?.automatic === true;
-      const requester = recipients.find(
+      const cachedRequester = recipients.find(
         (recipient) => recipient.userId === request.requesterUserId,
       );
-      if (!requester?.keyId || !requester.publicKeyJwk) {
-        if (!automatic) {
-          toast.error(
-            "They need to open Location once before approval can finish.",
-          );
-        }
-        return false;
-      }
       if (!automatic) setBusy("approve");
       try {
         // Grant what they asked for. The owner is answering a request that
@@ -8058,12 +8042,47 @@ export function OneLocationAgentPageContent({
         const response = await OneLocationService.approveRequest({
           vaultOwnerToken,
           requestId: request.id,
-          durationHours: approvedHours,
-          durationMode:
-            request.requestedDurationMode === "until_stopped"
+          approvalMode: automatic ? "automatic" : "manual",
+          // Automatic approval answers the locked request exactly; only a
+          // manual owner action may override its duration.
+          durationHours: automatic ? undefined : approvedHours,
+          durationMode: automatic
+            ? undefined
+            : request.requestedDurationMode === "until_stopped"
               ? "until_stopped"
               : "timed",
+          autoApproveRuleVersion: automatic
+            ? autoApprovePreference.ruleVersion
+            : undefined,
         });
+        if (
+          response.recipient &&
+          (response.recipient.userId !== response.grant.recipientUserId ||
+            response.recipient.keyId !== response.grant.recipientKeyId)
+        ) {
+          throw new Error("Approval key changed. Refresh and try again.");
+        }
+        const requester = response.recipient ?? cachedRequester;
+        if (
+          !requester?.keyId ||
+          !requester.publicKeyJwk ||
+          requester.userId !== response.grant.recipientUserId ||
+          requester.keyId !== response.grant.recipientKeyId
+        ) {
+          throw new Error(
+            "Approval key changed. Refresh and try again.",
+          );
+        }
+        if (
+          automatic &&
+          (!automaticPrivatePublishingAllowedRef.current ||
+            readOneLocationControlState(auth.userId).paused)
+        ) {
+          toast.success(
+            "Approved. Location stays paused.",
+          );
+          return true;
+        }
         await publishEnvelopeWithRetry(response.grant, requester, "manual");
         // Name the person. An automatic approval is still a share starting
         // without a tap, so it has to be legible as it happens rather than
@@ -8076,23 +8095,26 @@ export function OneLocationAgentPageContent({
         // Non-blocking, per the latency fix on main: the approval is already
         // done and published, and holding the button through a full state
         // reload only makes it feel slower than it is.
-        void refresh().catch(() => null);
+        if (!automatic) void refresh().catch(() => null);
         return true;
       } catch (error) {
         toast.error(
           error instanceof Error
             ? error.message
             : automatic
-              ? `Could not approve ${recipientLabel(requester)}'s request automatically.`
+              ? "Could not auto-approve request."
               : "Could not approve request.",
         );
         return false;
       } finally {
         if (!automatic) setBusy(null);
+        if (automatic) void refresh().catch(() => null);
       }
     },
     [
       durationHours,
+      autoApprovePreference.ruleVersion,
+      auth.userId,
       publishEnvelopeWithRetry,
       recipients,
       refresh,
@@ -8115,79 +8137,51 @@ export function OneLocationAgentPageContent({
    * with the same error until they gave up on the screen.
    */
   const autoApprovedRequestIdsRef = useRef<Set<string>>(new Set());
+  const autoApproveRequestInFlightRef = useRef(false);
+  const autoApprovePreferenceMutationRef = useRef(false);
   useEffect(() => {
     // A different account carries different standing permission.
     autoApprovedRequestIdsRef.current = new Set();
   }, [auth.userId]);
 
   useEffect(() => {
-    if (
-      !autoApproveCircleId ||
-      !vaultOwnerToken ||
-      !autoApproveCircleStillAvailable
-    ) {
-      setAutoApproveCircleMemberUserIds(null);
-      return;
-    }
-
-    let cancelled = false;
-    setAutoApproveCircleMemberUserIds(null);
-    void OneLocationService.getCircle({
-      vaultOwnerToken,
-      circleId: autoApproveCircleId,
-    })
-      .then((circle) => {
-        if (cancelled) return;
-        if (circle.role !== "owner" || circle.systemKind != null) {
-          setAutoApproveCircleMemberUserIds(new Set<string>());
-          return;
-        }
-        setAutoApproveCircleMemberUserIds(
-          new Set(circle.members.map((member) => member.userId)),
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setAutoApproveCircleMemberUserIds(new Set<string>());
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [autoApproveCircleId, autoApproveCircleStillAvailable, vaultOwnerToken]);
-
-  useEffect(() => {
     // Approving needs vault authority anyway, so a locked vault is not a
     // separate policy decision -- it simply cannot proceed.
     if (!vaultOwnerToken) return;
+    if (autoApproveRequestInFlightRef.current) return;
+    if (
+      !Number.isInteger(autoApprovePreference.ruleVersion) ||
+      autoApprovePreference.ruleVersion < 1
+    ) {
+      return;
+    }
     const approvable = selectAutoApprovableRequests({
       pendingRequests: pendingOwnerRequests,
-      enabled: locationControl.autoApproveRequestsEnabled,
-      enabledAt: locationControl.autoApproveEnabledAt,
-      scope: locationControl.autoApproveScope,
-      isRequesterInScope: (request, scope) =>
-        scope.kind === "circle" &&
-        Boolean(autoApproveCircleMemberUserIds?.has(request.requesterUserId)),
+      enabled: autoApprovePreference.enabled,
+      enabledAt: autoApprovePreference.enabledAt,
+      scope: autoApprovePreference.scope,
       paused: locationControl.paused,
       alreadyAttemptedIds: autoApprovedRequestIdsRef.current,
     });
     if (approvable.length === 0) return;
 
-    for (const request of approvable) {
-      autoApprovedRequestIdsRef.current.add(request.id);
-    }
-    void (async () => {
-      // Sequential: each approval ends in a refresh, and running them together
-      // would have several overlapping refreshes racing to write the same state.
-      for (const request of approvable) {
-        await approveAccessRequest(request, { automatic: true });
-      }
-    })();
+    // Start one request only. Its terminal refresh re-runs this effect for the
+    // next one against the current server rule. A queued client-side batch
+    // could otherwise continue after the owner turned the rule off or changed
+    // its scope.
+    const [request] = approvable;
+    if (!request) return;
+    autoApprovedRequestIdsRef.current.add(request.id);
+    autoApproveRequestInFlightRef.current = true;
+    void approveAccessRequest(request, { automatic: true }).finally(() => {
+      autoApproveRequestInFlightRef.current = false;
+    });
   }, [
     approveAccessRequest,
-    autoApproveCircleMemberUserIds,
-    locationControl.autoApproveEnabledAt,
-    locationControl.autoApproveRequestsEnabled,
-    locationControl.autoApproveScope,
+    autoApprovePreference.enabled,
+    autoApprovePreference.enabledAt,
+    autoApprovePreference.scope,
+    autoApprovePreference.ruleVersion,
     locationControl.paused,
     pendingOwnerRequests,
     vaultOwnerToken,
@@ -11597,20 +11591,48 @@ export function OneLocationAgentPageContent({
   });
 
   const handleAutoApproveChange = useCallback(
-    (input: { enabled: boolean; scope?: AutoApproveScope | null }) => {
+    async (input: { enabled: boolean; scope?: AutoApproveScope | null }) => {
+      if (!vaultOwnerToken || autoApprovePreferenceMutationRef.current) return;
       const enabled = Boolean(input.enabled && input.scope);
-      updateOneLocationControlState(auth.userId, (current) => ({
-        ...current,
-        autoApproveRequestsEnabled: enabled,
-        autoApproveScope: enabled ? (input.scope ?? null) : null,
-      }));
-      toast.success(
-        enabled
-          ? "Auto-approve is on. Waiting requests still need your answer."
-          : "Auto-approve is off.",
-      );
+      autoApprovePreferenceMutationRef.current = true;
+      try {
+        const preference = await OneLocationService.updateAutoApprovePreference({
+          vaultOwnerToken,
+          enabled,
+          scope: enabled ? (input.scope ?? null) : null,
+        });
+        // The PATCH result is the authority. Keep it visible even when the
+        // broader workspace refresh fails after the rule has already changed;
+        // otherwise the screen can say "off" while the server is still
+        // automatically granting access.
+        setStateEntry((current) =>
+          current?.userId === auth.userId
+            ? {
+                ...current,
+                state: {
+                  ...current.state,
+                  autoApprovePreference: preference,
+                },
+              }
+            : current,
+        );
+        toast.success(
+          enabled
+            ? "Auto-approve is on. Waiting requests still need your answer."
+            : "Auto-approve is off.",
+        );
+        void refresh().catch(() => null);
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Could not update auto-approve.",
+        );
+      } finally {
+        autoApprovePreferenceMutationRef.current = false;
+      }
     },
-    [auth.userId],
+    [auth.userId, refresh, vaultOwnerToken],
   );
 
   const markLocationOnboardingSeen = useCallback(() => {
@@ -12559,8 +12581,8 @@ export function OneLocationAgentPageContent({
         hasFix: Boolean(myLocationPoint),
         observedDenial: locationDenialObserved,
       }) === "blocked",
-    autoApproveRequestsEnabled: locationControl.autoApproveRequestsEnabled,
-    autoApproveScope: locationControl.autoApproveScope,
+    autoApproveRequestsEnabled: autoApprovePreference.enabled,
+    autoApproveScope: autoApprovePreference.scope,
     mapPresenceEnabled,
     onMapPresenceChange: handleMapPresenceChange,
     locationPaused: locationControl.paused,
