@@ -10,6 +10,7 @@ import { ApiService } from "@/lib/services/api-service";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useVault } from "@/lib/vault/vault-context";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
+import { useProactiveAgentWake } from "@/lib/feed/use-proactive-agent-wake";
 
 /**
  * "Your Agent One" — the first place a human SEES their own sovereign agent.
@@ -124,6 +125,12 @@ export function OneAgentPresence() {
   // The chip is a reader here, not a second reporter.
   const { state: followed, health, cloud, hushhId } = useAgentDeploymentFollow();
   const state: AgentState | null = toAgentState(followed);
+  // Warm the pod from the home surface too, on mount and on app resume, so a returning
+  // person's agent is already awake by the time they open the composer. This only
+  // warms an active-but-asleep pod (the chip's own "it wakes the moment you use it"
+  // promise, kept early); it shares ONE module-level cooldown with the chat surface, so
+  // mounting it in both places cannot double-wake. No UI of its own here.
+  useProactiveAgentWake({ state: followed as string | null, health });
   const router = useRouter();
 
   // Nothing known yet, so nothing claimed. Rendering the chip with a fabricated
@@ -234,7 +241,7 @@ export function OneAgentPresence() {
           className="shrink-0 rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-60"
           data-testid="one-agent-rebuild"
         >
-          {rebuilding ? "Rebuilding…" : "Rebuild your agent"}
+          {rebuilding ? "Reconnecting…" : "Reconnect your agent"}
         </button>
       ) : null}
     </section>

@@ -3676,10 +3676,13 @@ export class ApiService {
    * "healthy". Render them when present and say nothing when absent.
    */
   /**
-   * Wake the caller's own pod, explicitly. Fired on composer focus so the
-   * ~12s cold start runs while the person is still typing. The response is the
-   * server's honest estimate for a determinate warming bar; presence truth then
-   * arrives through the lifecycle surface, never invented here.
+   * Wake the caller's own pod, explicitly. Driven by `useProactiveAgentWake` from the
+   * high-signal moments a person is about to need their agent -- composer focus, agent
+   * surface mount, and app resume-to-foreground -- so the ~12s cold start runs while
+   * they are still reaching for it instead of eating their first turn. That hook owns
+   * the cooldown and in-flight de-duplication, so this stays a bare primitive. The
+   * response is the server's honest estimate for a determinate "Waking" affordance;
+   * presence TRUTH then arrives through the lifecycle surface, never invented here.
    */
   static async wakePod(): Promise<{
     state: "awake" | "waking" | "gone";

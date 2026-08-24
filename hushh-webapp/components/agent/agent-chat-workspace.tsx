@@ -62,6 +62,7 @@ import {
   type AgentVisibleStreamStatus,
 } from "@/components/agent/agent-turn-stream-panel";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
+import { useProactiveAgentWake } from "@/lib/feed/use-proactive-agent-wake";
 import { describeSelection } from "@/lib/agent/describe-selection";
 import {
   getWelcomePromptSetIndex,
@@ -1190,12 +1191,26 @@ export function AgentChatWorkspace({
   // presence chip does, so this adds no new polling -- the hook already exists and is
   // already mounted elsewhere; Agent Chat simply had no way to know a pod was there,
   // which is why every turn went to the shared hub even for someone whose pod was live.
-  const { hushhId: podHushhId, state: podState } = useAgentDeploymentFollow();
+  const { hushhId: podHushhId, state: podState, health: podHealth } =
+    useAgentDeploymentFollow();
   const podAddress = { hushhId: podHushhId, state: podState as string | null };
+  // Warm the person's own pod the moment they reach for it -- composer focus, surface
+  // mount, app resume -- so the ~11s cold start runs while they type instead of eating
+  // their first turn. `health` (not just `state`) is what tells asleep from serving, so
+  // it must be consumed here; before this the workspace discarded it and could not.
+  const { wakeNow: wakePodNow, isWaking: agentWaking } = useProactiveAgentWake({
+    state: podState as string | null,
+    health: podHealth,
+  });
   // The private agent could not be reached on a turn (deprovisioned, or its host
   // is gone). Surfaced as a banner with a rebuild action rather than a bare error,
-  // so a person whose pod vanished can recover instead of hitting a wall.
+  // so a person whose pod vanished can recover instead of hitting a wall. This is the
+  // FAULT axis; a pod that is merely cold/starting is `agentStarting`, not this.
   const [agentUnreachable, setAgentUnreachable] = useState(false);
+  // A provisioned-but-not-yet-serving pod (connecting, or cold) is a WARMING state, not
+  // a fault. Collapsing it into "unreachable" told people their agent was broken when it
+  // was simply waking. Kept separate so the copy and the affordance can be honest.
+  const [agentStarting, setAgentStarting] = useState(false);
   const [rebuildingAgent, setRebuildingAgent] = useState(false);
   const handleRebuildAgent = useCallback(async () => {
     setRebuildingAgent(true);
@@ -1559,6 +1574,10 @@ export function AgentChatWorkspace({
       if (isToolWorking) return "Working";
       if (isPkmMemoryWorking) return "Saving memory";
       if (queuedPrompts.length > 0) return `${queuedPrompts.length} queued`;
+      // Before "Thinking": a cold pod warming is NOT the model thinking, and a person
+      // told "Thinking" for eleven seconds reads the pause as a stall. This names the
+      // real reason, so the wait becomes legible instead of suspicious.
+      if (agentWaking) return "Waking your agent";
       if (isChatLoading) return "Thinking";
       if (isStreaming) return "Streaming";
       return "Ready";
@@ -1567,6 +1586,7 @@ export function AgentChatWorkspace({
       authLoading,
       activeActionRun,
       agentVoiceEnabled,
+      agentWaking,
       isChatLoading,
       isLoadingHistory,
       isPkmMemoryWorking,
@@ -3143,7 +3163,16 @@ export function AgentChatWorkspace({
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
-            if (/AGENT_(UNREACHABLE|NOT_READY)/.test(message)) setAgentUnreachable(true);
+            if (/AGENT_NOT_READY/.test(message)) {
+              // Provisioned but not serving yet (connecting, or cold). That is a
+              // warming state, not a fault: warm the pod and say "starting up", never
+              // flag it as unreachable. `wakePodNow` no-ops unless there is genuinely
+              // an asleep pod to warm, so this is safe on a still-connecting one.
+              setAgentStarting(true);
+              wakePodNow("turn_not_ready");
+            } else if (/AGENT_UNREACHABLE/.test(message)) {
+              setAgentUnreachable(true);
+            }
             updateMessage(assistantMessageId, (current) => ({
               ...current,
               text: current.text || message,
@@ -3369,7 +3398,16 @@ export function AgentChatWorkspace({
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
-            if (/AGENT_(UNREACHABLE|NOT_READY)/.test(message)) setAgentUnreachable(true);
+            if (/AGENT_NOT_READY/.test(message)) {
+              // Provisioned but not serving yet (connecting, or cold). That is a
+              // warming state, not a fault: warm the pod and say "starting up", never
+              // flag it as unreachable. `wakePodNow` no-ops unless there is genuinely
+              // an asleep pod to warm, so this is safe on a still-connecting one.
+              setAgentStarting(true);
+              wakePodNow("turn_not_ready");
+            } else if (/AGENT_UNREACHABLE/.test(message)) {
+              setAgentUnreachable(true);
+            }
             updateMessage(assistantMessageId, (current) => ({
               ...current,
               text: current.text || message,
@@ -3591,7 +3629,16 @@ export function AgentChatWorkspace({
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
-            if (/AGENT_(UNREACHABLE|NOT_READY)/.test(message)) setAgentUnreachable(true);
+            if (/AGENT_NOT_READY/.test(message)) {
+              // Provisioned but not serving yet (connecting, or cold). That is a
+              // warming state, not a fault: warm the pod and say "starting up", never
+              // flag it as unreachable. `wakePodNow` no-ops unless there is genuinely
+              // an asleep pod to warm, so this is safe on a still-connecting one.
+              setAgentStarting(true);
+              wakePodNow("turn_not_ready");
+            } else if (/AGENT_UNREACHABLE/.test(message)) {
+              setAgentUnreachable(true);
+            }
             updateMessage(assistantMessageId, (current) => ({
               ...current,
               text: current.text || message,
@@ -3654,6 +3701,11 @@ export function AgentChatWorkspace({
   const enqueuePrompt = (textInput: string) => {
     const text = textInput.trim();
     if (!text) return;
+    // A fresh send is a retry of whatever the banners were reporting. Clear the stale
+    // fault/warming state here -- the one choke point every turn path flows through --
+    // so a person who sends again is not staring at a banner about the last attempt.
+    setAgentUnreachable(false);
+    setAgentStarting(false);
     const prompt: QueuedAgentPrompt = {
       id: crypto.randomUUID(),
       text,
@@ -4005,6 +4057,13 @@ export function AgentChatWorkspace({
       )}
       data-agent-chat-workspace={variant}
     >
+      {agentStarting && !agentUnreachable ? (
+        <div className="flex items-center gap-2 border-b border-border/40 bg-foreground/[0.03] px-4 py-2 text-sm text-muted-foreground">
+          <span>
+            Your agent is starting up. This takes a few seconds; send again in a moment.
+          </span>
+        </div>
+      ) : null}
       {agentUnreachable ? (
         <div className="flex items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm">
           <span className="text-amber-700 dark:text-amber-300">
@@ -4016,7 +4075,7 @@ export function AgentChatWorkspace({
             disabled={rebuildingAgent}
             className="shrink-0 rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-60"
           >
-            {rebuildingAgent ? "Rebuilding…" : "Rebuild your agent"}
+            {rebuildingAgent ? "Reconnecting…" : "Reconnect your agent"}
           </button>
         </div>
       ) : null}
@@ -4866,6 +4925,7 @@ export function AgentChatWorkspace({
                         aria-label="Expanded message One"
                         value={input}
                         onChange={(event) => setInput(event.target.value)}
+                        onFocus={() => wakePodNow("composer_focus")}
                         onKeyDown={(event) => {
                           if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
                             return;
@@ -4907,6 +4967,7 @@ export function AgentChatWorkspace({
                           aria-label="Message One"
                           value={input}
                           onChange={(event) => setInput(event.target.value)}
+                          onFocus={() => wakePodNow("composer_focus")}
                           onKeyDown={(event) => {
                             if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
                               return;

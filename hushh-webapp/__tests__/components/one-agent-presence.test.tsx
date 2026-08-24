@@ -9,7 +9,24 @@ import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
 // Mocking the transport rather than the service is what let the unauthenticated
 // call ship: the test supplied a payload the real endpoint would have 401'd on.
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { getPersonalAgentStatus: vi.fn() },
+  // getPersonalAgentStatus drives the chip; wakePod is now called by the proactive-wake
+  // hook the chip mounts (best-effort, swallowed on failure) -- mock it so it is a spy,
+  // not an undefined call.
+  ApiService: {
+    getPersonalAgentStatus: vi.fn(),
+    wakePod: vi.fn().mockResolvedValue({ state: "awake", etaMs: 0 }),
+  },
+}));
+
+// The chip reads the vault owner token (for the rebuild path) and the router (to route a
+// gone project to cloud reconnect). Neither is provided by a bare render, so mock both --
+// this test had rendered the component without a VaultProvider since the rebuild handler
+// landed, and threw before asserting anything.
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({ vaultOwnerToken: "vault-owner-token" }),
+}));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
 }));
 
 const mockStatus = vi.mocked(ApiService.getPersonalAgentStatus);

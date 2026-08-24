@@ -39,3 +39,34 @@ export function isAgentNotAnswering(health: string | null | undefined): boolean 
 export function isAgentAsleep(health: string | null | undefined): boolean {
   return health === ASLEEP;
 }
+
+/**
+ * Whether a proactive wake is worth sending right now.
+ *
+ * Wake is a CLIENT courtesy that runs the ~11s cold start while the person is still
+ * reaching for their agent, so the turn lands warm instead of eating the boot inline.
+ * It is only worth spending on a pod that both exists and is cold:
+ *
+ *   - `state !== "active"`  -> there is no pod to wake (reserved/provisioning/
+ *     connecting/failed). Waking is meaningless and the lifecycle surface already
+ *     narrates these.
+ *   - not-answering (degraded/unreachable) -> this is the FAULT path. It belongs to
+ *     the recovery classifier (probe -> adopt -> reinit/rebuild), never to a wake
+ *     that would just retry a broken pod.
+ *   - `health === "healthy"` -> already warm; a wake would be pure cost on a shared,
+ *     costed fleet.
+ *
+ * Everything else -- `sleeping`, `unknown`, or health ABSENT (the backend omits it
+ * rather than defaulting to "healthy") -- is a cold-or-unknown pod that a wake can
+ * usefully warm. The caller still owns the cooldown and in-flight de-duplication so
+ * that "usefully" does not become "on every render".
+ */
+export function shouldWakePod(
+  state: string | null | undefined,
+  health: string | null | undefined,
+): boolean {
+  if (state !== "active") return false;
+  if (isAgentNotAnswering(health)) return false;
+  if (health === "healthy") return false;
+  return true;
+}
