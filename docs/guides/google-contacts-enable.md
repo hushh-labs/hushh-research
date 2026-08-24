@@ -14,6 +14,31 @@ not carry. Verified 2026-08-24 with `testIamPermissions` against both
 *names* list fine, which reads like access and is not. Run these as a member of
 `gcp-admins@hushh.ai`.
 
+## Visual Map
+
+Where the client id travels, and the one edge that must not be reversed.
+
+```mermaid
+flowchart TD
+    C["OAuth client<br/>(new Web client, same project)"] -->|"step 3"| SM["Secret Manager<br/>NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID<br/>x3 projects"]
+    SM -->|"step 4: availableSecrets"| CB["frontend.cloudbuild.yaml"]
+    CB -->|"--build-arg"| DA["Dockerfile ARG"]
+    DA -->|"ENV"| DE["Dockerfile ENV"]
+    DE -->|"read at build time"| NB["Next.js bundle<br/>process.env"]
+    NB --> AV["googleContactsAvailability()"]
+    AV -->|"empty -> unconfigured"| DARK["feature stays dark<br/>(today, every environment)"]
+    AV -->|"set -> connectable"| GIS["Google Identity Services<br/>token in browser memory"]
+    GIS --> PA["people.googleapis.com<br/>called FROM THE BROWSER"]
+    PA -.->|"never"| SRV["our servers"]
+
+    SM -.->|"step 4 before step 3 =<br/>every frontend build fails,<br/>all 3 envs, every branch"| CB
+```
+
+The dotted edge back into `frontend.cloudbuild.yaml` is the failure mode this
+document is ordered around. The dotted edge into "our servers" is the one the
+whole design exists to prevent, and it is enforced by a test rather than by
+this diagram.
+
 ## Order matters, and getting it wrong breaks every frontend deploy
 
 Step 3 creates the secret. Step 4 makes `frontend.cloudbuild.yaml` reference it.
