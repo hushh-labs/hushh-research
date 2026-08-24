@@ -7,6 +7,7 @@ import {
   type NativeTestAuthState,
   type NativeTestDataState,
 } from "@/components/app-ui/native-test-beacon";
+import type { PolymorphicTag } from "@/lib/morphy-ux/polymorphic";
 import { cn } from "@/lib/utils";
 
 export type AppPageShellWidth =
@@ -84,7 +85,7 @@ export function AppPageShell<T extends ElementType = "main">({
   children,
   ...props
 }: AppPageShellProps<T>) {
-  const Component = as ?? "main";
+  const Component = (as ?? "main") as PolymorphicTag;
 
   return (
     <Component
@@ -112,7 +113,7 @@ export function AppPageHeaderRegion<T extends ElementType = "div">({
   className,
   ...props
 }: AppPageRegionProps<T>) {
-  const Component = as ?? "div";
+  const Component = (as ?? "div") as PolymorphicTag;
 
   return (
     <Component
@@ -127,7 +128,7 @@ export function AppPageContentRegion<T extends ElementType = "div">({
   className,
   ...props
 }: AppPageRegionProps<T>) {
-  const Component = as ?? "div";
+  const Component = (as ?? "div") as PolymorphicTag;
 
   return (
     <Component

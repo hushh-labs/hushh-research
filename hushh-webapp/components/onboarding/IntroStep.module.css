@@ -1,33 +1,56 @@
+/* Welcome ("/") layout — one screen, no scroll.
+ *
+ * The bug this file exists to fix: the composition was pinned to exactly one
+ * viewport with `overflow: hidden`, but its rhythm was written in fixed
+ * pixels. On any viewport shorter than the pixels assumed, the excess was
+ * clipped rather than absorbed — the brand mark landed on top of the quiet
+ * mark, and the closing line was sliced in half by the CTA.
+ *
+ * The fix is not to let the page scroll. It is to make the column's own
+ * rhythm a function of the height it actually has: every vertical step and
+ * every display size below is `clamp(floor, <viewport unit>, ceiling)`, so
+ * the same composition compresses gracefully from a 1440×900 desktop down to
+ * a phone in landscape and still fits, once, on one screen.
+ */
+
 .shell {
   position: relative;
   display: flex;
-  /* The outer app scroll root already reserves --app-scroll-bottom-pad of
-     clearance below this element for the fixed onboarding Agent Bar (see
-     app/providers.tsx), then adds it back as its own padding-bottom. Sizing
-     this element to a full 100dvh on top of that reservation made the total
-     scrollable content one full screen PLUS the bar clearance, forcing
-     scroll on every device and leaving a background seam in the reserved
-     strip (this element's own background stops at its own box, one dvh
-     tall, so the extra strip below showed the plain page background
-     instead). Subtracting the reservation here makes shell + reserved
-     padding equal exactly one viewport, so the page always fits without
-     scrolling and the background never runs out early. */
-  /* `dvh` can grow and shrink while mobile browser controls animate. The
-     welcome is a single-screen composition, so use the small viewport as its
-     stable upper bound. This prevents Safari's expanded browser chrome from
-     turning its transient top inset into extra hero whitespace. */
-  block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
-  min-block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
   width: 100%;
   flex-direction: column;
+  /* The outer app scroll root already reserves --app-scroll-bottom-pad below
+     this element for the fixed onboarding Agent Bar (see app/providers.tsx).
+     Subtracting it here makes shell + that reservation equal exactly one
+     viewport, so the page never scrolls and the background never stops short
+     of the bottom edge.
+
+     `svh`, not `dvh`: this is a single-screen composition, so it uses the
+     small viewport as a stable upper bound rather than resizing itself while
+     mobile browser chrome animates. */
+  block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
+  min-block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
   overflow: hidden;
+
+  /* Apple's own display face where the device has it, falling back to the
+     product font everywhere else. Scoped to this screen deliberately — the
+     welcome is the one surface where the type is doing brand work, and the
+     rest of the app stays on the shared token. */
+  --landing-display:
+    "SF Pro Display", "SF Pro", -apple-system, BlinkMacSystemFont,
+    var(--font-app-display);
+  --landing-text:
+    "SF Pro Text", "SF Pro", -apple-system, BlinkMacSystemFont,
+    var(--font-app-body);
+  font-family: var(--landing-text);
 }
 
 .stage {
   position: relative;
   z-index: 10;
   display: grid;
-  block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
+  block-size: 100%;
+  /* Without this, a grid row refuses to shrink below its content's intrinsic
+     height — which is the mechanism that turned overflow into overlap. */
   min-height: 0;
   width: 100%;
   max-width: 34rem;
@@ -38,29 +61,76 @@
      stale browser/native inset without sacrificing the real status-bar
      clearance needed by an edge-to-edge WebView. */
   padding: calc(clamp(28px, var(--app-safe-area-top-effective, 0px), 64px) + 12px)
-    24px 24px;
+    24px clamp(16px, 3vh, 28px);
   text-align: center;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* ── Brand bar ────────────────────────────────────────────────────────── */
+
+/* GlassSurface sets its own inline width/height and owns the rounded box, so
+   this class only constrains and places it. */
+.brandBar {
+  justify-self: center;
+  max-width: 30rem;
+  margin: 0 auto;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
 }
 
-.wordmark {
-  height: 34px;
-  width: auto;
+/* GlassSurface centres its children inside a `p-2` wrapper, so the row has to
+   claim the full width back or the bar collapses to its content and the
+   wordmark and links bunch together in the middle of the pill. */
+.brandBarContent {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  padding: 0 6px 0 14px;
 }
+
+.wordmark {
+  height: clamp(20px, 2.6vh, 26px);
+  width: auto;
+  flex-shrink: 0;
+}
+
+.links {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.link {
+  display: inline-flex;
+  /* The pill reads compact, but the tap target stays a full 44px tall. */
+  min-height: 44px;
+  align-items: center;
+  padding: 0 clamp(8px, 1.6vw, 13px);
+  border-radius: 999px;
+  color: var(--foundation-dim);
+  font-size: clamp(11px, 1.4vh, 13px);
+  font-weight: 590;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  white-space: nowrap;
+  transition: color 200ms var(--motion-ease-standard, ease-out);
+}
+
+.link:hover {
+  color: var(--foundation-ink);
+}
+
+/* ── Hero ─────────────────────────────────────────────────────────────── */
 
 .hero {
   align-self: center;
   display: flex;
+  min-height: 0;
   width: 100%;
   max-width: 30rem;
   margin: 0 auto;
-  transform: translateY(-8px);
   flex-direction: column;
   align-items: center;
 }
@@ -68,7 +138,7 @@
 .eyebrow {
   margin: 0;
   color: var(--foundation-dim);
-  font-size: 12px;
+  font-size: clamp(10px, 1.3vh, 12px);
   font-weight: 700;
   letter-spacing: 0.26em;
   line-height: 1;
@@ -77,16 +147,16 @@
 }
 
 .emoji {
-  margin-top: 32px;
-  font-size: 48px;
+  margin-top: clamp(14px, 3.4vh, 32px);
+  font-size: clamp(30px, 5.4vh, 48px);
   line-height: 1;
-  filter: drop-shadow(0 8px 18px rgba(109, 67, 26, 0.16));
+  filter: drop-shadow(0 8px 18px rgba(15, 23, 42, 0.16));
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 280ms both;
 }
 
 .title {
-  margin: 12px 0 0;
-  font-family: var(--font-app-display);
+  margin: clamp(6px, 1.3vh, 12px) 0 0;
+  font-family: var(--landing-display);
   line-height: 1;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 340ms both;
 }
@@ -109,10 +179,13 @@
   background-position: 30% 50%;
   background-clip: text;
   color: transparent;
-  font-family: var(--font-app-display);
-  font-size: clamp(88px, 29vw, 118px);
+  font-family: var(--landing-display);
+  /* Bounded on BOTH axes. A `vw`-only hero grows on a short landscape
+     viewport at exactly the moment the vertical room for it shrinks, which
+     is how the mark came to sit on top of the quiet mark. */
+  font-size: clamp(64px, min(24vw, 14vh), 116px);
   font-weight: 800;
-  letter-spacing: -4px;
+  letter-spacing: -0.045em;
   line-height: 1.04;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -121,11 +194,11 @@
 .divider {
   width: 100%;
   height: 1px;
-  margin-top: 36px;
+  margin-top: clamp(14px, 3.6vh, 36px);
   background: linear-gradient(
     90deg,
     transparent,
-    color-mix(in oklab, var(--foundation-gold-deep) 34%, transparent),
+    color-mix(in oklab, var(--app-accent) 30%, transparent),
     transparent
   );
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 370ms both;
@@ -133,12 +206,13 @@
 
 .tagline {
   max-width: 22rem;
-  margin: 36px auto 0;
+  margin: clamp(14px, 3.6vh, 36px) auto 0;
   color: var(--foundation-ink);
-  font-size: 20px;
+  font-family: var(--landing-display);
+  font-size: clamp(17px, 2.3vh, 21px);
   font-weight: 600;
-  letter-spacing: -0.2px;
-  line-height: 1.35;
+  letter-spacing: -0.022em;
+  line-height: 1.3;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 420ms both;
 }
 
@@ -148,9 +222,9 @@
   align-items: center;
   justify-content: center;
   gap: 7px;
-  margin-top: 26px;
+  margin-top: clamp(12px, 2.6vh, 26px);
   color: var(--foundation-dim);
-  font-size: 11px;
+  font-size: clamp(9.5px, 1.2vh, 11px);
   font-weight: 700;
   letter-spacing: 0.16em;
   line-height: 1.2;
@@ -171,18 +245,22 @@
 
 .description {
   max-width: 23rem;
-  margin: 30px auto 0;
+  margin: clamp(14px, 3vh, 30px) auto 0;
   color: var(--foundation-dim);
-  font-size: 16px;
+  font-size: clamp(13px, 1.7vh, 16px);
+  letter-spacing: -0.01em;
   line-height: 1.45;
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 580ms both;
 }
+
+/* ── CTA ──────────────────────────────────────────────────────────────── */
 
 .footer {
   align-self: end;
   width: 100%;
   max-width: 30rem;
   margin: 0 auto;
+  padding-top: clamp(16px, 3vh, 28px);
   animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 680ms both;
 }
 
@@ -190,7 +268,7 @@
   position: relative;
   overflow: hidden;
   display: inline-flex;
-  min-height: 56px;
+  min-height: clamp(48px, 6.4vh, 56px);
   width: 100%;
   align-items: center;
   justify-content: center;
@@ -198,92 +276,71 @@
   border: 0;
   border-radius: 999px;
   /* Accent morphy: flat accent fill that follows the accent preference
-     (iOS Blue default, Molten Gold opt-in). No gradient, no shadow. */
+     (iOS Blue default, Molten Gold opt-in). The one solid element on a
+     screen otherwise made of glass, which is what keeps it reading as the
+     thing you are meant to press. */
   background: var(--app-accent);
   color: var(--app-accent-fg);
-  font-family: var(--font-app-body);
-  font-size: 16px;
-  font-weight: 700;
+  font-family: var(--landing-text);
+  font-size: clamp(15px, 1.9vh, 17px);
+  font-weight: 600;
+  letter-spacing: -0.015em;
   line-height: 1;
+  box-shadow:
+    0 1px 1px rgba(15, 23, 42, 0.08),
+    0 14px 30px -14px color-mix(in oklab, var(--app-accent) 78%, transparent);
   transition:
-    background-color var(--motion-duration-sm) var(--motion-ease-standard);
+    background-color var(--motion-duration-sm, 180ms)
+      var(--motion-ease-standard, ease-out),
+    transform var(--motion-duration-sm, 180ms)
+      var(--motion-ease-standard, ease-out);
 }
 
 .cta:hover {
   background: var(--app-accent-hover);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .cta {
-    transition: none;
-  }
+.cta:active {
+  transform: scale(0.985);
 }
 
-.links {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 16px;
-  border-top: 1px solid var(--foundation-hairline);
-  color: var(--foundation-dim);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.link {
-  display: flex;
-  min-height: 46px;
+.ctaLabel {
+  position: relative;
+  z-index: 0;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border-left: 1px solid var(--foundation-hairline);
-  text-align: center;
-  line-height: 1.1;
-}
-
-.link:first-child {
-  border-left: 0;
+  gap: 8px;
 }
 
 @keyframes reveal {
   from {
     opacity: 0;
     transform: translate3d(0, 14px, 0);
-    filter: blur(6px);
   }
   to {
     opacity: 1;
     transform: translate3d(0, 0, 0);
-    filter: blur(0);
   }
 }
 
-@media (max-height: 740px) {
-  .hero {
-    transform: translateY(-4px);
+@media (prefers-reduced-motion: reduce) {
+  .brandBar,
+  .eyebrow,
+  .emoji,
+  .title,
+  .divider,
+  .tagline,
+  .motions,
+  .description,
+  .footer {
+    animation: none;
   }
 
-  .emoji {
-    margin-top: 22px;
-    font-size: 42px;
+  .cta {
+    transition: none;
   }
 
-  .molten {
-    font-size: clamp(76px, 26vw, 104px);
-  }
-
-  .divider {
-    margin-top: 24px;
-  }
-
-  .tagline {
-    margin-top: 24px;
-  }
-
-  .motions {
-    margin-top: 18px;
-  }
-
-  .description {
-    margin-top: 20px;
-    font-size: 14px;
+  .cta:active {
+    transform: none;
   }
 }

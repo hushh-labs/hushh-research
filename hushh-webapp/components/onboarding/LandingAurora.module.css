@@ -1,0 +1,147 @@
+/* Landing aurora — the backdrop the welcome screen's glass refracts.
+ *
+ * Glass only reads as glass when there is something behind it worth bending.
+ * A flat canvas makes every pane look like a grey rectangle, which is exactly
+ * how the previous welcome screen read.
+ *
+ * Built entirely from CSS gradients on three blurred blobs. No canvas, no
+ * WebGL, no image. That matters here specifically: this is the first paint a
+ * signed-out visitor sees, and it is the screen the sign-up rate depends on,
+ * so it must not wait on a shader to compile or a texture to download.
+ *
+ * Everything that moves is a `transform` on a composited layer, so the whole
+ * backdrop animates off the main thread and never triggers layout or paint.
+ */
+
+.root {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  /* Paint the base here rather than relying on the page behind it, so the
+     backdrop is never a transparent hole during a route transition. */
+  background: var(--landing-canvas);
+}
+
+.blob {
+  position: absolute;
+  border-radius: 50%;
+  /* A large blur is a one-time paint cost on a layer that then only ever
+     moves, so it stays cheap for the life of the page. */
+  filter: blur(var(--blob-blur, 90px));
+  opacity: var(--blob-opacity, 0.5);
+  will-change: transform;
+  animation: drift var(--blob-duration, 26s) ease-in-out var(--blob-delay, 0s)
+    infinite alternate;
+}
+
+.blobOne {
+  --blob-blur: 100px;
+  --blob-opacity: 0.55;
+  --blob-duration: 26s;
+  top: -18vmin;
+  left: -10vmin;
+  width: 68vmin;
+  height: 68vmin;
+  background: radial-gradient(
+    circle at 50% 50%,
+    var(--app-accent) 0%,
+    color-mix(in oklab, var(--app-accent) 42%, transparent) 46%,
+    transparent 70%
+  );
+}
+
+.blobTwo {
+  --blob-blur: 120px;
+  --blob-opacity: 0.42;
+  --blob-duration: 34s;
+  --blob-delay: -8s;
+  /* Pulled back inside the viewport. At -22vmin most of this blob's bright
+     core sat off-screen and only its faded tail reached the page, which left
+     the right half of the canvas dead — and a pane with nothing behind it
+     cannot read as glass. */
+  top: -6vmin;
+  right: -10vmin;
+  width: 76vmin;
+  height: 76vmin;
+  background: radial-gradient(
+    circle at 50% 50%,
+    var(--app-accent-bright) 0%,
+    color-mix(in oklab, var(--app-accent-bright) 34%, transparent) 48%,
+    transparent 72%
+  );
+}
+
+.blobThree {
+  --blob-blur: 130px;
+  --blob-opacity: 0.34;
+  --blob-duration: 42s;
+  --blob-delay: -16s;
+  bottom: -30vmin;
+  left: 22vmin;
+  width: 92vmin;
+  height: 92vmin;
+  background: radial-gradient(
+    circle at 50% 50%,
+    var(--app-accent-hero-from) 0%,
+    color-mix(in oklab, var(--app-accent-hero-from) 40%, transparent) 50%,
+    transparent 74%
+  );
+}
+
+/* A vignette that pulls the eye back to the centre column and, more
+   practically, guarantees headline contrast wherever a blob happens to
+   drift. Without it the copy's contrast ratio would depend on animation
+   position, which is not something a landing page can gamble on. */
+.vignette {
+  position: absolute;
+  inset: 0;
+  background: var(--landing-vignette);
+}
+
+/* Fine grain. Keeps the large gradient areas from banding on 8-bit displays,
+   which is what makes a big soft gradient look cheap. */
+.grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.045;
+  background-image: radial-gradient(
+    color-mix(in oklab, var(--foreground) 70%, transparent) 0.5px,
+    transparent 0.7px
+  );
+  background-size: 4px 4px;
+}
+
+/* A dark canvas swallows a gradient that reads fine on parchment — the same
+   blob that is a soft wash over #f5f5f7 all but disappears over #0b0b0d. So
+   the dark theme runs the aurora hotter. This is the layer the glass panes
+   refract; if it goes flat, every pane on the page reads grey. */
+:global(html.dark) .blobOne {
+  --blob-opacity: 0.72;
+}
+
+:global(html.dark) .blobTwo {
+  --blob-opacity: 0.6;
+}
+
+:global(html.dark) .blobThree {
+  --blob-opacity: 0.55;
+}
+
+@keyframes drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(6vmin, 5vmin, 0) scale(1.12);
+  }
+}
+
+/* Reduced motion means still, not absent: the composition is the same, it
+   simply holds its opening position. */
+@media (prefers-reduced-motion: reduce) {
+  .blob {
+    animation: none;
+  }
+}

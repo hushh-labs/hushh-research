@@ -495,6 +495,17 @@ textarea {
   --app-glass-surface: rgba(255, 255, 255, 0.78);
   --app-glass-border: rgba(60, 60, 67, 0.18);
   --app-glass-shadow: 0 10px 28px -24px rgba(0, 0, 0, 0.3);
+  /* Signed-out welcome canvas. The aurora backdrop paints its own base so a
+     route transition never exposes a transparent hole, and the vignette
+     guarantees headline contrast no matter where the blobs have drifted —
+     contrast on a conversion screen cannot depend on animation position. */
+  --landing-canvas: #f5f5f7;
+  --landing-vignette: radial-gradient(
+    120% 90% at 50% 8%,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(255, 255, 255, 0.34) 42%,
+    rgba(245, 245, 247, 0.6) 100%
+  );
   /* Hero gradient stops (intro "One" molten text + wordmark "ssh" + brand
      glyph strokes). Blue-to-dark: deep navy edges into the system blue with
      a bright shine band, so the foil stays legible on light canvases. */
@@ -1138,6 +1149,16 @@ textarea {
   --app-glass-surface: rgba(28, 28, 30, 0.78);
   --app-glass-border: rgba(84, 84, 88, 0.65);
   --app-glass-shadow: 0 12px 32px -24px rgba(0, 0, 0, 0.85);
+  /* Dark welcome canvas. Near-black rather than pure #000 for the same
+     reason the tile steps are: the aurora needs a surface to sit on, and a
+     true black one crushes the low end of every gradient into a band. */
+  --landing-canvas: #0b0b0d;
+  --landing-vignette: radial-gradient(
+    120% 90% at 50% 8%,
+    rgba(11, 11, 13, 0.06) 0%,
+    rgba(11, 11, 13, 0.34) 48%,
+    rgba(11, 11, 13, 0.72) 100%
+  );
   /* Dark Profile aliases — same rule as the light block above. The literals
    * here were the visible dark-mode divergence: a pure #000 canvas with
    * #1c1c1e cards, where every One Location screen uses the shared

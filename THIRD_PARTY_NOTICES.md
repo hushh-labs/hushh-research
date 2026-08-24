@@ -1300,3 +1300,26 @@ Package count: 199
 Original Artwork by 480 Design (https://github.com/480-Design/Solar-Icon-Set)
 Licensed under Figma Community Guidelines & GPL 3.0.
 Used and styled organically as native React UI Graphic vectors.
+
+## React Bits
+Source: https://github.com/DavidHDev/react-bits (https://reactbits.dev)
+Copyright (c) 2026 David Haz. Licensed under **MIT + Commons Clause v1.0**.
+
+Two components are vendored into the webapp:
+
+- `hushh-webapp/components/react-bits/GlassSurface.tsx` — the `ts-tailwind`
+  `GlassSurface` component, adapted so its dark-mode check follows this app's
+  next-themes `dark` class on `<html>` rather than `prefers-color-scheme`.
+- `hushh-webapp/components/react-bits/FluidGlassLens.tsx` — derived from the
+  `ts-tailwind` `FluidGlass` component, `lens` mode only. The upstream demo
+  shell (`ScrollControls`, `Typography`, `Images`, `NavItems`) is removed; the
+  `lens.glb` geometry, pointer damping, and `MeshTransmissionMaterial`
+  parameters are unchanged.
+- `hushh-webapp/public/assets/3d/lens.glb` — the lens geometry, used as-is.
+
+Commons Clause note: this license permits use of the Software, including
+commercially, as part of an application, website, or product; it does not
+permit selling, sublicensing, or redistributing the components themselves,
+whether alone, in a bundle, or as a ported version. These files are included
+solely as part of the Hussh One application and are not offered for
+redistribution as components.

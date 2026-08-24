@@ -2,6 +2,7 @@
 
 import type { ElementType, ReactNode } from "react";
 
+import type { PolymorphicTag } from "@/lib/morphy-ux/polymorphic";
 import { cn } from "@/lib/utils";
 
 export const TYPOGRAPHY_CLASSNAMES = {
@@ -74,13 +75,15 @@ type RoleTextProps = {
 };
 
 function SemanticText({
-  as: Component = "span",
+  as = "span",
   className,
   children,
   roleClassName,
   ...props
 }: RoleTextProps & { roleClassName: string }) {
   const uiRole = TYPOGRAPHY_ROLE_BY_CLASSNAME[roleClassName];
+  const Component = as as PolymorphicTag;
+
   return (
     <Component
       className={cn(roleClassName, className)}

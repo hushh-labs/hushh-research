@@ -2,6 +2,7 @@
 
 import type { ComponentPropsWithoutRef, ElementType } from "react";
 
+import type { PolymorphicTag } from "@/lib/morphy-ux/polymorphic";
 import { cn } from "@/lib/utils";
 
 export type FullscreenFlowShellWidth =
@@ -35,7 +36,7 @@ export function FullscreenFlowShell<T extends ElementType = "main">({
   style,
   ...props
 }: FullscreenFlowShellProps<T>) {
-  const Component = as ?? "main";
+  const Component = (as ?? "main") as PolymorphicTag;
 
   return (
     <Component

@@ -9,8 +9,8 @@ vi.mock("@/components/app-ui/hushh-wordmark", () => ({
   HushhWordmark: () => <span>hussh</span>,
 }));
 
-vi.mock("@/components/onboarding/OnboardingHeroBackground", () => ({
-  OnboardingHeroBackground: () => null,
+vi.mock("@/components/onboarding/LandingAurora", () => ({
+  LandingAurora: () => null,
 }));
 
 afterEach(() => {

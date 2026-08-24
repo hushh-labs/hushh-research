@@ -17,6 +17,7 @@
 "use client";
 
 import * as React from "react";
+import type { PolymorphicTag } from "@/lib/morphy-ux/polymorphic";
 import { cn } from "@/lib/utils";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
@@ -94,7 +95,9 @@ export function SegmentedControl({
     >
       {options.map((option) => {
         const isActive = value === option.value;
-        const Icon = option.icon;
+        // Cast for the same JSX-resolution reason as the app-shell
+        // wrappers — see lib/morphy-ux/polymorphic.ts.
+        const Icon = option.icon as PolymorphicTag | undefined;
         
         return (
           <button
