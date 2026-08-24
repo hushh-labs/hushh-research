@@ -5,17 +5,18 @@ authenticated with a Google OAuth bearer. No ``gcloud``, no Cloud Build: the sam
 works whatever cloud the control plane runs in, which is the portability property the
 private-agent north star asks of every per-user primitive.
 
-WHY THE ACTING IDENTITY IS FETCHED FROM THE METADATA SERVER, NOT ``load_operator_credentials``
---------------------------------------------------------------------------------------------
+WHY THE ACTING IDENTITY IS NOT ``load_operator_credentials``
+-----------------------------------------------------------
 The copy pushes bytes INTO a project hushh does not own. It must therefore run as the
 one scoped identity that project granted write to -- the consent-plane runtime SA -- and
 never as the org-admin deploy key. ``load_operator_credentials`` prefers that org-admin
 key when it is present (its own docstring calls it "the kind of finding a FedRAMP
-assessor opens with"), so it is exactly the wrong loader here. The attached runtime
-identity is read straight from the instance metadata server, which cannot return a key
-file, and the caller asserts it equals the identity actually granted the writer role
-before any push. A copy that ran under broader authority would be org reach into a
-sovereign project; refusing is fail-closed by design.
+assessor opens with"), so it is exactly the wrong loader here. Instead the acting
+identity is resolved from the metadata server on GCP (the attached runtime SA) and from
+Application Default Credentials off-GCP (localhost/CI, run AS the consent-plane SA), and
+the CALLER asserts the resolved email equals the account granted the writer role before
+any push. THAT assertion is the F3 control: a copy under broader authority is refused,
+not used, so it is fail-closed by design wherever it runs.
 """
 
 from __future__ import annotations
@@ -58,34 +59,67 @@ def _requests() -> Any:
     return requests
 
 
-def attached_identity(session: Any = None) -> tuple[str, str]:
-    """The (access_token, email) of the identity ATTACHED to this runtime.
+def _acting_identity_via_metadata(session: Any) -> Optional[tuple[str, str]]:
+    """(token, email) from the instance metadata server, or None if it is not there.
 
-    Read from the metadata server, which returns the Cloud Run/GCE service account the
-    workload actually runs as and can never return a key file. This is the F3 control:
-    the copy authenticates as this identity and the caller refuses to proceed unless it
-    equals the account granted write on the destination repo.
+    On Cloud Run/GCE this returns the ATTACHED runtime service account and can never
+    return a key file. Off-GCP (localhost/CI) the metadata host is unreachable, so this
+    returns None and the caller falls back to ADC.
     """
     session = session or _requests()
     headers = {"Metadata-Flavor": "Google"}
     try:
-        email_resp = session.get(f"{_METADATA_IDENTITY}/email", headers=headers, timeout=10)
-        token_resp = session.get(f"{_METADATA_IDENTITY}/token", headers=headers, timeout=10)
-    except Exception as exc:  # noqa: BLE001 - surface a clear provisioning failure
-        raise ImageCopyError(
-            "could not read the attached runtime identity from the metadata server; "
-            "the image copy refuses to fall back to any key-file credential"
-        ) from exc
+        email_resp = session.get(f"{_METADATA_IDENTITY}/email", headers=headers, timeout=5)
+        token_resp = session.get(f"{_METADATA_IDENTITY}/token", headers=headers, timeout=5)
+    except Exception:  # noqa: BLE001 - metadata server absent off-GCP; fall through to ADC
+        return None
     if getattr(email_resp, "status_code", 0) != 200 or getattr(token_resp, "status_code", 0) != 200:
-        raise ImageCopyError(
-            "metadata server did not return the attached identity "
-            f"(email={getattr(email_resp, 'status_code', '?')}, "
-            f"token={getattr(token_resp, 'status_code', '?')})"
-        )
+        return None
     email = str(getattr(email_resp, "text", "")).strip()
     token = str((token_resp.json() or {}).get("access_token") or "")
-    if not email or not token:
-        raise ImageCopyError("attached identity email or token was empty")
+    return (token, email) if (token and email) else None
+
+
+def _acting_identity_via_adc() -> tuple[str, str]:
+    """(token, email) from Application Default Credentials, for localhost/CI.
+
+    Off-GCP the operator runs the backend AS, or impersonating, the consent-plane SA, so
+    ADC resolves to it. If ADC instead resolves to something broader (an org-admin key,
+    a user login), the email simply will not match the granted writer and the caller
+    refuses -- that assertion, not this resolver, is the trust decision.
+    """
+    try:
+        import google.auth  # noqa: PLC0415
+        from google.auth.transport.requests import Request  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001
+        raise ImageCopyError(
+            "no metadata server and google-auth is unavailable to resolve ADC"
+        ) from exc
+    creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    creds.refresh(Request())
+    email = str(getattr(creds, "service_account_email", "") or "")
+    token = str(getattr(creds, "token", "") or "")
+    return token, email
+
+
+def attached_identity(session: Any = None) -> tuple[str, str]:
+    """The (access_token, email) of the identity this runtime acts as.
+
+    Resolved from the metadata server on Cloud Run/GCE (the attached runtime SA), and
+    from Application Default Credentials off-GCP (localhost/CI, where the operator runs
+    the backend AS or impersonating the consent-plane SA). Either way the CALLER
+    (`UserGcpBackend._ensure_pod_image`) asserts the resolved email equals the account
+    granted write on the destination repo BEFORE any push -- THAT assertion is the F3
+    control. A wrong or broader identity (an org-admin key ADC happened to resolve) is
+    refused, not used. So this resolves the acting identity honestly; it does not itself
+    decide trust.
+    """
+    resolved = _acting_identity_via_metadata(session) or _acting_identity_via_adc()
+    token, email = resolved
+    if not token or not email:
+        raise ImageCopyError(
+            "could not resolve the acting runtime identity (metadata and ADC both empty)"
+        )
     return token, email
 
 

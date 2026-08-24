@@ -179,26 +179,39 @@ class _Session:
         return self._answer(method, url)
 
 
-def test_attached_identity_reads_the_metadata_server_and_refuses_a_gap() -> None:
-    # The email endpoint returns text; the token endpoint returns json.
+def test_attached_identity_prefers_the_metadata_server() -> None:
+    # On GCP the email endpoint returns text; the token endpoint returns json.
     class _S:
         def get(self, url, headers=None, timeout=None):
             if url.endswith("/email"):
                 r = _Resp(200)
                 r.text = INVOKER
                 return r
-            r = _Resp(200, json_body={"access_token": "tok-123"})
-            return r
+            return _Resp(200, json_body={"access_token": "tok-123"})
 
     token, email = pod_image_copy.attached_identity(_S())
     assert email == INVOKER and token == "tok-123"
 
-    class _Broken:
-        def get(self, url, headers=None, timeout=None):
-            return _Resp(500)
 
+def test_attached_identity_falls_back_to_adc_off_gcp(monkeypatch) -> None:
+    # No metadata server (localhost/CI): the resolver falls back to ADC, which the
+    # operator has pointed at the consent-plane SA. The caller still asserts the email.
+    class _NoMetadata:
+        def get(self, url, headers=None, timeout=None):
+            raise OSError("metadata host unreachable")
+
+    monkeypatch.setattr(pod_image_copy, "_acting_identity_via_adc", lambda: ("adc-tok", INVOKER))
+    assert pod_image_copy.attached_identity(_NoMetadata()) == ("adc-tok", INVOKER)
+
+
+def test_attached_identity_raises_when_neither_source_resolves(monkeypatch) -> None:
+    class _NoMetadata:
+        def get(self, url, headers=None, timeout=None):
+            raise OSError("no metadata")
+
+    monkeypatch.setattr(pod_image_copy, "_acting_identity_via_adc", lambda: ("", ""))
     with pytest.raises(pod_image_copy.ImageCopyError):
-        pod_image_copy.attached_identity(_Broken())
+        pod_image_copy.attached_identity(_NoMetadata())
 
 
 def test_resolve_source_digest_reads_the_content_digest_header() -> None:
