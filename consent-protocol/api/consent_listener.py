@@ -778,7 +778,13 @@ async def run_consent_listener():
         return
     conn = None
     try:
-        conn = await pool.acquire()
+        # Wait as long as it takes. This connection is held for the life of
+        # the process, nothing retries this coroutine, and failing here also
+        # cancels the timeout and notification loops in the finally below —
+        # so an early failure silently disables consent notifications on this
+        # instance until it restarts. The acquire deadline in db.connection is
+        # for request handlers, which have a caller waiting; this has none.
+        conn = await pool.acquire(timeout=None)
         await conn.execute("LISTEN consent_audit_new")
         # asyncpg add_listener is a coroutine (must be awaited)
         await conn.add_listener("consent_audit_new", _notify_callback)
