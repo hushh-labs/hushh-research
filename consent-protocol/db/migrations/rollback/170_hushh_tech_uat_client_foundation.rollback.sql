@@ -1,4 +1,4 @@
--- Operational rollback for migration 162.
+-- Operational rollback for migration 170.
 --
 -- Normal rollback disables the UAT cohort and leaves these additive tables in
 -- place. This down path is intentionally limited to empty environments so it
@@ -25,7 +25,7 @@ BEGIN
         INTO has_rows;
       IF has_rows THEN
         RAISE EXCEPTION
-          'migration_162_rollback_refused_nonempty_table:%', table_name;
+          'migration_170_rollback_refused_nonempty_table:%', table_name;
       END IF;
     END IF;
   END LOOP;

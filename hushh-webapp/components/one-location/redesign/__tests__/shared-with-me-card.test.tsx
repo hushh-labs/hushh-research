@@ -22,19 +22,22 @@ describe("SharedWithMeCard", () => {
       </SharedWithMeCard>,
     );
 
-    const activePill = screen.getByText("Active");
-    expect(activePill.parentElement?.textContent).toContain(
-      "Live until Jul 28, 11:19 PMActive",
-    );
+    expect(screen.getByText("Live until Jul 28, 11:19 PM")).toBeTruthy();
+    expect(screen.queryByText("Active")).toBeNull();
     expect(screen.getByText("Trusted A")).toBeTruthy();
     expect(screen.queryByText("Trusted A is sharing with you")).toBeNull();
 
-    const expandButton = screen.getByRole("button", {
-      name: "Expand shared location from Trusted A",
+    const viewButton = screen.getByRole("button", {
+      name: "View shared location from Trusted A",
     });
-    expect(expandButton.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      screen.getAllByRole("button", {
+        name: /shared location from Trusted A/,
+      }),
+    ).toHaveLength(1);
+    expect(viewButton.getAttribute("aria-expanded")).toBe("false");
     const previewRegion = document.getElementById(
-      expandButton.getAttribute("aria-controls") ?? "",
+      viewButton.getAttribute("aria-controls") ?? "",
     );
     expect(previewRegion).not.toBeNull();
     expect(previewRegion?.hidden).toBe(true);
@@ -44,7 +47,7 @@ describe("SharedWithMeCard", () => {
       }),
     ).toBeNull();
 
-    fireEvent.click(expandButton);
+    fireEvent.click(viewButton);
     expect(onView).toHaveBeenCalledTimes(1);
 
     rerender(
@@ -53,18 +56,14 @@ describe("SharedWithMeCard", () => {
       </SharedWithMeCard>,
     );
 
-    const collapseButton = screen.getByRole("button", {
+    const hideButton = screen.getByRole("button", {
       name: "Collapse shared location from Trusted A",
     });
     const recenterButton = screen.getByRole("button", {
       name: "Recenter map on Trusted A's location",
     });
-    expect(collapseButton.getAttribute("aria-expanded")).toBe("true");
-    expect(collapseButton).not.toBeDisabled();
-    expect(
-      recenterButton.compareDocumentPosition(collapseButton) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(hideButton.getAttribute("aria-expanded")).toBe("true");
+    expect(hideButton).not.toBeDisabled();
     expect(previewRegion?.hidden).toBe(false);
     expect(
       screen.getByRole("link", {
@@ -77,7 +76,7 @@ describe("SharedWithMeCard", () => {
     expect(onRecenter).toHaveBeenCalledTimes(1);
     expect(onDismiss).not.toHaveBeenCalled();
 
-    fireEvent.click(collapseButton);
+    fireEvent.click(hideButton);
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });
@@ -121,9 +120,10 @@ describe("SharedWithMeCard view status", () => {
       />,
     );
 
+    expect(screen.getByText("Waiting for their first update…")).toBeTruthy();
     expect(
-      screen.getByText("Waiting for Trusted A's first update."),
-    ).toBeTruthy();
+      screen.queryByText("Waiting for Trusted A's first update."),
+    ).toBeNull();
     // A healthy share must never be announced as a problem. `role="alert"`
     // interrupts a screen reader, and amber reads as "something is broken" --
     // both wrong for a share that is working and simply has not been published

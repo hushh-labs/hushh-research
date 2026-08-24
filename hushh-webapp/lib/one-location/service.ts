@@ -5,6 +5,7 @@ import {
   LocationBus,
   type LocationSnapshot,
 } from "@/lib/one-location/location-bus";
+import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
 import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import {
   ApiError,
@@ -18,6 +19,7 @@ import type {
   OneLocationAccessRequest,
   OneLocationActivityRange,
   OneLocationActivityResponse,
+  OneLocationAutoApprovePreference,
   OneLocationCircleInvite,
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnections,
@@ -378,6 +380,28 @@ export class OneLocationService {
     return apiJsonWithRetry<OneLocationState>("/api/one/location/state", {
       headers: jsonAuthHeaders(vaultOwnerToken),
     });
+  }
+
+  static async updateAutoApprovePreference(params: {
+    vaultOwnerToken: string;
+    enabled: boolean;
+    scope?: AutoApproveScope | null;
+  }): Promise<OneLocationAutoApprovePreference> {
+    const response = await apiJson<{
+      preference: OneLocationAutoApprovePreference;
+    }>("/api/one/location/auto-approve-preference", {
+      method: "PATCH",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({
+        enabled: params.enabled,
+        scopeKind: params.enabled ? params.scope?.kind : undefined,
+        circleId:
+          params.enabled && params.scope?.kind === "circle"
+            ? params.scope.circleId
+            : undefined,
+      }),
+    });
+    return response.preference;
   }
 
   /**
@@ -1636,9 +1660,16 @@ export class OneLocationService {
   static async approveRequest(params: {
     vaultOwnerToken: string;
     requestId: string;
+    approvalMode: "manual" | "automatic";
     durationHours?: number | null;
     durationMode?: string | null;
-  }): Promise<{ request: OneLocationAccessRequest; grant: OneLocationGrant }> {
+    /** Current server-owned standing-rule version. Omit for manual approval. */
+    autoApproveRuleVersion?: number | null;
+  }): Promise<{
+    request: OneLocationAccessRequest;
+    grant: OneLocationGrant;
+    recipient?: OneLocationRecipient;
+  }> {
     const durationHours = Number(params.durationHours);
     return apiJson(
       `/api/one/location/requests/${encodeURIComponent(params.requestId)}/approve`,
@@ -1646,10 +1677,15 @@ export class OneLocationService {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({
+          approvalMode: params.approvalMode,
           durationHours: Number.isFinite(durationHours) && durationHours > 0
             ? durationHours
             : undefined,
           durationMode: params.durationMode || undefined,
+          // Preserve 0 so the backend rejects a malformed/stale automatic
+          // context. Omitting it would downgrade the same call to an explicit
+          // manual approval and bypass standing-rule validation.
+          autoApproveRuleVersion: params.autoApproveRuleVersion ?? undefined,
         }),
       },
     );

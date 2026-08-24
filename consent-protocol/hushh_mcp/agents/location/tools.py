@@ -139,6 +139,7 @@ async def approve_location_request(request_id: str, duration_hours: float) -> di
     return _service().approve_request(
         owner_user_id=context.user_id,
         request_id=request_id,
+        approval_mode="manual",
         duration_hours=duration_hours,
     )
 

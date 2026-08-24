@@ -252,13 +252,15 @@ or an active Nearby presence. Pausing stops new foreground/background private
 updates, clears the local self preview, and explicitly checks out active Nearby
 presence before the UI may report `Location paused`.
 
-`Auto-share my location` is a durable user-scoped preference, independent from
-Pause. It controls continuous foreground/background updates only for private
-grants the owner already approved; it never creates a grant or auto-approves a
-request. Turning Auto-share off leaves consent and expiry intact and makes new
-shares publish only the location the owner explicitly confirms. Pause
-temporarily suppresses Auto-share without erasing that preference, so both
-settings remain stable across tab changes and route remounts.
+Automatic approval is an account-wide standing rule stored by the server,
+independent from Pause and off by default. It may cover verified contacts or
+one active, person-created Circle. The server owns its activation time and
+version, then rechecks the current relationship, Circle membership, request
+time, and requested duration in the same transaction that creates the grant.
+Turning it off or changing scope invalidates older browser work immediately.
+Pause remains a device preference: it stops that device from scheduling an
+automatic approval or publishing a new encrypted point, without changing the
+account-wide rule for another device.
 
 Pause does not revoke private grants. Their authored expiry remains intact and
 recipients may retain the last encrypted point they already received. Resuming

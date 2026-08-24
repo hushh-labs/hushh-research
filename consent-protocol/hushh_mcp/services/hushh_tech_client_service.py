@@ -179,7 +179,7 @@ def _json_object(value: Any) -> dict[str, Any]:
 
 
 class PostgresHushhTechClientStore:
-    """Cloud SQL implementation; migration 162 is the schema authority."""
+    """Cloud SQL implementation; migration 170 is the schema authority."""
 
     async def insert_launch_authorization(self, row: dict[str, Any]) -> None:
         pool = await get_pool()

@@ -141,10 +141,10 @@ describe("Navbar bottom chrome contract", () => {
       "const pinnedBottomChrome =\n    isRiaRoute(pathname) || foundationVoiceOnlyChrome;",
     );
     expect(providers).toContain(
-      "navigationHidden:\n      chromeState.hideCommandBar || foundationVoiceOnlyChrome,",
+      "navigationHidden:\n      effectiveHideCommandBar || foundationVoiceOnlyChrome,",
     );
     expect(providers).toContain(
-      "!pinnedBottomChrome &&\n      !hidesPersistentChrome",
+      "!pinnedBottomChrome &&\n      !bottomChromeHidden",
     );
   });
 });
