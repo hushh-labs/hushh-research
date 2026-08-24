@@ -91,6 +91,16 @@ def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None
     assert "gcloud services describe" not in backend_build
 
 
+def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+
+    assert "PROBE_LINE=\"${probe_line}\" python - <<'PY'" in backend_build
+    assert 'marker = "managed_vertex_probe_result"' in backend_build
+    assert "json.loads(payload)" in backend_build
+    assert 'verdict.get("classification")' in backend_build
+    assert 'sed -n \'s/.*"classification":"' not in backend_build
+
+
 def test_cross_project_vertex_fallback_is_dev_or_exact_uat_bridge_only() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
     uat_workflow = _read(".github/workflows/deploy-uat.yml")

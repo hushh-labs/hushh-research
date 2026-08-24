@@ -440,8 +440,22 @@ steps:
           done
         fi
         echo "Probe execution: ${execution_name:-unknown}"
-        classification="$(printf '%s' "${probe_line}" \
-          | sed -n 's/.*"classification":"\([a-z_]*\)".*/\1/p' | head -1)"
+        classification="$(
+          PROBE_LINE="${probe_line}" python - <<'PY'
+        import json
+        import os
+
+        line = os.environ.get("PROBE_LINE", "")
+        marker = "managed_vertex_probe_result"
+        payload = line.split(marker, 1)[1].strip() if marker in line else line
+        try:
+            verdict = json.loads(payload)
+        except json.JSONDecodeError:
+            print("")
+        else:
+            print(str(verdict.get("classification") or ""))
+        PY
+        )"
 
         if [[ "${classification}" == "provider_unavailable" ]]; then
           echo "::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::"
