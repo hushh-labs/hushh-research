@@ -2219,7 +2219,7 @@ export function KaiMarketPreviewView() {
           `}
         </style>
       ) : null}
-      <div className="flex-1 pb-[calc(148px+env(safe-area-inset-bottom))] pt-0">
+      <div className="flex-1 pb-6 pt-0">
         <KaiWorkspaceHeader
           workspace="market"
           title="Market"
