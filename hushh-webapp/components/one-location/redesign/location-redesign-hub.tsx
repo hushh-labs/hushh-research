@@ -3366,6 +3366,16 @@ function PeopleHub({
 /* LINKS HUB                                                            */
 /* =================================================================== */
 
+const PUBLIC_LINK_DURATION_OPTIONS = [
+  { value: "0.5", label: "30 min" },
+  { value: "1", label: "1 hour" },
+] as const;
+
+function publicLinkStatusLabel(label?: string | null): string {
+  if (!label) return "Active";
+  return label.replace(/^Stops in\b/i, "Expires in");
+}
+
 /** One active-link row: tinted icon tile · title · subtitle · Copy (design). */
 function ActiveLinkRow({
   icon,
@@ -3460,20 +3470,23 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
   return (
     <div className="space-y-4">
       <div className="px-[6px]">
-        <SectionTitle as="h2">Active links</SectionTitle>
+        <SectionTitle as="h2">Temporary link</SectionTitle>
       </div>
 
       {hasLiveLink ? (
         hasShareableLink ? (
           <TemporaryLinkCard
-            title="Live location link"
-            statusLine="Anyone with this link can view you"
+            statusLine={
+              temp
+                ? publicLinkStatusLabel(
+                    vm.expiresCountdownLabel(temp.expiresAt),
+                  )
+                : "Active"
+            }
+            description="Anyone with this link can see your location."
             // No countdown until the row lands: inventing one from the
             // duration that was picked would drift from the expiry the server
             // actually stamped.
-            expiryLabel={
-              temp ? vm.expiresCountdownLabel(temp.expiresAt) : undefined
-            }
             onCopy={vm.onCopyPublicInvite}
             onShare={vm.onSharePublicInvite}
             // Revoking needs the invite's id, which arrives with the row. In
@@ -3492,57 +3505,65 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
           // they are not offered -- but the link is still out there watching,
           // so ending it has to stay reachable. Saying why keeps this from
           // reading as a bug the person should retry.
-          <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
-            <div className="min-w-0">
-              <RowLabel as="p">Live location link</RowLabel>
-              <RowDescription as="p" className="mt-0.5">
-                Made on another device or before an update, so it cannot be
-                shown again here. Stop it to make a new one.
-              </RowDescription>
-            </div>
-            <Button
-              variant="destructive"
-              size="sm"
+          <div className={cn(SUBCARD_SURFACE, "space-y-4 p-5 sm:p-6")}>
+            <p className="text-[15px] leading-5 text-muted-foreground">
+              Active, but the link is unavailable on this device.
+            </p>
+            <button
+              type="button"
               onClick={() => {
                 if (temp) vm.onRevokePublicInvite(temp);
               }}
-              isLoading={vm.busy === "publicRevoke" || !temp}
-              className="h-9 w-full rounded-full text-sm"
+              disabled={vm.busy === "publicRevoke" || !temp}
+              className="min-h-11 w-full text-left text-[15px] font-semibold leading-5 text-[color:var(--app-destructive)] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
             >
-              Stop this link
-            </Button>
+              {vm.busy === "publicRevoke" || !temp ? "Stopping…" : "Stop link"}
+            </button>
           </div>
         )
       ) : (
         // No warning banner above the picker. It said two things the screen
         // already says better: the duration control underneath states exactly
         // how long the link lives, and the card that replaces this whole block
-        // once a link exists carries "Anyone with this link can view you" on
+        // once a link exists carries the concise visibility line on
         // the object it is actually about. An amber panel repeating both, on
         // the one screen whose entire purpose is to create the link, read as a
         // reason not to press the button rather than as information.
-        <div className="space-y-4">
-          <SettingsGroup title="Duration" separatorInset>
-            <SettingsRow
-              title="Link stays live for"
-              description="Anyone holding it can watch until then."
-              stackTrailingOnMobile
-              trailing={
-                <DurationSelector
-                  value={vm.publicLinkDurationHours}
-                  onChange={vm.setPublicLinkDurationHours}
-                  label=""
-                  // Deliberately shorter than the trusted-share durations:
-                  // anyone holding this link can watch, so the public ceiling
-                  // stays at 1 hour.
-                  options={[
-                    { value: "0.5", label: "30 min" },
-                    { value: "1", label: "1 hour" },
-                  ]}
-                />
-              }
-            />
-          </SettingsGroup>
+        <div className={cn(SUBCARD_SURFACE, "space-y-5 p-5 sm:p-6")}>
+          <p className="text-[15px] leading-5 text-muted-foreground">
+            Anyone with this link can see your location until it expires.
+          </p>
+          <div className="space-y-2.5">
+            <p className="text-[15px] font-semibold leading-5 text-foreground">
+              Duration
+            </p>
+            <div
+              className="grid grid-cols-2 gap-2"
+              role="radiogroup"
+              aria-label="Temporary link duration"
+            >
+              {PUBLIC_LINK_DURATION_OPTIONS.map((option) => {
+                const selected = vm.publicLinkDurationHours === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => vm.setPublicLinkDurationHours(option.value)}
+                    className={cn(
+                      "h-11 rounded-[14px] border text-[15px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2",
+                      selected
+                        ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                        : "border-border bg-[color:var(--app-card-surface-compact)] text-foreground hover:bg-[color:var(--app-card-surface-compact)]/80",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           {/* The label changes while it works. This press waits on a device fix
               before it can post anything, so on a cold start it can sit for
               several seconds -- and it used to sit as a bare spinner with the
@@ -3553,7 +3574,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
             onClick={vm.onCreatePublicInvite}
             isLoading={vm.busy === "publicInvite"}
             data-voice-control-id="one-location-action-temp-link"
-            className="h-12 min-h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+            className="h-12 min-h-12 w-full rounded-[15px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
           >
             {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
           </Button>

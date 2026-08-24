@@ -853,7 +853,7 @@ async function openLocationPermissionsStep() {
 }
 
 async function switchLocationTab(
-  name: "Menu" | "People" | "Links",
+  name: "Now" | "People" | "Links",
   expectedHeading: string,
 ) {
   fireEvent.click(screen.getByRole("button", { name }));
@@ -925,7 +925,8 @@ async function continueAskFlow() {
  */
 async function openTemporaryLinkFlow() {
   fireEvent.click(screen.getByRole("button", { name: "Links" }));
-  expect(await screen.findByText("Link stays live for")).toBeTruthy();
+  expect(await screen.findByText("Temporary link")).toBeTruthy();
+  expect(screen.getByText("Duration")).toBeTruthy();
 }
 
 describe("OneLocationAgentPage", () => {
@@ -2286,7 +2287,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByPlaceholderText("Search trusted people"),
     ).toHaveValue("Investor");
-    fireEvent.click(screen.getByRole("button", { name: "Menu" }));
+    fireEvent.click(screen.getByRole("button", { name: "Now" }));
     fireEvent.click(screen.getByRole("button", { name: /^Share location$/i }));
     expect(
       await screen.findByRole("heading", { name: "Who can see you?" }),
@@ -3500,7 +3501,7 @@ describe("OneLocationAgentPage", () => {
     );
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Menu" }));
+    fireEvent.click(screen.getByRole("button", { name: "Now" }));
     expect(screen.getByRole("button", { name: /Active shares/i })).toBeTruthy();
     await openSharePersonStep();
     fireEvent.change(screen.getByPlaceholderText("Search people"), {
@@ -3581,8 +3582,17 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("button", { name: /Create link/i }),
     ).toBeTruthy();
-    expect(screen.getByText("Active links")).toBeTruthy();
-    expect(screen.getByText("Link stays live for")).toBeTruthy();
+    expect(screen.getByText("Temporary link")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Anyone with this link can see your location until it expires.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Duration")).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "30 min" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "1 hour" })).toBeTruthy();
+    expect(screen.queryByText("Active links")).toBeNull();
+    expect(screen.queryByText("Link stays live for")).toBeNull();
     // The paragraph that used to sit under the heading is gone.
     expect(screen.queryByText(/Links you can send to anyone/i)).toBeNull();
     expect(screen.queryByText("No active links")).toBeNull();
@@ -4028,14 +4038,16 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText(longPublicUrl)).toBeNull();
     // The result replaces the form in place, on the same tab -- no third
     // screen, and no "Done" to dismiss back to where you already are.
-    expect(await screen.findByText("Live location link")).toBeTruthy();
+    expect(await screen.findByText("Temporary link")).toBeTruthy();
+    expect(screen.getByText("Anyone with this link can see your location.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Share$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Copy link/i })).toBeTruthy();
     expect(
-      screen.getByText("Anyone with this link can view you"),
+      screen.getByRole("button", { name: /Revoking|Revoke link/i }),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Revoke/i })).toBeTruthy();
     // And no way to make a second while this one is live.
     expect(screen.queryByRole("button", { name: /^Create link$/i })).toBeNull();
-    expect(screen.queryByText("Link stays live for")).toBeNull();
+    expect(screen.queryByText("Duration")).toBeNull();
     expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
       /8012|9911|latitude|longitude|28\.6139|77\.209/u,
     );
@@ -5939,8 +5951,8 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
 
-    expect(await screen.findByText("Live location link")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Copy/i }));
+    expect(await screen.findByText("Temporary link")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Copy link/i }));
 
     await waitFor(() => expect(mockCopyToClipboard).toHaveBeenCalled());
     // The whole point: something real reaches the clipboard, and it is the
@@ -5965,7 +5977,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
 
-    expect(await screen.findByText("Live location link")).toBeTruthy();
+    expect(await screen.findByText("Temporary link")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Share/i }));
 
     // jsdom has no navigator.share and is not a native platform, so the
@@ -6001,8 +6013,8 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
 
-    expect(await screen.findByText("Live location link")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Copy/i }));
+    expect(await screen.findByText("Temporary link")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Copy link/i }));
 
     await waitFor(() => expect(mockCopyToClipboard).toHaveBeenCalled());
     const copied = String(mockCopyToClipboard.mock.calls[0][0]);
@@ -6024,11 +6036,11 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
 
-    expect(await screen.findByText("Live location link")).toBeTruthy();
+    expect(await screen.findByText("Temporary link")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Create link$/i })).toBeNull();
-    expect(screen.queryByText("Link stays live for")).toBeNull();
+    expect(screen.queryByText("Duration")).toBeNull();
     // Ending it stays reachable -- that is the only exit.
-    expect(screen.getByRole("button", { name: /Revoke/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Revoke link/i })).toBeTruthy();
   });
 
   it("lets a link whose URL cannot be recovered be stopped", async () => {
@@ -6045,9 +6057,9 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
 
-    expect(await screen.findByText("Live location link")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Stop this link/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Copy$/i })).toBeNull();
+    expect(await screen.findByText("Temporary link")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Stop link/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Copy link$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Share$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Create link$/i })).toBeNull();
   });
@@ -6094,7 +6106,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
-    expect(await screen.findByText("Live location link")).toBeTruthy();
+    expect(await screen.findByText("Temporary link")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Create link$/i })).toBeNull();
 
     // Real time, not fake. This suite's setup awaits real promises, and fake
@@ -6111,8 +6123,7 @@ describe("OneLocationAgentPage", () => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
 
-    expect(screen.queryByText("Live location link")).toBeNull();
-    expect(screen.getByText("Link stays live for")).toBeTruthy();
+    expect(screen.getByText("Duration")).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Create link$/i })).toBeTruthy();
   });
 
@@ -6129,7 +6140,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
 
-    expect(await screen.findByText("Live location link")).toBeTruthy();
+    expect(await screen.findByText("Temporary link")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Create link$/i })).toBeNull();
   });
 
@@ -6149,8 +6160,8 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
 
-    expect(await screen.findByText("Link stays live for")).toBeTruthy();
-    expect(screen.queryByText("Live location link")).toBeNull();
+    expect(await screen.findByText("Temporary link")).toBeTruthy();
+    expect(screen.getByText("Duration")).toBeTruthy();
   });
 
 });

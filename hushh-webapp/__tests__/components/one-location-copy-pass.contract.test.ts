@@ -87,7 +87,7 @@ describe("One Location — link durations stay inside the server's ceiling", () 
     // The public-link picker. Anyone holding the URL can watch, so its ceiling
     // is an hour — deliberately below the private-share ceiling the invite
     // picker is bound by.
-    const start = HUB_SOURCE.indexOf('title="Link stays live for"');
+    const start = HUB_SOURCE.indexOf("PUBLIC_LINK_DURATION_OPTIONS");
     expect(start).toBeGreaterThan(-1);
     const publicLinkSection = HUB_SOURCE.slice(start, start + 1200);
     const publicHours = durationOptionsIn(publicLinkSection)
@@ -104,23 +104,23 @@ describe("One Location — link durations stay inside the server's ceiling", () 
     // "Anyone with this link can see you" / "The link stops on its own." sat
     // above the duration picker on the one screen whose entire purpose is to
     // create the link. Both facts survive where they belong: the duration
-    // control states how long the link lives, and the card that replaces this
-    // block once a link exists carries "Anyone with this link can view you" on
-    // the object it is about.
+    // buttons state how long the link lives, and the card that replaces this
+    // block once a link exists carries the concise link visibility line on the
+    // object it is about.
     expect(HUB_SOURCE).not.toContain('title="Anyone with this link can see you"');
     expect(HUB_SOURCE).not.toContain("The link stops on its own.");
     expect(HUB_SOURCE).not.toContain("<WarningCard");
     // The surviving statement, on the live link's own card.
-    expect(HUB_SOURCE).toContain("Anyone with this link can view you");
+    expect(HUB_SOURCE).toContain("Anyone with this link can see your location.");
   });
 });
 
 describe("One Location — hub tab naming", () => {
   const locationTabs = TOP_SHELL_TAB_REGISTRY.location;
 
-  it("labels the first tab Menu while keeping its `now` query value", () => {
+  it("labels the first tab Now while keeping its `now` query value", () => {
     const first = locationTabs.tabs[0];
-    expect(first.label).toBe("Menu");
+    expect(first.label).toBe("Now");
     // The value is the deep-link contract (`?view=now`, Kai's
     // `location.open_now`). Renaming the label must not move it.
     expect(first.value).toBe("now");
