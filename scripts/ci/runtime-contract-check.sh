@@ -28,6 +28,42 @@ if ! grep -q 'DEVELOPER_API_URL=BACKEND_URL:latest' "$frontend_cloudbuild"; then
   exit 1
 fi
 
+# The Docker Cloud Builder image does not ship gcloud. Google Contacts client
+# resolution must stay in a Cloud SDK step and pass only the public client id to
+# the Docker step through Cloud Build's ephemeral workspace.
+google_contacts_lookup_step="$(
+  awk '
+    /name: "gcr.io\/google.com\/cloudsdktool\/cloud-sdk"/ { current_step = "cloud-sdk" }
+    /name: "gcr.io\/cloud-builders\/docker"/ { current_step = "docker" }
+    /gcloud secrets versions access latest/ {
+      print current_step
+      exit
+    }
+  ' "$frontend_cloudbuild"
+)"
+if [ "$google_contacts_lookup_step" != "cloud-sdk" ]; then
+  echo "❌ Google Contacts Secret Manager lookup must run in a Cloud SDK step, not the Docker builder."
+  exit 1
+fi
+
+if grep -q "NOT_FOUND|not found" "$frontend_cloudbuild"; then
+  echo "❌ Google Contacts secret handling must not treat generic 'not found' text as a Secret Manager NOT_FOUND status."
+  exit 1
+fi
+
+google_contacts_artifact_refs="$(
+  grep -c '/workspace/.google-contacts-client-id' "$frontend_cloudbuild" || true
+)"
+if [ "$google_contacts_artifact_refs" -lt 2 ]; then
+  echo "❌ Google Contacts client resolution must hand off through the ephemeral Cloud Build workspace."
+  exit 1
+fi
+
+if ! grep -q -- '--build-arg "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=' "$frontend_cloudbuild"; then
+  echo "❌ frontend Cloud Build must pass NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID to the web image."
+  exit 1
+fi
+
 for association_secret in \
   APPLE_TEAM_ID \
   NEXT_PUBLIC_IOS_BUNDLE_ID \
