@@ -114,15 +114,10 @@ class TrustedDeviceVaultHandoffRequest(BaseModel):
         return value
 
 
-def _trusted_device_allowlist() -> set[str]:
-    return {
-        value.strip()
-        for value in str(os.getenv("HUSSH_TRUSTED_DEVICE_UAT_ALLOWLIST") or "").split(",")
-        if value.strip()
-    }
-
-
 async def _trusted_device_guard(user_id: str | None = None) -> None:
+    # user_id is retained for call-site compatibility; enrollment no longer
+    # depends on per-account rollout membership.
+    del user_id
     if not trusted_devices_enabled():
         raise HTTPException(
             status_code=404,
@@ -131,45 +126,12 @@ async def _trusted_device_guard(user_id: str | None = None) -> None:
                 "message": "Trusted-device authorization is not enabled.",
             },
         )
-    allowlist = _trusted_device_allowlist()
-    if not allowlist:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "code": "TRUSTED_DEVICE_NOT_ALLOWED",
-                "message": "Trusted-device enrollment is not available for this account.",
-            },
-        )
-    # The unauthenticated PKCE exchange is guarded by possession of the
-    # one-time code and verifier; the allowlist was enforced when that code was
-    # created. Every signed-in entrypoint fails closed when rollout membership
-    # is absent or does not match.
-    if not user_id:
-        return
-    if user_id in allowlist:
-        return
-
-    allowed_emails = {value.lower() for value in allowlist if "@" in value}
-    firebase_email = ""
-    if allowed_emails:
-        app = get_firebase_auth_app()
-        if app is not None:
-            try:
-                from firebase_admin import auth as firebase_auth
-
-                record = await run_in_threadpool(firebase_auth.get_user, user_id, app=app)
-                if bool(getattr(record, "email_verified", False)):
-                    firebase_email = str(getattr(record, "email", "") or "").strip().lower()
-            except Exception:
-                logger.exception("trusted_device.allowlist_identity_lookup_failed")
-    if firebase_email not in allowed_emails:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "code": "TRUSTED_DEVICE_NOT_ALLOWED",
-                "message": "This account is not in the trusted-device rollout.",
-            },
-        )
+    # Enrollment is open to every signed-in account once the feature is enabled.
+    # The remaining controls still apply per request: the kill switch above, the
+    # browser-session identity check in _verify_browser_enrollment_identity, the
+    # verified-email requirement enforced at exchange, and the PKCE-bound
+    # one-time code. The former per-account rollout allowlist has been removed.
+    return
 
 
 def _raise_trusted_device_error(exc: TrustedDeviceError) -> None:
