@@ -153,8 +153,8 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     assert gunicorn_workers == 2
 
     assert "_DB_POOL_MIN_SIZE=2" in uat_workflow
-    assert "_DB_POOL_MAX_SIZE=12" in uat_workflow
-    assert "_DB_SQLALCHEMY_POOL_SIZE=6" in uat_workflow
+    assert "_DB_POOL_MAX_SIZE=6" in uat_workflow
+    assert "_DB_SQLALCHEMY_POOL_SIZE=4" in uat_workflow
     assert "_DB_SQLALCHEMY_MAX_OVERFLOW=0" in uat_workflow
     assert "_CLOUD_RUN_MIN_INSTANCES=1" in uat_workflow
     assert "_CLOUD_RUN_MAX_INSTANCES=3" in uat_workflow
@@ -162,23 +162,45 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     # SQLAlchemy pool (DB_SQLALCHEMY_POOL_SIZE + DB_SQLALCHEMY_MAX_OVERFLOW).
     # Both pools are module globals, so the ceiling is per worker process and
     # multiplies by the gunicorn worker count before it multiplies by instances.
-    # UAT: 18 per worker, 36 per instance, 108 total across 3 instances.
+    # UAT: 10 per worker, 20 per instance, 60 total across 3 instances.
     #
-    # This bound was 5 per instance (3 + 2 + 0) until 2026-08-23, when it took
-    # UAT phone verification down for five hours. Cloud Run admits 80 concurrent
-    # requests per instance, and every asyncpg call site does a plain
-    # pool.acquire() with no timeout. Once three connections were held by slow
-    # routes, every later request waited forever and died at Cloud Run's 3600s
-    # request timeout, holding its concurrency slot for the full hour.
+    # Two incidents shaped this number, in opposite directions.
     #
-    # Cloud SQL was never the constraint: it sat at 17-40 open connections
-    # against a ceiling near 400 for the whole outage. Overflow stays pinned at
-    # 0 so the ceiling remains deterministic; the headroom goes into the fixed
-    # pools instead of a burstable QueuePool overflow.
-    uat_per_worker = 12 + 6 + 0
-    assert uat_per_worker == 18
-    assert uat_per_worker * gunicorn_workers == 36
-    assert uat_per_worker * gunicorn_workers * 3 == 108
+    # 2026-08-23: the bound was 5 per worker (3 + 2 + 0). Cloud Run admits 80
+    # concurrent requests per instance and every asyncpg call site did a plain
+    # pool.acquire() with no timeout, so once three connections were held by
+    # slow routes every later request waited forever and died at Cloud Run's
+    # 3600s request timeout, holding a concurrency slot for the full hour.
+    #
+    # 2026-08-24: raising it to 18 per worker to fix that exhausted Postgres.
+    # db-custom-1-3840 gets a Cloud SQL default max_connections near 100 — NOT
+    # the ~400 the first fix assumed from the disk/tier size. 18 x 2 workers x
+    # 3 instances is 108 on its own, and a revision cutover briefly runs a
+    # fourth instance, so UAT started answering
+    # "FATAL: remaining connection slots are reserved for non-replication
+    # superuser connections" as soon as traffic scaled out.
+    #
+    # So the ceiling is Postgres, not the app. Keep the total under ~60 to
+    # leave room for migrations, cron jobs, ad-hoc psql, and the extra instance
+    # a deploy briefly adds. Starvation is no longer a hang: db/connection.py
+    # bounds pool.acquire(), so a pool that is too small fails fast with a 503
+    # instead of queueing until Cloud Run kills the request.
+    #
+    # Overflow stays pinned at 0 so the ceiling remains deterministic.
+    POSTGRES_MAX_CONNECTIONS = 100  # Cloud SQL default for db-custom-1-3840
+
+    uat_per_worker = 6 + 4 + 0
+    assert uat_per_worker == 10
+    assert uat_per_worker * gunicorn_workers == 20
+    uat_total = uat_per_worker * gunicorn_workers * 3
+    assert uat_total == 60
+    # A revision cutover briefly runs one instance more than the cap.
+    uat_peak_during_deploy = uat_per_worker * gunicorn_workers * 4
+    assert uat_peak_during_deploy <= POSTGRES_MAX_CONNECTIONS * 0.85, (
+        f"UAT would use {uat_peak_during_deploy} of ~{POSTGRES_MAX_CONNECTIONS} "
+        "Postgres connections during a deploy, leaving no room for migrations, "
+        "cron, or psql"
+    )
 
     assert "_DB_POOL_MIN_SIZE=1" in production_workflow
     assert "_DB_POOL_MAX_SIZE=4" in production_workflow
@@ -192,7 +214,11 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     prod_per_worker = 4 + 4 + 0
     assert prod_per_worker == 8
     assert prod_per_worker * gunicorn_workers == 16
-    assert prod_per_worker * gunicorn_workers * 5 == 80
+    prod_total = prod_per_worker * gunicorn_workers * 5
+    assert prod_total == 80
+    # Prod runs a larger instance, but pin the same shape so a future bump has
+    # to state the ceiling it is sizing against rather than assume one.
+    assert prod_total <= 100
 
     for workflow in (uat_workflow, production_workflow):
         assert 'BACKEND_REVISION_RETENTION: "3"' in workflow

@@ -138,7 +138,9 @@ describe("Top app bar responsive contract", () => {
     expect(back).toContain("resolveTopShellBreadcrumb");
     // An open panel or Location action closes in place; everything else is a
     // step in the trail and retraces.
-    expect(back).toContain("if (profilePanelOpen || locationActionOpen)");
+    expect(back).toContain(
+      "if (profilePanelOpen || locationActionOpen || connectCircleFlowOpen)",
+    );
     expect(back).toContain('return action(breadcrumb.backHref, "replace")');
     expect(back).toContain("params.navigate(action);");
     expect(source).toContain("replace: action.mode === \"replace\"");
@@ -281,10 +283,18 @@ describe("Top app bar responsive contract", () => {
     );
     expect(deleteItemSource).toContain("cursor-pointer");
     expect(deleteItemSource).toContain("rounded-[10px]");
-    expect(deleteItemSource).toContain("hover:!bg-red-600");
-    expect(deleteItemSource).toContain("hover:!text-white");
-    expect(deleteItemSource).toContain("hover:[&_svg]:!stroke-white");
-    expect(deleteItemSource).toContain("hover:[&_svg]:!text-white");
+    expect(deleteItemSource).toContain(
+      "hover:!bg-[color:var(--app-destructive)]",
+    );
+    expect(deleteItemSource).toContain(
+      "hover:!text-[color:var(--app-destructive-fg)]",
+    );
+    expect(deleteItemSource).toContain(
+      "hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)]",
+    );
+    expect(deleteItemSource).toContain(
+      "hover:[&_svg]:!text-[color:var(--app-destructive-fg)]",
+    );
     expect(deleteItemSource).not.toContain(
       "data-[variant=destructive]:focus:bg-popover",
     );

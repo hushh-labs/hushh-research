@@ -143,11 +143,13 @@
     "163_one_location_system_circle_kinds.sql",
     "165_one_referral_program.sql",
     "167_one_referral_realtime_notify.sql",
-    "169_google_gmail_send_actions.sql"
+    "169_one_location_auto_approve_preferences.sql",
+    "171_google_gmail_send_actions.sql",
+    "172_gmail_combined_send_permission.sql"
   ],
   "environment_overlays": {
     "uat": [
-      "168_hushh_tech_uat_client_foundation.sql"
+      "170_hushh_tech_uat_client_foundation.sql"
     ]
   },
   "groups": {
@@ -242,7 +244,8 @@
       "160_one_location_system_circles.sql",
       "163_one_location_system_circle_kinds.sql",
       "165_one_referral_program.sql",
-      "167_one_referral_realtime_notify.sql"
+      "167_one_referral_realtime_notify.sql",
+      "169_one_location_auto_approve_preferences.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

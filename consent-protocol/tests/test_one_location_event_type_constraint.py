@@ -30,18 +30,19 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS_DIR = REPO_ROOT / "db" / "migrations"
 SERVICE_PATH = REPO_ROOT / "hushh_mcp" / "services" / "one_location_agent_service.py"
 
-# Every migration that declares the constraint; 064 validating, 068 NOT VALID,
-# 153 validating. They have to agree, or a replay changes the answer depending
+# Every migration that declares the current constraint. They have to agree, or
+# a replay changes the answer depending
 # on where it stops.
 #
-# 153 is also the only one of the three that reaches an environment which has
-# already run the others -- editing 064 fixes a database built from scratch and
-# nothing else. Any value added from here on needs a fresh migration too, or it
-# is allowed on a developer's laptop and rejected in UAT.
+# The last entry is also the one that reaches an environment which has already
+# replayed the others. Updating the historical declarations keeps a full replay
+# internally consistent; adding the fresh migration updates a live database.
 CONSTRAINT_MIGRATIONS = (
     "064_one_location_public_invites.sql",
     "068_one_location_circle_invites.sql",
     "153_one_location_duration_changed_event.sql",
+    "154_one_location_access_request_duration.sql",
+    "169_one_location_auto_approve_preferences.sql",
 )
 
 _CONSTRAINT_BLOCK = re.compile(
@@ -119,3 +120,8 @@ def test_the_shortened_share_event_stays_allowed() -> None:
     # of the CHECK list fails here rather than in a UAT deploy.
     for name in CONSTRAINT_MIGRATIONS:
         assert "location_share_shortened" in _allowed_types(name)
+
+
+def test_auto_approve_rule_changes_stay_allowed() -> None:
+    for name in CONSTRAINT_MIGRATIONS:
+        assert "location_auto_approve_rule_changed" in _allowed_types(name)

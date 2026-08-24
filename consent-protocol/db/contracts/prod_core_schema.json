@@ -717,6 +717,16 @@
       "source_errors",
       "metadata"
     ],
+    "one_location_auto_approve_preferences": [
+      "user_id",
+      "enabled",
+      "scope_kind",
+      "circle_id",
+      "enabled_at",
+      "rule_version",
+      "created_at",
+      "updated_at"
+    ],
     "one_location_circle_invites": [
       "id",
       "owner_user_id",

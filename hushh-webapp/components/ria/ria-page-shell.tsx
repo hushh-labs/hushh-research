@@ -82,7 +82,7 @@ export function RiaPageShell({
       as="main"
       fitContent
       width={width}
-      className={cn("pb-24 sm:pb-28", className)}
+      className={className}
       nativeTest={nativeTest}
     >
       <AppPageHeaderRegion className={cn("pt-2 sm:pt-3", headerClassName)}>

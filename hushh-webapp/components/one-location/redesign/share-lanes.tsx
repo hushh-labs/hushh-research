@@ -66,7 +66,7 @@ export function ShareLaneRow({
   const removing = action === "remove";
   return (
     <div
-      className="flex min-h-[52px] items-center gap-3 py-2"
+      className="flex min-h-[54px] items-center gap-3 py-1.5"
       data-testid="one-location-share-lane"
       data-share-lane={isSms ? "sos" : "ordinary"}
       data-grant-id={grant.id}
@@ -92,24 +92,23 @@ export function ShareLaneRow({
         </p>
       </div>
       {onStop ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-9 shrink-0 text-destructive"
+        <button
+          type="button"
+          className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full px-2 text-[15px] font-medium leading-[20px] text-[#FF3B30] transition-colors hover:text-[#D70015] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
           onClick={onStop}
           disabled={stopping}
           aria-label={
             removing
               ? isSms
-                ? `Remove the SMS share from ${counterpartName}`
-                : `Remove the location share from ${counterpartName}`
+                ? `Stop viewing the Save My Soul share from ${counterpartName}`
+                : `Stop viewing the location share from ${counterpartName}`
               : isSms
                 ? `Stop the SMS share with ${counterpartName}`
                 : `Stop the location share with ${counterpartName}`
           }
         >
-          {removing ? "Remove" : "Stop"}
-        </Button>
+          {stopping ? "Stopping…" : removing ? "Stop viewing" : "Stop"}
+        </button>
       ) : null}
     </div>
   );

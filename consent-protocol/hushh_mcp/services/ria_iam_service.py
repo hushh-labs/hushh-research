@@ -8922,14 +8922,44 @@ class RIAIAMService:
 
     @staticmethod
     def _normalize_contact_phone_for_hash(value: Any) -> str | None:
+        """A stored phone number as the E.164 string the client hashed.
+
+        No country guessing. This used to read a bare ten-digit number as North
+        American -- `if len(digits) == 10: return f"+1{digits}"` -- which is the
+        same bug the client-side normalizer removed and documented at
+        `lib/contacts/phone-normalization.ts:11-15`.
+
+        It is worse here than it was there. On the client a wrong guess only
+        produced a digest that missed. Here it fabricates an identity: a stored
+        `9876543210` belonging to an Indian account was hashed as
+        `+19876543210`, so a requester holding the real US number `+19876543210`
+        would have been told that stranger is on Hussh. A guess that can
+        disclose somebody's membership to a person who does not know them is
+        not a fallback, and returning nothing is the correct answer to a
+        question we cannot answer.
+
+        Every writer of `actor_identity_cache.phone_number` in this repo stores
+        E.164 with the leading `+` -- the Firebase mirror in
+        `ActorIdentityService.sync_from_firebase`, the token claim path, and the
+        UAT test-confirm path through `_normalize_phone_number`, which forces a
+        `+` unconditionally. Migration 047 added the column with no backfill.
+        The counter below exists to prove that from production traffic rather
+        than from reading the writers, because a row predating any of them
+        would now go unmatched instead of wrongly matched.
+        """
+
         raw = str(value or "").strip()
         digits = re.sub(r"\D", "", raw)
         if not digits:
             return None
-        if raw.startswith("+"):
-            return f"+{digits}"
-        if len(digits) == 10:
-            return f"+1{digits}"
+        if not raw.startswith("+"):
+            # Not an error and not fatal -- the row still matches whenever its
+            # digits already carry a country code. Logged without the number so
+            # the count is visible and the value never is.
+            logger.warning(
+                "contact_match.stored_phone_missing_plus digits_len=%s",
+                len(digits),
+            )
         return f"+{digits}"
 
     async def match_marketplace_contacts(
@@ -8981,7 +9011,24 @@ class RIAIAMService:
         # base grew past a few thousand accounts, so the pre-filter is now sized
         # against collision volume rather than the result limit, and still
         # bounded so a wide lookup set cannot pull an unbounded result set.
-        candidate_row_cap = min(max(limit_safe * 50, 500), 5000)
+        #
+        # Sized against the buckets actually asked for, not a flat ceiling.
+        #
+        # The old `min(..., 5000)` was a truncation with no meaning attached to
+        # it: rows come back `ORDER BY aic.user_id ASC`, an ordering the query's
+        # own comment calls arbitrary, and anything past the cap was never
+        # digest-compared. A last4 bucket holds roughly one ten-thousandth of
+        # the user base, so a full address book of 1000 buckets expects
+        # `users / 10` candidates -- which crosses 5000 at only fifty thousand
+        # accounts. Past that, a person whose Firebase uid sorts late was
+        # dropped from every large lookup, deterministically and permanently,
+        # and the response was an ordinary empty list. Somebody could be
+        # invisible to their own contacts forever with nothing to see.
+        #
+        # The bound is still real: `phone_lookups` is capped at 1000 by the
+        # route, so this cannot exceed 50k rows however the request is shaped,
+        # and the digest set that decides matches is bounded by the same 1000.
+        candidate_row_cap = min(max(len(last4_values) * 50, 500), 50_000)
 
         if normalized_scope == "one_network":
             # actor_profiles is LEFT JOINed so an account that has never had a
@@ -9109,7 +9156,18 @@ class RIAIAMService:
                         "kind": kind,
                         "display_name": row["display_name"] or row["identity_display_name"],
                         "headline": row["headline"],
-                        "phone_last4": last4,
+                        # No phone digits, not even four.
+                        #
+                        # The caller derived every digest it sent from its own
+                        # address book, so it already holds the number behind
+                        # each match -- echoing part of it back tells the caller
+                        # nothing it did not have, and costs a real leak the
+                        # moment a response is logged, cached, or rendered into
+                        # a page. Both of those were happening: the marketplace
+                        # deck rendered these four digits into the DOM, and One
+                        # Location stripped them on arrival. A field one client
+                        # has to defend against and another leaks is a field
+                        # that should never have left the server.
                         "profile": profile,
                     }
                 )

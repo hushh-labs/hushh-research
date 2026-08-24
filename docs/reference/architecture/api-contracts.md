@@ -238,7 +238,6 @@ this first release.
 | Method | Path | Authorization | Description |
 | --- | --- | --- | --- |
 | POST | `/api/one/calendar/connect/start` | Firebase Bearer | Start incremental Google Calendar read or manage authorization; returns only an OAuth authorization URL and expiry. |
-
 | POST | `/api/one/calendar/connect/complete` | Firebase Bearer | Redeem a one-time, PKCE-bound OAuth callback and persist the encrypted provider credential and Calendar grant. |
 | GET | `/api/one/calendar/status/{user_id}` | Firebase Bearer | Return non-sensitive Calendar connection and permission state. |
 | POST | `/api/one/calendar/disconnect` | Firebase Bearer | Disable Calendar locally and delete pending actions without revoking sibling Google services. |
@@ -247,18 +246,54 @@ this first release.
 | POST | `/api/one/calendar/proposals` | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google. |
 | POST | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed. |
 
+### Contact Discovery
+
+Matching an address book against the Hussh user directory. The device normalizes each
+number to E.164 and hashes it; **raw phone numbers and contact names never leave the
+device**, and the server **persists nothing** — the request body is consumed in memory and
+discarded, so a contact who is not a Hussh user leaves no trace.
+
+`last4` is an index bucket, not an answer: it narrows the candidate rows so the query can
+use `idx_actor_identity_cache_phone_last4`, and the full digest is what decides a match.
+Nothing about a matched person's phone number is returned.
+
+Rate limited per authenticated user, on two ceilings — see
+`RateLimits.CONTACT_DISCOVERY_MATCH`. One number cannot describe the abuse: the per-minute
+bound stops a tight loop, the per-day bound is the one that stops the patient walk, which is
+the realistic way to enumerate a user base through a discovery endpoint. The minute bound is
+deliberately generous because the web picker returns hand-picked contacts and the product
+offers a "Check more" action that re-runs the sync.
+
+**Both bounds are per worker process, not global.** slowapi falls back to in-process memory
+storage unless `RATE_LIMIT_STORAGE_URI` points at a shared backend. UAT passes that secret;
+production does not, and runs `gunicorn -w 2` on a scale-to-zero Cloud Run service — so in
+production the effective ceiling is the stated number multiplied by however many workers are
+live. That is survivable for a minute bound and materially weakens the day bound. Wiring
+`RATE_LIMIT_STORAGE_URI` into the production backend is what makes the number above the real
+one; until then, read it as a per-worker bound.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| POST | `/api/marketplace/contacts/match` | Firebase Bearer | Match up to 1000 `{hash, last4}` lookups against the directory. `scope: "one_network"` matches any phone-verified account that has not turned off contact discoverability (what One Location contact sync needs); `scope: "marketplace"` (the default) keeps the Connect deck's publicly-discoverable-profiles policy. Returns `user_id`, `kind`, `display_name`, `headline`, `profile` — and **no phone digits** |
+| GET | `/api/iam/contact-discoverability` | Firebase Bearer | Whether the signed-in account can be found by someone who has their number |
+| POST | `/api/iam/contact-discoverability` | Firebase Bearer | Turn that on or off. Defaults on — a match discloses nothing beyond confirming a number the requester already had |
+
 ### One Gmail sending
 
-The connected-Gmail send path is separate from the legacy receipt connector and
-from delegated `one@hushh.ai` KYC mail. It requires a current `VAULT_OWNER`
-token for every prepared/executed action; draft content is supplied transiently
-and stored only as a server HMAC.
+The connected Gmail agent uses one OAuth connection for receipt reading and
+confirmation-bound sending. That connection requests `gmail.readonly` and
+`gmail.send` together; the local send toggle does not create another Google
+login. Existing read-only connections must reconnect once to add the combined
+provider permission. Sending remains separate from delegated `one@hushh.ai`
+KYC mail and requires a current `VAULT_OWNER` token for every prepared or
+executed action; draft content is supplied transiently and stored only as a
+server HMAC.
 
 | Method | Route | Auth | Contract |
 | --- | --- | --- | --- |
-| POST | `/api/one/email-send/connect/start` | Firebase Bearer | Request incremental `gmail.send` authorization. |
-| POST | `/api/one/email-send/connect/complete` | Firebase Bearer | Complete the server-bound PKCE OAuth state. |
-| GET | `/api/one/email-send/status/{user_id}` | Firebase Bearer | Return send-capability status only; no token or email content. |
+| POST | `/api/kai/gmail/connect/start` | Firebase Bearer | Start the single Gmail OAuth flow for receipt reading and confirmation-bound sending. |
+| POST | `/api/kai/gmail/connect/complete` | Firebase Bearer | Complete that single Gmail OAuth flow and begin receipt sync in the background. |
+| PATCH | `/api/kai/gmail/send-enabled` | Firebase Bearer | Enable or disable local send use without changing Google consent. |
 | POST | `/api/one/email-send/draft` | VAULT_OWNER Bearer | Generate a structured visible draft from the owner's supplied instruction; no Gmail mutation. |
 | POST | `/api/one/email-send/prepare` | VAULT_OWNER Bearer | Validate the visible draft and create a ten-minute content-HMAC action. |
 | POST | `/api/one/email-send/execute` | VAULT_OWNER Bearer | Atomically consume an unchanged action and send as the connected Gmail account. |
@@ -291,7 +326,8 @@ not the product owner for live location.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
-| GET | `/api/one/location/state` | VAULT_OWNER Bearer | List eligible recipients, named Circle summaries, incoming targeted Circle invitations, owner grants, received grants, pending requests, and referrals for the authenticated user |
+| GET | `/api/one/location/state` | VAULT_OWNER Bearer | List eligible recipients, named Circle summaries, incoming targeted Circle invitations, owner grants, received grants, pending requests, referrals, and the current server-owned automatic-approval preference (`enabled`, scope, server `enabledAt`, and monotonic `ruleVersion`) for the authenticated user. A preference read failure fails the state request instead of displaying a live rule as off |
+| PATCH | `/api/one/location/auto-approve-preference` | VAULT_OWNER Bearer | Enable a server-timestamped standing rule for `all_contacts` or one active, person-created Circle owned by the caller, or disable it and clear its scope. Every change increments `ruleVersion` and writes metadata-only audit evidence |
 | POST | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Idempotently add an active, location-ready connection or named-Circle co-member to the authenticated owner's Save My Soul contacts; Circle eligibility and selection are committed under the same membership locks |
 | DELETE | `/api/one/location/sms-contacts/{recipient_user_id}` | VAULT_OWNER Bearer | Idempotently remove one owner-scoped Save My Soul contact without changing the underlying connection |
 | GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | List active connections and active named-Circle co-members excluding self, with masked labels and public-key readiness only |
@@ -336,7 +372,7 @@ not the product owner for live location.
 | GET | `/api/one/location/grants/{grant_id}/envelope` | VAULT_OWNER Bearer | Return ciphertext only to the exact approved recipient while grant is active |
 | DELETE | `/api/one/location/grants/{grant_id}` | VAULT_OWNER Bearer | Revoke an active owner grant immediately |
 | POST | `/api/one/location/requests` | VAULT_OWNER Bearer | Create metadata-only request for owner approval. Optionally carries the amount asked for (`requestedDurationHours` + `requestedDurationMode`) and the live grant it would lengthen (`extendsGrantId`, verified server-side against the real grant between the two identities and otherwise detected from it). A request, never an authorization: no grant is written here. Re-asking for a different amount updates the one pending row in place and bumps `requestRevision`, so the owner's client shows the raised number instead of de-duplicating it against the first |
-| POST | `/api/one/location/requests/{request_id}/approve` | VAULT_OWNER Bearer | Owner approves request and creates a fresh recipient grant, replacing any live grant to that recipient. Omitting `durationHours`/`durationMode` grants exactly what was requested (falling back to 1 hour when the request named no amount); sending either still wins, so the owner can always grant less than was asked |
+| POST | `/api/one/location/requests/{request_id}/approve` | VAULT_OWNER Bearer | Every caller must send `approvalMode` as `manual` or `automatic`; omission is rejected so a cached automatic client cannot be mistaken for an explicit tap. Manual approval forbids rule context and may omit duration to grant exactly what was requested (1 hour when absent), or supply a duration override. Automatic approval requires only the current `autoApproveRuleVersion` beside its mode and forbids duration overrides; the service locks the pending request and rule, derives duration from that request, requires it to be newer than activation, revalidates the relationship or exact Circle, refuses ongoing access, and commits grant, request transition, and audit atomically. |
 | POST | `/api/one/location/requests/{request_id}/deny` | VAULT_OWNER Bearer | Owner denies pending request. Denying an extra-time request leaves any access the requester already holds untouched |
 | POST | `/api/one/location/grants/{grant_id}/refer` | VAULT_OWNER Bearer | Recipient refers another verified user into a request flow; no access is forwarded |
 | POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Scrub due nearby-presence anchor material, then delete terminal expired/revoked location grants, nearby-presence metadata, ciphertext envelopes, terminal requests, referrals, public request-link submissions, Invite to One links, expired/revoked named-Circle codes, terminal targeted Circle-member invitations, and related events after the retention window; the hourly hosted scheduler is a release prerequisite |

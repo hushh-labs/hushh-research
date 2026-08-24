@@ -610,6 +610,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
               await OneLocationService.approveRequest({
                 vaultOwnerToken,
                 requestId: request.id,
+                approvalMode: "manual",
               });
               if (userId) OneLocationStateResource.invalidate(userId);
               notifyFeedActionResolved();

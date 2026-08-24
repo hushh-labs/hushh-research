@@ -195,7 +195,8 @@ describe("SmsContactsFlow", () => {
       expect(
         screen.queryByRole("button", { name: "Add Family" }),
       ).not.toBeInTheDocument();
-      expect(screen.getByText("3 members")).toBeInTheDocument();
+      // Circle counts consistently exclude the person viewing the Circle.
+      expect(screen.getByText("2 members")).toBeInTheDocument();
 
       fireEvent.click(
         screen.getByRole("button", { name: "Choose people from Family" }),
@@ -327,7 +328,9 @@ describe("SmsContactsFlow", () => {
       render(<SmsContactsFlow {...baseProps} />);
 
       const pill = screen.getByTestId("sms-selected-pill");
-      const title = screen.getByRole("heading", { name: "SMS contacts" });
+      const title = screen.getByRole("heading", {
+        name: "Emergency contacts",
+      });
       const tablist = screen.getByRole("tablist", { name: "Contact sources" });
 
       // The defect this guards: the pill used to be lifted out of the flow and
@@ -453,7 +456,7 @@ describe("SmsContactsFlow", () => {
 
     // The title comes from the shared header primitive, matching its crumb.
     expect(
-      screen.getByRole("heading", { level: 1, name: "SMS contacts" }),
+      screen.getByRole("heading", { level: 1, name: "Emergency contacts" }),
     ).toBeInTheDocument();
 
     openAllContacts();

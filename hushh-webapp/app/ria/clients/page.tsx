@@ -177,7 +177,6 @@ export default function RiaClientsPage() {
     <AppPageShell
       as="main"
       width="expanded"
-      className="pb-24 sm:pb-28"
       nativeTest={{
         routeId: "/ria/clients",
         marker: "native-route-ria-clients",

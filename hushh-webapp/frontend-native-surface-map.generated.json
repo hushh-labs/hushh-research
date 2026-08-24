@@ -4013,6 +4013,7 @@
         "location.decline_request",
         "location.delete_circle",
         "location.delete_saved_location",
+        "location.find_contacts",
         "location.leave_circle",
         "location.open_active_shares",
         "location.open_ask",
@@ -8946,5 +8947,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "a319cb4a74ea8380c039887db871acdf1a94103a4e4e3311f429ce73ec7fdf71"
+  "content_sha256": "851edda753c1e992d76970c01771c9285105a2f1252c38e6805bfed982323b01"
 }

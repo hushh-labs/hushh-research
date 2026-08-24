@@ -137,6 +137,13 @@ export default [
       "lib/mail/**/*",
       // SSE streaming components use fetch() for EventSource polyfill
       "components/kai/debate-stream-view.tsx",
+      // Google People API, called from the browser ON PURPOSE. Routing this
+      // through our own server is exactly what the module exists to avoid: the
+      // server would then see the raw phone number of every contact who is NOT
+      // a Hushh user. The token is browser-held and our infrastructure never
+      // touches it. Enforced from the other side by
+      // consent-protocol/tests/test_contacts_never_reach_the_server.py.
+      "lib/contacts/google-people-source.ts",
     ],
     rules: {
       "no-restricted-syntax": "off",

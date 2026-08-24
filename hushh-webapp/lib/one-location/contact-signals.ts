@@ -1,7 +1,10 @@
 "use client";
 
 import { HushhContacts, type HushhContactsPermissionState } from "@/lib/capacitor";
-import { buildMarketplaceContactLookups } from "@/lib/marketplace/contact-matching";
+import {
+  buildMarketplaceContactLookups,
+  type MarketplaceContactSource,
+} from "@/lib/marketplace/contact-matching";
 import {
   RiaService,
   type MarketplaceContactMatch,
@@ -34,7 +37,7 @@ export type OneLocationContactSignalResult = {
   matchedUserIds: string[];
   totalContacts: number;
   inviteCandidateCount: number;
-  sourcePlatform: "web" | "ios" | "android" | "native";
+  sourcePlatform: "web" | "ios" | "android" | "native" | "google";
   /** Region used to read national-format contact numbers, for diagnostics. */
   region: string | null;
   /**
@@ -82,12 +85,58 @@ async function assertContactsReadable(): Promise<void> {
   }
 }
 
+/**
+ * Every match, with any phone-derived field removed.
+ *
+ * The server no longer returns one: `match_marketplace_contacts` used to echo
+ * four digits of the matched person's number, and it stopped, because a client
+ * that has to defend against a field is a field that should not have been sent.
+ *
+ * This guard stays anyway, and it is deliberately keyed on the shape of the
+ * value rather than on one known field name. Two reasons. A deploy is not
+ * atomic, so for the length of a rollout — and for the length of any rollback —
+ * this client can still be talking to a server that returns the old payload.
+ * And the type no longer declares the field, which means TypeScript would have
+ * silently stopped protecting exactly the case that still needs protecting.
+ *
+ * The screens downstream of this render matched people by name. Nothing here
+ * needs a digit, so anything that looks like one is dropped rather than trusted.
+ *
+ * Recursive, not a shallow copy. `profile` is a server-shaped object nested
+ * inside each match, and the rollback case this guard exists for is precisely
+ * the one where the server's shape is not what this client expects — so a
+ * top-level-only sweep would have promised protection it could not give.
+ */
+function stripPhoneKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripPhoneKeys);
+  // Plain objects only. A Date, a Map, or anything with a prototype of its own
+  // would be rebuilt as a bare object by the spread below, so those are handed
+  // through untouched — none of them can carry a phone field on this payload,
+  // which is JSON off the wire.
+  if (!value || typeof value !== "object") return value;
+  if (Object.getPrototypeOf(value) !== Object.prototype) return value;
+
+  const copy: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    if (key.toLowerCase().includes("phone")) continue;
+    copy[key] = stripPhoneKeys(nested);
+  }
+  return copy;
+}
+
+function withoutPhoneFields(
+  match: MarketplaceContactMatch,
+): MarketplaceContactMatch {
+  return stripPhoneKeys(match) as MarketplaceContactMatch;
+}
+
 export async function syncOneLocationContactSignals({
   idToken,
   accountPhoneNumber,
   contactLimit = 5000,
   matchLimit = 100,
   signal,
+  source,
 }: {
   idToken: string;
   /**
@@ -98,13 +147,30 @@ export async function syncOneLocationContactSignals({
   contactLimit?: number;
   matchLimit?: number;
   signal?: AbortSignal;
+  /**
+   * Where to read contacts from. Omitted means the device address book.
+   *
+   * Supplied for Google Contacts, which is read in the browser through the
+   * People API and is the only contact source available at all on iOS Safari
+   * and on desktop.
+   */
+  source?: MarketplaceContactSource;
 }): Promise<OneLocationContactSignalResult> {
-  await assertContactsReadable();
+  // The device-permission pre-flight applies to the device address book and to
+  // nothing else. `assertContactsReadable` asks the Capacitor plugin whether it
+  // can read, and on a desktop browser the honest answer is `unavailable` —
+  // which is exactly the platform where a Google read is the whole point.
+  // Left in front of an injected source, it would refuse the one case this
+  // exists to serve.
+  if (!source) {
+    await assertContactsReadable();
+  }
 
   const lookupResult = await buildMarketplaceContactLookups({
     limit: contactLimit,
     accountPhoneNumber,
     signal,
+    ...(source ? { source } : {}),
   });
 
   if (lookupResult.lookups.length === 0) {
@@ -131,11 +197,7 @@ export async function syncOneLocationContactSignals({
     // marketplace profiles are off by default.
     scope: "one_network",
   });
-  const privacySafeMatches = matches.map((match) => {
-    const safeMatch = { ...match };
-    delete safeMatch.phone_last4;
-    return safeMatch as MarketplaceContactMatch;
-  });
+  const privacySafeMatches = matches.map(withoutPhoneFields);
   const matchedUserIds = Array.from(
     new Set(
       privacySafeMatches
@@ -183,6 +245,15 @@ export type ContactSyncRemedy =
   | "pick_more"
   /** Open OS settings to widen contact access (iOS limited access). */
   | "open_settings"
+  /**
+   * Some contacts are not on Hushh. Offer to invite them.
+   *
+   * Only ever returned where the remedy would otherwise be null. A partial
+   * read owns that slot with the remedy that widens it, and widening is the
+   * better next step than inviting out of a list the person has not finished
+   * choosing from.
+   */
+  | "invite"
   | null;
 
 export type ContactSyncOutcome = {
@@ -202,10 +273,20 @@ function contactsLabel(count: number): string {
 export function describeContactSyncOutcome(
   result: Pick<
     OneLocationContactSignalResult,
-    "matchedUserIds" | "totalContacts" | "sourcePlatform" | "limited" | "truncated"
+    | "matchedUserIds"
+    | "totalContacts"
+    | "sourcePlatform"
+    | "limited"
+    | "truncated"
+    | "inviteCandidateCount"
   >,
 ): ContactSyncOutcome {
   const matched = result.matchedUserIds.length;
+  // The other half of the answer. `inviteCandidateCount` has been computed on
+  // every sync since this file shipped and read by nothing except an analytics
+  // dimension — so the product learned "forty of your contacts are not here
+  // yet", recorded it, and told the person nothing.
+  const inviteCandidates = Math.max(0, result.inviteCandidateCount ?? 0);
 
   // The picker grants per-invocation and has no settings page to open, so
   // offering "Settings" there sends the user somewhere that cannot help —
@@ -219,6 +300,23 @@ export function describeContactSyncOutcome(
       : "open_settings";
 
   if (result.limited) {
+    // Nothing was shared at all, which is not the same as nothing matching.
+    // The web picker returns exactly this shape when it is dismissed
+    // (`contacts-web.ts` treats an AbortError as an empty read), so closing the
+    // sheet was answered with "None of the 0 contacts you shared are on Hushh
+    // yet" -- a sentence shaped like a result, reporting one that was never
+    // asked for. iOS limited access with nothing selected lands here too.
+    if (result.totalContacts === 0) {
+      return {
+        title: "No contacts were shared, so nothing was checked.",
+        description:
+          remedy === "pick_more"
+            ? "Pick the people you want checked and they will be matched."
+            : "Share contacts with Hushh in Settings to have them checked.",
+        remedy,
+      };
+    }
+
     const scanned = contactsLabel(result.totalContacts);
     return {
       title: matched
@@ -235,7 +333,14 @@ export function describeContactSyncOutcome(
   if (!matched) {
     return {
       title: "No One users matched from this contact scan.",
-      remedy: null,
+      description: inviteCandidates
+        ? `${contactsLabel(inviteCandidates)} could be invited.`
+        : undefined,
+      // `invite` only ever appears where `remedy` would have been null. A
+      // partial read already owns that slot with the remedy that widens it,
+      // and widening the read is the better next step than inviting from a
+      // list the person has not finished picking.
+      remedy: inviteCandidates ? "invite" : null,
     };
   }
 
@@ -245,7 +350,9 @@ export function describeContactSyncOutcome(
     // the book was larger than the caps rather than deliberately narrowed.
     description: result.truncated
       ? "Your address book was larger than the sync limit, so some contacts were not checked."
-      : undefined,
-    remedy: null,
+      : inviteCandidates
+        ? `${contactsLabel(inviteCandidates)} are not on Hushh yet.`
+        : undefined,
+    remedy: inviteCandidates ? "invite" : null,
   };
 }

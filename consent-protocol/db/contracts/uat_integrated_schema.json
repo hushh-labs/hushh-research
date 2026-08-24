@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 169,
+  "expected_migration_version": 172,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -717,6 +717,16 @@
       "source_errors",
       "metadata"
     ],
+    "one_location_auto_approve_preferences": [
+      "user_id",
+      "enabled",
+      "scope_kind",
+      "circle_id",
+      "enabled_at",
+      "rule_version",
+      "created_at",
+      "updated_at"
+    ],
     "one_location_circle_invites": [
       "id",
       "owner_user_id",
@@ -1402,23 +1412,6 @@
       "expires_at",
       "executed_at",
       "created_at"
-    ],
-    "google_email_send_actions": [
-      "action_id",
-      "user_id",
-      "provider",
-      "payload_hmac",
-      "idempotency_hmac",
-      "recipient_count",
-      "status",
-      "expires_at",
-      "sending_at",
-      "completed_at",
-      "provider_message_id",
-      "provider_thread_id",
-      "error_code",
-      "created_at",
-      "updated_at"
     ],
     "one_wallet_cards": [
       "user_id",

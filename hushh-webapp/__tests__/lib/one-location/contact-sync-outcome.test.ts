@@ -16,7 +16,82 @@ const base = {
   sourcePlatform: "android" as const,
   limited: false,
   truncated: false,
+  inviteCandidateCount: 0,
 };
+
+describe("describeContactSyncOutcome — the people who are NOT on Hushh", () => {
+  // `inviteCandidateCount` has been computed on every sync since this file
+  // shipped and read by nothing except an analytics dimension. The product
+  // learned "forty of your contacts are not here yet", recorded it, and told
+  // the person nothing.
+
+  it("names them, and offers the invite, after a full read that matched", () => {
+    const outcome = describeContactSyncOutcome({
+      ...base,
+      matchedUserIds: ["a", "b"],
+      totalContacts: 50,
+      inviteCandidateCount: 48,
+    });
+    expect(outcome.title).toBe("2 people added as a contact signal.");
+    expect(outcome.description).toBe("48 contacts are not on Hushh yet.");
+    expect(outcome.remedy).toBe("invite");
+  });
+
+  it("offers the invite when a full read matched nobody", () => {
+    // The strongest moment for the loop: every contact is a candidate.
+    const outcome = describeContactSyncOutcome({
+      ...base,
+      totalContacts: 30,
+      inviteCandidateCount: 30,
+    });
+    expect(outcome.title).toBe("No One users matched from this contact scan.");
+    expect(outcome.description).toBe("30 contacts could be invited.");
+    expect(outcome.remedy).toBe("invite");
+  });
+
+  it("says nothing about inviting when everyone is already here", () => {
+    const outcome = describeContactSyncOutcome({
+      ...base,
+      matchedUserIds: ["a", "b"],
+      totalContacts: 2,
+      inviteCandidateCount: 0,
+    });
+    expect(outcome.description).toBeUndefined();
+    expect(outcome.remedy).toBeNull();
+  });
+
+  it("never takes the slot from a remedy that widens a partial read", () => {
+    // A partial read owns the action with "Check more" / "Open Settings".
+    // Widening the read is the better next step than inviting out of a list
+    // the person has not finished choosing from — and the toast has one slot.
+    const web = describeContactSyncOutcome({
+      ...base,
+      totalContacts: 10,
+      sourcePlatform: "web",
+      limited: true,
+      inviteCandidateCount: 10,
+    });
+    expect(web.remedy).toBe("pick_more");
+
+    const ios = describeContactSyncOutcome({
+      ...base,
+      totalContacts: 10,
+      sourcePlatform: "ios",
+      limited: true,
+      inviteCandidateCount: 10,
+    });
+    expect(ios.remedy).toBe("open_settings");
+  });
+
+  it("singularises one candidate", () => {
+    const outcome = describeContactSyncOutcome({
+      ...base,
+      totalContacts: 1,
+      inviteCandidateCount: 1,
+    });
+    expect(outcome.description).toBe("1 contact could be invited.");
+  });
+});
 
 describe("describeContactSyncOutcome", () => {
   it("reports a full read as a plain count with no remedy", () => {
@@ -67,6 +142,39 @@ describe("describeContactSyncOutcome", () => {
     expect(ios.description).toContain("shared with Hushh");
   });
 
+  it("does not answer a dismissed picker with a result it never had", () => {
+    // `contacts-web.ts` reads an AbortError as an empty read, so closing the
+    // sheet arrives here as limited + zero. The old wording -- "None of the 0
+    // contacts you shared are on Hushh yet" -- is shaped like a finding and
+    // reports one nobody asked for, on the most common way out of the flow.
+    const outcome = describeContactSyncOutcome({
+      ...base,
+      sourcePlatform: "web",
+      limited: true,
+      totalContacts: 0,
+    });
+
+    expect(outcome.title).not.toMatch(/0 contacts/);
+    expect(outcome.title).not.toMatch(/are on Hushh yet/);
+    expect(outcome.title).toBe("No contacts were shared, so nothing was checked.");
+    // Still the remedy that widens the read, because that is the way forward.
+    expect(outcome.remedy).toBe("pick_more");
+  });
+
+  it("says where to widen it when iOS shared nothing at all", () => {
+    const outcome = describeContactSyncOutcome({
+      ...base,
+      sourcePlatform: "ios",
+      limited: true,
+      totalContacts: 0,
+    });
+
+    // Settings, not the picker: on iOS the empty subset is sticky, and
+    // openAppSettings is the only thing that changes it.
+    expect(outcome.remedy).toBe("open_settings");
+    expect(outcome.description).toMatch(/Settings/);
+  });
+
   it("does not claim nobody matched when only a subset was searched", () => {
     const outcome = describeContactSyncOutcome({
       ...base,
@@ -106,5 +214,54 @@ describe("describeContactSyncOutcome", () => {
       limited: true,
     });
     expect(outcome.title).toBe("1 of the 1 contact you shared is on Hushh");
+  });
+});
+
+describe("describeContactSyncOutcome — a Google read is a whole read", () => {
+  // Google Contacts is read in the browser through the People API, so it
+  // returns the entire address book rather than a hand-picked subset. The
+  // partial-read copy and its remedies must not apply to it.
+  const googleBase = {
+    ...base,
+    sourcePlatform: "google" as const,
+    limited: false,
+  };
+
+  it("never offers the remedy that widens a partial read", () => {
+    // "Check more" re-runs the picker. After a Google sync that action would
+    // return the identical set and teach the person the button does nothing.
+    // The web + limited combination is what routes to `pick_more`, and a
+    // Google read is neither.
+    const outcome = describeContactSyncOutcome({
+      ...googleBase,
+      matchedUserIds: ["a"],
+      totalContacts: 200,
+    });
+
+    expect(outcome.remedy).not.toBe("pick_more");
+    expect(outcome.remedy).not.toBe("open_settings");
+  });
+
+  it("does not scope the count to what was shared", () => {
+    // "3 of the 40 contacts you shared" is true of a picker and false of a
+    // whole-address-book read.
+    const outcome = describeContactSyncOutcome({
+      ...googleBase,
+      matchedUserIds: ["a", "b", "c"],
+      totalContacts: 200,
+    });
+
+    expect(outcome.title).toBe("3 people added as a contact signal.");
+    expect(outcome.title).not.toContain("you shared");
+  });
+
+  it("reports an empty Google read without implying a narrowed one", () => {
+    const outcome = describeContactSyncOutcome({
+      ...googleBase,
+      totalContacts: 40,
+    });
+
+    expect(outcome.title).toBe("No One users matched from this contact scan.");
+    expect(outcome.title).not.toContain("you shared");
   });
 });

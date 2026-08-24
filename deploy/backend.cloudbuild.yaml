@@ -278,6 +278,7 @@ steps:
           "DB_POOL_MAX_SIZE=${_DB_POOL_MAX_SIZE}"
           "DB_SQLALCHEMY_POOL_SIZE=${_DB_SQLALCHEMY_POOL_SIZE}"
           "DB_SQLALCHEMY_MAX_OVERFLOW=${_DB_SQLALCHEMY_MAX_OVERFLOW}"
+          "DB_POOL_ACQUIRE_TIMEOUT_SECONDS=${_DB_POOL_ACQUIRE_TIMEOUT_SECONDS}"
           "RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}"
           "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
         )
@@ -567,6 +568,11 @@ substitutions:
   _DB_POOL_MAX_SIZE: "4"
   _DB_SQLALCHEMY_POOL_SIZE: "4"
   _DB_SQLALCHEMY_MAX_OVERFLOW: "0"
+  # Deadline for getting a pooled connection. Covers establishing a new one,
+  # so it has to clear the 15-30s cold-start handshake burst documented in
+  # consent-protocol/server.py. Tunable without a code change so a bad value
+  # can be corrected by a redeploy rather than another PR.
+  _DB_POOL_ACQUIRE_TIMEOUT_SECONDS: "60"
   _CLOUD_RUN_MIN_INSTANCES: "1"
   _CLOUD_RUN_MAX_INSTANCES: "5"
   _RUNTIME_ENVIRONMENT: ""

@@ -11,7 +11,7 @@ import hmac
 import logging
 import os
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import (
@@ -24,7 +24,7 @@ from fastapi import (
     Response,
     status,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -142,6 +142,17 @@ class UpdateMapPreferencesRequest(_CamelModel):
     )
 
 
+class UpdateAutoApprovePreferenceRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    enabled: bool
+    scope_kind: Literal["all_contacts", "circle"] | None = Field(
+        default=None,
+        alias="scopeKind",
+    )
+    circle_id: UUID | None = Field(default=None, alias="circleId")
+
+
 class CreateAccessRequest(_CamelModel):
     owner_user_id: str = Field(alias="ownerUserId", min_length=1, max_length=160)
     message: str | None = Field(default=None, max_length=500)
@@ -162,6 +173,12 @@ class CreateAccessRequest(_CamelModel):
 
 
 class ResolveAccessRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    # Required so a cached pre-standing-rule browser cannot make an automatic
+    # call look like an explicit manual tap merely by omitting the new context.
+    approval_mode: Literal["manual", "automatic"] = Field(alias="approvalMode")
+
     # Both default to None so an approval with no duration means "grant what
     # they asked for". Sending one still wins -- the owner can always give less
     # (or more) than was asked.
@@ -171,6 +188,25 @@ class ResolveAccessRequest(_CamelModel):
         alias="durationMode",
         pattern="^(timed|until_stopped)$",
     )
+    # Present only when the first-party client is applying the current
+    # server-owned standing rule. The service locks and revalidates this exact
+    # version before it writes a grant.
+    auto_approve_rule_version: int | None = Field(
+        default=None,
+        alias="autoApproveRuleVersion",
+        ge=1,
+    )
+
+    @model_validator(mode="after")
+    def validate_approval_intent(self) -> "ResolveAccessRequest":
+        automatic = self.approval_mode == "automatic"
+        if automatic and self.auto_approve_rule_version is None:
+            raise ValueError("automatic approval requires a current rule version")
+        if automatic and (self.duration_hours is not None or self.duration_mode is not None):
+            raise ValueError("automatic approval must use the requested duration")
+        if not automatic and self.auto_approve_rule_version is not None:
+            raise ValueError("manual approval cannot cite an automatic rule")
+        return self
 
 
 class ShortenGrantRequest(_CamelModel):
@@ -573,6 +609,24 @@ def update_location_map_preferences(
                 user_id=_user_id(token_data),
                 presence_mode=payload.presence_mode,
                 renderer_consent_version=payload.renderer_consent_version,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/auto-approve-preference")
+def update_location_auto_approve_preference(
+    payload: UpdateAutoApprovePreferenceRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "preference": _service().update_auto_approve_preference(
+                user_id=_user_id(token_data),
+                enabled=payload.enabled,
+                scope_kind=payload.scope_kind,
+                circle_id=(str(payload.circle_id) if payload.circle_id is not None else None),
             )
         }
     except Exception as exc:
@@ -1673,8 +1727,10 @@ def approve_location_access_request(
         return _service().approve_request(
             owner_user_id=_user_id(token_data),
             request_id=request_id,
+            approval_mode=payload.approval_mode,
             duration_hours=payload.duration_hours,
             duration_mode=payload.duration_mode,
+            auto_approve_rule_version=payload.auto_approve_rule_version,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc

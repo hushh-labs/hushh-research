@@ -16,7 +16,7 @@ describe("SettingsRow", () => {
   it("wraps both primary action and trailing in a single interactive row", () => {
     const handleOpen = vi.fn();
     const handleTrailing = vi.fn();
-    render(
+    const { container } = render(
       <SettingsRow
         title="Open privacy"
         description="Manage vault controls"
@@ -42,6 +42,7 @@ describe("SettingsRow", () => {
     // Both handlers fire (trailing click propagation stopped, so only trailing fires)
     expect(handleOpen).toHaveBeenCalledTimes(1);
     expect(handleTrailing).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("button button")).toBeNull();
   });
 
   it("keeps a trailing switch accessible within the unified row", () => {

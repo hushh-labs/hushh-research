@@ -439,6 +439,66 @@ describe("useLocationChat — action dispatcher", () => {
     expect(result.current.pendingAction).toBeNull();
   });
 
+  it.each([
+    [2, 1, "a proposal above the public ceiling"],
+    [24, 1, "the private-share ceiling, copied"],
+    [0.1, 0.25, "a proposal below the shared minimum"],
+    [0.5, 0.5, "a proposal already inside the range"],
+  ])(
+    "create_public_link clamps %s to %s — %s",
+    async (proposed, expected) => {
+      // The only path to createPublicInvite that does not go through the
+      // screen's own duration control. The value arrives from a model-authored
+      // directive, and the endpoint is `gt=0, le=1` — so an unclamped number
+      // reached an API that would 422 it after the person had already said yes.
+      const mockPoint = {
+        latitude: 10,
+        longitude: 20,
+        capturedAt: "now",
+        sourcePlatform: "web" as const,
+      };
+      mockChat
+        .mockResolvedValueOnce({
+          conversationId: "c-clamp",
+          response: "Creating a public link.",
+          isComplete: true,
+          stateChanged: false,
+          clientAction: {
+            id: "act-clamp",
+            type: "create_public_link" as const,
+            durationHours: proposed,
+            summary: "Create a public location link",
+          },
+        })
+        .mockResolvedValueOnce({
+          conversationId: "c-clamp",
+          response: "Link created!",
+          isComplete: true,
+          stateChanged: false,
+        });
+      vi.mocked(OneLocationService.captureCurrentPosition).mockResolvedValue(mockPoint);
+      vi.mocked(OneLocationService.createPublicInvite).mockResolvedValue({
+        invite: { id: "inv-c", ownerUserId: "u1", status: "active", durationHours: expected },
+        publicToken: "tokc",
+        publicUrl: "https://hushh.ai/location/tokc",
+      });
+
+      const { result } = renderHook(() =>
+        useLocationChat({ vaultOwnerToken: "tok", userId: "u1" }),
+      );
+      await act(async () => {
+        await result.current.send("create a public link");
+      });
+      await act(async () => {
+        await result.current.confirmAction();
+      });
+
+      expect(vi.mocked(OneLocationService.createPublicInvite)).toHaveBeenCalledWith(
+        expect.objectContaining({ durationHours: expected }),
+      );
+    },
+  );
+
   it("create_public_link: confirm captures, creates invite, reports completed with publicUrl", async () => {
     const mockPoint = {
       latitude: 10,
@@ -493,8 +553,17 @@ describe("useLocationChat — action dispatcher", () => {
     });
 
     expect(vi.mocked(OneLocationService.captureCurrentPosition)).toHaveBeenCalledTimes(1);
+    // Clamped to 1, not the 2 the model proposed.
+    //
+    // `CreatePublicInviteRequest.durationHours` is `gt=0, le=1` and the service
+    // refuses anything above PUBLIC_INVITE_MAX_DURATION_HOURS, because a public
+    // link is readable by anyone holding it — 24 was the PRIVATE share ceiling,
+    // copied. This is the one path to createPublicInvite that does not go
+    // through the screen's own duration control, and the value arrives from a
+    // model-authored directive, so an unclamped number reached an endpoint that
+    // would 422 it after the person had already said yes.
     expect(vi.mocked(OneLocationService.createPublicInvite)).toHaveBeenCalledWith(
-      expect.objectContaining({ durationHours: 2, locationSnapshot: mockPoint }),
+      expect.objectContaining({ durationHours: 1, locationSnapshot: mockPoint }),
     );
     expect(mockChat).toHaveBeenLastCalledWith(
       expect.objectContaining({

@@ -55,6 +55,24 @@ async function sha256Hex(value: string): Promise<string> {
     .join("");
 }
 
+/**
+ * Where a batch of contacts comes from.
+ *
+ * The device address book is the default and stays the default. This exists so
+ * a second source — Google Contacts, read in the browser — can feed the same
+ * normalize/dedupe/hash pipeline instead of growing a parallel one. Everything
+ * that keeps a raw phone number off our servers lives below this line, and
+ * there has to be exactly one copy of it.
+ *
+ * Deliberately a function returning the whole `HushhContactsReadResult` rather
+ * than a bare array of records: the pipeline reads `defaultRegion`,
+ * `sourcePlatform`, `limited` and `truncated` off the result, and every one of
+ * those is a judgement only the source is qualified to make.
+ */
+export type MarketplaceContactSource = (options: {
+  limit: number;
+}) => Promise<HushhContactsReadResult>;
+
 export async function buildMarketplaceContactLookups(options?: {
   limit?: number;
   /**
@@ -63,8 +81,16 @@ export async function buildMarketplaceContactLookups(options?: {
    */
   accountPhoneNumber?: string | null;
   signal?: AbortSignal;
+  /** Defaults to the device address book through the Capacitor plugin. */
+  source?: MarketplaceContactSource;
 }): Promise<MarketplaceContactLookupResult> {
-  const result = await HushhContacts.readContacts({
+  // The default forwards exactly `{ limit }` and nothing else — the existing
+  // test asserts that call shape as an exact object match, and it is the right
+  // assertion: a source has no business receiving the account phone number or
+  // the abort signal, both of which stay on this side of the seam.
+  const read: MarketplaceContactSource =
+    options?.source ?? ((forwarded) => HushhContacts.readContacts(forwarded));
+  const result = await read({
     limit: options?.limit ?? 500,
   });
   options?.signal?.throwIfAborted();

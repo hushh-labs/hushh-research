@@ -7,6 +7,18 @@ export type LocationSourcePlatform =
 
 export type OneLocationShareDurationMode = "timed" | "until_stopped";
 
+export type AutoApproveScope =
+  | { kind: "all_contacts" }
+  | { kind: "circle"; circleId: string };
+
+export type OneLocationAutoApprovePreference = {
+  enabled: boolean;
+  scope: AutoApproveScope | null;
+  enabledAt: string | null;
+  ruleVersion: number;
+  updatedAt?: string | null;
+};
+
 export type OneLocationRecommendationTier =
   | "needs_action"
   | "trusted_circle"
@@ -463,6 +475,8 @@ export type OneLocationMyRecipientKey = {
 export type OneLocationState = {
   recipients: OneLocationRecipient[];
   circles?: OneLocationCircleSummary[];
+  /** Server-owned, cross-device standing approval rule. */
+  autoApprovePreference?: OneLocationAutoApprovePreference;
   /** Pending targeted invitations for this user to join a named Circle. */
   circleMemberInvites?: OneLocationCircleMemberInvite[];
   myRecipientKey?: OneLocationMyRecipientKey | null;
