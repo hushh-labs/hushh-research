@@ -74,6 +74,15 @@ tests/test_capability_health.py
 tests/test_managed_vertex_readiness_script.py
 tests/test_verify_uat_release.py
 
+# The privacy property contact sync is built around, as code instead of prose.
+#
+# A raw phone number belonging to somebody who is NOT a Hushh user must never
+# reach a Hushh server. Adding Google Contacts is ~20 lines if the backend calls
+# the People API — it reuses the working OAuth refresh path and needs no client
+# id, no JS origins, no Capacitor gate. It would read as a simplification in
+# review. This is what makes it a failing test instead of a judgement call.
+tests/test_contacts_never_reach_the_server.py
+
 # One Location Circles, and the migration guards that protect them.
 #
 # Every file below was written to lock a behaviour that had already broken
@@ -90,12 +99,3 @@ tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py
 tests/services/test_account_service_cleanup_tables.py
 tests/test_pool_acquire_is_bounded.py
-
-# The privacy property contact sync is built around, as code instead of prose.
-#
-# A raw phone number belonging to somebody who is NOT a Hushh user must never
-# reach a Hushh server. Adding Google Contacts is ~20 lines if the backend calls
-# the People API — it reuses the working OAuth refresh path and needs no client
-# id, no JS origins, no Capacitor gate. It would read as a simplification in
-# review. This is what makes it a failing test instead of a judgement call.
-tests/test_contacts_never_reach_the_server.py

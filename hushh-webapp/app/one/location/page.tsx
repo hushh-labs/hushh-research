@@ -133,6 +133,12 @@ function BodyPortal({ children }: { children: ReactNode }) {
 
 import { HushhContacts } from "@/lib/capacitor";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
+import {
+  googleContactsAvailability,
+  googlePeopleContactSource,
+} from "@/lib/contacts/google-people-source";
+import { requestGoogleContactsToken } from "@/lib/contacts/google-contacts-token";
+import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matching";
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
@@ -371,12 +377,6 @@ import {
   DRIVE_ETA_MIN_RECOMPUTE_MOVE_METERS,
 } from "@/lib/one-location/eta-recompute";
 import { getApiBaseUrl } from "@/lib/services/api-service";
-import {
-  googleContactsAvailability,
-  googlePeopleContactSource,
-} from "@/lib/contacts/google-people-source";
-import { requestGoogleContactsToken } from "@/lib/contacts/google-contacts-token";
-import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matching";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import {
   buildCircleInviteShareText,
