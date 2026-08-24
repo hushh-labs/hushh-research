@@ -27,6 +27,7 @@ import {
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import {
   CALENDAR_SETUP_REGION_CLASSNAME,
+  CALENDAR_SETUP_SHELL_CLASSNAME,
 } from "@/components/calendar/calendar-agent-page-layout";
 import {
   SurfaceCard,
@@ -223,8 +224,7 @@ export function CalendarAgentPage({
   return (
     <AppPageShell
       width="reading"
-      className="fixed inset-x-0 top-[var(--top-shell-reserved-height,4rem)] bottom-[calc(var(--app-bottom-inset,2rem)+4.5rem)] z-0 flex flex-col items-center justify-center overflow-hidden px-4 touch-none select-none overscroll-none"
-      style={{ touchAction: "none", overscrollBehavior: "none" }}
+      className={CALENDAR_SETUP_SHELL_CLASSNAME}
     >
       <AppPageContentRegion className={CALENDAR_SETUP_REGION_CLASSNAME}>
         <SurfaceCard className="overflow-hidden w-full shadow-md text-center">

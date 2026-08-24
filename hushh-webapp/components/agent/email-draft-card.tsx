@@ -74,7 +74,7 @@ export function EmailDraftCard({ userId, vaultOwnerToken, initialBody = "", onSe
         <label>Subject <input value={subject} onChange={(event) => { setSubject(event.target.value); changed(); }} className="mt-1 w-full rounded-md border bg-background px-3 py-2" /></label>
         <label>Message <textarea value={body} onChange={(event) => { setBody(event.target.value); changed(); }} rows={7} className="mt-1 w-full resize-y rounded-md border bg-background px-3 py-2" /></label>
       </div>
-      {error ? <p className="mt-3 text-sm text-destructive">{error} {error.includes("permission") ? <a className="underline" href={ROUTES.ONE_SETUP_GMAIL}>Enable Gmail sending</a> : null}</p> : null}
+      {error ? <p className="mt-3 text-sm text-destructive">{error} {error.includes("permission") ? <a className="underline" href={ROUTES.EMAIL}>Enable Gmail sending</a> : null}</p> : null}
       {missingDetails.length > 0 ? <p className="mt-3 text-sm text-muted-foreground">One left these details for you to confirm: {missingDetails.join(", ")}.</p> : null}
       <div className="mt-4 flex justify-end gap-2">
         {!actionId ? <Button type="button" variant="outline" onClick={() => void generate()} disabled={busy}>Ask One to draft</Button> : null}

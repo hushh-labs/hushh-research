@@ -68,7 +68,7 @@ def test_state_token_invalid_signature_rejected():
 
 
 def _configure_gmail_oauth(monkeypatch, *, origin: str = "https://uat.one.hushh.ai"):
-    redirect_uri = f"{origin}/profile/gmail/oauth/return"
+    redirect_uri = f"{origin}/one/profile/gmail/oauth/return"
     monkeypatch.setenv("APP_FRONTEND_ORIGIN", origin)
     monkeypatch.setenv("GMAIL_OAUTH_CLIENT_ID", "test-client-id")
     monkeypatch.setenv("GMAIL_OAUTH_CLIENT_SECRET", "test-client-secret")
@@ -90,7 +90,9 @@ def test_oauth_redirect_rejects_caller_selected_origin(monkeypatch):
     service = GmailReceiptsService()
 
     with pytest.raises(GmailApiError) as exc_info:
-        service._resolve_oauth_redirect_uri("https://untrusted.example/profile/gmail/oauth/return")
+        service._resolve_oauth_redirect_uri(
+            "https://untrusted.example/one/profile/gmail/oauth/return"
+        )
 
     assert exc_info.value.status_code == 400
 
@@ -99,7 +101,7 @@ def test_oauth_redirect_rejects_environment_configuration_drift(monkeypatch):
     _configure_gmail_oauth(monkeypatch)
     monkeypatch.setenv(
         "GMAIL_OAUTH_REDIRECT_URI",
-        "http://localhost:3000/profile/gmail/oauth/return",
+        "http://localhost:3000/one/profile/gmail/oauth/return",
     )
     service = GmailReceiptsService()
 
@@ -114,7 +116,7 @@ def test_oauth_redirect_rejects_environment_configuration_drift(monkeypatch):
 async def test_connect_boundaries_reject_wrong_redirect_before_oauth_work(monkeypatch):
     _configure_gmail_oauth(monkeypatch)
     service = GmailReceiptsService()
-    wrong_redirect = "https://untrusted.example/profile/gmail/oauth/return"
+    wrong_redirect = "https://untrusted.example/one/profile/gmail/oauth/return"
 
     with pytest.raises(GmailApiError) as start_error:
         await service.start_connect(
@@ -134,6 +136,93 @@ async def test_connect_boundaries_reject_wrong_redirect_before_oauth_work(monkey
 
     assert start_error.value.status_code == 400
     assert complete_error.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_connect_requests_read_and_send_scopes_together(monkeypatch):
+    _configure_gmail_oauth(monkeypatch)
+    service = GmailReceiptsService()
+
+    started = await service.start_connect(
+        user_id="user_123",
+        redirect_uri=None,
+        login_hint=None,
+        include_granted_scopes=True,
+    )
+
+    assert "gmail.readonly" in started["authorize_url"]
+    assert "gmail.send" in started["authorize_url"]
+
+
+@pytest.mark.asyncio
+async def test_send_toggle_changes_only_local_connection_state(monkeypatch):
+    service = GmailReceiptsService()
+    updates: list[tuple[str, dict | None]] = []
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row",
+        lambda user_id: {
+            "status": "connected",
+            "revoked": False,
+            "send_enabled": False,
+            "scope_csv": "https://www.googleapis.com/auth/gmail.readonly "
+            "https://www.googleapis.com/auth/gmail.send",
+        },
+    )
+
+    async def _execute(sql, params=None):
+        updates.append((sql, params))
+        return SimpleNamespace(data=[])
+
+    async def _status(*, user_id):
+        return {"user_id": user_id, "send_enabled": True}
+
+    monkeypatch.setattr(service, "_execute_raw_async", _execute)
+    monkeypatch.setattr(service, "get_status", _status)
+
+    result = await service.set_send_enabled(user_id="user_123", enabled=True)
+
+    assert result["send_enabled"] is True
+    assert updates[0][1] == {"user_id": "user_123", "enabled": True}
+
+
+@pytest.mark.asyncio
+async def test_send_toggle_requires_the_combined_oauth_permission(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row",
+        lambda user_id: {
+            "status": "connected",
+            "revoked": False,
+            "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
+        },
+    )
+
+    with pytest.raises(GmailApiError, match="Reconnect Gmail once") as exc_info:
+        await service.set_send_enabled(user_id="user_123", enabled=True)
+
+    assert exc_info.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_send_toggle_waits_for_the_schema_update(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row",
+        lambda user_id: {
+            "status": "connected",
+            "revoked": False,
+            "scope_csv": "https://www.googleapis.com/auth/gmail.readonly "
+            "https://www.googleapis.com/auth/gmail.send",
+        },
+    )
+
+    with pytest.raises(GmailApiError, match="still updating") as exc_info:
+        await service.set_send_enabled(user_id="user_123", enabled=True)
+
+    assert exc_info.value.status_code == 503
 
 
 @pytest.mark.asyncio

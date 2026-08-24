@@ -23,8 +23,8 @@ class _Db:
         return SimpleNamespace(data=[])
 
 
-class _Connections:
-    async def access_token(self, **_: object) -> str:
+class _Gmail:
+    async def send_access_token(self, **_: object) -> str:
         return "access-token"
 
 
@@ -81,7 +81,7 @@ def test_prepare_persists_only_hmacs_not_email_content(monkeypatch: pytest.Monke
         lambda: SimpleNamespace(app_signing_key="test-signing-key"),
     )
     db = _Db()
-    service = GoogleEmailDeliveryService(db=db, connections=_Connections())
+    service = GoogleEmailDeliveryService(db=db, gmail=_Gmail())
     asyncio.run(
         service.prepare(
             user_id="user-1",

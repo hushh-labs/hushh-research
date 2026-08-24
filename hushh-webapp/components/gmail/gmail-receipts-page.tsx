@@ -19,6 +19,7 @@ import { GmailSendAccessCard } from "@/components/gmail/gmail-send-access-card";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
@@ -195,6 +196,21 @@ const receiptColumns: ColumnDef<ReceiptListItem>[] = [
     ),
   },
 ];
+
+function GmailWorkspaceSkeleton() {
+  return (
+    <SurfaceInset className="space-y-3 px-4 py-4" aria-label="Loading Gmail information">
+      <Skeleton className="h-4 w-28" />
+      <Skeleton className="h-6 w-3/5" />
+      <Skeleton className="h-4 w-full" />
+      <div className="grid gap-2 pt-2 sm:grid-cols-3">
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-20 w-full" />
+      </div>
+    </SurfaceInset>
+  );
+}
 
 function toComparableIso(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -1497,6 +1513,10 @@ export default function GmailReceiptsPage({
           </SurfaceInset>
 
           <GmailSendAccessCard />
+
+          {loadingStatus || (isConnected && hasSealedReceiptAccess && loadingReceipts) ? (
+            <GmailWorkspaceSkeleton />
+          ) : null}
 
           {journeyVariant === "onboarding" && onFinishSetup && onSkipSetup ? (
             <SetupCompletionFooter

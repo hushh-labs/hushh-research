@@ -42,6 +42,11 @@ class GmailDisconnectRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=256)
 
 
+class GmailSendEnabledRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=256)
+    enabled: bool
+
+
 class GmailSyncRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=256)
 
@@ -213,6 +218,22 @@ async def gmail_disconnect(
     except Exception as exc:
         logger.exception("kai.gmail.disconnect_failed user_id=%s", payload.user_id)
         raise _to_http_exception(exc, operation="disconnect") from exc
+
+
+@router.patch("/gmail/send-enabled")
+async def gmail_send_enabled(
+    payload: GmailSendEnabledRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, payload.user_id)
+    try:
+        return await _service().set_send_enabled(
+            user_id=payload.user_id,
+            enabled=payload.enabled,
+        )
+    except Exception as exc:
+        logger.exception("kai.gmail.send_enabled_failed user_id=%s", payload.user_id)
+        raise _to_http_exception(exc, operation="send_enabled") from exc
 
 
 @router.post("/gmail/sync")

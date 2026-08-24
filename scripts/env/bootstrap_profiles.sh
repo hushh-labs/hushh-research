@@ -997,7 +997,7 @@ hydrate_backend_local_uatdb() {
   hydrate_backend_cloud_reference "$file" "$profile" "$project" "development"
   upsert_env_value "$file" "APP_FRONTEND_ORIGIN" "http://localhost:3000"
   upsert_env_value "$file" "CORS_ALLOWED_ORIGINS" "http://localhost:3000"
-  upsert_env_value "$file" "GMAIL_OAUTH_REDIRECT_URI" "http://localhost:3000/profile/gmail/oauth/return"
+  upsert_env_value "$file" "GMAIL_OAUTH_REDIRECT_URI" "http://localhost:3000/one/profile/gmail/oauth/return"
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "local"
   upsert_env_value "$file" "ENVIRONMENT" "development"
   upsert_env_value "$file" "PORT" "8000"

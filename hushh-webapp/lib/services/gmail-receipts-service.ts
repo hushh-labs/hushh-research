@@ -83,6 +83,9 @@ export interface GmailConnectionStatus {
   google_email?: string | null;
   google_sub?: string | null;
   scope_csv: string;
+  send_permission_granted?: boolean;
+  send_enabled?: boolean;
+  send_toggle_available?: boolean;
   last_sync_at?: string | null;
   last_sync_status: "idle" | "queued" | "running" | "completed" | "failed" | "canceled";
   last_sync_error?: string | null;
@@ -320,6 +323,34 @@ export class GmailReceiptsService {
 
     trackEvent("gmail_disconnect_result", { result: "success" });
     return (await response.json()) as GmailConnectionStatus;
+  }
+
+  /** Enable or disable the already-authorized Gmail send capability locally. */
+  static async setSendEnabled(params: {
+    idToken: string;
+    userId: string;
+    enabled: boolean;
+  }): Promise<GmailConnectionStatus> {
+    const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.sendEnabled, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.idToken}`,
+      },
+      body: JSON.stringify({ user_id: params.userId, enabled: params.enabled }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await extractError(response, "Unable to update Gmail sending."));
+    }
+
+    const status = (await response.json()) as GmailConnectionStatus;
+    CacheService.getInstance().set(
+      gmailStatusCacheKey(params.userId),
+      status,
+      CACHE_TTL.SHORT,
+    );
+    return status;
   }
 
   static async reconcile(params: {

@@ -3,6 +3,7 @@ export const GMAIL_RECEIPTS_API_TEMPLATES = {
   connectComplete: "/api/kai/gmail/connect/complete",
   status: "/api/kai/gmail/status/{user_id}",
   disconnect: "/api/kai/gmail/disconnect",
+  sendEnabled: "/api/kai/gmail/send-enabled",
   reconcile: "/api/kai/gmail/reconcile",
   sync: "/api/kai/gmail/sync",
   syncRun: "/api/kai/gmail/sync/{run_id}",

@@ -23,11 +23,12 @@ import httpx
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
-from hushh_mcp.services.google_connection_service import (
-    GoogleConnectionError,
-    GoogleConnectionService,
-    get_google_connection_service,
+from hushh_mcp.services.gmail_receipts_service import (
+    GmailApiError,
+    GmailReceiptsService,
+    get_gmail_receipts_service,
 )
+from hushh_mcp.services.google_connection_service import GoogleConnectionError
 
 logger = logging.getLogger(__name__)
 _GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
@@ -46,12 +47,12 @@ class GoogleEmailDeliveryService:
         self,
         *,
         db: Any | None = None,
-        connections: GoogleConnectionService | None = None,
+        gmail: GmailReceiptsService | None = None,
         transport: EmailDeliveryTransport | None = None,
     ) -> None:
         self.db = db or get_db()
-        self.connections = connections or get_google_connection_service()
-        self.transport = transport or GmailUserMailboxTransport(self.connections)
+        self.gmail = gmail or get_gmail_receipts_service()
+        self.transport = transport or GmailUserMailboxTransport(self.gmail)
 
     @staticmethod
     def _addresses(value: object, field: str) -> list[str]:
@@ -137,9 +138,12 @@ class GoogleEmailDeliveryService:
         self, *, user_id: str, draft: dict[str, Any], idempotency_key: str
     ) -> dict[str, Any]:
         self._purge_expired(user_id)
-        # Fail before presenting the final confirmation when the account lacks
-        # the incremental gmail.send grant.
-        await self.connections.access_token(user_id=user_id, service="gmail", access_level="send")
+        # Fail before the final confirmation when the single Gmail connection
+        # has not enabled delivery.
+        try:
+            await self.gmail.send_access_token(user_id=user_id)
+        except GmailApiError as exc:
+            raise GoogleConnectionError(exc.message, status_code=exc.status_code) from exc
         normalized = self.normalize_draft(draft)
         action_id = f"gmail_send_{secrets.token_urlsafe(24)}"
         expires_at = datetime.now(UTC) + _ACTION_TTL
@@ -287,15 +291,16 @@ class EmailDeliveryTransport(Protocol):
 
 
 class GmailUserMailboxTransport:
-    def __init__(self, connections: GoogleConnectionService) -> None:
-        self.connections = connections
+    def __init__(self, gmail: GmailReceiptsService) -> None:
+        self.gmail = gmail
 
     async def send_confirmed_message(
         self, *, user_id: str, draft: dict[str, Any]
     ) -> dict[str, Any]:
-        token = await self.connections.access_token(
-            user_id=user_id, service="gmail", access_level="send"
-        )
+        try:
+            token = await self.gmail.send_access_token(user_id=user_id)
+        except GmailApiError as exc:
+            raise GoogleConnectionError(exc.message, status_code=exc.status_code) from exc
         raw, recipients = GoogleEmailDeliveryService._mime(draft)
         del recipients  # validates the complete envelope above without logging it.
         async with httpx.AsyncClient(timeout=20) as client:

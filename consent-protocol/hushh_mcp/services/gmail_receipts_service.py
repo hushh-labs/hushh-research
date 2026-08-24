@@ -63,7 +63,9 @@ _GMAIL_MESSAGES_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
 _GMAIL_THREADS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/threads"
 _GMAIL_HISTORY_URL = "https://gmail.googleapis.com/gmail/v1/users/me/history"
 _GMAIL_WATCH_URL = "https://gmail.googleapis.com/gmail/v1/users/me/watch"
-_GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
+_GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
+_GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+_GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 
 # Bounds for the inbox scan behind "Needs a reply" nudges: how far back to look,
 # how many recent threads to inspect, and how many cards to return.
@@ -1041,7 +1043,8 @@ class GmailReceiptsService:
                 "openid",
                 "email",
                 "profile",
-                "https://www.googleapis.com/auth/gmail.readonly",
+                _GMAIL_READONLY_SCOPE,
+                _GMAIL_SEND_SCOPE,
             ]
         )
 
@@ -1078,6 +1081,12 @@ class GmailReceiptsService:
             "redirect_uri": resolved_redirect,
             "expires_at": (_utcnow() + timedelta(minutes=10)).isoformat().replace("+00:00", "Z"),
         }
+
+    @staticmethod
+    def _has_send_permission(row: dict[str, Any] | None) -> bool:
+        if not row:
+            return False
+        return _GMAIL_SEND_SCOPE in set(_clean_text(row.get("scope_csv")).split())
 
     async def _exchange_code(self, *, code: str, redirect_uri: str) -> dict[str, Any]:
         data = {
@@ -1279,6 +1288,9 @@ class GmailReceiptsService:
             "google_email": (_clean_text(row.get("google_email")) or None) if row else None,
             "google_sub": (_clean_text(row.get("google_sub")) or None) if row else None,
             "scope_csv": _clean_text(row.get("scope_csv")) if row else "",
+            "send_permission_granted": connected and self._has_send_permission(row),
+            "send_enabled": _to_bool(row.get("send_enabled"), False) if row else False,
+            "send_toggle_available": bool(row and "send_enabled" in row),
             "last_sync_at": row.get("last_sync_at") if row else None,
             "last_sync_status": _clean_text(row.get("last_sync_status"), "idle") if row else "idle",
             "last_sync_error": (_clean_text(row.get("last_sync_error")) or None) if row else None,
@@ -1577,6 +1589,7 @@ class GmailReceiptsService:
                 SET status = 'disconnected',
                     revoked = TRUE,
                     auto_sync_enabled = FALSE,
+                    send_enabled = FALSE,
                     refresh_token_ciphertext = NULL,
                     refresh_token_iv = NULL,
                     refresh_token_tag = NULL,
@@ -1605,6 +1618,38 @@ class GmailReceiptsService:
             )
 
         logger.info("gmail.disconnect user_id=%s", user_id)
+        return await self.get_status(user_id=user_id)
+
+    async def set_send_enabled(self, *, user_id: str, enabled: bool) -> dict[str, Any]:
+        """Toggle confirmed Gmail delivery without changing Google consent."""
+
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
+        if (
+            not row
+            or _clean_text(row.get("status")) != "connected"
+            or _to_bool(row.get("revoked"), False)
+        ):
+            raise GmailApiError("Connect Gmail before enabling email sending", status_code=409)
+        if not self._has_send_permission(row):
+            raise GmailApiError(
+                "Reconnect Gmail once to grant the combined read and send permission",
+                status_code=409,
+            )
+        if "send_enabled" not in row:
+            raise GmailApiError(
+                "Email sending setup is still updating. Try again once the service update finishes.",
+                status_code=503,
+            )
+        await self._execute_raw_async(
+            """
+            UPDATE kai_gmail_connections
+            SET send_enabled = :enabled,
+                updated_at = NOW()
+            WHERE user_id = :user_id
+            """,
+            {"user_id": user_id, "enabled": enabled},
+        )
+        logger.info("gmail.send_enabled_changed user_id=%s enabled=%s", user_id, enabled)
         return await self.get_status(user_id=user_id)
 
     def _is_connection_sync_active(self, *, user_id: str) -> bool:
@@ -1742,6 +1787,24 @@ class GmailReceiptsService:
         return await get_google_connection_service().access_token(
             user_id=user_id, service="gmail", access_level="read"
         )
+
+    async def send_access_token(self, *, user_id: str) -> str:
+        """Return a token only for an owner-enabled combined Gmail grant."""
+
+        token, row = await self._ensure_access_token(user_id=user_id)
+        if not self._has_send_permission(row):
+            raise GmailApiError(
+                "Gmail sending permission is unavailable. Reconnect Gmail to continue.",
+                status_code=403,
+            )
+        if "send_enabled" not in row:
+            raise GmailApiError(
+                "Email sending setup is still updating. Try again once the service update finishes.",
+                status_code=503,
+            )
+        if not _to_bool(row.get("send_enabled"), False):
+            raise GmailApiError("Email sending is turned off in Gmail settings", status_code=403)
+        return token
 
     def _build_receipt_query(
         self, *, query_since: datetime, query_before: datetime | None = None
