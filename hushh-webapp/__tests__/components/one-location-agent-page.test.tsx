@@ -1570,7 +1570,7 @@ describe("OneLocationAgentPage", () => {
         screen.getByRole("switch", { name: "Turn location on" }),
       ).toHaveAttribute("aria-checked", "false"),
     );
-    expect(screen.getByText("Location paused")).toBeTruthy();
+    expect(screen.getByText("Location off")).toBeTruthy();
     expect(mockRevokeGrant).not.toHaveBeenCalled();
   });
 
@@ -1804,7 +1804,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(
       await screen.findByRole("switch", { name: "Turn location off" }),
     );
-    await waitFor(() => expect(screen.getByText("Location paused")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Location off")).toBeTruthy());
 
     await act(async () => {
       resolveApproval?.({
@@ -1907,7 +1907,7 @@ describe("OneLocationAgentPage", () => {
     });
     fireEvent.click(onSwitch);
     await waitFor(() =>
-      expect(screen.getByText("Location paused")).toBeTruthy(),
+      expect(screen.getByText("Location off")).toBeTruthy(),
     );
 
     // The fix belongs to an intent the person has already replaced. Applying it
@@ -1918,7 +1918,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("switch", { name: "Turn location on" }),
     ).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByText("Location paused")).toBeTruthy();
+    expect(screen.getByText("Location off")).toBeTruthy();
   });
 
   it("pauses the device without waiting on, or first probing, nearby presence", async () => {
@@ -1959,7 +1959,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(onSwitch);
 
     await waitFor(() =>
-      expect(screen.getByText("Location paused")).toBeTruthy(),
+      expect(screen.getByText("Location off")).toBeTruthy(),
     );
     await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalledTimes(1));
     // Still in flight while the device already reads as paused.
