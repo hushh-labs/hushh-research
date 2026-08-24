@@ -281,6 +281,49 @@ describe("AuthService native custom-token continuity", () => {
   });
 });
 
+describe("AuthService.getIdTokenWithRetry", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    mockAuth.currentUser = null;
+  });
+
+  it("returns the token immediately when the session is already restored", async () => {
+    mockAuth.currentUser = {
+      getIdToken: vi.fn().mockResolvedValue("ready-token"),
+    } as any;
+
+    await expect(AuthService.getIdTokenWithRetry()).resolves.toBe(
+      "ready-token",
+    );
+    expect(mockAuth.currentUser.getIdToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries once after a short wait when the session is still restoring", async () => {
+    const getIdToken = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce("restored-token");
+    mockAuth.currentUser = { getIdToken } as any;
+
+    const result = await AuthService.getIdTokenWithRetry({ delayMs: 1 });
+
+    expect(result).toBe("restored-token");
+    expect(getIdToken).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after the bounded retry instead of looping forever", async () => {
+    mockAuth.currentUser = null;
+
+    const result = await AuthService.getIdTokenWithRetry({
+      retries: 1,
+      delayMs: 1,
+    });
+
+    expect(result).toBeNull();
+  });
+});
+
 describe("AuthService.restoreNativeSession", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
@@ -734,6 +777,78 @@ describe("AuthService.restoreNativeSession", () => {
       message: "This phone number is already linked to your account.",
       code: "phone-already-linked-to-current-user",
     });
+  });
+
+  it("normalizes an expired OTP into stable, user-facing copy", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const verifyPhoneNumber = vi.fn().mockResolvedValue("verification-id");
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return { verifyPhoneNumber };
+    });
+    mockAuth.currentUser = { uid: "web-user", phoneNumber: null } as any;
+    vi.mocked(PhoneAuthProvider.credential).mockReturnValue(
+      "phone-credential" as any,
+    );
+    vi.mocked(linkWithCredential).mockRejectedValue({
+      code: "auth/code-expired",
+      message: "Firebase: Error (auth/code-expired).",
+    });
+
+    await expect(
+      AuthService.confirmPhoneLinkVerification({
+        verificationCode: "123456",
+        verificationId: "link-verification-id",
+      }),
+    ).rejects.toMatchObject({
+      code: "code-expired",
+      message: "This verification code has expired. Please request a new code.",
+    });
+  });
+
+  it("normalizes an incorrect OTP into stable, user-facing copy", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    mockAuth.currentUser = { uid: "web-user", phoneNumber: null } as any;
+    vi.mocked(PhoneAuthProvider.credential).mockReturnValue(
+      "phone-credential" as any,
+    );
+    vi.mocked(linkWithCredential).mockRejectedValue({
+      code: "auth/invalid-verification-code",
+      message: "Firebase: Error (auth/invalid-verification-code).",
+    });
+
+    await expect(
+      AuthService.confirmPhoneLinkVerification({
+        verificationCode: "000000",
+        verificationId: "link-verification-id",
+      }),
+    ).rejects.toMatchObject({
+      code: "invalid-verification-code",
+      message:
+        "That verification code is incorrect. Please check the code and try again.",
+    });
+  });
+
+  it("normalizes a raw Firebase error out of getPhoneClaimIdToken instead of leaking it to the UI", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    vi.mocked(PhoneAuthProvider.credential).mockReturnValue(
+      "phone-credential" as any,
+    );
+    vi.mocked(signInWithCredential).mockRejectedValue({
+      code: "auth/code-expired",
+      message: "Firebase: Error (auth/code-expired).",
+    });
+
+    await expect(
+      AuthService.getPhoneClaimIdToken({
+        verificationCode: "123456",
+        verificationId: "claim-verification-id",
+      }),
+    ).rejects.toMatchObject({
+      code: "code-expired",
+      message: "This verification code has expired. Please request a new code.",
+    });
+    // Cleanup must still run even though the sign-in itself failed.
+    expect(firebaseSignOut).toHaveBeenCalledWith(mockPhoneClaimAuth);
   });
 
   it("recognizes UAT phone test verification ids without treating them as local dev ids", () => {
