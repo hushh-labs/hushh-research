@@ -9,7 +9,9 @@ slot for the full hour, so the service could not drain.
 
 These tests drive asyncpg's REAL ``Pool._acquire`` against a genuinely empty
 connection queue — the same starvation the outage hit — and assert it now fails
-fast with a 503 instead of hanging.
+fast. They also pin the three things the deadline must NOT do: cap
+``Pool.release()``, blame pool exhaustion for a connection failure, or bind a
+caller that explicitly asked to wait.
 """
 
 from __future__ import annotations
@@ -21,22 +23,39 @@ import asyncpg
 import pytest
 
 from db.connection import (
+    _DEFAULT_ACQUIRE_TIMEOUT_SECONDS,
     DatabaseUnavailableError,
     _get_acquire_timeout_seconds,
     _install_bounded_acquire,
 )
 
+FAST_DEADLINE = 0.25
 
-class _StarvedPool:
-    """A pool whose every connection is checked out.
 
-    Only what asyncpg's real ``Pool._acquire`` touches: an empty queue it will
-    block on, plus the two guards it checks first. ``_acquire`` is the genuine
-    asyncpg implementation, so the unbounded-wait branch is exercised for real.
+class _Holder:
+    """Stands in for asyncpg's PoolConnectionHolder."""
+
+    def __init__(self, connection: object = "connection", fail: BaseException | None = None):
+        self._connection = connection
+        self._fail = fail
+        self._timeout: float | None = "untouched"  # type: ignore[assignment]
+
+    async def acquire(self):
+        if self._fail is not None:
+            raise self._fail
+        return self._connection
+
+
+class _Pool:
+    """Only what asyncpg's real ``Pool._acquire`` touches.
+
+    ``_acquire`` and ``acquire`` are the genuine asyncpg implementations, so the
+    unbounded-wait branch and the holder bookkeeping are exercised for real.
     """
 
+    _closing = False
+
     def __init__(self) -> None:
-        self._closing = False
         self._queue: asyncio.Queue = asyncio.Queue()  # empty == fully starved
         self.released: list = []
 
@@ -44,20 +63,26 @@ class _StarvedPool:
         return None
 
     async def release(self, connection, *, timeout=None):  # noqa: ARG002
-        """asyncpg's PoolAcquireContext.__aexit__ releases through the pool."""
         self.released.append(connection)
 
     _acquire = asyncpg.pool.Pool._acquire
     acquire = asyncpg.pool.Pool.acquire
 
 
+def _healthy(**kwargs) -> tuple[_Pool, _Holder]:
+    pool = _Pool()
+    holder = _Holder(**kwargs)
+    pool._queue.put_nowait(holder)
+    return pool, holder
+
+
 @pytest.fixture(autouse=True)
-def _fast_timeout(monkeypatch):
+def _fast_deadline(monkeypatch):
     """Keep the suite quick; the mechanism is identical at any deadline."""
-    monkeypatch.setenv("DB_POOL_ACQUIRE_TIMEOUT_SECONDS", "0.25")
+    monkeypatch.setenv("DB_POOL_ACQUIRE_TIMEOUT_SECONDS", str(FAST_DEADLINE))
 
 
-async def _elapsed(coro) -> tuple[BaseException | None, float]:
+async def _outcome(coro) -> tuple[BaseException | None, float]:
     started = time.monotonic()
     try:
         await coro
@@ -66,100 +91,159 @@ async def _elapsed(coro) -> tuple[BaseException | None, float]:
     return None, time.monotonic() - started
 
 
+# --------------------------------------------------------------------------
+# The hang itself
+# --------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
 async def test_starved_pool_raises_instead_of_hanging_async_with():
     """`async with pool.acquire()` must give up, not queue forever."""
-    pool = _StarvedPool()
+    pool = _Pool()
 
     async def _use():
         async with pool.acquire():
             pytest.fail("acquired a connection from a fully starved pool")
 
-    exc, elapsed = await _elapsed(_use())
+    exc, elapsed = await _outcome(_use())
 
     assert isinstance(exc, DatabaseUnavailableError), f"got {exc!r}"
     assert exc.status_code == 503
-    # The whole point: bounded. Before the fix this ran until Cloud Run's 3600s.
+    # The whole point. Before the fix this ran until Cloud Run's 3600s.
     assert elapsed < 5, f"took {elapsed:.2f}s — that is a hang, not a deadline"
 
 
 @pytest.mark.asyncio
 async def test_starved_pool_raises_instead_of_hanging_bare_await():
     """`conn = await pool.acquire()` is used too (ria_iam_service._conn)."""
-    pool = _StarvedPool()
+    pool = _Pool()
 
-    exc, elapsed = await _elapsed(pool.acquire())
+    exc, elapsed = await _outcome(pool.acquire())
 
     assert isinstance(exc, DatabaseUnavailableError), f"got {exc!r}"
-    assert exc.status_code == 503
     assert elapsed < 5, f"took {elapsed:.2f}s — that is a hang, not a deadline"
 
 
 @pytest.mark.asyncio
 async def test_pool_execute_is_bounded_too():
-    """Pool.execute/fetch/fetchval funnel through acquire, so they inherit the bound.
+    """execute/fetch/fetchval funnel through acquire, so they inherit the bound.
 
-    94 call sites in this repo use `pool.execute(...)` directly rather than
-    acquiring first; bounding acquire is what covers them.
+    94 call sites use `pool.execute(...)` directly rather than acquiring first;
+    bounding acquire is what covers them.
     """
-    pool = _StarvedPool()
+    pool = _Pool()
 
-    exc, elapsed = await _elapsed(asyncpg.pool.Pool.execute(pool, "SELECT 1"))
+    exc, elapsed = await _outcome(asyncpg.pool.Pool.execute(pool, "SELECT 1"))
 
     assert isinstance(exc, DatabaseUnavailableError), f"got {exc!r}"
     assert elapsed < 5, f"took {elapsed:.2f}s — that is a hang, not a deadline"
 
 
+# --------------------------------------------------------------------------
+# What the deadline must NOT do
+# --------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
-async def test_an_explicit_caller_timeout_still_wins():
-    """Only the unbounded default is replaced; a caller's own deadline is kept."""
-    pool = _StarvedPool()
+async def test_an_explicit_none_timeout_still_waits():
+    """A background job that must not fail early can opt out with timeout=None.
+
+    api/consent_listener.py needs one connection once, for the life of the
+    process. Failing it early permanently disables consent notifications on that
+    instance, because nothing retries. `timeout=None` has to keep meaning
+    "wait", which is why the wrapper uses a sentinel rather than None.
+    """
+    pool = _Pool()
 
     async def _use():
-        async with pool.acquire(timeout=0.05):
+        async with pool.acquire(timeout=None):
             pytest.fail("acquired a connection from a fully starved pool")
 
-    exc, elapsed = await _elapsed(_use())
+    try:
+        await asyncio.wait_for(_use(), timeout=0.6)
+    except (asyncio.TimeoutError, TimeoutError):
+        pass  # still waiting when we pulled the plug — correct
+    except DatabaseUnavailableError:
+        pytest.fail("timeout=None was overridden; the opt-out does not work")
 
-    assert isinstance(exc, DatabaseUnavailableError)
-    # Honoured the caller's 0.05s rather than the 0.25s env default.
-    assert elapsed < 0.2, f"caller timeout ignored; took {elapsed:.2f}s"
+
+@pytest.mark.asyncio
+async def test_release_budget_is_left_untouched():
+    """The deadline must not leak into Pool.release()'s reset budget.
+
+    asyncpg records the acquire timeout on the holder and reuses it in
+    release() as the budget for Connection.reset(). If our deadline leaked
+    there, an overrunning reset would terminate the connection and force a
+    fresh handshake — churn, exactly when the database is already struggling.
+    """
+    pool, holder = _healthy()
+
+    async with pool.acquire():
+        pass
+
+    assert holder._timeout is None, (
+        f"acquire deadline leaked into the release budget (ch._timeout={holder._timeout!r}); "
+        "Pool.release() would now cap Connection.reset() and terminate on overrun"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_connection_failure_is_not_blamed_on_pool_exhaustion():
+    """A TimeoutError from establishing a connection must surface as itself.
+
+    TimeoutError is a subclass of OSError, and asyncio.TimeoutError IS
+    TimeoutError since 3.11, so a naive except would swallow a Cloud SQL
+    connect timeout and tell an operator to raise DB_POOL_MAX_SIZE — adding
+    connection pressure to an instance that is already failing.
+    """
+    pool, _ = _healthy(fail=TimeoutError("[Errno 60] Operation timed out"))
+
+    async def _use():
+        async with pool.acquire():
+            pytest.fail("should not have acquired")
+
+    exc, elapsed = await _outcome(_use())
+
+    assert isinstance(exc, TimeoutError), f"got {exc!r}"
+    assert not isinstance(exc, DatabaseUnavailableError), (
+        "a connect failure was misreported as pool exhaustion"
+    )
+    assert elapsed < FAST_DEADLINE * 0.9, "should have failed immediately, not at the deadline"
+
+
+# --------------------------------------------------------------------------
+# The happy path must be untouched
+# --------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_a_healthy_pool_still_hands_back_its_connection():
-    """The guardrail must not change the happy path, in either call shape."""
-    sentinel = object()
-
-    class _HealthyPool(_StarvedPool):
-        async def _acquire(self, timeout):  # noqa: ARG002 - signature parity
-            return sentinel
-
-    pool = _HealthyPool()
+    """Both call shapes keep working, and the connection is released."""
+    pool, _ = _healthy()
 
     async with pool.acquire() as conn:
-        assert conn is sentinel
+        assert conn == "connection"
 
     # __aexit__ must delegate, or connections leak until the pool starves again.
-    assert pool.released == [sentinel]
+    assert pool.released == ["connection"]
 
-    assert await pool.acquire() is sentinel
+    pool2, _ = _healthy()
+    assert await pool2.acquire() == "connection"
 
 
 @pytest.mark.asyncio
 async def test_an_error_inside_the_block_still_propagates():
     """__aexit__ must not swallow what the body raised."""
-    sentinel = object()
-
-    class _HealthyPool(_StarvedPool):
-        async def _acquire(self, timeout):  # noqa: ARG002 - signature parity
-            return sentinel
-
-    pool = _HealthyPool()
+    pool, _ = _healthy()
 
     with pytest.raises(ValueError, match="from inside the block"):
         async with pool.acquire():
             raise ValueError("from inside the block")
+
+
+# --------------------------------------------------------------------------
+# The guardrail's own wiring
+# --------------------------------------------------------------------------
 
 
 def test_the_guardrail_is_actually_installed():
@@ -182,10 +266,10 @@ def test_installing_twice_does_not_stack_wrappers():
     ("raw", "expected"),
     [
         ("0.25", 0.25),
-        ("30", 30.0),
-        ("not-a-number", 10.0),  # falls back to the default
-        ("0", 10.0),  # zero would mean "never wait"
-        ("-5", 10.0),  # negative is nonsense
+        ("90", 90.0),
+        ("not-a-number", _DEFAULT_ACQUIRE_TIMEOUT_SECONDS),
+        ("0", _DEFAULT_ACQUIRE_TIMEOUT_SECONDS),
+        ("-5", _DEFAULT_ACQUIRE_TIMEOUT_SECONDS),
     ],
 )
 def test_the_deadline_is_env_tunable_and_rejects_nonsense(monkeypatch, raw, expected):
@@ -193,12 +277,28 @@ def test_the_deadline_is_env_tunable_and_rejects_nonsense(monkeypatch, raw, expe
     assert _get_acquire_timeout_seconds() == expected
 
 
-def test_the_default_stays_under_the_tightest_proxy_timeout(monkeypatch):
-    """A starved pool must surface as a clean 503, not a proxy gateway timeout.
+def test_the_default_clears_the_documented_cold_start_burst(monkeypatch):
+    """The deadline covers establishing a connection, not just waiting for one.
 
-    The Next.js proxy's tightest per-route deadline is 20s; if the pool waited
-    longer than that the caller would see a 500/504 from the proxy instead of
-    the real reason.
+    server.py documents that a burst of first requests after a restart can stall
+    15-30s while additional connections are established to Cloud SQL. Only
+    DB_POOL_MIN_SIZE connections are pre-warmed; the rest are opened lazily
+    inside this deadline. A default at or under that cost would turn every cold
+    start into a 503 storm — and the log would tell the operator to enlarge the
+    pool, which makes it strictly worse.
     """
     monkeypatch.delenv("DB_POOL_ACQUIRE_TIMEOUT_SECONDS", raising=False)
-    assert _get_acquire_timeout_seconds() < 20
+    assert _get_acquire_timeout_seconds() >= 45, (
+        "the default must clear the 15-30s cold-start handshake burst"
+    )
+
+
+def test_the_deadline_is_far_below_the_cloud_run_request_timeout(monkeypatch):
+    """The outage was requests holding a Cloud Run slot for the full 3600s.
+
+    Releasing the slot early is the point; which layer reports the failure is
+    not. The deadline cannot also undercut the proxy's tightest per-route
+    timeouts (10s) without breaking cold starts, so it deliberately does not try.
+    """
+    monkeypatch.delenv("DB_POOL_ACQUIRE_TIMEOUT_SECONDS", raising=False)
+    assert _get_acquire_timeout_seconds() <= 120

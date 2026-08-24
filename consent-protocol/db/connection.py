@@ -39,7 +39,7 @@ import asyncio
 import hashlib
 import logging
 import os
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import quote_plus
 
 import asyncpg
@@ -197,29 +197,62 @@ def _get_pool_int(env_name: str, default: int, *, minimum: int) -> int:
 # clamped hard, and an unbounded wait against a small pool is a hang.
 #
 # On 2026-08-23 that combination took UAT phone verification down for six
-# hours: three connections were held by slow handlers, every later request
-# queued on acquire() with no deadline, and Cloud Run killed each one at its
-# 3600s request timeout while it held a concurrency slot for the full hour.
+# hours: connections were held by slow handlers, every later request queued on
+# acquire() with no deadline, and Cloud Run killed each one at its 3600s
+# request timeout while it held a concurrency slot for the full hour. Nothing
+# could drain.
 #
 # The fix is a deadline. ``Pool.execute()``/``fetch()``/``fetchval()`` and the
 # rest all funnel through ``self.acquire()`` internally, so bounding acquire
 # bounds every one of them from a single place — including any asyncpg method
 # this repo does not call today.
 #
-# A starved pool now raises DatabaseUnavailableError (503) in seconds instead
-# of hanging for an hour. A fast, honest 503 is recoverable; an hour-long hang
-# takes the whole service down with it.
+# Three things this deliberately does NOT do:
+#
+#   1. It does not hand the deadline to asyncpg. ``Pool._acquire`` records its
+#      timeout on the connection holder and ``Pool.release()`` later reuses it
+#      as the budget for ``Connection.reset()``. Passing a deadline down would
+#      silently cap every release too, and a reset that overran would terminate
+#      the connection and force a fresh handshake — churn, exactly when the
+#      database is already struggling. We keep our own deadline out here and
+#      leave asyncpg's release semantics untouched.
+#
+#   2. It does not claim every timeout is pool exhaustion. The wait covers
+#      connection ESTABLISHMENT as well as the queue wait, so a TCP/TLS/auth
+#      timeout to Cloud SQL surfaces here too. Reporting that as "pool
+#      exhausted, raise DB_POOL_MAX_SIZE" would send an operator the wrong way
+#      during a real database outage — and would add connection pressure to an
+#      instance that is already failing. We only claim exhaustion when our own
+#      deadline actually elapsed; anything faster is re-raised untouched so the
+#      real connection error, and local_database_unavailable_hint(), survive.
+#
+#   3. It does not bind callers who must wait. A background job that needs one
+#      connection once, for the life of the process, loses nothing by waiting
+#      and loses everything by failing early. Such callers pass an explicit
+#      ``timeout=None`` and keep asyncpg's original unbounded behaviour.
+#
+# The default is sized above the cold-start cost this repo documents at
+# server.py — a burst of first requests can stall 15-30s while additional
+# connections are established to Cloud SQL on a single vCPU. A deadline under
+# that would turn every cold start into a 503 storm. It is not sized to undercut
+# the proxy's per-route timeouts (the tightest are 10s), because it cannot do
+# both, and not hanging matters far more than which layer reports the failure.
 # ---------------------------------------------------------------------------
 
-_DEFAULT_ACQUIRE_TIMEOUT_SECONDS = 10.0
+_DEFAULT_ACQUIRE_TIMEOUT_SECONDS = 60.0
+
+# Distinguishes "caller said nothing" from "caller explicitly said None".
+# ``acquire(timeout=None)`` has to keep meaning "wait as long as it takes".
+_UNSET: Any = object()
 
 
 def _get_acquire_timeout_seconds() -> float:
-    """Seconds to wait for a free pooled connection before failing fast.
+    """Seconds to wait for a pooled connection before failing fast.
 
-    Tunable via DB_POOL_ACQUIRE_TIMEOUT_SECONDS. The default is deliberately
-    far below the proxy's own per-route timeouts (20s at the tightest) so a
-    starved pool surfaces as a clean 503 rather than a proxy gateway timeout.
+    Tunable via DB_POOL_ACQUIRE_TIMEOUT_SECONDS. The window has to clear the
+    15-30s cold-start handshake burst documented in server.py, because this
+    deadline covers establishing a new connection as well as waiting for a
+    free one.
     """
     raw = os.getenv(
         "DB_POOL_ACQUIRE_TIMEOUT_SECONDS", str(_DEFAULT_ACQUIRE_TIMEOUT_SECONDS)
@@ -243,63 +276,78 @@ def _get_acquire_timeout_seconds() -> float:
     return value
 
 
-def _pool_exhausted_error(timeout: float) -> "DatabaseUnavailableError":
-    """Build the 503 raised when no connection frees up in time."""
+def _pool_exhausted_error(elapsed: float) -> "DatabaseUnavailableError":
+    """Build the 503 raised when our own acquire deadline actually elapsed."""
     logger.warning(
-        "db.pool_acquire_timeout: no free connection within %.1fs "
-        "(DB_POOL_MAX_SIZE=%s, DB_POOL_ACQUIRE_TIMEOUT_SECONDS=%.1f)",
-        timeout,
+        "db.pool_acquire_timeout: no connection available after %.1fs "
+        "(DB_POOL_MAX_SIZE=%s)",
+        elapsed,
         os.getenv("DB_POOL_MAX_SIZE", "<default>"),
-        timeout,
     )
     return DatabaseUnavailableError(
         "The database is busy. Please try again.",
         hint=(
-            f"asyncpg pool exhausted: no connection became free within {timeout:g}s. "
-            "Raise DB_POOL_MAX_SIZE, lower Cloud Run concurrency, or find the handler "
-            "holding a pooled connection across slow network I/O."
+            f"No pooled connection became available within {elapsed:.1f}s. Either the "
+            "pool is too small for the admitted concurrency, or a handler is holding a "
+            "pooled connection across slow network I/O."
         ),
     )
 
 
 class _BoundedAcquireContext:
-    """Wrap asyncpg's PoolAcquireContext so a starved pool fails fast.
+    """Put a deadline on asyncpg's PoolAcquireContext without changing release.
 
     Supports both shapes this repo uses:
         async with pool.acquire() as conn: ...
         conn = await pool.acquire()
     """
 
-    __slots__ = ("_ctx", "_timeout")
+    __slots__ = ("_ctx", "_deadline")
 
-    def __init__(self, ctx, timeout: float) -> None:
+    def __init__(self, ctx: Any, deadline: float) -> None:
         self._ctx = ctx
-        self._timeout = timeout
+        self._deadline = deadline
 
-    async def _acquire(self):
+    async def _guarded(self, awaitable: Any) -> Any:
+        loop = asyncio.get_running_loop()
+        started = loop.time()
         try:
-            return await self._ctx
+            return await asyncio.wait_for(awaitable, timeout=self._deadline)
         except (asyncio.TimeoutError, TimeoutError) as exc:
-            raise _pool_exhausted_error(self._timeout) from exc
+            elapsed = loop.time() - started
+            if elapsed < self._deadline * 0.9:
+                # Something inside timed out well before our deadline — almost
+                # always the connection attempt itself. That is a different
+                # incident with a different fix, so let the real error through.
+                raise
+            raise _pool_exhausted_error(elapsed) from exc
 
-    def __await__(self):
-        return self._acquire().__await__()
+    async def _enter(self) -> Any:
+        return await self._guarded(self._ctx.__aenter__())
 
-    async def __aenter__(self):
-        try:
-            return await self._ctx.__aenter__()
-        except (asyncio.TimeoutError, TimeoutError) as exc:
-            raise _pool_exhausted_error(self._timeout) from exc
+    async def _direct(self) -> Any:
+        return await self._guarded(_await_context(self._ctx))
 
-    async def __aexit__(self, exc_type=None, exc_val=None, exc_tb=None):
+    def __await__(self) -> Any:
+        return self._direct().__await__()
+
+    async def __aenter__(self) -> Any:
+        return await self._enter()
+
+    async def __aexit__(self, exc_type: Any = None, exc_val: Any = None, exc_tb: Any = None) -> Any:
         return await self._ctx.__aexit__(exc_type, exc_val, exc_tb)
 
 
-_ORIGINAL_POOL_ACQUIRE = None
+async def _await_context(ctx: Any) -> Any:
+    """Await a PoolAcquireContext as a coroutine so wait_for can wrap it."""
+    return await ctx
+
+
+_ORIGINAL_POOL_ACQUIRE: Any = None
 
 
 def _install_bounded_acquire() -> None:
-    """Give every asyncpg pool acquire a deadline. Idempotent."""
+    """Give every unqualified asyncpg pool acquire a deadline. Idempotent."""
     global _ORIGINAL_POOL_ACQUIRE
     if _ORIGINAL_POOL_ACQUIRE is not None:
         return
@@ -307,11 +355,15 @@ def _install_bounded_acquire() -> None:
     original = asyncpg.pool.Pool.acquire
     _ORIGINAL_POOL_ACQUIRE = original
 
-    def acquire(self, *, timeout=None):
-        # An explicit timeout from a caller always wins; only the unbounded
-        # default is replaced.
-        effective = _get_acquire_timeout_seconds() if timeout is None else timeout
-        return _BoundedAcquireContext(original(self, timeout=effective), effective)
+    def acquire(self: Any, *, timeout: Any = _UNSET) -> Any:
+        if timeout is not _UNSET:
+            # The caller owns the deadline, including `timeout=None` meaning
+            # "wait as long as it takes" for a background job that must not
+            # fail early.
+            return original(self, timeout=timeout)
+        # timeout=None keeps asyncpg's holder budget untouched, so Pool.release()
+        # keeps its original unbounded reset. Our deadline lives outside.
+        return _BoundedAcquireContext(original(self, timeout=None), _get_acquire_timeout_seconds())
 
     acquire.__doc__ = original.__doc__
     asyncpg.pool.Pool.acquire = acquire
