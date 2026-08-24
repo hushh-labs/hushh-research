@@ -123,4 +123,25 @@ describe("DataTable", () => {
     expect(searchInput.getAttribute("placeholder")).toBe("Search records");
     expect(searchInput.getAttribute("aria-hidden")).toBeNull();
   });
+
+  it("renders an opt-in mobile card list while keeping the desktop table shell", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={makeRows(2)}
+        enableSearch={false}
+        renderMobileCard={(row) => (
+          <article data-testid="mobile-row-card">{row.name}</article>
+        )}
+      />,
+    );
+
+    expect(screen.getAllByTestId("mobile-row-card")).toHaveLength(2);
+    expect(
+      document.querySelector('[data-slot="data-table-mobile-list"]'),
+    ).toBeTruthy();
+    expect(
+      document.querySelector('[data-slot="surface-data-table-shell"]'),
+    ).toHaveClass("hidden", "md:block");
+  });
 });
