@@ -152,6 +152,13 @@ function AppShellFrame({ children }: ProvidersProps) {
   // open inside it. Every Location task flow keeps the shell's back control,
   // breadcrumb and avatar.
   const hidesPersistentChrome = routeLayout.persistentChrome === "none";
+  const locationAction = String(searchParams?.get("action") || "").trim();
+  const focusedLocationSmsFlow =
+    shellPathname === ROUTES.ONE_LOCATION &&
+    (locationAction === "sos" || locationAction === "sms-contacts");
+  const bottomChromeHidden = hidesPersistentChrome || focusedLocationSmsFlow;
+  const effectiveHideCommandBar =
+    chromeState.hideCommandBar || focusedLocationSmsFlow;
   const topShellRouteProfile = useMemo(() => {
     const query = searchParams?.toString() ?? "";
     return resolveTopShellRouteProfile(
@@ -222,13 +229,13 @@ function AppShellFrame({ children }: ProvidersProps) {
           topShellMetrics.contentOffsetMode === "fullscreen-flow"
             ? "fullscreen-flow"
             : "normal",
-        "--bottom-chrome-stack-height": chromeState.hideCommandBar
+        "--bottom-chrome-stack-height": effectiveHideCommandBar
           ? "var(--app-bottom-inset)"
           : "var(--app-bottom-shell-height, calc(var(--app-bottom-inset) + var(--kai-command-fixed-ui)))",
-        "--bottom-chrome-full-height": chromeState.hideCommandBar
+        "--bottom-chrome-full-height": effectiveHideCommandBar
           ? "calc(var(--onboarding-agent-bar-clearance) + var(--bottom-chrome-fade-overscan) + 1.5rem)"
           : "calc(var(--app-bottom-shell-height, calc(var(--app-bottom-inset) + var(--kai-command-fixed-ui))) + var(--bottom-chrome-fade-overscan))",
-        "--bottom-chrome-search-height": chromeState.hideCommandBar
+        "--bottom-chrome-search-height": effectiveHideCommandBar
           ? "calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"
           : "calc(var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift) + var(--kai-command-fixed-ui) + var(--bottom-chrome-fade-overscan))",
         "--bottom-chrome-visual-height": "var(--bottom-chrome-full-height)",
@@ -237,7 +244,7 @@ function AppShellFrame({ children }: ProvidersProps) {
         // of them still render the fixed onboarding Agent Bar. The scroll root
         // owns the clearance for that fixed chrome so feature routes do not
         // need to guess at device safe areas or bar geometry.
-        "--app-scroll-bottom-pad": hidesPersistentChrome
+        "--app-scroll-bottom-pad": bottomChromeHidden
           ? "0px"
           : isRiaRoute(pathname)
             ? "var(--bottom-chrome-stack-height)"
@@ -248,10 +255,10 @@ function AppShellFrame({ children }: ProvidersProps) {
                 : "var(--bottom-chrome-stack-height)",
       }) as CSSProperties,
     [
-      chromeState.hideCommandBar,
+      bottomChromeHidden,
+      effectiveHideCommandBar,
       hideGlobalChrome,
       isPublicStandaloneRoute,
-      hidesPersistentChrome,
       routeLayout.pageTopLocalOffset,
       signedInShellContentOffset.style,
       topShellMetrics.contentOffsetMode,
@@ -279,10 +286,10 @@ function AppShellFrame({ children }: ProvidersProps) {
     isRiaRoute(pathname) || foundationVoiceOnlyChrome;
   const bottomShellModel = {
     ambientEnabled:
-      ambientChromeEnabled && !isFullscreenTopFlow && !hidesPersistentChrome,
+      ambientChromeEnabled && !isFullscreenTopFlow && !bottomChromeHidden,
     navigationHidden:
-      chromeState.hideCommandBar || foundationVoiceOnlyChrome,
-    hidden: hidesPersistentChrome,
+      effectiveHideCommandBar || foundationVoiceOnlyChrome,
+    hidden: bottomChromeHidden,
   };
   // Drive the bottom-chrome hide animation through a CSS variable instead of a
   // render-coupled value. Reading the continuous scroll progress in this root
@@ -300,7 +307,7 @@ function AppShellFrame({ children }: ProvidersProps) {
   useKaiBottomChromeProgressCssVar(
     !chromeState.useOnboardingChrome &&
       !pinnedBottomChrome &&
-      !hidesPersistentChrome,
+      !bottomChromeHidden,
   );
   // Add a root platform class for native-iOS specific CSS hooks.
   useEffect(() => {

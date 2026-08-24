@@ -67,11 +67,9 @@ function oneLocationActionLabel(action: string): string {
     "active-shares": "Active shares",
     "shared-with-me": "Shared with me",
     "needs-review": "Needs my review",
-    // The crumb must match the on-screen title of the flow it names. The SOS
-    // screen's TaskFlowHeader reads "Save my Soul", so the crumb does too — a
-    // crumb saying "Safety" for a screen titled otherwise breaks the trail.
-    sos: "Save my Soul",
-    "sms-contacts": "SMS contacts",
+    // Visible identity stays SMS; implementation identifiers remain `sos`.
+    sos: "SMS",
+    "sms-contacts": "Contacts",
     settings: "Settings",
     privacy: "Settings",
   };
@@ -767,6 +765,22 @@ function resolveTopShellBreadcrumbInner(
       // reached from Settings AND from the middle of an SOS, so it retraces to
       // whichever one opened it (see resolveSmsContactsBackAction).
       const hubView = String(searchParams?.get("view") || "").trim();
+      const smsContactsSource = searchParams?.get("source");
+      if (action === "sms-contacts" && smsContactsSource === "sos") {
+        return {
+          backHref: `${ROUTES.ONE_LOCATION}?action=sos`,
+          width: "profile",
+          align: "center",
+          items: [
+            fromProfile
+              ? { label: "Profile", href: ROUTES.PROFILE }
+              : { label: "One", href: ROUTES.ONE_HOME },
+            { label: "Location", href: ROUTES.ONE_LOCATION },
+            { label: "SMS", href: `${ROUTES.ONE_LOCATION}?action=sos` },
+            { label: "Contacts" },
+          ],
+        };
+      }
       // Name the tab even when it is the default one.
       //
       // Closing a flow used to return to a bare `/one/location`, and the App

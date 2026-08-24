@@ -19,6 +19,7 @@ import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import { startAppGoal } from "@/lib/agent/app-goal-client";
+import { ROUTES } from "@/lib/navigation/routes";
 
 function toBoolean(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value;
@@ -76,6 +77,10 @@ export function KaiCommandBarGlobal() {
     AppBackgroundTaskService.getState()
   );
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
+  const locationAction = String(searchParams?.get("action") || "").trim();
+  const focusedLocationSmsFlow =
+    pathname === ROUTES.ONE_LOCATION &&
+    (locationAction === "sos" || locationAction === "sms-contacts");
   const userId = user?.uid ?? "";
 
   useEffect(() => {
@@ -374,7 +379,7 @@ export function KaiCommandBarGlobal() {
     return null;
   }
 
-  if (chromeState.hideCommandBar || agentWindowOpen) {
+  if (chromeState.hideCommandBar || focusedLocationSmsFlow || agentWindowOpen) {
     return null;
   }
 
