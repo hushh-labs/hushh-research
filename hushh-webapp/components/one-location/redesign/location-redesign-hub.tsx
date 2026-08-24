@@ -36,7 +36,6 @@ import {
   Pencil,
   Send,
   Check,
-  Shield,
   ShieldCheck,
   UserRoundPlus,
   UsersRound,
@@ -48,6 +47,7 @@ import {
   requestRecipientStatus,
   type RequestRecipientStatus,
 } from "@/lib/one-location/request-recipient-status";
+import { isSmsTriggeredGrant } from "@/lib/one-location/notifications";
 import {
   locationApproveActionLabel,
   locationAskPromptLine,
@@ -1345,6 +1345,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             kind={flow}
             vm={vm}
             collapsedGrantIds={collapsedGrantIds}
+            onRequestLocation={() => openFlow("ask")}
             onCollapseGrant={(grantId) =>
               setCollapsedGrantIds((current) => new Set(current).add(grantId))
             }
@@ -2002,6 +2003,7 @@ function LocationDetailFlow({
   vm,
   focusGrantId,
   collapsedGrantIds,
+  onRequestLocation,
   onCollapseGrant,
   onExpandGrant,
 }: {
@@ -2011,6 +2013,7 @@ function LocationDetailFlow({
    * briefly highlight once its card is on screen. */
   focusGrantId?: string | null;
   collapsedGrantIds: Set<string>;
+  onRequestLocation?: () => void;
   onCollapseGrant: (grantId: string) => void;
   onExpandGrant: (grant: OneLocationGrant) => void;
 }) {
@@ -2108,7 +2111,6 @@ function LocationDetailFlow({
   // would re-scroll and re-flash the ring for as long as `grantId` stays in
   // the URL. Instead this fires once per (kind, focusGrantId) and retries
   // briefly on its own if the card isn't in the DOM yet (state still loading).
-  const dangerRole = roleClasses("danger");
   useEffect(() => {
     if (kind !== "shared-with-me" || !focusGrantId) return;
     let cancelled = false;
@@ -2121,16 +2123,24 @@ function LocationDetailFlow({
         return;
       }
       node.scrollIntoView({ behavior: "smooth", block: "center" });
-      node.classList.add("ring-2", dangerRole.border, "ring-offset-2");
+      node.classList.add(
+        "ring-2",
+        "ring-[color:var(--app-accent)]",
+        "ring-offset-2",
+      );
       setTimeout(() => {
-        node.classList.remove("ring-2", dangerRole.border, "ring-offset-2");
+        node.classList.remove(
+          "ring-2",
+          "ring-[color:var(--app-accent)]",
+          "ring-offset-2",
+        );
       }, 2400);
     };
     tryHighlight();
     return () => {
       cancelled = true;
     };
-  }, [kind, focusGrantId, dangerRole.border]);
+  }, [kind, focusGrantId]);
   const copy = {
     "active-shares": {
       title: "Active shares",
@@ -2138,7 +2148,7 @@ function LocationDetailFlow({
     },
     "shared-with-me": {
       title: "Shared with me",
-      description: "Locations people are sharing with you.",
+      description: "People sharing their location with you.",
     },
     "needs-review": {
       title: "Needs my review",
@@ -2259,11 +2269,13 @@ function LocationDetailFlow({
                     statusLine={
                       multiLane
                         ? `${group.grants.length} live shares`
-                        : grant.durationMode === "until_stopped"
-                          ? "Until stopped"
-                          : grant.expiresAt
-                            ? `Access until ${vm.formatDateTime(grant.expiresAt)}`
-                            : "Active"
+                        : (
+                          <ActiveShareMetadata
+                            grant={grant}
+                            formatEndsAt={vm.formatDateTime}
+                            untilStoppedLabel="Until stopped"
+                          />
+                        )
                     }
                     shareLanes={
                       multiLane ? (
@@ -2344,7 +2356,7 @@ function LocationDetailFlow({
                             size="sm"
                             onClick={() => vm.onAskReshare(grant)}
                             disabled={vm.busy === "request"}
-                            className="h-8 rounded-full border-amber-500/30 bg-white/70 px-3 text-[12px] font-semibold text-amber-800 hover:bg-white dark:border-amber-300/25 dark:bg-white/10 dark:text-amber-100 dark:hover:bg-white/15"
+                            className="h-8 rounded-full border-[color:var(--app-warning-border)] bg-[color:var(--app-card-surface-default-solid)]/85 px-3 text-[12px] font-semibold text-[color:var(--app-warning)] hover:bg-[color:var(--app-card-surface-default-solid)]"
                           >
                             {vm.busy === "request" ? (
                               <span
@@ -2368,8 +2380,20 @@ function LocationDetailFlow({
           </div>
         ) : (
           <EmptyState
-            title="Nothing shared with you"
-            description="Ask someone to share."
+            title="No one is sharing with you"
+            description="Ask someone to share their location."
+            action={
+              onRequestLocation ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="rounded-full"
+                  onClick={onRequestLocation}
+                >
+                  Ask for location
+                </Button>
+              ) : null
+            }
           />
         )
       ) : null}
@@ -2517,7 +2541,10 @@ function LocationSettingsFlow({
         ? selectedCircle.name
         : "Choose another scope.";
   const primaryScopeAction = vm.autoApproveRequestsEnabled ? "Save" : "Turn on";
-  const allContactsScope: AutoApproveScope = { kind: "all_contacts" };
+  const allContactsScope = useMemo<AutoApproveScope>(
+    () => ({ kind: "all_contacts" }),
+    [],
+  );
 
   const openScopeSheet = useCallback(() => {
     setDraftScope(vm.autoApproveRequestsEnabled ? activeScope : null);
@@ -2530,9 +2557,12 @@ function LocationSettingsFlow({
         vm.onAutoApproveRequestsChange({ enabled: false, scope: null });
         return;
       }
-      openScopeSheet();
+      vm.onAutoApproveRequestsChange({
+        enabled: true,
+        scope: activeScope ?? allContactsScope,
+      });
     },
-    [openScopeSheet, vm],
+    [activeScope, allContactsScope, vm],
   );
 
   const commitAutoApproveScope = useCallback(() => {
@@ -2563,6 +2593,29 @@ function LocationSettingsFlow({
           chevron
           className="[--settings-row-py:14px]"
           testId="one-location-auto-approve-row"
+        />
+      </SettingsGroup>
+
+      <SettingsGroup title="Location" separatorInset>
+        <SettingsRow
+          title="Pause my location"
+          description={vm.locationPaused ? "Location paused" : "Location on"}
+          trailing={
+            <LocationToggle
+              checked={vm.locationPaused}
+              onChange={(next) => {
+                if (next) {
+                  vm.onHideMyLocation();
+                  return;
+                }
+                vm.onShowMyLocation();
+              }}
+              label="Pause my location"
+              voiceControlId="one-location-updates-toggle"
+            />
+          }
+          className="[--settings-row-py:14px]"
+          testId="one-location-pause-row"
         />
       </SettingsGroup>
 
@@ -2747,13 +2800,31 @@ function ActiveShareAvatar({ name }: { name: string }) {
   );
 }
 
-function ActiveShareMetadata({ grant }: { grant: OneLocationGrant }) {
+function ActiveShareMetadata({
+  grant,
+  formatEndsAt,
+  untilStoppedLabel = "Until you stop",
+}: {
+  grant: OneLocationGrant;
+  formatEndsAt?: (value?: string | null) => string;
+  untilStoppedLabel?: string;
+}) {
+  const sms = isSmsTriggeredGrant(grant);
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5">
+      <span>Active</span>
+      <span aria-hidden="true">·</span>
+      {sms ? (
+        <span className="inline-flex h-[18px] shrink-0 items-center rounded-full bg-[rgba(255,59,48,0.12)] px-1.5 text-[10px] font-semibold leading-none text-[#FF3B30]">
+          SMS
+        </span>
+      ) : null}
       <span className="truncate">{grantLaneLabel(grant)}</span>
       <span aria-hidden="true">·</span>
       {grant.durationMode === "until_stopped" ? (
-        <span className="truncate">Until you stop</span>
+        <span className="truncate">{untilStoppedLabel}</span>
+      ) : formatEndsAt ? (
+        <span className="truncate">{`Access until ${formatEndsAt(grant.expiresAt)}`}</span>
       ) : (
         <ShareCountdownText
           expiresAt={grant.expiresAt}
@@ -2777,7 +2848,7 @@ function StopGrantTextButton({
   return (
     <button
       type="button"
-      className="inline-flex min-h-11 items-center justify-center rounded-full px-2 text-[15px] font-medium leading-[20px] text-[#FF3B30] transition-colors hover:text-[#D70015] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007AFF] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+      className="inline-flex min-h-11 items-center justify-center rounded-full px-2 text-[15px] font-medium leading-[20px] text-[#FF3B30] transition-colors hover:text-[#D70015] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
       onClick={() => onStopGrant(grantId)}
       disabled={stopping}
     >

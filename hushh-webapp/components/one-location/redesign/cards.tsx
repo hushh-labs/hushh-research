@@ -25,7 +25,6 @@ import {
   ShieldCheck,
   User,
   X,
-  Siren,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -375,11 +374,10 @@ export function SharedWithMeCard({
   viewStatus,
   onAskReshare,
   askReshareBusy,
-  isSmsTriggered,
   shareLanes,
 }: {
   name: string;
-  statusLine: string;
+  statusLine: ReactNode;
   onView: () => void;
   onDismiss?: () => void;
   onRecenter?: () => void;
@@ -423,7 +421,6 @@ export function SharedWithMeCard({
   shareLanes?: ReactNode;
 }) {
   const warningRole = roleClasses("warning");
-  const dangerRole = roleClasses("danger");
   const canOpenMap = Boolean(previewExpanded && mapHref);
   const previewRegionId = useId();
   const isPreviewExpanded = Boolean(previewExpanded);
@@ -437,72 +434,16 @@ export function SharedWithMeCard({
   };
 
   return (
-    <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
+    <div className={cn(SUBCARD_SURFACE, "space-y-3 rounded-[18px] p-4 shadow-none")}>
       <div className="flex items-start gap-3">
-        <Avatar initials={initialsFrom(name)} />
+        <Avatar initials={initialsFrom(name)} size={40} />
         <div className="min-w-0 flex-1">
-          {isSmsTriggered ? (
-            // Its own line, not squeezed into the status row: this has to
-            // stay legible next to a long name/status on a narrow screen,
-            // and "prominent" is the whole point of the badge.
-            <span
-              className={cn(
-                "mb-1 inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[12px] font-semibold",
-                dangerRole.tile,
-                dangerRole.border,
-                dangerRole.glyph,
-              )}
-            >
-              <Siren className="h-3 w-3 shrink-0" aria-hidden="true" />
-              Shared via SMS
-            </span>
-          ) : null}
-          <p className="truncate text-base font-semibold text-foreground">
+          <p className="text-[17px] font-medium leading-[22px] text-foreground">
             {name}
           </p>
-          <div className="mt-0.5 flex min-w-0 items-center gap-2">
-            <p className={cn(MUTED_TEXT, "min-w-0 truncate")}>{statusLine}</p>
-            <StatusPill tone="ready" className="shrink-0">
-              Active
-            </StatusPill>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {isPreviewExpanded && onRecenter ? (
-            <ShellActionSurface
-              variant="icon"
-              className="h-11 w-11 sm:h-9 sm:w-9"
-              aria-label={`Recenter map on ${name}'s location`}
-              aria-controls={previewRegionId}
-              title="Recenter map"
-              onClick={onRecenter}
-            >
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            </ShellActionSurface>
-          ) : null}
-          {canTogglePreview ? (
-            <ShellActionSurface
-              variant="icon"
-              className="h-11 w-11 sm:h-9 sm:w-9"
-              aria-label={`${isPreviewExpanded ? "Collapse" : "Expand"} shared location from ${name}`}
-              aria-expanded={isPreviewExpanded}
-              aria-controls={previewRegionId}
-              disabled={viewBusy && !isPreviewExpanded}
-              onClick={togglePreview}
-            >
-              {viewBusy && !isPreviewExpanded ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <ChevronDown
-                  className={cn(
-                    "h-4 w-4 transition-transform duration-200",
-                    isPreviewExpanded && "rotate-180",
-                  )}
-                  aria-hidden="true"
-                />
-              )}
-            </ShellActionSurface>
-          ) : null}
+          <p className={cn(MUTED_TEXT, "mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[13px] leading-[18px]")}>
+            {statusLine}
+          </p>
         </div>
       </div>
       {shareLanes}
@@ -538,7 +479,9 @@ export function SharedWithMeCard({
               className="mt-0.5 h-3.5 w-3.5 shrink-0"
               aria-hidden="true"
             />
-            <span className="min-w-0 break-words">{viewStatus.message}</span>
+            <span className="min-w-0 break-words">
+              Waiting for their first update…
+            </span>
           </p>
         ) : (
           // Five hand-mixed hexes stood here. #ff9f0a is the iOS DARK-mode
@@ -586,18 +529,82 @@ export function SharedWithMeCard({
           </div>
         )
       ) : null}
+      {canTogglePreview ? (
+        <>
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-full text-[15px] font-semibold leading-[20px] text-[color:var(--app-accent)] transition-colors hover:text-[color:var(--app-accent-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-60"
+            aria-label={
+              isPreviewExpanded
+                ? `Collapse shared location from ${name}`
+                : undefined
+            }
+            aria-expanded={isPreviewExpanded}
+            aria-controls={previewRegionId}
+            disabled={viewBusy && !isPreviewExpanded}
+            onClick={togglePreview}
+          >
+            {viewBusy && !isPreviewExpanded ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : null}
+            {isPreviewExpanded ? "Hide map" : "View location"}
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 transition-transform duration-200",
+                isPreviewExpanded && "rotate-180",
+              )}
+              aria-hidden="true"
+            />
+          </button>
+          {!isPreviewExpanded ? (
+            <button
+              type="button"
+              className="sr-only"
+              aria-label={`Expand shared location from ${name}`}
+              aria-expanded={false}
+              aria-controls={previewRegionId}
+              disabled={viewBusy}
+              onClick={togglePreview}
+            >
+              Expand shared location
+            </button>
+          ) : null}
+        </>
+      ) : null}
       <div id={previewRegionId} hidden={!isPreviewExpanded}>
-        {children}
+        <div className="relative overflow-hidden rounded-[14px]">
+          {children}
+          {isPreviewExpanded && onRecenter ? (
+            <ShellActionSurface
+              variant="icon"
+              className="absolute right-2 top-2 z-10 h-11 w-11 bg-[color:var(--app-card-surface-default-solid)]/90 backdrop-blur"
+              aria-label={`Recenter map on ${name}'s location`}
+              aria-controls={previewRegionId}
+              title="Recenter map"
+              onClick={onRecenter}
+            >
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            </ShellActionSurface>
+          ) : null}
+        </div>
       </div>
       {message ? (
-        <p className={cn(MUTED_TEXT, "text-sm")}>{message}</p>
+        <p
+          className={cn(
+            MUTED_TEXT,
+            "rounded-[12px] bg-[color:var(--app-neutral-fill)] px-3 py-2 text-[14px] leading-[19px]",
+          )}
+        >
+          “{message}”
+        </p>
       ) : null}
-      <div className={cn("grid gap-2", onRemove ? "grid-cols-2" : "grid-cols-1")}>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         {canOpenMap ? (
           <Button
             asChild
+            variant="ghost"
             size="sm"
-            className="h-9 rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+            className="h-11 rounded-full px-0 text-[15px] font-semibold text-[color:var(--app-accent)] hover:bg-transparent hover:text-[color:var(--app-accent-deep)]"
           >
             <a
               href={mapHref}
@@ -605,32 +612,21 @@ export function SharedWithMeCard({
               rel="noopener noreferrer"
               aria-label="Open shared location in Google Maps"
             >
-              <MapPin className="mr-1.5 h-3.5 w-3.5" />
-              Open map
+              Open in Maps
+              <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
             </a>
           </Button>
-        ) : (
-          <Button
-            size="sm"
-            onClick={onView}
-            isLoading={viewBusy}
-            className="h-9 rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-          >
-            <MapPin className="mr-1.5 h-3.5 w-3.5" />
-            View location
-          </Button>
-        )}
+        ) : null}
         {onRemove ? (
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
+            type="button"
             onClick={onRemove}
-            isLoading={removeBusy}
+            disabled={removeBusy}
             aria-label={`Remove ${name} from Shared with me`}
-            className="h-9 rounded-full text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
+            className="inline-flex min-h-11 items-center justify-center rounded-full text-[15px] font-medium leading-[20px] text-[#FF3B30] transition-colors hover:text-[#D70015] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
           >
-            Remove
-          </Button>
+            {removeBusy ? "Stopping…" : "Stop viewing"}
+          </button>
         ) : null}
       </div>
     </div>

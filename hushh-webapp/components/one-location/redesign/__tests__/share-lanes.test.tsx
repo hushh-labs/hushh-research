@@ -172,10 +172,10 @@ describe("per-share Stop inside a person's row", () => {
     ).not.toBeDisabled();
   });
 
-  it("says Remove, not Stop, on the receiving side -- and still one per share", () => {
+  it("says Stop viewing on the receiving side -- and still one per share", () => {
     // `revoke_grant` accepts the recipient as well as the owner and records
     // the difference as `recipient_revoke`, so this side really can act. The
-    // card's own single Remove could only ever drop one of two shares, and
+    // card's own single Stop viewing could only ever drop one of two shares, and
     // silently, which is why each share carries its own.
     const onStopGrant = vi.fn();
     const [group] = groupGrantsByCounterpart([sos, ordinary], "recipient");
@@ -188,18 +188,20 @@ describe("per-share Stop inside a person's row", () => {
         onStopGrant={onStopGrant}
       />,
     );
-    expect(screen.queryByRole("button", { name: /^Stop/ })).toBeNull();
+    expect(
+      screen.getAllByRole("button", { name: /^Stop viewing the/ }),
+    ).toHaveLength(2);
     expect(screen.getAllByText("Access until 6:00 PM")).toHaveLength(2);
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Remove the SMS share from Rohan Mehta",
+        name: "Stop viewing the Save My Soul share from Rohan Mehta",
       }),
     );
     expect(onStopGrant).toHaveBeenCalledWith("grant_sos");
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Remove the location share from Rohan Mehta",
+        name: "Stop viewing the location share from Rohan Mehta",
       }),
     );
     expect(onStopGrant).toHaveBeenLastCalledWith("grant_ordinary");
@@ -219,7 +221,7 @@ describe("per-share Stop inside a person's row", () => {
 });
 
 describe("one card per owner in Shared with me", () => {
-  it("carries the SMS badge and both shares behind one name", () => {
+  it("carries both shares behind one name", () => {
     const [group] = groupGrantsByCounterpart([sos, ordinary], "recipient");
     render(
       <SharedWithMeCard
@@ -245,9 +247,7 @@ describe("one card per owner in Shared with me", () => {
 
     // ONE name, not two cards for the same person.
     expect(screen.getAllByText("Rohan Mehta")).toHaveLength(1);
-    // The card badge keeps its compact received-share treatment; the expanded
-    // lane says the product-facing name the owner already knows.
-    expect(screen.getByText("Shared via SMS")).toBeTruthy();
+    expect(screen.queryByText("Shared via SMS")).toBeNull();
     expect(screen.getByText("Save My Soul")).toBeTruthy();
     // Both underlying shares, each with its OWN expiry. A single folded status
     // line could only ever have been right about one of them.
@@ -255,13 +255,13 @@ describe("one card per owner in Shared with me", () => {
     expect(screen.getAllByTestId("one-location-share-lane")).toHaveLength(2);
     expect(screen.getByText("Access until 6:00 PM")).toBeTruthy();
     expect(screen.getByText("Access until 1:30 PM")).toBeTruthy();
-    // One Remove per share, and none at the card level -- a single card-level
-    // Remove standing for two consents could only ever drop one of them.
-    expect(screen.getAllByRole("button", { name: /^Remove the/ })).toHaveLength(
-      2,
-    );
+    // One Stop viewing per share, and none at the card level -- a single
+    // card-level action standing for two consents could only ever drop one.
     expect(
-      screen.queryByRole("button", { name: /Remove Rohan Mehta from/ }),
+      screen.getAllByRole("button", { name: /^Stop viewing the/ }),
+    ).toHaveLength(2);
+    expect(
+      screen.queryByRole("button", { name: /Stop viewing Rohan Mehta/ }),
     ).toBeNull();
   });
 
