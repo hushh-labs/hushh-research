@@ -14,6 +14,10 @@ import { ApiError } from "@/lib/services/api-client";
 // the same ladder, so the test reads the same list the component does.
 import { ROUTES } from "@/lib/navigation/routes";
 
+function openDropdownMenu(trigger: HTMLElement) {
+  fireEvent.keyDown(trigger, { key: "Enter", code: "Enter" });
+}
+
 const {
   mockUseRequireAuth,
   mockUseVault,
@@ -2206,7 +2210,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     fireEvent.change(
-      await screen.findByPlaceholderText("Search trusted people"),
+      await screen.findByPlaceholderText(/Search people/i),
       { target: { value: "Investor" } },
     );
     fireEvent.click(
@@ -2285,7 +2289,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(
-      await screen.findByPlaceholderText("Search trusted people"),
+      await screen.findByPlaceholderText(/Search people/i),
     ).toHaveValue("Investor");
     fireEvent.click(screen.getByRole("button", { name: "Now" }));
     fireEvent.click(screen.getByRole("button", { name: /^Share location$/i }));
@@ -3494,10 +3498,10 @@ describe("OneLocationAgentPage", () => {
     expect(await screen.findByText("Trusted B")).toBeTruthy();
     expect(screen.queryByText(/Request location/)).toBeNull();
     expect(screen.getByText("TB").className).toContain(
-      "bg-[color:var(--app-accent-surface)]",
+      "bg-[#E5E5EA]",
     );
     expect(screen.getByText("TB").className).toContain(
-      "text-[color:var(--app-accent-deep)]",
+      "text-[#6E6E73]",
     );
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
 
@@ -3569,7 +3573,7 @@ describe("OneLocationAgentPage", () => {
     // empty state. Invite button assertions are covered by the empty-state test.
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(
-      await screen.findByPlaceholderText("Search trusted people"),
+      await screen.findByPlaceholderText(/Search people/i),
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", { name: "Pending invites" }),
@@ -4665,6 +4669,7 @@ describe("OneLocationAgentPage", () => {
     // same vm.onStopGrant handler the other two revoke buttons use, and it ends
     // access rather than erasing anything.
     expect(screen.queryByText("Active")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
     const deleteButton = screen.getByRole("button", { name: "Stop" });
     fireEvent.click(deleteButton);
     await waitFor(() =>
@@ -4698,7 +4703,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     await screen.findByRole("heading", { name: "Requests sent" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
@@ -4744,7 +4749,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     await screen.findByRole("heading", { name: "Requests sent" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     // The amount asked for travels with the request, and the grant it
@@ -5262,14 +5267,14 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    // The populated People tab exposes a compact "Find contacts" circle action.
+    // The populated People tab exposes one compact Add action; contact sync is
+    // still the same handler behind that menu.
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(
       await screen.findByRole("button", { name: /Add people/i }),
     ).toBeTruthy();
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Find contacts/i }),
-    );
+    openDropdownMenu(await screen.findByRole("button", { name: /Add people/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Find contacts/i }));
 
     await waitFor(() =>
       expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith({
@@ -5315,9 +5320,8 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole("button", { name: "People" }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Find contacts/i }),
-    );
+    openDropdownMenu(await screen.findByRole("button", { name: /Add people/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Find contacts/i }));
 
     await waitFor(() =>
       expect(mockRequestGoogleContactsToken).toHaveBeenCalled(),
@@ -5334,9 +5338,8 @@ describe("OneLocationAgentPage", () => {
       expect.objectContaining({ result: "error" }),
     );
     // And the button is usable again rather than stuck mid-scan.
-    expect(
-      await screen.findByRole("button", { name: /Find contacts/i }),
-    ).toBeTruthy();
+    openDropdownMenu(await screen.findByRole("button", { name: /Add people/i }));
+    expect(screen.getByRole("menuitem", { name: /Find contacts/i })).toBeTruthy();
   });
 
   it("creates an approval-first invite path for contacts who are not One users", async () => {
@@ -5378,12 +5381,10 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await switchLocationTab("People", "Circles");
 
-    const search = await screen.findByPlaceholderText("Search trusted people");
+    const search = await screen.findByPlaceholderText(/Search people/i);
     const person = await screen.findByText("Trusted B");
-    expect(screen.getByTestId("one-location-people-list")).toHaveClass(
-      "max-h-[50vh]",
+    expect(screen.getByTestId("one-location-people-list")).not.toHaveClass(
       "overflow-y-auto",
-      "overflow-x-hidden",
     );
 
     // The search input used to be separated from its own results by four
@@ -5407,22 +5408,17 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByRole("button", { name: /Share to contacts/i }),
     ).toBeNull();
-    // The three that remain each carry a different weight, so the common one
-    // reads as the default rather than one of four equal choices.
     const addPeople = screen.getByRole("button", { name: /Add people/i });
-    const syncContacts = screen.getByRole("button", {
-      name: /Find contacts/i,
-    });
     expect(addPeople).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Invite$/i })).toBeTruthy();
-    expect(syncContacts).toBeTruthy();
     expect(
-      syncContacts.compareDocumentPosition(search) &
+      addPeople.compareDocumentPosition(search) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    openDropdownMenu(addPeople);
+    expect(screen.getByRole("menuitem", { name: /Find contacts/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /Invite to One/i })).toBeTruthy();
     expect(
-      person.compareDocumentPosition(addPeople) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      screen.getByRole("menuitem", { name: /Manage connections/i }),
     ).toBeTruthy();
     expect(
       screen.getByRole("button", {
@@ -5450,33 +5446,25 @@ describe("OneLocationAgentPage", () => {
       await waitFor(() => expect(mockGetState).toHaveBeenCalled());
       await switchLocationTab("People", "Circles");
 
+      const search = await screen.findByPlaceholderText(/Search people/i);
       const addPeople = screen.getByRole("button", { name: /Add people/i });
-      const search = await screen.findByPlaceholderText(
-        "Search trusted people",
-      );
-      const syncContacts = screen.getByRole("button", {
-        name: /Find contacts/i,
-      });
-      const invite = screen.getByRole("button", { name: /^Invite$/i });
 
-      expect(
-        syncContacts.compareDocumentPosition(invite) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy();
-      expect(
-        invite.compareDocumentPosition(addPeople) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy();
       expect(
         addPeople.compareDocumentPosition(search) &
           Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      openDropdownMenu(addPeople);
+      expect(screen.getByRole("menuitem", { name: /Find contacts/i })).toBeTruthy();
+      expect(screen.getByRole("menuitem", { name: /Invite to One/i })).toBeTruthy();
+      expect(
+        screen.getByRole("menuitem", { name: /Manage connections/i }),
       ).toBeTruthy();
     } finally {
       window.matchMedia = originalMatchMedia;
     }
   });
 
-  it("offers New circle and Join with code beside the circles heading", async () => {
+  it("offers Create Circle and Join with code from the compact Circles add action", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
@@ -5487,18 +5475,18 @@ describe("OneLocationAgentPage", () => {
     const heading = within(section).getByRole("heading", {
       name: "Circles",
     });
-    const create = within(section).getByRole("button", {
-      name: /^New circle$/i,
-    });
-    const join = within(section).getByRole("button", {
-      name: /Join with code/i,
+    const add = within(section).getByRole("button", {
+      name: /^Add Circle$/i,
     });
 
-    // Structural, not "somewhere after": the compact heading row owns both
-    // actions, so a long circle list cannot strand them below the fold.
+    // Structural, not "somewhere after": the compact heading row owns the
+    // single add affordance, so a long circle list cannot strand it below the
+    // fold while Create and Join remain reachable from the same control.
     expect(section.children[0]).toContainElement(heading);
-    expect(section.children[0]).toContainElement(create);
-    expect(section.children[0]).toContainElement(join);
+    expect(section.children[0]).toContainElement(add);
+    openDropdownMenu(add);
+    expect(screen.getByRole("menuitem", { name: "Create Circle" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Join with code" })).toBeTruthy();
   });
 
   it("does not show owner-grant revoke actions in the compact mobile flow", async () => {
@@ -5601,12 +5589,21 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await switchLocationTab("People", "Circles");
-    // Empty state keeps connection management and invite/sync/share actions.
-    // Request-location affordances are populated-state-only, and the redundant
-    // approval explainer must not add another card below these actions.
-    expect(screen.getByRole("button", { name: /Add people/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Invite$/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Find contacts/i })).toBeTruthy();
+    // Empty state keeps a direct Add people CTA, while the header menu keeps
+    // connection management, invite, and sync actions without scattering them.
+    const addPeopleButtons = screen.getAllByRole("button", {
+      name: /Add people/i,
+    });
+    const addPeopleCta = addPeopleButtons.find((button) =>
+      button.textContent?.includes("Add people"),
+    );
+    expect(addPeopleCta).toBeTruthy();
+    openDropdownMenu(addPeopleButtons[0]);
+    expect(screen.getByRole("menuitem", { name: /Find contacts/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /Invite to One/i })).toBeTruthy();
+    expect(
+      screen.getByRole("menuitem", { name: /Manage connections/i }),
+    ).toBeTruthy();
     // "Share to contacts" is deliberately absent: it minted a PUBLIC link,
     // which is the Links tab's job, not a control belonging beside named
     // trusted people.
@@ -5619,7 +5616,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
 
     mockRouterPush.mockClear();
-    fireEvent.click(screen.getByRole("button", { name: /Add people/i }));
+    fireEvent.click(addPeopleCta!);
     expect(mockRouterPush).toHaveBeenCalledWith("/one/connect");
 
     fireEvent.click(screen.getByRole("button", { name: "Links" }));

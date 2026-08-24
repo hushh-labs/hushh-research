@@ -34,6 +34,7 @@ import {
   Loader2,
   MapPin,
   Pencil,
+  Plus,
   Send,
   Check,
   ShieldCheck,
@@ -45,10 +46,12 @@ import {
 
 import {
   requestRecipientStatus,
+  shortAgo,
   type RequestRecipientStatus,
 } from "@/lib/one-location/request-recipient-status";
 import { isSmsTriggeredGrant } from "@/lib/one-location/notifications";
 import {
+  formatLocationDurationLabel,
   locationApproveActionLabel,
   locationAskPromptLine,
 } from "@/lib/one-location/duration-copy";
@@ -59,6 +62,12 @@ import {
 } from "@/lib/one-location/grant-lanes";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -1468,7 +1477,7 @@ const PEOPLE_HEADER_ACTION =
 
 /** People-only grouped surface: compact geometry, shared semantic theme. */
 const PEOPLE_GROUP_SURFACE =
-  "max-h-[50vh] overflow-y-auto overflow-x-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]";
+  "overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]";
 
 function LocationHubPanel({ children }: { children: ReactNode }) {
   return (
@@ -2918,20 +2927,20 @@ function PersonRow({
         !first && "border-t border-[color:var(--app-separator)]",
       )}
     >
-      <div className="flex min-h-[74px] items-center gap-3.5 px-[18px] py-2 sm:min-h-[76px] sm:gap-[18px] sm:px-6">
+      <div className="flex min-h-[62px] items-center gap-3 px-4 py-2 sm:min-h-16 sm:gap-3.5 sm:px-5">
         <div className="relative shrink-0">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[color:var(--app-accent-surface)] text-[14px] font-semibold text-[color:var(--app-accent-deep)]">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]">
             {personInitials(name)}
           </span>
           {active ? (
             <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-success)]" />
           ) : null}
         </div>
-        <div className="min-w-0 flex-1 sm:flex sm:items-baseline sm:gap-3">
-          <p className="truncate text-[17px] font-normal leading-[22px] tracking-[-0.37px] text-foreground">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[17px] font-normal leading-[22px] tracking-[-0.3px] text-foreground">
             {name}
           </p>
-          <p className="truncate text-[14px] leading-[18px] tracking-[-0.22px] text-[color:var(--app-tertiary-label)]">
+          <p className="truncate text-[14px] leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
             {subtitle}
           </p>
         </div>
@@ -2942,6 +2951,70 @@ function PersonRow({
       ) : null}
     </div>
   );
+}
+
+function countdownAsLeft(label: string | null | undefined): string | null {
+  if (!label) return null;
+  if (/^Stops in\s+/i.test(label)) {
+    return `${label.replace(/^Stops in\s+/i, "")} left`;
+  }
+  if (/^Stops\s+/i.test(label)) {
+    return label.replace(/^Stops\s+/i, "Until ");
+  }
+  return label;
+}
+
+function peopleShareStatus(
+  group: OneLocationGrantLaneGroup | null,
+  receiving: boolean,
+  countdownLabel: (value?: string | null) => string,
+  fallback: string,
+): string {
+  if (group && receiving) return "Sharing both ways";
+  if (!group) {
+    return receiving
+      ? "Sharing with you"
+      : fallback === "Ready for private location sharing"
+        ? "Connected"
+        : fallback;
+  }
+  if (group.grants.length > 1) {
+    return `${group.grants.length} active shares`;
+  }
+  const grant = group.primaryGrant;
+  const left =
+    grant.durationMode === "until_stopped"
+      ? "Until you stop"
+      : countdownAsLeft(countdownLabel(grant.expiresAt));
+  const prefix = isSmsTriggeredGrant(grant) ? "Save My Soul" : "You’re sharing";
+  return left ? `${prefix} · ${left}` : prefix;
+}
+
+function requestDurationLabel(request: OneLocationAccessRequest): string {
+  if (request.requestedDurationMode === "until_stopped") {
+    return "Until stopped";
+  }
+  return formatLocationDurationLabel(request.requestedDurationHours);
+}
+
+function sentRequestStatusLine(
+  request: OneLocationAccessRequest,
+  nowMs: number,
+): string {
+  if (/active|approved|shared|granted/i.test(request.status)) {
+    return "Sharing with you";
+  }
+  const requestedAt = request.requestedAt
+    ? Date.parse(request.requestedAt)
+    : Number.NaN;
+  const when = Number.isFinite(requestedAt)
+    ? `Requested ${shortAgo(requestedAt, nowMs)}`
+    : "Requested";
+  const duration = requestDurationLabel(request);
+  if (request.status === "pending") {
+    return duration ? `${when} · ${duration}` : when;
+  }
+  return requestStatusWord(request.status);
 }
 
 function PeopleHub({
@@ -2984,39 +3057,55 @@ function PeopleHub({
     return byUserId;
   }, [vm.activeOwnerGrants]);
   const { expandedLaneUserIds, toggleLaneExpansion } = useExpandedShareLanes();
-  const isDesktopPeopleLayout = useMediaQuery("(min-width: 640px)");
-  const addPeopleAction = (
+  const addPeopleEmptyAction = (
     <Button
       type="button"
       onClick={onAddConnections}
       data-voice-control-id="one-location-add-connections"
-      className={cn(
-        "rounded-full font-semibold",
-        isDesktopPeopleLayout
-          ? "h-10 min-h-10 px-[22px] text-[15px]"
-          : "h-[54px] min-h-[54px] w-full px-6 text-[16px]",
-      )}
+      className="h-11 min-h-11 rounded-full bg-[color:var(--app-accent)] px-6 text-[16px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
     >
       Add people
     </Button>
   );
-  const syncContactsAction = (
-    <Button
-      type="button"
-      variant="link"
-      size="sm"
-      onClick={vm.onSyncContacts}
-      isLoading={vm.busy === "contactSync"}
-      data-voice-control-id="one-location-find-contacts"
-      className={PEOPLE_HEADER_ACTION}
-    >
-      Find contacts
-    </Button>
+  const addConnectionsMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          aria-label="Add people"
+          className="h-11 w-11 rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
+        >
+          <Plus className="h-[21px] w-[21px]" aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-52 rounded-2xl">
+        <DropdownMenuItem
+          onSelect={() => vm.onSyncContacts()}
+          data-voice-control-id="one-location-find-contacts"
+        >
+          Find contacts
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => onInvite()}
+          data-voice-control-id="one-location-action-invite"
+        >
+          Invite to One
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => onAddConnections()}
+          data-voice-control-id="one-location-add-connections"
+        >
+          Manage connections
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   return (
-    <div className="pt-6 sm:pt-[52px]" data-testid="one-location-people-hub">
-      <div className="space-y-10 sm:space-y-[72px]">
+    <div className="pt-5 sm:pt-9" data-testid="one-location-people-hub">
+      <div className="space-y-7 sm:space-y-10">
         <CirclesSection
           circles={vm.circles}
           incomingInvites={vm.incomingCircleMemberInvites}
@@ -3036,7 +3125,7 @@ function PeopleHub({
           onDismissFocusedInvite={onDismissFocusedInvite}
         />
 
-        <div className="space-y-10 sm:space-y-12">
+        <div className="space-y-7 sm:space-y-9">
           <section
             aria-labelledby="one-location-connections-heading"
             className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:gap-x-6"
@@ -3044,36 +3133,13 @@ function PeopleHub({
           >
             <h2
               id="one-location-connections-heading"
-              className="col-start-1 row-start-1 text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-section-label)]"
+              className="col-start-1 row-start-1 text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]"
             >
               Connections
             </h2>
 
-            {isDesktopPeopleLayout ? (
-              <div className="col-start-2 row-start-1 justify-self-end">
-                {syncContactsAction}
-              </div>
-            ) : null}
-
-            {/* The reference omits Invite, but it remains a first-class action.
-                Keeping it quiet preserves the callback without recreating the
-                old banner-like action stack. */}
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              onClick={onInvite}
-              data-voice-control-id="one-location-action-invite"
-              className={cn(
-                PEOPLE_HEADER_ACTION,
-                "col-start-2 row-start-1 justify-self-end text-[color:var(--app-secondary-label)] hover:text-foreground sm:col-start-3",
-              )}
-            >
-              Invite
-            </Button>
-
             <div className="col-start-3 row-start-1 justify-self-end sm:col-start-4">
-              {isDesktopPeopleLayout ? addPeopleAction : syncContactsAction}
+              {addConnectionsMenu}
             </div>
 
             <div
@@ -3088,6 +3154,7 @@ function PeopleHub({
               <PersonSearchInput
                 value={vm.recipientSearch}
                 onChange={vm.setRecipientSearch}
+                placeholder="Search people"
               />
             </div>
 
@@ -3148,21 +3215,24 @@ function PeopleHub({
                         // tint, which is the whole reason "is this the same
                         // person or a different one" is hard to answer here.
                         subtitle={
-                          receiving
-                            ? "Sharing with you"
-                            : vm.recipientSubtitle(r)
+                          peopleShareStatus(
+                            shareGroup,
+                            receiving,
+                            vm.expiresCountdownLabel,
+                            vm.recipientSubtitle(r),
+                          )
                         }
                         active={sharing || receiving}
                         first={i === 0}
                         action={
                           singleGrant ? (
                             <Button
-                              variant="secondary"
+                              variant="ghost"
                               size="sm"
                               onClick={() => vm.onStopGrant(singleGrant.id)}
                               isLoading={vm.revokingGrantId === singleGrant.id}
                               aria-label={`Stop sharing with ${name}`}
-                              className="relative h-9 min-h-9 rounded-full px-4 text-[15px] font-semibold after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] sm:px-5"
+                              className="relative h-9 min-h-9 rounded-full px-2 text-[15px] font-medium text-[#FF3B30] after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] hover:bg-transparent hover:text-[#D70015]"
                             >
                               Stop
                             </Button>
@@ -3175,10 +3245,11 @@ function PeopleHub({
                             />
                           ) : ready ? (
                             <Button
+                              variant="ghost"
                               size="sm"
                               onClick={() => onStartShare(r.userId)}
                               aria-label={`Share with ${name}`}
-                              className="relative h-9 min-h-9 rounded-full bg-[color:var(--app-accent)] px-4 text-[15px] font-semibold text-[color:var(--app-accent-fg)] after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] hover:bg-[color:var(--app-accent-hover)] sm:px-5"
+                              className="relative h-9 min-h-9 rounded-full px-2 text-[15px] font-medium text-[color:var(--app-accent)] after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] hover:bg-transparent hover:text-[color:var(--app-accent-hover)]"
                             >
                               Share
                             </Button>
@@ -3196,8 +3267,8 @@ function PeopleHub({
                     }
                     description={
                       hasSearch
-                        ? "Don't see who you're looking for?"
-                        : "Invite someone to start sharing."
+                        ? "Try another name."
+                        : "Add people to share location privately."
                     }
                     // The first link in a chain that already had its other
                     // two. A name matching nobody here usually belongs to
@@ -3210,29 +3281,25 @@ function PeopleHub({
                     // view once results have scrolled, so the way out belongs
                     // here, where the dead end is.
                     action={
-                      <Button
-                        type="button"
-                        variant="link"
-                        size="sm"
-                        onClick={onAddConnections}
-                        data-voice-control-id="one-location-empty-connect-bridge"
-                        className={PEOPLE_HEADER_ACTION}
-                      >
-                        {hasSearch
-                          ? "Manage connections in Connect →"
-                          : "Add someone in Connect →"}
-                      </Button>
+                      hasSearch ? (
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          onClick={onAddConnections}
+                          data-voice-control-id="one-location-empty-connect-bridge"
+                          className={PEOPLE_HEADER_ACTION}
+                        >
+                          Manage connections
+                        </Button>
+                      ) : (
+                        addPeopleEmptyAction
+                      )
                     }
                   />
                 </div>
               )}
             </div>
-
-            {!isDesktopPeopleLayout ? (
-              <div className="col-span-3 col-start-1 row-start-4 mt-6 w-full">
-                {addPeopleAction}
-              </div>
-            ) : null}
           </section>
 
           {vm.requestedByMe.length ? (
@@ -3253,40 +3320,22 @@ function PeopleHub({
                 return (
                   <div key={request.id}>
                     <SettingsRow
-                      icon={Send}
-                      iconTone="blue"
                       title={ownerLabel}
-                      description={vm.formatDateTime(request.requestedAt)}
+                      description={sentRequestStatusLine(request, vm.nowMs)}
                       trailing={
                         canEdit && grantId ? (
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-9"
-                              onClick={() =>
-                                isEditing
-                                  ? vm.onEditGrantCancel()
-                                  : vm.onEditGrantStart(grantId)
-                              }
-                            >
-                              {isEditing ? "Cancel" : "Edit"}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-9 text-destructive"
-                              onClick={() => vm.onStopGrant(grantId)}
-                              disabled={vm.revokingGrantId === grantId}
-                            >
-                              {/* Same handler as the two "Stop" buttons above
-                                  (vm.onStopGrant). One revocation must not be
-                                  described with two verbs — and "Delete" also
-                                  overstates it: this ends someone's access, it
-                                  does not erase anything. */}
-                              Stop
-                            </Button>
-                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-9 px-2 text-[15px] font-medium text-[color:var(--app-accent)] hover:bg-transparent hover:text-[color:var(--app-accent-hover)]"
+                            onClick={() =>
+                              isEditing
+                                ? vm.onEditGrantCancel()
+                                : vm.onEditGrantStart(grantId)
+                            }
+                          >
+                            {isEditing ? "Done" : "Manage"}
+                          </Button>
                         ) : isLive ? (
                           "Active"
                         ) : request.status === "pending" ? (
@@ -3304,7 +3353,7 @@ function PeopleHub({
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-9 text-destructive"
+                            className="h-9 px-2 text-[15px] font-medium text-[#FF3B30] hover:bg-transparent hover:text-[#D70015]"
                             onClick={() => vm.onWithdrawRequest(request.id)}
                             disabled={vm.withdrawingRequestId === request.id}
                             aria-label={`Take back your request to ${ownerLabel}`}
@@ -3318,7 +3367,7 @@ function PeopleHub({
                       density="compact"
                     />
                     {isEditing && grantId ? (
-                      <div className="space-y-3 px-1 pb-3">
+                      <div className="space-y-3 px-4 pb-4 pt-1 sm:px-5">
                         <DurationSelector
                           value={vm.editGrantDurationHours}
                           onChange={vm.setEditGrantDurationHours}
@@ -3347,6 +3396,15 @@ function PeopleHub({
                             isLoading={vm.savingGrantId === grantId}
                           >
                             Save
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-9 rounded-full px-4 text-sm font-semibold text-[#FF3B30] hover:bg-[#FF3B30]/10 hover:text-[#D70015]"
+                            onClick={() => vm.onStopGrant(grantId)}
+                            disabled={vm.revokingGrantId === grantId}
+                          >
+                            Stop
                           </Button>
                         </div>
                       </div>
