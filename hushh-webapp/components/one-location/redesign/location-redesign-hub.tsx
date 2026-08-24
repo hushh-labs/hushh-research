@@ -1244,7 +1244,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     return (
       <div
         ref={flowContainerRef}
-        className="space-y-6 pb-[calc(72px+env(safe-area-inset-bottom))] sm:pb-[calc(80px+env(safe-area-inset-bottom))]"
+        className="space-y-6 pb-6"
         data-ambient-chrome-ignore
         data-testid="one-location-action-flow"
       >
