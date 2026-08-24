@@ -494,7 +494,7 @@ describe("useLocationChat — action dispatcher", () => {
 
     expect(vi.mocked(OneLocationService.captureCurrentPosition)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(OneLocationService.createPublicInvite)).toHaveBeenCalledWith(
-      expect.objectContaining({ durationHours: 2, locationSnapshot: mockPoint }),
+      expect.objectContaining({ durationHours: 1, locationSnapshot: mockPoint }),
     );
     expect(mockChat).toHaveBeenLastCalledWith(
       expect.objectContaining({

@@ -6510,6 +6510,115 @@
       }
     },
     {
+      "action_id": "location.find_contacts",
+      "surface_id": "one_location",
+      "label": "Find people from my contacts",
+      "aliases": [
+        "find contacts",
+        "check my contacts",
+        "who of my contacts is on hushh",
+        "sync contacts",
+        "scan contacts",
+        "find people i know",
+        "match my contacts"
+      ],
+      "search_keywords": [
+        "contacts",
+        "find",
+        "sync",
+        "match",
+        "people",
+        "phonebook"
+      ],
+      "meaning": "Checks your phone contacts against Hushh accounts and shows which of them are already here. Phone numbers are hashed on your device; your contact list is never stored.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "one-location-find-contacts"
+      },
+      "control_ids": [
+        "one-location-find-contacts"
+      ],
+      "state_exposure": [
+        "matched contact count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.find_contacts",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.find_contacts",
+            "label": "Find people from my contacts",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "location.add_connections",
       "surface_id": "one_location",
       "label": "Add people to share location with",

@@ -20,6 +20,7 @@ describe("One voice preferences", () => {
       requireTapConfirmation: false,
       walkthroughMode: true,
       disabledDomains: [],
+      voiceName: null,
     });
   });
 
@@ -29,12 +30,14 @@ describe("One voice preferences", () => {
       requireTapConfirmation: false,
       walkthroughMode: true,
       disabledDomains: [],
+      voiceName: null,
     });
     expect(readVoicePreferences(undefined)).toEqual({
       voiceEnabled: true,
       requireTapConfirmation: false,
       walkthroughMode: true,
       disabledDomains: [],
+      voiceName: null,
     });
   });
 
@@ -52,6 +55,7 @@ describe("One voice preferences", () => {
       requireTapConfirmation: true,
       walkthroughMode: true,
       disabledDomains: ["location"],
+      voiceName: null,
     });
   });
 
@@ -66,6 +70,7 @@ describe("One voice preferences", () => {
       requireTapConfirmation: false,
       walkthroughMode: true,
       disabledDomains: [],
+      voiceName: null,
     });
   });
 
@@ -136,6 +141,7 @@ describe("One voice preferences", () => {
       requireTapConfirmation: false,
       walkthroughMode: true,
       disabledDomains: [],
+      voiceName: null,
     });
     expect(
       window.localStorage.getItem(`one_voice_preferences_v1:${userId}`),

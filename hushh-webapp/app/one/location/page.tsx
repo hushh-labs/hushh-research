@@ -1116,8 +1116,27 @@ function visibleRecommendationReasons(
     .slice(0, 2);
 }
 
+/**
+ * The one line under a person's name in the People list.
+ *
+ * "In your contacts" wins over everything, and that is the whole point of the
+ * contact scan. It used to lose: `enrichRecipientsWithContactSignal` only
+ * fills `recommendationSummary` when the server left it empty, and for anyone
+ * the server already had something to say about it never did — so a matched
+ * contact was silently reordered up the list by the +8 ranking boost with no
+ * word anywhere explaining why they had moved. The scan's entire visible
+ * output was an unexplained sort.
+ *
+ * Read off `recommendationReasons` rather than the summary, because the reason
+ * is the fact and the summary is prose about it. Nothing is overwritten: the
+ * server's own summary is still there and still used for everyone else.
+ */
 function recipientRecommendationLine(recipient: OneLocationRecipient): string {
+  const contactReason = (recipient.recommendationReasons ?? []).find(
+    (reason) => reason.code === "mobile_contact_signal" && reason.label,
+  );
   return (
+    contactReason?.label ||
     recipient.recommendationSummary ||
     visibleRecommendationReasons(recipient)[0]?.label ||
     (recipient.canReceiveLocation

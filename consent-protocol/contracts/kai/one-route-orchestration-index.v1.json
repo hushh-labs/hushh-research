@@ -2816,6 +2816,7 @@
         "location.decline_request",
         "location.delete_circle",
         "location.delete_saved_location",
+        "location.find_contacts",
         "location.leave_circle",
         "location.open_active_shares",
         "location.open_ask",

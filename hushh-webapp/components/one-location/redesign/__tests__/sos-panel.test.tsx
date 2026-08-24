@@ -117,17 +117,14 @@ describe("SosPanel", () => {
       });
 
       expect(clipboardWriteText).toHaveBeenCalledWith("112");
-      // The "this browser cannot dial" explanation is a toast now, not a
-      // permanent paragraph: it wrapped to four lines in a half-width grid
-      // cell and buried the number it was trying to hand over. It carries the
-      // number, because that is the part you can act on.
+      // The "this browser cannot dial" explanation is a compact toast title,
+      // not a permanent paragraph or stacked toast description: both wrapped
+      // past the number they were trying to hand over on small screens.
       await waitFor(() =>
         expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
-          "112 copied",
+          "112 copied. Call from your phone.",
           expect.objectContaining({
-            description: expect.stringContaining(
-              "Call 112 from your phone now",
-            ),
+            duration: 10_000,
           }),
         ),
       );

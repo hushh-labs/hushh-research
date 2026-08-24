@@ -5235,6 +5235,12 @@ describe("OneLocationAgentPage", () => {
     );
     expect(screen.getByText("Investor D")).toBeTruthy();
     expect(screen.queryByText(/9911|8012|4455/)).toBeNull();
+    // The scan has to SAY why this person moved. `enrichRecipientsWithContactSignal`
+    // only fills `recommendationSummary` when the server left it empty, so for
+    // anyone the server already described the match used to be invisible — the
+    // +8 ranking boost reordered the list and nothing explained it. The reason
+    // now wins the subtitle outright.
+    expect(await screen.findByText("In your contacts")).toBeTruthy();
     expect(mockTrackEvent).toHaveBeenCalledWith(
       "one_location_contact_signal_synced",
       expect.objectContaining({
