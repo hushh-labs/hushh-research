@@ -340,7 +340,7 @@ describe("OnboardingJourneyGuard", () => {
     vi.useRealTimers();
   });
 
-  it("keeps profile recovery reachable after a persistent bootstrap failure", async () => {
+  it("keeps setup recovery reachable after a persistent bootstrap failure", async () => {
     vi.useFakeTimers();
     pathnameValue = "/one";
     window.history.replaceState(null, "", "/one");
@@ -362,8 +362,8 @@ describe("OnboardingJourneyGuard", () => {
     expect(
       screen.getByText("Unable to verify setup progress. Please retry."),
     ).toBeTruthy();
-    fireEvent.click(screen.getByText("Open profile"));
-    expect(push).toHaveBeenCalledWith("/one/profile");
+    fireEvent.click(screen.getByText("Open setup"));
+    expect(push).toHaveBeenCalledWith("/one/setup?return_to=%2Fone");
     view.unmount();
     vi.useRealTimers();
   });
