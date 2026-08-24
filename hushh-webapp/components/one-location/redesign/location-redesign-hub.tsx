@@ -34,6 +34,7 @@ import {
   Loader2,
   MapPin,
   Pencil,
+  Plus,
   Send,
   Check,
   ShieldCheck,
@@ -45,10 +46,12 @@ import {
 
 import {
   requestRecipientStatus,
+  shortAgo,
   type RequestRecipientStatus,
 } from "@/lib/one-location/request-recipient-status";
 import { isSmsTriggeredGrant } from "@/lib/one-location/notifications";
 import {
+  formatLocationDurationLabel,
   locationApproveActionLabel,
   locationAskPromptLine,
 } from "@/lib/one-location/duration-copy";
@@ -59,6 +62,12 @@ import {
 } from "@/lib/one-location/grant-lanes";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -173,7 +182,6 @@ import type {
 } from "@/lib/one-location/emergency-numbers";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
 import { CIRCLE_JOIN_CODE_PARAM } from "@/lib/one-location/circle-join-url";
-import { useMediaQuery } from "@/lib/morphy-ux/use-media-query";
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
@@ -421,7 +429,7 @@ export type LocationHubViewModel = {
   onEditLiveShareDurationCancel: () => void;
   onSaveLiveShareDuration: () => void;
   onCreatePublicInvite: () => void;
-  onCopyPublicInvite: () => void;
+  onCopyPublicInvite: () => boolean | Promise<boolean>;
   onSharePublicInvite: () => void;
   onRevokePublicInvite: (invite: OneLocationPublicInvite) => void;
   onCreateCircleInvite: () => void;
@@ -1236,7 +1244,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     return (
       <div
         ref={flowContainerRef}
-        className="space-y-6 pb-[calc(72px+env(safe-area-inset-bottom))] sm:pb-[calc(80px+env(safe-area-inset-bottom))]"
+        className="space-y-6 pb-6"
         data-ambient-chrome-ignore
         data-testid="one-location-action-flow"
       >
@@ -1468,7 +1476,7 @@ const PEOPLE_HEADER_ACTION =
 
 /** People-only grouped surface: compact geometry, shared semantic theme. */
 const PEOPLE_GROUP_SURFACE =
-  "max-h-[50vh] overflow-y-auto overflow-x-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]";
+  "overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]";
 
 function LocationHubPanel({ children }: { children: ReactNode }) {
   return (
@@ -2918,20 +2926,20 @@ function PersonRow({
         !first && "border-t border-[color:var(--app-separator)]",
       )}
     >
-      <div className="flex min-h-[74px] items-center gap-3.5 px-[18px] py-2 sm:min-h-[76px] sm:gap-[18px] sm:px-6">
+      <div className="flex min-h-[62px] items-center gap-3 px-4 py-2 sm:min-h-16 sm:gap-3.5 sm:px-5">
         <div className="relative shrink-0">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[color:var(--app-accent-surface)] text-[14px] font-semibold text-[color:var(--app-accent-deep)]">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]">
             {personInitials(name)}
           </span>
           {active ? (
             <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-success)]" />
           ) : null}
         </div>
-        <div className="min-w-0 flex-1 sm:flex sm:items-baseline sm:gap-3">
-          <p className="truncate text-[17px] font-normal leading-[22px] tracking-[-0.37px] text-foreground">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[17px] font-normal leading-[22px] tracking-[-0.3px] text-foreground">
             {name}
           </p>
-          <p className="truncate text-[14px] leading-[18px] tracking-[-0.22px] text-[color:var(--app-tertiary-label)]">
+          <p className="truncate text-[14px] leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
             {subtitle}
           </p>
         </div>
@@ -2942,6 +2950,70 @@ function PersonRow({
       ) : null}
     </div>
   );
+}
+
+function countdownAsLeft(label: string | null | undefined): string | null {
+  if (!label) return null;
+  if (/^Stops in\s+/i.test(label)) {
+    return `${label.replace(/^Stops in\s+/i, "")} left`;
+  }
+  if (/^Stops\s+/i.test(label)) {
+    return label.replace(/^Stops\s+/i, "Until ");
+  }
+  return label;
+}
+
+function peopleShareStatus(
+  group: OneLocationGrantLaneGroup | null,
+  receiving: boolean,
+  countdownLabel: (value?: string | null) => string,
+  fallback: string,
+): string {
+  if (group && receiving) return "Sharing both ways";
+  if (!group) {
+    return receiving
+      ? "Sharing with you"
+      : fallback === "Ready for private location sharing"
+        ? "Connected"
+        : fallback;
+  }
+  if (group.grants.length > 1) {
+    return `${group.grants.length} active shares`;
+  }
+  const grant = group.primaryGrant;
+  const left =
+    grant.durationMode === "until_stopped"
+      ? "Until you stop"
+      : countdownAsLeft(countdownLabel(grant.expiresAt));
+  const prefix = isSmsTriggeredGrant(grant) ? "Save My Soul" : "You’re sharing";
+  return left ? `${prefix} · ${left}` : prefix;
+}
+
+function requestDurationLabel(request: OneLocationAccessRequest): string {
+  if (request.requestedDurationMode === "until_stopped") {
+    return "Until stopped";
+  }
+  return formatLocationDurationLabel(request.requestedDurationHours);
+}
+
+function sentRequestStatusLine(
+  request: OneLocationAccessRequest,
+  nowMs: number,
+): string {
+  if (/active|approved|shared|granted/i.test(request.status)) {
+    return "Sharing with you";
+  }
+  const requestedAt = request.requestedAt
+    ? Date.parse(request.requestedAt)
+    : Number.NaN;
+  const when = Number.isFinite(requestedAt)
+    ? `Requested ${shortAgo(requestedAt, nowMs)}`
+    : "Requested";
+  const duration = requestDurationLabel(request);
+  if (request.status === "pending") {
+    return duration ? `${when} · ${duration}` : when;
+  }
+  return requestStatusWord(request.status);
 }
 
 function PeopleHub({
@@ -2984,39 +3056,67 @@ function PeopleHub({
     return byUserId;
   }, [vm.activeOwnerGrants]);
   const { expandedLaneUserIds, toggleLaneExpansion } = useExpandedShareLanes();
-  const isDesktopPeopleLayout = useMediaQuery("(min-width: 640px)");
-  const addPeopleAction = (
+  const addPeopleEmptyAction = (
     <Button
       type="button"
       onClick={onAddConnections}
       data-voice-control-id="one-location-add-connections"
-      className={cn(
-        "rounded-full font-semibold",
-        isDesktopPeopleLayout
-          ? "h-10 min-h-10 px-[22px] text-[15px]"
-          : "h-[54px] min-h-[54px] w-full px-6 text-[16px]",
-      )}
+      className="h-11 min-h-11 rounded-full bg-[color:var(--app-accent)] px-6 text-[16px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
     >
       Add people
     </Button>
   );
-  const syncContactsAction = (
-    <Button
-      type="button"
-      variant="link"
-      size="sm"
-      onClick={vm.onSyncContacts}
-      isLoading={vm.busy === "contactSync"}
-      data-voice-control-id="one-location-find-contacts"
-      className={PEOPLE_HEADER_ACTION}
-    >
-      Find contacts
-    </Button>
+  const addConnectionsMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          aria-label="Add people"
+          className="h-11 w-11 rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
+        >
+          <Plus className="h-[21px] w-[21px]" aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        forceMount
+        className="min-w-52 rounded-2xl"
+      >
+        <DropdownMenuItem
+          aria-busy={vm.busy === "contactSync" || undefined}
+          disabled={vm.busy === "contactSync"}
+          onSelect={(event) => {
+            if (vm.busy === "contactSync") {
+              event.preventDefault();
+              return;
+            }
+            vm.onSyncContacts();
+          }}
+          data-voice-control-id="one-location-find-contacts"
+        >
+          {vm.busy === "contactSync" ? "Finding contacts…" : "Find contacts"}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => onInvite()}
+          data-voice-control-id="one-location-action-invite"
+        >
+          Invite to One
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => onAddConnections()}
+          data-voice-control-id="one-location-add-connections"
+        >
+          Manage connections
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   return (
-    <div className="pt-6 sm:pt-[52px]" data-testid="one-location-people-hub">
-      <div className="space-y-10 sm:space-y-[72px]">
+    <div className="pt-5 sm:pt-9" data-testid="one-location-people-hub">
+      <div className="space-y-7 sm:space-y-10">
         <CirclesSection
           circles={vm.circles}
           incomingInvites={vm.incomingCircleMemberInvites}
@@ -3036,7 +3136,7 @@ function PeopleHub({
           onDismissFocusedInvite={onDismissFocusedInvite}
         />
 
-        <div className="space-y-10 sm:space-y-12">
+        <div className="space-y-7 sm:space-y-9">
           <section
             aria-labelledby="one-location-connections-heading"
             className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:gap-x-6"
@@ -3044,36 +3144,13 @@ function PeopleHub({
           >
             <h2
               id="one-location-connections-heading"
-              className="col-start-1 row-start-1 text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-section-label)]"
+              className="col-start-1 row-start-1 text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]"
             >
               Connections
             </h2>
 
-            {isDesktopPeopleLayout ? (
-              <div className="col-start-2 row-start-1 justify-self-end">
-                {syncContactsAction}
-              </div>
-            ) : null}
-
-            {/* The reference omits Invite, but it remains a first-class action.
-                Keeping it quiet preserves the callback without recreating the
-                old banner-like action stack. */}
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              onClick={onInvite}
-              data-voice-control-id="one-location-action-invite"
-              className={cn(
-                PEOPLE_HEADER_ACTION,
-                "col-start-2 row-start-1 justify-self-end text-[color:var(--app-secondary-label)] hover:text-foreground sm:col-start-3",
-              )}
-            >
-              Invite
-            </Button>
-
             <div className="col-start-3 row-start-1 justify-self-end sm:col-start-4">
-              {isDesktopPeopleLayout ? addPeopleAction : syncContactsAction}
+              {addConnectionsMenu}
             </div>
 
             <div
@@ -3088,6 +3165,7 @@ function PeopleHub({
               <PersonSearchInput
                 value={vm.recipientSearch}
                 onChange={vm.setRecipientSearch}
+                placeholder="Search people"
               />
             </div>
 
@@ -3148,21 +3226,24 @@ function PeopleHub({
                         // tint, which is the whole reason "is this the same
                         // person or a different one" is hard to answer here.
                         subtitle={
-                          receiving
-                            ? "Sharing with you"
-                            : vm.recipientSubtitle(r)
+                          peopleShareStatus(
+                            shareGroup,
+                            receiving,
+                            vm.expiresCountdownLabel,
+                            vm.recipientSubtitle(r),
+                          )
                         }
                         active={sharing || receiving}
                         first={i === 0}
                         action={
                           singleGrant ? (
                             <Button
-                              variant="secondary"
+                              variant="ghost"
                               size="sm"
                               onClick={() => vm.onStopGrant(singleGrant.id)}
                               isLoading={vm.revokingGrantId === singleGrant.id}
                               aria-label={`Stop sharing with ${name}`}
-                              className="relative h-9 min-h-9 rounded-full px-4 text-[15px] font-semibold after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] sm:px-5"
+                              className="relative h-9 min-h-9 rounded-full px-2 text-[15px] font-medium text-[#FF3B30] after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] hover:bg-transparent hover:text-[#D70015]"
                             >
                               Stop
                             </Button>
@@ -3175,10 +3256,11 @@ function PeopleHub({
                             />
                           ) : ready ? (
                             <Button
+                              variant="ghost"
                               size="sm"
                               onClick={() => onStartShare(r.userId)}
                               aria-label={`Share with ${name}`}
-                              className="relative h-9 min-h-9 rounded-full bg-[color:var(--app-accent)] px-4 text-[15px] font-semibold text-[color:var(--app-accent-fg)] after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] hover:bg-[color:var(--app-accent-hover)] sm:px-5"
+                              className="relative h-9 min-h-9 rounded-full px-2 text-[15px] font-medium text-[color:var(--app-accent)] after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] hover:bg-transparent hover:text-[color:var(--app-accent-hover)]"
                             >
                               Share
                             </Button>
@@ -3196,8 +3278,8 @@ function PeopleHub({
                     }
                     description={
                       hasSearch
-                        ? "Don't see who you're looking for?"
-                        : "Invite someone to start sharing."
+                        ? "Try another name."
+                        : "Add people to share location privately."
                     }
                     // The first link in a chain that already had its other
                     // two. A name matching nobody here usually belongs to
@@ -3210,29 +3292,25 @@ function PeopleHub({
                     // view once results have scrolled, so the way out belongs
                     // here, where the dead end is.
                     action={
-                      <Button
-                        type="button"
-                        variant="link"
-                        size="sm"
-                        onClick={onAddConnections}
-                        data-voice-control-id="one-location-empty-connect-bridge"
-                        className={PEOPLE_HEADER_ACTION}
-                      >
-                        {hasSearch
-                          ? "Manage connections in Connect →"
-                          : "Add someone in Connect →"}
-                      </Button>
+                      hasSearch ? (
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          onClick={onAddConnections}
+                          data-voice-control-id="one-location-empty-connect-bridge"
+                          className={PEOPLE_HEADER_ACTION}
+                        >
+                          Manage connections
+                        </Button>
+                      ) : (
+                        addPeopleEmptyAction
+                      )
                     }
                   />
                 </div>
               )}
             </div>
-
-            {!isDesktopPeopleLayout ? (
-              <div className="col-span-3 col-start-1 row-start-4 mt-6 w-full">
-                {addPeopleAction}
-              </div>
-            ) : null}
           </section>
 
           {vm.requestedByMe.length ? (
@@ -3253,40 +3331,22 @@ function PeopleHub({
                 return (
                   <div key={request.id}>
                     <SettingsRow
-                      icon={Send}
-                      iconTone="blue"
                       title={ownerLabel}
-                      description={vm.formatDateTime(request.requestedAt)}
+                      description={sentRequestStatusLine(request, vm.nowMs)}
                       trailing={
                         canEdit && grantId ? (
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-9"
-                              onClick={() =>
-                                isEditing
-                                  ? vm.onEditGrantCancel()
-                                  : vm.onEditGrantStart(grantId)
-                              }
-                            >
-                              {isEditing ? "Cancel" : "Edit"}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-9 text-destructive"
-                              onClick={() => vm.onStopGrant(grantId)}
-                              disabled={vm.revokingGrantId === grantId}
-                            >
-                              {/* Same handler as the two "Stop" buttons above
-                                  (vm.onStopGrant). One revocation must not be
-                                  described with two verbs — and "Delete" also
-                                  overstates it: this ends someone's access, it
-                                  does not erase anything. */}
-                              Stop
-                            </Button>
-                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-9 px-2 text-[15px] font-medium text-[color:var(--app-accent)] hover:bg-transparent hover:text-[color:var(--app-accent-hover)]"
+                            onClick={() =>
+                              isEditing
+                                ? vm.onEditGrantCancel()
+                                : vm.onEditGrantStart(grantId)
+                            }
+                          >
+                            {isEditing ? "Done" : "Manage"}
+                          </Button>
                         ) : isLive ? (
                           "Active"
                         ) : request.status === "pending" ? (
@@ -3304,7 +3364,7 @@ function PeopleHub({
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-9 text-destructive"
+                            className="h-9 px-2 text-[15px] font-medium text-[#FF3B30] hover:bg-transparent hover:text-[#D70015]"
                             onClick={() => vm.onWithdrawRequest(request.id)}
                             disabled={vm.withdrawingRequestId === request.id}
                             aria-label={`Take back your request to ${ownerLabel}`}
@@ -3318,7 +3378,7 @@ function PeopleHub({
                       density="compact"
                     />
                     {isEditing && grantId ? (
-                      <div className="space-y-3 px-1 pb-3">
+                      <div className="space-y-3 px-4 pb-4 pt-1 sm:px-5">
                         <DurationSelector
                           value={vm.editGrantDurationHours}
                           onChange={vm.setEditGrantDurationHours}
@@ -3348,6 +3408,15 @@ function PeopleHub({
                           >
                             Save
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-9 rounded-full px-4 text-sm font-semibold text-[#FF3B30] hover:bg-[#FF3B30]/10 hover:text-[#D70015]"
+                            onClick={() => vm.onStopGrant(grantId)}
+                            disabled={vm.revokingGrantId === grantId}
+                          >
+                            Stop
+                          </Button>
                         </div>
                       </div>
                     ) : null}
@@ -3365,6 +3434,16 @@ function PeopleHub({
 /* =================================================================== */
 /* LINKS HUB                                                            */
 /* =================================================================== */
+
+const PUBLIC_LINK_DURATION_OPTIONS = [
+  { value: "0.5", label: "30 min" },
+  { value: "1", label: "1 hour" },
+] as const;
+
+function publicLinkStatusLabel(label?: string | null): string {
+  if (!label) return "Active";
+  return label.replace(/^Stops in\b/i, "Expires in");
+}
 
 /** One active-link row: tinted icon tile · title · subtitle · Copy (design). */
 function ActiveLinkRow({
@@ -3460,20 +3539,23 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
   return (
     <div className="space-y-4">
       <div className="px-[6px]">
-        <SectionTitle as="h2">Active links</SectionTitle>
+        <SectionTitle as="h2">Temporary link</SectionTitle>
       </div>
 
       {hasLiveLink ? (
         hasShareableLink ? (
           <TemporaryLinkCard
-            title="Live location link"
-            statusLine="Anyone with this link can view you"
+            statusLine={
+              temp
+                ? publicLinkStatusLabel(
+                    vm.expiresCountdownLabel(temp.expiresAt),
+                  )
+                : "Active"
+            }
+            description="Anyone with this link can see your location."
             // No countdown until the row lands: inventing one from the
             // duration that was picked would drift from the expiry the server
             // actually stamped.
-            expiryLabel={
-              temp ? vm.expiresCountdownLabel(temp.expiresAt) : undefined
-            }
             onCopy={vm.onCopyPublicInvite}
             onShare={vm.onSharePublicInvite}
             // Revoking needs the invite's id, which arrives with the row. In
@@ -3492,57 +3574,65 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
           // they are not offered -- but the link is still out there watching,
           // so ending it has to stay reachable. Saying why keeps this from
           // reading as a bug the person should retry.
-          <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
-            <div className="min-w-0">
-              <RowLabel as="p">Live location link</RowLabel>
-              <RowDescription as="p" className="mt-0.5">
-                Made on another device or before an update, so it cannot be
-                shown again here. Stop it to make a new one.
-              </RowDescription>
-            </div>
-            <Button
-              variant="destructive"
-              size="sm"
+          <div className={cn(SUBCARD_SURFACE, "space-y-4 p-5 sm:p-6")}>
+            <p className="text-[15px] leading-5 text-muted-foreground">
+              Active, but the link is unavailable on this device.
+            </p>
+            <button
+              type="button"
               onClick={() => {
                 if (temp) vm.onRevokePublicInvite(temp);
               }}
-              isLoading={vm.busy === "publicRevoke" || !temp}
-              className="h-9 w-full rounded-full text-sm"
+              disabled={vm.busy === "publicRevoke" || !temp}
+              className="min-h-11 w-full text-left text-[15px] font-semibold leading-5 text-[color:var(--app-destructive)] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
             >
-              Stop this link
-            </Button>
+              {vm.busy === "publicRevoke" || !temp ? "Stopping…" : "Stop link"}
+            </button>
           </div>
         )
       ) : (
         // No warning banner above the picker. It said two things the screen
         // already says better: the duration control underneath states exactly
         // how long the link lives, and the card that replaces this whole block
-        // once a link exists carries "Anyone with this link can view you" on
+        // once a link exists carries the concise visibility line on
         // the object it is actually about. An amber panel repeating both, on
         // the one screen whose entire purpose is to create the link, read as a
         // reason not to press the button rather than as information.
-        <div className="space-y-4">
-          <SettingsGroup title="Duration" separatorInset>
-            <SettingsRow
-              title="Link stays live for"
-              description="Anyone holding it can watch until then."
-              stackTrailingOnMobile
-              trailing={
-                <DurationSelector
-                  value={vm.publicLinkDurationHours}
-                  onChange={vm.setPublicLinkDurationHours}
-                  label=""
-                  // Deliberately shorter than the trusted-share durations:
-                  // anyone holding this link can watch, so the public ceiling
-                  // stays at 1 hour.
-                  options={[
-                    { value: "0.5", label: "30 min" },
-                    { value: "1", label: "1 hour" },
-                  ]}
-                />
-              }
-            />
-          </SettingsGroup>
+        <div className={cn(SUBCARD_SURFACE, "space-y-5 p-5 sm:p-6")}>
+          <p className="text-[15px] leading-5 text-muted-foreground">
+            Anyone with this link can see your location until it expires.
+          </p>
+          <div className="space-y-2.5">
+            <p className="text-[15px] font-semibold leading-5 text-foreground">
+              Duration
+            </p>
+            <div
+              className="grid grid-cols-2 gap-2"
+              role="radiogroup"
+              aria-label="Temporary link duration"
+            >
+              {PUBLIC_LINK_DURATION_OPTIONS.map((option) => {
+                const selected = vm.publicLinkDurationHours === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => vm.setPublicLinkDurationHours(option.value)}
+                    className={cn(
+                      "h-11 rounded-[14px] border text-[15px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2",
+                      selected
+                        ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                        : "border-border bg-[color:var(--app-card-surface-compact)] text-foreground hover:bg-[color:var(--app-card-surface-compact)]/80",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           {/* The label changes while it works. This press waits on a device fix
               before it can post anything, so on a cold start it can sit for
               several seconds -- and it used to sit as a bare spinner with the
@@ -3553,7 +3643,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
             onClick={vm.onCreatePublicInvite}
             isLoading={vm.busy === "publicInvite"}
             data-voice-control-id="one-location-action-temp-link"
-            className="h-12 min-h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+            className="h-12 min-h-12 w-full rounded-[15px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
           >
             {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
           </Button>
