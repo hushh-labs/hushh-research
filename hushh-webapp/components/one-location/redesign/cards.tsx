@@ -23,7 +23,6 @@ import {
   RefreshCw,
   Share2,
   ShieldCheck,
-  User,
   X,
 } from "lucide-react";
 
@@ -274,35 +273,43 @@ export function RequestCard({
   const decided = decision !== null;
 
   return (
-    <div className={cn(SUBCARD_SURFACE, "p-4")}>
-      <div className="flex items-center gap-3">
-        <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]">
-          <User className="h-[17px] w-[17px]" strokeWidth={1.9} />
-        </span>
+    <div className={cn(SUBCARD_SURFACE, "p-4 shadow-none")}>
+      <div className="flex items-start gap-3">
+        <Avatar initials={initialsFrom(name)} size={40} />
         <div className="min-w-0 flex-1">
-          <p className="text-[17px] font-normal leading-[22px] text-foreground">
+          <p className="text-[17px] font-semibold leading-[22px] text-foreground">
             {name}
           </p>
-          <p className="mt-0.5 truncate text-[15px] leading-5 text-muted-foreground">
+          <p className="mt-0.5 text-[15px] leading-5 text-muted-foreground">
             {promptLine}
           </p>
         </div>
       </div>
       {reason ? (
-        <p className={cn(MUTED_TEXT, "mt-2.5 rounded-[10px] bg-[color:var(--app-card-surface-compact)] px-2.5 py-1.5")}>
-          {reason}
-        </p>
+        <div className="mt-3 rounded-[12px] bg-[color:var(--app-card-surface-compact)] px-3 py-2.5">
+          <p className="text-[13px] font-medium leading-[18px] text-muted-foreground">
+            Reason
+          </p>
+          <p className="mt-0.5 text-[15px] leading-5 text-foreground">
+            {reason}
+          </p>
+        </div>
       ) : null}
       {decided ? (
         <p
           role="status"
-          className="mt-3.5 flex h-11 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-success)]/12 text-sm font-semibold text-[color:var(--app-success)]"
+          className={cn(
+            "mt-3 inline-flex min-h-8 items-center gap-1.5 rounded-full px-3 text-[14px] font-semibold leading-5",
+            decision === "approved"
+              ? "bg-[color:var(--app-success)]/12 text-[color:var(--app-success)]"
+              : "bg-[color:var(--app-neutral-fill-strong)] text-muted-foreground dark:bg-white/10",
+          )}
         >
-          <ShieldCheck className="h-[17px] w-[17px]" aria-hidden />
+          <ShieldCheck className="h-4 w-4" aria-hidden />
           {decision === "approved" ? "Approved" : "Declined"}
         </p>
       ) : (
-        <div className="mt-3.5 flex gap-2.5">
+        <div className="mt-3.5 grid grid-cols-1 gap-2.5 min-[430px]:grid-cols-[0.82fr_1.18fr]">
           <Button
             onClick={() => {
               if (decided) return;
@@ -312,7 +319,7 @@ export function RequestCard({
             disabled={decided}
             // Deliberately not `isLoading`: the card has already answered. A
             // spinner here would reintroduce the wait it was pressed to remove.
-            className="h-11 flex-1 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+            className="order-1 h-11 rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold leading-5 text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 min-[430px]:order-2"
           >
             {approveLabel}
           </Button>
@@ -323,7 +330,7 @@ export function RequestCard({
               onDecline();
             }}
             disabled={decided}
-            className="h-11 flex-1 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-sm font-semibold text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]/80 dark:bg-white/10"
+            className="order-2 h-11 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[15px] font-semibold leading-5 text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]/80 dark:bg-white/10 min-[430px]:order-1"
           >
             Decline
           </Button>

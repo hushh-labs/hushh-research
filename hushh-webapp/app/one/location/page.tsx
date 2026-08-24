@@ -600,7 +600,7 @@ export const LOCATION_FLOW_LABELS: Readonly<Record<string, string>> = {
   settings: "Location settings",
   "active-shares": "Active shares",
   "shared-with-me": "Shared with me",
-  "needs-review": "Requests to review",
+  "needs-review": "Needs review",
 };
 
 /**

@@ -66,7 +66,7 @@ function oneLocationActionLabel(action: string): string {
     "private-check-in": "Private Check-In",
     "active-shares": "Active shares",
     "shared-with-me": "Shared with me",
-    "needs-review": "Needs my review",
+    "needs-review": "Needs review",
     // Visible identity stays SMS; implementation identifiers remain `sos`.
     sos: "SMS",
     "sms-contacts": "Contacts",

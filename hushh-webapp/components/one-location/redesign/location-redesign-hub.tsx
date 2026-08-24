@@ -2104,25 +2104,41 @@ function LocationDetailFlow({
     //    on the row it belongs to or is ignored.
   }, [kind, reverseGeocodePoint, vm.receivedGrants, vm.decryptedPoints]);
 
-  // Deep link from an SOS notification (?grantId=...) scrolls to and briefly
-  // rings the matching card once it is on screen. Deliberately NOT keyed on
+  // Deep links from Location notifications (?grantId=... or ?requestId=...)
+  // scroll to and briefly ring the matching card once it is on screen.
+  // Deliberately NOT keyed on
   // `vm.receivedGrants`: that array gets a new reference on every live poll
   // (LIVE_VIEW_REFRESH_INTERVAL_MS, ~5s), and re-running this per poll tick
   // would re-scroll and re-flash the ring for as long as `grantId` stays in
   // the URL. Instead this fires once per (kind, focusGrantId) and retries
   // briefly on its own if the card isn't in the DOM yet (state still loading).
   useEffect(() => {
-    if (kind !== "shared-with-me" || !focusGrantId) return;
+    if (
+      (kind !== "shared-with-me" && kind !== "needs-review") ||
+      !focusGrantId
+    ) {
+      return;
+    }
     let cancelled = false;
     let attempts = 0;
     const tryHighlight = () => {
       if (cancelled) return;
-      const node = document.querySelector(`[data-grant-id="${focusGrantId}"]`);
+      const focusAttribute =
+        kind === "needs-review" ? "data-request-id" : "data-grant-id";
+      const node = document.querySelector(
+        `[${focusAttribute}="${focusGrantId}"]`,
+      );
       if (!node) {
         if (attempts++ < 20) setTimeout(tryHighlight, 250);
         return;
       }
-      node.scrollIntoView({ behavior: "smooth", block: "center" });
+      const prefersReducedMotion =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      node.scrollIntoView({
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+        block: "center",
+      });
       node.classList.add(
         "ring-2",
         "ring-[color:var(--app-accent)]",
@@ -2151,15 +2167,15 @@ function LocationDetailFlow({
       description: "People sharing their location with you.",
     },
     "needs-review": {
-      title: "Needs my review",
-      description: "Approve before sharing.",
+      title: "Needs review",
+      description: "Nothing is shared until you approve.",
     },
   }[kind];
 
   return (
     <div className="space-y-5" data-testid={`one-location-${kind}`}>
       <TaskFlowHeader
-        eyebrow="Location"
+        eyebrow={kind === "needs-review" ? undefined : "Location"}
         title={copy.title}
         description={copy.description}
       />
@@ -2401,22 +2417,26 @@ function LocationDetailFlow({
         vm.pendingOwnerRequests.length ? (
           <div className="space-y-3">
             {vm.pendingOwnerRequests.map((request) => (
-              <RequestCard
-                key={request.id}
-                name={vm.requesterLabel(request)}
-                // The amount, and whether it is extra time on a share already
-                // running. Every card used to read "Asks to see your location"
-                // whether the person wanted fifteen minutes or another day.
-                promptLine={locationAskPromptLine(request, vm.nowMs)}
-                reason={request.message ?? undefined}
-                approveLabel={locationApproveActionLabel(request, vm.nowMs)}
-                onApprove={() => vm.onApprove(request)}
-                onDecline={() => vm.onDeny(request.id)}
-              />
+              <div key={request.id} data-request-id={request.id}>
+                <RequestCard
+                  name={vm.requesterLabel(request)}
+                  // The amount, and whether it is extra time on a share already
+                  // running. Every card used to read "Asks to see your location"
+                  // whether the person wanted fifteen minutes or another day.
+                  promptLine={locationAskPromptLine(request, vm.nowMs)}
+                  reason={request.message ?? undefined}
+                  approveLabel={locationApproveActionLabel(request, vm.nowMs)}
+                  onApprove={() => vm.onApprove(request)}
+                  onDecline={() => vm.onDeny(request.id)}
+                />
+              </div>
             ))}
           </div>
         ) : (
-          <EmptyState title="Nothing to review" />
+          <EmptyState
+            title="No requests to review"
+            description="New requests will appear here."
+          />
         )
       ) : null}
     </div>
@@ -2593,29 +2613,6 @@ function LocationSettingsFlow({
           chevron
           className="[--settings-row-py:14px]"
           testId="one-location-auto-approve-row"
-        />
-      </SettingsGroup>
-
-      <SettingsGroup title="Location" separatorInset>
-        <SettingsRow
-          title="Pause my location"
-          description={vm.locationPaused ? "Location paused" : "Location on"}
-          trailing={
-            <LocationToggle
-              checked={vm.locationPaused}
-              onChange={(next) => {
-                if (next) {
-                  vm.onHideMyLocation();
-                  return;
-                }
-                vm.onShowMyLocation();
-              }}
-              label="Pause my location"
-              voiceControlId="one-location-updates-toggle"
-            />
-          }
-          className="[--settings-row-py:14px]"
-          testId="one-location-pause-row"
         />
       </SettingsGroup>
 

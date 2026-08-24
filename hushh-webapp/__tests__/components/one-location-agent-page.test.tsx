@@ -1287,6 +1287,51 @@ describe("OneLocationAgentPage", () => {
     expect(await toneOf("Needs Review")).toBeUndefined();
   });
 
+  it("renders Needs review with compact request cards and clear approval copy", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [],
+      requests: [
+        {
+          id: "request_review",
+          ownerUserId: "user_a",
+          requesterUserId: "user_b",
+          requesterDisplayName: "Trusted B",
+          status: "pending",
+          message: "School pickup",
+          requestedAt: "2026-05-20T07:30:00.000Z",
+          requestedDurationHours: 1,
+          requestedDurationMode: "timed",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Needs my review/i }),
+    );
+
+    const flow = await screen.findByTestId("one-location-needs-review");
+    expect(
+      within(flow).getByRole("heading", { name: "Needs review" }),
+    ).toBeTruthy();
+    expect(
+      within(flow).getByText("Nothing is shared until you approve."),
+    ).toBeTruthy();
+    expect(within(flow).queryByText(/^Location$/)).toBeNull();
+    expect(within(flow).getByText("Trusted B")).toBeTruthy();
+    expect(within(flow).getByText("Reason")).toBeTruthy();
+    expect(within(flow).getByText("School pickup")).toBeTruthy();
+    expect(
+      within(flow).getByRole("button", { name: "Approve 1 hour" }),
+    ).toBeTruthy();
+    expect(within(flow).getByRole("button", { name: "Decline" })).toBeTruthy();
+  });
+
   it("uses one Actions grid, then quiet Activity and More lists", async () => {
     // Now uses one primary share card, then compact Ask/Check-In choices and a
     // distinct SMS row. Generated state and utility destinations stay in list
@@ -1482,7 +1527,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockRevokeGrant).not.toHaveBeenCalled();
   });
 
-  it("keeps the header, Pause setting, and active Nearby presence synchronized", async () => {
+  it("keeps Settings focused on auto approval and Saved Locations", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -1505,104 +1550,25 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow({ expectMain: false });
 
-    const pauseSwitch = await screen.findByRole("switch", {
-      name: "Pause my location",
-    });
+    expect(
+      await screen.findByRole("heading", { name: "Settings" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("region", { name: "Saved Locations" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("switch", { name: "Pause my location" }),
+    ).toBeNull();
+
     const autoApproveSwitch = screen.getByRole("switch", {
       name: "Auto-approve requests",
     });
-    expect(pauseSwitch).toHaveAttribute("aria-checked", "false");
     // Off until asked for: approving a location request is consent, and a
     // default may not give it.
     expect(autoApproveSwitch).toHaveAttribute("aria-checked", "false");
 
     fireEvent.click(autoApproveSwitch);
     expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
-
-    fireEvent.click(pauseSwitch);
-    await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(pauseSwitch).toHaveAttribute("aria-checked", "true"),
-    );
-    expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
-
-    mockCaptureCurrentPosition.mockClear();
-    fireEvent.click(pauseSwitch);
-    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(pauseSwitch).toHaveAttribute("aria-checked", "false"),
-    );
-    expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
-  });
-
-  it("does not claim Location is paused when Nearby checkout fails", async () => {
-    mockGetState.mockResolvedValue({
-      ...locationState(),
-      ownerGrants: [],
-    });
-    mockGetNearbyPresence.mockResolvedValue({
-      presence: {
-        status: "active",
-        audience: "all_opted_in",
-        radiusMeters: 500,
-        allowConnectionRequests: true,
-        consentVersion: "one-location-nearby-presence-v3",
-        checkedInAt: "2026-07-31T00:00:00.000Z",
-        expiresAt: "2026-07-31T01:00:00.000Z",
-        placeLabel: "Event venue",
-      },
-      attendees: [],
-    });
-    mockCheckoutNearby.mockRejectedValue(new Error("checkout unavailable"));
-
-    mockLocationSearchParams("action=settings");
-    render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow({ expectMain: false });
-
-    const pauseSwitch = await screen.findByRole("switch", {
-      name: "Pause my location",
-    });
-    fireEvent.click(pauseSwitch);
-
-    await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalled());
-    // The optimistic toggle reverts a render after the rejection resolves, so
-    // this has to be waited for rather than read on the same tick. It passed
-    // before only because onboarding left fake timers draining behind it.
-    await waitFor(() =>
-      expect(pauseSwitch).toHaveAttribute("aria-checked", "false"),
-    );
-  });
-
-  it("keeps Pause enabled when resuming cannot capture a fresh point", async () => {
-    const { unmount } = render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow();
-    await waitFor(() =>
-      expect(
-        screen.getByRole("switch", { name: "Turn location off" }),
-      ).toHaveAttribute("aria-checked", "true"),
-    );
-
-    fireEvent.click(screen.getByRole("switch", { name: "Turn location off" }));
-    await waitFor(() =>
-      expect(screen.getByText("Location paused")).toBeTruthy(),
-    );
-
-    mockCaptureCurrentPosition.mockClear();
-    mockCaptureCurrentPosition.mockRejectedValue(
-      new Error("fresh location unavailable"),
-    );
-    unmount();
-    mockLocationSearchParams("action=settings");
-    render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow({ expectMain: false });
-
-    const pauseSwitch = await screen.findByRole("switch", {
-      name: "Pause my location",
-    });
-    fireEvent.click(pauseSwitch);
-
-    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
-    expect(pauseSwitch).toHaveAttribute("aria-checked", "true");
   });
 
   it("shows a limited status when the captured point is too approximate for Nearby", async () => {

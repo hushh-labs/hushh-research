@@ -570,8 +570,8 @@ describe("top shell breadcrumbs", () => {
     const cases: Array<[string, string]> = [
       ["check-in", "Check-In"],
       ["private-check-in", "Private Check-In"],
-      // The crumb mirrors the screen's own <h1>, which reads "Save my Soul".
-      ["sos", "Save my Soul"],
+      // Visible identity stays SMS even though the implementation action id is sos.
+      ["sos", "SMS"],
       // NOTE: sms-contacts is deliberately absent from this table — it is the
       // one flow whose back target is not the hub (it retraces to whoever
       // opened it), so its label and back href are asserted separately below.
@@ -585,7 +585,7 @@ describe("top shell breadcrumbs", () => {
       ["privacy", "Settings"],
       ["active-shares", "Active shares"],
       ["shared-with-me", "Shared with me"],
-      ["needs-review", "Needs my review"],
+      ["needs-review", "Needs review"],
     ];
 
     for (const [action, label] of cases) {
