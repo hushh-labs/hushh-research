@@ -1,7 +1,10 @@
 "use client";
 
 import { HushhContacts, type HushhContactsPermissionState } from "@/lib/capacitor";
-import { buildMarketplaceContactLookups } from "@/lib/marketplace/contact-matching";
+import {
+  buildMarketplaceContactLookups,
+  type MarketplaceContactSource,
+} from "@/lib/marketplace/contact-matching";
 import {
   RiaService,
   type MarketplaceContactMatch,
@@ -34,7 +37,7 @@ export type OneLocationContactSignalResult = {
   matchedUserIds: string[];
   totalContacts: number;
   inviteCandidateCount: number;
-  sourcePlatform: "web" | "ios" | "android" | "native";
+  sourcePlatform: "web" | "ios" | "android" | "native" | "google";
   /** Region used to read national-format contact numbers, for diagnostics. */
   region: string | null;
   /**
@@ -88,6 +91,7 @@ export async function syncOneLocationContactSignals({
   contactLimit = 5000,
   matchLimit = 100,
   signal,
+  source,
 }: {
   idToken: string;
   /**
@@ -98,13 +102,30 @@ export async function syncOneLocationContactSignals({
   contactLimit?: number;
   matchLimit?: number;
   signal?: AbortSignal;
+  /**
+   * Where to read contacts from. Omitted means the device address book.
+   *
+   * Supplied for Google Contacts, which is read in the browser through the
+   * People API and is the only contact source available at all on iOS Safari
+   * and on desktop.
+   */
+  source?: MarketplaceContactSource;
 }): Promise<OneLocationContactSignalResult> {
-  await assertContactsReadable();
+  // The device-permission pre-flight applies to the device address book and to
+  // nothing else. `assertContactsReadable` asks the Capacitor plugin whether it
+  // can read, and on a desktop browser the honest answer is `unavailable` —
+  // which is exactly the platform where a Google read is the whole point.
+  // Left in front of an injected source, it would refuse the one case this
+  // exists to serve.
+  if (!source) {
+    await assertContactsReadable();
+  }
 
   const lookupResult = await buildMarketplaceContactLookups({
     limit: contactLimit,
     accountPhoneNumber,
     signal,
+    ...(source ? { source } : {}),
   });
 
   if (lookupResult.lookups.length === 0) {

@@ -108,3 +108,52 @@ describe("describeContactSyncOutcome", () => {
     expect(outcome.title).toBe("1 of the 1 contact you shared is on Hushh");
   });
 });
+
+describe("describeContactSyncOutcome — a Google read is a whole read", () => {
+  // Google Contacts is read in the browser through the People API, so it
+  // returns the entire address book rather than a hand-picked subset. The
+  // partial-read copy and its remedies must not apply to it.
+  const googleBase = {
+    ...base,
+    sourcePlatform: "google" as const,
+    limited: false,
+  };
+
+  it("never offers the remedy that widens a partial read", () => {
+    // "Check more" re-runs the picker. After a Google sync that action would
+    // return the identical set and teach the person the button does nothing.
+    // The web + limited combination is what routes to `pick_more`, and a
+    // Google read is neither.
+    const outcome = describeContactSyncOutcome({
+      ...googleBase,
+      matchedUserIds: ["a"],
+      totalContacts: 200,
+    });
+
+    expect(outcome.remedy).not.toBe("pick_more");
+    expect(outcome.remedy).not.toBe("open_settings");
+  });
+
+  it("does not scope the count to what was shared", () => {
+    // "3 of the 40 contacts you shared" is true of a picker and false of a
+    // whole-address-book read.
+    const outcome = describeContactSyncOutcome({
+      ...googleBase,
+      matchedUserIds: ["a", "b", "c"],
+      totalContacts: 200,
+    });
+
+    expect(outcome.title).toBe("3 people added as a contact signal.");
+    expect(outcome.title).not.toContain("you shared");
+  });
+
+  it("reports an empty Google read without implying a narrowed one", () => {
+    const outcome = describeContactSyncOutcome({
+      ...googleBase,
+      totalContacts: 40,
+    });
+
+    expect(outcome.title).toBe("No One users matched from this contact scan.");
+    expect(outcome.title).not.toContain("you shared");
+  });
+});
