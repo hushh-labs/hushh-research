@@ -864,17 +864,41 @@ export class VaultService {
         console.log("🌐 [VaultService] Using API for checkVault");
         const url = this.getApiUrl(`/api/vault/check?userId=${userId}`);
 
-        const authToken = await this.getFirebaseToken();
-        const headers: HeadersInit = {};
-        if (authToken) {
-          headers["Authorization"] = `Bearer ${authToken}`;
+        // A Firebase session can still be restoring a few frames after a
+        // fresh sign-in. Do not issue an unauthenticated check in that
+        // window -- its 401 is not evidence that no vault exists -- so wait
+        // briefly and retry once before treating the token as genuinely
+        // absent (fail-closed below via VaultAuthSessionNotReadyError).
+        let authToken = await this.getFirebaseToken();
+        if (!authToken) {
+          await this.sleep(400);
+          authToken = await this.getFirebaseToken();
         }
 
-        try {
-          const response = await fetch(url, {
-            headers,
+        const fetchWithToken = (token: string) =>
+          fetch(url, {
+            headers: { Authorization: `Bearer ${token}` },
             signal: AbortSignal.timeout(resolveSlowRequestTimeoutMs(20_000)),
           });
+
+        try {
+          if (!authToken) {
+            throw new VaultAuthSessionNotReadyError();
+          }
+
+          let response = await fetchWithToken(authToken);
+          if (response.status === 401) {
+            // The token we sent may have just expired or not yet reflect a
+            // freshly restored session. Force a refresh and retry exactly
+            // once -- a second 401 after a forced refresh is a genuine auth
+            // failure, not a race, and must fail closed below.
+            const refreshedToken = await AuthService.getIdToken(true).catch(
+              () => null,
+            );
+            if (refreshedToken) {
+              response = await fetchWithToken(refreshedToken);
+            }
+          }
           if (!response.ok) {
             const payload = await response.json().catch(() => undefined);
             const message =
@@ -900,6 +924,9 @@ export class VaultService {
           const data = await response.json();
           hasVault = data.hasVault;
         } catch (error) {
+          if (error instanceof VaultAuthSessionNotReadyError) {
+            throw error;
+          }
           const fallbackHasVault = await this.resolveVaultCheckFallback(userId);
           if (fallbackHasVault === null) {
             console.error("❌ [VaultService] checkVault failed:", error);

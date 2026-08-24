@@ -198,7 +198,6 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
         }
       } catch (error) {
         if (
-          isNativePlatform &&
           error instanceof VaultAuthSessionNotReadyError &&
           nativeVaultCheckAttempt < 2
         ) {
