@@ -142,6 +142,39 @@ describe("describeContactSyncOutcome", () => {
     expect(ios.description).toContain("shared with Hushh");
   });
 
+  it("does not answer a dismissed picker with a result it never had", () => {
+    // `contacts-web.ts` reads an AbortError as an empty read, so closing the
+    // sheet arrives here as limited + zero. The old wording -- "None of the 0
+    // contacts you shared are on Hushh yet" -- is shaped like a finding and
+    // reports one nobody asked for, on the most common way out of the flow.
+    const outcome = describeContactSyncOutcome({
+      ...base,
+      sourcePlatform: "web",
+      limited: true,
+      totalContacts: 0,
+    });
+
+    expect(outcome.title).not.toMatch(/0 contacts/);
+    expect(outcome.title).not.toMatch(/are on Hushh yet/);
+    expect(outcome.title).toBe("No contacts were shared, so nothing was checked.");
+    // Still the remedy that widens the read, because that is the way forward.
+    expect(outcome.remedy).toBe("pick_more");
+  });
+
+  it("says where to widen it when iOS shared nothing at all", () => {
+    const outcome = describeContactSyncOutcome({
+      ...base,
+      sourcePlatform: "ios",
+      limited: true,
+      totalContacts: 0,
+    });
+
+    // Settings, not the picker: on iOS the empty subset is sticky, and
+    // openAppSettings is the only thing that changes it.
+    expect(outcome.remedy).toBe("open_settings");
+    expect(outcome.description).toMatch(/Settings/);
+  });
+
   it("does not claim nobody matched when only a subset was searched", () => {
     const outcome = describeContactSyncOutcome({
       ...base,

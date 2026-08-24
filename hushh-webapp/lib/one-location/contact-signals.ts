@@ -238,6 +238,23 @@ export function describeContactSyncOutcome(
       : "open_settings";
 
   if (result.limited) {
+    // Nothing was shared at all, which is not the same as nothing matching.
+    // The web picker returns exactly this shape when it is dismissed
+    // (`contacts-web.ts` treats an AbortError as an empty read), so closing the
+    // sheet was answered with "None of the 0 contacts you shared are on Hushh
+    // yet" -- a sentence shaped like a result, reporting one that was never
+    // asked for. iOS limited access with nothing selected lands here too.
+    if (result.totalContacts === 0) {
+      return {
+        title: "No contacts were shared, so nothing was checked.",
+        description:
+          remedy === "pick_more"
+            ? "Pick the people you want checked and they will be matched."
+            : "Share contacts with Hushh in Settings to have them checked.",
+        remedy,
+      };
+    }
+
     const scanned = contactsLabel(result.totalContacts);
     return {
       title: matched
