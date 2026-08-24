@@ -33,6 +33,13 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 4. Revoked/expired relationships lose data access immediately.
 5. Every `attr.source_library.*` scope is rejected at discovery, request,
    approval, token validation, export, download, refresh, and public projection.
+6. One Location standing auto-approval revalidates the named contact or Circle
+   relationship at grant mutation time; a stale client snapshot cannot mint a
+   grant after relationship removal.
+7. One Location standing auto-approval rejects pre-existing, partial-rule, and
+   `until_stopped` requests; those remain pending for an explicit owner action.
+8. One Location approval requires explicit `manual` or `automatic` intent;
+   omitted intent and mismatched rule/duration context fail before mutation.
 
 ## Security and Privacy Checks
 

@@ -200,6 +200,7 @@ def test_approval_defaults_to_the_duration_that_was_asked_for() -> None:
     resolved = service.approve_request(
         owner_user_id="user_a",
         request_id=request["id"],
+        approval_mode="manual",
         duration_hours=None,
     )
 
@@ -220,6 +221,7 @@ def test_owner_can_still_grant_less_than_was_asked_for() -> None:
     resolved = service.approve_request(
         owner_user_id="user_a",
         request_id=request["id"],
+        approval_mode="manual",
         duration_hours=0.5,
     )
 
@@ -237,6 +239,7 @@ def test_approval_with_no_duration_anywhere_falls_back_to_one_hour() -> None:
     resolved = service.approve_request(
         owner_user_id="user_a",
         request_id=request["id"],
+        approval_mode="manual",
         duration_hours=None,
     )
 
@@ -261,6 +264,7 @@ def test_approving_extra_time_replaces_the_live_grant_rather_than_stacking() -> 
     resolved = service.approve_request(
         owner_user_id="user_a",
         request_id=request["id"],
+        approval_mode="manual",
         duration_hours=None,
     )
 
@@ -352,7 +356,12 @@ def test_request_events_name_both_parties_for_the_two_sided_feed() -> None:
         requested_duration_hours=3,
         requested_duration_mode="timed",
     )
-    service.approve_request(owner_user_id="user_a", request_id=request["id"], duration_hours=None)
+    service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        approval_mode="manual",
+        duration_hours=None,
+    )
 
     request_events = [
         event

@@ -175,8 +175,8 @@ export function SmsContactsFlow({
 
   return (
     // Renders inside the signed-in shell like every other Location task flow,
-    // so the top bar keeps the single back control, the
-    // "Location > SMS contacts" trail and the profile avatar.
+    // so the top bar keeps the single back control, the SMS trail and the
+    // profile avatar.
     <section data-testid="sms-contacts-screen">
       {/* 430px is a phone, not a layout. Held at every width it left most of a
           tablet or a desktop window as empty grey while the lists below scrolled
@@ -185,8 +185,8 @@ export function SmsContactsFlow({
           lines. */}
       <div className="mx-auto w-full max-w-[430px] md:max-w-[680px] xl:max-w-[720px]">
         <TaskFlowHeader
-          title="SMS contacts"
-          description="Emergency contacts."
+          title="Emergency contacts"
+          description="Choose who receives your Save My Soul alerts."
         />
 
         <SelectedContactsPill

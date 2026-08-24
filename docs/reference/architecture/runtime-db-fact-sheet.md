@@ -75,7 +75,7 @@ that file for the full record; this table is the index.
 | `market_reference_and_cache` | `reference` | `backend-runtime-governance` | `tickers`, `ticker_*`, `renaissance_*`, `kai_market_cache_entries` |
 | `one_action_directive_authority` | `workflow_state` | `backend-agents-operons` | 1 table |
 | `one_email_kyc_workflow` | `workflow_state` | `backend-runtime-governance` | 4 tables |
-| `one_location_agent` | `workflow_state` | `iam-consent-governance` | 13 tables |
+| `one_location_agent` | `workflow_state` | `iam-consent-governance` | 15 tables |
 | `one_location_named_circle_relationships` | `personal_metadata` | `iam-consent-governance` | 3 tables |
 | `pkm_default_available_projection` | `personal_projection` | `vault-pkm-governance` | 1 table |
 | `pkm_encrypted_memory` | `personal_encrypted` | `vault-pkm-governance` | 3 tables |

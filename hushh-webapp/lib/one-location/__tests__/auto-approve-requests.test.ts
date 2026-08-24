@@ -1,6 +1,10 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { selectAutoApprovableRequests } from "@/lib/one-location/auto-approve-requests";
+import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
 import type { OneLocationAccessRequest } from "@/lib/one-location/types";
 
 /**
@@ -11,6 +15,10 @@ import type { OneLocationAccessRequest } from "@/lib/one-location/types";
 
 const ENABLED_AT = "2026-08-14T12:00:00.000Z";
 const ENABLED_AT_MS = Date.parse(ENABLED_AT);
+const PAGE_SOURCE = readFileSync(
+  join(process.cwd(), "app/one/location/page.tsx"),
+  "utf8",
+);
 
 function request(
   overrides: Partial<OneLocationAccessRequest> = {},
@@ -29,6 +37,7 @@ function select(input: {
   pendingRequests?: OneLocationAccessRequest[];
   enabled?: boolean;
   enabledAt?: string | null;
+  scope?: AutoApproveScope | null;
   paused?: boolean;
   alreadyAttemptedIds?: Set<string>;
 }) {
@@ -36,6 +45,7 @@ function select(input: {
     pendingRequests: input.pendingRequests ?? [request()],
     enabled: input.enabled ?? true,
     enabledAt: input.enabledAt === undefined ? ENABLED_AT : input.enabledAt,
+    scope: input.scope === undefined ? { kind: "all_contacts" } : input.scope,
     paused: input.paused ?? false,
     alreadyAttemptedIds: input.alreadyAttemptedIds ?? new Set<string>(),
   });
@@ -44,6 +54,23 @@ function select(input: {
 describe("a request that arrives after the setting is switched on", () => {
   it("is the one case that approves without asking", () => {
     expect(select({}).map((entry) => entry.id)).toEqual(["req_after"]);
+  });
+});
+
+describe("the automatic approval mutation", () => {
+  it("sends only the current server-owned rule version", () => {
+    expect(PAGE_SOURCE).toContain("autoApproveRuleVersion: automatic");
+    expect(PAGE_SOURCE).toContain("autoApprovePreference.ruleVersion");
+    expect(PAGE_SOURCE).not.toContain("autoApproveScope: automatic");
+    expect(PAGE_SOURCE).not.toContain("autoApproveEnabledAt: automatic");
+  });
+
+  it("starts one request at a time and leaves scope enforcement to the server", () => {
+    expect(PAGE_SOURCE).toContain("const [request] = approvable");
+    expect(PAGE_SOURCE).not.toContain("isRequesterInScope");
+    expect(PAGE_SOURCE).toContain("Number.isInteger(autoApprovePreference.ruleVersion)");
+    expect(PAGE_SOURCE).toContain("autoApproveRequestInFlightRef.current");
+    expect(PAGE_SOURCE).not.toContain("for (const request of approvable)");
   });
 });
 
@@ -81,10 +108,30 @@ describe("when the setting is not actually on", () => {
     expect(select({ enabled: false })).toEqual([]);
   });
 
+  it("approves nothing without a scope", () => {
+    expect(select({ scope: null })).toEqual([]);
+  });
+
   it("approves nothing without a readable watermark", () => {
     // A missing or corrupt timestamp must not read as "approve everything".
     expect(select({ enabledAt: null })).toEqual([]);
     expect(select({ enabledAt: "not-a-date" })).toEqual([]);
+  });
+});
+
+describe("scope boundaries", () => {
+  it("schedules an all-contacts candidate for server validation", () => {
+    expect(
+      select({ scope: { kind: "all_contacts" } }).map((entry) => entry.id),
+    ).toEqual(["req_after"]);
+  });
+
+  it("schedules a Circle candidate for server validation", () => {
+    expect(
+      select({
+        scope: { kind: "circle", circleId: "circle_family" },
+      }).map((entry) => entry.id),
+    ).toEqual(["req_after"]);
   });
 });
 
@@ -99,9 +146,7 @@ describe("requests this device has already handled", () => {
   it("never attempts the same one twice", () => {
     // Attempted, not succeeded: one that failed will keep failing, and
     // retrying on every state change would spam the owner with one error.
-    expect(
-      select({ alreadyAttemptedIds: new Set(["req_after"]) }),
-    ).toEqual([]);
+    expect(select({ alreadyAttemptedIds: new Set(["req_after"]) })).toEqual([]);
   });
 });
 
@@ -118,6 +163,18 @@ describe("requests that are no longer open", () => {
     ).toEqual([]);
     expect(
       select({ pendingRequests: [request({ requestedAt: "whenever" })] }),
+    ).toEqual([]);
+  });
+});
+
+describe("open-ended requests", () => {
+  it("keeps ongoing access for an explicit owner decision", () => {
+    expect(
+      select({
+        pendingRequests: [
+          request({ requestedDurationMode: "until_stopped" }),
+        ],
+      }),
     ).toEqual([]);
   });
 });

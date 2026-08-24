@@ -93,6 +93,7 @@ ALTER TABLE one_location_events
       'location_share_expired',
       'location_access_request',
       'location_access_approved',
+      'location_auto_approve_rule_changed',
       'location_access_denied',
       -- The asker taking their own pending request back. Kept identical to
       -- 064's list; the two declarations must agree or a replay accepts or

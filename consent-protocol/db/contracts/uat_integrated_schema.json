@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 168,
+  "expected_migration_version": 170,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -716,6 +716,16 @@
       "error_count",
       "source_errors",
       "metadata"
+    ],
+    "one_location_auto_approve_preferences": [
+      "user_id",
+      "enabled",
+      "scope_kind",
+      "circle_id",
+      "enabled_at",
+      "rule_version",
+      "created_at",
+      "updated_at"
     ],
     "one_location_circle_invites": [
       "id",

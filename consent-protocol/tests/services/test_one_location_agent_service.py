@@ -391,6 +391,124 @@ def test_key_bound_writer_reuses_one_connection_for_nonreturning_statements(
     assert not hasattr(service, "_key_writer_connection")
 
 
+def test_auto_approve_preference_uses_server_time_version_and_audit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+    enabled_at = datetime.now(timezone.utc)
+
+    class Result:
+        def __init__(self, row: dict | None = None) -> None:
+            self.row = row
+
+        def mappings(self):
+            return self
+
+        def first(self) -> dict | None:
+            return self.row
+
+    class Connection:
+        def execute(self, statement, params: dict):
+            sql = str(statement)
+            values = dict(params)
+            calls.append((sql, values))
+            if "INSERT INTO one_location_auto_approve_preferences" in sql:
+                return Result(
+                    {
+                        "enabled": True,
+                        "scope_kind": "all_contacts",
+                        "circle_id": None,
+                        "enabled_at": enabled_at,
+                        "rule_version": 4,
+                        "updated_at": enabled_at,
+                    }
+                )
+            return Result()
+
+    @contextmanager
+    def fake_connection():
+        yield Connection()
+
+    monkeypatch.setattr(
+        one_location_service_module,
+        "get_db_connection",
+        fake_connection,
+    )
+
+    preference = OneLocationAgentService().update_auto_approve_preference(
+        user_id="user_a",
+        enabled=True,
+        scope_kind="all_contacts",
+        circle_id=None,
+    )
+
+    upsert_sql, upsert_params = next(
+        (sql, params)
+        for sql, params in calls
+        if "INSERT INTO one_location_auto_approve_preferences" in sql
+    )
+    assert "CASE WHEN :enabled THEN NOW() ELSE NULL END" in upsert_sql
+    assert "rule_version = one_location_auto_approve_preferences.rule_version + 1" in upsert_sql
+    assert upsert_params == {
+        "user_id": "user_a",
+        "enabled": True,
+        "scope_kind": "all_contacts",
+        "circle_id": None,
+    }
+    _event_sql, event_params = next(
+        (sql, params) for sql, params in calls if "location_auto_approve_rule_changed" in sql
+    )
+    assert json.loads(event_params["metadata_json"]) == {
+        "enabled": True,
+        "scope_kind": "all_contacts",
+        "circle_id": None,
+        "enabled_at": enabled_at.isoformat(),
+        "rule_version": 4,
+    }
+    assert preference["enabled"] is True
+    assert preference["ruleVersion"] == 4
+
+
+def test_auto_approve_preference_rejects_a_circle_the_owner_did_not_create(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class Result:
+        def mappings(self):
+            return self
+
+        def first(self):
+            return None
+
+    class Connection:
+        def execute(self, statement, _params: dict):
+            calls.append(str(statement))
+            return Result()
+
+    @contextmanager
+    def fake_connection():
+        yield Connection()
+
+    monkeypatch.setattr(
+        one_location_service_module,
+        "get_db_connection",
+        fake_connection,
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        OneLocationAgentService().update_auto_approve_preference(
+            user_id="user_a",
+            enabled=True,
+            scope_kind="circle",
+            circle_id="550e8400-e29b-41d4-a716-446655440000",
+        )
+
+    assert error.value.code == "LOCATION_AUTO_APPROVE_SCOPE_INVALID"
+    assert any("owner_user_id = :user_id" in sql for sql in calls)
+    assert not any("INSERT INTO one_location_auto_approve_preferences" in sql for sql in calls)
+
+
 def test_atomic_private_share_commits_grant_envelope_and_events_together() -> None:
     service = AtomicPrivateShareProbe()
     confirmed_at = datetime.now(timezone.utc)
@@ -912,6 +1030,59 @@ class FourUserMemoryService(OneLocationAgentService):
         self.consent_audit_rows: list[dict] = []
         self.marketplace_profiles: dict[str, dict] = {}
         self.persona_states: dict[str, dict] = {}
+        self.auto_approve_preferences: dict[str, dict] = {}
+
+    def _seed_auto_approve_preference(
+        self,
+        *,
+        user_id: str = "user_a",
+        enabled: bool = True,
+        scope_kind: str = "all_contacts",
+        circle_id: str | None = None,
+        enabled_at: datetime | None = None,
+        rule_version: int = 1,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        self.auto_approve_preferences[user_id] = {
+            "user_id": user_id,
+            "enabled": enabled,
+            "scope_kind": scope_kind if enabled else None,
+            "circle_id": circle_id if enabled else None,
+            "enabled_at": enabled_at or (now - timedelta(minutes=1)),
+            "rule_version": rule_version,
+            "updated_at": now,
+        }
+
+    def _lock_current_auto_approve_preference(
+        self,
+        *,
+        user_id: str,
+        expected_rule_version: int,
+    ) -> dict:
+        row = self.auto_approve_preferences.get(user_id)
+        if (
+            not row
+            or not bool(row.get("enabled"))
+            or int(row.get("rule_version") or 0) != int(expected_rule_version)
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_RULE_STALE",
+                "Auto-approve changed. Review this request.",
+                status_code=409,
+            )
+        scope_kind = str(row.get("scope_kind") or "")
+        circle_id = str(row.get("circle_id") or "") or None
+        if (
+            scope_kind not in {"all_contacts", "circle"}
+            or row.get("enabled_at") is None
+            or (scope_kind == "circle") != bool(circle_id)
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_RULE_INVALID",
+                "Auto-approve is unavailable. Review this request.",
+                status_code=409,
+            )
+        return dict(row)
 
     def _seed_connection(self, owner: str, other: str, *, status: str = "active") -> None:
         a, b = sorted((owner, other))
@@ -1608,6 +1779,9 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
         params = params or {}
+        if "FROM one_location_auto_approve_preferences" in sql:
+            row = self.auto_approve_preferences.get(str(params.get("user_id") or ""))
+            return dict(row) if row else None
         if "AS active_connection" in sql and "AS eligible_circle_id" in sql:
             owner = str(params.get("owner_user_id") or "")
             other = str(params.get("other_user_id") or "")
@@ -2048,7 +2222,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 request["extends_grant_id"] = params.get("extends_grant_id")
                 if params.get("ask_changed"):
                     request["request_revision"] = int(request.get("request_revision") or 1) + 1
-                request["requested_at"] = datetime.now(timezone.utc)
+                    request["requested_at"] = datetime.now(timezone.utc)
                 return request
             return None
         if "FROM one_location_access_requests" in sql:
@@ -3277,6 +3451,7 @@ def test_four_user_location_workflow_contract() -> None:
     approved_c = service.approve_request(
         owner_user_id=user_a,
         request_id=direct_request_c["id"],
+        approval_mode="manual",
         duration_hours=1,
     )
     grant_c = approved_c["grant"]
@@ -3311,6 +3486,7 @@ def test_four_user_location_workflow_contract() -> None:
     approved_d = service.approve_request(
         owner_user_id=user_a,
         request_id=referral_response["request"]["id"],
+        approval_mode="manual",
         duration_hours=1,
     )
     grant_d = approved_d["grant"]
@@ -4764,6 +4940,349 @@ def test_create_grant_enforce_connection_allows_connection() -> None:
     assert grant["sourceCircleId"] is None
 
 
+def test_auto_approval_revalidates_relationship_after_client_snapshot() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    service._seed_auto_approve_preference(rule_version=1)
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share?",
+    )
+
+    # The browser still has the recipient in its last state response, but the
+    # relationship authority changes before the grant mutation.
+    service._revoke_connection_origin(
+        "user_a",
+        "user_b",
+        origin_kind="direct_request",
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=None,
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+
+    assert error.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+@pytest.mark.parametrize(
+    ("approval_mode", "rule_version", "expected_code"),
+    [
+        ("legacy", None, "LOCATION_APPROVAL_MODE_INVALID"),
+        ("automatic", None, "LOCATION_AUTO_APPROVE_RULE_INVALID"),
+        ("manual", 1, "LOCATION_APPROVAL_MODE_INVALID"),
+    ],
+)
+def test_approval_service_rejects_ambiguous_or_mismatched_intent(
+    approval_mode: str,
+    rule_version: int | None,
+    expected_code: str,
+) -> None:
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id="123e4567-e89b-12d3-a456-426614174000",
+            approval_mode=approval_mode,
+            duration_hours=None,
+            auto_approve_rule_version=rule_version,
+        )
+
+    assert error.value.code == expected_code
+    assert not service.grants
+
+
+def test_approval_service_requires_the_intent_argument() -> None:
+    service = FourUserMemoryService()
+
+    with pytest.raises(TypeError):
+        service.approve_request(  # type: ignore[call-arg]
+            owner_user_id="user_a",
+            request_id="123e4567-e89b-12d3-a456-426614174000",
+            duration_hours=None,
+        )
+
+    assert not service.grants
+
+
+def test_auto_approval_mints_a_grant_for_a_current_contact() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    enabled_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    service._seed_auto_approve_preference(
+        enabled_at=enabled_at,
+        rule_version=1,
+    )
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=1,
+    )
+
+    approved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        duration_hours=None,
+        approval_mode="automatic",
+        auto_approve_rule_version=1,
+    )
+
+    assert approved["request"]["status"] == "approved"
+    assert approved["grant"]["recipientUserId"] == "user_b"
+    assert approved["grant"]["durationHours"] == 1
+    assert approved["recipient"]["userId"] == "user_b"
+    assert approved["recipient"]["keyId"] == approved["grant"]["recipientKeyId"]
+    approval_event = next(
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_access_approved"
+    )
+    assert approval_event["metadata"]["approval_mode"] == "automatic"
+    assert approval_event["metadata"]["auto_approve_scope_kind"] == "all_contacts"
+    assert approval_event["metadata"]["auto_approve_rule_version"] == 1
+    assert approval_event["metadata"]["auto_approve_enabled_at"] == enabled_at.isoformat()
+
+
+def test_auto_approval_rejects_a_caller_duration_override() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    service._seed_auto_approve_preference(rule_version=1)
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=1,
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=24,
+            duration_mode="timed",
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+
+    assert error.value.code == "LOCATION_AUTO_APPROVE_DURATION_OVERRIDE_INVALID"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+def test_auto_approval_rejects_a_request_from_before_the_standing_rule() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share?",
+    )
+    service._seed_auto_approve_preference(
+        enabled_at=datetime.now(timezone.utc) + timedelta(minutes=1),
+        rule_version=1,
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=None,
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+
+    assert error.value.code == "LOCATION_AUTO_APPROVE_REQUEST_OUT_OF_SCOPE"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+def test_message_only_reask_does_not_cross_the_standing_rule_watermark() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share?",
+    )
+    enabled_at = datetime.now(timezone.utc)
+    service.requests[request["id"]]["requested_at"] = enabled_at - timedelta(minutes=1)
+    service._seed_auto_approve_preference(enabled_at=enabled_at, rule_version=1)
+
+    edited = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share for pickup?",
+    )
+
+    assert edited["requestRevision"] == 1
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=None,
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+    assert error.value.code == "LOCATION_AUTO_APPROVE_REQUEST_OUT_OF_SCOPE"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+def test_changed_duration_is_a_new_ask_after_the_standing_rule_watermark() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share?",
+    )
+    enabled_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    service.requests[request["id"]]["requested_at"] = enabled_at - timedelta(minutes=1)
+    service._seed_auto_approve_preference(enabled_at=enabled_at, rule_version=1)
+
+    changed = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share?",
+        requested_duration_hours=2,
+    )
+    approved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        duration_hours=None,
+        approval_mode="automatic",
+        auto_approve_rule_version=1,
+    )
+
+    assert changed["requestRevision"] == 2
+    assert approved["grant"]["durationHours"] == 2
+    assert approved["request"]["status"] == "approved"
+
+
+def test_auto_approval_rejects_a_missing_or_stale_server_rule() -> None:
+    service = FourUserMemoryService()
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share?",
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=None,
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+
+    assert error.value.code == "LOCATION_AUTO_APPROVE_RULE_STALE"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+def test_circle_auto_approval_rechecks_exact_membership_even_with_a_connection() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    service._seed_named_circle(circle_id, "user_a", "user_b")
+    service._seed_auto_approve_preference(
+        scope_kind="circle",
+        circle_id=circle_id,
+        rule_version=1,
+    )
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can you share?",
+    )
+    service.named_circle_memberships.remove((circle_id, "user_b"))
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=None,
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+
+    assert error.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+def test_auto_approval_refuses_until_stopped_access() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    service._seed_auto_approve_preference(rule_version=1)
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_mode="until_stopped",
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=None,
+            approval_mode="automatic",
+            auto_approve_rule_version=1,
+        )
+
+    assert error.value.code == "LOCATION_AUTO_APPROVE_DURATION_REQUIRES_APPROVAL"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
 def test_create_grant_circle_only_connection_derives_revocable_provenance() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
@@ -5105,6 +5624,91 @@ def test_enforced_circle_grant_locks_relationship_before_mutation(monkeypatch) -
     assert circle_lock < membership_lock < sms_insert
 
 
+def test_auto_approved_circle_is_owner_scoped_and_feed_deduplicated(monkeypatch) -> None:
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+
+    class Result:
+        def __init__(self, *, first=None, rows=None):
+            self._first = first
+            self._rows = rows or []
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self._first
+
+        def all(self):
+            return self._rows
+
+    class Connection:
+        def __init__(self):
+            self.calls: list[tuple[str, dict]] = []
+
+        def execute(self, query, params=None):
+            sql = str(query)
+            values = dict(params or {})
+            self.calls.append((sql, values))
+            if "FROM one_location_circles" in sql and "FOR SHARE" in sql:
+                return Result(first={"id": circle_id})
+            if "FROM one_location_circle_memberships" in sql and "FOR SHARE" in sql:
+                return Result(rows=[{"user_id": "user_a"}, {"user_id": "user_b"}])
+            if "INSERT INTO one_location_share_grants" in sql:
+                return Result(first={"id": "grant-id", "source_circle_id": circle_id})
+            return Result()
+
+    connection = Connection()
+
+    class Engine:
+        @contextmanager
+        def begin(self):
+            yield connection
+
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_db",
+        lambda: SimpleNamespace(engine=Engine()),
+    )
+
+    OneLocationAgentService()._create_enforced_grant_row(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        requested_circle_id=circle_id,
+        grant_params={
+            "owner_user_id": "user_a",
+            "recipient_user_id": "user_b",
+            "recipient_key_id": "key-user-b",
+            "capability_scopes": "[]",
+            "duration_hours": 1,
+            "duration_mode": "timed",
+            "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+            "metadata_json": "{}",
+            "recipient_display_name": "User B",
+            "recipient_phone_number": None,
+            "require_owned_source_circle": True,
+            "event_reason": "request_approved",
+        },
+    )
+
+    circle_sql, circle_params = next(
+        (sql, params)
+        for sql, params in connection.calls
+        if "FROM one_location_circles" in sql and "FOR SHARE" in sql
+    )
+    assert "owner_user_id = :owner_user_id" in circle_sql
+    assert "system_kind IS NULL" in circle_sql
+    assert "NOT is_system" in circle_sql
+    assert circle_params["owner_user_id"] == "user_a"
+    assert circle_params["require_owned_person_circle"] is True
+
+    _event_sql, event_params = next(
+        (sql, params)
+        for sql, params in connection.calls
+        if "INSERT INTO one_location_events" in sql
+    )
+    assert json.loads(event_params["event_metadata_json"])["reason"] == "request_approved"
+
+
 def test_create_grant_without_enforce_allows_non_connection() -> None:
     # The request-approval / public-invite path must keep working.
     service = FourUserMemoryService()
@@ -5344,6 +5948,7 @@ def test_approving_an_access_request_does_not_revoke_an_active_sos_grant() -> No
     approved = service.approve_request(
         owner_user_id="user_a",
         request_id=request["id"],
+        approval_mode="manual",
         duration_hours=1,
     )
     approved_grant = approved["grant"]
@@ -5839,6 +6444,15 @@ def test_the_owners_state_carries_the_link_back() -> None:
     ]
     assert len(invites) == 1
     assert invites[0]["publicUrl"] == created["publicUrl"]
+
+
+def test_state_never_reports_auto_approve_off_when_its_authority_read_fails() -> None:
+    class UnavailablePreferenceService(FourUserMemoryService):
+        def get_auto_approve_preference(self, *, user_id: str) -> dict:
+            raise RuntimeError(f"preference unavailable for {user_id}")
+
+    with pytest.raises(RuntimeError, match="preference unavailable"):
+        UnavailablePreferenceService().list_state(user_id="user_a")
 
 
 def test_a_public_link_cannot_be_asked_to_live_longer_than_an_hour() -> None:

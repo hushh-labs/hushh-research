@@ -104,6 +104,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM marketplace_investor_actions",
         "DELETE FROM marketplace_public_profiles",
         "DELETE FROM one_kyc_workflows",
+        "DELETE FROM one_location_auto_approve_preferences",
         "DELETE FROM one_location_events",
         "DELETE FROM one_location_nearby_presences",
         "DELETE FROM one_location_sms_contacts",
@@ -233,6 +234,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert result["account_deleted"] is False
     assert result["account_reset"] is True
     assert result["details"]["one_location_circle_member_invites"] is True
+    assert result["details"]["one_location_auto_approve_preferences"] is True
     assert result["details"]["connection_origins"] is True
 
     executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
@@ -250,6 +252,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM trusted_devices",
         "DELETE FROM consent_audit",
         "DELETE FROM one_kyc_workflows",
+        "DELETE FROM one_location_auto_approve_preferences",
         "DELETE FROM one_location_events",
         "DELETE FROM one_location_nearby_presences",
         "DELETE FROM one_location_sms_contacts",

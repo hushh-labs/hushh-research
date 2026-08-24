@@ -161,6 +161,9 @@ class AccountService:
                    OR referred_by_user_id = :user_id
                 """
             ),
+            "one_location_auto_approve_preferences": text(
+                "DELETE FROM one_location_auto_approve_preferences WHERE user_id = :user_id"
+            ),
             "one_location_envelopes": text(
                 """
                 DELETE FROM one_location_envelopes
@@ -1066,6 +1069,7 @@ class AccountService:
             results=results,
         )
         for table_name in (
+            "one_location_auto_approve_preferences",
             "one_location_events",
             "one_location_nearby_presences",
             "one_location_sms_contacts",
@@ -1244,6 +1248,7 @@ class AccountService:
             "marketplace_investor_actions": False,
             "marketplace_profile": False,
             "one_kyc_workflows": False,
+            "one_location_auto_approve_preferences": False,
             "one_location_events": False,
             "one_location_nearby_presences": False,
             "one_location_sms_contacts": False,
@@ -1463,6 +1468,7 @@ class AccountService:
                     results=results,
                 )
                 for table_name in (
+                    "one_location_auto_approve_preferences",
                     "one_location_events",
                     "one_location_nearby_presences",
                     "one_location_sms_contacts",

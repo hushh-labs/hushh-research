@@ -1,4 +1,4 @@
-"""Static UAT-overlay release-contract tests for migration 162.
+"""Static UAT-overlay release-contract tests for migration 170.
 
 The UAT release runner replays the base lane plus this isolated overlay, so
 this suite verifies additive, replay-safe DDL and the frozen service columns.
@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION_NAME = "168_hushh_tech_uat_client_foundation.sql"
-ROLLBACK_NAME = "168_hushh_tech_uat_client_foundation.rollback.sql"
+MIGRATION_NAME = "170_hushh_tech_uat_client_foundation.sql"
+ROLLBACK_NAME = "170_hushh_tech_uat_client_foundation.rollback.sql"
 MIGRATION = ROOT / "db" / "migrations" / MIGRATION_NAME
 ROLLBACK = ROOT / "db" / "migrations" / "rollback" / ROLLBACK_NAME
 MANIFEST = ROOT / "db" / "release_migration_manifest.json"
@@ -546,7 +546,7 @@ def test_migration_statements_store_no_sensitive_credentials_or_production_sourc
         assert forbidden not in ddl
 
 
-def test_rollback_refuses_nonempty_tables_and_drops_only_migration_162_tables() -> None:
+def test_rollback_refuses_nonempty_tables_and_drops_only_migration_170_tables() -> None:
     raw = ROLLBACK.read_text(encoding="utf-8")
     statements = _statements_only(raw)
     lowered = _ddl_without_literals(raw).lower()

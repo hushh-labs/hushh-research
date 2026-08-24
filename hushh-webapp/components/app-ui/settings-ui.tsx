@@ -275,6 +275,7 @@ export function SettingsRow({
   title,
   description,
   trailing,
+  trailingInteractive = false,
   onClick,
   chevron = false,
   disabled = false,
@@ -298,6 +299,8 @@ export function SettingsRow({
   title: ReactNode;
   description?: ReactNode;
   trailing?: ReactNode;
+  /** The trailing node owns its own action even when component identity is opaque. */
+  trailingInteractive?: boolean;
   onClick?: () => void;
   chevron?: boolean;
   disabled?: boolean;
@@ -332,7 +335,8 @@ export function SettingsRow({
   const isInteractive =
     !disabled && (typeof onClick === "function" || resolvedAsChild);
   const shouldStackTrailing = stackTrailingOnMobile && Boolean(trailing);
-  const hasInteractiveTrailing = containsInteractiveNode(trailing);
+  const hasInteractiveTrailing =
+    trailingInteractive || containsInteractiveNode(trailing);
   const splitPrimaryAction = Boolean(
     !asChild && onClick && hasInteractiveTrailing,
   );
@@ -514,14 +518,7 @@ export function SettingsRow({
             />
           </button>
           {trailingContent ? (
-            <div
-              role="presentation"
-              onClick={(e) => {
-                if (onClick) onClick();
-                else e.stopPropagation();
-              }}
-              className={onClick ? "cursor-pointer" : undefined}
-            >
+            <div role="presentation">
               {trailingContent}
             </div>
           ) : null}
