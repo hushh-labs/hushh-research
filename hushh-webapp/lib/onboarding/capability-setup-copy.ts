@@ -77,7 +77,7 @@ const SETUP_COPY_BY_ID: Record<
 > = {
   finance: {
     setupTitle: "Set up your money",
-    setupBlurb: "See how your money is doing.",
+    setupBlurb: "See your money clearly.",
     actionLabel: "Set up Finance",
     resumeActionLabel: "Finish Finance",
     introPremise: "Access your finances in one place.",
@@ -118,7 +118,7 @@ const SETUP_COPY_BY_ID: Record<
     // "KYC" is an abbreviation nobody meets for the first time and understands.
     // The row now says what actually happens; the destination keeps the name.
     setupTitle: "Identity checks",
-    setupBlurb: "One drafts the replies. You approve.",
+    setupBlurb: "Verify with your approval.",
     actionLabel: "Set up KYC",
     resumeActionLabel: "Finish KYC",
     introPremise: "Replies, ready when you are.",
@@ -130,7 +130,7 @@ const SETUP_COPY_BY_ID: Record<
   },
   location: {
     setupTitle: "Set up location",
-    setupBlurb: "Share where you are, when you want.",
+    setupBlurb: "Share only when you choose.",
     actionLabel: "Choose location",
     resumeActionLabel: "Finish location",
     introPremise: "Be easier to reach when it matters.",
@@ -143,7 +143,7 @@ const SETUP_COPY_BY_ID: Record<
   },
   ria: {
     setupTitle: "Set up your advisor profile",
-    setupBlurb: "Verify once. Get your advisor workspace.",
+    setupBlurb: "Build your advisor workspace.",
     actionLabel: "Verify RIA",
     resumeActionLabel: "Finish RIA",
     introPremise: "A workspace built for your practice.",
@@ -180,7 +180,7 @@ const SETUP_COPY_BY_ID: Record<
   },
   "connected-systems": {
     setupTitle: "Connect your CRM",
-    setupBlurb: "One finds your record. You approve.",
+    setupBlurb: "Find records with your approval.",
     actionLabel: "Set up CRM",
     resumeActionLabel: "Finish CRM",
     introPremise: "Start with the record you already have.",
