@@ -12,10 +12,8 @@ import { toast } from "sonner";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import {
   AppPageContentRegion,
-  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,7 +27,6 @@ import {
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import {
   CALENDAR_SETUP_REGION_CLASSNAME,
-  CALENDAR_SETUP_SHELL_CLASSNAME,
 } from "@/components/calendar/calendar-agent-page-layout";
 import {
   SurfaceCard,
@@ -49,7 +46,6 @@ import {
   type GoogleCalendarStatus,
 } from "@/lib/services/google-calendar-service";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { cn } from "@/lib/utils";
 
 type CalendarAgentPageProps = {
   journeyVariant?: "workspace" | "onboarding";
@@ -200,18 +196,7 @@ export function CalendarAgentPage({
   };
 
   return (
-    // Normal flow, like every sibling capability setup screen. See
-    // calendar-agent-page-layout.ts for why the old `fixed` box was wrong.
-    <AppPageShell width="reading" className={CALENDAR_SETUP_SHELL_CLASSNAME}>
-      <AppPageHeaderRegion
-        className={cn(CALENDAR_SETUP_REGION_CLASSNAME, "text-center")}
-      >
-        <PageHeader
-          title="Calendar"
-          className="text-center flex flex-col items-center justify-center space-y-1.5"
-        />
-      </AppPageHeaderRegion>
-
+    <AppPageShell width="reading" className="flex min-h-0 h-[calc(100dvh-var(--top-shell-reserved-height,4.5rem)-var(--app-bottom-inset,3.5rem))] w-full flex-col items-center justify-center overflow-hidden py-4">
       <AppPageContentRegion className={CALENDAR_SETUP_REGION_CLASSNAME}>
         <SurfaceCard className="overflow-hidden w-full shadow-md text-center">
           <SurfaceCardHeader className="pb-3 pt-5 flex flex-col items-center text-center space-y-0.5">
