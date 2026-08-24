@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { HushhContactsWeb } from "../contacts-web";
 
@@ -14,15 +14,49 @@ import { HushhContactsWeb } from "../contacts-web";
 
 type Selected = { name?: string[]; tel?: string[] };
 
+/**
+ * These tests write to `navigator.contacts` and `globalThis.ContactsManager`,
+ * which are process-global in a jsdom worker. Vitest reuses a worker across
+ * files, and at least one other suite asserts the OPPOSITE — that the contacts
+ * onboarding step disappears when no picker exists. So the shape here has to be
+ * exactly restored, not merely deleted: capturing the original descriptors and
+ * putting them back is the difference between a suite that passes on its own
+ * and one that passes in every order.
+ */
+const ORIGINAL_CONTACTS = Object.getOwnPropertyDescriptor(
+  globalThis.navigator,
+  "contacts",
+);
+const ORIGINAL_MANAGER = Object.getOwnPropertyDescriptor(
+  globalThis,
+  "ContactsManager",
+);
+
 function installPicker(select: (...args: unknown[]) => Promise<Selected[]>) {
   Object.defineProperty(globalThis.navigator, "contacts", {
     value: { select },
     configurable: true,
     writable: true,
   });
-  (globalThis as Record<string, unknown>).ContactsManager = function () {};
+  Object.defineProperty(globalThis, "ContactsManager", {
+    value: function () {},
+    configurable: true,
+    writable: true,
+  });
 }
 
+function restoreGlobals() {
+  Reflect.deleteProperty(globalThis.navigator as object, "contacts");
+  Reflect.deleteProperty(globalThis as Record<string, unknown>, "ContactsManager");
+  if (ORIGINAL_CONTACTS) {
+    Object.defineProperty(globalThis.navigator, "contacts", ORIGINAL_CONTACTS);
+  }
+  if (ORIGINAL_MANAGER) {
+    Object.defineProperty(globalThis, "ContactsManager", ORIGINAL_MANAGER);
+  }
+}
+
+/** Only for the "no picker in this browser" cases. */
 function removePicker() {
   Reflect.deleteProperty(globalThis.navigator as object, "contacts");
   Reflect.deleteProperty(globalThis as Record<string, unknown>, "ContactsManager");
@@ -30,7 +64,9 @@ function removePicker() {
 
 describe("contacts-web", () => {
   beforeEach(() => removePicker());
-  afterEach(() => removePicker());
+  afterEach(() => restoreGlobals());
+
+  afterAll(() => restoreGlobals());
 
   describe("when the browser has no Contact Picker", () => {
     it("reports unavailable rather than denied", async () => {
