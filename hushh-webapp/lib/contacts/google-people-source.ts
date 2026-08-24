@@ -159,12 +159,15 @@ export function googlePeopleContactSource(token: string): MarketplaceContactSour
       // one — nothing here is persisted.
 
       const response = await fetch(url.toString(), {
+        cache: "no-store",
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) {
         throw new Error(
-          response.status === 401 || response.status === 403
+          response.status === 401
             ? "Google contact access expired. Connect again to keep going."
+            : response.status === 403
+              ? "Google Contacts access is unavailable for this app or account. Try again later."
             : "Could not read your Google contacts. Try again in a moment.",
         );
       }

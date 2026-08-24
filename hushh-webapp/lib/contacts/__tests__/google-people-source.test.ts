@@ -108,6 +108,7 @@ describe("googlePeopleContactSource", () => {
     expect(
       (init?.headers as Record<string, string> | undefined)?.Authorization,
     ).toBe("Bearer secret-token");
+    expect(init?.cache).toBe("no-store");
   });
 
   it("passes the typed number through, not Google's canonical form", async () => {
@@ -222,6 +223,18 @@ describe("googlePeopleContactSource", () => {
     await expect(
       googlePeopleContactSource("stale")({ limit: 500 }),
     ).rejects.toThrow(/expired|connect again/i);
+  });
+
+  it("distinguishes app configuration failures from an expired token", async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({}),
+    })) as unknown as typeof fetch;
+
+    await expect(
+      googlePeopleContactSource("valid-but-unconfigured")({ limit: 500 }),
+    ).rejects.toThrow(/unavailable for this app or account/i);
   });
 
   it("returns nothing but a read result — no raw response, no token", async () => {
