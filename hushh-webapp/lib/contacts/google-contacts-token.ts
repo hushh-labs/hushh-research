@@ -22,9 +22,14 @@
  */
 
 const GIS_SCRIPT_SRC = "https://accounts.google.com/gsi/client";
+const GIS_LOAD_TIMEOUT_MS = 15_000;
 const CONTACTS_SCOPE = "https://www.googleapis.com/auth/contacts.readonly";
 
-type TokenResponse = { access_token?: string; error?: string };
+type TokenResponse = {
+  access_token?: string;
+  error?: string;
+  scope?: string;
+};
 type TokenClient = { requestAccessToken: () => void };
 type GoogleIdentityServices = {
   accounts?: {
@@ -32,6 +37,7 @@ type GoogleIdentityServices = {
       initTokenClient: (config: {
         client_id: string;
         scope: string;
+        include_granted_scopes: boolean;
         callback: (response: TokenResponse) => void;
         error_callback?: (error: { type?: string }) => void;
       }) => TokenClient;
@@ -46,6 +52,8 @@ function gis(): GoogleIdentityServices | null {
 
 let scriptPromise: Promise<void> | null = null;
 
+const GIS_LOADER_ATTRIBUTE = "data-hushh-google-contacts-loader";
+
 function loadGis(): Promise<void> {
   if (gis()?.accounts?.oauth2) return Promise.resolve();
   if (scriptPromise) return scriptPromise;
@@ -55,29 +63,61 @@ function loadGis(): Promise<void> {
       reject(new Error("Google sign-in is only available in a browser."));
       return;
     }
-    const existing = document.querySelector<HTMLScriptElement>(
+    let script = document.querySelector<HTMLScriptElement>(
       `script[src="${GIS_SCRIPT_SRC}"]`,
     );
-    if (existing) {
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener(
-        "error",
-        () => reject(new Error("Could not reach Google sign-in.")),
-        { once: true },
-      );
-      return;
+
+    // A tag left by a previous module instance may already have emitted its
+    // load/error event. Only wait on a tag explicitly marked as still loading;
+    // otherwise replace it so a stale/failed tag cannot poison every retry.
+    if (script?.getAttribute(GIS_LOADER_ATTRIBUTE) !== "loading") {
+      script?.remove();
+      script = null;
     }
-    const script = document.createElement("script");
-    script.src = GIS_SCRIPT_SRC;
-    script.async = true;
-    script.defer = true;
-    script.addEventListener("load", () => resolve(), { once: true });
-    script.addEventListener(
-      "error",
-      () => reject(new Error("Could not reach Google sign-in.")),
-      { once: true },
-    );
-    document.head.appendChild(script);
+
+    const created = !script;
+    if (!script) {
+      script = document.createElement("script");
+      script.src = GIS_SCRIPT_SRC;
+      script.async = true;
+      script.defer = true;
+      script.setAttribute(GIS_LOADER_ATTRIBUTE, "loading");
+    }
+    const activeScript = script;
+
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    function cleanup(): void {
+      if (timeout !== null) clearTimeout(timeout);
+      activeScript.removeEventListener("load", handleLoad);
+      activeScript.removeEventListener("error", handleError);
+    }
+    function fail(): void {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      activeScript.remove();
+      reject(new Error("Could not reach Google sign-in."));
+    }
+    function handleLoad(): void {
+      if (settled) return;
+      if (!gis()?.accounts?.oauth2) {
+        fail();
+        return;
+      }
+      settled = true;
+      cleanup();
+      activeScript.setAttribute(GIS_LOADER_ATTRIBUTE, "loaded");
+      resolve();
+    }
+    function handleError(): void {
+      fail();
+    }
+
+    activeScript.addEventListener("load", handleLoad, { once: true });
+    activeScript.addEventListener("error", handleError, { once: true });
+    timeout = setTimeout(fail, GIS_LOAD_TIMEOUT_MS);
+    if (created) document.head.appendChild(activeScript);
   }).catch((error) => {
     // A failed load must not poison every later attempt.
     scriptPromise = null;
@@ -85,6 +125,38 @@ function loadGis(): Promise<void> {
   });
 
   return scriptPromise;
+}
+
+function googleContactsClientId(): string {
+  return String(
+    process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID || "",
+  ).trim();
+}
+
+/**
+ * Load GIS before the person taps the contact action.
+ *
+ * `requestAccessToken()` must execute in the tap's synchronous call stack on
+ * Safari. Loading the script from inside that tap introduces an async boundary
+ * and lets the browser discard transient user activation before the popup is
+ * requested. This preload does no account or contact work and opens nothing.
+ */
+export async function preloadGoogleContactsAuth(): Promise<void> {
+  if (!googleContactsClientId()) return;
+  await loadGis();
+  if (!gis()?.accounts?.oauth2) {
+    throw new Error("Could not reach Google sign-in.");
+  }
+}
+
+function hasOnlyContactsScope(response: TokenResponse): boolean {
+  const granted = new Set(
+    String(response.scope || "")
+      .split(/\s+/u)
+      .map((scope) => scope.trim())
+      .filter(Boolean),
+  );
+  return granted.size === 1 && granted.has(CONTACTS_SCOPE);
 }
 
 /**
@@ -118,18 +190,22 @@ export function isGoogleContactsConsentCancelled(error: unknown): boolean {
  * and a 401 mid-read means asking again, which is silent once consent is
  * already granted.
  */
-export async function requestGoogleContactsToken(): Promise<string> {
-  const clientId = String(
-    process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID || "",
-  ).trim();
+export function requestGoogleContactsToken(): Promise<string> {
+  const clientId = googleContactsClientId();
   if (!clientId) {
-    throw new Error("Google contacts are not available in this build.");
+    return Promise.reject(
+      new Error("Google contacts are not available in this build."),
+    );
   }
 
-  await loadGis();
   const oauth2 = gis()?.accounts?.oauth2;
   if (!oauth2) {
-    throw new Error("Could not reach Google sign-in.");
+    // Recover a failed/slow preload without trying to open a popup after an
+    // async boundary. The next explicit tap can request access synchronously.
+    void preloadGoogleContactsAuth().catch(() => undefined);
+    return Promise.reject(
+      new Error("Google Contacts is still getting ready. Try again."),
+    );
   }
 
   return new Promise<string>((resolve, reject) => {
@@ -137,12 +213,28 @@ export async function requestGoogleContactsToken(): Promise<string> {
     const client = oauth2.initTokenClient({
       client_id: clientId,
       scope: CONTACTS_SCOPE,
+      // Never fold grants from another Google capability into this token.
+      // The exact returned scope is validated again below before the token is
+      // allowed to reach the People API source.
+      include_granted_scopes: false,
       callback: (response) => {
         if (settled) return;
         settled = true;
+        if (response?.error) {
+          reject(new Error("Google contact access was not granted."));
+          return;
+        }
         const token = String(response?.access_token || "").trim();
-        if (token) {
+        if (token && hasOnlyContactsScope(response)) {
           resolve(token);
+          return;
+        }
+        if (token) {
+          reject(
+            new Error(
+              "Google did not confirm the exact contacts-only scope. Nothing was read.",
+            ),
+          );
           return;
         }
         reject(new Error("Google contact access was not granted."));
@@ -153,12 +245,14 @@ export async function requestGoogleContactsToken(): Promise<string> {
         // Closing the consent sheet is a choice, not a failure. Reported with a
         // recognisable name so the caller can stay silent about it, the same
         // way an AbortError from the device picker is treated.
-        const closed =
-          error?.type === "popup_closed" || error?.type === "popup_failed_to_open";
+        const closed = error?.type === "popup_closed";
+        const popupBlocked = error?.type === "popup_failed_to_open";
         const failure = new Error(
           closed
             ? "Google contact access was cancelled."
-            : "Could not open Google sign-in.",
+            : popupBlocked
+              ? "Google sign-in was blocked. Allow pop-ups and try again."
+              : "Could not open Google sign-in.",
         );
         failure.name = closed ? "AbortError" : "Error";
         reject(failure);

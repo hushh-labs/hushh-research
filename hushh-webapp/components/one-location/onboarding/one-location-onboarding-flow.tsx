@@ -96,6 +96,7 @@ export type OnboardingCirclePreview = {
 export type OnboardingContactSyncResult =
   | { status: "matched"; matches: OnboardingContactMatch[] }
   | { status: "none"; partial: boolean }
+  | { status: "cancelled" }
   | { status: "failed"; message: string; canOpenSettings: boolean };
 
 type OneLocationOnboardingFlowProps = {
@@ -133,6 +134,8 @@ type OneLocationOnboardingFlowProps = {
   /** Where to centre the finale map. Null renders the stylised fallback. */
   mapPoint?: { lat: number; lng: number } | null;
   contactsStepAvailable?: boolean;
+  /** Account-backed web fallback versus the device address book. */
+  contactsSource?: "device" | "google";
   /**
    * Read the address book and return whichever contacts already have One.
    * Called only after the person taps on the contacts screen, never on mount.
@@ -1488,6 +1491,7 @@ function formatCircleCode(code: string): string {
  */
 function ContactsScreen({
   state,
+  source,
   matches,
   addedUserIds,
   addingUserIds,
@@ -1505,6 +1509,7 @@ function ContactsScreen({
     | { kind: "none"; partial: boolean }
     | { kind: "matched" }
     | { kind: "failed"; message: string; canOpenSettings: boolean };
+  source: "device" | "google";
   matches: OnboardingContactMatch[];
   addedUserIds: string[];
   addingUserIds: string[];
@@ -1517,11 +1522,14 @@ function ContactsScreen({
   leaving: boolean;
 }) {
   const primed = state.kind === "idle" || state.kind === "busy";
+  const contactOperationBusy = state.kind === "busy";
+  const navigationDisabled = leaving || contactOperationBusy;
 
   return (
     <div
       className="flex min-h-0 flex-1 flex-col bg-[color:var(--app-grouped-background)]"
       data-testid="one-location-onboarding-contacts-surface"
+      aria-busy={contactOperationBusy}
     >
       {/* pt clears the status bar and notch. A bare pt-2 put Back and Skip
           under the clock and battery on every notched iPhone -- reachable
@@ -1530,12 +1538,13 @@ function ContactsScreen({
         <button
           type="button"
           onClick={onBack}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
+          disabled={navigationDisabled}
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] disabled:opacity-50 dark:bg-white/[0.08] dark:text-white"
           aria-label="Go back"
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
+        <OnboardingSkipButton onClick={onSkip} disabled={navigationDisabled} />
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
@@ -1567,11 +1576,14 @@ function ContactsScreen({
                       A vague ask on a location product is what makes people
                       decline, and the decline is permanent on iOS. */}
                   <p className="text-[14px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
-                    Your contacts are checked using a one-way hash. One never
-                    stores your contact list, and nobody is contacted for you.
+                    One sends a protected match code and the last four digits,
+                    not names or full phone numbers. Your contact list is never
+                    stored, and nobody is contacted for you.
                   </p>
                   <PrimaryButton onClick={onSync} disabled={leaving}>
-                    Check my contacts
+                    {source === "google"
+                      ? "Connect Google Contacts"
+                      : "Check my contacts"}
                   </PrimaryButton>
                 </div>
               )}
@@ -1639,6 +1651,16 @@ function ContactsScreen({
                 Open Settings
               </button>
             ) : null}
+            {source === "google" ? (
+              <button
+                type="button"
+                onClick={onSync}
+                disabled={leaving}
+                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+              >
+                Try again
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -1648,7 +1670,7 @@ function ContactsScreen({
             nobody, or a plugin failure must never be a dead end. */}
         <PrimaryButton
           onClick={onContinue}
-          disabled={leaving}
+          disabled={navigationDisabled}
           inverse={primed && state.kind === "idle"}
         >
           {state.kind === "idle" ? "Not now" : "Continue"}
@@ -2047,6 +2069,7 @@ export function OneLocationOnboardingFlow({
   completeLabel = "Open One Location",
   mapPoint = null,
   contactsStepAvailable = true,
+  contactsSource = "device",
   onSyncOnboardingContacts,
   onAddOnboardingContact,
   onOpenContactSettings,
@@ -2322,6 +2345,10 @@ export function OneLocationOnboardingFlow({
     setContactState({ kind: "busy" });
     try {
       const result = await onSyncOnboardingContacts();
+      if (result.status === "cancelled") {
+        setContactState({ kind: "idle" });
+        return;
+      }
       if (result.status === "matched" && result.matches.length > 0) {
         setContactMatches(result.matches);
         setContactState({ kind: "matched" });
@@ -2635,6 +2662,7 @@ export function OneLocationOnboardingFlow({
         {screen === "contacts" ? (
           <ContactsScreen
             state={contactState}
+            source={contactsSource}
             matches={contactMatches}
             addedUserIds={addedContactIds}
             addingUserIds={addingContactIds}
