@@ -158,6 +158,31 @@ _ONE_MODEL = (
     or "gemini-3.1-flash-live-preview"
 ).strip()
 _ONE_LIVE_LOCATION = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
+# Neither live model pins a voice by default, so each one's own default voice
+# plays -- and the two differ audibly. Native audio models (both the 3.1
+# preview and the 2.5 GA model above) accept any Gemini TTS prebuilt voice
+# name via speech_config. Public (no underscore prefix, unlike the other
+# constants here) because the relay builds RunConfig's speech_config from
+# this directly. Override per-environment with AGENT_ONE_ADK_VOICE_NAME if a
+# different one is wanted.
+ONE_LIVE_VOICE_NAME = (os.getenv("AGENT_ONE_ADK_VOICE_NAME") or "Leda").strip()
+
+# The picker Voice Settings offers, keyed by the exact Gemini TTS prebuilt
+# voice name the relay will pass straight through to speech_config. Google
+# does not publish a gender per voice -- these are its own one-word tone
+# descriptors, kept here so the relay can reject anything else a tampered or
+# out-of-date client might send rather than forwarding an arbitrary string
+# into PrebuiltVoiceConfig. Deliberately a curated subset of the ~30-voice
+# catalog, not all of it -- a picker with thirty near-indistinguishable
+# options is not a feature.
+ONE_LIVE_VOICE_OPTIONS: dict[str, str] = {
+    "Leda": "Youthful",
+    "Aoede": "Breezy",
+    "Achernar": "Soft",
+    "Sulafat": "Warm",
+    "Kore": "Firm",
+    "Puck": "Upbeat",
+}
 # The Developer API Live contract is intentionally separate from the Vertex
 # contract above. It is disabled by default until an ADK integration rehearsal
 # has verified the selected model's BIDI audio, tool calls and mid-session
@@ -414,6 +439,28 @@ ONE_IDENTITY_INSTRUCTION: str = (
     # someone edits it back.
     "and choose again; never pick for them. If it says nobody matched, say so "
     "and stop.\n\n"
+    # Asking is the mirror of sharing and had no worked example of its own --
+    # only the Location share one above, which does not name send_request or
+    # select_ask_recipient anywhere. A live session showed exactly what that
+    # gap looks like: told to ask a named person, One landed on the request
+    # screen but never actually picked them, and Send stayed disabled.
+    "Requesting someone's location ('ask Neelesh where he is', 'request "
+    "Sarah's location') is the same shape as sharing, in reverse: navigate "
+    "first, then ask. Call start_app_goal with action id "
+    "'location.select_ask_recipient' and slots {'person': <the name exactly "
+    "as you heard it>}, never run_app_action, because this is an authored "
+    "journey the same way sharing's pick step is. It answers "
+    "'navigation_started'; say nothing about a recipient yet and ask no "
+    "question. Wait for the destination to settle, then call "
+    "continue_app_goal -- that is what actually runs the match. Its "
+    "settlement report is the first and only place the MATCHED name "
+    "appears; never say a name is picked before that report arrives. Once "
+    "it settles, call run_app_action with 'location.send_request' and SAY "
+    "the matched name as you do it -- 'Asking Sarah Chen where she is' -- "
+    "using the name from the report, never the name you heard. If several "
+    "people matched, ask which one and choose again; never pick for them. "
+    "If nobody matched, say so and stop. Unlike sharing, this needs no "
+    "duration: send_request has none to ask for.\n\n"
     # Circles. Two things go wrong without being told. The small one is asking
     # which circle when the person has exactly one. The serious one is
     # reporting an invitation as a completed add: joining is the other
@@ -432,6 +479,26 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "join only if they accept. Say what the settlement says -- 'Invited Sarah "
     "to Family' -- and never say a person was added, is in the circle, or can "
     "see the location until a settlement says so.\n\n"
+    # Connect. Same shape as sharing a location, and told the same way for
+    # the same reason -- this surface had no worked example at all before,
+    # only the generic "call run_app_action, it will redirect you if
+    # needed" fallback, and a live session showed that redirect was not
+    # reliably being followed when the request started off the Connect
+    # screen: One asked for confirmation, heard yes, and nothing happened.
+    "Connecting with someone the person NAMES ('connect with Ankit', 'send "
+    "a connection request to Ankit and Kushal') is ALSO an authored "
+    "journey: call start_app_goal with action id 'connect.send_request' "
+    "and slots {'person': <the name exactly as you heard it>}, never "
+    "run_app_action for it directly -- start_app_goal opens Connect for "
+    "you when the person is elsewhere, which is most of the time this is "
+    "asked. More than one name in the same request means more than one "
+    "call, one person at a time: ask which to do first if it is not "
+    "obvious, then call start_app_goal for just that one name. Confirm and "
+    "wait for its settlement -- the same 'ASK FOR IT OUT LOUD... then STOP "
+    "and wait' rule below, and the same 'at most ONE action-producing tool "
+    "per turn' rule above -- before calling start_app_goal again for the "
+    "next name. Never call it for a second name while the first is still "
+    "pending, confirming, or settling.\n\n"
     "When an action needs confirmation, ASK FOR IT OUT LOUD as one short "
     "yes-or-no question naming what will happen and whatever makes it "
     "specific -- who, how long, how much: 'Share your location with Sarah for "

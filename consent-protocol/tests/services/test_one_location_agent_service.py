@@ -899,6 +899,12 @@ class FourUserMemoryService(OneLocationAgentService):
         self.connection_origins: dict[str, dict] = {}
         self.named_circle_memberships: set[tuple[str, str]] = set()
         self.sms_contacts: set[tuple[str, str]] = set()
+        # (owner, member) pairs standing in for an active membership of the
+        # owner's own `is_system` Circle. Since #5426 that roster is where the
+        # emergency list actually lives, and the SOS gate reads it as well as
+        # the legacy table -- so the double has to model both or a test can only
+        # ever exercise the half that was already there.
+        self.sms_circle_members: set[tuple[str, str]] = set()
         self.events: dict[str, dict] = {}
         self.notifications: list[dict] = []
         self.professional_relationships: list[dict] = []
@@ -1095,6 +1101,11 @@ class FourUserMemoryService(OneLocationAgentService):
                 status_code=403,
             )
         self.sms_contacts.add((owner_user_id, contact_user_id))
+
+    def _seed_sms_circle_member(self, owner_user_id: str, member_user_id: str) -> None:
+        """Put someone in the owner's emergency Circle without touching the
+        legacy table -- exactly what the Circle detail screen does."""
+        self.sms_circle_members.add((owner_user_id, member_user_id))
 
     def _send_metadata_notification(self, **kwargs) -> None:
         assert _contains_plaintext_location_key(kwargs.get("data") or {}) is False
@@ -1629,7 +1640,8 @@ class FourUserMemoryService(OneLocationAgentService):
             }
         if "SELECT 1" in sql and "FROM one_location_sms_contacts" in sql:
             pair = (params["owner_user_id"], params["contact_user_id"])
-            return {"exists": 1} if pair in self.sms_contacts else None
+            selected = pair in self.sms_contacts or pair in self.sms_circle_members
+            return {"exists": 1} if selected else None
         if "INSERT INTO one_location_sms_contacts" in sql:
             pair = (params["owner_user_id"], params["contact_user_id"])
             self.sms_contacts.add(pair)
@@ -2112,14 +2124,21 @@ class FourUserMemoryService(OneLocationAgentService):
             self.referrals[referral_id] = row
             return row
         if "INSERT INTO one_location_public_invites" in sql:
-            invite_id = str(uuid.uuid4())
+            # The caller chooses the id now: the public token is derived from
+            # it, so a double that invents its own would store a digest that
+            # can never be re-derived, and every link would read as legacy.
+            invite_id = str(params.get("invite_id") or uuid.uuid4())
             row = {
                 "id": invite_id,
                 "owner_user_id": params["owner_user_id"],
                 "public_code_hash": params["public_code_hash"],
                 "status": "active",
                 "duration_hours": params["duration_hours"],
-                "expires_at": params["expires_at"],
+                # `NOW() + (duration * INTERVAL '1 hour')` in the statement:
+                # the window is measured by the same clock every read of this
+                # row is compared against.
+                "expires_at": datetime.now(timezone.utc)
+                + timedelta(hours=float(params["duration_hours"])),
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
@@ -2127,6 +2146,52 @@ class FourUserMemoryService(OneLocationAgentService):
             }
             self.public_invites[invite_id] = row
             return row
+        if (
+            "FROM one_location_public_invites" in sql
+            and "expires_at > NOW()" in sql
+            and "invite_id" in params
+        ):
+            # The owner's heartbeat lookup: their own still-live link.
+            invite = self.public_invites.get(params["invite_id"])
+            if (
+                invite
+                and invite["owner_user_id"] == params["owner_user_id"]
+                and invite["status"] == "active"
+                and invite["expires_at"] > datetime.now(timezone.utc)
+            ):
+                return invite
+            return None
+        if (
+            "UPDATE one_location_public_invites" in sql
+            and "SET metadata = CAST(:metadata_json AS JSONB)" in sql
+        ):
+            invite = self.public_invites.get(params["invite_id"])
+            if (
+                invite
+                and invite["owner_user_id"] == params["owner_user_id"]
+                and invite["status"] == "active"
+                and invite["expires_at"] > datetime.now(timezone.utc)
+            ):
+                invite["metadata"] = json.loads(params.get("metadata_json") or "{}")
+                invite["updated_at"] = datetime.now(timezone.utc)
+                return invite
+            return None
+        if (
+            "UPDATE one_location_public_invites" in sql
+            and "SET duration_hours = :duration_hours" in sql
+        ):
+            # Reuse restarts the window for the duration that was just asked
+            # for, refreshes the snapshot, and rewrites the owner label.
+            invite = self.public_invites.get(params["invite_id"])
+            if not invite or invite["status"] != "active":
+                return None
+            invite["duration_hours"] = params["duration_hours"]
+            invite["expires_at"] = datetime.now(timezone.utc) + timedelta(
+                hours=float(params["duration_hours"])
+            )
+            invite["metadata"] = json.loads(params.get("metadata_json") or "{}")
+            invite["updated_at"] = datetime.now(timezone.utc)
+            return invite
         if "FROM one_location_public_invites i" in sql:
             for invite in self.public_invites.values():
                 if invite["public_code_hash"] == params["public_code_hash"]:
@@ -2137,9 +2202,60 @@ class FourUserMemoryService(OneLocationAgentService):
                         "owner_phone_number": owner.get("phone_number"),
                     }
             return None
-        if "UPDATE one_location_public_invites" in sql and "status = 'expired'" in sql:
+        if (
+            "UPDATE one_location_public_invites" in sql
+            and "status = 'expired'" in sql
+            and "owner_user_id" in params
+        ):
+            # Settling lazily-expired rows before the reuse lookup. Expiry is
+            # written only when something reads a row, so a link past its time
+            # can still be sitting at 'active'.
+            now = datetime.now(timezone.utc)
+            for invite in self.public_invites.values():
+                if (
+                    invite["owner_user_id"] == params["owner_user_id"]
+                    and invite["status"] == "active"
+                    and invite["expires_at"] <= now
+                ):
+                    invite["status"] = "expired"
+            return None
+        if (
+            "UPDATE one_location_public_invites" in sql
+            and "status = 'revoked'" in sql
+            and "invite_id" in params
+        ):
             invite = self.public_invites.get(params["invite_id"])
             if invite and invite["status"] == "active":
+                invite["status"] = "revoked"
+                invite["revoked_at"] = datetime.now(timezone.utc)
+                return invite
+            return None
+        if (
+            "FROM one_location_public_invites" in sql
+            and "expires_at > NOW()" in sql
+            and "owner_user_id" in params
+        ):
+            # The reuse lookup: one live public link per person.
+            now = datetime.now(timezone.utc)
+            live = [
+                invite
+                for invite in self.public_invites.values()
+                if invite["owner_user_id"] == params["owner_user_id"]
+                and invite["status"] == "active"
+                and invite["expires_at"] > now
+            ]
+            live.sort(key=lambda invite: invite["created_at"], reverse=True)
+            return live[0] if live else None
+        if "UPDATE one_location_public_invites" in sql and "status = 'expired'" in sql:
+            # `AND expires_at <= NOW()` is part of the statement now, so the
+            # double has to answer the same question the database would:
+            # nothing comes back for a link that is still inside its window.
+            invite = self.public_invites.get(params["invite_id"])
+            if (
+                invite
+                and invite["status"] == "active"
+                and invite["expires_at"] <= datetime.now(timezone.utc)
+            ):
                 invite["status"] = "expired"
                 return invite
             return None
@@ -3699,11 +3815,17 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
     token = created["publicToken"]
 
     assert created["publicUrl"].endswith(token)
-    assert created["publicUrl"].startswith("/one/location/request/")
+    # `/view/`, not `/request/`. The recipient reads this path before deciding
+    # whether to tap, and the page shows a location rather than asking for one.
+    assert created["publicUrl"].startswith("/one/location/view/")
     assert token not in json.dumps(service.public_invites, default=str)
 
     resolved = service.resolve_public_invite(public_token=token)
-    assert resolved["invite"]["ownerLabel"] == "A trusted person"
+    # The sharer's own display name. This read "A trusted person" for every
+    # link ever minted, because `create_public_invite` never wrote
+    # `metadata.owner_safe_label` -- the only field the recipient payload
+    # consults for a name.
+    assert resolved["invite"]["ownerLabel"] == "User A"
     serialized_resolve = json.dumps(resolved)
     assert "ownerUserId" not in serialized_resolve
     assert "ownerDisplayName" not in serialized_resolve
@@ -3731,6 +3853,319 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
     assert {item["notification_type"] for item in service.notifications} >= {
         "location_public_invite_submitted"
     }
+
+
+def test_public_invite_label_is_a_name_and_never_an_email_handle() -> None:
+    """The label on a page anyone holding the URL can open.
+
+    `allow_email_handle=False` is the whole point: an email local part is a
+    name to someone who already knows you and an identifier to everyone else,
+    and this page is read by people the sender may never have met. An account
+    with no usable display name keeps the generic fallback rather than
+    publishing the mailbox.
+    """
+
+    service = FourUserMemoryService()
+    service.identities["user_a"] = {
+        "user_id": "user_a",
+        "display_name": "",
+        "email": "ankit.singh@example.com",
+        "phone_number": "+15550100001",
+        "phone_verified": True,
+    }
+
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    resolved = service.resolve_public_invite(public_token=created["publicToken"])
+
+    assert resolved["invite"]["ownerLabel"] == "A trusted person"
+    serialized = json.dumps(resolved)
+    assert "ankit.singh" not in serialized
+    assert "@example.com" not in serialized
+
+
+def test_public_invite_label_rejects_a_uid_sitting_in_the_name_column() -> None:
+    # `actor_identity_cache.display_name` back-seeds to the raw Firebase uid for
+    # any account that has never synced. Rendering it would put a 28-character
+    # token where a person's name belongs, on a page a stranger opens.
+    service = FourUserMemoryService()
+    service.identities["user_a"] = {
+        "user_id": "user_a",
+        "display_name": "RPNmQAmVdlNz84GVfXxta50wnYx1",
+        "phone_number": "+15550100001",
+        "phone_verified": True,
+    }
+
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    resolved = service.resolve_public_invite(public_token=created["publicToken"])
+
+    assert resolved["invite"]["ownerLabel"] == "A trusted person"
+
+
+def test_public_invite_reuse_honours_the_duration_that_was_just_asked_for() -> None:
+    """A link created for an hour is live for an hour, not for what is left.
+
+    One live public link per owner, and the second call reused the first row
+    verbatim -- so picking "1 hour" 56 minutes into an existing link handed
+    back four minutes, and the countdown afterwards agreed with it because it
+    reads the same row. The window restarts from now, for exactly what was
+    asked.
+    """
+
+    service = FourUserMemoryService()
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=0.5)
+    first_row = next(iter(service.public_invites.values()))
+    # Wind the existing link down to its last four minutes.
+    first_row["expires_at"] = datetime.now(timezone.utc) + timedelta(minutes=4)
+
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert second.get("reused") is True
+    # Same link -- the one-at-a-time invariant still holds.
+    assert second["publicToken"] == first["publicToken"]
+    assert len(service.public_invites) == 1
+
+    remaining = datetime.fromisoformat(second["invite"]["expiresAt"]) - datetime.now(timezone.utc)
+    assert remaining > timedelta(minutes=55)
+    assert remaining <= timedelta(hours=1)
+    assert second["invite"]["durationHours"] == 1
+
+
+def test_public_invite_reuse_shows_where_the_owner_is_now() -> None:
+    # Reuse used to keep the snapshot the first call attached, so a link handed
+    # back 50 minutes later opened on where the owner had been, presented as
+    # where they are.
+    service = FourUserMemoryService()
+    first_point = {
+        "latitude": 28.6139,
+        "longitude": 77.209,
+        "accuracyM": 12,
+        "capturedAt": "2026-08-23T02:06:00.000Z",
+        "sourcePlatform": "web",
+    }
+    second_point = {
+        "latitude": 25.1441,
+        "longitude": 75.8446,
+        "accuracyM": 9,
+        "capturedAt": "2026-08-23T02:56:00.000Z",
+        "sourcePlatform": "web",
+    }
+    service.create_public_invite(
+        owner_user_id="user_a", duration_hours=1, location_snapshot=first_point
+    )
+    second = service.create_public_invite(
+        owner_user_id="user_a", duration_hours=1, location_snapshot=second_point
+    )
+
+    resolved = service.resolve_public_invite(public_token=second["publicToken"])
+    assert resolved["publicLocation"]["latitude"] == 25.1441
+    assert resolved["publicLocation"]["longitude"] == 75.8446
+
+
+def test_public_invite_reuse_mints_a_new_link_when_the_old_one_was_just_revoked() -> None:
+    """The reuse UPDATE is guarded on `status = 'active'`, so it can write nothing.
+
+    A second device -- or the `revoke_public_link` agent tool -- can revoke the
+    invite between the SELECT that finds it and the UPDATE that refreshes it.
+    Falling back to the row the SELECT read would hand the owner a link whose
+    stored status still says 'active', which means `_public_invite_payload`
+    attaches a `publicUrl`: a link they can copy and share that 410s the first
+    time anyone opens it. Minting instead gives them one that works.
+    """
+
+    service = FourUserMemoryService()
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    first_row = next(iter(service.public_invites.values()))
+
+    original_execute_one = service._execute_one
+
+    def revoke_between_select_and_update(sql, params=None):
+        if "UPDATE one_location_public_invites" in sql and "SET duration_hours" in sql:
+            first_row["status"] = "revoked"
+        return original_execute_one(sql, params)
+
+    service._execute_one = revoke_between_select_and_update
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    service._execute_one = original_execute_one
+
+    assert second.get("reused") is not True
+    assert second["publicToken"] != first["publicToken"]
+    assert second["invite"]["status"] == "active"
+    # And the link handed back really does resolve.
+    resolved = service.resolve_public_invite(public_token=second["publicToken"])
+    assert resolved["invite"]["status"] == "active"
+
+
+def test_public_invite_resolve_names_the_sharer_on_a_link_minted_before_the_write() -> None:
+    """Links already in the wild carry no stored label, and must still name someone.
+
+    Stamping the label at create time only helps links created afterwards --
+    and the whole point of keeping the old path alive is that links minted
+    before this change are already inside messages that were sent. Without a
+    read-time resolve those would read "A trusted person" forever, which is
+    the bug, still visible, on the only links anyone currently holds.
+    """
+
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    row = next(iter(service.public_invites.values()))
+    # Exactly the shape of a row written before `owner_safe_label` existed.
+    row["metadata"] = {"codeVersion": row["metadata"]["codeVersion"]}
+
+    resolved = service.resolve_public_invite(public_token=created["publicToken"])
+    assert resolved["invite"]["ownerLabel"] == "User A"
+
+
+def test_public_invite_resolve_keeps_the_generic_line_for_an_unresolvable_owner() -> None:
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    row = next(iter(service.public_invites.values()))
+    row["metadata"] = {"codeVersion": row["metadata"]["codeVersion"]}
+    # The account resolves to nothing a reader could use.
+    service.identities["user_a"] = {
+        "user_id": "user_a",
+        "display_name": "user_a",
+        "email": "user_a@example.com",
+        "phone_number": "+15550100001",
+        "phone_verified": True,
+    }
+
+    resolved = service.resolve_public_invite(public_token=created["publicToken"])
+    assert resolved["invite"]["ownerLabel"] == "A trusted person"
+    assert "user_a@example.com" not in json.dumps(resolved)
+
+
+def test_public_invite_expiry_is_decided_by_the_database_clock() -> None:
+    """One clock owns the window, and it is the one the row lives on.
+
+    The window used to be stamped from the app host's clock while the create
+    path's pre-settle and reuse lookup gated on the database's, and the read
+    path compared against the app host's again. A host running a minute fast
+    killed every link a minute early -- and the countdown, which reads the
+    row, agreed with it, so nothing on screen could contradict the shortfall.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as module
+
+    expire_source = inspect.getsource(module.OneLocationAgentService._expire_public_invite)
+    # The comparison lives in the statement, beside the write it guards.
+    assert "expires_at <= NOW()" in expire_source
+    assert "_utcnow()" not in expire_source
+
+    create_source = inspect.getsource(module.OneLocationAgentService.create_public_invite)
+    # ...and so does the stamp, on both the mint and the reuse path.
+    assert create_source.count("INTERVAL '1 hour'") == 2
+    assert "_utcnow() + timedelta" not in create_source
+
+    # Behaviourally: a link inside its window survives a read.
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    assert (
+        service.resolve_public_invite(public_token=created["publicToken"])["invite"]["status"]
+        == "active"
+    )
+
+    # ...and one past it does not.
+    next(iter(service.public_invites.values()))["expires_at"] = datetime.now(
+        timezone.utc
+    ) - timedelta(seconds=1)
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.resolve_public_invite(public_token=created["publicToken"])
+    assert exc.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"
+
+
+def _point(latitude: float, longitude: float, captured_at: str) -> dict:
+    return {
+        "latitude": latitude,
+        "longitude": longitude,
+        "accuracyM": 12,
+        "capturedAt": captured_at,
+        "sourcePlatform": "web",
+    }
+
+
+def test_public_invite_location_heartbeat_moves_the_pin() -> None:
+    """The chip says "Live"; this is the statement that makes it true.
+
+    The snapshot used to be written once, at create time, and never again --
+    so a link shared as a live location showed one frozen point for its whole
+    window.
+    """
+
+    service = FourUserMemoryService()
+    created = service.create_public_invite(
+        owner_user_id="user_a",
+        duration_hours=1,
+        location_snapshot=_point(28.6139, 77.209, "2026-08-23T02:06:00.000Z"),
+    )
+
+    service.refresh_public_invite_location(
+        owner_user_id="user_a",
+        invite_id=created["invite"]["id"],
+        location_snapshot=_point(25.1441, 75.8446, "2026-08-23T02:26:00.000Z"),
+    )
+
+    resolved = service.resolve_public_invite(public_token=created["publicToken"])
+    assert resolved["publicLocation"]["latitude"] == 25.1441
+    assert resolved["publicLocation"]["longitude"] == 75.8446
+    # Normalised to UTC by the snapshot payload, so compare the instant.
+    assert datetime.fromisoformat(resolved["publicLocation"]["capturedAt"]) == datetime(
+        2026, 8, 23, 2, 26, tzinfo=timezone.utc
+    )
+
+
+def test_public_invite_location_heartbeat_never_extends_the_window() -> None:
+    # An owner heartbeating their position must not be able to outlive what
+    # they agreed to share. `expires_at` is the only thing between "I shared
+    # for an hour" and "I shared until I remembered to stop".
+    service = FourUserMemoryService()
+    created = service.create_public_invite(
+        owner_user_id="user_a",
+        duration_hours=1,
+        location_snapshot=_point(28.6139, 77.209, "2026-08-23T02:06:00.000Z"),
+    )
+    before = next(iter(service.public_invites.values()))["expires_at"]
+
+    result = service.refresh_public_invite_location(
+        owner_user_id="user_a",
+        invite_id=created["invite"]["id"],
+        location_snapshot=_point(25.1441, 75.8446, "2026-08-23T02:26:00.000Z"),
+    )
+
+    assert next(iter(service.public_invites.values()))["expires_at"] == before
+    assert result["invite"]["expiresAt"] == created["invite"]["expiresAt"]
+    assert result["invite"]["durationHours"] == created["invite"]["durationHours"]
+
+
+def test_public_invite_location_heartbeat_is_owner_scoped_and_stops_at_revoke() -> None:
+    service = FourUserMemoryService()
+    created = service.create_public_invite(
+        owner_user_id="user_a",
+        duration_hours=1,
+        location_snapshot=_point(28.6139, 77.209, "2026-08-23T02:06:00.000Z"),
+    )
+    invite_id = created["invite"]["id"]
+
+    # Somebody else's link is not theirs to move.
+    with pytest.raises(OneLocationAgentError) as other_owner:
+        service.refresh_public_invite_location(
+            owner_user_id="user_b",
+            invite_id=invite_id,
+            location_snapshot=_point(0.0, 0.0, "2026-08-23T02:26:00.000Z"),
+        )
+    assert other_owner.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"
+
+    # And a stale tab publishing after a revoke must not resurrect the pin on
+    # a link the owner already stopped.
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=invite_id)
+    with pytest.raises(OneLocationAgentError) as revoked:
+        service.refresh_public_invite_location(
+            owner_user_id="user_a",
+            invite_id=invite_id,
+            location_snapshot=_point(25.1441, 75.8446, "2026-08-23T02:26:00.000Z"),
+        )
+    assert revoked.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"
 
 
 def test_public_invite_with_snapshot_returns_location_on_resolve_without_private_request() -> None:
@@ -5120,3 +5555,511 @@ def test_only_the_relationship_scoped_list_may_show_an_email_handle() -> None:
         "the discovery directory must not opt into the email handle: it lists "
         "phone-verified strangers, not the viewer's connections"
     )
+
+
+# ---------------------------------------------------------------------------
+# Public location link: the owner has to be able to read their own link back.
+#
+# The token used to be `secrets.token_urlsafe(32)`, hashed on the way in and
+# returned exactly once. Nothing could recover it afterwards, so an invite the
+# server reported as active had a link the product could no longer show -- Copy
+# and Share silently did nothing after any reload. It is now derived from the
+# row's UUID with the app signing key, the same way Circle codes are.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _public_invite_key(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="test-signing-key"),
+    )
+    return "test-signing-key"
+
+
+def _derivable_public_invite_row(invite_id: str, *, status: str = "active", **overrides) -> dict:
+    token = one_location_agent_module._public_invite_token_for_id(invite_id)
+    row = {
+        "id": invite_id,
+        "owner_user_id": "owner-1",
+        "public_code_hash": one_location_agent_module._hash_public_value(token),
+        "status": status,
+        "duration_hours": 1.0,
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+        "revoked_at": None,
+        "metadata": json.dumps(
+            {"codeVersion": one_location_agent_module._PUBLIC_INVITE_CODE_VERSION}
+        ),
+    }
+    row.update(overrides)
+    return row
+
+
+def test_public_invite_token_is_stable_for_one_invite(_public_invite_key) -> None:
+    invite_id = str(uuid.uuid4())
+    first = one_location_agent_module._public_invite_token_for_id(invite_id)
+    second = one_location_agent_module._public_invite_token_for_id(invite_id)
+    # The whole point: the same row yields the same link every time it is read.
+    assert first == second
+    assert first
+
+
+def test_public_invite_tokens_differ_between_invites(_public_invite_key) -> None:
+    left = one_location_agent_module._public_invite_token_for_id(str(uuid.uuid4()))
+    right = one_location_agent_module._public_invite_token_for_id(str(uuid.uuid4()))
+    assert left != right
+
+
+def test_public_invite_token_survives_a_url(_public_invite_key) -> None:
+    token = one_location_agent_module._public_invite_token_for_id(str(uuid.uuid4()))
+    # It is spent as a path segment, so base64's "+", "/" and "=" would either
+    # be re-encoded by the client or silently truncate the token.
+    assert "+" not in token
+    assert "/" not in token
+    assert "=" not in token
+    assert token == token.strip()
+
+
+def test_public_invite_token_is_not_the_bare_row_id(_public_invite_key) -> None:
+    # The id travels in the owner's own state payload. If the token were the id,
+    # anyone who saw one person's state could resolve their live location link.
+    invite_id = str(uuid.uuid4())
+    token = one_location_agent_module._public_invite_token_for_id(invite_id)
+    assert invite_id not in token
+    assert invite_id.replace("-", "") not in token
+
+
+def test_public_invite_token_changes_with_the_signing_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invite_id = str(uuid.uuid4())
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="key-one"),
+    )
+    first = one_location_agent_module._public_invite_token_for_id(invite_id)
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="key-two"),
+    )
+    assert one_location_agent_module._public_invite_token_for_id(invite_id) != first
+
+
+def test_derivable_token_is_recovered_from_a_well_formed_row(
+    _public_invite_key,
+) -> None:
+    invite_id = str(uuid.uuid4())
+    row = _derivable_public_invite_row(invite_id)
+    assert one_location_agent_module._public_invite_token_if_derivable(
+        row
+    ) == one_location_agent_module._public_invite_token_for_id(invite_id)
+
+
+def test_legacy_rows_report_no_token_rather_than_a_wrong_one(
+    _public_invite_key,
+) -> None:
+    # Minted before tokens were derived from the id: the random token is gone
+    # for good. Returning a derived one would hand the owner a link that 404s.
+    row = _derivable_public_invite_row(str(uuid.uuid4()), metadata=json.dumps({}))
+    assert one_location_agent_module._public_invite_token_if_derivable(row) is None
+
+
+def test_a_row_whose_digest_does_not_match_reports_no_token(
+    _public_invite_key,
+) -> None:
+    # Signing key rotated, or the row was tampered with. Fail closed.
+    row = _derivable_public_invite_row(str(uuid.uuid4()))
+    row["public_code_hash"] = "0" * 64
+    assert one_location_agent_module._public_invite_token_if_derivable(row) is None
+
+
+def test_a_row_with_no_id_reports_no_token(_public_invite_key) -> None:
+    row = _derivable_public_invite_row(str(uuid.uuid4()))
+    row["id"] = ""
+    assert one_location_agent_module._public_invite_token_if_derivable(row) is None
+    assert one_location_agent_module._public_invite_token_if_derivable(None) is None
+
+
+def test_owner_payload_carries_the_link_for_an_active_invite(
+    _public_invite_key,
+) -> None:
+    invite_id = str(uuid.uuid4())
+    row = _derivable_public_invite_row(invite_id)
+    payload = OneLocationAgentService._public_invite_payload(row)
+    token = one_location_agent_module._public_invite_token_for_id(invite_id)
+    assert payload["publicUrl"] == f"/one/location/view/{token}"
+
+
+@pytest.mark.parametrize("status", ["revoked", "expired"])
+def test_owner_payload_withholds_the_link_once_it_stops_working(
+    _public_invite_key, status: str
+) -> None:
+    # The token no longer resolves, so offering it would hand over a dead link
+    # on a screen that still says "copy".
+    row = _derivable_public_invite_row(str(uuid.uuid4()), status=status)
+    payload = OneLocationAgentService._public_invite_payload(row)
+    assert "publicUrl" not in payload
+
+
+def test_owner_payload_withholds_the_link_for_a_legacy_invite(
+    _public_invite_key,
+) -> None:
+    row = _derivable_public_invite_row(str(uuid.uuid4()), metadata=json.dumps({}))
+    payload = OneLocationAgentService._public_invite_payload(row)
+    assert "publicUrl" not in payload
+
+
+def test_the_recipient_payload_never_carries_the_token(_public_invite_key) -> None:
+    # This is the branch a stranger holding the link receives. The token is the
+    # capability itself; echoing it back would put it in one more place for no
+    # reason, and would leak it to anyone the link was forwarded to.
+    row = _derivable_public_invite_row(str(uuid.uuid4()))
+    payload = OneLocationAgentService._public_invite_payload(row, public=True)
+    assert "publicUrl" not in payload
+    assert "id" not in payload
+    assert "ownerUserId" not in payload
+    serialized = json.dumps(payload)
+    assert one_location_agent_module._public_invite_token_for_id(row["id"]) not in serialized
+
+
+# ---------------------------------------------------------------------------
+# One live public location link per person.
+#
+# Nothing used to stop a second: no unique index, no lookup, just an INSERT. A
+# reload, a second device or a double tap left two links resolvable while the
+# screen showed one, and revoking the visible one left the other watching.
+# ---------------------------------------------------------------------------
+
+
+def _active_public_invites(service) -> list[dict]:
+    return [invite for invite in service.public_invites.values() if invite["status"] == "active"]
+
+
+def test_creating_a_second_public_link_hands_back_the_first() -> None:
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    # Same link, not a second one: this call is what the person makes when they
+    # mean "give me my link", so it answers rather than refusing.
+    assert second["publicToken"] == first["publicToken"]
+    assert second["invite"]["id"] == first["invite"]["id"]
+    assert second["reused"] is True
+    assert first.get("reused") is not True
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_the_reused_link_still_resolves() -> None:
+    # The point of reuse is that whoever already holds the link keeps seeing
+    # the owner. A token handed back that no longer resolved would be worse
+    # than a second link.
+    service = FourUserMemoryService()
+    service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    reused = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    resolved = service.resolve_public_invite(public_token=reused["publicToken"])
+    assert resolved["invite"]["status"] == "active"
+
+
+def test_one_persons_link_does_not_block_another_persons() -> None:
+    service = FourUserMemoryService()
+
+    mine = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    theirs = service.create_public_invite(owner_user_id="user_b", duration_hours=1)
+
+    assert mine["publicToken"] != theirs["publicToken"]
+    assert len(_active_public_invites(service)) == 2
+
+
+def test_revoking_frees_the_person_to_create_another() -> None:
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=first["invite"]["id"])
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert second["publicToken"] != first["publicToken"]
+    assert second.get("reused") is not True
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_an_expired_link_does_not_block_a_new_one() -> None:
+    # Expiry is written lazily -- only when something reads the row -- so a
+    # link past its time can still be sitting at status 'active'. If create did
+    # not settle that first, the reuse lookup would hand back a dead link and
+    # the person could never make another.
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    stale = service.public_invites[first["invite"]["id"]]
+    stale["expires_at"] = datetime.now(timezone.utc) - timedelta(minutes=5)
+    assert stale["status"] == "active"
+
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert second["publicToken"] != first["publicToken"]
+    assert second.get("reused") is not True
+    assert stale["status"] == "expired"
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_a_link_whose_token_cannot_be_recovered_is_replaced() -> None:
+    # A row minted before tokens were derived from the id. Its token is gone
+    # for good, so leaving it active would strand the owner behind a link
+    # nothing can show and no create button.
+    service = FourUserMemoryService()
+
+    first = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    legacy = service.public_invites[first["invite"]["id"]]
+    legacy["metadata"] = {}
+
+    second = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    assert second["publicToken"] != first["publicToken"]
+    assert second.get("reused") is not True
+    assert legacy["status"] == "revoked"
+    assert len(_active_public_invites(service)) == 1
+
+
+def test_the_owners_state_carries_the_link_back() -> None:
+    # The whole reason the token is derived: after a reload the owner still has
+    # to be able to copy and share the link they already made.
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    state = service.list_state(user_id="user_a")
+    invites = [
+        invite for invite in state["publicInvites"] if invite["id"] == created["invite"]["id"]
+    ]
+    assert len(invites) == 1
+    assert invites[0]["publicUrl"] == created["publicUrl"]
+
+
+def test_a_public_link_cannot_be_asked_to_live_longer_than_an_hour() -> None:
+    # Anyone holding this link can watch, which is a different promise from a
+    # private share to a named person who can be un-shared. 24 was the private
+    # ceiling, copied into every layer -- Pydantic, normalize_duration_hours,
+    # the DB CHECK -- so the one-hour cap the screen showed was enforced only by
+    # the screen, and a crafted request minted a public link for a full day.
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        service.create_public_invite(owner_user_id="user_a", duration_hours=24)
+
+    assert excinfo.value.code == "LOCATION_DURATION_INVALID"
+    assert excinfo.value.status_code == 422
+    assert not service.public_invites
+
+
+def test_the_durations_the_screen_offers_are_accepted() -> None:
+    service = FourUserMemoryService()
+
+    half = service.create_public_invite(owner_user_id="user_a", duration_hours=0.5)
+    assert half["invite"]["durationHours"] == 0.5
+
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=half["invite"]["id"])
+    whole = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    assert whole["invite"]["durationHours"] == 1
+
+
+def test_sos_reaches_someone_added_through_the_emergency_circle() -> None:
+    """The emergency path, for anyone added the way the product now says to.
+
+    Since #5426 the SMS Circle IS the emergency list and the screen picks SOS
+    recipients from its roster. This gate never learned that: it asked
+    `one_location_sms_contacts`, which the Circle detail screen does not write.
+    So somebody added through Circle detail was offered by the UI and refused
+    here with LOCATION_SMS_CONTACT_REQUIRED -- at the moment an SOS was being
+    sent, which is the only moment it is discoverable.
+    """
+
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+    # Note what is NOT called: add_sms_contact. This is the Circle-only path.
+    service._seed_sms_circle_member("user_a", "user_b")
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        reason="Come get me",
+        share_kind="sos",
+        enforce_connection=True,
+    )
+
+    assert grant["shareKind"] == "sos"
+    assert grant["recipientUserId"] == "user_b"
+
+
+def test_sos_still_refuses_someone_in_neither_the_table_nor_the_circle() -> None:
+    # The widening above is a widening of an emergency gate, so the refusal it
+    # is widening has to keep holding for everyone else.
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+
+    with pytest.raises(OneLocationAgentError) as err:
+        service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id="user_b",
+            recipient_key_id="key-user_b",
+            duration_hours=8,
+            reason="Come get me",
+            share_kind="sos",
+            enforce_connection=True,
+        )
+    assert err.value.code == "LOCATION_SMS_CONTACT_REQUIRED"
+
+
+def test_every_sos_gate_reads_the_emergency_circle_not_only_the_table() -> None:
+    """A property of the idiom, not of one call site.
+
+    The gate is written at four places -- the atomic grant CTE, the explainer
+    that produces the error message, the fallback list the client reads, and
+    the same list inside `list_state`. A narrow explainer beside a wide gate is
+    worse than either: the share succeeds and the message says it could not. So
+    assert every statement that reaches `one_location_sms_contacts` also reaches
+    the owner's own system Circle.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as module
+
+    source = inspect.getsource(module)
+    # Statement-ish blocks: split on the triple-quoted SQL literals.
+    sql_blocks = [block for block in source.split('"""') if "one_location_sms_contacts" in block]
+    assert sql_blocks, "no SQL reaches one_location_sms_contacts any more"
+
+    gates = 0
+    arms = 0
+    for block in sql_blocks:
+        # The two write paths are the owner curating the legacy table itself;
+        # they are not recipient gates and have no Circle arm to grow.
+        if "INSERT INTO one_location_sms_contacts" in block:
+            continue
+        if "DELETE FROM one_location_sms_contacts" in block:
+            continue
+        gates += 1
+        arms += block.count("circle.is_system")
+        assert "circle.is_system" in block, (
+            "an SOS gate reads the legacy contacts table without also reading "
+            "the owner's emergency Circle:\n" + block[:400]
+        )
+
+    # Counted, not merely detected.
+    #
+    # Some of these gates carry the arm twice -- a UNION with a roster arm
+    # on each side -- so the presence check above still passes after one of
+    # them is deleted. That is how the SOS roster fix could be removed with
+    # every backend test still green. Measured by deleting one: 7 becomes 6.
+    assert gates >= 4, f"expected at least 4 SOS recipient gates, found {gates}"
+    assert arms >= 7, (
+        f"expected at least 7 emergency-Circle arms across the SOS gates, "
+        f"found {arms} -- one has been removed"
+    )
+
+
+def test_a_product_managed_circle_introduces_nobody() -> None:
+    """The shared-circle eligibility arm is a property of the idiom, not of one
+    call site.
+
+    That arm joins membership to membership and never mentions
+    `circle.owner_user_id`, so two people became eligible for each other's live
+    location the moment they shared a Circle -- whoever owned it. On the SMS
+    Circle that is ten strangers, and it contradicts that Circle's own design
+    note. On a Trusted Circle holding every connection it would be every PAIR
+    of your connections.
+
+    The join is written seven times across two services. Asserting the fix at
+    one of them would leave the other six, and would not stop an eighth being
+    added wide -- which is exactly how it came to be written seven times.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as agent_module
+    from hushh_mcp.services import one_location_circle_service as circle_module
+
+    sites = 0
+    owner_clauses = 0
+    for module in (agent_module, circle_module):
+        source = inspect.getsource(module)
+        # Split on the SQL literals so an assertion lands inside one statement
+        # rather than anywhere in a 7,000-line file.
+        for block in source.split('"""'):
+            if "one_location_circle_memberships" not in block:
+                continue
+            if "JOIN one_location_circles circle" not in block:
+                continue
+            # The two membership rows have to belong to different people for
+            # this to be the eligibility idiom at all.
+            if block.count("one_location_circle_memberships") < 2:
+                continue
+            sites += 1
+            owner_clauses += block.count("circle.owner_user_id = ")
+            assert "circle.owner_user_id = " in block, (
+                "a shared-Circle eligibility join does not require one side to "
+                "be the Circle's owner, so a product-managed Circle would "
+                "introduce its members to each other:\n" + block[:500]
+            )
+
+    # Seven when this was written. The floor catches a site being deleted along
+    # with its guard; the assertion above catches a new one arriving wide.
+    assert sites >= 7, f"expected at least 7 shared-Circle joins, found {sites}"
+
+    # And the clauses are counted, not merely detected.
+    #
+    # Most of these blocks name `circle.owner_user_id` more than once,
+    # because the narrowing accepts either side of the pair as the owner.
+    # The presence check therefore survives one of the two being deleted,
+    # which leaves the join wide open in whichever direction lost its
+    # clause. Measured by deleting one: 17 becomes 16.
+    assert owner_clauses >= 17, (
+        f"expected at least 17 owner-scoping clauses across the "
+        f"shared-Circle joins, found {owner_clauses} -- one has been removed"
+    )
+
+
+def test_location_and_connect_read_one_circle_list() -> None:
+    """Both surfaces must show the same Circles, structurally.
+
+    Connect's Circles tab reads `GET /api/one/location/circles`, which is
+    `OneLocationCircleService.list_circles`. The Location agent's People tab
+    reads `state.circles` from `list_state`. Issue #5458 asks for one shared
+    grouping rather than a copy per surface, and the owner's own requirement
+    was that a Circle made in Location onboarding shows up on Connect.
+
+    That holds today because `list_state` calls the same method rather than
+    running its own query -- so this asserts it still does. A second query here
+    would drift silently: the two surfaces would agree until the day one of
+    them grew a filter, and the symptom would be a Circle that exists in one
+    place and not the other.
+    """
+
+    import inspect
+
+    from hushh_mcp.services import one_location_agent_service as agent_module
+
+    source = inspect.getsource(agent_module.OneLocationAgentService.list_state)
+    assert "circle_service.list_circles(user_id=user_id)" in source
+    # And it is handed to the caller unchanged -- no per-surface filtering.
+    assert '"circles": named_circles,' in source
+    # Never its own SQL against the Circle tables.
+    assert "FROM one_location_circles" not in source

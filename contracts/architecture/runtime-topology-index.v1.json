@@ -1020,6 +1020,22 @@
       "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection."
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_agent_engagement_sessions",
+        "one_referral_attributions",
+        "one_referral_codes",
+        "one_referral_events",
+        "one_referral_policies",
+        "one_referral_relationships",
+        "one_referral_risk_reviews"
+      ],
+      "id": "one_referral_program",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only."
+    },
+    {
       "data_class": "personal_projection",
       "exact_tables": [
         "one_wallet_cards"
@@ -3236,6 +3252,29 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/location/view/[token]/page.tsx",
+      "pathname": "/one/location/view/[token]",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.location.view.token"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
       "native_surface_id": "native-route-one-marketplace",
       "page_file": "app/one/marketplace/page.tsx",
       "pathname": "/one/marketplace",
@@ -3297,6 +3336,7 @@
           "route.profile",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
+          "route.profile_referrals_panel",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -3374,6 +3414,7 @@
           "route.profile",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
+          "route.profile_referrals_panel",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -3405,6 +3446,7 @@
           "route.profile",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
+          "route.profile_referrals_panel",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -3818,6 +3860,29 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/profile/preferences/voice/examples/page.tsx",
+      "pathname": "/one/profile/preferences/voice/examples",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.preferences.voice.examples"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "none",
         "refresh_trigger": "none",
         "resource_classes": [
@@ -3836,6 +3901,31 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.receipts"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/profile/referrals/page.tsx",
+      "pathname": "/one/profile/referrals",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.profile_referrals_panel"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.support"
       }
     },
     {
@@ -4533,6 +4623,29 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/r/[slug]/page.tsx",
+      "pathname": "/r/[slug]",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.r.slug"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
@@ -4987,28 +5100,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "7e80edea1cd750f9883c78a6aca19341b5e4cb4d842f7a2ade9a49d446957f34",
+    "action_gateway": "63e2f86721810ab01ed876c07abff8bf09489374c3f77cabbf8b51500881d654",
     "agent_registry": "ee0eeb9ba4cdc177301df5ed35e03b93cdc8d116f4249d7ba6eb69b1362559a5",
-    "cache_manifest": "a920c21d5fd0aa406d20ce8a46b6aa88caf32c0cb033ff3a91e274ec6097258c",
-    "data_plane": "3b2f555c7835a04a7802b93e72df0014b6e5fbdbcae986e9d3cd019e4aa64846",
+    "cache_manifest": "4de3513e5a3f846d1f2ec45e92a62d67c8ca716908cecb67ca0dc796d21b0d4f",
+    "data_plane": "de6c6fbf5877feacf40ffa2cb0258f3c3a46d49c8a86e098859dff8ec97e82d1",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "e6e3e5388d1f1660d0f72c295fceb091116bbf66944f00b85454fa7d2c76d768",
-    "route_index": "f79cefbb2f233a0f6e56627ced99229bd92dc19733ddf02248f8cd79a1e191b1",
-    "route_layout": "eb6b7ee4e27a828a37aced9e26d0002c70d5e22ea1e4271722093e4e093e6d0b",
-    "surface_map": "bd6fca5b4da4add3c0c7f78c1c1ae3d41836feb8146be12e003243318d1b01fc",
+    "route_index": "b85da7211910f78d5b7ccf96661e5f1fe813dc235f2527b1313c03bd9a82a7ce",
+    "route_layout": "9fdf440b9c771314317abcf6ac1d22d01fe25b8792860a0cb087bb933edf80b9",
+    "surface_map": "ad3b5971d994bc9b4e1254f9b0d611d3c5e428154a10fe852cd656fc21de929a",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 183,
+    "actions": 184,
     "agents": 19,
     "aliases": 3,
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 129,
+    "physical_routes": 133,
     "semantic_routes": 14,
-    "table_families": 51
+    "table_families": 52
   }
 }

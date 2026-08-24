@@ -25,7 +25,8 @@ import styles from "./HushhIntroGate.module.css";
  *
  * Sequence — a single soft greeting, not a two-screen cinematic reveal:
  * the 🤫 mark and "Hi, {first name}" / "Welcome to One." appear together,
- * hold briefly, then fade gently to reveal whatever's mounted underneath.
+ * hold long enough to read, then fade gently to reveal whatever's mounted
+ * underneath.
  * The real signed-in user's first name is already available here via
  * Firebase auth; "Hi there" is only a fallback for the rare case neither a
  * display name nor an email local-part exists. Only THEN does
@@ -49,8 +50,8 @@ import styles from "./HushhIntroGate.module.css";
 type Phase = "idle" | "greet" | "exit";
 
 const SWEEP_DELAY_MS = 20;
-const GREETING_HOLD_MS = 1080;
-const EXIT_DURATION_MS = 340;
+const GREETING_HOLD_MS = 1900;
+const EXIT_DURATION_MS = 360;
 const EXIT_BUFFER_MS = 80;
 
 const EXIT_AT_MS = SWEEP_DELAY_MS + GREETING_HOLD_MS;

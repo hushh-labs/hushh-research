@@ -33,15 +33,23 @@ export const STRUCTURED_CONTEXT_ARRAY_CAP = 10;
  * what this file sends) -- widening it there would not add capacity, only
  * hide where the real truncation happens.
  *
- * This has been wrong twice before at the generic 10: Location outgrew it at
- * 19 published controls, then again as its own actions grew past 21 to 30 --
- * both times as new local handlers (`add_to_circle`, `remove_from_circle`,
- * ...) fell off the end of a list already full of route openers, and every
- * one of them returned action_unavailable, indistinguishable from a broken
- * feature. 14 covers Location's current 12 screen-owned local handlers with
- * two spares, while AVAILABLE_ACTION_IDS_CAP (18) still bounds the total, so
- * a crowded screen trades a few of the 8 GLOBAL_NAV_ACTION_IDS slots for
- * commands that actually do something on it.
+ * This has been wrong repeatedly at the generic 10: Location outgrew it at
+ * 19 published controls, then again as its own actions grew past 21 to 30,
+ * and again once its real local-handler count reached 28 -- comfortably past
+ * what any flat number here can hold. Each time, new local handlers
+ * (`add_to_circle`, `remove_from_circle`, ...) fell off the end of a list
+ * already full of route openers, and every one of them returned
+ * action_unavailable, indistinguishable from a broken feature.
+ *
+ * 14 is deliberately NOT sized to fit every screen-owned handler at once --
+ * that stopped being possible once Location passed ~14 of its own. Instead,
+ * SUBVIEW_ACTION_BOOST ranks whichever handlers match the person's current
+ * subview (which circle dialog is open, which tab, ...) into the surviving
+ * slots first, so a crowded screen loses the actions nobody is looking at
+ * right now rather than whichever happened to be declared last.
+ * AVAILABLE_ACTION_IDS_CAP (18) still bounds the total, so a crowded screen
+ * trades a few of the 8 GLOBAL_NAV_ACTION_IDS slots for commands that
+ * actually do something on it.
  */
 export const ACTION_ID_SCREEN_SEGMENT_CAP = 14;
 // A surface's own declared inventory before ranking. Deliberately far above
@@ -473,11 +481,75 @@ function readStringArray(
 }
 
 /**
+ * Local-handler actions relevant to a specific subview (the `action` or
+ * `view` query param a screen's own route derivation already resolves --
+ * see route-screen-derivation.ts). Keyed by `${screen}:${subview}`, with
+ * `${screen}:` (empty subview) as the default set for that screen's bare
+ * route. Only screens whose local-handler count has actually outgrown
+ * ACTION_ID_SCREEN_SEGMENT_CAP need an entry here -- as of writing, that is
+ * Location alone (28 screen-owned local handlers competing for 14 slots).
+ *
+ * This boosts matches to the top rank in `rankOf` below; it never demotes
+ * anything. An action absent from the current subview's list still competes
+ * at the ordinary screen-owned tier, so an incomplete or stale mapping can
+ * only fail to help -- it cannot make today's insertion-order tiebreak worse.
+ */
+const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
+  // Bare /one/location, no open flow: what someone is most likely to ask for
+  // without having drilled into a specific circle or share first.
+  "one_location:": [
+    "location.pause_updates",
+    "location.resume_updates",
+    "location.stop_share",
+    "location.approve_request",
+    "location.decline_request",
+  ],
+  "one_location:create-circle": ["location.create_circle"],
+  "one_location:share": [
+    "location.select_share_recipient",
+    "location.share_selected",
+    "location.change_share_duration",
+    "location.set_auto_share",
+  ],
+  "one_location:ask": ["location.select_ask_recipient", "location.send_request"],
+  "one_location:active-shares": [
+    "location.stop_share",
+    "location.change_share_duration",
+  ],
+  "one_location:needs-review": [
+    "location.approve_request",
+    "location.decline_request",
+  ],
+  "one_location:shared-with-me": ["location.change_share_duration"],
+  "one_location:settings": [
+    "location.pause_updates",
+    "location.resume_updates",
+    "location.set_auto_share",
+    "location.add_emergency_contact",
+    "location.remove_emergency_contact",
+  ],
+  "one_location:sos": ["location.trigger_sos", "location.stop_sos"],
+  // The People tab is where circle membership is actually managed.
+  "one_location:people": [
+    "location.add_to_circle",
+    "location.remove_from_circle",
+    "location.rename_circle",
+    "location.leave_circle",
+    "location.delete_circle",
+    "location.accept_circle_invite",
+    "location.decline_circle_invite",
+  ],
+};
+
+/**
  * Rank action ids by relevance BEFORE the 10-item context cap slices them, so
  * the tail that gets dropped is always the least useful part. Priority order:
- *   1. wired actions whose contract lists the current screen (in-place intent)
- *   2. other wired actions (mostly cross-screen route.* navigation)
- *   3. unwired/dead/unknown ids (guidance-only value)
+ *   1. wired, screen-owned local handlers matching the current subview
+ *      (SUBVIEW_ACTION_BOOST) -- what the person is actually looking at
+ *   2. other wired actions whose contract lists the current screen
+ *      (in-place intent, just not tied to the active subview)
+ *   3. other wired actions (mostly cross-screen route.* navigation)
+ *   4. unwired/dead/unknown ids (guidance-only value)
  * Set-insertion order previously made the truncation nondeterministic; this
  * keeps the same cap but makes what survives it intentional.
  */
@@ -485,7 +557,11 @@ function prioritizeAvailableActionIds(
   candidateIds: string[],
   screen: string | null,
   includeGlobalNavigation = true,
+  subview: string | null = null,
 ): string[] {
+  const boosted = new Set(
+    SUBVIEW_ACTION_BOOST[`${screen || ""}:${subview || ""}`] || [],
+  );
   const deduped: string[] = [];
   const seen = new Set<string>();
   for (const raw of candidateIds) {
@@ -509,11 +585,15 @@ function prioritizeAvailableActionIds(
           actionId,
         );
       }
-      return 3;
+      return 4;
     }
     if (screen && action.reachability.screens.includes(screen)) {
       // Among the actions this screen owns, the ones that cannot be reached
-      // any other way come first.
+      // any other way come first, and within those, the ones tied to
+      // whatever subview is actually open right now come first of all --
+      // see SUBVIEW_ACTION_BOOST. A screen with more local handlers than the
+      // cap can hold should lose the ones the person is not looking at, not
+      // whichever happened to be declared first.
       //
       // A route action that loses its slot is still reachable: the relay
       // admits navigation from any screen whether or not it was submitted
@@ -525,9 +605,10 @@ function prioritizeAvailableActionIds(
       // whichever happen to be declared last. On Location that was every
       // action that DOES something, while nineteen ways to open a tab kept
       // their slots.
-      return action.execution_target.path === "route" ? 1 : 0;
+      if (action.execution_target.path === "route") return 2;
+      return boosted.has(actionId) ? 0 : 1;
     }
-    return 2;
+    return 3;
   };
   const ranked = deduped
     .map((actionId, index) => ({ actionId, index, rank: rankOf(actionId) }))
@@ -809,6 +890,7 @@ export function buildStructuredScreenContext(args: {
     // Do not append global navigation behind an active setup terminal, dialog,
     // or other visible control; that would let a voice turn escape the page.
     underlyingActionsAvailable && publishedActionIds.length === 0,
+    subview,
   );
   const screenMetadata = {
     ...readObject(rawContext.screen_metadata),

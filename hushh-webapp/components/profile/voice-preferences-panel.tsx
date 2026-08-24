@@ -7,6 +7,13 @@ import { PageSubtitle } from "@/components/app-ui/typography";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   readVoicePreferences,
   subscribeVoicePreferences,
   updateVoicePreferences,
@@ -17,6 +24,10 @@ import {
   VOICE_ENGINE_VERSION,
 } from "@/lib/agent/voice-engine-changelog";
 import { VOICE_ENGINE_DOMAINS } from "@/lib/agent/voice-engine-domains";
+import { VOICE_PERSONA_OPTIONS } from "@/lib/agent/voice-persona-options";
+
+/** Select has no null option, so the default pick gets its own sentinel value. */
+const VOICE_NAME_DEFAULT_VALUE = "__default__";
 
 const CHANGELOG_PREVIEW_COUNT = 2;
 
@@ -70,9 +81,11 @@ function VoiceChangelog({ onOpenChangelog }: { onOpenChangelog: () => void }) {
 export function VoicePreferencesPanel({
   userId,
   onOpenChangelog,
+  onOpenExamples,
 }: {
   userId: string | null;
   onOpenChangelog: () => void;
+  onOpenExamples: () => void;
 }) {
   const [state, setState] = useState<OneVoicePreferencesState>(() =>
     readVoicePreferences(userId),
@@ -91,11 +104,19 @@ export function VoicePreferencesPanel({
   return (
     <div className="space-y-4">
       <VoiceHeader />
+      <SettingsGroup>
+        <SettingsRow
+          title="What can I say"
+          description="Examples for every part of the app."
+          chevron
+          onClick={onOpenExamples}
+        />
+      </SettingsGroup>
       <VoiceChangelog onOpenChangelog={onOpenChangelog} />
       <SettingsGroup>
         <SettingsRow
           title="Voice control"
-          description="Let One act on what you say, everywhere in the app."
+          description="Let One act on what you say."
           trailing={
             <Switch
               checked={state.voiceEnabled}
@@ -106,14 +127,46 @@ export function VoicePreferencesPanel({
             />
           }
         />
-      </SettingsGroup>
-      <SettingsGroup
-        title="Safety"
-        description="Applies to actions that already ask for confirmation, like sharing your location or sending an SOS."
-      >
         <SettingsRow
-          title="Require a tap to confirm risky actions"
-          description="Turn this on to stop a spoken yes or no from confirming them."
+          title="Voice"
+          description="Pick who One sounds like."
+          disabled={!state.voiceEnabled}
+          trailing={
+            <Select
+              value={state.voiceName ?? VOICE_NAME_DEFAULT_VALUE}
+              disabled={!state.voiceEnabled}
+              onValueChange={(value) =>
+                set((current) => ({
+                  ...current,
+                  voiceName: value === VOICE_NAME_DEFAULT_VALUE ? null : value,
+                }))
+              }
+            >
+              <SelectTrigger
+                className="w-full sm:w-60 min-w-[11rem]"
+                aria-label="Voice"
+              >
+                <SelectValue placeholder="Default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={VOICE_NAME_DEFAULT_VALUE}>
+                  Default
+                </SelectItem>
+                {VOICE_PERSONA_OPTIONS.map((option) => (
+                  <SelectItem key={option.name} value={option.name}>
+                    {option.name} — {option.descriptor}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          }
+          stackTrailingOnMobile
+        />
+      </SettingsGroup>
+      <SettingsGroup title="Safety" description="For actions that already ask to confirm.">
+        <SettingsRow
+          title="Require a tap to confirm"
+          description="Stops a spoken yes or no from confirming."
           disabled={!state.voiceEnabled}
           trailing={
             <Switch
@@ -122,14 +175,31 @@ export function VoicePreferencesPanel({
               onCheckedChange={(checked) =>
                 set((current) => ({ ...current, requireTapConfirmation: checked }))
               }
-              aria-label="Require a tap to confirm risky actions"
+              aria-label="Require a tap to confirm"
+            />
+          }
+        />
+      </SettingsGroup>
+      <SettingsGroup title="Guidance" description="See each step as One works.">
+        <SettingsRow
+          title="Walk-through mode"
+          description="Follow along step by step."
+          disabled={!state.voiceEnabled}
+          trailing={
+            <Switch
+              checked={state.walkthroughMode}
+              disabled={!state.voiceEnabled}
+              onCheckedChange={(checked) =>
+                set((current) => ({ ...current, walkthroughMode: checked }))
+              }
+              aria-label="Walk-through mode"
             />
           }
         />
       </SettingsGroup>
       <SettingsGroup
         title="What voice can control"
-        description="Turn a domain off to stop voice from acting there. You can still use it by tap."
+        description="Turn a domain off to block voice there; tap still works."
       >
         {VOICE_ENGINE_DOMAINS.map((domain) => {
           const allowed = !state.disabledDomains.includes(domain.key);

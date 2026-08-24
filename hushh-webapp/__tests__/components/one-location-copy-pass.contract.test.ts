@@ -73,11 +73,45 @@ describe("One Location — link durations stay inside the server's ceiling", () 
     expect(inviteSection).not.toContain('label: "7 days"');
   });
 
-  it("states the real ceilings rather than a vague promise", () => {
+  it("states the real ceilings on the controls, not in a footnote", () => {
     // "Links expire automatically" / "after the time you choose" told the owner
-    // nothing they could plan around.
-    expect(HUB_SOURCE).toContain("up to 1 hour for a location link");
+    // nothing they could plan around, and the footnote that replaced it
+    // ("Up to 1 hour for a location link, 24 hours for an invite.") restated
+    // in prose what the two pickers directly above it already say — on a tab
+    // whose whole content is those pickers. It is gone; the guarantee it was
+    // making is now asserted where it is actually enforced: no option on
+    // either picker exceeds its ceiling.
     expect(HUB_SOURCE).not.toContain("Links expire after the time you choose.");
+    expect(HUB_SOURCE).not.toMatch(/up to 1 hour for a location link/i);
+
+    // The public-link picker. Anyone holding the URL can watch, so its ceiling
+    // is an hour — deliberately below the private-share ceiling the invite
+    // picker is bound by.
+    const start = HUB_SOURCE.indexOf('title="Link stays live for"');
+    expect(start).toBeGreaterThan(-1);
+    const publicLinkSection = HUB_SOURCE.slice(start, start + 1200);
+    const publicHours = durationOptionsIn(publicLinkSection)
+      .map((option) => Number.parseFloat(option.value))
+      .filter((hours) => Number.isFinite(hours));
+
+    expect(publicHours.length).toBeGreaterThan(0);
+    for (const hours of publicHours) {
+      expect(hours).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("drops the amber banner that argued against the button below it", () => {
+    // "Anyone with this link can see you" / "The link stops on its own." sat
+    // above the duration picker on the one screen whose entire purpose is to
+    // create the link. Both facts survive where they belong: the duration
+    // control states how long the link lives, and the card that replaces this
+    // block once a link exists carries "Anyone with this link can view you" on
+    // the object it is about.
+    expect(HUB_SOURCE).not.toContain('title="Anyone with this link can see you"');
+    expect(HUB_SOURCE).not.toContain("The link stops on its own.");
+    expect(HUB_SOURCE).not.toContain("<WarningCard");
+    // The surviving statement, on the live link's own card.
+    expect(HUB_SOURCE).toContain("Anyone with this link can view you");
   });
 });
 

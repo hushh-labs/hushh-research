@@ -435,6 +435,30 @@ export class OneLocationService {
     return response.circle;
   }
 
+  /**
+   * Find-or-create the Trusted Circle and top up its roster.
+   *
+   * The accept hook writes both sides of a NEW connection, so a pair that
+   * connects from here on needs nothing else. What it cannot do is account for
+   * the connections somebody already had: without this call, a person with
+   * forty of them sees no Trusted Circle at all until their next accept, and
+   * then sees one holding a single name under the words "Everyone you're
+   * connected to" -- which is worse than not showing it.
+   *
+   * So the list reconciles before it reads. Safe on every call: the reconcile
+   * adds only connections with no membership row of ANY status, so a removal
+   * stays removed.
+   */
+  static async ensureTrustedSystemCircle(params: {
+    vaultOwnerToken: string;
+  }): Promise<OneLocationCircleDetail> {
+    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
+      "/api/one/location/circles/trusted",
+      { method: "POST", headers: authHeaders(params.vaultOwnerToken) },
+    );
+    return response.circle;
+  }
+
   static async createNamedCircle(params: {
     vaultOwnerToken: string;
     name: string;
@@ -638,12 +662,29 @@ export class OneLocationService {
     };
   }
 
+  /**
+   * Add people to a Circle, and say who actually went in.
+   *
+   * The name is history: this once created pending invitations, and the server
+   * still answers on a route called `circle-member-invites`. It adds outright
+   * now -- `create_member_invites` writes the memberships and marks any open
+   * invitation `accepted` with `resolvedBy: "direct_add"` -- and it returns
+   * `invites: []` unconditionally alongside an `added` array of user ids.
+   *
+   * This read only `invites`, so it returned an empty array from a call that
+   * had just added several people. Nothing broke, because the one caller
+   * ignores the result; the next caller would have believed it.
+   *
+   * Returns the user ids that went in. `invites` is still read as a fallback
+   * so a build talking to a server that predates `added` keeps working.
+   */
   static async createNamedCircleMemberInvites(params: {
     vaultOwnerToken: string;
     circleId: string;
     inviteeUserIds: string[];
-  }): Promise<OneLocationCircleMemberInvite[]> {
+  }): Promise<string[]> {
     const response = await apiJson<{
+      added?: string[];
       invites?: OneLocationCircleMemberInvite[];
       invite?: OneLocationCircleMemberInvite;
     }>("/api/one/location/circle-member-invites", {
@@ -654,7 +695,16 @@ export class OneLocationService {
         inviteeUserIds: params.inviteeUserIds,
       }),
     });
-    return response.invites ?? (response.invite ? [response.invite] : []);
+    if (Array.isArray(response.added)) {
+      return response.added
+        .map((userId) => String(userId || "").trim())
+        .filter(Boolean);
+    }
+    const legacy =
+      response.invites ?? (response.invite ? [response.invite] : []);
+    return legacy
+      .map((invite) => String(invite?.inviteeUserId || "").trim())
+      .filter(Boolean);
   }
 
   static async listNamedCircleMemberInvites(params: {
@@ -822,6 +872,14 @@ export class OneLocationService {
     invite: OneLocationPublicInvite;
     publicToken: string;
     publicUrl: string;
+    /**
+     * True when the server handed back the link that was already live rather
+     * than minting a second one. Its window is restarted for the duration that
+     * was just asked for, so the link is honestly "live for an hour" either
+     * way -- but it is the SAME URL, and anyone already holding it keeps
+     * watching. Worth saying out loud rather than reporting "link created".
+     */
+    reused?: boolean;
   }> {
     return apiJsonWithRetry(
       "/api/one/location/public-invites",
@@ -845,6 +903,33 @@ export class OneLocationService {
       `/api/one/location/public-invites/${encodeURIComponent(publicToken)}`,
       {},
       1,
+    );
+  }
+
+  /**
+   * Move the pin on the caller's own live public link to where they are now.
+   *
+   * The snapshot used to be written once, at create time, and never again, so
+   * a link shared as a live location showed one frozen point for its whole
+   * window. The owner's foreground heartbeat calls this while a public link is
+   * live.
+   *
+   * Writes the position and nothing else: the server refuses to touch
+   * `expiresAt` here, so a heartbeat can never extend a window past what the
+   * owner agreed to share.
+   */
+  static async refreshPublicInviteLocation(params: {
+    vaultOwnerToken: string;
+    inviteId: string;
+    locationSnapshot: PlainLocationPoint;
+  }): Promise<{ invite: OneLocationPublicInvite }> {
+    return apiJson(
+      `/api/one/location/public-invites/${encodeURIComponent(params.inviteId)}/location`,
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ locationSnapshot: params.locationSnapshot }),
+      },
     );
   }
 

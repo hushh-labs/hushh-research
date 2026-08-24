@@ -80,8 +80,8 @@ const SETUP_COPY_BY_ID: Record<
     setupBlurb: "See how your money is doing.",
     actionLabel: "Set up Finance",
     resumeActionLabel: "Finish Finance",
-    introPremise: "See your money clearly.",
-    introPromise: "Only the accounts you share. Nothing else.",
+    introPremise: "Access your finances in one place.",
+    introPromise: "Only the accounts you share.",
     setupBullets: [
       "Tell One how you like to invest.",
       "One reads your portfolio and tailors what it shows you.",
@@ -106,7 +106,7 @@ const SETUP_COPY_BY_ID: Record<
     setupBlurb: "One keeps track of your day.",
     actionLabel: "Connect Calendar",
     resumeActionLabel: "Finish Calendar",
-    introPremise: "Understand your schedule.",
+    introPremise: "Stay ahead of your schedule.",
     introPromise: "See what's ahead, and make time for what matters.",
     setupBullets: [
       "Connect Google Calendar with the access you choose.",

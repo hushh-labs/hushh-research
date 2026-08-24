@@ -1166,7 +1166,7 @@ export function DashboardMasterView({
 
   const openAddHoldingModal = useCallback(() => {
     if (!canEditStatement) {
-      toast.info("Plaid holdings are read-only in Kai.");
+      toast.info("Plaid holdings are read-only in Finance.");
       return;
     }
     setEditingHolding({
@@ -2000,7 +2000,7 @@ export function DashboardMasterView({
               purpose:
                 activeSource === "plaid"
                   ? "Disconnects the Plaid brokerage portfolio and removes the local mirror."
-                  : "Deletes the imported statement portfolio from Kai.",
+                  : "Deletes the imported statement portfolio from Finance.",
               voiceAliases: ["delete portfolio", "delete imported data"],
             },
           ]
@@ -2045,7 +2045,7 @@ export function DashboardMasterView({
               purpose:
                 activeSource === "plaid"
                   ? "Disconnects the Plaid brokerage portfolio and removes the local mirror."
-                  : "Deletes the imported statement portfolio from Kai.",
+                  : "Deletes the imported statement portfolio from Finance.",
               actionId: "kai.portfolio.delete_portfolio",
               role: "button",
             },

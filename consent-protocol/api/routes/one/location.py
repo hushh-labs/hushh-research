@@ -198,7 +198,12 @@ class ReferralRequest(_CamelModel):
 
 
 class CreatePublicInviteRequest(_CamelModel):
-    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=24)
+    # `le=1`, not `le=24`. A public link is readable by anyone holding it, which
+    # is a different promise from a private share to a named person who can be
+    # un-shared -- and 24 was the private ceiling, copied. The service checks it
+    # again (PUBLIC_INVITE_MAX_DURATION_HOURS): this stops the request at the
+    # edge with a field-level error, that one holds for every other caller.
+    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=1)
     location_snapshot: dict[str, Any] | None = Field(default=None, alias="locationSnapshot")
 
 
@@ -238,6 +243,12 @@ class CreateCircleMemberInvitesRequest(_CamelModel):
         min_length=1,
         max_length=20,
     )
+
+
+class RefreshPublicInviteLocationRequest(_CamelModel):
+    # Required, unlike the create payload's optional snapshot: a heartbeat with
+    # no point is not a heartbeat.
+    location_snapshot: dict[str, Any] = Field(alias="locationSnapshot")
 
 
 class SubmitPublicInviteRequest(_CamelModel):
@@ -845,6 +856,42 @@ def ensure_sms_system_circle_route(
         raise _handle_error(exc) from exc
 
 
+@router.post("/location/circles/trusted")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def ensure_trusted_system_circle_route(
+    request: Request,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Find-or-create the caller's Trusted Circle and top up its roster.
+
+    Trusted is a projection of the accepted-connection graph (#5458): everyone
+    you are connected to is in it, and the way out of it is to disconnect.
+
+    Called on bootstrap, so find-or-create rather than create. The reconcile
+    inside adds every connection with no membership row of ANY status, which is
+    what makes a removal stick instead of being undone on the next login, and
+    what heals a membership missed while an older revision was serving.
+
+    Vault-owner token, like the SMS route beside it: the reconcile reads the
+    caller's whole connection graph, which is exactly the material the vault
+    gate exists to protect. It is a projection and nothing more -- Trusted
+    membership grants no location authority, and every shared-Circle
+    eligibility query excludes it explicitly.
+    """
+
+    del request
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "circle": _circle_service().ensure_trusted_system_circle(
+                owner_user_id=_user_id(token_data),
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.delete("/location/circles/{circle_id}/invite-code")
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def revoke_named_location_circle_code(
@@ -1039,10 +1086,18 @@ def cancel_named_circle_member_invite(
 
 
 @router.post("/location/public-invites")
+# Every sibling mutation on this router is throttled and this one was not, so
+# nothing stood between a retry loop -- or a double tap on a slow connection --
+# and a run of simultaneously live public links. Same budget as the circle
+# mutations: minting a link people can watch you through is not something
+# anyone does six times a minute on purpose.
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def create_public_location_invite(
+    request: Request,
     payload: CreatePublicInviteRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
+    del request
     try:
         return _service().create_public_invite(
             owner_user_id=_user_id(token_data),
@@ -1057,6 +1112,35 @@ def create_public_location_invite(
 def resolve_public_location_invite(public_token: _PublicToken):
     try:
         return _service().resolve_public_invite(public_token=public_token)
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/public-invites/{invite_id}/location")
+@limiter.limit(RateLimits.ONE_LOCATION_PUBLIC_LINK_HEARTBEAT)
+def refresh_public_location_invite_location(
+    request: Request,
+    invite_id: _InviteId,
+    payload: RefreshPublicInviteLocationRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Move the pin on the caller's own live public link.
+
+    Declared above the `{public_token}/submit` route on purpose: FastAPI
+    matches in declaration order, and both live under
+    `/location/public-invites/{...}/`. They cannot actually collide -- the
+    suffixes differ -- but keeping the two owner-scoped, invite-id-keyed
+    routes together is what stops a future third one from being added under
+    the anonymous token prefix by accident.
+    """
+
+    del request
+    try:
+        return _service().refresh_public_invite_location(
+            owner_user_id=_user_id(token_data),
+            invite_id=invite_id,
+            location_snapshot=payload.location_snapshot,
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -1080,10 +1164,13 @@ def submit_public_location_invite(
 
 
 @router.delete("/location/public-invites/{invite_id}")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def revoke_public_location_invite(
+    request: Request,
     invite_id: _InviteId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
+    del request
     try:
         return {
             "invite": _service().revoke_public_invite(

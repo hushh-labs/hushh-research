@@ -81,7 +81,10 @@ import {
   type LocalOnboardingActionResult,
 } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
+import {
+  VOICE_CONFIRM_DATA_KEY,
+  VOICE_DISAMBIGUATION_DATA_KEY,
+} from "@/lib/voice/voice-action-card";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 
 import { Badge } from "@/components/ui/badge";
@@ -144,10 +147,14 @@ import {
   recipientSelectionFromIds,
   resolveEffectiveShareRecipients,
 } from "@/lib/one-location/share-recipient-selection";
+import { resolveBySpokenName } from "@/lib/one-location/resolve-by-spoken-name";
 import {
   ambiguousMatchNames,
-  resolveBySpokenName,
-} from "@/lib/one-location/resolve-by-spoken-name";
+  joinNamesForSpeech,
+  normalizeSpokenName,
+  resolveSpokenNames,
+  splitSpokenNames,
+} from "@/lib/one-location/resolve-spoken-names";
 
 
 import {
@@ -236,7 +243,15 @@ import {
   isOneLocationNearbyCheckInAvailable,
   ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
 } from "@/lib/one-location/nearby-check-in-availability";
+import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
+import { ROUTES } from "@/lib/navigation/routes";
 import { resolveOnboardingMapPoint } from "@/lib/one-location/onboarding-map-point";
+// One rule, one place: Connect owns the Circle screens now and needs the
+// same judgement about what an API failure may say to a person.
+import {
+  isTransientOneApiError,
+  oneLocationErrorMessage,
+} from "@/lib/one-location/error-message";
 
 import {
   clearLiveShareEntries,
@@ -499,7 +514,24 @@ const ONE_NETWORK_PREVIEW_LIMIT = 3;
 const REQUEST_MESSAGE_MAX_LENGTH = 80;
 
 const ONE_LOCATION_SHARE_TITLE = "Join me on One";
-const ONE_LOCATION_PUBLIC_SHARE_COPY = "Join my Location circle";
+/**
+ * What a public live-location link says about itself in the share sheet.
+ *
+ * It used to read "Join my Location circle", which described a different
+ * object entirely: a Circle invite asks a named person to join something and
+ * lasts a day. This link asks for nothing — it shows the recipient where the
+ * sender is, right now, for up to an hour. The old line set them up to expect
+ * a signup, which is exactly what a stranger receiving a location does not
+ * want to read before they tap.
+ */
+const ONE_LOCATION_PUBLIC_SHARE_COPY = "View my live location on One";
+/**
+ * The share sheet's own title for that link. Deliberately not
+ * ONE_LOCATION_SHARE_TITLE ("Join me on One"): several targets show the title
+ * and drop the text, and on those the public link would have gone back to
+ * announcing itself as an invitation.
+ */
+const ONE_LOCATION_PUBLIC_SHARE_TITLE = ONE_LOCATION_PUBLIC_SHARE_COPY;
 const ONE_LOCATION_CIRCLE_SHARE_COPY = "Join me on One";
 const SHOW_LOCATION_ACTIVITY_SECTION = false;
 const SHOW_OWNER_GRANTS_SECTION = false;
@@ -802,6 +834,17 @@ function recipientLabel(recipient: OneLocationRecipient): string {
   return safePersonLabel(recipient.displayName);
 }
 
+/**
+ * A single readable line under a recipient's name, for the walkthrough
+ * panel's subject row -- a masked phone once contact sync has it, otherwise
+ * whatever headline the recipient set. Deliberately not
+ * `recommendationSearchText`: that string exists for fuzzy matching and
+ * reads as a lowercase keyword blob, not something to show someone.
+ */
+function recipientSubjectDetail(recipient: OneLocationRecipient): string | null {
+  return recipient.maskedPhone || recipient.profileHeadline || null;
+}
+
 function recommendationTierLabel(tier?: string | null): string {
   switch (tier) {
     case "needs_action":
@@ -986,22 +1029,6 @@ function peopleCountLabel(count: number): string {
   return count === 1 ? "1 person" : `${count} people`;
 }
 
-/** Normalize a spoken or stored name: no case, no accents, no punctuation. */
-export function normalizeSpokenName(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    // Punctuation out so "Mum & Dad" and "Mum and Dad" are not two different
-    // circles to a speaker. Unicode classes, not [a-z0-9]: a circle named in
-    // Hindi or Arabic must stay matchable rather than normalizing to nothing.
-    // \p{M} is load-bearing -- Devanagari vowel signs are marks, not letters,
-    // so without it "परिवार" shreds into "पर व र" and never matches itself.
-    .replace(/[^\p{L}\p{N}\p{M}\s]/gu, " ")
-    .replace(/\s+/gu, " ")
-    .trim();
-}
-
 /**
  * Resolve a spoken circle name against the circles the person actually has.
  *
@@ -1100,6 +1127,19 @@ const CIRCLE_INVITE_MAX_DURATION_HOURS = 24;
  * thing enforcing this, and it was not enforcing it.
  */
 const PUBLIC_INVITE_MAX_DURATION_HOURS = 1;
+
+/**
+ * An ISO expiry as epoch ms, or null when there is nothing usable to compare.
+ *
+ * Null means "do not expire this locally" rather than "expired": a missing or
+ * unparseable timestamp is not evidence the link has run out, and treating it
+ * as such would hide a working link.
+ */
+function parseExpiryMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 function publicInviteDurationHours(value: string): number {
   return inviteDurationHours(value, PUBLIC_INVITE_MAX_DURATION_HOURS);
@@ -1252,12 +1292,6 @@ function statusVariant(
   return "outline";
 }
 
-function isTransientOneApiError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const status = (error as { status?: unknown }).status;
-  return status === 502 || status === 503 || status === 504;
-}
-
 function isVaultOwnerAuthError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const status = (error as { status?: unknown }).status;
@@ -1374,53 +1408,6 @@ async function runOneLocationForegroundAttempt<T>(params: {
       await wait(retryDelayMs);
     }
   }
-}
-
-// Consumer UI must never surface raw backend or database internals such as SQL
-// text, driver errors, stack traces, encrypted key blobs, or table and column
-// identifiers. Those belong in logs and developer tooling only. We only let
-// short, human-readable messages through; anything that looks like an internal
-// dump is replaced with a friendly summary. This keeps the vault and PKM data
-// boundary intact and stops raw driver errors from reaching users.
-
-const ONE_LOCATION_UNSAFE_ERROR_MARKERS = [
-  "psycopg2",
-  "sqlalchemy",
-  "sql:",
-  "select ",
-  "insert into",
-  "update ",
-  "delete from",
-  "relation ",
-  "column ",
-  "constraint",
-  "traceback",
-  "jsonb",
-  "public_key",
-  "encrypted_",
-  "jwk",
-  "background on this error",
-  "undefinedcolumn",
-];
-
-function isSafeUserFacingMessage(message: string): boolean {
-  const trimmed = message.trim();
-  if (!trimmed) return false;
-  // Long strings or multi-line payloads are almost always internal dumps.
-  if (trimmed.length > 160) return false;
-  if (/[\n\r]/.test(trimmed)) return false;
-  const lower = trimmed.toLowerCase();
-  return !ONE_LOCATION_UNSAFE_ERROR_MARKERS.some((marker) =>
-    lower.includes(marker),
-  );
-}
-
-function oneLocationErrorMessage(error: unknown, fallback: string): string {
-  if (isTransientOneApiError(error)) {
-    return "One is still catching up. Please refresh once, then check this page before retrying.";
-  }
-  const raw = error instanceof Error ? error.message : "";
-  return isSafeUserFacingMessage(raw) ? raw : fallback;
 }
 
 // Great-circle distance in metres between two points (Haversine). Used to decide
@@ -2504,7 +2491,37 @@ export function OneLocationAgentPageContent({
   const [referralTargets, setReferralTargets] = useState<
     Record<string, string>
   >({});
-  const [publicInviteUrl, setPublicInviteUrl] = useState("");
+  /**
+   * The link as it came back from the create call, this session only.
+   *
+   * Kept because the server's copy arrives one refetch later: between "created"
+   * and the next `getState` there is a window where the only place the URL
+   * exists is this variable. `publicInviteUrl` below prefers the server's copy
+   * and falls back to this one.
+   *
+   * It carries its own expiry, and that is not decoration. A bare string
+   * outlived the link it named: once the invite ran out, the server stopped
+   * reporting it as active but this variable still held a URL, so the Links tab
+   * -- which hides its create control whenever a link is live -- kept showing a
+   * dead link with no way past it. The expiry here is the one the SERVER
+   * stamped, not the duration that was asked for, so the two agree.
+   */
+  const [createdPublicInvite, setCreatedPublicInvite] = useState<{
+    url: string;
+    expiresAtMs: number | null;
+  } | null>(null);
+  /**
+   * The public link's own duration, deliberately not the shared `durationHours`.
+   *
+   * One `durationHours` string is written by the Ask composer and the Circle
+   * invite screen and read by all three lanes, which is how a public link ended
+   * up posting the 24 hours somebody picked on another screen. The clamp at
+   * post time caught that, but only by silently shortening what the person had
+   * been shown. Now that the control lives permanently on the Links tab rather
+   * than behind a button, it would be writing that shared string every time
+   * anyone browsed past it.
+   */
+  const [publicLinkDurationHours, setPublicLinkDurationHours] = useState("1");
   const [circleInviteUrl, setCircleInviteUrl] = useState("");
   const [
     incomingCircleMemberInvites,
@@ -3261,12 +3278,32 @@ export function OneLocationAgentPageContent({
         isOneLocationGrantUnwatched(auth.userId, grant.id),
     ).length;
   }, [auth.userId, unwatchedTick, state?.receivedGrants]);
+  /**
+   * Links that are live right now, by the clock as well as by the server.
+   *
+   * `status` alone is not enough. Expiry is written server-side only when a row
+   * is READ, and nothing on this screen refetches on a timer -- so a link that
+   * ran out five minutes ago is still `status: "active"` in the state this
+   * session already holds. That was harmless while the Links tab merely listed
+   * it. It is not harmless now: the tab hides its create control whenever a
+   * link is live, so a stale row left the person looking at a dead link with no
+   * way to make another until they reloaded the page.
+   *
+   * `nowMs` ticks every 30s and on return from background, so the create form
+   * comes back on its own, which is exactly the promise the tab makes.
+   *
+   * A row with no `expiresAt` is treated as live: the server sent it as active
+   * and we have nothing to contradict that with.
+   */
   const activePublicInvites = useMemo(
     () =>
-      (state?.publicInvites ?? []).filter(
-        (invite) => invite.status === "active",
-      ),
-    [state?.publicInvites],
+      (state?.publicInvites ?? []).filter((invite) => {
+        if (invite.status !== "active") return false;
+        if (!invite.expiresAt) return true;
+        const expiresAtMs = Date.parse(invite.expiresAt);
+        return !Number.isFinite(expiresAtMs) || expiresAtMs > nowMs;
+      }),
+    [nowMs, state?.publicInvites],
   );
   const latestActivePublicInvite = useMemo(() => {
     const inviteTime = (invite: OneLocationPublicInvite) =>
@@ -3279,6 +3316,37 @@ export function OneLocationAgentPageContent({
       )[0] ?? null
     );
   }, [activePublicInvites]);
+  /**
+   * The live public link, whoever knows it.
+   *
+   * The server's copy wins. It is the only one that survives a reload, a second
+   * device, or a link the agent made -- and until it existed, this was simply
+   * `""` in all three cases, so Copy and Share early-returned and the Links tab
+   * shipped a button that did nothing. The create response is the fallback for
+   * the one moment the server has not caught up yet: `handleCreatePublicInvite`
+   * fires `refresh()` without awaiting it.
+   *
+   * Empty means there is genuinely no link to offer -- either none is live, or
+   * the live one predates derivable tokens and cannot be recovered. Callers
+   * must not read empty as "not loaded yet".
+   */
+  const publicInviteUrl = useMemo(() => {
+    const fromServer = latestActivePublicInvite?.publicUrl;
+    if (fromServer && String(fromServer).trim()) {
+      return publicInviteUrlLabel(String(fromServer).trim());
+    }
+    if (!createdPublicInvite) return "";
+    // The fallback has to expire with the link it names, or it keeps a dead
+    // link on screen after `latestActivePublicInvite` has correctly let go.
+    if (
+      createdPublicInvite.expiresAtMs !== null &&
+      createdPublicInvite.expiresAtMs <= nowMs
+    ) {
+      return "";
+    }
+    return createdPublicInvite.url;
+  }, [createdPublicInvite, latestActivePublicInvite, nowMs]);
+
   const activeCircleInvites = useMemo(
     () =>
       (state?.circleInvites ?? []).filter(
@@ -3852,6 +3920,25 @@ export function OneLocationAgentPageContent({
       return;
     }
 
+    // Somebody arriving ON a specific screen is not a first run.
+    //
+    // This takeover is decided by auth, the vault, `mode`, `loadError` and one
+    // localStorage flag -- and reads no query parameter at all, so every deep
+    // link into Location put "Share your location easily with anyone" in front
+    // of the screen it named. Circles moved to Connect (#5458) partly because
+    // of that, and the handoff that remains -- sharing your live location with
+    // a Circle member -- still lands here.
+    //
+    // Nothing the linked-to flow needs is produced by this onboarding: it asks
+    // for permission and offers to save a place, and every flow reachable by
+    // `?action=` works without either. So an explicit destination wins over the
+    // first-run greeting. `mode === "setup"` is deliberately still ahead of
+    // this: inside the setup wizard the greeting IS the screen.
+    if (searchParams.get("action")?.trim()) {
+      setLocationOnboardingGate("hidden");
+      return;
+    }
+
     if (locationOnboardingGate === "hidden") {
       return;
     }
@@ -3882,6 +3969,7 @@ export function OneLocationAgentPageContent({
     loadError,
     locationOnboardingGate,
     mode,
+    searchParams,
     vaultOwnerToken,
   ]);
 
@@ -5442,6 +5530,91 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
+  /**
+   * The public link's own heartbeat.
+   *
+   * A public link is not a grant: it carries no recipient key and no envelope,
+   * so it is invisible to the publisher above, which walks `activeOwnerGrants`.
+   * Nothing else ever wrote to it either -- the snapshot went onto the row once,
+   * at create time -- so a link shared as a LIVE location showed one frozen
+   * point for its entire window, under a chip that says "Live" and a share
+   * message that says "View my live location on One".
+   *
+   * Same cadence and the same gates as the grant heartbeat, and the same point:
+   * `liveHeartbeatPoint()` reads the shared bus the movement watch already
+   * feeds, so this adds no second acquisition and cannot race the watch for the
+   * platform's pending-call slot.
+   *
+   * Deliberately its own effect rather than a branch inside the grant loop. A
+   * public link has to keep updating for someone with no private shares at all,
+   * and folding it in would have made it depend on `activeOwnerGrants.length`
+   * -- the exact "invisible to the publisher" bug this fixes.
+   *
+   * A failure is never surfaced. The window is the promise; the pin going a
+   * tick stale is not something the owner can act on, and a toast once every
+   * twenty seconds is worse than the staleness.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!vaultOwnerToken) return;
+    const inviteId = activePublicInvites[0]?.id;
+    if (!inviteId) return;
+    if (locationControl.paused) return;
+    if (
+      permission?.state === "denied" ||
+      permission?.state === "restricted" ||
+      permission?.state === "unavailable"
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let inFlight = false;
+
+    const publishPublicLink = async () => {
+      if (cancelled || inFlight) return;
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      inFlight = true;
+      try {
+        const point = await liveHeartbeatPoint();
+        // Nothing measured this session. A page that says "Live" must never be
+        // handed a remembered coordinate; the watch will deliver one shortly.
+        if (!point || cancelled) return;
+        await OneLocationService.refreshPublicInviteLocation({
+          vaultOwnerToken,
+          inviteId,
+          locationSnapshot: point,
+        });
+      } catch {
+        // Includes the expected 404 from a link revoked in another tab. The
+        // row is gone; the next state refresh drops it from
+        // `activePublicInvites` and this effect tears itself down.
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const interval = window.setInterval(
+      () => void publishPublicLink(),
+      LIVE_LOCATION_UPDATE_INTERVAL_MS,
+    );
+    void publishPublicLink();
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [
+    activePublicInvites,
+    locationControl.paused,
+    permission?.state,
+    vaultOwnerToken,
+  ]);
+
   // True LIVE tracking (owner side): while a share is active and the app is in
   // the foreground, subscribe to a continuous geolocation watch and re-publish
   // an encrypted envelope to every active grant as soon as the owner MOVES
@@ -6436,30 +6609,43 @@ export function OneLocationAgentPageContent({
       const point = readiness.point;
       const response = await OneLocationService.createPublicInvite({
         vaultOwnerToken,
-        durationHours: publicInviteDurationHours(durationHours),
+        durationHours: publicInviteDurationHours(publicLinkDurationHours),
         locationSnapshot: point,
       });
       const url = publicInviteUrlLabel(response.publicUrl);
-      setPublicInviteUrl(url);
+      setCreatedPublicInvite({
+        url,
+        expiresAtMs: parseExpiryMs(response.invite?.expiresAt),
+      });
       const copiedToClipboard = url ? await copyToClipboard(url) : false;
       trackEvent("one_location_public_link_created", {
         route_id: "one_location",
         result: "success",
-        duration_bucket: oneLocationDurationBucket(durationHours),
+        duration_bucket: oneLocationDurationBucket(publicLinkDurationHours),
         copied_to_clipboard: copiedToClipboard,
         active_invite_count: activePublicInvites.length + 1,
       });
+      // One live link per person, so pressing this while one is already out
+      // there restarts that link's window rather than minting a second URL.
+      // Saying "created" would be a lie the person acts on: they would think
+      // the old link is dead and this one is new, when in fact everyone they
+      // sent it to is still watching through the same URL.
+      const reusedExistingLink = response.reused === true;
       toast.success(
-        copiedToClipboard
-          ? "Public location link created and copied."
-          : "Public location link created.",
+        reusedExistingLink
+          ? copiedToClipboard
+            ? "Your live link now runs for another window, and is copied."
+            : "Your live link now runs for another window."
+          : copiedToClipboard
+            ? "Public location link created and copied."
+            : "Public location link created.",
       );
       void refresh().catch(() => null);
     } catch (error) {
       trackEvent("one_location_public_link_created", {
         route_id: "one_location",
         result: "error",
-        duration_bucket: oneLocationDurationBucket(durationHours),
+        duration_bucket: oneLocationDurationBucket(publicLinkDurationHours),
         copied_to_clipboard: false,
         active_invite_count: activePublicInvites.length,
       });
@@ -6474,8 +6660,8 @@ export function OneLocationAgentPageContent({
     }
   }, [
     activePublicInvites.length,
-    durationHours,
     ensureForegroundLocationReady,
+    publicLinkDurationHours,
     refresh,
     vaultOwnerToken,
   ]);
@@ -6498,7 +6684,7 @@ export function OneLocationAgentPageContent({
     if (!publicInviteUrl) return;
     try {
       const delivery = await shareOneLocationLink({
-        title: ONE_LOCATION_SHARE_TITLE,
+        title: ONE_LOCATION_PUBLIC_SHARE_TITLE,
         text: ONE_LOCATION_PUBLIC_SHARE_COPY,
         url: publicInviteUrl,
         dialogTitle: "Share to contacts",
@@ -6526,15 +6712,18 @@ export function OneLocationAgentPageContent({
         const point = readiness.point;
         const response = await OneLocationService.createPublicInvite({
           vaultOwnerToken,
-          durationHours: publicInviteDurationHours(durationHours),
+          durationHours: publicInviteDurationHours(publicLinkDurationHours),
           locationSnapshot: point,
         });
         url = publicInviteUrlLabel(response.publicUrl);
-        setPublicInviteUrl(url);
+        setCreatedPublicInvite({
+          url,
+          expiresAtMs: parseExpiryMs(response.invite?.expiresAt),
+        });
         trackEvent("one_location_public_link_created", {
           route_id: "one_location",
           result: "success",
-          duration_bucket: oneLocationDurationBucket(durationHours),
+          duration_bucket: oneLocationDurationBucket(publicLinkDurationHours),
           copied_to_clipboard: false,
           active_invite_count: activePublicInvites.length + 1,
         });
@@ -6542,7 +6731,7 @@ export function OneLocationAgentPageContent({
       }
 
       const delivery = await shareOneLocationLink({
-        title: ONE_LOCATION_SHARE_TITLE,
+        title: ONE_LOCATION_PUBLIC_SHARE_TITLE,
         text: ONE_LOCATION_PUBLIC_SHARE_COPY,
         url,
         dialogTitle: "Share to contacts",
@@ -6555,7 +6744,7 @@ export function OneLocationAgentPageContent({
       trackEvent("one_location_public_link_created", {
         route_id: "one_location",
         result: "error",
-        duration_bucket: oneLocationDurationBucket(durationHours),
+        duration_bucket: oneLocationDurationBucket(publicLinkDurationHours),
         copied_to_clipboard: false,
         active_invite_count: activePublicInvites.length,
       });
@@ -6565,9 +6754,9 @@ export function OneLocationAgentPageContent({
     }
   }, [
     activePublicInvites.length,
-    durationHours,
     ensureForegroundLocationReady,
     publicInviteUrl,
+    publicLinkDurationHours,
     refresh,
     vaultOwnerToken,
   ]);
@@ -6748,34 +6937,27 @@ export function OneLocationAgentPageContent({
   );
 
   const handleConnectCircleMember = useCallback(
-    async (circleId: string, memberUserId: string) => {
+    async (circleId: string, _memberUserId: string) => {
+      // Hands off rather than sending.
+      //
       // Sharing a Circle does not connect two people -- a joiner is paired with
       // whoever invited them and nobody else -- so this is a real request the
-      // other person answers, exactly like one sent from anywhere else.
-      const idToken = await auth.user?.getIdToken();
-      if (!idToken) {
-        toast.error("Sign in again to send a connection request.");
-        return;
-      }
-      try {
-        await ConnectionsService.sendRequest({
-          idToken,
-          addresseeUserId: memberUserId,
-        });
-        toast.success("Connection request sent.");
-        // Re-read the Circle so the row moves to "Requested" from the server's
-        // answer rather than from an optimistic guess this screen made.
-        await handleLoadNamedCircle(circleId).catch(() => null);
-      } catch (error) {
-        toast.error(
-          oneLocationErrorMessage(
-            error,
-            "Could not send the connection request.",
-          ),
-        );
-      }
+      // other person answers. It used to be sent from here directly, which
+      // made this roster the one place in the app where a connection request
+      // went out without the capability review that
+      // `config/protected-behaviors.json` names
+      // (`connect-request-asks-before-it-shares`). The review sheet lives on
+      // Connect, and Circles live there now too, so the honest move is to
+      // arrive at the same Circle on the surface that owns both.
+      //
+      // The row's "Requested"/Cancel state was also never reachable here: this
+      // screen has no cancel of its own, so it showed a dead status. Connect
+      // has both.
+      router.push(
+        `${ROUTES.CONNECT}?tab=circles&action=circle-detail&circleId=${encodeURIComponent(circleId)}`,
+      );
     },
-    [auth.user, handleLoadNamedCircle],
+    [router],
   );
 
   const handleResolveNamedCircleRecipients = useCallback(
@@ -6821,9 +7003,7 @@ export function OneLocationAgentPageContent({
           (target) => target.recipient.userId,
         );
         if (!recipientUserIds.length) {
-          throw new Error(
-            "No current Circle members are ready to receive encrypted location.",
-          );
+          throw new Error("Add members to your Circle");
         }
         setSelectedShareCircleSelection(selection);
         setNamedCircleShareContext({
@@ -7138,12 +7318,24 @@ export function OneLocationAgentPageContent({
 
       // Reuse the person's first owned Circle so re-entering onboarding never
       // spawns duplicates; fall back to any membership, else create one.
+      //
+      // Product-managed Circles are skipped, and that is load-bearing rather
+      // than tidy. The SMS Circle and Trusted both arrive on their own -- the
+      // second one the moment a connection is accepted, which is BEFORE most
+      // people reach this screen -- so "the first Circle you own" is routinely
+      // one of them. This screen then asks for its invite code, and neither has
+      // one: a Circle holding everyone you are connected to must not be
+      // shareable by a link, so `create_invite_code` refuses it outright and
+      // the invite step failed with nothing on screen explaining why.
       let targetCircleId: string | null = null;
       try {
         const circles = await OneLocationService.listCircles(vaultOwnerToken);
+        const shareable = circles.filter(
+          (circle) => !circle.systemKind && !circle.isSystem,
+        );
         targetCircleId =
-          circles.find((circle) => circle.role === "owner")?.id ??
-          circles[0]?.id ??
+          shareable.find((circle) => circle.role === "owner")?.id ??
+          shareable[0]?.id ??
           null;
       } catch {
         // A listing hiccup shouldn't block setup — fall through to create.
@@ -7529,7 +7721,7 @@ export function OneLocationAgentPageContent({
           vaultOwnerToken,
           inviteId: invite.id,
         });
-        setPublicInviteUrl("");
+        setCreatedPublicInvite(null);
         toast.success("Public location link revoked.");
         void refresh().catch(() => null);
       } catch (error) {
@@ -7829,18 +8021,20 @@ export function OneLocationAgentPageContent({
       selectionSurface: OneLocationSelectionSurface = "select_menu",
     ) => {
       const recipient = recipients.find((item) => item.userId === recipientId);
-      const nextSelectedIds = addSelectedId(
-        selectedRequestOwnerIds,
-        recipientId,
-      );
       setSelectedRequestOwnerId(recipientId);
-      setSelectedRequestOwnerIds(nextSelectedIds);
+      // Functional update: a multi-person voice turn can resolve several
+      // names in one handler invocation and call this once per person
+      // before React re-renders. Computing the next array from the closed-
+      // over `selectedRequestOwnerIds` (as this used to) would have every
+      // call in that batch read the same stale array and overwrite each
+      // other, silently keeping only the last person selected.
+      setSelectedRequestOwnerIds((current) => addSelectedId(current, recipientId));
       if (recipient) {
         trackRecommendationSelection(
           recipient,
           "request",
           selectionSurface,
-          nextSelectedIds.length,
+          addSelectedId(selectedRequestOwnerIds, recipientId).length,
         );
       }
     },
@@ -8667,7 +8861,7 @@ export function OneLocationAgentPageContent({
       if (openFlow === "share" && shareReadySelectedRecipients.length === 0) {
         return {
           reason:
-            "Nobody is picked for this share yet, so starting it will refuse. The share needs a person chosen before it can run.",
+            "No one is chosen for this share yet. Pick who to share with.",
           remedyActionId: "location.select_share_recipient",
         };
       }
@@ -9046,12 +9240,42 @@ export function OneLocationAgentPageContent({
   // in front of someone who can see it, rather than a live location already
   // sent to the wrong person.
   useLocalOnboardingActionHandler("location.select_share_recipient", async (slots) => {
-    const spoken = String(slots?.person ?? "").trim().toLowerCase();
-    if (!spoken) {
+    // The disambiguation card's tap re-runs this handler with the chosen id
+    // and no `person` text at all -- the name that needed picking is settled,
+    // and any OTHER names from the same turn already applied themselves
+    // before the card was shown (see below), so this short-circuits straight
+    // to applying the one id instead of re-parsing an empty utterance.
+    const resolvedRecipientId = String(slots?.resolvedRecipientId ?? "").trim();
+    if (resolvedRecipientId) {
+      setSelectedRecipientIds((current) =>
+        current.includes(resolvedRecipientId)
+          ? current
+          : [...current, resolvedRecipientId],
+      );
+      const chosen = rankedRecipients.find(
+        (candidate) => candidate.userId === resolvedRecipientId,
+      );
+      const chosenName = chosen ? recipientLabel(chosen).trim() : "";
+      return {
+        status: "succeeded" as const,
+        summary: `${chosenName ? `Matched ${chosenName}.` : "Matched."} Now start the share with location.share_selected and the duration they asked for; say who it is going to as you do it.`,
+        data:
+          chosen && chosenName
+            ? {
+                subject: { name: chosenName, detail: recipientSubjectDetail(chosen) },
+              }
+            : undefined,
+      };
+    }
+    const raw = String(slots?.person ?? "").trim();
+    if (!raw) {
       return { status: "blocked" as const, summary: "Say who you want to share with." };
     }
-    let matches = rankedRecipients.filter((recipient) =>
-      recommendationSearchText(recipient).includes(spoken),
+    let { resolved, unresolved } = resolveSpokenNames(
+      rankedRecipients,
+      raw,
+      recipientLabel,
+      recommendationSearchText,
     );
     // Finding nobody while the vault is LOCKED says nothing about who the
     // person is connected to -- the protected recipient list cannot be read at
@@ -9059,7 +9283,11 @@ export function OneLocationAgentPageContent({
     // statement about their connections made without being able to see them.
     // It reads as "that person is not your connection", which may be flatly
     // untrue, and sends someone off to re-add somebody they already have.
-    if (matches.length === 0 && !vaultOwnerToken) {
+    if (
+      resolved.length === 0 &&
+      unresolved.every((entry) => entry.kind === "not_found") &&
+      !vaultOwnerToken
+    ) {
       return {
         status: "blocked" as const,
         summary:
@@ -9068,21 +9296,37 @@ export function OneLocationAgentPageContent({
     }
     // A navigation journey can arrive before the full Location workspace
     // snapshot has finished loading. Do one focused, server-authoritative
-    // recipient read before concluding that the named connection is absent.
-    // This stays inside the browser's existing vault-authorized boundary; the
-    // private agent still receives only the words the person spoke.
-    if (matches.length === 0 && vaultOwnerToken) {
+    // recipient read before concluding that a named connection is absent --
+    // but only re-check the names that came back empty, not names that
+    // already resolved or were ambiguous against the same pool, so a
+    // multi-name turn does not redundantly re-resolve names that already
+    // succeeded. This stays inside the browser's existing vault-authorized
+    // boundary; the private agent still receives only the words the person
+    // spoke.
+    const stillMissing = unresolved.filter((entry) => entry.kind === "not_found");
+    if (stillMissing.length > 0 && vaultOwnerToken) {
       try {
         const freshRecipients = await OneLocationService.listRecipients(
           vaultOwnerToken,
         );
-        matches = rankRecipientsForRecommendation(
+        const freshPool = rankRecipientsForRecommendation(
           enrichRecipientsWithContactSignal(
             freshRecipients,
             contactMatchedUserIds,
           ),
           contactMatchedUserIds,
-        ).filter((recipient) => recommendationSearchText(recipient).includes(spoken));
+        );
+        const retry = resolveSpokenNames(
+          freshPool,
+          stillMissing.map((entry) => entry.spokenText).join(", "),
+          recipientLabel,
+          recommendationSearchText,
+        );
+        resolved = [...resolved, ...retry.resolved];
+        unresolved = [
+          ...unresolved.filter((entry) => entry.kind !== "not_found"),
+          ...retry.unresolved,
+        ];
       } catch {
         return {
           status: "blocked" as const,
@@ -9090,43 +9334,48 @@ export function OneLocationAgentPageContent({
         };
       }
     }
-    if (matches.length === 0) {
-      return {
-        status: "blocked" as const,
-        summary: "Nobody in your connections matches that name.",
-      };
-    }
-    if (matches.length > 1) {
+    if (resolved.length === 0) {
       // Never guess between people. Two colleagues sharing a first name is
       // ordinary, and picking the wrong one here is not recoverable once the
-      // share starts.
-      // Naming them is the point: "which Sarah?" is only answerable if the
-      // person hears both. Bounded to the handful that actually matched the
-      // name they just said.
-      const names = matches
-        .slice(0, 4)
-        .map((recipient) => recipientLabel(recipient).trim())
-        .filter(Boolean)
-        .join(", ");
-      return {
-        status: "blocked" as const,
-        summary: names
-          ? `${matches.length} people match that name: ${names}. Ask which one they meant.`
-          : `${matches.length} people match that name. Ask which one they meant.`,
-      };
-    }
-    const match = matches[0];
-    const matchedUserId = match?.userId;
-    if (!match || !matchedUserId) {
+      // share starts. Naming them is the point: "which Sarah?" is only
+      // answerable if the person hears both.
+      const ambiguous = unresolved.find((entry) => entry.kind === "ambiguous");
+      if (ambiguous && ambiguous.kind === "ambiguous") {
+        const names = ambiguousMatchNames(ambiguous.matches, recipientLabel);
+        return {
+          status: "blocked" as const,
+          summary: names
+            ? `${ambiguous.matches.length} people match that name: ${names}. Ask which one they meant.`
+            : `${ambiguous.matches.length} people match that name. Ask which one they meant.`,
+          data: {
+            [VOICE_DISAMBIGUATION_DATA_KEY]: {
+              actionId: "location.select_share_recipient",
+              resolveSlot: "resolvedRecipientId",
+              slots: {},
+              prompt: `${ambiguous.matches.length} people match "${ambiguous.spokenText}".`,
+              candidates: ambiguous.matches.map((candidate) => ({
+                id: candidate.userId,
+                name: recipientLabel(candidate).trim() || "Someone",
+                detail: recommendationSearchText(candidate) ?? null,
+                actionLabel: "Share",
+              })),
+            },
+          },
+        };
+      }
       return {
         status: "blocked" as const,
         summary: "Nobody in your connections matches that name.",
       };
     }
-    setSelectedRecipientIds((current) =>
-      current.includes(matchedUserId) ? current : [...current, matchedUserId],
-    );
-    // The RESOLVED name goes back, and that is the safety mechanism rather
+    for (const match of resolved) {
+      const matchedUserId = match.userId;
+      if (!matchedUserId) continue;
+      setSelectedRecipientIds((current) =>
+        current.includes(matchedUserId) ? current : [...current, matchedUserId],
+      );
+    }
+    // The RESOLVED names go back, and that is the safety mechanism rather
     // than a leak.
     //
     // Phase 4 deliberately counted people instead of naming them, to keep the
@@ -9135,25 +9384,75 @@ export function OneLocationAgentPageContent({
     // heard a sound. Hearing "Sarah Chen" is what lets a wrong match die in
     // the question instead of on someone's phone.
     //
-    // The disclosure is bounded to exactly that: one contact, the person's
-    // own, resolved from a name they just said aloud, spoken back to them.
-    // No id, no address, no list -- and still nothing about anyone they did
-    // not name.
-    const matchedName = recipientLabel(match).trim();
+    // The disclosure is bounded to exactly that: the people the person's own
+    // words just resolved, spoken back to them. No id, no address, no list of
+    // anyone they did not name.
+    const matchedNames = resolved
+      .map((match) => recipientLabel(match).trim())
+      .filter(Boolean);
+    // A person can name several people in one turn ("Alice and Rahul") and
+    // have one resolve while the other does not -- apply what worked and say
+    // so, rather than failing the whole turn over the one name that did not
+    // match.
+    const problems = unresolved.map((entry) => {
+      if (entry.kind === "not_found") {
+        return `couldn't find anyone named "${entry.spokenText}"`;
+      }
+      const names = ambiguousMatchNames(entry.matches, recipientLabel);
+      return names
+        ? `${entry.matches.length} people match "${entry.spokenText}" (${names}) -- ask which one`
+        : `${entry.matches.length} people match "${entry.spokenText}" -- ask which one`;
+    });
+    const matchedSentence = matchedNames.length
+      ? `Matched ${joinNamesForSpeech(matchedNames)}.`
+      : "Matched.";
+    const problemSentence = problems.length ? ` Also, ${problems.join("; ")}.` : "";
+    // A name that came back ambiguous alongside others that resolved cleanly
+    // is still worth showing, not just naming: the already-resolved names
+    // are already applied above, so the card only has to settle this one.
+    const stillAmbiguous = unresolved.find((entry) => entry.kind === "ambiguous");
     return {
       status: "succeeded" as const,
-      // Say the matched name and keep going. This used to end "ask the person
-      // to confirm that is who they meant", which was the design when the
-      // question existed to catch a mis-heard name -- but a spoken yes to a
-      // question One just asked adds nothing the original sentence did not,
+      // Say the matched name(s) and keep going. This used to end "ask the
+      // person to confirm that is who they meant", which was the design when
+      // the question existed to catch a mis-heard name -- but a spoken yes to
+      // a question One just asked adds nothing the original sentence did not,
       // and it was the last thing standing between this flow and hands-free.
       //
       // Naming the match out loud still does the work the question was for:
       // the person hears "Abdul Rashid" when they said "Abdul", and a wrong
       // match is audible at the moment it happens rather than after.
-      summary: matchedName
-        ? `Matched ${matchedName}. Now start the share with location.share_selected and the duration they asked for; say who it is going to as you do it.`
-        : "Matched one person. Now start the share with location.share_selected and the duration they asked for.",
+      summary: `${matchedSentence}${problemSentence} Now start the share with location.share_selected and the duration they asked for; say who it is going to as you do it.`,
+      ...(stillAmbiguous && stillAmbiguous.kind === "ambiguous"
+        ? {
+            data: {
+              [VOICE_DISAMBIGUATION_DATA_KEY]: {
+                actionId: "location.select_share_recipient",
+                resolveSlot: "resolvedRecipientId",
+                slots: {},
+                prompt: `${stillAmbiguous.matches.length} people match "${stillAmbiguous.spokenText}".`,
+                candidates: stillAmbiguous.matches.map((candidate) => ({
+                  id: candidate.userId,
+                  name: recipientLabel(candidate).trim() || "Someone",
+                  detail: recommendationSearchText(candidate) ?? null,
+                  actionLabel: "Share",
+                })),
+              },
+            },
+          }
+        : matchedNames.length
+          ? {
+              data: {
+                subject: {
+                  name: joinNamesForSpeech(matchedNames),
+                  detail:
+                    resolved.length === 1
+                      ? recipientSubjectDetail(resolved[0]!)
+                      : null,
+                },
+              },
+            }
+          : null),
     };
   });
 
@@ -9170,20 +9469,54 @@ export function OneLocationAgentPageContent({
     const duration = SHARE_VOICE_DURATION_VALUES.has(requested)
       ? requested
       : undefined;
-    if (duration) setShareDurationHours(duration);
+    if (!duration) {
+      // Never fall through to whatever duration happens to already be on
+      // screen -- that is a guess about how long someone's live location
+      // should be visible, made on their behalf. Ask, every time, exactly
+      // like a name that never resolved.
+      return {
+        status: "blocked" as const,
+        summary: "For how long? You can say 30 minutes, 1 hour, 4 hours or 24 hours.",
+      };
+    }
+    setShareDurationHours(duration);
 
     // A hands-free share is otherwise invisible: One says it started and the
     // screen returns to a hub that looks exactly as it did before. Landing on
     // Active shares makes the result something the person can see and stop.
     // Only set for the voice path -- taps keep returning to the clean hub.
     const landOn = "/one/location?action=active-shares";
+    const shareRecipients = selectedRecipientIds
+      .map((id) => rankedRecipients.find((candidate) => candidate.userId === id))
+      .filter((candidate): candidate is OneLocationRecipient => Boolean(candidate));
     const result = await handleShare(duration, landOn);
     if (result.status !== "succeeded") return result;
     // Declared only once the completion effect will really navigate there.
     // `routeAfter` makes the runtime WAIT for that settlement -- on an action
     // that does not navigate it waits for nothing and times out into a false
     // "started", which is why it cannot simply be returned unconditionally.
-    return { ...result, routeAfter: landOn, screenAfter: "one_location" };
+    const shareNames = shareRecipients.map((r) => recipientLabel(r).trim()).filter(Boolean);
+    return {
+      ...result,
+      routeAfter: landOn,
+      screenAfter: "one_location",
+      data: {
+        ...(result.data || {}),
+        ...(shareNames.length
+          ? {
+              subject: {
+                name: joinNamesForSpeech(shareNames),
+                detail:
+                  shareRecipients.length === 1
+                    ? recipientSubjectDetail(shareRecipients[0]!)
+                    : duration
+                      ? shareVoiceDurationSpokenLabel(duration)
+                      : null,
+              },
+            }
+          : {}),
+      },
+    };
   });
 
   useLocalOnboardingActionHandler("location.stop_share", async (slots) => {
@@ -9370,35 +9703,64 @@ export function OneLocationAgentPageContent({
     // rules exactly -- same connections list, same "never guess" discipline
     // -- because asking someone for their location and sharing yours with
     // them draw from the identical pool of people.
-    const spoken = String(slots?.person ?? "").trim();
-    if (!spoken) {
+    const resolvedRecipientId = String(slots?.resolvedRecipientId ?? "").trim();
+    if (resolvedRecipientId) {
+      addRequestOwner(resolvedRecipientId);
+      const chosen = contactSignalRecipients.find(
+        (candidate) => candidate.userId === resolvedRecipientId,
+      );
+      const chosenName = chosen ? recipientLabel(chosen).trim() : "";
+      return {
+        status: "succeeded" as const,
+        summary: `${chosenName ? `Picked ${chosenName} to ask.` : "Picked one person to ask."} Say "send it" to send the request.`,
+        data:
+          chosen && chosenName
+            ? {
+                subject: { name: chosenName, detail: recipientSubjectDetail(chosen) },
+              }
+            : undefined,
+      };
+    }
+    const raw = String(slots?.person ?? "").trim();
+    if (!raw) {
       return { status: "blocked" as const, summary: "Say who you want to ask." };
     }
-    let resolved = resolveBySpokenName(
+    let { resolved, unresolved } = resolveSpokenNames(
       contactSignalRecipients,
-      spoken,
+      raw,
       recipientLabel,
       recommendationSearchText,
     );
-    if (resolved.kind === "none" && !vaultOwnerToken) {
+    if (
+      resolved.length === 0 &&
+      unresolved.every((entry) => entry.kind === "not_found") &&
+      !vaultOwnerToken
+    ) {
       return {
         status: "blocked" as const,
         summary:
           "Unlock One first -- I cannot see who you are connected to while the vault is locked, so I cannot tell whether they are there.",
       };
     }
-    if (resolved.kind === "none" && vaultOwnerToken) {
+    const stillMissing = unresolved.filter((entry) => entry.kind === "not_found");
+    if (stillMissing.length > 0 && vaultOwnerToken) {
       try {
         const freshRecipients = await OneLocationService.listRecipients(vaultOwnerToken);
-        resolved = resolveBySpokenName(
-          rankRecipientsForRecommendation(
-            enrichRecipientsWithContactSignal(freshRecipients, contactMatchedUserIds),
-            contactMatchedUserIds,
-          ),
-          spoken,
+        const freshPool = rankRecipientsForRecommendation(
+          enrichRecipientsWithContactSignal(freshRecipients, contactMatchedUserIds),
+          contactMatchedUserIds,
+        );
+        const retry = resolveSpokenNames(
+          freshPool,
+          stillMissing.map((entry) => entry.spokenText).join(", "),
           recipientLabel,
           recommendationSearchText,
         );
+        resolved = [...resolved, ...retry.resolved];
+        unresolved = [
+          ...unresolved.filter((entry) => entry.kind !== "not_found"),
+          ...retry.unresolved,
+        ];
       } catch {
         return {
           status: "blocked" as const,
@@ -9406,23 +9768,86 @@ export function OneLocationAgentPageContent({
         };
       }
     }
-    if (resolved.kind === "none") {
+    if (resolved.length === 0) {
+      const ambiguous = unresolved.find((entry) => entry.kind === "ambiguous");
+      if (ambiguous && ambiguous.kind === "ambiguous") {
+        const names = ambiguousMatchNames(ambiguous.matches, recipientLabel);
+        return {
+          status: "blocked" as const,
+          summary: names
+            ? `${ambiguous.matches.length} people match that name: ${names}. Ask which one they meant.`
+            : `${ambiguous.matches.length} people match that name. Ask which one they meant.`,
+          data: {
+            [VOICE_DISAMBIGUATION_DATA_KEY]: {
+              actionId: "location.select_ask_recipient",
+              resolveSlot: "resolvedRecipientId",
+              slots: {},
+              prompt: `${ambiguous.matches.length} people match "${ambiguous.spokenText}".`,
+              candidates: ambiguous.matches.map((candidate) => ({
+                id: candidate.userId,
+                name: recipientLabel(candidate).trim() || "Someone",
+                detail: recommendationSearchText(candidate) ?? null,
+                actionLabel: "Ask",
+              })),
+            },
+          },
+        };
+      }
       return { status: "blocked" as const, summary: "Nobody in your connections matches that name." };
     }
-    if (resolved.kind === "many") {
-      const names = ambiguousMatchNames(resolved.matches, recipientLabel);
-      return {
-        status: "blocked" as const,
-        summary: names
-          ? `${resolved.matches.length} people match that name: ${names}. Ask which one they meant.`
-          : `${resolved.matches.length} people match that name. Ask which one they meant.`,
-      };
+    for (const match of resolved) {
+      addRequestOwner(match.userId);
     }
-    const match = resolved.match;
-    addRequestOwner(match.userId);
+    const matchedNames = resolved
+      .map((match) => recipientLabel(match).trim())
+      .filter(Boolean);
+    const problems = unresolved.map((entry) => {
+      if (entry.kind === "not_found") {
+        return `couldn't find anyone named "${entry.spokenText}"`;
+      }
+      const names = ambiguousMatchNames(entry.matches, recipientLabel);
+      return names
+        ? `${entry.matches.length} people match "${entry.spokenText}" (${names}) -- ask which one`
+        : `${entry.matches.length} people match "${entry.spokenText}" -- ask which one`;
+    });
+    const matchedSentence = matchedNames.length
+      ? `Picked ${joinNamesForSpeech(matchedNames)} to ask.`
+      : "Picked one person to ask.";
+    const problemSentence = problems.length ? ` Also, ${problems.join("; ")}.` : "";
+    const stillAmbiguous = unresolved.find((entry) => entry.kind === "ambiguous");
     return {
       status: "succeeded" as const,
-      summary: `Picked ${recipientLabel(match).trim()} to ask. Say "send it" to send the request.`,
+      summary: `${matchedSentence}${problemSentence} Say "send it" to send the request.`,
+      ...(stillAmbiguous && stillAmbiguous.kind === "ambiguous"
+        ? {
+            data: {
+              [VOICE_DISAMBIGUATION_DATA_KEY]: {
+                actionId: "location.select_ask_recipient",
+                resolveSlot: "resolvedRecipientId",
+                slots: {},
+                prompt: `${stillAmbiguous.matches.length} people match "${stillAmbiguous.spokenText}".`,
+                candidates: stillAmbiguous.matches.map((candidate) => ({
+                  id: candidate.userId,
+                  name: recipientLabel(candidate).trim() || "Someone",
+                  detail: recommendationSearchText(candidate) ?? null,
+                  actionLabel: "Ask",
+                })),
+              },
+            },
+          }
+        : matchedNames.length
+          ? {
+              data: {
+                subject: {
+                  name: joinNamesForSpeech(matchedNames),
+                  detail:
+                    resolved.length === 1
+                      ? recipientSubjectDetail(resolved[0]!)
+                      : null,
+                },
+              },
+            }
+          : null),
     };
   });
 
@@ -9436,10 +9861,10 @@ export function OneLocationAgentPageContent({
         summary: "Say who you want to ask first, then say send it.",
       };
     }
-    const names = selectedRequestOwners
+    const ownerNames = selectedRequestOwners
       .map((owner) => recipientLabel(owner).trim())
-      .filter(Boolean)
-      .join(", ");
+      .filter(Boolean);
+    const names = ownerNames.join(", ");
     const sent = await handleRequestAccess();
     if (!sent) {
       return {
@@ -9453,6 +9878,17 @@ export function OneLocationAgentPageContent({
         selectedRequestOwners.length === 1
           ? `Asked ${names || "them"} for their location.`
           : `Asked ${selectedRequestOwners.length} people for their location.`,
+      data: ownerNames.length
+        ? {
+            subject: {
+              name: joinNamesForSpeech(ownerNames),
+              detail:
+                selectedRequestOwners.length === 1
+                  ? recipientSubjectDetail(selectedRequestOwners[0]!)
+                  : `${selectedRequestOwners.length} people`,
+            },
+          }
+        : undefined,
     };
   });
 
@@ -9858,8 +10294,77 @@ export function OneLocationAgentPageContent({
   });
 
   useLocalOnboardingActionHandler("location.add_to_circle", async (slots) => {
-    const spokenPerson = String(slots?.person ?? "").trim();
-    if (!spokenPerson) {
+    // The disambiguation card's tap re-runs this handler with the chosen id
+    // and the circle it was shown for, no `person` text at all -- the name
+    // that needed picking is settled, so this short-circuits straight to
+    // inviting that one connection instead of re-parsing an empty utterance.
+    const resolvedConnectionId = String(slots?.resolvedConnectionId ?? "").trim();
+    if (resolvedConnectionId) {
+      if (!vaultOwnerToken) {
+        return {
+          status: "blocked" as const,
+          summary:
+            "Unlock One first -- I cannot see your circles while the vault is locked.",
+        };
+      }
+      const resolvedCircle = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+      if ("blocked" in resolvedCircle) {
+        return { status: "blocked" as const, summary: resolvedCircle.blocked };
+      }
+      const circle = resolvedCircle.circle;
+      if (circle.viewerCapabilities?.canInviteMembers === false) {
+        return {
+          status: "blocked" as const,
+          summary: `You cannot invite people to ${circle.name}. Only its owner can.`,
+        };
+      }
+      let eligible: OneLocationCircleEligibleConnections;
+      try {
+        eligible = await handleLoadNamedCircleEligibleConnections(circle.id);
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(
+            error,
+            "Could not check who can be added to that circle.",
+          ),
+        };
+      }
+      const chosen = eligible.eligibleConnections.find(
+        (connection) => connection.userId === resolvedConnectionId,
+      );
+      if (!chosen) {
+        return {
+          status: "blocked" as const,
+          summary: `That person can no longer be added to ${circle.name}.`,
+        };
+      }
+      if (eligible.remainingCapacity < 1) {
+        return {
+          status: "blocked" as const,
+          summary: `${circle.name} has no room for another person.`,
+        };
+      }
+      try {
+        await handleInviteNamedCircleConnections(circle.id, [chosen.userId]);
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(
+            error,
+            "Could not send that circle invitation.",
+          ),
+        };
+      }
+      scheduleNamedCircleStateRefresh();
+      return {
+        status: "succeeded" as const,
+        summary: `Invited ${chosen.displayName} to ${circle.name}. They join once they accept.`,
+      };
+    }
+    const raw = String(slots?.person ?? "").trim();
+    const spokenNames = splitSpokenNames(raw);
+    if (spokenNames.length === 0) {
       return {
         status: "blocked" as const,
         summary: "Say who you want to add to the circle.",
@@ -9872,11 +10377,11 @@ export function OneLocationAgentPageContent({
           "Unlock One first -- I cannot see your circles while the vault is locked.",
       };
     }
-    const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
-    if ("blocked" in resolved) {
-      return { status: "blocked" as const, summary: resolved.blocked };
+    const resolvedCircle = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+    if ("blocked" in resolvedCircle) {
+      return { status: "blocked" as const, summary: resolvedCircle.blocked };
     }
-    const circle = resolved.circle;
+    const circle = resolvedCircle.circle;
     if (circle.viewerCapabilities?.canInviteMembers === false) {
       return {
         status: "blocked" as const,
@@ -9895,56 +10400,83 @@ export function OneLocationAgentPageContent({
         ),
       };
     }
-    const target = normalizeSpokenName(spokenPerson);
     // Answer about an invitation that already exists rather than sending a
-    // second one the other person would see twice.
-    const alreadyInvited = eligible.pendingInvites.find(
-      (invite) =>
-        invite.status === "pending" &&
-        normalizeSpokenName(String(invite.inviteeDisplayName ?? "")).includes(
-          target,
-        ),
-    );
-    if (alreadyInvited) {
-      return {
-        status: "succeeded" as const,
-        summary: `${alreadyInvited.inviteeDisplayName} already has a pending invitation to ${circle.name}.`,
-      };
+    // second one the other person would see twice -- checked per spoken
+    // name, before the rest fall through to eligible-connections matching.
+    const alreadyInvitedNames: string[] = [];
+    const remainingNames: string[] = [];
+    for (const spokenName of spokenNames) {
+      const target = normalizeSpokenName(spokenName);
+      const existingInvite = eligible.pendingInvites.find(
+        (invite) =>
+          invite.status === "pending" &&
+          normalizeSpokenName(String(invite.inviteeDisplayName ?? "")).includes(
+            target,
+          ),
+      );
+      if (existingInvite) {
+        alreadyInvitedNames.push(existingInvite.inviteeDisplayName ?? spokenName);
+      } else {
+        remainingNames.push(spokenName);
+      }
     }
     // Server-authoritative: eligible connections already exclude current
     // members and anyone not connected, so a match here is genuinely addable.
-    const matches = eligible.eligibleConnections.filter((connection) =>
-      normalizeSpokenName(connection.displayName).includes(target),
-    );
-    if (matches.length === 0) {
+    const { resolved, unresolved } = remainingNames.length
+      ? resolveSpokenNames(
+          eligible.eligibleConnections,
+          remainingNames.join(", "),
+          (connection) => connection.displayName,
+        )
+      : { resolved: [], unresolved: [] };
+    if (resolved.length > 0 && eligible.remainingCapacity < resolved.length) {
+      return {
+        status: "blocked" as const,
+        summary: `${resolved.length} people match, but ${circle.name} only has room for ${eligible.remainingCapacity} more.`,
+      };
+    }
+    if (resolved.length === 0) {
+      if (alreadyInvitedNames.length > 0) {
+        return {
+          status: "succeeded" as const,
+          summary: `${joinNamesForSpeech(alreadyInvitedNames)} already ${
+            alreadyInvitedNames.length === 1 ? "has" : "have"
+          } a pending invitation to ${circle.name}.`,
+        };
+      }
+      const ambiguous = unresolved.find((entry) => entry.kind === "ambiguous");
+      if (ambiguous && ambiguous.kind === "ambiguous") {
+        return {
+          status: "blocked" as const,
+          summary: `More than one person matches that name: ${ambiguous.matches
+            .map((connection) => connection.displayName)
+            .join(", ")}. Say which one.`,
+          data: {
+            [VOICE_DISAMBIGUATION_DATA_KEY]: {
+              actionId: "location.add_to_circle",
+              resolveSlot: "resolvedConnectionId",
+              slots: { circle: String(slots?.circle ?? "") },
+              prompt: `${ambiguous.matches.length} people match "${ambiguous.spokenText}".`,
+              candidates: ambiguous.matches.map((connection) => ({
+                id: connection.userId,
+                name: connection.displayName || "Someone",
+                detail: null,
+                actionLabel: "Add",
+              })),
+            },
+          },
+        };
+      }
       return {
         status: "blocked" as const,
         summary: `Nobody who can be added to ${circle.name} matches that name. They have to be connected to you and not already in it.`,
       };
     }
-    if (matches.length > 1) {
-      return {
-        status: "blocked" as const,
-        summary: `More than one person matches that name: ${matches
-          .map((connection) => connection.displayName)
-          .join(", ")}. Say which one.`,
-      };
-    }
-    if (eligible.remainingCapacity < 1) {
-      return {
-        status: "blocked" as const,
-        summary: `${circle.name} is already at its member limit.`,
-      };
-    }
-    const invitee = matches[0];
-    if (!invitee) {
-      return {
-        status: "blocked" as const,
-        summary: `Nobody who can be added to ${circle.name} matches that name.`,
-      };
-    }
     try {
-      await handleInviteNamedCircleConnections(circle.id, [invitee.userId]);
+      await handleInviteNamedCircleConnections(
+        circle.id,
+        resolved.map((connection) => connection.userId),
+      );
     } catch (error) {
       return {
         status: "failed" as const,
@@ -9955,11 +10487,45 @@ export function OneLocationAgentPageContent({
       };
     }
     scheduleNamedCircleStateRefresh();
+    const invitedNames = resolved.map((connection) => connection.displayName);
+    const problems = [
+      ...alreadyInvitedNames.map(
+        (name) => `${name} already has a pending invitation`,
+      ),
+      ...unresolved.map((entry) =>
+        entry.kind === "not_found"
+          ? `couldn't find anyone named "${entry.spokenText}"`
+          : `${entry.matches.length} people match "${entry.spokenText}" -- say which one`,
+      ),
+    ];
+    const problemSentence = problems.length ? ` Also, ${problems.join("; ")}.` : "";
+    // A name that came back ambiguous alongside others that resolved cleanly
+    // is still worth showing, not just naming: the already-resolved names are
+    // already invited above, so the card only has to settle this one.
+    const stillAmbiguous = unresolved.find((entry) => entry.kind === "ambiguous");
     // "Invited", never "added". Joining is the other person's decision, and
     // reporting it as done would claim a consent that has not been given.
     return {
       status: "succeeded" as const,
-      summary: `Invited ${invitee.displayName} to ${circle.name}. They join once they accept.`,
+      summary: `Invited ${joinNamesForSpeech(invitedNames)} to ${circle.name}. They join once they accept.${problemSentence}`,
+      ...(stillAmbiguous && stillAmbiguous.kind === "ambiguous"
+        ? {
+            data: {
+              [VOICE_DISAMBIGUATION_DATA_KEY]: {
+                actionId: "location.add_to_circle",
+                resolveSlot: "resolvedConnectionId",
+                slots: { circle: String(slots?.circle ?? "") },
+                prompt: `${stillAmbiguous.matches.length} people match "${stillAmbiguous.spokenText}".`,
+                candidates: stillAmbiguous.matches.map((connection) => ({
+                  id: connection.userId,
+                  name: connection.displayName || "Someone",
+                  detail: null,
+                  actionLabel: "Add",
+                })),
+              },
+            },
+          }
+        : null),
     };
   });
 
@@ -9973,6 +10539,15 @@ export function OneLocationAgentPageContent({
           summary: "Say who you want to remove from the circle.",
         };
       }
+      // Removal is destructive and its confirmation card names exactly one
+      // person -- deliberately narrower than add_to_circle's multi-person
+      // support rather than building a multi-subject confirmation UI here.
+      if (splitSpokenNames(spokenPerson).length > 1) {
+        return {
+          status: "blocked" as const,
+          summary: "Remove people from a circle one at a time.",
+        };
+      }
       if (!vaultOwnerToken) {
         return {
           status: "blocked" as const,
@@ -9980,11 +10555,11 @@ export function OneLocationAgentPageContent({
             "Unlock One first -- I cannot see your circles while the vault is locked.",
         };
       }
-      const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
-      if ("blocked" in resolved) {
-        return { status: "blocked" as const, summary: resolved.blocked };
+      const resolvedCircle = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+      if ("blocked" in resolvedCircle) {
+        return { status: "blocked" as const, summary: resolvedCircle.blocked };
       }
-      const circle = resolved.circle;
+      const circle = resolvedCircle.circle;
       if (circle.viewerCapabilities?.canManageCircle === false) {
         return {
           status: "blocked" as const,
@@ -10003,29 +10578,28 @@ export function OneLocationAgentPageContent({
           ),
         };
       }
-      const target = normalizeSpokenName(spokenPerson);
       // Only people actually IN the circle. Matching the wider connection list
       // would let "remove Sarah" report success about somebody who was never a
       // member, leaving the real membership untouched and the person believing
       // otherwise.
-      const matches = detail.members.filter((member) =>
-        normalizeSpokenName(member.displayName).includes(target),
-      );
-      if (matches.length === 0) {
+      const { resolved: circleMatches, unresolved: circleUnresolved } =
+        resolveSpokenNames(detail.members, spokenPerson, (member) => member.displayName);
+      if (circleMatches.length === 0) {
+        const ambiguous = circleUnresolved.find((entry) => entry.kind === "ambiguous");
+        if (ambiguous && ambiguous.kind === "ambiguous") {
+          return {
+            status: "blocked" as const,
+            summary: `More than one person in ${circle.name} matches that name: ${ambiguous.matches
+              .map((member) => member.displayName)
+              .join(", ")}. Say which one.`,
+          };
+        }
         return {
           status: "blocked" as const,
           summary: `Nobody in ${circle.name} matches that name.`,
         };
       }
-      if (matches.length > 1) {
-        return {
-          status: "blocked" as const,
-          summary: `More than one person in ${circle.name} matches that name: ${matches
-            .map((member) => member.displayName)
-            .join(", ")}. Say which one.`,
-        };
-      }
-      const member = matches[0];
+      const member = circleMatches[0];
       if (!member) {
         return {
           status: "blocked" as const,
@@ -10221,7 +10795,7 @@ export function OneLocationAgentPageContent({
             prompt: `Delete ${circle.name}? Everyone in it loses access through it.`,
             subject: {
               name: circle.name,
-              detail: `${circle.memberCount} member${circle.memberCount === 1 ? "" : "s"}`,
+              detail: circleMemberCountLabel(circle.memberCount),
             },
             consequence:
               getKaiActionById("location.delete_circle")?.meaning ?? null,
@@ -11530,12 +12104,14 @@ export function OneLocationAgentPageContent({
     requestMessage,
     shareReviewOpen,
     publicInviteUrl,
+    publicLinkDurationHours,
     circleInviteUrl,
     setRecipientSearch,
     setShareRecipientSearch,
     setShareDurationHours,
     setShareMessage,
     setDurationHours,
+    setPublicLinkDurationHours,
     setRequestMessage,
     setShareReviewOpen,
     resetShareComposer,

@@ -454,7 +454,9 @@ export function SettingsRow({
       "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0",
   );
   const primaryActionClassName = cn(
-    "relative isolate min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+    "relative isolate min-w-0 overflow-hidden border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[background-color,border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+    "rounded-[inherit] [@media(hover:hover)]:rounded-xl",
+    "[@media(hover:hover)]:hover:bg-foreground/[0.04] active:bg-foreground/[0.065]",
     resolvedDensity === "compact" ? "min-h-[56px]" : "min-h-[60px]",
   );
   const voiceProps = {
@@ -512,7 +514,14 @@ export function SettingsRow({
             />
           </button>
           {trailingContent ? (
-            <div role="presentation" onClick={(e) => e.stopPropagation()}>
+            <div
+              role="presentation"
+              onClick={(e) => {
+                if (onClick) onClick();
+                else e.stopPropagation();
+              }}
+              className={onClick ? "cursor-pointer" : undefined}
+            >
               {trailingContent}
             </div>
           ) : null}
@@ -544,7 +553,7 @@ export function SettingsRow({
           aria-hidden
           className={cn(
             "pointer-events-none absolute inset-0 z-[1] bg-transparent transition-[background-color]",
-            "group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]",
+            "[@media(hover:hover)]:group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]",
           )}
         />
       ) : null}
@@ -662,10 +671,10 @@ export function AdaptiveDetailSurface({
               (event.currentTarget as HTMLElement).focus();
             }}
           >
-            <SheetHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 py-3 text-left backdrop-blur-[var(--blur-standard)]">
-              <div className="flex min-w-0 items-center gap-3 pr-10">
+            <SheetHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 pt-8 pb-3 text-left backdrop-blur-[var(--blur-standard)]">
+              <div className="flex min-w-0 items-center gap-3 pr-10 text-left">
                 {leading ? <div className="shrink-0">{leading}</div> : null}
-                <div className="min-w-0">
+                <div className="min-w-0 text-left">
                   {eyebrow ? (
                     <SectionLabel as="p">
                       {eyebrow}
@@ -694,7 +703,7 @@ export function AdaptiveDetailSurface({
               {children}
             </div>
             {footer ? (
-              <div className="sticky bottom-0 border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-4">
+              <div className="sticky bottom-0 border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
                 {footer}
               </div>
             ) : null}
@@ -719,10 +728,10 @@ export function AdaptiveDetailSurface({
             (e.currentTarget as HTMLElement).focus();
           }}
         >
-          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 py-3 pr-14 text-left backdrop-blur-[var(--blur-standard)] sm:px-5 sm:py-4 sm:pr-14">
-            <div className="flex min-w-0 items-center gap-3">
+          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 pt-8 pb-3 pr-14 text-left backdrop-blur-[var(--blur-standard)] sm:px-5 sm:pt-6 sm:pb-4 sm:pr-14">
+            <div className="flex min-w-0 items-center gap-3 text-left">
               {leading ? <div className="shrink-0">{leading}</div> : null}
-              <div className="min-w-0">
+              <div className="min-w-0 text-left">
                 {eyebrow ? (
                   <SectionLabel as="p">
                     {eyebrow}
@@ -779,9 +788,9 @@ export function AdaptiveDetailSurface({
         }}
       >
         <DialogHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-6 py-4 pr-16 text-left backdrop-blur-[var(--blur-standard)]">
-          <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3 text-left">
             {leading ? <div className="shrink-0">{leading}</div> : null}
-            <div className="min-w-0">
+            <div className="min-w-0 text-left">
               {eyebrow ? (
                 <SectionLabel as="p">
                   {eyebrow}

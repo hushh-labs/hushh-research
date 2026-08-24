@@ -1,9 +1,9 @@
 /* components/app-ui/HushhIntroGate.module.css
  * The `/one` section's real first screen, and its only splash: a slow
  * mist of blurred purple/pink/blue blobs supports the one greeting screen:
- * the 🤫 mark and "Hi, {name}" / "Welcome to One." appear together, hold
- * briefly, and fade gently to reveal the vault screen, which only mounts once
- * this finishes (see HushhIntroGate.tsx).
+ * the 🤫 mark and "Hi, {name}" / "Welcome to One." appear together, hold long
+ * enough to read, and fade gently to reveal the vault screen, which only
+ * mounts once this finishes (see HushhIntroGate.tsx).
  *
  * Follows the app's own light/dark theme: white background + dark ink in
  * light mode, the app's near-black elevated surface + light ink in dark
@@ -62,7 +62,7 @@
   background: var(--foundation-surface, #ffffff);
   pointer-events: none;
   opacity: 1;
-  transition: opacity 340ms var(--motion-ease-accelerate);
+  transition: opacity 360ms var(--motion-ease-accelerate);
 
   --sweep-pink: #ec6a90;
   --sweep-purple: #9a6fd9;
@@ -132,15 +132,15 @@
    enough to keep the three blobs from moving in perfect lockstep, not
    enough to read as a pause before anything happens. */
 .root:not([data-phase="idle"]) .blobPurple {
-  animation: blob-purple-drift 1500ms var(--motion-ease-standard) forwards;
+  animation: blob-purple-drift 2300ms var(--motion-ease-standard) forwards;
 }
 
 .root:not([data-phase="idle"]) .blobPink {
-  animation: blob-pink-drift 1520ms var(--motion-ease-standard) 40ms forwards;
+  animation: blob-pink-drift 2360ms var(--motion-ease-standard) 40ms forwards;
 }
 
 .root:not([data-phase="idle"]) .blobBlue {
-  animation: blob-blue-drift 1460ms var(--motion-ease-standard) 80ms forwards;
+  animation: blob-blue-drift 2220ms var(--motion-ease-standard) 80ms forwards;
 }
 
 /* Purple: the primary, most central blob. Position (via `translate3d`,

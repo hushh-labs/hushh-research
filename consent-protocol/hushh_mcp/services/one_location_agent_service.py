@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 import contextvars
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -30,6 +32,7 @@ from hushh_mcp.operons.location.policy import (
     normalize_duration_mode,
     normalize_source_platform,
 )
+from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.types import AgentID, UserID
 from mcp_modules.log_redaction import redact_log_field, redact_log_value
 
@@ -446,8 +449,115 @@ def _hash_public_value(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+# The public-link token is DERIVED from the invite row's UUID rather than
+# generated at random, so the owner can read their own live link back.
+#
+# It used to be `secrets.token_urlsafe(32)`, hashed on the way in and returned
+# exactly once in the create response. Nothing could recover it afterwards --
+# not the owner, not a second device, not the same tab after a reload -- so an
+# invite the server reported as active had a link the product could no longer
+# show. Copy and Share silently did nothing, and the only way back was to
+# revoke.
+#
+# The row UUID is not secret; the app signing key supplies the entropy, exactly
+# as `one_location_circle_service._code_for_invite_id` does for Circle codes. A
+# database-only compromise still yields nothing but the UUID and a keyed
+# digest. Rows minted before this carry no version marker, so their token stays
+# unrecoverable and the payload simply omits the URL -- unchanged behaviour for
+# them, rather than a wrong link.
+# A public link is readable by anyone who holds it, so its ceiling is one hour
+# and the screen says so.
+#
+# The screen was the ONLY thing saying so. `normalize_duration_hours` allows up
+# to 24, the Pydantic field allows up to 24, and the DB CHECK allows up to 24 --
+# all three are the private-share ceiling, which is a different promise made to
+# a named person who can be un-shared. A request carrying `durationHours: 24`
+# was accepted and minted a public link that watched the owner for a day.
+#
+# Rejected rather than clamped: silently shortening what was asked for is how
+# the client-side clamp hid this in the first place, and no shipped client can
+# reach this branch -- every public-link caller already clamps to one hour
+# before it posts.
+PUBLIC_INVITE_MAX_DURATION_HOURS = 1.0
+
+_PUBLIC_INVITE_TOKEN_DOMAIN = b"one-location-public-invite-token:v1:"
+_PUBLIC_INVITE_CODE_VERSION = "derived-v1"
+
+
+def _public_invite_signing_key() -> bytes:
+    return get_core_security_settings().app_signing_key.encode("utf-8")
+
+
+def _public_invite_token_for_id(invite_id: str) -> str:
+    """The share token belonging to one invite row, re-derivable on every read."""
+
+    normalized_invite_id = str(uuid.UUID(str(invite_id)))
+    digest = hmac.new(
+        _public_invite_signing_key(),
+        _PUBLIC_INVITE_TOKEN_DOMAIN + normalized_invite_id.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _public_invite_token_if_derivable(row: dict[str, Any] | None) -> str | None:
+    """The share token for an invite row, or None if it cannot be recovered.
+
+    Re-derives the token from the row's UUID and checks it against the
+    digest that was stored when the row was written. Two rows fail that
+    check, and both must fail closed:
+
+      - anything minted before tokens were derived from the id, which
+        carries no `codeVersion` and whose random token is gone for good
+      - a row whose stored digest no longer matches, which means the
+        signing key rotated or the row was tampered with
+
+    Returning a token that does not resolve would be worse than returning
+    none: the owner would copy a link that 404s and have no reason to think
+    it was ever broken.
+    """
+
+    if not row:
+        return None
+    metadata = _loads_json(row.get("metadata")) or {}
+    if not isinstance(metadata, dict):
+        return None
+    if metadata.get("codeVersion") != _PUBLIC_INVITE_CODE_VERSION:
+        return None
+    invite_id = str(row.get("id") or "")
+    if not invite_id:
+        return None
+    try:
+        token = _public_invite_token_for_id(invite_id)
+    except (ValueError, AttributeError):
+        return None
+    stored_hash = str(row.get("public_code_hash") or "")
+    if not stored_hash:
+        return None
+    if not hmac.compare_digest(stored_hash, _hash_public_value(token)):
+        logger.warning(
+            "one_location.public_invite_token_integrity_failed invite=%s",
+            redact_log_field("invite_id", invite_id),
+        )
+        return None
+    return token
+
+
 def _public_invite_url(token: str) -> str:
-    return f"/one/location/request/{token}"
+    """The app-relative page a public live-location link points at.
+
+    `/view/`, not `/request/`. The path was named after the submission form the
+    page used to be -- a stranger asking the owner for access -- but the page a
+    shared link opens today SHOWS a live location. "Request" told the recipient
+    the opposite of what the link does, and it is the one part of the URL a
+    person actually reads before deciding whether to tap.
+
+    Links already in the wild keep working: the web proxy redirects
+    `/one/location/request/<token>` here, and the old route stays mounted as a
+    client-side forwarder for the native static export, which has no proxy.
+    """
+
+    return f"/one/location/view/{token}"
 
 
 def _circle_invite_url(token: str) -> str:
@@ -1349,6 +1459,38 @@ class OneLocationAgentService:
             ],
             "withoutEmail": without_email,
         }
+
+    def _public_invite_owner_label(self, owner_user_id: str) -> str:
+        """The sharer's name, for a page anyone holding the URL can open.
+
+        `allow_email_handle=False` is the whole point. The ladder underneath
+        offers a display name and then an email local part, and its own
+        docstring draws the line this call sits on: an email handle "is a name
+        to someone who already knows you and an identifier to someone who does
+        not, so it is offered only on surfaces already scoped to a
+        relationship". A bearer link that can be forwarded to anyone is the
+        broadest surface this product has -- broader than the discovery
+        directory, which already passes False.
+
+        Deliberately NOT `_identity_display_label`, which the Circle invite
+        uses: that one appends a masked phone, and publishing the last four
+        digits of a phone number beside a live map pin is a different promise
+        from the one this link makes. The Circle asymmetry is intentional --
+        a Circle invite is handed to one named person.
+
+        Returns "" when the account resolves to nothing real, so callers
+        choose their own fallback wording.
+        """
+
+        from hushh_mcp.services.requester_identity import label_from_identity_row
+
+        if not owner_user_id:
+            return ""
+        return label_from_identity_row(
+            self._identity_row(owner_user_id),
+            allow_email_handle=False,
+            fallback="",
+        )
 
     def _identity_row(self, user_id: str) -> dict[str, Any] | None:
         try:
@@ -2452,6 +2594,21 @@ class OneLocationAgentService:
         }
         if safe_label:
             payload["ownerLabel"] = safe_label
+        # The owner's own link, handed back on every read.
+        #
+        # This branch is owner-only -- the `public` branch above is what a
+        # recipient sees, and it must never carry the token. For the owner the
+        # link is the whole point of the object: without it the product could
+        # report "you have a live link" and then have nothing to copy, which is
+        # exactly what happened after any reload.
+        #
+        # Only while the invite can still be used. A revoked or expired row's
+        # token no longer resolves, so offering it would hand over a link that
+        # 404s.
+        if str(row.get("status") or "") == "active":
+            token = _public_invite_token_if_derivable(row)
+            if token:
+                payload["publicUrl"] = _public_invite_url(token)
         return payload
 
     @staticmethod
@@ -3522,6 +3679,37 @@ class OneLocationAgentService:
                   JOIN one_location_circles circle
                     ON circle.id = mine.circle_id
                    AND circle.status = 'active'
+                   -- A product-managed Circle lists people together without introducing
+                   -- them, and this arm never said so. It joins membership to membership
+                   -- and never mentions `circle.owner_user_id`, so two people became
+                   -- eligible for each other's live location the moment they shared a
+                   -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                   -- appeared in the other's share picker by name.
+                   --
+                   -- On the SMS Circle that is ten strangers, and contradicts that
+                   -- Circle's own design note. On a Trusted Circle holding every
+                   -- connection it would be every PAIR of your connections: 19,900 edges
+                   -- at 200 connections, none of them consented to. An auto-share hook
+                   -- was removed from `accept_request` once already for a smaller
+                   -- version of this.
+                   --
+                   -- So for a Circle the product manages, one side has to be its owner.
+                   -- Circles a person made themselves are untouched: those members chose
+                   -- each other's company.
+                   -- Trusted is excluded outright, not merely owner-scoped.
+                   -- Everyone in it is already a connection, so they satisfy the
+                   -- connection arm above and lose nothing here. What it closes is the
+                   -- other direction: contact sync (#5458) puts matched people into
+                   -- Trusted before they have accepted anything, and membership must not
+                   -- be what makes them shareable. Authority comes from the connection.
+                   -- Trusted records who you are connected to; it never decides who can
+                   -- see you.
+                   AND circle.system_kind IS DISTINCT FROM 'trusted'
+                   AND (
+                     (circle.system_kind IS NULL AND NOT circle.is_system)
+                     OR circle.owner_user_id = mine.user_id
+                     OR circle.owner_user_id = theirs.user_id
+                   )
                   WHERE mine.user_id = :owner_user_id
                     AND mine.status = 'active'
                 )
@@ -3941,6 +4129,37 @@ class OneLocationAgentService:
                 JOIN one_location_circles circle
                   ON circle.id = mine.circle_id
                  AND circle.status = 'active'
+                 -- A product-managed Circle lists people together without introducing
+                 -- them, and this arm never said so. It joins membership to membership
+                 -- and never mentions `circle.owner_user_id`, so two people became
+                 -- eligible for each other's live location the moment they shared a
+                 -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                 -- appeared in the other's share picker by name.
+                 --
+                 -- On the SMS Circle that is ten strangers, and contradicts that
+                 -- Circle's own design note. On a Trusted Circle holding every
+                 -- connection it would be every PAIR of your connections: 19,900 edges
+                 -- at 200 connections, none of them consented to. An auto-share hook
+                 -- was removed from `accept_request` once already for a smaller
+                 -- version of this.
+                 --
+                 -- So for a Circle the product manages, one side has to be its owner.
+                 -- Circles a person made themselves are untouched: those members chose
+                 -- each other's company.
+                 -- Trusted is excluded outright, not merely owner-scoped.
+                 -- Everyone in it is already a connection, so they satisfy the
+                 -- connection arm above and lose nothing here. What it closes is the
+                 -- other direction: contact sync (#5458) puts matched people into
+                 -- Trusted before they have accepted anything, and membership must not
+                 -- be what makes them shareable. Authority comes from the connection.
+                 -- Trusted records who you are connected to; it never decides who can
+                 -- see you.
+                 AND circle.system_kind IS DISTINCT FROM 'trusted'
+                 AND (
+                   (circle.system_kind IS NULL AND NOT circle.is_system)
+                   OR circle.owner_user_id = mine.user_id
+                   OR circle.owner_user_id = theirs.user_id
+                 )
                 WHERE mine.user_id = :owner_user_id
                   AND mine.status = 'active'
                   AND (
@@ -3993,9 +4212,28 @@ class OneLocationAgentService:
             row = self._execute_one(
                 """
                 SELECT 1
-                FROM one_location_sms_contacts
-                WHERE owner_user_id = :owner_user_id
-                  AND contact_user_id = :contact_user_id
+                WHERE EXISTS (
+                        SELECT 1
+                        FROM one_location_sms_contacts
+                        WHERE owner_user_id = :owner_user_id
+                          AND contact_user_id = :contact_user_id
+                      )
+                   -- The same two-armed test the grant gate makes. This one is
+                   -- only the EXPLAINER -- it produces
+                   -- LOCATION_SMS_CONTACT_REQUIRED -- but a narrow explainer
+                   -- beside a wide gate is worse than either: the share would
+                   -- succeed and the message would say it could not.
+                   OR EXISTS (
+                        SELECT 1
+                        FROM one_location_circle_memberships membership
+                        JOIN one_location_circles circle
+                          ON circle.id = membership.circle_id
+                         AND circle.owner_user_id = :owner_user_id
+                         AND circle.is_system
+                         AND circle.status = 'active'
+                        WHERE membership.user_id = :contact_user_id
+                          AND membership.status = 'active'
+                      )
                 LIMIT 1
                 """,
                 {
@@ -4016,7 +4254,7 @@ class OneLocationAgentService:
     def list_sms_contact_ids(self, *, owner_user_id: str) -> list[str]:
         rows = self._execute_many(
             """
-            SELECT sms.contact_user_id
+            SELECT sms.contact_user_id AS contact_user_id
             FROM one_location_sms_contacts sms
             WHERE sms.owner_user_id = :owner_user_id
               AND EXISTS (
@@ -4044,11 +4282,64 @@ class OneLocationAgentService:
                   JOIN one_location_circles circle
                     ON circle.id = mine.circle_id
                    AND circle.status = 'active'
+                   -- A product-managed Circle lists people together without introducing
+                   -- them, and this arm never said so. It joins membership to membership
+                   -- and never mentions `circle.owner_user_id`, so two people became
+                   -- eligible for each other's live location the moment they shared a
+                   -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                   -- appeared in the other's share picker by name.
+                   --
+                   -- On the SMS Circle that is ten strangers, and contradicts that
+                   -- Circle's own design note. On a Trusted Circle holding every
+                   -- connection it would be every PAIR of your connections: 19,900 edges
+                   -- at 200 connections, none of them consented to. An auto-share hook
+                   -- was removed from `accept_request` once already for a smaller
+                   -- version of this.
+                   --
+                   -- So for a Circle the product manages, one side has to be its owner.
+                   -- Circles a person made themselves are untouched: those members chose
+                   -- each other's company.
+                   -- Trusted is excluded outright, not merely owner-scoped.
+                   -- Everyone in it is already a connection, so they satisfy the
+                   -- connection arm above and lose nothing here. What it closes is the
+                   -- other direction: contact sync (#5458) puts matched people into
+                   -- Trusted before they have accepted anything, and membership must not
+                   -- be what makes them shareable. Authority comes from the connection.
+                   -- Trusted records who you are connected to; it never decides who can
+                   -- see you.
+                   AND circle.system_kind IS DISTINCT FROM 'trusted'
+                   AND (
+                     (circle.system_kind IS NULL AND NOT circle.is_system)
+                     OR circle.owner_user_id = mine.user_id
+                     OR circle.owner_user_id = theirs.user_id
+                   )
                   WHERE mine.user_id = :owner_user_id
                     AND mine.status = 'active'
                 )
               )
-            ORDER BY sms.created_at, sms.contact_user_id
+
+            UNION
+
+            -- The emergency Circle's roster, which since #5426 is where the
+            -- product actually keeps this list. This query drove from
+            -- `one_location_sms_contacts` alone, and the Circle detail screen
+            -- does not write that table -- so somebody added the way the
+            -- product now tells you to add them was simply absent from the
+            -- fallback list.
+            --
+            -- No eligibility EXISTS on this arm: membership of the owner's own
+            -- system Circle is already the stronger statement, and it is
+            -- reconciled on every bootstrap. The legacy arm keeps its check
+            -- because that table has rows nothing prunes.
+            SELECT membership.user_id AS contact_user_id
+            FROM one_location_circle_memberships membership
+            JOIN one_location_circles circle
+              ON circle.id = membership.circle_id
+             AND circle.owner_user_id = :owner_user_id
+             AND circle.is_system
+             AND circle.status = 'active'
+            WHERE membership.status = 'active'
+              AND membership.user_id <> :owner_user_id
             """,
             {"owner_user_id": owner_user_id},
         )
@@ -4307,6 +4598,37 @@ class OneLocationAgentService:
                         JOIN one_location_circles circle
                           ON circle.id = mine.circle_id
                          AND circle.status = 'active'
+                         -- A product-managed Circle lists people together without introducing
+                         -- them, and this arm never said so. It joins membership to membership
+                         -- and never mentions `circle.owner_user_id`, so two people became
+                         -- eligible for each other's live location the moment they shared a
+                         -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                         -- appeared in the other's share picker by name.
+                         --
+                         -- On the SMS Circle that is ten strangers, and contradicts that
+                         -- Circle's own design note. On a Trusted Circle holding every
+                         -- connection it would be every PAIR of your connections: 19,900 edges
+                         -- at 200 connections, none of them consented to. An auto-share hook
+                         -- was removed from `accept_request` once already for a smaller
+                         -- version of this.
+                         --
+                         -- So for a Circle the product manages, one side has to be its owner.
+                         -- Circles a person made themselves are untouched: those members chose
+                         -- each other's company.
+                         -- Trusted is excluded outright, not merely owner-scoped.
+                         -- Everyone in it is already a connection, so they satisfy the
+                         -- connection arm above and lose nothing here. What it closes is the
+                         -- other direction: contact sync (#5458) puts matched people into
+                         -- Trusted before they have accepted anything, and membership must not
+                         -- be what makes them shareable. Authority comes from the connection.
+                         -- Trusted records who you are connected to; it never decides who can
+                         -- see you.
+                         AND circle.system_kind IS DISTINCT FROM 'trusted'
+                         AND (
+                           (circle.system_kind IS NULL AND NOT circle.is_system)
+                           OR circle.owner_user_id = mine.user_id
+                           OR circle.owner_user_id = theirs.user_id
+                         )
                         WHERE mine.user_id = :owner_user_id
                           AND mine.status = 'active'
                         ORDER BY mine.joined_at, mine.circle_id
@@ -4941,6 +5263,37 @@ class OneLocationAgentService:
                     JOIN one_location_circles circle
                       ON circle.id = mine.circle_id
                      AND circle.status = 'active'
+                     -- A product-managed Circle lists people together without introducing
+                     -- them, and this arm never said so. It joins membership to membership
+                     -- and never mentions `circle.owner_user_id`, so two people became
+                     -- eligible for each other's live location the moment they shared a
+                     -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                     -- appeared in the other's share picker by name.
+                     --
+                     -- On the SMS Circle that is ten strangers, and contradicts that
+                     -- Circle's own design note. On a Trusted Circle holding every
+                     -- connection it would be every PAIR of your connections: 19,900 edges
+                     -- at 200 connections, none of them consented to. An auto-share hook
+                     -- was removed from `accept_request` once already for a smaller
+                     -- version of this.
+                     --
+                     -- So for a Circle the product manages, one side has to be its owner.
+                     -- Circles a person made themselves are untouched: those members chose
+                     -- each other's company.
+                     -- Trusted is excluded outright, not merely owner-scoped.
+                     -- Everyone in it is already a connection, so they satisfy the
+                     -- connection arm above and lose nothing here. What it closes is the
+                     -- other direction: contact sync (#5458) puts matched people into
+                     -- Trusted before they have accepted anything, and membership must not
+                     -- be what makes them shareable. Authority comes from the connection.
+                     -- Trusted records who you are connected to; it never decides who can
+                     -- see you.
+                     AND circle.system_kind IS DISTINCT FROM 'trusted'
+                     AND (
+                       (circle.system_kind IS NULL AND NOT circle.is_system)
+                       OR circle.owner_user_id = mine.user_id
+                       OR circle.owner_user_id = theirs.user_id
+                     )
                     WHERE mine.user_id = :owner_user_id
                       AND mine.status = 'active'
                       AND (
@@ -4956,6 +5309,35 @@ class OneLocationAgentService:
                     FROM one_location_sms_contacts sc
                     WHERE sc.owner_user_id = :owner_user_id
                       AND sc.contact_user_id = :recipient_user_id
+                  )
+                  -- ...or a member of the owner's emergency Circle.
+                  --
+                  -- Since #5426 the SMS Circle IS the emergency list, and the
+                  -- screen picks SOS recipients from its roster
+                  -- (app/one/location/page.tsx). This gate never learned that:
+                  -- it still asked `one_location_sms_contacts`, which the
+                  -- Circle detail screen does not write. So anybody added the
+                  -- way the product now tells you to add them was accepted by
+                  -- the UI and refused here, with LOCATION_SMS_CONTACT_REQUIRED
+                  -- -- at the moment an SOS was being sent.
+                  --
+                  -- A widening of an emergency gate, so it is worth being
+                  -- precise about what it opens: only the owner's own system
+                  -- Circle, only active memberships, and only a roster the
+                  -- owner curated by hand. It is safe to widen to it only
+                  -- because the same commit stops a system Circle from ever
+                  -- having a join code -- without that, redeeming a code was a
+                  -- way into this roster.
+                  OR EXISTS (
+                    SELECT 1
+                    FROM one_location_circle_memberships membership
+                    JOIN one_location_circles circle
+                      ON circle.id = membership.circle_id
+                     AND circle.owner_user_id = :owner_user_id
+                     AND circle.is_system
+                     AND circle.status = 'active'
+                    WHERE membership.user_id = :recipient_user_id
+                      AND membership.status = 'active'
                   )
                 )
               LIMIT 1
@@ -5650,10 +6032,24 @@ class OneLocationAgentService:
         }
 
     def _expire_public_invite(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Settle a public link whose window has closed. The DB clock decides.
+
+        Two clocks used to own this one fact. The window was stamped from the
+        app host's clock, the create path's pre-settle and reuse lookup gated
+        on `NOW()` -- the database's -- and this method compared against the
+        app host's again. An API host running a minute fast therefore killed
+        every link a minute early on the first read, and the owner's countdown,
+        which reads the row, agreed with it; a host running slow let the reuse
+        lookup hand back a link the database already considered dead.
+
+        Now the comparison lives in the statement, beside the write it guards.
+        `updated` is the row only when the database agreed it was past, so
+        there is no branch left that can report an expiry the storage layer
+        does not hold. The cost is one extra statement per read of a live
+        link, which matches at most one row and writes none.
+        """
+
         if not row or str(row.get("status") or "") != "active":
-            return row
-        expires_at = _parse_datetime(row.get("expires_at"), field_name="expires_at")
-        if expires_at > _utcnow():
             return row
         updated = self._execute_one(
             """
@@ -5661,11 +6057,12 @@ class OneLocationAgentService:
             SET status = 'expired', updated_at = NOW()
             WHERE id = CAST(:invite_id AS UUID)
               AND status = 'active'
+              AND expires_at <= NOW()
             RETURNING *
             """,
             {"invite_id": str(row.get("id") or "")},
         )
-        return updated or {**row, "status": "expired"}
+        return updated or row
 
     @staticmethod
     def _project_expired(row: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -5711,30 +6108,202 @@ class OneLocationAgentService:
                 str(exc),
                 status_code=422,
             ) from exc
-        raw_token = secrets.token_urlsafe(32)
-        token_hash = _hash_public_value(raw_token)
-        expires_at = _utcnow() + timedelta(hours=duration)
+        if duration > PUBLIC_INVITE_MAX_DURATION_HOURS:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_INVALID",
+                "A public location link can stay live for at most 1 hour.",
+                status_code=422,
+            )
+        # Validated before either branch below: a malformed snapshot is a 422
+        # whether this call mints a link or refreshes the live one, and doing it
+        # here means the reuse path cannot write a half-checked point.
         public_location = self._public_location_snapshot_payload(location_snapshot)
-        metadata: dict[str, Any] = {}
+        # The name the recipient will see, stamped onto the row so a reader
+        # needs no identity lookup. `resolve_public_invite` resolves it again
+        # when the row predates this write.
+        owner_safe_label = self._public_invite_owner_label(owner_user_id)
+
+        # Expiry is written lazily -- `_expire_public_invite` only flips a row
+        # when something reads it -- so a link whose time has passed can still
+        # be sitting at status 'active'. Settle that here first, or the reuse
+        # check below hands back a dead link instead of minting a fresh one.
+        self._execute_one(
+            """
+            UPDATE one_location_public_invites
+            SET status = 'expired', updated_at = NOW()
+            WHERE owner_user_id = :owner_user_id
+              AND status = 'active'
+              AND expires_at <= NOW()
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+
+        # One live public link per person, enforced where it can actually hold.
+        #
+        # Nothing stopped a second: no unique index, no lookup, just an INSERT.
+        # A reload, a second device or a double tap therefore left two links
+        # resolvable while the screen showed one, and revoking the one on
+        # screen left the other watching. The client now hides its create
+        # control while a link is live, but a client rule is not an invariant --
+        # a stale tab defeats it.
+        #
+        # Reuse rather than reject: this is the same call the person makes when
+        # they mean "give me my link", and a 409 would be a dead end on a
+        # screen whose whole job is to hand it over. Matches
+        # `one_location_circle_service.create_invite_code`, which returns the
+        # circle's existing active code rather than minting a second.
+        existing = self._execute_one(
+            """
+            SELECT *
+            FROM one_location_public_invites
+            WHERE owner_user_id = :owner_user_id
+              AND status = 'active'
+              AND expires_at > NOW()
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+        if existing:
+            existing_token = _public_invite_token_if_derivable(existing)
+            if existing_token:
+                # Reuse used to hand the row back exactly as it was found, and
+                # that made this call lie twice.
+                #
+                # Expiry: the person picked a duration and pressed a control
+                # labelled "Create link". Returning a link with four minutes
+                # left on it because one was minted 56 minutes ago breaks the
+                # only promise the screen makes -- "link stays live for 1 hour"
+                # -- and nothing on screen could contradict it, because the
+                # countdown shown afterwards is read from this row, so it
+                # agreed with the wrong answer. The window is restarted from
+                # now for exactly the duration that was asked for, in both
+                # directions: shortening is equally deliberate, and only the
+                # owner can ask for it.
+                #
+                # Snapshot: the caller has just captured a fresh point (every
+                # entry point runs the readiness gate before it posts). Keeping
+                # the old one meant a reused link opened on where the owner was
+                # up to an hour ago, presented as where they are now.
+                #
+                # Label: written on every pass, so a link minted before the
+                # name was recorded -- or one whose owner has since set a
+                # display name -- stops reading "A trusted person".
+                existing_metadata = _loads_json(existing.get("metadata")) or {}
+                if not isinstance(existing_metadata, dict):
+                    existing_metadata = {}
+                refreshed_metadata = dict(existing_metadata)
+                refreshed_metadata["codeVersion"] = _PUBLIC_INVITE_CODE_VERSION
+                if public_location:
+                    refreshed_metadata["publicLocation"] = public_location
+                if owner_safe_label:
+                    refreshed_metadata["owner_safe_label"] = owner_safe_label
+                refreshed = self._execute_one(
+                    """
+                    UPDATE one_location_public_invites
+                    SET duration_hours = :duration_hours,
+                        expires_at = NOW() + (
+                          CAST(:duration_hours AS double precision) * INTERVAL '1 hour'
+                        ),
+                        metadata = CAST(:metadata_json AS JSONB),
+                        updated_at = NOW()
+                    WHERE id = CAST(:invite_id AS UUID)
+                      AND status = 'active'
+                    RETURNING *
+                    """,
+                    {
+                        "invite_id": str(existing.get("id") or ""),
+                        "duration_hours": duration,
+                        "metadata_json": _json_param_with_public_location(refreshed_metadata),
+                    },
+                )
+                # Only the row the UPDATE actually wrote. The SELECT above and
+                # this UPDATE are separate statements, so a second device -- or
+                # the `revoke_public_link` agent tool -- can revoke the invite
+                # in between; the UPDATE is guarded on `status = 'active'` and
+                # returns nothing when that happens. Falling back to the row
+                # the SELECT read would hand the owner a link whose stored
+                # status still says 'active', so `_public_invite_payload`
+                # would attach a `publicUrl` -- a link they can copy and share
+                # that 410s the first time anyone opens it. Falling through to
+                # the mint path instead gives them a link that works, which is
+                # what they asked for.
+                existing_payload = self._public_invite_payload(refreshed) if refreshed else None
+                if existing_payload:
+                    self._insert_event(
+                        owner_user_id=owner_user_id,
+                        actor_user_id=owner_user_id,
+                        event_type="location_public_invite_created",
+                        metadata={
+                            "invite_id": existing_payload["id"],
+                            "duration_hours": duration,
+                            "location_snapshot": ("attached" if public_location else "none"),
+                            "reused": True,
+                        },
+                    )
+                    return {
+                        "invite": existing_payload,
+                        "publicToken": existing_token,
+                        "publicUrl": _public_invite_url(existing_token),
+                        # The caller asked for a link and got one; it is simply
+                        # the one that was already live. Named so a client can
+                        # tell "created" from "here is the one you have" without
+                        # comparing timestamps.
+                        "reused": True,
+                    }
+            # A row minted before tokens were derivable, or one whose digest no
+            # longer verifies. Its token is genuinely unrecoverable, so leaving
+            # it active would strand the owner behind a link nothing can show.
+            # Retire it and mint a replacement rather than refuse.
+            self._execute_one(
+                """
+                UPDATE one_location_public_invites
+                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                WHERE id = CAST(:invite_id AS UUID)
+                  AND status = 'active'
+                """,
+                {"invite_id": str(existing.get("id") or "")},
+            )
+
+        # The id is chosen here rather than by the default, because the token is
+        # derived FROM it and has to be known before the row exists.
+        invite_id = str(uuid.uuid4())
+        raw_token = _public_invite_token_for_id(invite_id)
+        token_hash = _hash_public_value(raw_token)
+        metadata: dict[str, Any] = {"codeVersion": _PUBLIC_INVITE_CODE_VERSION}
         if public_location:
             metadata["publicLocation"] = public_location
+        # The one field on this row a recipient is ever shown. Circle invites
+        # have recorded it since they shipped; public links never did, which is
+        # the whole reason every shared live location opened as "A trusted
+        # person shared this public location with you" -- the recipient payload
+        # reads `metadata.owner_safe_label` and nothing ever wrote it.
+        if owner_safe_label:
+            metadata["owner_safe_label"] = owner_safe_label
+        # `expires_at` is computed by the database, from the same clock every
+        # read of this row is compared against. Stamping it from the app host
+        # instead put the start of the window on one clock and the end of it on
+        # another, and the difference between them came straight off the time
+        # the owner was promised.
         row = self._execute_one(
             """
             INSERT INTO one_location_public_invites (
-              owner_user_id, public_code_hash, status, duration_hours,
+              id, owner_user_id, public_code_hash, status, duration_hours,
               expires_at, created_at, updated_at, metadata
             )
             VALUES (
+              CAST(:invite_id AS UUID),
               :owner_user_id, :public_code_hash, 'active', :duration_hours,
-              :expires_at, NOW(), NOW(), CAST(:metadata_json AS JSONB)
+              NOW() + (CAST(:duration_hours AS double precision) * INTERVAL '1 hour'),
+              NOW(), NOW(), CAST(:metadata_json AS JSONB)
             )
             RETURNING *
             """,
             {
+                "invite_id": invite_id,
                 "owner_user_id": owner_user_id,
                 "public_code_hash": token_hash,
                 "duration_hours": duration,
-                "expires_at": expires_at,
                 "metadata_json": _json_param_with_public_location(metadata),
             },
         )
@@ -5742,7 +6311,7 @@ class OneLocationAgentService:
         if not invite:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_CREATE_FAILED",
-                "Could not create the public request link.",
+                "Could not create the live location link.",
                 status_code=500,
             )
         self._insert_event(
@@ -5761,12 +6330,113 @@ class OneLocationAgentService:
             "publicUrl": _public_invite_url(raw_token),
         }
 
+    def refresh_public_invite_location(
+        self,
+        *,
+        owner_user_id: str,
+        invite_id: str,
+        location_snapshot: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Move the pin on the owner's live public link to where they are now.
+
+        Without this the snapshot was written once, at create time, and never
+        again -- so a link sold to the recipient as live showed one frozen
+        point for its whole window, under a chip that said "Live" and a share
+        message that said "View my live location". This is the statement that
+        makes those true.
+
+        Deliberately narrow. It writes `metadata.publicLocation` and nothing
+        else: not the window, not the label, not the status. An owner
+        heartbeating their position must never be able to extend their own
+        link past what they agreed to, and `expires_at` is the only thing
+        standing between "I shared for an hour" and "I shared until I
+        remembered to stop".
+
+        Scoped to one owner and one still-live row, so a stale tab that keeps
+        publishing after a revoke gets a 404 rather than quietly resurrecting
+        the pin on a link the owner already stopped.
+        """
+
+        if not owner_user_id:
+            raise OneLocationAgentError(
+                "LOCATION_AUTH_REQUIRED", "A user is required.", status_code=401
+            )
+        public_location = self._public_location_snapshot_payload(location_snapshot)
+        if not public_location:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_LOCATION_INVALID",
+                "Public location links need a valid captured location.",
+                status_code=422,
+            )
+        row = self._execute_one(
+            """
+            SELECT *
+            FROM one_location_public_invites
+            WHERE id = CAST(:invite_id AS UUID)
+              AND owner_user_id = :owner_user_id
+              AND status = 'active'
+              AND expires_at > NOW()
+            LIMIT 1
+            """,
+            {"invite_id": str(invite_id or ""), "owner_user_id": owner_user_id},
+        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
+                "This public location link is no longer active.",
+                status_code=404,
+            )
+        metadata = _loads_json(row.get("metadata")) or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata = dict(metadata)
+        metadata["publicLocation"] = public_location
+        updated = self._execute_one(
+            """
+            UPDATE one_location_public_invites
+            SET metadata = CAST(:metadata_json AS JSONB),
+                updated_at = NOW()
+            WHERE id = CAST(:invite_id AS UUID)
+              AND owner_user_id = :owner_user_id
+              AND status = 'active'
+              AND expires_at > NOW()
+            RETURNING *
+            """,
+            {
+                "invite_id": str(row.get("id") or ""),
+                "owner_user_id": owner_user_id,
+                "metadata_json": _json_param_with_public_location(metadata),
+            },
+        )
+        if not updated:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
+                "This public location link is no longer active.",
+                status_code=404,
+            )
+        invite = self._public_invite_payload(updated)
+        # No event per heartbeat. This runs every twenty seconds for as long as
+        # a link is live; writing an audit row each time would bury the events
+        # that record a decision -- created, revoked, expired -- under a
+        # position log nobody reads.
+        return {"invite": invite}
+
     def _public_invite_row_for_token(self, *, public_token: str) -> dict[str, Any]:
+        """The live row behind a public token, or a refusal the recipient can read.
+
+        Both messages below are rendered verbatim on the recipient's page --
+        `page-client.tsx` takes `loadError.message` straight into the headline --
+        so they are product copy, not internal detail. They said "request link"
+        until the page moved to /view, which left the one screen a person sees
+        when their link has run out describing it as something that asks them
+        for a location rather than shows them one.
+        """
+
         normalized_token = str(public_token or "").strip()
         if len(normalized_token) < 16:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_INVALID",
-                "This request link is invalid.",
+                "This live location link is invalid.",
                 status_code=404,
             )
         row = self._execute_one(
@@ -5782,7 +6452,7 @@ class OneLocationAgentService:
         if not row or str(row.get("status") or "") != "active":
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
-                "This request link is no longer active.",
+                "This live location link is no longer active.",
                 status_code=410 if row else 404,
             )
         return row
@@ -5790,6 +6460,24 @@ class OneLocationAgentService:
     def resolve_public_invite(self, *, public_token: str) -> dict[str, Any]:
         row = self._public_invite_row_for_token(public_token=public_token)
         invite = self._public_invite_payload(row, public=True)
+        # Resolved on read as well as stamped on write.
+        #
+        # Every link minted before the write existed carries no
+        # `owner_safe_label`, and those are exactly the links this change
+        # promises to keep working -- they are already inside messages that
+        # were sent. Without this they would read "A trusted person" forever,
+        # which is the bug, still visible, on the only links anyone currently
+        # holds. It also means a sharer who sets or corrects their display name
+        # is named correctly on a link they created before doing so.
+        #
+        # Read-only: no write is issued here. This endpoint is anonymous, and
+        # a write on an unauthenticated read path is a different kind of
+        # problem from the one being fixed.
+        if invite and invite.get("ownerLabel") == PUBLIC_INVITE_DEFAULT_OWNER_LABEL:
+            invite["ownerLabel"] = (
+                self._public_invite_owner_label(str(row.get("owner_user_id") or ""))
+                or PUBLIC_INVITE_DEFAULT_OWNER_LABEL
+            )
         result = {"invite": invite}
         metadata = _loads_json(row.get("metadata")) or {}
         public_location = metadata.get("publicLocation") if isinstance(metadata, dict) else None
@@ -6472,7 +7160,7 @@ class OneLocationAgentService:
                 (
                     "sms_contacts",
                     """
-                    SELECT sms.contact_user_id
+                    SELECT sms.contact_user_id AS contact_user_id
                     FROM one_location_sms_contacts sms
                     WHERE sms.owner_user_id = :user_id
                       AND EXISTS (
@@ -6496,11 +7184,58 @@ class OneLocationAgentService:
                           JOIN one_location_circles circle
                             ON circle.id = mine.circle_id
                            AND circle.status = 'active'
+                           -- A product-managed Circle lists people together without introducing
+                           -- them, and this arm never said so. It joins membership to membership
+                           -- and never mentions `circle.owner_user_id`, so two people became
+                           -- eligible for each other's live location the moment they shared a
+                           -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                           -- appeared in the other's share picker by name.
+                           --
+                           -- On the SMS Circle that is ten strangers, and contradicts that
+                           -- Circle's own design note. On a Trusted Circle holding every
+                           -- connection it would be every PAIR of your connections: 19,900 edges
+                           -- at 200 connections, none of them consented to. An auto-share hook
+                           -- was removed from `accept_request` once already for a smaller
+                           -- version of this.
+                           --
+                           -- So for a Circle the product manages, one side has to be its owner.
+                           -- Circles a person made themselves are untouched: those members chose
+                           -- each other's company.
+                           -- Trusted is excluded outright, not merely owner-scoped.
+                           -- Everyone in it is already a connection, so they satisfy the
+                           -- connection arm above and lose nothing here. What it closes is the
+                           -- other direction: contact sync (#5458) puts matched people into
+                           -- Trusted before they have accepted anything, and membership must not
+                           -- be what makes them shareable. Authority comes from the connection.
+                           -- Trusted records who you are connected to; it never decides who can
+                           -- see you.
+                           AND circle.system_kind IS DISTINCT FROM 'trusted'
+                           AND (
+                             (circle.system_kind IS NULL AND NOT circle.is_system)
+                             OR circle.owner_user_id = mine.user_id
+                             OR circle.owner_user_id = theirs.user_id
+                           )
                           WHERE mine.user_id = :user_id
                             AND mine.status = 'active'
                         )
                       )
-                    ORDER BY sms.created_at, sms.contact_user_id
+
+                    UNION
+
+                    -- The emergency Circle's roster. Same reason as
+                    -- `list_sms_contact_ids`: since #5426 this is where the
+                    -- list actually lives, and driving from
+                    -- `one_location_sms_contacts` alone left anyone added
+                    -- through Circle detail out of the state the client reads.
+                    SELECT membership.user_id AS contact_user_id
+                    FROM one_location_circle_memberships membership
+                    JOIN one_location_circles circle
+                      ON circle.id = membership.circle_id
+                     AND circle.owner_user_id = :user_id
+                     AND circle.is_system
+                     AND circle.status = 'active'
+                    WHERE membership.status = 'active'
+                      AND membership.user_id <> :user_id
                     """,
                     {"user_id": user_id},
                 ),

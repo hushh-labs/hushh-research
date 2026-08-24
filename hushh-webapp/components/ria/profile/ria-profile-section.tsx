@@ -220,8 +220,8 @@ function RiaRegulatoryProfileSummary({
         <SettingsRow
           icon={MessageCircle}
           iconTone="blue"
-          title="Ask Kai to update anything"
-          description="Open Kai and describe what should change in this profile."
+          title="Ask One to update anything"
+          description="Open One and describe what should change in this profile."
           onClick={onAskKaiUpdateAnything}
           chevron
           testId="ria-profile-ask-kai"
@@ -387,7 +387,7 @@ function RiaVerificationChip({ verified }: { verified: boolean }) {
         "inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-[12px] font-medium",
         verified
           ? "border-[rgba(18,161,80,0.35)] bg-[rgba(18,161,80,0.08)] text-[#12A150]"
-          : "border-[rgba(201,139,46,0.3)] bg-[rgba(201,139,46,0.08)] text-[color:var(--ria-gold,#C8923A)]",
+          : "border-[color:var(--ria-gold)]/30 bg-[color:var(--ria-gold)]/[0.08] text-[color:var(--ria-gold)]",
       )}
     >
       {verified ? (
@@ -782,7 +782,7 @@ export function RiaProfileSection({
 
   const handleAskKai = useCallback(() => {
     openKaiCommandBar();
-    toast.info("Kai command opened. Ask Kai what to update, or use Edit on any section.");
+    toast.info("Command bar opened. Ask One what to update, or use Edit on any section.");
   }, []);
 
   const handleDraftBio = useCallback(() => {
@@ -790,7 +790,7 @@ export function RiaProfileSection({
       if (!current) return current;
       const suggestion = buildRiaOnboardingBioSuggestion(current);
       if (!suggestion) {
-        toast.info("Add more details first. Kai needs services or firm details to draft a bio.");
+        toast.info("Add more details first. One needs services or firm details to draft a bio.");
         return current;
       }
       toast.success("Bio drafted. Review the draft before saving.");
@@ -848,12 +848,12 @@ export function RiaProfileSection({
           "The RIA profile is busy. Try again when the current update finishes.",
       };
     }
-    setEditOpen(true);
+    openServicesEdit();
     return {
       status: "succeeded" as const,
       summary: "The RIA profile editor is open.",
     };
-  }, [deleting, saving]);
+  }, [deleting, openServicesEdit, saving]);
 
   useLocalOnboardingActionHandler(
     "ria.profile.edit_services",

@@ -74,6 +74,8 @@ from api.routes.one.relay_auth import (
 from hushh_mcp.one_adk.action_tools import _slot_fingerprint
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
+    ONE_LIVE_VOICE_NAME,
+    ONE_LIVE_VOICE_OPTIONS,
     STATE_CONSENT_TOKEN,
     STATE_PENDING_DIRECTIVE,
     STATE_SCREEN,
@@ -254,6 +256,7 @@ async def _receive_runtime_bootstrap(
     str | None,
     str | None,
     str | None,
+    str | None,
 ]:
     """Read the one non-model-visible startup frame.
 
@@ -276,13 +279,29 @@ async def _receive_runtime_bootstrap(
     resumption_handle = str(message.get("resumption_handle") or "").strip()
     if len(resumption_handle) > _RESUMPTION_HANDLE_CAP:
         resumption_handle = ""
+    # A person's Voice Settings pick. Validated against the same curated
+    # allowlist the picker itself offers -- an unrecognized value (a stale
+    # client after the list changes, a tampered frame) falls back to the
+    # deployment default rather than forwarding an arbitrary string into
+    # PrebuiltVoiceConfig.
+    voice_name = str(message.get("voice_name") or "").strip()
+    if voice_name not in ONE_LIVE_VOICE_OPTIONS:
+        voice_name = ""
     mode = message.get("runtime_credential_mode")
     if mode == "hushh_managed_vertex":
         # Never accept a credential in managed mode, even if a buggy client
         # supplied one. This keeps the startup contract unambiguous.
         if message.get("runtime_credential") not in (None, ""):
             raise ValueError("runtime_bootstrap_invalid")
-        return "hushh_managed_vertex", None, "developer_api", None, None, resumption_handle or None
+        return (
+            "hushh_managed_vertex",
+            None,
+            "developer_api",
+            None,
+            None,
+            resumption_handle or None,
+            voice_name or None,
+        )
     if mode != "byok" or not uid:
         raise ValueError("runtime_bootstrap_invalid")
     credential = message.get("runtime_credential")
@@ -299,10 +318,26 @@ async def _receive_runtime_bootstrap(
     if transport == "vertex_api_key":
         if not _VERTEX_PROJECT_RE.fullmatch(project) or not _VERTEX_LOCATION_RE.fullmatch(location):
             raise ValueError("runtime_bootstrap_invalid")
-        return "byok", credential, "vertex_api_key", project, location, resumption_handle or None
+        return (
+            "byok",
+            credential,
+            "vertex_api_key",
+            project,
+            location,
+            resumption_handle or None,
+            voice_name or None,
+        )
     if project or location:
         raise ValueError("runtime_bootstrap_invalid")
-    return "byok", credential, "developer_api", None, None, resumption_handle or None
+    return (
+        "byok",
+        credential,
+        "developer_api",
+        None,
+        None,
+        resumption_handle or None,
+        voice_name or None,
+    )
 
 
 class _InitialGreetingGate:
@@ -425,6 +460,18 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     relay_ticket = websocket.query_params.get("relay_ticket")
     # Shared consumer: nonce single-use holds across workers and instances
     # (Postgres registry, migration 084; Redis swap seam documented there).
+    #
+    # Deliberately no cap on concurrent live sessions per user, decided here
+    # rather than left an accident: each socket gets its own session_id, its
+    # own ephemeral ADK session, and its own live-voice-context keyed by that
+    # id (clear_live_voice_context below), so two sessions for the same
+    # person share no mutable state to corrupt -- a phone and a laptop tab
+    # open at once is ordinary, ungated by design elsewhere in the app. The
+    # actual bound is issuance, not concurrency: AGENT_CHAT's 30/minute limit
+    # on minting a new relay_ticket (this function's own decorator) is what
+    # keeps a runaway loop from opening sessions faster than a person could
+    # ever use them, not a session-count cap that would also punish someone
+    # legitimately signed in on two devices.
     accepted, uid, _persona_tier = await consume_relay_ticket_shared(relay_ticket)
     if not accepted:
         logger.info("one_adk_live_relay_ticket_rejected")
@@ -439,6 +486,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             runtime_vertex_project,
             runtime_vertex_location,
             resumption_handle,
+            voice_name,
         ) = await _receive_runtime_bootstrap(websocket, uid=uid)
         runner = build_one_live_runner(
             runtime_mode=runtime_mode,
@@ -502,6 +550,19 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     run_config = RunConfig(
         streaming_mode=StreamingMode.BIDI,
         response_modalities=[genai_types.Modality.AUDIO],
+        # Pinned explicitly: unset, each live model plays its own default
+        # voice, and the two models this relay supports sound audibly
+        # different from each other with nothing set here. A person's Voice
+        # Settings pick (already validated against ONE_LIVE_VOICE_OPTIONS in
+        # _receive_runtime_bootstrap) wins when present; otherwise the
+        # deployment default.
+        speech_config=genai_types.SpeechConfig(
+            voice_config=genai_types.VoiceConfig(
+                prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(
+                    voice_name=voice_name or ONE_LIVE_VOICE_NAME
+                )
+            )
+        ),
         input_audio_transcription=genai_types.AudioTranscriptionConfig(),
         output_audio_transcription=genai_types.AudioTranscriptionConfig(),
         # No explicit trigger/target tokens: leaving both unset uses the
@@ -544,6 +605,15 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     # its time to publish the first context, and the model's first token are
     # three different problems with one symptom.
     session_started_at = time.monotonic()
+
+    # Session-health tracking for the summary line logged at teardown, below.
+    # Until now, closing a voice session logged nothing about the session
+    # itself -- no duration, no reason it ended, no turn or error count.
+    # Reconstructing "how many sessions failed last week, and why" meant
+    # correlating scattered per-event log lines across two services by hand.
+    turn_count = 0
+    pump_error_count = 0
+    close_reason = "clean"
 
     def _compose_greeting_prompt(screen: str, playbook: dict[str, Any] | None) -> str:
         entry_cue = _bounded_text(playbook.get("entry_cue"), 240) if playbook else ""
@@ -738,10 +808,25 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             except (TypeError, ValueError):
                 continue
             if message.get("type") == "interrupt" or message.get("interrupt") is True:
-                # Real interruption: close the current activity window. The
-                # model treats activity_end as end-of-input and the next
-                # audio frame starts a fresh turn.
-                queue.send_activity_end()
+                # Local acknowledgement only. This used to also call
+                # `queue.send_activity_end()` to "close the current activity
+                # window", which was out of contract: activity signals belong
+                # to the client ONLY when automatic activity detection is
+                # disabled, and this relay never disables it -- `run_config`
+                # above leaves `realtime_input_config` unset, so the provider
+                # is doing its own endpointing on the audio it is already
+                # receiving.
+                #
+                # Sending activity_end into a session that is endpointing
+                # itself asks the provider to close a window it owns, on the
+                # exact frames where somebody is talking over One. The barge-in
+                # it was meant to serve is already handled: the browser keeps
+                # streaming audio, and automatic detection interrupts the model
+                # from that audio without being told to.
+                #
+                # It fired once per barge-in, not once per directive -- there
+                # is a single call site and the browser only sends `interrupt`
+                # from its own speech-over-playback path.
                 await websocket.send_text(json.dumps({"serverContent": {"interrupted": True}}))
                 continue
             if message.get("type") == "app_context" or "appContext" in message:
@@ -937,7 +1022,28 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 clear_pending_specialist_directives(session_id)
                 greeting_gate.cancel_for_visitor_activity()
                 _cancel_pending_greeting()
-                queue.send_activity_start()
+                # No `queue.send_activity_start()` here, and no activity_end on
+                # the interrupt path either. Both were activity signals sent
+                # into a session that endpoints itself: `run_config` never
+                # disables automatic activity detection, and the contract for
+                # those signals is "if disabled, the client must send activity
+                # signals" -- the client, when it owns the boundary. We do not.
+                #
+                # They also had to be removed together. activity_start fired on
+                # every single utterance, activity_end only on barge-in, so the
+                # common path opened a window that nothing closed. Removing the
+                # rarer half alone would have left that imbalance worse, not
+                # better.
+                #
+                # Nothing is lost by dropping them: the browser buffers the
+                # frames from before its own speech threshold and flushes them
+                # on this same message, so the provider receives the whole
+                # utterance including its onset and detects the boundary from
+                # the audio itself.
+                #
+                # This message is still load-bearing for everything above --
+                # disarming stale proposals, clearing the already-done guard,
+                # cancelling the idle greeting. Only the provider signal goes.
                 continue
             if message.get("type") == "action_confirm":
                 confirmation_payload = message.get("actionConfirmation")
@@ -1371,6 +1477,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             queue.send_realtime(genai_types.Blob(data=audio_bytes, mime_type=mime))
 
     async def pump_events_to_browser() -> None:
+        nonlocal turn_count, close_reason, pump_error_count
         # ADK evaluates a callable system instruction when run_live opens.
         # Wait for the browser's first bounded app_context so the active
         # server-resolved playbook AND the executable-action inventory are
@@ -1398,6 +1505,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         try:
             await _pump_live_events()
         except ValueError as tool_error:
+            close_reason = "unknown_tool_call"
             logger.warning("one_adk_live_unknown_tool_call error=%s", str(tool_error)[:160])
             await websocket.send_text(
                 json.dumps({"sessionEnded": {"reason": "unknown_tool_call", "resumable": True}})
@@ -1413,6 +1521,8 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             classification = classify_provider_error(runtime_error)
             record_capability_failure("voice", classification, runtime_error)
             resumable = classification == PROVIDER_UNAVAILABLE
+            pump_error_count += 1
+            close_reason = f"runtime_error:{classification}"
             logger.warning(
                 "one_adk_live_runtime_failed classification=%s error=%s",
                 classification,
@@ -1433,6 +1543,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             return
 
     async def _pump_live_events() -> None:
+        nonlocal turn_count
         async for event in runner.run_live(
             user_id=session_user,
             session_id=session_id,
@@ -1696,6 +1807,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 await websocket.send_text(json.dumps({"clientDirective": outgoing_directive}))
 
             if getattr(event, "turn_complete", False):
+                turn_count += 1
                 await websocket.send_text(json.dumps({"serverContent": {"turnComplete": True}}))
 
     up = asyncio.create_task(pump_browser_to_queue())
@@ -1704,13 +1816,65 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         done, pending = await asyncio.wait({up, down}, return_when=asyncio.FIRST_EXCEPTION)
         for task in done:
             task_error = task.exception()
-            if task_error is not None and not isinstance(task_error, WebSocketDisconnect):
-                logger.warning(
-                    "one_adk_live_relay_pump_failed error=%s", task_error.__class__.__name__
+            if task_error is None:
+                continue
+            if isinstance(task_error, WebSocketDisconnect):
+                close_reason = "client_disconnect"
+                continue
+            # This is the catch-all behind BOTH pump tasks, not just the
+            # model-facing one -- an exception reaching here from
+            # pump_browser_to_queue is almost always our own message-handling
+            # code, not the provider. classify_provider_error already
+            # separates that case (RuntimeError/ValueError/KeyError ->
+            # CANDIDATE_MISCONFIGURED, "ours to fix") from a genuine outage,
+            # so reusing it here rather than a second classifier keeps that
+            # distinction instead of collapsing everything back down to a
+            # bare exception class name. Only the classification and class
+            # name are logged or sent -- never the message, which can carry
+            # provider response text.
+            classification = classify_provider_error(task_error)
+            resumable = classification == PROVIDER_UNAVAILABLE
+            record_capability_failure("voice", classification, task_error)
+            pump_error_count += 1
+            close_reason = f"pump_failed:{classification}"
+            logger.warning(
+                "one_adk_live_relay_pump_failed classification=%s error=%s",
+                classification,
+                task_error.__class__.__name__,
+            )
+            # Best-effort: the socket may already be in a bad enough state
+            # that this itself fails, which is fine -- _close_quietly in the
+            # finally block below is the real safety net either way.
+            try:
+                await websocket.send_text(
+                    json.dumps(
+                        {
+                            "sessionEnded": {
+                                "reason": (
+                                    "provider_unavailable" if resumable else "runtime_error"
+                                ),
+                                "resumable": resumable,
+                            }
+                        }
+                    )
                 )
+            except Exception:  # noqa: BLE001 - best-effort, socket may already be gone
+                logger.debug("one_adk_live_pump_failure_notice_undeliverable")
     except WebSocketDisconnect:
-        pass
+        close_reason = "client_disconnect"
     finally:
+        # The one line answering "how long did this session live, and why did
+        # it end" -- previously absent entirely, so reconstructing session
+        # health meant correlating scattered per-event log lines by hand.
+        logger.info(
+            "one_adk_live_session_summary session_id=%s duration_ms=%s "
+            "close_reason=%s turn_count=%s pump_error_count=%s",
+            session_id,
+            round((time.monotonic() - session_started_at) * 1000),
+            close_reason,
+            turn_count,
+            pump_error_count,
+        )
         up.cancel()
         down.cancel()
         for directive_gc_task in issued_directive_gc_tasks.values():

@@ -560,6 +560,13 @@ async def startup_consent_listener():
 
     asyncio.create_task(run_consent_listener())
 
+    # The referral tab's live stream. Same shape, its own channel: one LISTEN
+    # connection per instance, pushing doorbells to whichever referrers have a
+    # stream open here.
+    from api.referral_listener import run_referral_listener
+
+    asyncio.create_task(run_referral_listener())
+
 
 @app.on_event("startup")
 async def startup_ticker_cache():

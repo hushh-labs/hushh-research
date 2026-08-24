@@ -27,6 +27,17 @@ import {
 } from "@/lib/one-location/sos-trigger";
 import { runCheckIn } from "@/lib/one-location/check-in-trigger";
 
+/**
+ * What the API will actually accept for a public link.
+ *
+ * `CreatePublicInviteRequest.durationHours` is `gt=0, le=1` and the service
+ * refuses anything under the shared fifteen-minute floor. Kept beside the one
+ * call site that does not go through the screen's own duration control, so a
+ * model-authored directive cannot propose a window that only ever 422s.
+ */
+const PUBLIC_LINK_MAX_DURATION_HOURS = 1;
+const PUBLIC_LINK_MIN_DURATION_HOURS = 0.25;
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -334,7 +345,19 @@ export function useLocationChat(params: {
         const locationSnapshot = await OneLocationService.captureCurrentPosition();
         const { publicUrl } = await OneLocationService.createPublicInvite({
           vaultOwnerToken,
-          durationHours: action.durationHours ?? 1,
+          // Clamped here as well as in the tool that proposes it. This is the
+          // only path to createPublicInvite that does not go through the
+          // screen's own `publicInviteDurationHours`, and the value arrives
+          // from a model-authored directive -- so an unclamped number reached
+          // an endpoint whose field is `le=1` and 422d after the person had
+          // already said yes to it.
+          durationHours: Math.min(
+            PUBLIC_LINK_MAX_DURATION_HOURS,
+            Math.max(
+              PUBLIC_LINK_MIN_DURATION_HOURS,
+              Number(action.durationHours) || 1,
+            ),
+          ),
           locationSnapshot,
         });
         await report({

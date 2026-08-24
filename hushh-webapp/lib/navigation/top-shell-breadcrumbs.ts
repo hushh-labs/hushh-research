@@ -102,6 +102,7 @@ function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "connected-systems") return "Connected Systems";
   if (panel === "preferences") return "Preferences";
   if (panel === "security") return "Security";
+  if (panel === "referrals") return "Invite friends";
   if (panel === "support") return "Support & feedback";
   if (panel === "gmail") return "Gmail receipts";
   if (panel === "regulatory") return "Regulatory profile";
@@ -163,7 +164,7 @@ function profileDetailLabel(detail: string | null): string | null {
   if (detail.startsWith("domain:")) return "Domain detail";
   if (detail.startsWith("connection:")) return "Connection detail";
   if (detail === "appearance") return "Appearance";
-  if (detail === "kai-preferences") return "Kai preferences";
+  if (detail === "kai-preferences") return "Finance preferences";
   if (detail === "gemini") return "Gemini";
   if (detail === "device") return "On-device first";
   if (detail === "vault") return "Vault methods";
@@ -508,6 +509,22 @@ function resolveTopShellBreadcrumbInner(
         ],
       };
     }
+  }
+
+  if (pathname === ROUTES.RIA_CLAIM) {
+    const returnHref =
+      normalizeInternalRouteHref(searchParams?.get("return_to")) ||
+      ROUTES.RIA_ONBOARDING;
+    return {
+      backHref: returnHref,
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "RIA", href: returnHref },
+        { label: "Claim profile" },
+      ],
+    };
   }
 
   if (pathname === ROUTES.RIA_ONBOARDING) {
@@ -922,6 +939,36 @@ function resolveTopShellBreadcrumbInner(
   }
 
   // Connect root (level 2): back returns to /one (level 1).
+  // A Circle flow opened on Connect is a level-three place, and the shell has
+  // to say so -- otherwise the crumb reads "One > Connect" while a create form
+  // is on screen, and its back arrow leaves the workspace entirely instead of
+  // closing the flow. #5458 moved these here from the Location agent, where
+  // they had their own crumb.
+  if (pathname === ROUTES.CONNECT && searchParams?.get("tab") === "circles") {
+    const circleFlowLabels: Record<string, string> = {
+      "create-circle": "New circle",
+      "join-circle": "Join with code",
+      "circle-detail": "Circle",
+    };
+    const label = circleFlowLabels[String(searchParams?.get("action") ?? "")];
+    if (label) {
+      return {
+        // Back closes the flow and returns to the list, naming the tab
+        // explicitly -- the App Router refuses a navigation whose only change
+        // is the whole query string disappearing.
+        backHref: `${ROUTES.CONNECT}?tab=circles`,
+        width: "profile",
+        align: "center",
+        hideBack: false,
+        items: [
+          { label: "One", href: ROUTES.ONE_HOME },
+          { label: "Connect", href: `${ROUTES.CONNECT}?tab=circles` },
+          { label },
+        ],
+      };
+    }
+  }
+
   if (pathname === ROUTES.CONNECT || pathname === ROUTES.MARKETPLACE) {
     return {
       backHref: ROUTES.ONE_HOME,
@@ -1031,6 +1078,23 @@ function resolveTopShellBreadcrumbInner(
         { label: "Preferences", href: preferencesHref },
         { label: "Voice", href: ROUTES.PROFILE_PREFERENCES_VOICE },
         { label: "What's new" },
+      ],
+    };
+  }
+
+  // Same third-level nesting as the changelog above, for the "what can I
+  // say" examples screen.
+  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES) {
+    const preferencesHref = profilePanelHref("preferences");
+    return {
+      backHref: ROUTES.PROFILE_PREFERENCES_VOICE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: ROUTES.PROFILE },
+        { label: "Preferences", href: preferencesHref },
+        { label: "Voice", href: ROUTES.PROFILE_PREFERENCES_VOICE },
+        { label: "What can I say" },
       ],
     };
   }

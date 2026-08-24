@@ -23,7 +23,7 @@ const PERSONA_CONFIG: Record<
     pill: "Stability first",
     title: "Your plan should feel steady.",
     headline: "You prefer dependable progress with fewer surprises.",
-    support: "Kai will keep risk visible, pacing calm, and every move easy to understand.",
+    support: "One will keep risk visible, pacing calm, and every move easy to understand.",
     footerTagline: "Smart growth. Less stress.",
     accent: "text-emerald-600 bg-emerald-500/10 dark:text-emerald-300 dark:bg-emerald-400/12",
     icon: Shield,
@@ -32,7 +32,7 @@ const PERSONA_CONFIG: Record<
     pill: "Stability first",
     title: "You like progress with discipline.",
     headline: "You can accept some movement when the long-term path is clear.",
-    support: "Kai will balance opportunity, concentration, and timing before suggesting action.",
+    support: "One will balance opportunity, concentration, and timing before suggesting action.",
     footerTagline: "Progress without overexposure.",
     accent: "text-blue-600 bg-blue-500/10 dark:text-blue-400 dark:bg-blue-400/12",
     icon: LineChart,
@@ -41,7 +41,7 @@ const PERSONA_CONFIG: Record<
     pill: "Growth focused",
     title: "You are comfortable leaning in.",
     headline: "You can handle larger swings when the upside is worth the risk.",
-    support: "Kai will help you pursue momentum while keeping downside and concentration in view.",
+    support: "One will help you pursue momentum while keeping downside and concentration in view.",
     footerTagline: "Build momentum with guardrails.",
     accent: "text-orange-600 bg-orange-500/10 dark:text-orange-300 dark:bg-orange-400/12",
     icon: TrendingUp,
@@ -60,7 +60,7 @@ export function KaiPersonaScreen(props: {
   return (
     <main
       data-top-content-anchor="true"
-      className="flex min-h-[100dvh] w-full flex-col bg-transparent px-5 pt-[var(--top-content-pad)] pb-[var(--app-screen-footer-pad)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
+      className="flex min-h-[100dvh] w-full max-w-full flex-col bg-transparent px-4 sm:px-6 pt-[var(--top-content-pad)] pb-[var(--app-screen-footer-pad)]"
     >
       <div className="mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[25rem] flex-1 flex-col justify-between py-2 sm:py-4">
         <section className="my-auto w-full text-center">

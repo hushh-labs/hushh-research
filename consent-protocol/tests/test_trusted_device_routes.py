@@ -192,41 +192,23 @@ async def test_device_owner_capability_closes_revocation_issuance_race(
 
 
 @pytest.mark.asyncio
-async def test_signed_in_trusted_device_rollout_fails_closed_without_allowlist(
+async def test_signed_in_trusted_device_guard_allows_any_account_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Enrollment is open to every signed-in account once the feature is enabled;
+    # the per-account rollout allowlist has been removed.
     monkeypatch.setattr(account, "trusted_devices_enabled", lambda: True)
-    monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: set())
-
-    with pytest.raises(HTTPException) as raised:
-        await account._trusted_device_guard("user-1")
-
-    assert raised.value.status_code == 403
-    assert raised.value.detail["code"] == "TRUSTED_DEVICE_NOT_ALLOWED"
-
-
-@pytest.mark.asyncio
-async def test_signed_in_trusted_device_rollout_accepts_exact_uid(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(account, "trusted_devices_enabled", lambda: True)
-    monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: {"user-1", "other-user"})
 
     await account._trusted_device_guard("user-1")
 
 
 @pytest.mark.asyncio
-async def test_pkce_exchange_guard_fails_closed_without_rollout_allowlist(
+async def test_pkce_exchange_guard_allows_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(account, "trusted_devices_enabled", lambda: True)
-    monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: set())
 
-    with pytest.raises(HTTPException) as raised:
-        await account._trusted_device_guard()
-
-    assert raised.value.status_code == 403
-    assert raised.value.detail["code"] == "TRUSTED_DEVICE_NOT_ALLOWED"
+    await account._trusted_device_guard()
 
 
 @pytest.mark.asyncio
@@ -367,32 +349,6 @@ def test_trusted_device_vault_handoff_accepts_only_bounded_ciphertext() -> None:
 
 
 @pytest.mark.asyncio
-async def test_email_rollout_entry_requires_verified_firebase_email(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from firebase_admin import auth as firebase_auth
-
-    class _Record:
-        email = "owner@example.com"
-        email_verified = False
-
-    async def _run_in_threadpool(function, *args, **kwargs):
-        return function(*args, **kwargs)
-
-    monkeypatch.setattr(account, "trusted_devices_enabled", lambda: True)
-    monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: {"user-1"})
-    monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: {"owner@example.com"})
-    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
-    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
-    monkeypatch.setattr(firebase_auth, "get_user", lambda *_args, **_kwargs: _Record())
-
-    with pytest.raises(HTTPException) as raised:
-        await account._trusted_device_guard("user-1")
-
-    assert raised.value.status_code == 403
-
-
-@pytest.mark.asyncio
 async def test_trusted_device_exchange_identity_uses_verified_firebase_email(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -453,7 +409,6 @@ async def test_trusted_device_exchange_returns_server_verified_account_email(
         return function(*args, **kwargs)
 
     monkeypatch.setattr(account, "trusted_devices_enabled", lambda: True)
-    monkeypatch.setattr(account, "_trusted_device_allowlist", lambda: {"user-1"})
     monkeypatch.setattr(account, "TrustedDeviceService", _Service)
     monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
     monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())

@@ -227,8 +227,17 @@ describe("sanitizeGmailUserMessage", () => {
 
 describe("resolveGmailStatusSummary", () => {
   it("explains the purchase-signal benefit before Gmail is connected", () => {
-    expect(resolveGmailStatusSummary({ status: null }).detail).toContain(
-      "Receipt emails capture purchase interactions.",
+    expect(resolveGmailStatusSummary({ status: null }).detail).toBe(
+      "One reads your inbox to flag what needs a reply, surfaces upcoming meetings, and turns your receipts into a private shopping summary.",
+    );
+  });
+
+  it("does not repeat the call to action already carried by the title and button", () => {
+    // The card states "Gmail not connected" above this line and offers a
+    // "Connect Gmail" button below it, so a third "Connect Gmail to start."
+    // in the body was the same instruction a third time.
+    expect(resolveGmailStatusSummary({ status: null }).detail).not.toContain(
+      "Connect Gmail to start.",
     );
   });
 

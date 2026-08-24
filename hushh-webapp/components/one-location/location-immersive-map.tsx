@@ -530,7 +530,7 @@ export function LocationImmersiveMap({
   // the map, and none is added by drawing the owner's pin as their face.
   const selfAvatarUrl = useEffectiveAvatarUrl();
   const selfDisplayName = auth.user?.displayName ?? null;
-  const { vaultOwnerToken } = useVault();
+  const { vaultOwnerToken, vaultKey } = useVault();
   const demoAvailable = isLocationMapDemoAvailable();
   const nearbyCheckInAvailable = isOneLocationNearbyCheckInAvailable();
   const initialDemoMode = isLocationMapDemoEnabled(searchParams.get("demo"));
@@ -2386,8 +2386,10 @@ export function LocationImmersiveMap({
     // is. Hard-coding Your Map's path silently disarmed it on check-in's own
     // route -- the one screen where the X is now the primary way out, because
     // dismissing the sheet deliberately leaves you standing here.
+    if (!isNative() || typeof window === "undefined") return;
     const exitingFrom = window.location.pathname;
     window.setTimeout(() => {
+      if (typeof window === "undefined") return;
       if (window.location.pathname !== exitingFrom) return;
       window.location.assign(ROUTES.ONE_LOCATION);
     }, 1_200);
@@ -3472,6 +3474,7 @@ export function LocationImmersiveMap({
           open={nearbyCheckInOpen}
           ownerId={auth.userId}
           vaultOwnerToken={vaultOwnerToken}
+          vaultKey={vaultKey}
           captureCurrentPosition={captureAndRememberCurrentLocation}
           onOpenChange={(nextOpen) => {
             if (nextOpen) {

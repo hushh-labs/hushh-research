@@ -37,12 +37,19 @@ export interface GmailStatusSummary {
 }
 
 /**
- * Consumer-facing explanation shared by the disconnected and active-scan
- * states. Receipt emails represent purchase interactions, so they are a
- * clearer signal of brand affinity than a generic mailbox summary.
+ * Consumer-facing explanation on the disconnected state: what One reads, and
+ * what comes back out, which is the question being asked at the moment nothing
+ * is connected yet.
+ *
+ * It names all three things the connection does. Receipts are the oldest and
+ * were once the only one, but needs-a-reply threads and upcoming meetings ship
+ * in `GmailNudgesSection` and belong in the promise made before connecting.
+ *
+ * The active-scan state does NOT share this: it has its own sentence inside
+ * `describeGmailReceiptScanProgress`, which carries live counts.
  */
-export const GMAIL_RECEIPT_SIGNAL_EXPLANATION =
-  "Receipt emails capture purchase interactions. Once connected, One uses the receipts it finds to understand the brands you care about and prepare a private shopping summary.";
+export const GMAIL_INBOX_SIGNAL_EXPLANATION =
+  "One reads your inbox to flag what needs a reply, surfaces upcoming meetings, and turns your receipts into a private shopping summary.";
 
 export function describeGmailReceiptScanProgress(params: {
   scanned: number;
@@ -368,7 +375,9 @@ export function resolveGmailStatusSummary(options: {
   return {
     tone: "neutral",
     title: "Gmail not connected",
-    detail: `Connect Gmail to start. ${GMAIL_RECEIPT_SIGNAL_EXPLANATION}`,
+    // No "Connect Gmail to start." prefix: the title above already says Gmail
+    // is not connected, and the button below says Connect Gmail.
+    detail: GMAIL_INBOX_SIGNAL_EXPLANATION,
     helper: null,
   };
 }

@@ -341,7 +341,11 @@ def test_public_location_invite_route_creates_request_without_returning_location
     resolve_response = client.get(f"/api/one/location/public-invites/{token}")
     assert resolve_response.status_code == 200
     resolve_payload = resolve_response.json()
-    assert resolve_payload["invite"]["ownerLabel"] == "A trusted person"
+    # The sharer's display name, over the wire. It read "A trusted person" for
+    # every link ever minted because create_public_invite never wrote
+    # metadata.owner_safe_label -- the only field this payload consults.
+    assert resolve_payload["invite"]["ownerLabel"] == "User A"
+    # A name, and nothing else: no id, no phone, no email, no raw name field.
     assert "ownerUserId" not in json.dumps(resolve_payload)
     assert "ownerDisplayName" not in json.dumps(resolve_payload)
     assert "ownerMaskedPhone" not in json.dumps(resolve_payload)

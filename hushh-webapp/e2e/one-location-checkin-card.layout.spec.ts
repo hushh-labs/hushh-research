@@ -84,7 +84,7 @@ const CARD = `
          line once the fixture stopped using the machine's fallback font and
          started using the InterVariable the product ships. That reported a 22px
          overlap with the artwork at every width, on a card that is fine. -->
-    <div class="text-[19px] font-bold leading-[1.13] tracking-[-0.015em]" role="heading" aria-level="2" data-one-feature-title><span class="block whitespace-nowrap" data-one-feature-title-line>Stuck in the</span><span class="block whitespace-nowrap" data-one-feature-title-line>check-in line?</span></div>
+    <div class="text-[19px] font-bold leading-[1.13] tracking-[-0.015em]" role="heading" aria-level="2" data-one-feature-title><span class="block whitespace-nowrap" data-one-feature-title-line>Dreading the</span><span class="block whitespace-nowrap" data-one-feature-title-line>check-in queue?</span></div>
     <p class="text-[14px] leading-[1.4] text-[#747b86]" data-one-feature-body>Check in early, pick up your key, and skip the front desk.</p>
   </div>
   <div class="absolute inset-x-0 bottom-0 h-[52%]" data-one-use-case-art aria-hidden="true">

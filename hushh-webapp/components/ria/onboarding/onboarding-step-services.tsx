@@ -238,7 +238,7 @@ export function OnboardingStepServices({
         {showServiceError ? (
           <p
             role="alert"
-            className="text-[13px] leading-5 text-amber-600 dark:text-amber-400"
+            className="text-[13px] leading-5 text-[color:var(--ria-warning-text)]"
           >
             Select at least one service to continue.
           </p>
@@ -282,7 +282,7 @@ export function OnboardingStepServices({
         {showFeeError ? (
           <p
             role="alert"
-            className="text-[13px] leading-5 text-amber-600 dark:text-amber-400"
+            className="text-[13px] leading-5 text-[color:var(--ria-warning-text)]"
           >
             Select at least one fee structure to continue.
           </p>
@@ -309,7 +309,7 @@ export function OnboardingStepServices({
       <div className="space-y-3">
         <SectionLabel htmlFor="ria-bio">Short Bio</SectionLabel>
         <RiaAiActionPill onClick={onDraftBio}>
-          Ask Kai to draft a bio
+          Ask One to draft a bio
         </RiaAiActionPill>
         {hasBio && !bioEditing ? (
           <button

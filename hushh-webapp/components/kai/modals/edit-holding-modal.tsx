@@ -441,7 +441,7 @@ export function EditHoldingModal({
                         onClick={() => applySuggestion(row)}
                       >
                         <span className="min-w-[72px] font-semibold">{String(row.ticker || "").toUpperCase()}</span>
-                        <span className="truncate text-muted-foreground">
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
                           {row.title || "Unknown company"}
                           {metadata ? ` • ${metadata}` : ""}
                         </span>
@@ -501,7 +501,7 @@ export function EditHoldingModal({
                         onClick={() => applySuggestion(row)}
                       >
                         <span className="min-w-[72px] font-semibold">{String(row.ticker || "").toUpperCase()}</span>
-                        <span className="truncate text-muted-foreground">
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
                           {row.title || "Unknown company"}
                           {metadata ? ` • ${metadata}` : ""}
                         </span>

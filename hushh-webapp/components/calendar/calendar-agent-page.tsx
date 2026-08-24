@@ -12,10 +12,8 @@ import { toast } from "sonner";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import {
   AppPageContentRegion,
-  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,6 +25,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
+import {
+  CALENDAR_SETUP_REGION_CLASSNAME,
+} from "@/components/calendar/calendar-agent-page-layout";
 import {
   SurfaceCard,
   SurfaceCardContent,
@@ -222,16 +223,10 @@ export function CalendarAgentPage({
   return (
     <AppPageShell
       width="reading"
-      className="motion-step-enter fixed inset-x-0 top-[64px] bottom-[115px] z-10 m-auto flex w-full max-w-[720px] flex-col items-center justify-center overflow-hidden px-4"
+      className="fixed inset-x-0 top-[var(--top-shell-reserved-height,4rem)] bottom-[calc(var(--app-bottom-inset,2rem)+4.5rem)] z-0 flex flex-col items-center justify-center overflow-hidden px-4 touch-none select-none overscroll-none"
+      style={{ touchAction: "none", overscrollBehavior: "none" }}
     >
-      <AppPageHeaderRegion className="w-full max-w-md mx-auto mb-4 text-center">
-        <PageHeader
-          title="Calendar"
-          className="text-center flex flex-col items-center justify-center space-y-1.5"
-        />
-      </AppPageHeaderRegion>
-
-      <AppPageContentRegion className="w-full max-w-md mx-auto">
+      <AppPageContentRegion className={CALENDAR_SETUP_REGION_CLASSNAME}>
         <SurfaceCard className="overflow-hidden w-full shadow-md text-center">
           <SurfaceCardHeader className="pb-3 pt-5 flex flex-col items-center text-center space-y-0.5">
             <div className="flex size-11 items-center justify-center rounded-[12px] bg-primary/10 text-primary mb-2">

@@ -99,6 +99,50 @@
       "speaker_persona": "one"
     },
     {
+      "action_id": "route.profile_referrals_panel",
+      "label": "Open Referrals",
+      "meaning": "Opens the Referrals tab in Profile, showing your referral link and referral status.",
+      "aliases": [
+        "open referrals",
+        "invite friends",
+        "my referral link",
+        "show my referrals"
+      ],
+      "search_keywords": [
+        "referral",
+        "referrals",
+        "invite"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/referrals"
+        ],
+        "screens": [
+          "profile_referrals_panel"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/referrals"
+      },
+      "control_ids": [
+        "profile_referrals"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "route.profile_support_panel",
       "label": "Open Support Panel",
       "meaning": "Navigates to hidden support panel in Profile > Account.",

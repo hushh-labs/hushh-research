@@ -230,6 +230,20 @@ export type OneLocationPublicInvite = {
   createdAt?: string | null;
   updatedAt?: string | null;
   revokedAt?: string | null;
+  /**
+   * The owner's own share link, app-relative (`/one/location/view/<token>`).
+   *
+   * Present only for the owner, and only while the invite is still usable. The
+   * token used to be returned exactly once, at creation, and nothing could
+   * recover it afterwards -- so after a reload the app knew a link was live and
+   * had nothing to copy. The server now derives it from the invite id and hands
+   * it back on every read.
+   *
+   * Still optional, and callers must treat it that way: an invite minted before
+   * the token was derivable has no recoverable link, and the field is absent
+   * rather than wrong.
+   */
+  publicUrl?: string | null;
 };
 
 export type OneLocationPublicInviteSubmission = {
@@ -280,6 +294,12 @@ export type OneLocationCircleViewerCapabilities = {
   canManageCircle: boolean;
   /** False for a system Circle: everything else an owner may do still applies. */
   canDeleteCircle?: boolean;
+  /** Stated by the server rather than inferred from "not the owner".
+   *
+   *  A system Circle's owner was offered a Leave that `_end_membership`
+   *  refuses every time, and a Trusted Circle cannot be left by anybody: its
+   *  roster IS the connection graph, so the way out is to disconnect. */
+  canLeaveCircle?: boolean;
   canModerateInvites: boolean;
 };
 
@@ -289,12 +309,24 @@ export type OneLocationCircleSummary = {
   kind: OneLocationCircleKind;
   role: OneLocationCircleRole;
   memberCount: number;
-  memberLimit: number;
+  /** `null` where the product does not impose one.
+   *
+   *  A Trusted Circle mirrors the connection graph and connections are not
+   *  capped, so the server reports no ceiling for it rather than the number it
+   *  happens to store. */
+  memberLimit: number | null;
   /**
    * Provisioned and depended on by the product (today: the SMS/Emergency
    * Circle). Members are managed normally; the Circle itself cannot be deleted.
+   *
+   * A Trusted Circle is deliberately NOT flagged here -- migration 163 carries
+   * the reasoning -- so read `systemKind` to ask "is this the product's", and
+   * this only to ask "is this the emergency one, on a server old enough not to
+   * say".
    */
   isSystem?: boolean;
+  /** Which product-managed Circle this is, or `null` for one a person named. */
+  systemKind?: "sms" | "trusted" | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   viewerCapabilities?: OneLocationCircleViewerCapabilities;

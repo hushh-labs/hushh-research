@@ -20,6 +20,7 @@ from .marketplace_catalog import router as marketplace_catalog_router
 from .marketplace_requests import router as marketplace_requests_router
 from .opportunity_signals import router as opportunity_signals_router
 from .places import router as places_router
+from .referrals import router as referrals_router
 from .runtime import router as runtime_router
 
 router = APIRouter()
@@ -41,6 +42,7 @@ router.include_router(marketplace_catalog_router)
 router.include_router(marketplace_requests_router)
 router.include_router(opportunity_signals_router)
 router.include_router(places_router)
+router.include_router(referrals_router)
 router.include_router(runtime_router)
 
 __all__ = ["router"]

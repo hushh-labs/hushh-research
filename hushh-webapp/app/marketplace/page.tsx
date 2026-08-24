@@ -1062,7 +1062,7 @@ export default function MarketplacePage() {
     <AppPageShell
       as="main"
       width="standard"
-      className="pb-36"
+      className="pb-8"
       nativeTest={{
         routeId: "/marketplace",
         marker: "native-route-marketplace",
