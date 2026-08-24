@@ -128,6 +128,21 @@ describe("One Location — hub tab naming", () => {
   });
 });
 
+describe("One Location — People actions stay reachable and single-flight", () => {
+  it("keeps Find contacts mounted for action routing and disabled while syncing", () => {
+    const start = HUB_SOURCE.indexOf(
+      'data-voice-control-id="one-location-find-contacts"',
+    );
+    expect(start).toBeGreaterThan(-1);
+    const addPeopleMenu = HUB_SOURCE.slice(start - 600, start + 900);
+
+    expect(addPeopleMenu).toContain("<DropdownMenuContent");
+    expect(addPeopleMenu).toContain("forceMount");
+    expect(addPeopleMenu).toContain('disabled={vm.busy === "contactSync"}');
+    expect(addPeopleMenu).toContain('aria-busy={vm.busy === "contactSync"');
+  });
+});
+
 describe("One Location — the Request location trail agrees with the screen", () => {
   it("uses one spelling for the crumb, the flow title and the hub row", () => {
     const params = new URLSearchParams({ action: "ask" });

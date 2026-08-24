@@ -5355,6 +5355,47 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("menuitem", { name: /Find contacts/i })).toBeTruthy();
   });
 
+  it("keeps contact sync single-flight from the People menu", async () => {
+    let finishSync: (() => void) | null = null;
+    mockSyncOneLocationContactSignals.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSync = () =>
+            resolve({
+              matches: [],
+              matchedUserIds: [],
+              totalContacts: 0,
+              inviteCandidateCount: 0,
+              sourcePlatform: "ios",
+            });
+        }),
+    );
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    const addPeople = await screen.findByRole("button", { name: /Add people/i });
+    openDropdownMenu(addPeople);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Find contacts/i }));
+
+    await waitFor(() =>
+      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(1),
+    );
+    openDropdownMenu(addPeople);
+    const busyFindContacts = screen.getByRole("menuitem", {
+      name: /Finding contacts/i,
+    });
+    expect(busyFindContacts).toHaveAttribute("aria-busy", "true");
+    fireEvent.click(busyFindContacts);
+    expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishSync?.();
+    });
+  });
+
   it("creates an approval-first invite path for contacts who are not One users", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
@@ -6110,6 +6151,29 @@ describe("OneLocationAgentPage", () => {
     expect(String(mockCopyToClipboard.mock.calls[0][0])).toContain(
       "derived-token-abc",
     );
+  });
+
+  it("does not say copied when clipboard denies the public link", async () => {
+    mockCopyToClipboard.mockResolvedValueOnce(false);
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      publicInvites: [activePublicInvite()],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+
+    expect(await screen.findByText("Temporary link")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Copy link/i }));
+
+    await waitFor(() => expect(mockCopyToClipboard).toHaveBeenCalled());
+    expect(toast.error).toHaveBeenCalledWith(
+      "Could not copy the public location link.",
+    );
+    expect(screen.getByRole("button", { name: /Copy link/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Copied/i })).toBeNull();
   });
 
   it("shares the link as a live location, not as an invitation", async () => {

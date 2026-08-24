@@ -642,12 +642,13 @@ export function TemporaryLinkCard({
   title?: string;
   statusLine: string;
   description: string;
-  onCopy: () => void;
+  onCopy: () => boolean | Promise<boolean>;
   onShare: () => void;
   onRevoke: () => void;
   revokeBusy?: boolean;
 }) {
   const [copyLabel, setCopyLabel] = useState("Copy link");
+  const [copyBusy, setCopyBusy] = useState(false);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -658,15 +659,22 @@ export function TemporaryLinkCard({
     };
   }, []);
 
-  const handleCopy = () => {
-    onCopy();
-    setCopyLabel("Copied");
-    if (copyResetRef.current) {
-      clearTimeout(copyResetRef.current);
+  const handleCopy = async () => {
+    if (copyBusy) return;
+    setCopyBusy(true);
+    try {
+      const copied = await onCopy();
+      if (!copied) return;
+      setCopyLabel("Copied");
+      if (copyResetRef.current) {
+        clearTimeout(copyResetRef.current);
+      }
+      copyResetRef.current = setTimeout(() => {
+        setCopyLabel("Copy link");
+      }, 1600);
+    } finally {
+      setCopyBusy(false);
     }
-    copyResetRef.current = setTimeout(() => {
-      setCopyLabel("Copy link");
-    }, 1600);
   };
 
   return (
@@ -706,10 +714,12 @@ export function TemporaryLinkCard({
         <Button
           variant="outline"
           onClick={handleCopy}
+          disabled={copyBusy}
+          aria-busy={copyBusy || undefined}
           className="h-12 rounded-[15px] text-[15px] font-semibold leading-5"
         >
           <Copy className="mr-1.5 h-4 w-4" />
-          {copyLabel}
+          {copyBusy ? "Copying…" : copyLabel}
         </Button>
       </div>
       <div className="border-t border-border/60 pt-1">

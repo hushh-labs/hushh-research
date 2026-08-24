@@ -429,7 +429,7 @@ export type LocationHubViewModel = {
   onEditLiveShareDurationCancel: () => void;
   onSaveLiveShareDuration: () => void;
   onCreatePublicInvite: () => void;
-  onCopyPublicInvite: () => void;
+  onCopyPublicInvite: () => boolean | Promise<boolean>;
   onSharePublicInvite: () => void;
   onRevokePublicInvite: (invite: OneLocationPublicInvite) => void;
   onCreateCircleInvite: () => void;
@@ -3079,12 +3079,24 @@ function PeopleHub({
           <Plus className="h-[21px] w-[21px]" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-52 rounded-2xl">
+      <DropdownMenuContent
+        align="end"
+        forceMount
+        className="min-w-52 rounded-2xl"
+      >
         <DropdownMenuItem
-          onSelect={() => vm.onSyncContacts()}
+          aria-busy={vm.busy === "contactSync" || undefined}
+          disabled={vm.busy === "contactSync"}
+          onSelect={(event) => {
+            if (vm.busy === "contactSync") {
+              event.preventDefault();
+              return;
+            }
+            vm.onSyncContacts();
+          }}
           data-voice-control-id="one-location-find-contacts"
         >
-          Find contacts
+          {vm.busy === "contactSync" ? "Finding contacts…" : "Find contacts"}
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() => onInvite()}
