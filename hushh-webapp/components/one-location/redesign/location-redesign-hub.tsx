@@ -53,6 +53,7 @@ import {
   locationAskPromptLine,
 } from "@/lib/one-location/duration-copy";
 import {
+  grantLaneLabel,
   groupGrantsByCounterpart,
   type OneLocationGrantLaneGroup,
 } from "@/lib/one-location/grant-lanes";
@@ -2167,39 +2168,15 @@ function LocationDetailFlow({
               return (
                 <SettingsRow
                   key={group.counterpartUserId}
-                  icon={UsersRound}
-                  // Green, matching the "Active shares" row that opens this
-                  // screen. Each row here IS one of those live grants, and
-                  // "purple" renders byte-identically to blue in the tone map —
-                  // so tapping a green row reporting 3 landed on three blue rows
-                  // for the same 3 grants. One object, one colour.
-                  iconTone="green"
+                  leading={<ActiveShareAvatar name={name} />}
                   title={name}
                   description={
                     single ? (
-                      single.durationMode === "until_stopped" ? (
-                        "Until you stop"
-                      ) : (
-                        // Was a string computed once per render, so it froze the
-                        // moment the screen stopped re-rendering.
-                        <ShareCountdownText expiresAt={single.expiresAt} />
-                      )
+                      <ActiveShareMetadata grant={single} />
                     ) : (
                       <>
-                        {/* Deliberately not a folded end time. The two shares
-                            end at different moments and each has its own Stop,
-                            so the honest summary is how many there are; the
-                            times live one tap away, beside the control that
-                            ends them.
-
-                            The breakdown lives in the row's own description
-                            slot rather than as a sibling of the row, so the
-                            group keeps its iOS first/last radii and hairline
-                            separators -- those are structural CSS on the row's
-                            position among its siblings, and inserting a panel
-                            between rows would round every row in the list. */}
-                        <span>{`${group.grants.length} live shares`}</span>
-                        <div id={lanesId} hidden={!expanded} className="pt-1">
+                        <span>{`${group.grants.length} active shares`}</span>
+                        <div id={lanesId} hidden={!expanded} className="pt-1.5">
                           <PersonShareLanes
                             group={group}
                             counterpartName={name}
@@ -2212,15 +2189,11 @@ function LocationDetailFlow({
                   }
                   trailing={
                     single ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-9 text-destructive"
-                        onClick={() => vm.onStopGrant(single.id)}
-                        disabled={vm.revokingGrantId === single.id}
-                      >
-                        Stop
-                      </Button>
+                      <StopGrantTextButton
+                        grantId={single.id}
+                        revokingGrantId={vm.revokingGrantId}
+                        onStopGrant={vm.onStopGrant}
+                      />
                     ) : (
                       <ShareLanesDisclosure
                         expanded={expanded}
@@ -2237,7 +2210,20 @@ function LocationDetailFlow({
             })}
           </SettingsGroup>
         ) : (
-          <EmptyState title="No active shares" />
+          <EmptyState
+            title="No active shares"
+            description="No one can see your location."
+            action={
+              <Button
+                type="button"
+                size="sm"
+                className="rounded-full"
+                onClick={() => vm.startShareComposer()}
+              >
+                Share location
+              </Button>
+            }
+          />
         )
       ) : null}
       {kind === "shared-with-me" ? (
@@ -2750,6 +2736,54 @@ function personInitials(name: string): string {
   if (parts.length === 1) return first.slice(0, 2).toUpperCase();
   const last = parts[parts.length - 1] ?? first;
   return ((first[0] ?? "") + (last[0] ?? "")).toUpperCase();
+}
+
+function ActiveShareAvatar({ name }: { name: string }) {
+  return (
+    <span className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center">
+      <Avatar initials={personInitials(name)} size={40} />
+      <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[#34C759]" />
+    </span>
+  );
+}
+
+function ActiveShareMetadata({ grant }: { grant: OneLocationGrant }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      <span className="truncate">{grantLaneLabel(grant)}</span>
+      <span aria-hidden="true">·</span>
+      {grant.durationMode === "until_stopped" ? (
+        <span className="truncate">Until you stop</span>
+      ) : (
+        <ShareCountdownText
+          expiresAt={grant.expiresAt}
+          className="truncate"
+        />
+      )}
+    </span>
+  );
+}
+
+function StopGrantTextButton({
+  grantId,
+  revokingGrantId,
+  onStopGrant,
+}: {
+  grantId: string;
+  revokingGrantId: string | null;
+  onStopGrant: (grantId: string) => void;
+}) {
+  const stopping = revokingGrantId === grantId;
+  return (
+    <button
+      type="button"
+      className="inline-flex min-h-11 items-center justify-center rounded-full px-2 text-[15px] font-medium leading-[20px] text-[#FF3B30] transition-colors hover:text-[#D70015] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007AFF] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+      onClick={() => onStopGrant(grantId)}
+      disabled={stopping}
+    >
+      {stopping ? "Stopping…" : "Stop"}
+    </button>
+  );
 }
 
 /** One person in the People list: avatar (+ live dot) · name · status · action. */

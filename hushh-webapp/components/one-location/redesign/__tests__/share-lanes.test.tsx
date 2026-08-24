@@ -104,8 +104,8 @@ describe("grouping grants by the person on the other end", () => {
     expect(groups).toHaveLength(2);
   });
 
-  it("labels the SMS lane with the copy the recipient's card already uses", () => {
-    expect(grantLaneLabel(sos)).toBe("Shared via SMS");
+  it("labels the SMS lane with the product-facing Save My Soul copy", () => {
+    expect(grantLaneLabel(sos)).toBe("Save My Soul");
     expect(grantLaneLabel(ordinary)).toBe("Location share");
   });
 });
@@ -245,10 +245,10 @@ describe("one card per owner in Shared with me", () => {
 
     // ONE name, not two cards for the same person.
     expect(screen.getAllByText("Rohan Mehta")).toHaveLength(1);
-    // The badge is the treatment `isSmsTriggeredGrant` already drives here --
-    // no new copy was invented for the grouped case. Twice: the card's badge
-    // and the lane's own label, and they say the same words on purpose.
-    expect(screen.getAllByText("Shared via SMS")).toHaveLength(2);
+    // The card badge keeps its compact received-share treatment; the expanded
+    // lane says the product-facing name the owner already knows.
+    expect(screen.getByText("Shared via SMS")).toBeTruthy();
+    expect(screen.getByText("Save My Soul")).toBeTruthy();
     // Both underlying shares, each with its OWN expiry. A single folded status
     // line could only ever have been right about one of them.
     expect(screen.getByTestId("one-location-received-share-lanes")).toBeTruthy();
@@ -275,7 +275,7 @@ describe("one card per owner in Shared with me", () => {
       />,
     );
     expect(screen.queryByTestId("one-location-share-lane")).toBeNull();
-    expect(screen.queryByText("Shared via SMS")).toBeNull();
+    expect(screen.queryByText("Save My Soul")).toBeNull();
   });
 });
 
