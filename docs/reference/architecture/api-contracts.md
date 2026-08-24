@@ -246,6 +246,38 @@ this first release.
 | POST | `/api/one/calendar/proposals` | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google. |
 | POST | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed. |
 
+### Contact Discovery
+
+Matching an address book against the Hussh user directory. The device normalizes each
+number to E.164 and hashes it; **raw phone numbers and contact names never leave the
+device**, and the server **persists nothing** — the request body is consumed in memory and
+discarded, so a contact who is not a Hussh user leaves no trace.
+
+`last4` is an index bucket, not an answer: it narrows the candidate rows so the query can
+use `idx_actor_identity_cache_phone_last4`, and the full digest is what decides a match.
+Nothing about a matched person's phone number is returned.
+
+Rate limited per authenticated user, on two ceilings — see
+`RateLimits.CONTACT_DISCOVERY_MATCH`. One number cannot describe the abuse: the per-minute
+bound stops a tight loop, the per-day bound is the one that stops the patient walk, which is
+the realistic way to enumerate a user base through a discovery endpoint. The minute bound is
+deliberately generous because the web picker returns hand-picked contacts and the product
+offers a "Check more" action that re-runs the sync.
+
+**Both bounds are per worker process, not global.** slowapi falls back to in-process memory
+storage unless `RATE_LIMIT_STORAGE_URI` points at a shared backend. UAT passes that secret;
+production does not, and runs `gunicorn -w 2` on a scale-to-zero Cloud Run service — so in
+production the effective ceiling is the stated number multiplied by however many workers are
+live. That is survivable for a minute bound and materially weakens the day bound. Wiring
+`RATE_LIMIT_STORAGE_URI` into the production backend is what makes the number above the real
+one; until then, read it as a per-worker bound.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| POST | `/api/marketplace/contacts/match` | Firebase Bearer | Match up to 1000 `{hash, last4}` lookups against the directory. `scope: "one_network"` matches any phone-verified account that has not turned off contact discoverability (what One Location contact sync needs); `scope: "marketplace"` (the default) keeps the Connect deck's publicly-discoverable-profiles policy. Returns `user_id`, `kind`, `display_name`, `headline`, `profile` — and **no phone digits** |
+| GET | `/api/iam/contact-discoverability` | Firebase Bearer | Whether the signed-in account can be found by someone who has their number |
+| POST | `/api/iam/contact-discoverability` | Firebase Bearer | Turn that on or off. Defaults on — a match discloses nothing beyond confirming a number the requester already had |
+
 ### One Location Agent
 
 One Location Agent is One-owned live-location sharing for trusted people. The

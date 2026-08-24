@@ -82,6 +82,51 @@ async function assertContactsReadable(): Promise<void> {
   }
 }
 
+/**
+ * Every match, with any phone-derived field removed.
+ *
+ * The server no longer returns one: `match_marketplace_contacts` used to echo
+ * four digits of the matched person's number, and it stopped, because a client
+ * that has to defend against a field is a field that should not have been sent.
+ *
+ * This guard stays anyway, and it is deliberately keyed on the shape of the
+ * value rather than on one known field name. Two reasons. A deploy is not
+ * atomic, so for the length of a rollout — and for the length of any rollback —
+ * this client can still be talking to a server that returns the old payload.
+ * And the type no longer declares the field, which means TypeScript would have
+ * silently stopped protecting exactly the case that still needs protecting.
+ *
+ * The screens downstream of this render matched people by name. Nothing here
+ * needs a digit, so anything that looks like one is dropped rather than trusted.
+ *
+ * Recursive, not a shallow copy. `profile` is a server-shaped object nested
+ * inside each match, and the rollback case this guard exists for is precisely
+ * the one where the server's shape is not what this client expects — so a
+ * top-level-only sweep would have promised protection it could not give.
+ */
+function stripPhoneKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripPhoneKeys);
+  // Plain objects only. A Date, a Map, or anything with a prototype of its own
+  // would be rebuilt as a bare object by the spread below, so those are handed
+  // through untouched — none of them can carry a phone field on this payload,
+  // which is JSON off the wire.
+  if (!value || typeof value !== "object") return value;
+  if (Object.getPrototypeOf(value) !== Object.prototype) return value;
+
+  const copy: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    if (key.toLowerCase().includes("phone")) continue;
+    copy[key] = stripPhoneKeys(nested);
+  }
+  return copy;
+}
+
+function withoutPhoneFields(
+  match: MarketplaceContactMatch,
+): MarketplaceContactMatch {
+  return stripPhoneKeys(match) as MarketplaceContactMatch;
+}
+
 export async function syncOneLocationContactSignals({
   idToken,
   accountPhoneNumber,
@@ -131,11 +176,7 @@ export async function syncOneLocationContactSignals({
     // marketplace profiles are off by default.
     scope: "one_network",
   });
-  const privacySafeMatches = matches.map((match) => {
-    const safeMatch = { ...match };
-    delete safeMatch.phone_last4;
-    return safeMatch as MarketplaceContactMatch;
-  });
+  const privacySafeMatches = matches.map(withoutPhoneFields);
   const matchedUserIds = Array.from(
     new Set(
       privacySafeMatches

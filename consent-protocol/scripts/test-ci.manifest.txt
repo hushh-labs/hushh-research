@@ -90,3 +90,13 @@ tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py
 tests/services/test_account_service_cleanup_tables.py
 tests/test_pool_acquire_is_bounded.py
+
+# Contact discovery.
+#
+# `POST /api/marketplace/contacts/match` answers "is the person behind this
+# phone number on Hushh", a thousand numbers at a time. It shipped with no rate
+# limit of its own and no global one to fall back on, and echoed four digits of
+# each matched person's number back. Neither had a single test, and this
+# manifest is the only pytest invocation in any lane -- so a guard absent from
+# it is decoration.
+tests/test_contact_discovery_hardening.py
