@@ -2293,7 +2293,6 @@ export default function RiaPicksPage() {
     <AppPageShell
       as="main"
       width="expanded"
-      className="pb-16 sm:pb-24"
       nativeTest={{
         routeId: "/ria/picks",
         marker: "native-route-ria-picks",
