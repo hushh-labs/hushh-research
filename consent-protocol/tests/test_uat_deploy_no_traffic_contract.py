@@ -152,12 +152,12 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     gunicorn_workers = int(worker_flag.group(1))
     assert gunicorn_workers == 2
 
-    assert "_DB_POOL_MIN_SIZE=2" in uat_workflow
-    assert "_DB_POOL_MAX_SIZE=6" in uat_workflow
-    assert "_DB_SQLALCHEMY_POOL_SIZE=4" in uat_workflow
+    assert "_DB_POOL_MIN_SIZE=1" in uat_workflow
+    assert "_DB_POOL_MAX_SIZE=4" in uat_workflow
+    assert "_DB_SQLALCHEMY_POOL_SIZE=3" in uat_workflow
     assert "_DB_SQLALCHEMY_MAX_OVERFLOW=0" in uat_workflow
-    assert "_CLOUD_RUN_MIN_INSTANCES=1" in uat_workflow
-    assert "_CLOUD_RUN_MAX_INSTANCES=3" in uat_workflow
+    assert "_CLOUD_RUN_MIN_INSTANCES=2" in uat_workflow
+    assert "_CLOUD_RUN_MAX_INSTANCES=5" in uat_workflow
     # Each gunicorn WORKER opens the asyncpg pool (DB_POOL_MAX_SIZE) plus the
     # SQLAlchemy pool (DB_SQLALCHEMY_POOL_SIZE + DB_SQLALCHEMY_MAX_OVERFLOW).
     # Both pools are module globals, so the ceiling is per worker process and
@@ -180,22 +180,29 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     # "FATAL: remaining connection slots are reserved for non-replication
     # superuser connections" as soon as traffic scaled out.
     #
-    # So the ceiling is Postgres, not the app. Keep the total under ~60 to
-    # leave room for migrations, cron jobs, ad-hoc psql, and the extra instance
-    # a deploy briefly adds. Starvation is no longer a hang: db/connection.py
-    # bounds pool.acquire(), so a pool that is too small fails fast with a 503
-    # instead of queueing until Cloud Run kills the request.
+    # 2026-08-24 later the same day: maxScale=3 saturated the Cloud Run request
+    # plane under long-lived consent event requests, so UAT answered Cloud Run's
+    # own "no available instance" 429 before authenticated setup calls could hit
+    # app code. Rebalance toward more instances and smaller deterministic pools:
+    # request headroom grows, while deploy peak stays under the same Postgres cap.
+    #
+    # So the ceiling is Postgres, not the app. Keep the total under ~70 and the
+    # cutover peak under ~85 to leave room for migrations, cron jobs, ad-hoc
+    # psql, and the extra instance a deploy briefly adds. Starvation is no
+    # longer a hang: db/connection.py bounds pool.acquire(), so a pool that is
+    # too small fails fast with a 503 instead of queueing until Cloud Run kills
+    # the request.
     #
     # Overflow stays pinned at 0 so the ceiling remains deterministic.
     POSTGRES_MAX_CONNECTIONS = 100  # Cloud SQL default for db-custom-1-3840
 
-    uat_per_worker = 6 + 4 + 0
-    assert uat_per_worker == 10
-    assert uat_per_worker * gunicorn_workers == 20
-    uat_total = uat_per_worker * gunicorn_workers * 3
-    assert uat_total == 60
+    uat_per_worker = 4 + 3 + 0
+    assert uat_per_worker == 7
+    assert uat_per_worker * gunicorn_workers == 14
+    uat_total = uat_per_worker * gunicorn_workers * 5
+    assert uat_total == 70
     # A revision cutover briefly runs one instance more than the cap.
-    uat_peak_during_deploy = uat_per_worker * gunicorn_workers * 4
+    uat_peak_during_deploy = uat_per_worker * gunicorn_workers * 6
     assert uat_peak_during_deploy <= POSTGRES_MAX_CONNECTIONS * 0.85, (
         f"UAT would use {uat_peak_during_deploy} of ~{POSTGRES_MAX_CONNECTIONS} "
         "Postgres connections during a deploy, leaving no room for migrations, "
