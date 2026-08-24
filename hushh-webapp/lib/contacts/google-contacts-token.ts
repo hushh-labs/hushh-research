@@ -88,6 +88,24 @@ function loadGis(): Promise<void> {
 }
 
 /**
+ * Did the person close the consent sheet rather than fail to open it?
+ *
+ * Lives here because this file is what decides it: `error_callback` stamps
+ * `name = "AbortError"` on a dismissal specifically so a caller can tell the
+ * two apart. Callers that re-derive the rule by string-matching the message
+ * break the first time the wording changes.
+ *
+ * Cancelling is a choice, not a failure. The device picker has read it that
+ * way since it shipped (`contacts-web.ts` returns an empty read on
+ * `AbortError`); without this the Google path reported a shrug as a red error
+ * toast and an analytics row saying the sync failed.
+ */
+export function isGoogleContactsConsentCancelled(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  return (error as { name?: unknown }).name === "AbortError";
+}
+
+/**
  * Ask Google for a contacts-scoped access token.
  *
  * MUST be called from a user gesture — the flow can open a consent popup, and

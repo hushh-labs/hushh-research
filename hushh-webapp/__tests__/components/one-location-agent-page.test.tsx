@@ -427,6 +427,31 @@ vi.mock("@/lib/services/connections-service", () => ({
   },
 }));
 
+// Google Contacts is the fallback for browsers with no address book. Both
+// modules stay inert by default -- `mockGoogleAvailability` returns
+// "unconfigured", which is what a build without NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID
+// reports, so every test in this file behaves exactly as it did before unless it
+// opts in.
+let mockGoogleAvailability: () => string = () => "unconfigured";
+const mockRequestGoogleContactsToken = vi.fn(async () => "google-token");
+const mockGooglePeopleContactSource = vi.fn(() => vi.fn());
+
+vi.mock("@/lib/contacts/google-people-source", () => ({
+  googleContactsAvailability: () => mockGoogleAvailability(),
+  googlePeopleContactSource: (...args: unknown[]) =>
+    mockGooglePeopleContactSource(...(args as [])),
+}));
+
+// Only the part that talks to Google is replaced. `isGoogleContactsConsentCancelled`
+// comes through untouched on purpose: it IS the contract under test, and a
+// hand-written copy here would keep passing after the real one broke.
+vi.mock("@/lib/contacts/google-contacts-token", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/contacts/google-contacts-token")
+  >()),
+  requestGoogleContactsToken: () => mockRequestGoogleContactsToken(),
+}));
+
 vi.mock("sonner", () => {
   const toast = vi.fn();
   return {
@@ -956,6 +981,12 @@ describe("OneLocationAgentPage", () => {
       algorithm: "ECDH-P256-AES256-GCM",
     });
     mockRegisterKey.mockResolvedValue({});
+    // Back to what a build with no NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID reports,
+    // so one opted-in test cannot leak the Google branch into the next.
+    mockGoogleAvailability = () => "unconfigured";
+    mockRequestGoogleContactsToken.mockReset();
+    mockRequestGoogleContactsToken.mockResolvedValue("google-token");
+    mockGooglePeopleContactSource.mockReset();
     mockGetPermissionState.mockReset();
     mockGetPermissionState.mockResolvedValue({
       state: "granted",
@@ -5059,6 +5090,48 @@ describe("OneLocationAgentPage", () => {
         invite_candidate_count: 7,
       }),
     );
+  });
+
+  it("treats a closed Google consent sheet as a shrug, not a failure", async () => {
+    // The Google fallback is the only contact source on desktop and iOS Safari,
+    // and it is reached through a consent sheet the person can simply close.
+    // That path had no handling: the rejection fell into the same catch as a
+    // real failure, so changing your mind produced a red error toast, left the
+    // card stuck on "scanning", and recorded an analytics row saying the sync
+    // had failed. The device picker has read AbortError as a shrug since it
+    // shipped; this makes the two agree.
+    mockGoogleAvailability = () => "connectable";
+    const cancelled = new Error("Google contact access was cancelled.");
+    cancelled.name = "AbortError";
+    mockRequestGoogleContactsToken.mockRejectedValueOnce(cancelled);
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Find contacts/i }),
+    );
+
+    await waitFor(() =>
+      expect(mockRequestGoogleContactsToken).toHaveBeenCalled(),
+    );
+
+    // Nothing was read, so nothing may be sent -- a cancelled consent sheet
+    // must not fall through to a device read that would also fail here.
+    expect(mockSyncOneLocationContactSignals).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+    // Not reported as a failed sync either. An analytics row that counts every
+    // dismissal as an error makes the feature look broken in the dashboard.
+    expect(mockTrackEvent).not.toHaveBeenCalledWith(
+      "one_location_contact_signal_synced",
+      expect.objectContaining({ result: "error" }),
+    );
+    // And the button is usable again rather than stuck mid-scan.
+    expect(
+      await screen.findByRole("button", { name: /Find contacts/i }),
+    ).toBeTruthy();
   });
 
   it("creates an approval-first invite path for contacts who are not One users", async () => {

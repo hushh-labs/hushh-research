@@ -137,7 +137,10 @@ import {
   googleContactsAvailability,
   googlePeopleContactSource,
 } from "@/lib/contacts/google-people-source";
-import { requestGoogleContactsToken } from "@/lib/contacts/google-contacts-token";
+import {
+  isGoogleContactsConsentCancelled,
+  requestGoogleContactsToken,
+} from "@/lib/contacts/google-contacts-token";
 import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matching";
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
@@ -6373,6 +6376,11 @@ export function OneLocationAgentPageContent({
       return;
     }
 
+    // Kept so a cancelled consent sheet can put the card back exactly as it
+    // was. "scanning" is set below before anything can be cancelled, and
+    // leaving it there would strand the card mid-scan forever.
+    const statusBeforeSync = contactSignal.status;
+
     setBusy("contactSync");
     setContactSignal((current) => ({
       ...current,
@@ -6407,9 +6415,22 @@ export function OneLocationAgentPageContent({
           // Must run inside the click that started this: acquiring the token
           // can open a consent sheet, and a browser blocks a popup no gesture
           // asked for.
-          googleSource = googlePeopleContactSource(
-            await requestGoogleContactsToken(),
-          );
+          try {
+            googleSource = googlePeopleContactSource(
+              await requestGoogleContactsToken(),
+            );
+          } catch (error) {
+            // Closing the sheet is a choice, not a failure -- the same reading
+            // the device picker has always given an AbortError. Anything else
+            // is a real failure and still belongs in the catch below.
+            if (!isGoogleContactsConsentCancelled(error)) throw error;
+            setContactSignal((current) => ({
+              ...current,
+              status: statusBeforeSync,
+              error: null,
+            }));
+            return;
+          }
         }
       }
       const result = await syncOneLocationContactSignals({
