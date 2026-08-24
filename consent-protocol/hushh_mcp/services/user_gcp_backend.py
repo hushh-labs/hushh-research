@@ -92,6 +92,22 @@ def _bare_service_account(value: Optional[str]) -> str:
     return text[len("serviceAccount:") :].strip() if text.startswith("serviceAccount:") else text
 
 
+def _digest_from_service(service: Optional[dict[str, Any]]) -> Optional[str]:
+    """The ``sha256:`` digest a running Cloud Run service is pinned to, if any.
+
+    The deployed service IS the record of which image digest this pod runs, so a heal
+    reads the digest to converge to from HERE rather than re-resolving the mutable source
+    tag -- which is what keeps a heal from silently rolling the image forward.
+    """
+    if not service:
+        return None
+    try:
+        image = str(service["spec"]["template"]["spec"]["containers"][0].get("image", ""))
+    except (KeyError, IndexError, TypeError):
+        return None
+    return image.rsplit("@", 1)[-1] if "@sha256:" in image else None
+
+
 def pod_service_account_id(hushh_id: str) -> str:
     """The pod's runtime identity, guaranteed to fit Google's 6-30 character limit.
 
@@ -310,7 +326,9 @@ class UserGcpBackend:
             live=False,
         )
 
-    def render_deploy_config(self, spec: PodSpec) -> dict[str, Any]:
+    def render_deploy_config(
+        self, spec: PodSpec, *, image_digest: Optional[str] = None
+    ) -> dict[str, Any]:
         """The Cloud Run service for the pod — rendered against the USER's project.
 
         Reusing the managed renderer and adjusting it is deliberate: the two tiers must
@@ -338,6 +356,12 @@ class UserGcpBackend:
         project = self._user_project or "<user-project>"
         region = spec.region or self._user_region
         container = cfg["spec"]["template"]["spec"]["containers"][0]
+
+        # The pod runs the person's OWN copy of the image, pulled from their own Artifact
+        # Registry and pinned by digest -- never hushh's cross-project image. The inner
+        # renderer emits hushh's source ref; this is the single seam that rewrites it, so
+        # create AND replace (both consume this config) get the user image in one place.
+        container["image"] = self._user_pod_image_ref(spec, image_digest)
 
         # The pod runs as its own least-privilege identity, the one the bootstrap
         # created and bound to this person's key and bucket.
@@ -417,6 +441,71 @@ class UserGcpBackend:
         container["env"] = kept
         return cfg
 
+    def _user_pod_image_ref(self, spec: PodSpec, image_digest: Optional[str]) -> str:
+        """The pod's image, IN THE USER'S OWN Artifact Registry, pinned by digest.
+
+        A digest, not a tag: the source `:v2.1.0` is mutable (re-pushed on every hushh
+        build), so a tag in the user's repo could drift from what was actually copied.
+        A digest is tamper-evident and is a stable rollback target. The live path ALWAYS
+        supplies one -- `_ensure_pod_image` copies the image and returns its digest before
+        anything renders -- so the tag branch below never runs in production.
+        """
+        region = spec.region or self._user_region
+        project = self._user_project or "<user-project>"
+        base = f"{region}-docker.pkg.dev/{project}/one-pod/consent-protocol-pod"
+        if image_digest:
+            # image_digest is the FULL content digest, "sha256:<hex>".
+            return f"{base}@{image_digest}"
+        # TRANSITIONAL, dev/plan-mode ONLY: with no digest resolved yet, fall back to the
+        # source tag so a dry render still produces a legible ref. The shipped live deploy
+        # never takes this branch (it always has a digest); it is labelled so an interim
+        # is never mistaken for the destination -- promoting this silently is the exact
+        # failure this whole change exists to avoid.
+        source_tag = (
+            self._image.rsplit(":", 1)[-1]
+            if self._image and ":" in self._image and "@" not in self._image
+            else "latest"
+        )
+        return f"{base}:{source_tag}"
+
+    def _ensure_pod_image(self, spec: PodSpec, recorded_digest: Optional[str] = None) -> str:
+        """Copy the pod image into the USER's own Artifact Registry; return its digest.
+
+        The security-load-bearing method. It runs under the ATTACHED consent-plane
+        runtime identity (read from the metadata server, never the org-admin deploy key)
+        and REFUSES unless that identity is exactly the account granted write on the repo
+        -- so a push can never ride broader authority into a project hushh does not own.
+
+        Idempotent: a digest already present is a no-op, which makes re-provision and
+        heal cheap. And on a heal the digest used is the one ALREADY deployed (passed in),
+        never a fresh resolution of the mutable source tag -- so a heal can never silently
+        roll the pod's image forward. Only a FIRST provision resolves the tag.
+        """
+        from hushh_mcp.services import pod_image_copy  # noqa: PLC0415
+
+        source = self._image
+        if not source:
+            raise RuntimeError(
+                "BYOC image copy needs HUSSH_ONE_POD_IMAGE (the source pod image); it is unset."
+            )
+        token, email = pod_image_copy.attached_identity()
+        expected = self._hushh_invoker_sa
+        if not expected or _bare_service_account(email) != expected:
+            raise RuntimeError(
+                "refusing the pod-image copy: the acting identity "
+                f"{email!r} is not the consent-plane account granted write on this repo "
+                f"({expected!r}). A push under any broader identity would be org authority "
+                "reaching into a project hushh does not own."
+            )
+        region = spec.region or self._user_region
+        project = self._user_project or "<user-project>"
+        dest_base = f"{region}-docker.pkg.dev/{project}/one-pod/consent-protocol-pod"
+        digest = recorded_digest or pod_image_copy.resolve_source_digest(source, token)
+        dest_ref = f"{dest_base}@{digest}"
+        if not pod_image_copy.image_exists(dest_ref, token):
+            pod_image_copy.copy_image(source, dest_ref, token)
+        return digest
+
     def render_bootstrap_plan(self, spec: PodSpec) -> dict[str, Any]:
         """The least-privilege setup the USER authorizes in THEIR project (keyless).
 
@@ -468,12 +557,25 @@ class UserGcpBackend:
                     "purpose": "least-privilege pod runtime identity",
                 },
                 {
+                    "type": "artifact_repository",
+                    "id": "one-pod",
+                    "format": "DOCKER",
+                    "purpose": (
+                        "YOUR OWN copy of the pod image; the pod pulls from here, so "
+                        "nothing it runs comes from hushh's registry at runtime"
+                    ),
+                },
+                {
                     "type": "cloud_run_service",
                     "id": name,
-                    "image": self._image or "<slim-pod-image>",
+                    # The pod runs YOUR copy, pulled from your own Artifact Registry and
+                    # pinned by digest -- not hushh's image. The source hushh copies FROM
+                    # is recorded separately below so the provenance is legible.
+                    "image": f"{self._user_region}-docker.pkg.dev/{project}/one-pod/consent-protocol-pod",
+                    "source_image": self._image or "<slim-pod-image>",
                     "ingress": "internal",
                     "service_account": pod_sa,
-                    "purpose": "the sovereign per-user pod (slim image)",
+                    "purpose": "the sovereign per-user pod (slim image), pulled from your own repo",
                 },
                 {
                     "type": "secret",
@@ -558,6 +660,24 @@ class UserGcpBackend:
                         "into this project. Bound when the service is created, not during "
                         "bootstrap, because the binding needs a service to bind to"
                     ),
+                },
+                {
+                    "member": invoker,
+                    "role": "roles/artifactregistry.writer",
+                    "on": "one-pod",
+                    "note": (
+                        "lets hushh COPY the pod image into your own repo -- at setup and "
+                        "again when your pod is upgraded. This is a STANDING grant scoped "
+                        "to this one repo: hushh writes only here and never reads your "
+                        "history, and you can revoke it any time by removing this binding "
+                        "or tearing down. It is removed for you at teardown"
+                    ),
+                },
+                {
+                    "member": "the project's Cloud Run service agent",
+                    "role": "roles/artifactregistry.reader",
+                    "on": "one-pod",
+                    "note": "lets your pod's own runtime pull its image from your own repo",
                 },
                 {
                     "member": "gmail-api-push@system.gserviceaccount.com",
@@ -696,10 +816,18 @@ class UserGcpBackend:
         import asyncio  # noqa: PLC0415
 
         name = _service_name(spec.hushh_id)
-        config = self.render_deploy_config(spec)
         client = await asyncio.to_thread(self._client)
 
+        # Fetch the existing service FIRST: it is both the create-vs-replace signal and,
+        # if present, the record of the digest already deployed. A heal converges to that
+        # digest; only a first provision (no service yet) resolves the source tag. Then
+        # copy the image into the user's OWN registry and render the pod to pull THAT
+        # digest -- create and replace both consume this one rendered config.
         existing = await asyncio.to_thread(client.get_service, name)
+        image_digest = await asyncio.to_thread(
+            self._ensure_pod_image, spec, _digest_from_service(existing)
+        )
+        config = self.render_deploy_config(spec, image_digest=image_digest)
         if existing is None:
             await _create_once_iam_settles(lambda: asyncio.to_thread(client.create_service, config))
         else:
@@ -748,7 +876,12 @@ class UserGcpBackend:
                 "service": name,
                 "url": url or "",
                 "ingress": "internal",
-                "image": self._image,
+                # The pod runs the user's OWN digest-pinned copy; record THAT, not hushh's
+                # source, so the registry row does not misreport the running image. The
+                # source and digest are kept alongside for provenance.
+                "image": self._user_pod_image_ref(spec, image_digest),
+                "source_image": self._image,
+                "image_digest": image_digest,
                 "keyless": True,
                 "credential": "impersonated bootstrap SA, 15-minute token",
                 # WHICH service account this pod runs as, recorded because on BYOC it

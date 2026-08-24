@@ -27,6 +27,12 @@ _TEARDOWN_PRIORITY = {
     "pubsub_subscription": 20,
     "pubsub_topic": 30,
     "secret": 40,
+    # The user's own copy of the pod image. Nothing in the substrate depends on it, so
+    # its slot is free; reclaim it promptly (before the bucket) so a delete that fails
+    # surfaces early. The Cloud Run service that referenced it is already gone by now --
+    # deprovision deletes the service BEFORE substrate teardown runs, and that ordering
+    # is load-bearing (a running pod holds a pull reference to this repo).
+    "artifact_repository": 45,
     "gcs_object": 50,
     "gcs_bucket": 60,
     "iam_binding": 70,
@@ -108,6 +114,11 @@ def substrate_resources(hushh_id: str, project: str) -> list[dict[str, Any]]:
         {"type": "cloud_scheduler_job", "id": f"one-mail-{slug}-watch-renew"},
         {"type": "pubsub_subscription", "id": f"one-mail-{slug}-sub"},
         {"type": "pubsub_topic", "id": f"one-mail-{slug}"},
+        # The person's own copy of the pod image. A fixed id, not slug-derived: the repo
+        # is `one-pod` in every project (one image per person, one repo). Left behind, it
+        # keeps billing them in a project hushh can barely reach -- so it MUST be named
+        # here, where account deletion reads the list.
+        {"type": "artifact_repository", "id": "one-pod"},
         {"type": "gcs_bucket", "id": f"one-pod-{slug}-blobs"},
         {"type": "secret", "id": f"{account_id}-signing-key"},
         {"type": "service_account", "id": f"{account_id}@{project}.iam.gserviceaccount.com"},
@@ -133,10 +144,24 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
     headers = {"Authorization": f"Bearer {token}"}
     _OK = (200, 204, 404)
 
-    def _delete(url: str, what: str, ok: tuple = _OK) -> None:
+    def _delete(url: str, what: str, ok: tuple = _OK, *, critical: bool = False) -> None:
         response = session.delete(url, headers=headers, timeout=30)
-        if response.status_code not in ok:
-            log.warning("byoc_teardown.delete_refused what=%s http=%s", what, response.status_code)
+        if response.status_code in ok:
+            return
+        if critical:
+            # A resource we could NOT delete keeps billing the person in a project hushh
+            # can barely reach -- an erasure-guarantee gap, not a routine skip. The known
+            # cause is a revoked bootstrap admin grant (403). Logged at ERROR, not warning,
+            # so it alerts, and named as delete-REQUESTED-not-confirmed: account deletion
+            # must retry or escalate rather than report a clean erase over a survivor.
+            log.error(
+                "byoc_teardown.delete_UNERASED what=%s http=%s -- resource may still exist "
+                "and keep billing; account deletion must retry or alert on this",
+                what,
+                response.status_code,
+            )
+            return
+        log.warning("byoc_teardown.delete_refused what=%s http=%s", what, response.status_code)
 
     def _empty_bucket(bucket: str) -> None:
         # Objects first, paged; a non-empty bucket refuses deletion. Bounded at
@@ -220,6 +245,19 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
                 _delete(
                     f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts/{rid}",
                     "service account",
+                )
+            elif kind == "artifact_repository":
+                # Deleting the repo removes the images it holds (no per-image sweep, no
+                # `force` needed). The delete is an async LRO that returns 200 + an
+                # operation; accepting 200 without awaiting is fine for teardown. But a
+                # 403 here means the bootstrap admin grant was revoked and the repo (and
+                # its bill) SURVIVES -- so this one is critical: a swallowed warning would
+                # let account deletion report a clean erase over a resource that lives on.
+                _delete(
+                    f"https://artifactregistry.googleapis.com/v1/projects/{project}"
+                    f"/locations/{region}/repositories/{rid}",
+                    "artifact repository",
+                    critical=True,
                 )
             elif kind == "kms_key":
                 # Keys cannot be deleted; destroying every version is the real

@@ -85,6 +85,14 @@ _DEFAULT_ROUTES: dict = {
     "storage/v1/projects/": lambda: _Response(
         200, {"email_address": "service-1@gs-project-accounts.iam.gserviceaccount.com"}
     ),
+    # cloudresourcemanager serves TWO apply() consumers now: the project-NUMBER lookup
+    # that resolves the Cloud Run service agent's address for the artifact-repo reader
+    # grant, and the project IAM policy the aiplatform grant reads. One response serves
+    # both -- the number for the member_lookup, and an empty (bindings/etag) policy for
+    # the merge_binding read -- so neither has to count pool positions.
+    "cloudresourcemanager.googleapis.com/v1/projects/": lambda: _Response(
+        200, {"projectNumber": "123456789012", "bindings": [], "etag": "QQ=="}
+    ),
 }
 
 
@@ -726,6 +734,32 @@ def test_no_resource_is_created_until_the_enablement_operation_reports_done() ->
     assert first_create > last_poll
 
 
+def test_a_tolerated_409_on_an_awaited_step_stays_green() -> None:
+    """`artifact_repo` is the FIRST step that is both awaited AND tolerant. On a
+    re-provision it 409s (already exists). The await must be gated on a genuine create
+    (200/201); otherwise `_await_operation` reads the 409 ERROR body, finds no operation
+    name, and the error verdict flips the tolerated step to failed -- which would break
+    every re-provision and every reconcile pass of an already-built project.
+    """
+    session = _Session(
+        [_Response(200, {"name": "op", "done": True})]  # enable_services: inline-done
+        + [_Response(200, {})] * 30,
+        routes={
+            # Order matters: the grant policy URLs (repositories/one-pod) resolve before
+            # the bare create URL (/repositories), which we force to a tolerated 409.
+            "repositories/one-pod": _Response(200, {}),
+            "/repositories": _Response(409, {"error": {"code": 409, "message": "already exists"}}),
+        },
+    )
+    boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session, sleep=_no_sleep)
+    plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
+    result = boot.apply(plan, dry_run=False)
+
+    repo_step = next(s for s in result["steps"] if s["step"] == "artifact_repo")
+    assert repo_step["ok"] is True, "a tolerated 409 on an awaited step must stay green"
+    assert result["ok"] is True
+
+
 def test_an_operation_that_finishes_with_an_error_is_not_success() -> None:
     """`done: true` is set on failure too. Reading only that field turns a failed
     enable into a green step, which is worse than the original defect."""
@@ -1170,6 +1204,9 @@ async def test_a_pod_that_fails_its_startup_probe_is_not_reported_live() -> None
 
     backend = UserGcpBackend(user_project=USER_PROJECT, image="img", live=True)
     backend._client = lambda: _Client()  # noqa: SLF001
+    # The image copy is exercised by its own suite; here it is stubbed so this test stays
+    # about the wait_ready unpacking. Returns a digest, as the real copy does.
+    backend._ensure_pod_image = lambda _spec, _recorded=None: "sha256:" + "a" * 64  # noqa: SLF001
     handle = await backend._execute_live(_spec())  # noqa: SLF001
     assert handle.status != "live", "a pod that failed its startup probe is not live"
     assert handle.backend_metadata["url"] == ""

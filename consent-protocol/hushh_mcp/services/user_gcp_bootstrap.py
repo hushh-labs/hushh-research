@@ -76,6 +76,11 @@ BOOTSTRAP_ROLES: tuple[tuple[str, str], ...] = (
         "roles/secretmanager.admin",
         "create the pod's own signing key INSIDE your project, so it is yours and not hushh's",
     ),
+    (
+        "roles/artifactregistry.admin",
+        "create the private repo that holds YOUR OWN copy of the pod image, so the pod "
+        "pulls from your project and not hushh's, and delete it when you tear down",
+    ),
 )
 
 #: The APIs a pod's resources need. Enabled BY the bootstrap rather than asked of the
@@ -103,6 +108,10 @@ REQUIRED_SERVICES: tuple[str, ...] = (
     # live in the USER's Secret Manager. Found the only way it could be: the pod booted,
     # crash-looped on "APP_SIGNING_KEY must be set", and said so in its own logs.
     "secretmanager.googleapis.com",
+    # The pod image is COPIED into the user's own Artifact Registry at provision, so the
+    # pod pulls from their project and hushh keeps no runtime dependency in their cloud.
+    # Hosting that repo needs this API on; a fresh project has it off.
+    "artifactregistry.googleapis.com",
 )
 
 
@@ -319,6 +328,23 @@ class UserGcpBootstrap:
         sub = by_type.get("pubsub_subscription", {}).get("id", "")
         job = by_type.get("cloud_scheduler_job", {}).get("id", "")
         key_path = f"projects/{project}/locations/{region}/keyRings/{keyring}/cryptoKeys/{kms_key}"
+        # The user's OWN Artifact Registry repo that will hold their copy of the pod
+        # image, so the pod pulls from their project and hushh keeps no runtime
+        # dependency in their cloud. Fixed id; the image name inside it is stable too.
+        pod_repo = "one-pod"
+        repo_base = (
+            f"https://artifactregistry.googleapis.com/v1/projects/{project}"
+            f"/locations/{region}/repositories/{pod_repo}"
+        )
+        # The Hushh consent-plane identity (the run.invoker grantee) is ALSO the identity
+        # that copies the image in: it holds a standing read on hushh's source repo and
+        # is granted write on THIS user's repo below. Reading it from the plan keeps the
+        # writer-grant recipient and the actual pusher provably the same account -- the
+        # security-load-bearing property (a copy that ran as anything broader would be
+        # org authority reaching into a project hushh does not own).
+        copy_identity = ((plan.get("federation") or {}).get("impersonation") or {}).get(
+            "granted_to", ""
+        )
 
         calls: list[dict[str, Any]] = [
             {
@@ -347,6 +373,118 @@ class UserGcpBootstrap:
                 # same one cause, which is how the real defect stayed hidden for a minute
                 # longer than it needed to.
                 "gates_rest": True,
+            },
+            {
+                # Mint this project's Cloud Run SERVICE AGENT
+                # (service-<projectNumber>@serverless-robot-prod.iam.gserviceaccount.com)
+                # before anything tries to deploy a pod into it. Enabling run.googleapis.com
+                # is supposed to create that agent, but it is created lazily and a fresh,
+                # out-of-org project routinely reaches the first `create_service` with the
+                # agent still absent -- which Cloud Run refuses at admission, because the
+                # agent is the identity that pulls the image and runs the revision. Observed
+                # live: the substrate built cleanly and the DEPLOY (a later phase, in
+                # user_gcp_backend) 403'd, and the agent simply did not exist yet.
+                #
+                # `generateServiceIdentity` is idempotent and lives ONLY on Service Usage
+                # v1beta1 (the same call `gcloud beta services identity create` makes); it is
+                # covered by the serviceUsageAdmin the one-time authorization already grants
+                # the bootstrap SA. It does NOT itself grant the agent read on hushh's pod
+                # image -- an out-of-org project's agent still cannot pull a hushh-owned
+                # image until that image is reachable to it. This step guarantees the agent
+                # EXISTS so the image-reachability grant has something to bind to; the two
+                # together are what let a genuinely fresh project deploy without a hand-nudge.
+                #
+                # NOT gates_rest: the run agent is a prerequisite for the pod DEPLOY, not for
+                # the KMS / GCS / Pub/Sub substrate that follows here, so a hiccup minting it
+                # must not skip the rest of the substrate.
+                "step": "generate_run_service_identity",
+                "method": "POST",
+                "url": (
+                    "https://serviceusage.googleapis.com/v1beta1/projects/"
+                    f"{project}/services/run.googleapis.com:generateServiceIdentity"
+                ),
+                "body": {},
+                "tolerate": [],
+                "await_operation": True,
+                "operation_url": "https://serviceusage.googleapis.com/v1beta1/",
+            },
+            {
+                # The user's own Artifact Registry repo. Their pod's image is copied in
+                # here (a later phase, under the hushh copy identity) so the pod pulls
+                # from their project, not hushh's -- the whole point of "your cloud".
+                # A DOCKER repo create is a long-running operation; a re-provision finds
+                # it already there (409, tolerated). The await/tolerate guard above is
+                # what makes the tolerated 409 stay green instead of being read as a
+                # failed operation -- this is the first step that is both awaited AND
+                # tolerant, and it would have broken every re-provision without it.
+                # NOT gates_rest: the repo is a DEPLOY prerequisite, not a substrate one.
+                "step": "artifact_repo",
+                "method": "POST",
+                "url": (
+                    f"https://artifactregistry.googleapis.com/v1/projects/{project}"
+                    f"/locations/{region}/repositories"
+                ),
+                "params": {"repositoryId": pod_repo},
+                "body": {"format": "DOCKER"},
+                "tolerate": [409],
+                "await_operation": True,
+                "operation_url": "https://artifactregistry.googleapis.com/v1/",
+            },
+            *(
+                [
+                    {
+                        # Let the hushh copy identity WRITE this one repo, so it can push
+                        # the image in. Scoped to the single `one-pod` repo, never
+                        # project-wide. This grant is standing and USER-REVOCABLE (it is a
+                        # binding in the person's own project, removable by them at any
+                        # time, and removed entirely at teardown) -- the consent artifact
+                        # says exactly that rather than pretending it is one-time.
+                        "step": "artifact_repo_grant_copy_writer",
+                        "kind": "merge_binding",
+                        "depends_on": "artifact_repo",
+                        "read_method": "GET",
+                        "read_url": f"{repo_base}:getIamPolicy",
+                        "write_url": f"{repo_base}:setIamPolicy",
+                        "policy_envelope": "policy",
+                        "bindings": [
+                            {
+                                "role": "roles/artifactregistry.writer",
+                                "members": [f"serviceAccount:{copy_identity}"],
+                            }
+                        ],
+                        "tolerate": [],
+                    }
+                ]
+                if copy_identity and not copy_identity.startswith("<")
+                else []
+            ),
+            {
+                # Let the pod's runtime (the project's Cloud Run service agent) READ this
+                # repo, so the pod can pull its image on every cold start. The agent's
+                # address embeds the project NUMBER -- unknowable when the plan renders --
+                # so it is resolved at apply time from Resource Manager and formatted into
+                # the serverless-robot address, the same class of lookup the GCS agent
+                # uses. Included fail-closed: image pull is the load-bearing deploy moment
+                # and a fresh out-of-org project is exactly where an assumed same-project
+                # auto-grant is least trustworthy (the same reason the run agent is minted
+                # explicitly rather than trusted to appear).
+                "step": "artifact_repo_grant_run_agent_reader",
+                "kind": "merge_binding",
+                "depends_on": "artifact_repo",
+                "read_method": "GET",
+                "read_url": f"{repo_base}:getIamPolicy",
+                "write_url": f"{repo_base}:setIamPolicy",
+                "policy_envelope": "policy",
+                "member_lookup": {
+                    "url": f"https://cloudresourcemanager.googleapis.com/v1/projects/{project}",
+                    "field": "projectNumber",
+                    "member_template": (
+                        "serviceAccount:service-{value}"
+                        "@serverless-robot-prod.iam.gserviceaccount.com"
+                    ),
+                },
+                "bindings": [{"role": "roles/artifactregistry.reader", "members": []}],
+                "tolerate": [],
             },
             {
                 "step": "kms_keyring",
@@ -751,7 +889,18 @@ class UserGcpBootstrap:
             # A 200 here means "the operation started", not "the work is done". Every
             # step after this one depends on the work, so the wait belongs inside the
             # step rather than in the caller's discipline.
-            if ok and call.get("await_operation"):
+            #
+            # But ONLY a real create (200/201) starts an operation. A TOLERATED code --
+            # a 409 "already exists" on a step that both awaits AND tolerates -- carries
+            # no operation: its body has no `name`, and `_await_operation` reads the 409
+            # error body, finds the `error` key, and flips this step from tolerated-ok to
+            # failed. That turns every re-provision of an already-built project into a
+            # spurious failure and marks the whole substrate receipt not-applied. The
+            # `artifact_repo` step below is the first that is both awaited and tolerant,
+            # which is why nothing exposed this until now. Gate the wait on a genuine
+            # create; enable_services and generate_run_service_identity return 200 on
+            # success and never rely on tolerating, so this is a no-op for them.
+            if ok and code in (200, 201) and call.get("await_operation"):
                 waited = self._await_operation(call, headers, response)
                 ok = waited["ok"]
                 detail = waited["detail"]
@@ -948,7 +1097,17 @@ class UserGcpBootstrap:
             )
             return ""
         value = str(_json_or_empty(response).get(lookup["field"]) or "")
-        return f"{lookup.get('prefix', '')}{value}" if value else ""
+        if not value:
+            return ""
+        # Two shapes: a simple PREFIX (the GCS agent, whose email the storage API returns
+        # whole) or a MEMBER_TEMPLATE that weaves the looked-up value into an address the
+        # API does not hand back. The Cloud Run service agent is the latter: the API gives
+        # the project NUMBER, and the agent's address is
+        # service-<number>@serverless-robot-prod, which no endpoint returns directly.
+        template = lookup.get("member_template")
+        if template:
+            return template.format(value=value)
+        return f"{lookup.get('prefix', '')}{value}"
 
     def _bucket_is_ours(self, call: dict[str, Any], headers: dict[str, str]) -> bool:
         """After a 409, does that bucket actually live in THIS project?

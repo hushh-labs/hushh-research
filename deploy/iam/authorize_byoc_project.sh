@@ -93,6 +93,7 @@ readonly -a BOOTSTRAP_ROLES=(
   "roles/cloudscheduler.admin"              # re-arm the Gmail watch before it expires
   "roles/resourcemanager.projectIamAdmin"   # bind the pod SA to exactly those resources
   "roles/secretmanager.admin"               # your pod's signing key, inside YOUR project
+  "roles/artifactregistry.admin"            # YOUR OWN copy of the pod image; delete at teardown
 )
 
 # Mirrors REQUIRED_SERVICES. Enabling an API is idempotent and changes nothing else.
@@ -107,6 +108,7 @@ readonly -a REQUIRED_SERVICES=(
   "aiplatform.googleapis.com"
   "cloudresourcemanager.googleapis.com"
   "secretmanager.googleapis.com"
+  "artifactregistry.googleapis.com"
 )
 
 echo "Authorizing hushh to build a pod in ${PROJECT_ID}"
@@ -198,7 +200,7 @@ fi
 
 echo
 echo "Done. ${PROJECT_ID} is authorized."
-echo "  10 APIs enabled, 9 roles bound, 1 token-creator grant to ${HUSHH_CALLER}"
+echo "  11 APIs enabled, 10 roles bound, 1 token-creator grant to ${HUSHH_CALLER}"
 echo "  0 service-account keys exist, which is the point"
 echo
 echo "Tell hushh your project id. Revoke any time with the command at the top of this file."

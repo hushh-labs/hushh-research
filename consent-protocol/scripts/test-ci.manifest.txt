@@ -24,6 +24,7 @@ tests/test_byoc_authorization_script_matches_the_applier.py
 tests/test_byoc_bootstrap_plan_matches_the_applier.py
 tests/test_bootstrap_token_blames_the_right_party.py
 tests/test_byoc_bootstrap_and_custody.py
+tests/test_byoc_pod_image_copy.py
 tests/test_byoc_project_naming.py
 tests/test_byoc_project_save_route.py
 tests/test_byoc_setup_job_repo.py

@@ -137,3 +137,109 @@ def test_every_resource_the_applier_creates_is_named_in_the_plan() -> None:
     assert any(i.endswith("-signing-key") for i in ids), (
         "the applier creates a signing secret the plan never declares, so teardown cannot name it"
     )
+
+
+def _calls():
+    _, plan = _plan()
+    boot = UserGcpBootstrap(
+        project=_PROJECT, bootstrap_sa=f"one-bootstrap@{_PROJECT}.iam.gserviceaccount.com"
+    )
+    return boot.plan_calls(plan)
+
+
+def test_the_bootstrap_mints_the_cloud_run_service_agent() -> None:
+    """A fresh out-of-org project reaches the first pod deploy with its Cloud Run
+    service agent not yet created, and Cloud Run refuses at admission because the agent
+    is the identity that pulls the image and runs the revision. The bootstrap must mint
+    it explicitly rather than trust the lazy creation that enabling the API implies.
+
+    This asserts the step EXISTS and is shaped for the operation-awaiting executor. It
+    binds no role, so it is invisible to the plan/applier role-parity guards above; this
+    is the guard that a silent removal of the mint would trip.
+    """
+    steps = [c["step"] for c in _calls()]
+    assert "generate_run_service_identity" in steps, (
+        "nothing mints the project's Cloud Run service agent, so a genuinely fresh "
+        "project 403s on its first pod deploy with the agent still absent"
+    )
+
+    mint = next(c for c in _calls() if c["step"] == "generate_run_service_identity")
+    assert mint["method"] == "POST"
+    # v1beta1 is the ONLY Service Usage version that carries generateServiceIdentity --
+    # the same call `gcloud beta services identity create` makes. v1 would 404.
+    assert "/v1beta1/" in mint["url"]
+    assert mint["url"].endswith("run.googleapis.com:generateServiceIdentity")
+    # generateServiceIdentity returns a long-running operation; the executor only waits
+    # on it when the step says so, and only polls the version that returned it.
+    assert mint.get("await_operation") is True
+    assert "/v1beta1/" in str(mint.get("operation_url", ""))
+
+
+def test_the_run_agent_is_minted_after_the_api_is_enabled() -> None:
+    """generateServiceIdentity for run.googleapis.com fails until run.googleapis.com is
+    on, so the mint must come after enable_services -- which gates the rest of the run
+    on itself, so a mint placed before it would never even be attempted.
+    """
+    steps = [c["step"] for c in _calls()]
+    assert steps.index("enable_services") < steps.index("generate_run_service_identity")
+
+
+def test_a_failed_mint_does_not_skip_the_rest_of_the_substrate() -> None:
+    """The run agent is a prerequisite for the pod DEPLOY (a later phase), not for the
+    KMS / GCS / Pub/Sub substrate this bootstrap builds. Gating the rest on it would let
+    a transient mint hiccup abandon a project's storage and keys half-built.
+    """
+    mint = next(c for c in _calls() if c["step"] == "generate_run_service_identity")
+    assert not mint.get("gates_rest"), (
+        "minting the run agent must not gate the substrate steps that do not depend on it"
+    )
+
+
+def test_the_bootstrap_creates_the_users_own_image_repo() -> None:
+    """The pod pulls from the user's OWN Artifact Registry, so provisioning must create
+    it. A DOCKER repo, awaited (LRO), and tolerant of a re-provision (409)."""
+    steps = [c["step"] for c in _calls()]
+    assert "artifact_repo" in steps
+    # After the run-agent mint (which turns the API on), before the KMS substrate.
+    assert steps.index("generate_run_service_identity") < steps.index("artifact_repo")
+    assert steps.index("artifact_repo") < steps.index("kms_keyring")
+
+    repo = next(c for c in _calls() if c["step"] == "artifact_repo")
+    assert repo["method"] == "POST"
+    assert repo["url"].endswith("/repositories")
+    assert repo["params"]["repositoryId"] == "one-pod"
+    assert repo["body"]["format"] == "DOCKER"
+    assert repo["tolerate"] == [409]
+    assert repo["await_operation"] is True
+    assert "artifactregistry.googleapis.com/v1/" in repo["operation_url"]
+    # A tolerated 409 on a re-provision must NOT gate the rest of the substrate.
+    assert not repo.get("gates_rest")
+
+
+def test_the_bootstrap_grants_the_copy_identity_writer_on_that_repo() -> None:
+    """Hushh's copy identity gets writer -- scoped to the one repo -- so it can push the
+    image in. Guarded on the placeholder so an unset consent-plane SA binds nothing."""
+    grant = next((c for c in _calls() if c["step"] == "artifact_repo_grant_copy_writer"), None)
+    assert grant is not None, "the copy identity is never granted write; the copy will 403"
+    assert grant["kind"] == "merge_binding"
+    assert grant["depends_on"] == "artifact_repo"
+    assert grant["bindings"][0]["role"] == "roles/artifactregistry.writer"
+    member = grant["bindings"][0]["members"][0]
+    assert member.startswith("serviceAccount:") and not member.endswith("<hushh-consent-plane-sa>")
+    assert grant["read_url"].endswith("/repositories/one-pod:getIamPolicy")
+    assert grant["write_url"].endswith("/repositories/one-pod:setIamPolicy")
+
+
+def test_the_bootstrap_grants_the_run_agent_reader_on_that_repo() -> None:
+    """The pod's runtime (the project's Cloud Run service agent) reads the repo to pull.
+    Its address embeds the project NUMBER, resolved at apply time via a member template."""
+    grant = next((c for c in _calls() if c["step"] == "artifact_repo_grant_run_agent_reader"), None)
+    assert grant is not None
+    assert grant["kind"] == "merge_binding"
+    assert grant["depends_on"] == "artifact_repo"
+    assert grant["bindings"][0]["role"] == "roles/artifactregistry.reader"
+    lookup = grant["member_lookup"]
+    assert lookup["field"] == "projectNumber"
+    assert "cloudresourcemanager.googleapis.com" in lookup["url"]
+    assert "serverless-robot-prod" in lookup["member_template"]
+    assert "{value}" in lookup["member_template"]
