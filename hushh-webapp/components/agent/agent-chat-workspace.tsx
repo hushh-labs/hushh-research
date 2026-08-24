@@ -3871,7 +3871,10 @@ export function AgentChatWorkspace({
         return;
       }
     }
-    router.push(ROUTES.PROFILE);
+    // No same-origin referrer to retrace to (e.g. a direct link into this
+    // legacy full-page route): land on One home, not Profile, so minimizing
+    // always returns to the section this screen lives under.
+    router.push(ROUTES.ONE_HOME);
   }, [onMinimize, router]);
   const handleHistoryDrawerKeyDown = useCallback((event: ReactKeyboardEvent) => {
     if (event.key === "Escape") {
