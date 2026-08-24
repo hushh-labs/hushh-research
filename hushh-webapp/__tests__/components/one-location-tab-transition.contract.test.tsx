@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 /**
- * The Menu / People / Links transition on the One Location hub, and the shared
+ * The Now / People / Links transition on the One Location hub, and the shared
  * pager and tab strip it is built from.
  *
  * Every assertion here was written against a defect measured frame by frame in
@@ -125,7 +125,7 @@ vi.mock("@/lib/morphy-ux/hooks/use-route-transition", () => ({
 }));
 
 const OPTIONS = [
-  { value: "now", label: "Menu" },
+  { value: "now", label: "Now" },
   { value: "people", label: "People" },
   { value: "links", label: "Links" },
 ] as const;
@@ -142,7 +142,7 @@ const LOCATION_TAB_SET: TopShellTabSet = {
   queryParam: "view",
   activeValue: "now",
   tabs: [
-    { value: "now", label: "Menu", href: "/one/location" },
+    { value: "now", label: "Now", href: "/one/location" },
     { value: "people", label: "People", href: "/one/location?view=people" },
     { value: "links", label: "Links", href: "/one/location?view=links" },
   ],
@@ -256,7 +256,7 @@ function LocationPager({
       viewportMinHeight="0px"
       heightMode="active"
     >
-      <div>Menu panel</div>
+      <div>Now panel</div>
       <div>People panel</div>
       <div>Links panel</div>
     </SwipeViews>

@@ -10,7 +10,7 @@
  * No business logic lives here.
  */
 
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -18,6 +18,7 @@ import {
   Copy,
   ExternalLink,
   Loader2,
+  Link2,
   MapPin,
   Pencil,
   RefreshCw,
@@ -632,66 +633,104 @@ export function SharedWithMeCard({
 export function TemporaryLinkCard({
   title,
   statusLine,
-  expiryLabel,
+  description,
   onCopy,
   onShare,
   onRevoke,
   revokeBusy,
 }: {
-  title: string;
+  title?: string;
   statusLine: string;
-  expiryLabel?: string;
-  onCopy: () => void;
+  description: string;
+  onCopy: () => boolean | Promise<boolean>;
   onShare: () => void;
   onRevoke: () => void;
   revokeBusy?: boolean;
 }) {
+  const [copyLabel, setCopyLabel] = useState("Copy link");
+  const [copyBusy, setCopyBusy] = useState(false);
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetRef.current) {
+        clearTimeout(copyResetRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopy = async () => {
+    if (copyBusy) return;
+    setCopyBusy(true);
+    try {
+      const copied = await onCopy();
+      if (!copied) return;
+      setCopyLabel("Copied");
+      if (copyResetRef.current) {
+        clearTimeout(copyResetRef.current);
+      }
+      copyResetRef.current = setTimeout(() => {
+        setCopyLabel("Copy link");
+      }, 1600);
+    } finally {
+      setCopyBusy(false);
+    }
+  };
+
   return (
-    <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
+    <div className={cn(SUBCARD_SURFACE, "space-y-5 p-5 sm:p-6")}>
       <div className="flex items-start gap-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
-          <ExternalLink className="h-4 w-4" />
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
+          <Link2 className="h-[18px] w-[18px]" strokeWidth={2.1} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-base font-semibold text-foreground">{title}</p>
-          <p className={MUTED_TEXT}>{statusLine}</p>
-          {expiryLabel ? (
-            <p className={cn(MUTED_TEXT, "mt-0.5 flex items-center gap-1.5")}>
-              <Clock3 className="h-3.5 w-3.5" />
-              {expiryLabel}
+          {title ? (
+            <p className="text-[17px] font-semibold leading-[22px] text-foreground">
+              {title}
             </p>
           ) : null}
+          <p
+            className={cn(
+              "flex items-center gap-2 text-[15px] leading-5 text-muted-foreground",
+              title ? "mt-1" : "mt-0.5",
+            )}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--app-success)]" />
+            {statusLine}
+          </p>
+          <p className="mt-2 text-[15px] leading-5 text-muted-foreground">
+            {description}
+          </p>
         </div>
-        <StatusPill tone="live">Live</StatusPill>
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 gap-2 min-[340px]:grid-cols-2">
         <Button
-          variant="outline"
-          size="sm"
-          onClick={onCopy}
-          className="h-9 rounded-full text-sm"
-        >
-          <Copy className="mr-1 h-3.5 w-3.5" />
-          Copy
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
           onClick={onShare}
-          className="h-9 rounded-full text-sm"
+          className="h-12 rounded-[15px] bg-[color:var(--app-accent)] text-[15px] font-semibold leading-5 text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
         >
-          <Share2 className="mr-1 h-3.5 w-3.5" />
+          <Share2 className="mr-1.5 h-4 w-4" />
           Share
         </Button>
         <Button
-          variant="destructive"
-          size="sm"
-          onClick={onRevoke}
-          isLoading={revokeBusy}
-          className="h-9 rounded-full text-sm"
+          variant="outline"
+          onClick={handleCopy}
+          disabled={copyBusy}
+          aria-busy={copyBusy || undefined}
+          className="h-12 rounded-[15px] text-[15px] font-semibold leading-5"
         >
-          Revoke
+          <Copy className="mr-1.5 h-4 w-4" />
+          {copyBusy ? "Copying…" : copyLabel}
         </Button>
+      </div>
+      <div className="border-t border-border/60 pt-1">
+        <button
+          type="button"
+          onClick={onRevoke}
+          disabled={revokeBusy}
+          className="min-h-11 w-full text-left text-[15px] font-semibold leading-5 text-[color:var(--app-destructive)] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+        >
+          {revokeBusy ? "Revoking…" : "Revoke link"}
+        </button>
       </div>
     </div>
   );

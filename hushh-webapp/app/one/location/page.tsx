@@ -3052,6 +3052,7 @@ export function OneLocationAgentPageContent({
   const publicResponsesSectionRef = useRef<HTMLElement | null>(null);
   const activitySectionRef = useRef<HTMLElement | null>(null);
   const focusClearRef = useRef<number | null>(null);
+  const contactSyncInFlightRef = useRef(false);
   const livePublishInFlightRef = useRef(false);
   const liveViewInFlightRef = useRef(false);
   /** When the in-flight sweep began, so a wedged sweep can be timed out. */
@@ -6802,6 +6803,8 @@ export function OneLocationAgentPageContent({
       toast.error(message);
       return;
     }
+    if (contactSyncInFlightRef.current) return;
+    contactSyncInFlightRef.current = true;
 
     try {
       // Google Contacts, only where there is no address book to read.
@@ -6960,6 +6963,7 @@ export function OneLocationAgentPageContent({
         toast.error(message);
       }
     } finally {
+      contactSyncInFlightRef.current = false;
       setBusy(null);
     }
   }, [
@@ -7161,17 +7165,20 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
-  const handleCopyPublicInvite = useCallback(async () => {
-    if (!publicInviteUrl) return;
+  const handleCopyPublicInvite = useCallback(async (): Promise<boolean> => {
+    if (!publicInviteUrl) return false;
     try {
       const copiedToClipboard = await copyToClipboard(publicInviteUrl);
       if (copiedToClipboard) {
         toast.success("Public location link copied.");
+        return true;
       } else {
         toast.error("Could not copy the public location link.");
+        return false;
       }
     } catch {
       toast.error("Could not copy the public location link.");
+      return false;
     }
   }, [publicInviteUrl]);
 
@@ -12921,7 +12928,7 @@ export function OneLocationAgentPageContent({
     onEditGrantSave: (params) =>
       void handleEditGrantDuration(params, Number(editGrantDurationHours)),
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
-    onCopyPublicInvite: () => void handleCopyPublicInvite(),
+    onCopyPublicInvite: handleCopyPublicInvite,
     onSharePublicInvite: () => void handleSharePublicInvite(),
     onRevokePublicInvite: (invite) => void handleRevokePublicInvite(invite),
     onCreateCircleInvite: () => void handleCreateCircleInvite(),
