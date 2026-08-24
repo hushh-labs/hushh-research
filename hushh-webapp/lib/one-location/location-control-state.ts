@@ -6,6 +6,9 @@
  * self preview, private grants, and Nearby Check-In presence. No preference
  * creates consent; Nearby and private-share authority remain explicit.
  */
+export type AutoApproveScope =
+  { kind: "all_contacts" } | { kind: "circle"; circleId: string };
+
 export type OneLocationControlState = {
   /**
    * Approve incoming location requests without asking each time.
@@ -20,6 +23,11 @@ export type OneLocationControlState = {
    * something a default may give on someone's behalf.
    */
   autoApproveRequestsEnabled: boolean;
+  /**
+   * Required scope for automatic approval. Null means the setting is off or the
+   * legacy preference was too broad to trust.
+   */
+  autoApproveScope: AutoApproveScope | null;
   /**
    * When auto-approve was last switched on, ISO-8601, or null while it is off.
    *
@@ -43,6 +51,7 @@ const PAUSED_PREFERENCE_PREFIX = "one_location_updates_paused_v1:";
 const AUTO_APPROVE_PREFERENCE_PREFIX = "one_location_auto_approve_requests_v1:";
 const EMPTY_STATE: OneLocationControlState = {
   autoApproveRequestsEnabled: false,
+  autoApproveScope: null,
   autoApproveEnabledAt: null,
   paused: false,
   selfPreviewEnabled: false,
@@ -66,6 +75,23 @@ function pausedPreferenceKey(userId: string): string {
 
 function autoApprovePreferenceKey(userId: string): string {
   return `${AUTO_APPROVE_PREFERENCE_PREFIX}${userId}`;
+}
+
+function normalizeAutoApproveScope(
+  scope: AutoApproveScope | null | undefined,
+): AutoApproveScope | null {
+  if (!scope || typeof scope !== "object") return null;
+  if (scope.kind === "all_contacts") return { kind: "all_contacts" };
+  if (scope.kind === "circle" && typeof scope.circleId === "string") {
+    const circleId = scope.circleId.trim();
+    return circleId ? { kind: "circle", circleId } : null;
+  }
+  return null;
+}
+
+function autoApproveScopeKey(scope: AutoApproveScope | null): string {
+  if (!scope) return "off";
+  return scope.kind === "circle" ? `circle:${scope.circleId}` : "all_contacts";
 }
 
 function readPausedPreference(userId: string): boolean {
@@ -100,16 +126,41 @@ function writePausedPreference(userId: string, paused: boolean): void {
 function readAutoApprovePreference(userId: string): {
   enabled: boolean;
   enabledAt: string | null;
+  scope: AutoApproveScope | null;
 } {
-  if (typeof window === "undefined") return { enabled: false, enabledAt: null };
+  if (typeof window === "undefined") {
+    return { enabled: false, enabledAt: null, scope: null };
+  }
   try {
-    const stored = window.localStorage.getItem(autoApprovePreferenceKey(userId));
-    if (!stored || !Number.isFinite(Date.parse(stored))) {
-      return { enabled: false, enabledAt: null };
+    const stored = window.localStorage.getItem(
+      autoApprovePreferenceKey(userId),
+    );
+    if (!stored) {
+      return { enabled: false, enabledAt: null, scope: null };
     }
-    return { enabled: true, enabledAt: stored };
+    // Legacy values stored only the timestamp. They granted automatic approval
+    // without a scope, so they now fail closed instead of widening to contacts.
+    if (Number.isFinite(Date.parse(stored))) {
+      return { enabled: false, enabledAt: null, scope: null };
+    }
+    const parsed = JSON.parse(stored) as {
+      enabledAt?: unknown;
+      scope?: unknown;
+    };
+    const enabledAt =
+      typeof parsed.enabledAt === "string" &&
+      Number.isFinite(Date.parse(parsed.enabledAt))
+        ? parsed.enabledAt
+        : null;
+    const scope = normalizeAutoApproveScope(
+      parsed.scope as AutoApproveScope | null | undefined,
+    );
+    if (!enabledAt || !scope) {
+      return { enabled: false, enabledAt: null, scope: null };
+    }
+    return { enabled: true, enabledAt, scope };
   } catch {
-    return { enabled: false, enabledAt: null };
+    return { enabled: false, enabledAt: null, scope: null };
   }
 }
 
@@ -117,11 +168,15 @@ function writeAutoApprovePreference(
   userId: string,
   enabled: boolean,
   enabledAt: string | null,
+  scope: AutoApproveScope | null,
 ): void {
   if (typeof window === "undefined") return;
   try {
-    if (enabled && enabledAt) {
-      window.localStorage.setItem(autoApprovePreferenceKey(userId), enabledAt);
+    if (enabled && enabledAt && scope) {
+      window.localStorage.setItem(
+        autoApprovePreferenceKey(userId),
+        JSON.stringify({ enabledAt, scope }),
+      );
     } else {
       window.localStorage.removeItem(autoApprovePreferenceKey(userId));
     }
@@ -141,6 +196,7 @@ export function readOneLocationControlState(
     ...EMPTY_STATE,
     autoApproveRequestsEnabled: autoApprove.enabled,
     autoApproveEnabledAt: autoApprove.enabledAt,
+    autoApproveScope: autoApprove.scope,
     paused: readPausedPreference(userId),
   };
 }
@@ -154,7 +210,13 @@ export function updateOneLocationControlState(
   const updated = updater(current);
   const paused = Boolean(updated.paused);
   const nearbyPresenceActive = !paused && Boolean(updated.nearbyPresenceActive);
-  const autoApproveRequestsEnabled = Boolean(updated.autoApproveRequestsEnabled);
+  const autoApproveScope = normalizeAutoApproveScope(updated.autoApproveScope);
+  const autoApproveRequestsEnabled = Boolean(
+    updated.autoApproveRequestsEnabled && autoApproveScope,
+  );
+  const autoApproveScopeChanged =
+    autoApproveScopeKey(current.autoApproveScope) !==
+    autoApproveScopeKey(autoApproveScope);
   // The watermark is stamped once, when the setting goes off -> on, and is
   // carried forward untouched by every unrelated write. Restamping it on each
   // update (a pause, a nearby check-in) would keep pushing the boundary
@@ -162,11 +224,17 @@ export function updateOneLocationControlState(
   // never auto-approve.
   const autoApproveEnabledAt = !autoApproveRequestsEnabled
     ? null
-    : (current.autoApproveRequestsEnabled && current.autoApproveEnabledAt) ||
-      updated.autoApproveEnabledAt ||
+    : (current.autoApproveRequestsEnabled &&
+      current.autoApproveEnabledAt &&
+      !autoApproveScopeChanged &&
+      current.autoApproveScope
+        ? current.autoApproveEnabledAt
+        : null) ||
+      (!autoApproveScopeChanged ? updated.autoApproveEnabledAt : null) ||
       new Date().toISOString();
   const next: OneLocationControlState = {
     autoApproveRequestsEnabled,
+    autoApproveScope: autoApproveRequestsEnabled ? autoApproveScope : null,
     autoApproveEnabledAt,
     paused,
     selfPreviewEnabled: !paused && Boolean(updated.selfPreviewEnabled),
@@ -178,6 +246,7 @@ export function updateOneLocationControlState(
     userId,
     next.autoApproveRequestsEnabled,
     next.autoApproveEnabledAt,
+    next.autoApproveScope,
   );
   writePausedPreference(userId, next.paused);
   for (const listener of listenersByUser.get(userId) ?? []) {

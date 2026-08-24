@@ -58,6 +58,14 @@ import {
 } from "@/lib/one-location/grant-lanes";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { LocationPermissionRecoveryCard } from "@/components/one-location/location-permission-recovery-card";
 import { PageHeader } from "@/components/app-ui/page-sections";
@@ -86,6 +94,7 @@ import {
   isCircleSelectionFullySelected,
   type CircleRecipientSelection,
 } from "@/lib/one-location/circle-recipient-selection";
+import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
 
 import {
   Avatar,
@@ -254,6 +263,7 @@ export type LocationHubViewModel = {
    * waiting stay the person's own decision.
    */
   autoApproveRequestsEnabled: boolean;
+  autoApproveScope: AutoApproveScope | null;
   /**
    * Whether this person appears as a pin on the maps of people they already
    * share with. Opt-in, and separate from sharing itself: sharing sends a
@@ -348,7 +358,10 @@ export type LocationHubViewModel = {
   onShowMyLocation: () => void;
   onHideMyLocation: () => void;
   onResumeMyLocation: () => void;
-  onAutoApproveRequestsChange: (enabled: boolean) => void;
+  onAutoApproveRequestsChange: (input: {
+    enabled: boolean;
+    scope?: AutoApproveScope | null;
+  }) => void;
   onRequestPermission: () => void;
   onOpenLocationSettings: () => void;
   onSyncContacts: () => void;
@@ -1138,7 +1151,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       return;
     }
     const desired = requested;
-    if (pendingFlowRef.current !== "none" && desired !== pendingFlowRef.current) {
+    if (
+      pendingFlowRef.current !== "none" &&
+      desired !== pendingFlowRef.current
+    ) {
       return;
     }
     const wasPendingProgrammaticOpen = pendingFlowRef.current === desired;
@@ -1348,13 +1364,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             smsContactCount={vm.smsContactUserIds.length}
             onManageSmsContacts={() => openFlow("sms-contacts")}
           />
-        ) : (
-          // Every FlowKind above is matched, and `none` never reaches here.
-          // This used to fall through to the temporary-link screen, so any
-          // flow slug nobody had wired up quietly rendered "Share outside your
-          // Circle" instead of failing visibly.
-          null
-        )}
+        ) : // Every FlowKind above is matched, and `none` never reaches here.
+        // This used to fall through to the temporary-link screen, so any
+        // flow slug nobody had wired up quietly rendered "Share outside your
+        // Circle" instead of failing visibly.
+        null}
       </div>
     );
   }
@@ -1614,7 +1628,6 @@ function NowHub({
           </LocationMenuListGroup>
         </div>
       ) : null}
-
     </div>
   );
 }
@@ -2431,7 +2444,10 @@ function LocationToggle({
       aria-label={label}
       disabled={disabled}
       data-voice-control-id={voiceControlId}
-      onClick={() => onChange(!checked)}
+      onClick={(event) => {
+        event.stopPropagation();
+        onChange(!checked);
+      }}
       className={cn(
         "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-200",
         // Same tokens as the shared `Switch size="ios"`, not private literals.
@@ -2457,6 +2473,30 @@ function LocationToggle({
   );
 }
 
+function ownedUserCircleScopeOptions(
+  circles: readonly OneLocationCircleSummary[],
+): OneLocationCircleSummary[] {
+  return circles.filter(
+    (circle) => circle.role === "owner" && circle.systemKind == null,
+  );
+}
+
+function autoApproveScopeKey(scope: AutoApproveScope | null): string {
+  if (!scope) return "";
+  return scope.kind === "circle" ? `circle:${scope.circleId}` : "all_contacts";
+}
+
+function autoApproveScopeEqual(
+  left: AutoApproveScope | null,
+  right: AutoApproveScope | null,
+): boolean {
+  return autoApproveScopeKey(left) === autoApproveScopeKey(right);
+}
+
+function scopeMemberCountLabel(count: number): string {
+  return `${count} ${count === 1 ? "person" : "people"}`;
+}
+
 function LocationSettingsFlow({
   vm,
   smsContactCount,
@@ -2466,74 +2506,83 @@ function LocationSettingsFlow({
   smsContactCount: number;
   onManageSmsContacts: () => void;
 }) {
+  const [scopeSheetOpen, setScopeSheetOpen] = useState(false);
+  const [draftScope, setDraftScope] = useState<AutoApproveScope | null>(null);
+  const ownedCircles = useMemo(
+    () => ownedUserCircleScopeOptions(vm.circles),
+    [vm.circles],
+  );
+  const autoApproveScope = vm.autoApproveScope;
+  const selectedCircle =
+    autoApproveScope?.kind === "circle"
+      ? ownedCircles.find((circle) => circle.id === autoApproveScope.circleId)
+      : null;
+  const activeScope =
+    autoApproveScope?.kind === "all_contacts"
+      ? autoApproveScope
+      : selectedCircle && autoApproveScope?.kind === "circle"
+        ? autoApproveScope
+        : null;
+  const activeScopeLabel = !vm.autoApproveRequestsEnabled
+    ? "Choose a Circle or all contacts."
+    : activeScope?.kind === "all_contacts"
+      ? "All contacts"
+      : selectedCircle
+        ? selectedCircle.name
+        : "Choose another scope.";
+  const primaryScopeAction = vm.autoApproveRequestsEnabled ? "Save" : "Turn on";
+  const allContactsScope: AutoApproveScope = { kind: "all_contacts" };
+
+  const openScopeSheet = useCallback(() => {
+    setDraftScope(vm.autoApproveRequestsEnabled ? activeScope : null);
+    setScopeSheetOpen(true);
+  }, [activeScope, vm.autoApproveRequestsEnabled]);
+
+  const handleAutoApproveToggle = useCallback(
+    (next: boolean) => {
+      if (!next) {
+        vm.onAutoApproveRequestsChange({ enabled: false, scope: null });
+        return;
+      }
+      openScopeSheet();
+    },
+    [openScopeSheet, vm],
+  );
+
+  const commitAutoApproveScope = useCallback(() => {
+    if (!draftScope) return;
+    vm.onAutoApproveRequestsChange({ enabled: true, scope: draftScope });
+    setScopeSheetOpen(false);
+  }, [draftScope, vm]);
+
   return (
-    <div className="space-y-5">
+    <div className="mx-auto w-full max-w-[640px] space-y-7 pb-[max(16px,env(safe-area-inset-bottom))]">
       {/* No header description. Each row below already says what it does, and
           the line that used to sit here ("Control live sharing") describes
           something this screen's first control no longer does. */}
       <TaskFlowHeader eyebrow="Location" title="Settings" />
 
-      <SettingsGroup title="Location sharing" separatorInset>
-        {/* The one caveat that cannot be cut: this does not answer the people
-            already waiting, and somebody who switches it on expecting their
-            approvals list to clear has to be told that here, not by watching
-            it stay full. */}
+      <SettingsGroup title="Automatic approval" separatorInset>
         <SettingsRow
           title="Auto-approve requests"
-          description="New requests only. Anyone already waiting still needs your answer."
+          description={activeScopeLabel}
           trailing={
             <LocationToggle
               checked={vm.autoApproveRequestsEnabled}
-              onChange={vm.onAutoApproveRequestsChange}
+              onChange={handleAutoApproveToggle}
               label="Auto-approve requests"
             />
           }
-          density="compact"
-        />
-        <SettingsRow
-          title="Show me on their map"
-          description="People you share with can watch you move."
-          trailing={
-            <LocationToggle
-              checked={vm.mapPresenceEnabled === true}
-              onChange={vm.onMapPresenceChange}
-              disabled={vm.mapPresenceEnabled === null}
-              label="Show me on their map"
-            />
-          }
-          density="compact"
-        />
-        <SettingsRow
-          title="Pause my location"
-          description="Stops new updates and checks you out of Nearby."
-          trailing={
-            <LocationToggle
-              checked={vm.locationPaused}
-              onChange={(next) => {
-                if (next) {
-                  vm.onHideMyLocation();
-                  return;
-                }
-                vm.onResumeMyLocation();
-              }}
-              label="Pause my location"
-              voiceControlId="one-location-updates-toggle"
-            />
-          }
-          density="compact"
+          onClick={openScopeSheet}
+          chevron
+          className="[--settings-row-py:14px]"
+          testId="one-location-auto-approve-row"
         />
       </SettingsGroup>
 
-      <div className="flex items-start gap-2.5 px-1">
-        <Shield className="mt-0.5 h-[15px] w-[15px] shrink-0 text-[color:var(--app-accent)]" />
-        <p className={MUTED_TEXT}>
-          Nearby Check-In is separate, and only starts when you agree.
-        </p>
-      </div>
-
       <SettingsGroup title="Safety" separatorInset>
         <SettingsRow
-          title="SMS contacts"
+          title="Emergency contacts"
           trailing={
             <span className="text-[15px] leading-5 text-muted-foreground">
               {smsContactCount}
@@ -2549,7 +2598,144 @@ function LocationSettingsFlow({
       <div>
         <SavedLocationsSection />
       </div>
+
+      <Dialog open={scopeSheetOpen} onOpenChange={setScopeSheetOpen}>
+        <DialogContent
+          className="max-w-[min(420px,calc(100vw-32px))] gap-5 rounded-[24px] p-5 sm:p-6"
+          showCloseButton={false}
+        >
+          <DialogHeader className="gap-1 text-left">
+            <DialogTitle className="text-[22px] font-semibold leading-[27px] tracking-[-0.01em] text-[color:var(--app-primary-label)]">
+              Auto-approve for
+            </DialogTitle>
+            <DialogDescription className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
+              Choose one.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <AutoApproveScopeOption
+              title="All contacts"
+              selected={autoApproveScopeEqual(draftScope, allContactsScope)}
+              onSelect={() => setDraftScope(allContactsScope)}
+            />
+
+            {ownedCircles.length ? (
+              <div className="space-y-2">
+                <p className="px-1 text-[15px] font-medium leading-5 text-[color:var(--app-secondary-label)]">
+                  Circles
+                </p>
+                <div className="overflow-hidden rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] ring-1 ring-[color:var(--app-separator)]">
+                  {ownedCircles.map((circle) => {
+                    const scope: AutoApproveScope = {
+                      kind: "circle",
+                      circleId: circle.id,
+                    };
+                    return (
+                      <AutoApproveScopeOption
+                        key={circle.id}
+                        title={circle.name}
+                        description={scopeMemberCountLabel(circle.memberCount)}
+                        selected={autoApproveScopeEqual(draftScope, scope)}
+                        onSelect={() => setDraftScope(scope)}
+                        inset
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {draftScope ? (
+            <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+              {draftScope.kind === "all_contacts"
+                ? "New requests from current and future contacts will be approved automatically."
+                : `New requests from current and future members of ${
+                    ownedCircles.find(
+                      (circle) => circle.id === draftScope.circleId,
+                    )?.name ?? "this Circle"
+                  } will be approved automatically.`}{" "}
+              Requests already waiting still need your answer.
+            </p>
+          ) : (
+            <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+              Requests already waiting still need your answer.
+            </p>
+          )}
+
+          <DialogFooter className="gap-2 sm:flex-col sm:justify-start">
+            <Button
+              type="button"
+              className="h-12 rounded-full text-[17px] font-semibold"
+              disabled={!draftScope}
+              onClick={commitAutoApproveScope}
+            >
+              {primaryScopeAction}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-11 rounded-full text-[17px] font-semibold"
+              onClick={() => setScopeSheetOpen(false)}
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+function AutoApproveScopeOption({
+  title,
+  description,
+  selected,
+  onSelect,
+  inset = false,
+}: {
+  title: string;
+  description?: string;
+  selected: boolean;
+  onSelect: () => void;
+  inset?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={cn(
+        "flex min-h-[54px] w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors",
+        inset
+          ? "border-b border-[color:var(--app-separator)] last:border-b-0"
+          : "rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] ring-1 ring-[color:var(--app-separator)]",
+        selected && "bg-[color:var(--app-accent-surface)]",
+      )}
+    >
+      <span className="min-w-0">
+        <span className="block truncate text-[17px] font-medium leading-[22px] text-[color:var(--app-primary-label)]">
+          {title}
+        </span>
+        {description ? (
+          <span className="block truncate text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
+            {description}
+          </span>
+        ) : null}
+      </span>
+      <span
+        className={cn(
+          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors",
+          selected
+            ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-white"
+            : "border-[color:var(--app-separator)] bg-transparent text-transparent",
+        )}
+      >
+        <Check className="h-4 w-4" />
+      </span>
+    </button>
   );
 }
 
@@ -3531,10 +3717,7 @@ function ShareFlow({
         {/* No description: the summary card directly below states who can see
             you, for how long and when it ends. Repeating that in prose above it
             is the design explaining itself. */}
-        <TaskFlowHeader
-          eyebrow="Step 2 of 2"
-          title="Ready to share?"
-        />
+        <TaskFlowHeader eyebrow="Step 2 of 2" title="Ready to share?" />
 
         <SectionCard className="p-5 sm:p-6">
           <div className="space-y-6">
@@ -3658,19 +3841,19 @@ function ShareFlow({
         description="Choose a Circle or contact."
       />
       {/* Trusted is not a group you share with.
-        *
-        * It listed here with the same glyph and count as a Circle somebody
-        * made, and one tap pre-selected every location-ready person in it --
-        * which, for a Circle whose roster IS the connection graph, is
-        * "everyone you know" behind a single press. The share then succeeded,
-        * because those people satisfy the connection arm anyway, so nothing
-        * refused it: this is the only place that says no.
-        *
-        * The eligibility SQL puts it plainly -- "Trusted records who you are
-        * connected to; it never decides who can see you" -- and the onboarding
-        * invite step already filters the same way. Only this picker is
-        * narrowed: the People tab, SOS contacts and the SMS flow still list
-        * every Circle. */}
+       *
+       * It listed here with the same glyph and count as a Circle somebody
+       * made, and one tap pre-selected every location-ready person in it --
+       * which, for a Circle whose roster IS the connection graph, is
+       * "everyone you know" behind a single press. The share then succeeded,
+       * because those people satisfy the connection arm anyway, so nothing
+       * refused it: this is the only place that says no.
+       *
+       * The eligibility SQL puts it plainly -- "Trusted records who you are
+       * connected to; it never decides who can see you" -- and the onboarding
+       * invite step already filters the same way. Only this picker is
+       * narrowed: the People tab, SOS contacts and the SMS flow still list
+       * every Circle. */}
       {shareableCircles.length ? (
         <SettingsGroup
           title="Circles"

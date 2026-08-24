@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { selectAutoApprovableRequests } from "@/lib/one-location/auto-approve-requests";
+import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
 import type { OneLocationAccessRequest } from "@/lib/one-location/types";
 
 /**
@@ -29,13 +30,22 @@ function select(input: {
   pendingRequests?: OneLocationAccessRequest[];
   enabled?: boolean;
   enabledAt?: string | null;
+  scope?: AutoApproveScope | null;
+  circleMembers?: readonly string[];
   paused?: boolean;
   alreadyAttemptedIds?: Set<string>;
 }) {
+  const circleMemberIds = input.circleMembers
+    ? new Set(input.circleMembers)
+    : null;
   return selectAutoApprovableRequests({
     pendingRequests: input.pendingRequests ?? [request()],
     enabled: input.enabled ?? true,
     enabledAt: input.enabledAt === undefined ? ENABLED_AT : input.enabledAt,
+    scope: input.scope === undefined ? { kind: "all_contacts" } : input.scope,
+    isRequesterInScope: (entry, scope) =>
+      scope.kind === "circle" &&
+      Boolean(circleMemberIds?.has(entry.requesterUserId)),
     paused: input.paused ?? false,
     alreadyAttemptedIds: input.alreadyAttemptedIds ?? new Set<string>(),
   });
@@ -81,10 +91,40 @@ describe("when the setting is not actually on", () => {
     expect(select({ enabled: false })).toEqual([]);
   });
 
+  it("approves nothing without a scope", () => {
+    expect(select({ scope: null })).toEqual([]);
+  });
+
   it("approves nothing without a readable watermark", () => {
     // A missing or corrupt timestamp must not read as "approve everything".
     expect(select({ enabledAt: null })).toEqual([]);
     expect(select({ enabledAt: "not-a-date" })).toEqual([]);
+  });
+});
+
+describe("scope boundaries", () => {
+  it("approves an all-contacts request after the watermark", () => {
+    expect(
+      select({ scope: { kind: "all_contacts" } }).map((entry) => entry.id),
+    ).toEqual(["req_after"]);
+  });
+
+  it("approves a Circle-scoped request only when membership is proven", () => {
+    expect(
+      select({
+        scope: { kind: "circle", circleId: "circle_family" },
+        circleMembers: ["user_abdul"],
+      }).map((entry) => entry.id),
+    ).toEqual(["req_after"]);
+  });
+
+  it("fails closed for an unavailable or deleted Circle", () => {
+    expect(
+      select({
+        scope: { kind: "circle", circleId: "circle_deleted" },
+        circleMembers: [],
+      }),
+    ).toEqual([]);
   });
 });
 
@@ -99,9 +139,7 @@ describe("requests this device has already handled", () => {
   it("never attempts the same one twice", () => {
     // Attempted, not succeeded: one that failed will keep failing, and
     // retrying on every state change would spam the owner with one error.
-    expect(
-      select({ alreadyAttemptedIds: new Set(["req_after"]) }),
-    ).toEqual([]);
+    expect(select({ alreadyAttemptedIds: new Set(["req_after"]) })).toEqual([]);
   });
 });
 

@@ -1,4 +1,5 @@
 import type { OneLocationAccessRequest } from "@/lib/one-location/types";
+import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
 
 /**
  * Which pending location requests may be approved without asking.
@@ -18,15 +19,32 @@ export function selectAutoApprovableRequests(input: {
   enabled: boolean;
   /** When auto-approve was switched on, ISO-8601, or null while it is off. */
   enabledAt: string | null;
+  /** Required scope. Missing or unreadable scopes fail closed. */
+  scope: AutoApproveScope | null;
+  /**
+   * Circle membership is authoritative outside this selector. If the caller
+   * cannot prove a requester is in the selected Circle, the request is refused.
+   */
+  isRequesterInScope?: (
+    request: OneLocationAccessRequest,
+    scope: AutoApproveScope,
+  ) => boolean;
   /** "Stop sending my location" outranks every convenience. */
   paused: boolean;
   /** Requests this device already put through; never attempted twice. */
   alreadyAttemptedIds: ReadonlySet<string>;
 }): OneLocationAccessRequest[] {
-  const { pendingRequests, enabled, enabledAt, paused, alreadyAttemptedIds } =
-    input;
+  const {
+    pendingRequests,
+    enabled,
+    enabledAt,
+    scope,
+    isRequesterInScope,
+    paused,
+    alreadyAttemptedIds,
+  } = input;
 
-  if (!enabled || paused) return [];
+  if (!enabled || paused || !scope) return [];
 
   const enabledAtMs = Date.parse(enabledAt ?? "");
   // No readable watermark means nothing can be shown to have arrived after the
@@ -39,6 +57,8 @@ export function selectAutoApprovableRequests(input: {
     if (alreadyAttemptedIds.has(request.id)) return false;
     const requestedAtMs = Date.parse(request.requestedAt ?? "");
     if (!Number.isFinite(requestedAtMs)) return false;
-    return requestedAtMs > enabledAtMs;
+    if (requestedAtMs <= enabledAtMs) return false;
+    if (scope.kind === "all_contacts") return true;
+    return Boolean(isRequesterInScope?.(request, scope));
   });
 }
