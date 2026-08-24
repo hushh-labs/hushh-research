@@ -283,37 +283,39 @@ export function CirclesSection({
   };
 
   return (
-    <div className="space-y-[14px]" data-testid="one-location-named-circles">
-      <div className="flex items-baseline justify-between gap-4">
-        <h2 className="text-[13px] font-normal leading-[17px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
+    <div className="space-y-3" data-testid="one-location-named-circles">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]">
           Circles
         </h2>
 
-        {/* The static phone reference omits Join, but it remains a shipped
-            action. Both controls keep their handlers and voice IDs while the
-            quiet treatment matches the reference hierarchy. */}
-        <div className="flex flex-wrap items-baseline justify-end gap-x-4 gap-y-2 sm:gap-x-6">
-          <Button
-            type="button"
-            variant="link"
-            size="sm"
-            onClick={onCreate}
-            data-voice-control-id="one-location-action-create-circle"
-            className="relative !h-auto !min-h-0 !rounded-none !px-0 !py-0 text-[16px] font-normal leading-5 tracking-[-0.24px] after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] sm:text-[15px]"
-          >
-            New circle
-          </Button>
-          <Button
-            type="button"
-            variant="link"
-            size="sm"
-            onClick={onJoin}
-            data-voice-control-id="one-location-action-join-circle"
-            className="relative !h-auto !min-h-0 !rounded-none !px-0 !py-0 text-[16px] font-normal leading-5 tracking-[-0.24px] text-[color:var(--app-secondary-label)] after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] hover:text-foreground sm:text-[15px]"
-          >
-            Join with code
-          </Button>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              aria-label="Add Circle"
+              className="h-11 w-11 rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
+            >
+              <Plus className="h-[21px] w-[21px]" aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-48 rounded-2xl">
+            <DropdownMenuItem
+              onSelect={onCreate}
+              data-voice-control-id="one-location-action-create-circle"
+            >
+              Create Circle
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={onJoin}
+              data-voice-control-id="one-location-action-join-circle"
+            >
+              Join with code
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {incomingInvitesError ? (
@@ -352,7 +354,6 @@ export function CirclesSection({
       {incomingInvites.length ? (
         <SettingsGroup
           title="Circle invitations"
-          description="Join first. Sharing stays private."
           shellClassName={CIRCLES_GROUP_SURFACE}
           testId="one-location-circle-member-invites"
         >
@@ -365,7 +366,7 @@ export function CirclesSection({
                 ref={isFocused ? focusedInviteElementRef : undefined}
                 tabIndex={isFocused ? -1 : undefined}
                 className={cn(
-                  "flex min-h-20 flex-col gap-3 px-4 py-3 outline-none sm:flex-row sm:items-center",
+                  "flex min-h-[64px] flex-col gap-3 px-4 py-3 outline-none sm:flex-row sm:items-center",
                   isFocused &&
                     "bg-[color:var(--app-accent-soft)] ring-2 ring-inset ring-[color:var(--app-accent-ring)]",
                 )}
@@ -477,17 +478,16 @@ export function CirclesSection({
               title={circle.name}
               description={
                 circle.isSystem
-                  ? `Emergency SMS · ${circleListMemberCountLabel(circle.memberCount)}`
+                  ? `Save My Soul · ${circleListMemberCountLabel(circle.memberCount)}`
                   : circleListMemberCountLabel(circle.memberCount)
               }
-              trailing={circle.role === "owner" ? "Owner" : "Member"}
               chevron
               onClick={() => onOpen(circle.id)}
               className={cn(
-                "[--settings-row-gap:16px] [--settings-row-px:20px] [--settings-row-py:20px] sm:[--settings-row-gap:18px] sm:[--settings-row-px:24px] sm:[--settings-row-py:22px]",
-                "[&>button]:min-h-[84px] sm:[&>button]:min-h-[92px]",
-                "[&_[data-slot=settings-row-title]]:!text-[18px] [&_[data-slot=settings-row-title]]:!font-semibold [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.35px] sm:[&_[data-slot=settings-row-title]]:!text-[19px] sm:[&_[data-slot=settings-row-title]]:!leading-6 sm:[&_[data-slot=settings-row-title]]:!tracking-[-0.4px]",
-                "[&_[data-slot=settings-row-description]]:!text-[14px] [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px] sm:[&_[data-slot=settings-row-description]]:!text-[15px] sm:[&_[data-slot=settings-row-description]]:!leading-5 sm:[&_[data-slot=settings-row-description]]:!tracking-[-0.24px]",
+                "[--settings-row-gap:12px] [--settings-row-px:16px] [--settings-row-py:10px] sm:[--settings-row-gap:14px] sm:[--settings-row-px:18px] sm:[--settings-row-py:11px]",
+                "[&>button]:min-h-[62px] sm:[&>button]:min-h-16",
+                "[&_[data-slot=settings-row-title]]:!text-[17px] [&_[data-slot=settings-row-title]]:!font-normal [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.3px]",
+                "[&_[data-slot=settings-row-description]]:!text-[14px] [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px]",
               )}
               testId={`one-location-circle-${circle.id}`}
             />
