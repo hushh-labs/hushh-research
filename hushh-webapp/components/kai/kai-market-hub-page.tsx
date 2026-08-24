@@ -97,12 +97,8 @@ export function KaiMarketHubPage() {
     <AppPageShell
       as="div"
       fitContent
-
       width="reading"
-      className={cn(
-        "relative !px-0",
-        visibleTab !== "market" && "overflow-hidden max-h-[calc(100dvh-var(--app-top-content-offset,84px))]"
-      )}
+      className="relative !px-0"
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -121,13 +117,13 @@ export function KaiMarketHubPage() {
         heightMode="active"
         viewportMinHeight="0"
       >
-        <div className="h-full w-full">
+        <div className="w-full">
           <AppPageContentRegion>
             <KaiPreviewRouter />
           </AppPageContentRegion>
         </div>
-        <div className="h-full w-full overflow-hidden">
-          <AppPageContentRegion className="h-full overflow-hidden">
+        <div className="w-full">
+          <AppPageContentRegion>
             <KaiFlow
               userId={user.uid}
               mode="dashboard"
@@ -136,8 +132,8 @@ export function KaiMarketHubPage() {
             />
           </AppPageContentRegion>
         </div>
-        <div className="h-full w-full overflow-hidden">
-          <AppPageContentRegion className="h-full overflow-hidden">
+        <div className="w-full">
+          <AppPageContentRegion>
             <KaiAnalysisPageContent />
           </AppPageContentRegion>
         </div>
