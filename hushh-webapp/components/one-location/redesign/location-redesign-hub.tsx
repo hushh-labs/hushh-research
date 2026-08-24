@@ -3988,7 +3988,7 @@ function RequestRecipientListRow({
     <div
       className={cn(
         "min-w-0 bg-transparent",
-        selected && selectable && "bg-[color:var(--app-accent)]/5",
+        selected && selectable && "bg-[color:var(--app-accent)]/[0.045]",
       )}
     >
       <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
@@ -4003,7 +4003,7 @@ function RequestRecipientListRow({
             </span>
           ) : null}
         </span>
-        <span className="flex shrink-0 items-center gap-2">
+        <span className="flex shrink-0 items-center gap-1.5">
           {statusLabel ? (
             <StatusPill tone={pillTone} className="px-2 py-0 text-[12px]">
               {statusLabel}
@@ -4039,19 +4039,18 @@ function RequestRecipientListRow({
             </ShellActionSurface>
           ) : null}
           {selectable && onSelect ? (
-            <Button
-              size="sm"
+            <button
+              type="button"
               onClick={onSelect}
               aria-label={actionAriaLabel}
+              aria-pressed={selected}
               className={cn(
-                "h-8 shrink-0 rounded-full px-3 text-[13px] font-semibold",
-                selected
-                  ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-                  : "bg-[color:var(--app-secondary-system-fill)] text-foreground hover:bg-[color:var(--app-secondary-system-fill)]/80",
+                "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors touch-manipulation",
+                "hover:bg-[color:var(--app-secondary-system-fill)] focus:outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]",
               )}
             >
-              {selected ? "Selected" : "Select"}
-            </Button>
+              <SelectionDot selected={selected} />
+            </button>
           ) : null}
         </span>
       </div>
@@ -4080,6 +4079,7 @@ function AskFlow({
   onClose: () => void;
 }) {
   const filtered = vm.visibleRecipients;
+  const [step, setStep] = useState<"person" | "details">("person");
   /**
    * The field is local; the FILTER is debounced.
    *
@@ -4123,6 +4123,16 @@ function AskFlow({
   // selection, and a count would read that leftover as "nothing new here".
   const sentSelectionRef = useRef<readonly string[]>([]);
   const selectedRequestOwnerIds = vm.selectedRequestOwnerIds;
+  const selectedRequestRecipients = useMemo(() => {
+    const byId = new globalThis.Map(
+      vm.recipients.map((recipient) => [recipient.userId, recipient]),
+    );
+    return selectedRequestOwnerIds
+      .map((recipientId) => byId.get(recipientId))
+      .filter((recipient): recipient is OneLocationRecipient =>
+        Boolean(recipient),
+      );
+  }, [selectedRequestOwnerIds, vm.recipients]);
   useEffect(() => {
     const hasNewPick = selectedRequestOwnerIds.some(
       (id) => !sentSelectionRef.current.includes(id),
@@ -4271,28 +4281,136 @@ function AskFlow({
         // Confirm only what actually happened: the banner appears on a
         // resolved success, and a failure leaves the composer intact with its
         // own error toast.
-        setJustSent(await vm.onSendRequest(reason));
+        const sent = await vm.onSendRequest(reason);
+        setJustSent(sent);
+        if (sent) setStep("person");
       } finally {
         sendInFlightRef.current = false;
       }
     })();
   };
 
+  if (step === "details") {
+    return (
+      <div className="mx-auto w-full max-w-[560px] space-y-6 pb-[calc(var(--app-bottom-content-clearance,7rem)+5rem)]">
+        <TaskFlowHeader eyebrow="Step 2 of 2" title="Ready to ask?" />
+
+        <SectionCard className="p-5 sm:p-6">
+          <div className="space-y-6">
+            <DurationSelector
+              value={vm.durationHours}
+              onChange={vm.setDurationHours}
+              maxWidthClassName={null}
+              label="How long"
+              presentation="ladder"
+              allowUntilStop={false}
+              rungs={REQUEST_DURATION_LADDER}
+            />
+            <ReasonChips
+              value={reason}
+              onChange={(next) => {
+                setReason(next);
+                if (next !== "Other") vm.setRequestMessage("");
+              }}
+              label="Reason"
+              presentation="buttons"
+            />
+            {reason === "Other" ? (
+              <div className="space-y-2.5">
+                <label
+                  htmlFor="one-location-ask-other-reason"
+                  className="text-sm font-semibold text-foreground"
+                >
+                  Add reason
+                </label>
+                <textarea
+                  id="one-location-ask-other-reason"
+                  value={vm.requestMessage}
+                  onChange={(e) =>
+                    vm.setRequestMessage(
+                      e.target.value.slice(
+                        0,
+                        ONE_LOCATION_REQUEST_REASON_MAX_LENGTH,
+                      ),
+                    )
+                  }
+                  rows={2}
+                  maxLength={ONE_LOCATION_REQUEST_REASON_MAX_LENGTH}
+                  placeholder="What should they know?"
+                  className="block min-h-[88px] w-full resize-none rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-compact)] px-4 pb-8 pt-3.5 text-[17px] leading-[22px] text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+                />
+              </div>
+            ) : null}
+          </div>
+        </SectionCard>
+
+        <SelectedRecipientsRail
+          title="Asking"
+          ariaLabel="People you are asking for location"
+          recipients={selectedRequestRecipients}
+          recipientLabel={vm.recipientLabel}
+          trailing={
+            <button
+              type="button"
+              onClick={() => setStep("person")}
+              aria-label="Change who you are asking"
+              className="flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)]"
+            >
+              Edit
+            </button>
+          }
+        />
+
+        <div data-testid="one-location-ask-send-bar" className="space-y-2.5">
+          {isRequestFormValid ? (
+            <p
+              aria-live="polite"
+              data-testid="one-location-ask-selection-summary"
+              className={cn(MUTED_TEXT, "px-1")}
+            >
+              {vm.selectedRequestOwnerIds.length === 1
+                ? "1 person selected"
+                : `${vm.selectedRequestOwnerIds.length} people selected`}
+            </p>
+          ) : null}
+          <Button
+            onClick={sendRequest}
+            disabled={!isRequestFormValid || sendingRequest}
+            aria-disabled={!isRequestFormValid || sendingRequest}
+            isLoading={sendingRequest}
+            className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+          >
+            Send request
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={onClose}
+            className="h-11 w-full rounded-2xl bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
+          >
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-5">
+    <div className="mx-auto w-full max-w-[640px] space-y-6 pb-[calc(var(--app-bottom-content-clearance,7rem)+9rem)]">
       <TaskFlowHeader
-        eyebrow="Location"
+        eyebrow="Step 1 of 2"
         title="Request location"
-        description="Ask someone to share their location with you."
+        description="Choose who to ask."
       />
 
       {justSent ? (
         <div
           role="status"
-          className="flex items-start gap-2.5 rounded-2xl border border-[color:var(--app-success)]/30 bg-[color:var(--app-success)]/10 px-3.5 py-3"
+          className="flex items-start gap-2.5 rounded-[20px] border border-[color:var(--app-success)]/25 bg-white px-4 py-4 shadow-[0_14px_34px_rgba(15,23,42,0.08)]"
         >
-          <ShieldCheck className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[color:var(--app-success)]" />
-          <p className="text-sm font-medium text-foreground">Request sent.</p>
+          <ShieldCheck className="mt-0.5 h-[19px] w-[19px] shrink-0 text-[color:var(--app-success)]" />
+          <p className="text-[17px] font-medium leading-[22px] text-foreground">
+            Request sent.
+          </p>
         </div>
       ) : null}
 
@@ -4305,17 +4423,10 @@ function AskFlow({
             getKey={(row) => row.key}
             testId="one-location-ask-recipients"
             ariaLabel="People you can ask"
+            maxHeightClassName="max-h-[48vh]"
             renderItem={(row) => {
               const r = row.recipient;
               const selected = vm.selectedRequestOwnerIds.includes(r.userId);
-              // Every row used to read "Ready for private sharing" with Select
-              // as the only affordance, whoever the person was and whatever had
-              // already happened with them -- so there was no active status to
-              // read, and somebody who had just asked came back to a row
-              // offering to ask again.
-              // Both read from an index built once above, not recomputed per
-              // row. `statusByRecipient` always has this id: it is built from
-              // the same `filtered` array being mapped here.
               const status =
                 statusByRecipient.get(r.userId) ??
                 requestRecipientStatus({
@@ -4324,19 +4435,11 @@ function AskFlow({
                   receivedGrants: vm.receivedGrants,
                   nowMs: statusNowMs,
                 });
-              // A row already Live is the one place this list had no way off
-              // it: the person keeps showing up "already sharing" with
-              // nothing to do about that but wait it out or leave the screen
-              // entirely to find the Shared with me / Requests sent list
-              // that could end or shorten it.
               const activeGrant = receivedGroupsByOwner.get(
                 r.userId,
               )?.primaryGrant;
               const isEditingThis =
                 Boolean(activeGrant) && vm.editingGrantId === activeGrant?.id;
-              // The unanswered ask this row is reporting, if any. The row used
-              // to be a dead end when it had one: nothing to press, and no way
-              // to take the ask back.
               const pendingRequestId = status.pendingRequestId;
               const recipientLabel = vm.recipientLabel(r);
               return (
@@ -4369,10 +4472,6 @@ function AskFlow({
                       : undefined
                   }
                   editActive={isEditingThis}
-                  // Two different acts share this one control, because the row
-                  // is only ever in one of the two states: a live share ends
-                  // access, an unanswered ask ends the ask. A row that is
-                  // neither keeps no X at all.
                   onRemove={
                     activeGrant
                       ? () => vm.onStopGrant(activeGrant.id)
@@ -4435,116 +4534,36 @@ function AskFlow({
             )}
           </div>
         )}
-        {/* The way out. This list is everyone you are already connected to, so
-            "they are not here" has exactly one answer, and it lives on another
-            screen. Without this the empty state was a dead end and a search
-            that found nobody was worse -- it proved the person was missing and
-            offered nothing to do about it. */}
-        {/* `Link`, not a bare anchor: an <a href> is a full document load and
-            the vault key lives only in React state, so the way out of this dead
-            end relocked the vault on the way. */}
         <Link
           href={ROUTES.CONNECT}
           data-testid="one-location-ask-manage-connections"
-          className="mt-3 inline-flex min-h-11 items-center gap-1 rounded-full px-1 text-[15px] font-medium text-[color:var(--app-accent)]"
+          className="mt-2 inline-flex min-h-11 items-center gap-1 rounded-full px-1 text-[15px] font-medium text-[color:var(--app-accent)]"
         >
           Don&apos;t see someone? Manage connections
           <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
         </Link>
       </section>
 
-      <SectionCard>
-        <div className="space-y-5">
-          <DurationSelector
-            value={vm.durationHours}
-            onChange={vm.setDurationHours}
-            // The column is already measured by the card, so the ladder fills
-            // it instead of stopping short.
-            maxWidthClassName={null}
-            label="How long"
-            presentation="ladder"
-            /* No open-ended option on this lane. There is no such thing as
-               asking to see someone else's location until THEY stop — the
-               backend has no open-ended mode on a request — and this screen
-               writes the same `durationHours` string the circle-invite and
-               public-link lanes later run Number() over, so a non-numeric
-               sentinel here posts NaN to a `gt=0` field. */
-            allowUntilStop={false}
-            rungs={REQUEST_DURATION_LADDER}
-          />
-          <ReasonChips
-            value={reason}
-            onChange={(next) => {
-              setReason(next);
-              if (next !== "Other") vm.setRequestMessage("");
-            }}
-            label="Reason"
-            presentation="buttons"
-          />
-          {reason === "Other" ? (
-            <div className="space-y-2.5">
-              <label
-                htmlFor="one-location-ask-other-reason"
-                className="text-sm font-semibold text-foreground"
-              >
-                Add reason
-              </label>
-              <textarea
-                id="one-location-ask-other-reason"
-                value={vm.requestMessage}
-                onChange={(e) =>
-                  vm.setRequestMessage(
-                    e.target.value.slice(
-                      0,
-                      ONE_LOCATION_REQUEST_REASON_MAX_LENGTH,
-                    ),
-                  )
-                }
-                rows={2}
-                maxLength={ONE_LOCATION_REQUEST_REASON_MAX_LENGTH}
-                placeholder="What should they know?"
-                className="block w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-compact)] px-3 pb-8 pt-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
-              />
-            </div>
-          ) : null}
-          {/* Send is enabled once at least one recipient is chosen. Duration and
-              reason default to sensible values, so gating Send on them too would
-              block a valid request. It lives in the same card as the form so it
-              cannot cover Reason or the inline Other field. */}
-          <div data-testid="one-location-ask-send-bar" className="space-y-2">
-            {isRequestFormValid ? (
-              <p
-                aria-live="polite"
-                data-testid="one-location-ask-selection-summary"
-                className={cn(MUTED_TEXT, "px-1")}
-              >
-                {vm.selectedRequestOwnerIds.length === 1
-                  ? "1 person selected"
-                  : `${vm.selectedRequestOwnerIds.length} people selected`}
-              </p>
-            ) : null}
-            <Button
-              onClick={sendRequest}
-              disabled={!isRequestFormValid || sendingRequest}
-              aria-disabled={!isRequestFormValid || sendingRequest}
-              isLoading={sendingRequest}
-              className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
-            >
-              Send request
-            </Button>
-          </div>
+      <div className="rounded-[22px] border border-white/65 bg-white/80 p-2 shadow-[0_10px_28px_rgba(15,23,42,0.09)] backdrop-blur-xl supports-[not(backdrop-filter:blur(1px))]:bg-white dark:border-white/10 dark:bg-black/55">
+        <div className="mb-2 flex min-h-5 items-center justify-between px-1 text-[13px] leading-[18px] text-muted-foreground">
+          {selectedRequestRecipients.length ? (
+            <span>
+              {selectedRequestRecipients.length === 1
+                ? "1 selected"
+                : `${selectedRequestRecipients.length} selected`}
+            </span>
+          ) : (
+            <span>Choose who to ask.</span>
+          )}
         </div>
-      </SectionCard>
-
-      {justSent ? (
         <Button
-          variant="ghost"
-          onClick={onClose}
-          className="h-11 w-full rounded-2xl text-sm"
+          onClick={() => setStep("details")}
+          disabled={!selectedRequestRecipients.length}
+          className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
         >
-          Done
+          Continue
         </Button>
-      ) : null}
+      </div>
     </div>
   );
 }

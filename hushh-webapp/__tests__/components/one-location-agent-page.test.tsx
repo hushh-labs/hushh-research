@@ -863,6 +863,21 @@ async function openAskFlow() {
   ).toBeTruthy();
 }
 
+async function selectAskRecipient(name: RegExp) {
+  fireEvent.click(
+    screen.getByRole("button", {
+      name,
+    }),
+  );
+}
+
+async function continueAskFlow() {
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  expect(
+    await screen.findByRole("heading", { name: "Ready to ask?" }),
+  ).toBeTruthy();
+}
+
 /**
  * The Links tab IS the create-a-link screen now.
  *
@@ -4132,6 +4147,8 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openAskFlow();
+    await selectAskRecipient(/Select Trusted B for location request/i);
+    await continueAskFlow();
 
     expect(screen.queryByRole("button", { name: "Until I stop" })).toBeNull();
     expect(screen.queryByText("Until you stop")).toBeNull();
@@ -4154,6 +4171,8 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openAskFlow();
+    await selectAskRecipient(/Select Trusted B for location request/i);
+    await continueAskFlow();
 
     // Request uses the same compact ladder pattern as Share, but it cannot ask
     // for open-ended access to someone else's location.
@@ -4182,11 +4201,8 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openAskFlow();
     // No owner is auto-selected anymore — pick Trusted B explicitly first.
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Select Trusted B for location request/i,
-      }),
-    );
+    await selectAskRecipient(/Select Trusted B for location request/i);
+    await continueAskFlow();
     expect(
       screen.queryByPlaceholderText(
         "Hey, can you share your location until we meet?",
@@ -4239,11 +4255,8 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openAskFlow();
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Select Trusted B for location request/i,
-      }),
-    );
+    await selectAskRecipient(/Select Trusted B for location request/i);
+    await continueAskFlow();
     fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
     await waitFor(() =>
@@ -4252,16 +4265,13 @@ describe("OneLocationAgentPage", () => {
 
     // Sending clears the composer, so with nobody chosen there is nothing to
     // send -- but the button must be a live control, not a spent one.
-    const sendButton = screen.getByRole("button", { name: /Send request/i });
-    expect(sendButton.hasAttribute("disabled")).toBe(true);
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+    expect(continueButton.hasAttribute("disabled")).toBe(true);
 
     // Choosing the next person re-arms Send and retires the previous
     // confirmation, which described a request that is no longer on screen.
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Select Advisor C for location request/i,
-      }),
-    );
+    await selectAskRecipient(/Select Advisor C for location request/i);
+    await continueAskFlow();
     await waitFor(() =>
       expect(
         screen
@@ -4300,49 +4310,23 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openAskFlow();
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Select Trusted B for location request/i,
-      }),
-    );
+    await selectAskRecipient(/Select Trusted B for location request/i);
+    await continueAskFlow();
     fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
-
-    // Mid-flight, the user lines up the next person.
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Select Advisor C for location request/i,
-      }),
-    );
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", {
-          name: /Deselect Advisor C for location request/i,
-        }),
-      ).toBeTruthy(),
-    );
 
     await act(async () => {
       releaseFirstRequest?.();
       await Promise.resolve();
     });
 
-    // Trusted B was asked and is gone from the composer; Advisor C survives and
-    // can still be sent, with no confirmation claiming their request went out.
     await waitFor(() =>
-      expect(
-        screen.getByRole("button", {
-          name: /Deselect Advisor C for location request/i,
-        }),
-      ).toBeTruthy(),
+      expect(screen.getByRole("status")).toHaveTextContent("Request sent."),
     );
-    expect(
-      screen
-        .getByRole("button", { name: /Send request/i })
-        .hasAttribute("disabled"),
-    ).toBe(false);
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
 
+    await selectAskRecipient(/Select Advisor C for location request/i);
+    await continueAskFlow();
     fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(2));
     expect(mockRequestAccess).toHaveBeenLastCalledWith(
@@ -4364,11 +4348,8 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openAskFlow();
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Select Trusted B for location request/i,
-      }),
-    );
+    await selectAskRecipient(/Select Trusted B for location request/i);
+    await continueAskFlow();
     fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
 
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
@@ -4553,12 +4534,14 @@ describe("OneLocationAgentPage", () => {
 
     // Nothing chosen: the bar is there, the count is not -- an empty line
     // announcing zero is noise.
-    expect(screen.getByTestId("one-location-ask-send-bar")).toBeInTheDocument();
+    expect(screen.queryByTestId("one-location-ask-send-bar")).toBeNull();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
     expect(
       screen.queryByTestId("one-location-ask-selection-summary"),
     ).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Select Trusted B/i }));
+    await selectAskRecipient(/Select Trusted B/i);
+    await continueAskFlow();
 
     await waitFor(() =>
       expect(
@@ -4973,26 +4956,19 @@ describe("OneLocationAgentPage", () => {
     await openAskFlow();
     // No owner is auto-selected anymore — select Trusted B explicitly first so
     // the multi-select ordering remains ["user_b", "user_d"].
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Select Trusted B for location request/i,
-      }),
-    );
+    await selectAskRecipient(/Select Trusted B for location request/i);
     expect(
       await screen.findByRole("button", {
         name: /Deselect Trusted B for location request/i,
       }),
     ).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /Select Investor D for location request/i,
-      }),
-    );
+    await selectAskRecipient(/Select Investor D for location request/i);
     expect(
       await screen.findByRole("button", {
         name: /Deselect Investor D for location request/i,
       }),
     ).toBeTruthy();
+    await continueAskFlow();
     fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
 
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(2));
