@@ -168,8 +168,6 @@ steps:
         if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
           secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=${_PLAID_ACCESS_TOKEN_KEY_SECRET}:latest"
         fi
-        # Hussh-managed Developer API key for the developer_api-transport live
-        # model (gemini-3.1-flash-live-preview is not published on Vertex).
         add_secret "${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}" "HUSHH_MANAGED_GEMINI_LIVE_API_KEY"
         add_secret "${_FINNHUB_API_KEY_SECRET}" "FINNHUB_API_KEY"
         add_secret "${_PMP_API_KEY_SECRET}" "PMP_API_KEY"
@@ -303,6 +301,8 @@ steps:
         add_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
         add_env "HUSHH_PROD_PHONE_TEST_ENABLED" "${_HUSHH_PROD_PHONE_TEST_ENABLED}"
         add_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
+        add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
+        add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
 
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
         deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
@@ -562,6 +562,10 @@ substitutions:
   # off (add_env skips empty values; runtime_settings defaults
   # False), preserving in-memory-only behavior. Set per-env below.
   _KAI_ANALYZE_DURABLE_RUN_STORE: ""
+  # Optional long-lived web SSE fallback. Keep empty for runtime defaults;
+  # deploy workflows set this explicitly per environment.
+  _CONSENT_WEB_FALLBACK_ENABLED: ""
+  _CONSENT_SSE_ENABLED: ""
   _CLOUD_RUN_NO_TRAFFIC: "false"
   _CONSENT_API_PUBLIC_ORIGIN: ""
   _DB_POOL_MIN_SIZE: "1"

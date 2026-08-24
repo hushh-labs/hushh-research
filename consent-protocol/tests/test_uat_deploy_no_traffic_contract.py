@@ -133,6 +133,10 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     assert '"DB_POOL_MAX_SIZE=${_DB_POOL_MAX_SIZE}"' in backend_build
     assert '"DB_SQLALCHEMY_POOL_SIZE=${_DB_SQLALCHEMY_POOL_SIZE}"' in backend_build
     assert '"DB_SQLALCHEMY_MAX_OVERFLOW=${_DB_SQLALCHEMY_MAX_OVERFLOW}"' in backend_build
+    assert (
+        'add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"' in backend_build
+    )
+    assert 'add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"' in backend_build
     assert '"--max=${_CLOUD_RUN_MAX_INSTANCES}"' in backend_build
     assert '"--min=${_CLOUD_RUN_MIN_INSTANCES}"' in backend_build
     assert '"--min-instances=0"' in backend_build
@@ -156,13 +160,15 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     assert "_DB_POOL_MAX_SIZE=4" in uat_workflow
     assert "_DB_SQLALCHEMY_POOL_SIZE=3" in uat_workflow
     assert "_DB_SQLALCHEMY_MAX_OVERFLOW=0" in uat_workflow
+    assert "_CONSENT_WEB_FALLBACK_ENABLED=false" in uat_workflow
+    assert "_CONSENT_SSE_ENABLED=false" in uat_workflow
     assert "_CLOUD_RUN_MIN_INSTANCES=2" in uat_workflow
     assert "_CLOUD_RUN_MAX_INSTANCES=5" in uat_workflow
     # Each gunicorn WORKER opens the asyncpg pool (DB_POOL_MAX_SIZE) plus the
     # SQLAlchemy pool (DB_SQLALCHEMY_POOL_SIZE + DB_SQLALCHEMY_MAX_OVERFLOW).
     # Both pools are module globals, so the ceiling is per worker process and
     # multiplies by the gunicorn worker count before it multiplies by instances.
-    # UAT: 10 per worker, 20 per instance, 60 total across 3 instances.
+    # UAT: 7 per worker, 14 per instance, 70 total across 5 instances.
     #
     # Two incidents shaped this number, in opposite directions.
     #
@@ -213,6 +219,8 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     assert "_DB_POOL_MAX_SIZE=4" in production_workflow
     assert "_DB_SQLALCHEMY_POOL_SIZE=4" in production_workflow
     assert "_DB_SQLALCHEMY_MAX_OVERFLOW=0" in production_workflow
+    assert "_CONSENT_WEB_FALLBACK_ENABLED=false" in production_workflow
+    assert "_CONSENT_SSE_ENABLED=false" in production_workflow
     assert "_CLOUD_RUN_MIN_INSTANCES=1" in production_workflow
     assert "_CLOUD_RUN_MAX_INSTANCES=5" in production_workflow
     # Production: 8 per worker, 16 per instance, 80 total across 5 instances
