@@ -97,7 +97,7 @@ export function KaiMarketHubPage() {
       as="div"
       fitContent
       width="reading"
-      className="relative !px-0"
+      className="relative !px-0 pb-20 sm:pb-24"
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,

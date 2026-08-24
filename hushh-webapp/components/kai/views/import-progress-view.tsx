@@ -142,8 +142,8 @@ export function ImportProgressView({
   onBackToDashboard,
   className,
 }: ImportProgressViewProps) {
-  const [streamExpanded, setStreamExpanded] = useState<boolean>(() => true);
-  const [holdingsExpanded, setHoldingsExpanded] = useState<boolean>(() => true);
+  const [streamExpanded, setStreamExpanded] = useState<boolean>(() => stage !== "error");
+  const [holdingsExpanded, setHoldingsExpanded] = useState<boolean>(() => stage !== "error");
 
   const hasMeasuredProgress = useMemo(
     () => typeof progressPct === "number" && Number.isFinite(progressPct) && progressPct > 0,
