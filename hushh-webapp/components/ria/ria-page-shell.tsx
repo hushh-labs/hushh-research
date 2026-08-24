@@ -273,26 +273,42 @@ export function RiaVerificationGate({ children }: { children: ReactNode }) {
 
   if (!isRiaVerified(status)) {
     return (
-      <section className="space-y-3">
-        <SectionHeader
-          eyebrow={RIA_COPY.clients.verifyGate.eyebrow}
-          title={RIA_COPY.clients.verifyGate.title}
-          description={RIA_COPY.clients.verifyGate.description}
-          icon={ShieldAlert}
-        />
-        <RiaSurface tone="warning" className="border-dashed">
-          <p className="text-sm leading-6 text-muted-foreground">
-            {RIA_COPY.clients.verifyGate.body}
-          </p>
-          <Button
-            className="mt-4"
-            onClick={() => router.push(ROUTES.RIA_ONBOARDING)}
-            data-testid="ria-clients-verify-gate-cta"
-          >
-            {RIA_COPY.clients.verifyGate.cta}
-          </Button>
-        </RiaSurface>
-      </section>
+      <div className="mx-auto my-12 flex w-full max-w-xl flex-col items-center px-4 text-center sm:px-6">
+        {/* Header Icon */}
+        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/15 text-amber-400">
+          <ShieldAlert className="h-7 w-7" />
+        </div>
+
+        {/* Eyebrow */}
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--ria-gold,#d97706)]">
+          {RIA_COPY.clients.verifyGate.eyebrow}
+        </p>
+
+        {/* Title in Pure White Font */}
+        <h2 className="mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl">
+          {RIA_COPY.clients.verifyGate.title}
+        </h2>
+
+        {/* Description in Clean Light Font */}
+        <p className="mt-3 max-w-md text-base leading-relaxed text-white/70">
+          {RIA_COPY.clients.verifyGate.description}
+        </p>
+
+        {/* Status Note */}
+        <p className="mt-3 text-xs font-medium text-white/50">
+          {RIA_COPY.clients.verifyGate.body}
+        </p>
+
+        {/* Action CTA Button */}
+        <Button
+          className="mt-6 h-11 rounded-full bg-[color:var(--ria-gold,#d97706)] px-8 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/25 hover:bg-amber-400 active:scale-[0.98] transition-all cursor-pointer"
+          onClick={() => router.push(ROUTES.RIA_ONBOARDING)}
+          data-testid="ria-clients-verify-gate-cta"
+        >
+          {RIA_COPY.clients.verifyGate.cta}
+          <ShieldCheck className="ml-2 h-4 w-4" />
+        </Button>
+      </div>
     );
   }
 
