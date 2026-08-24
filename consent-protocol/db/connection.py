@@ -279,8 +279,7 @@ def _get_acquire_timeout_seconds() -> float:
 def _pool_exhausted_error(elapsed: float) -> "DatabaseUnavailableError":
     """Build the 503 raised when our own acquire deadline actually elapsed."""
     logger.warning(
-        "db.pool_acquire_timeout: no connection available after %.1fs "
-        "(DB_POOL_MAX_SIZE=%s)",
+        "db.pool_acquire_timeout: no connection available after %.1fs (DB_POOL_MAX_SIZE=%s)",
         elapsed,
         os.getenv("DB_POOL_MAX_SIZE", "<default>"),
     )
