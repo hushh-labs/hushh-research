@@ -238,11 +238,13 @@ function OnboardingSkipButton({
   disabled = false,
   inverse = false,
   floating = false,
+  plain = false,
 }: {
   onClick: () => void;
   disabled?: boolean;
   inverse?: boolean;
   floating?: boolean;
+  plain?: boolean;
 }) {
   return (
     <button
@@ -251,7 +253,9 @@ function OnboardingSkipButton({
       disabled={disabled}
       className={cn(
         "min-h-11 rounded-full text-[16px] font-bold disabled:opacity-50",
-        floating
+        plain
+          ? "px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]"
+          : floating
           ? "h-11 bg-[#eef1f5] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-[color:var(--app-accent-bright)] dark:ring-white/[0.06]"
           : inverse
             ? "text-white"
@@ -269,6 +273,7 @@ function OnboardingNavigation({
   disabled = false,
   inverse = false,
   floating = false,
+  plain = false,
   busy = false,
   className,
 }: {
@@ -277,6 +282,7 @@ function OnboardingNavigation({
   disabled?: boolean;
   inverse?: boolean;
   floating?: boolean;
+  plain?: boolean;
   busy?: boolean;
   className?: string;
 }) {
@@ -295,7 +301,9 @@ function OnboardingNavigation({
         disabled={disabled}
         className={cn(
           "press-scale flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-50",
-          floating
+          plain
+            ? "text-[#59616c] dark:text-white"
+            : floating
             ? "bg-[#eef1f5] text-[#59616c] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-white dark:ring-white/[0.06]"
             : inverse
               ? "bg-white/15 text-white"
@@ -312,6 +320,7 @@ function OnboardingNavigation({
       <OnboardingSkipButton
         inverse={inverse}
         floating={floating}
+        plain={plain}
         onClick={onSkip}
         disabled={disabled}
       />
@@ -556,158 +565,62 @@ const SHARE_LOCATION_AVATARS = [
   },
 ] as const;
 
-function FeatureStatusPill({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "relative z-30 flex h-8 w-max max-w-full items-center gap-1 rounded-full bg-white/95 px-2 text-[9px] font-bold leading-none text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.15)] dark:bg-[#f4f7fb]",
-        className,
-      )}
-      data-one-use-case-alert
-    >
-      <span
-        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#28b867] text-white"
-        aria-hidden="true"
-      >
-        <Check className="h-2.5 w-2.5" strokeWidth={3.5} />
-      </span>
-      <span className="min-w-max whitespace-nowrap">{children}</span>
-    </span>
-  );
-}
-
-function FeatureStatusRow({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "relative z-30 mt-auto flex shrink-0 items-center pb-3",
-        className,
-      )}
-      data-one-feature-status-row
-    >
-      <FeatureStatusPill>{children}</FeatureStatusPill>
-    </div>
-  );
-}
-
-function TwoLineFeatureTitle({
-  lines,
-  className,
-}: {
-  lines: readonly [string, string];
-  className?: string;
-}) {
-  return (
-    <div
-      role="heading"
-      aria-level={2}
-      aria-label={lines.join(" ")}
-      className={cn(
-        "font-bold leading-[1.13] tracking-[-0.015em] text-[#111823] dark:text-white",
-        className,
-      )}
-      data-one-feature-title
-    >
-      {lines.map((line) => (
-        <span
-          key={line}
-          aria-hidden="true"
-          className="block whitespace-nowrap"
-          data-one-feature-title-line
-        >
-          {line}
-        </span>
-      ))}
-    </div>
-  );
-}
-
 function ShareLocationFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[1.72/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
+      className="grid min-h-[126px] grid-cols-[minmax(0,1fr)_112px] items-center gap-4 px-4 py-4 sm:min-h-[132px] sm:grid-cols-[minmax(0,1fr)_128px]"
       data-testid="location-use-case-trip"
       data-one-use-case-card
       data-one-feature-card="share"
+      data-one-feature-row
     >
-      <MapBackdrop tone="share" />
-      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[color:var(--app-primary-surface)] from-[35%] via-[color:var(--app-primary-surface)] via-[51%] to-transparent" />
-      <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
-        <span
-          className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)]"
-          data-one-use-case-tag
+      <div className="flex min-w-0 flex-col gap-2" data-one-feature-copy>
+        <h2
+          className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em] text-[#111823] dark:text-white"
+          data-one-feature-title
         >
-          Share location
-        </span>
-        <TwoLineFeatureTitle
-          lines={["Can’t explain", "where you are?"]}
-          className="font-[family-name:var(--font-app-display)] text-[21px]"
-        />
+          Can’t explain where you are?
+        </h2>
         <p
-          className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
+          className="text-[15px] font-normal leading-[20px] text-[#6e737d] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Share your live location with your Circle in one tap.
+          Share location with your Circle.
         </p>
       </div>
       <div
-        className="absolute inset-y-0 right-0 z-10 w-[53%]"
+        className="flex justify-end"
         data-one-use-case-art
         aria-hidden="true"
       >
-        <svg
-          viewBox="0 0 220 240"
-          preserveAspectRatio="none"
-          className="absolute inset-0 h-full w-full"
-        >
-          <path
-            d="M104 119 L178 42 M104 119 L42 198 M104 119 L178 198"
-            fill="none"
-            stroke="var(--app-accent)"
-            strokeWidth="1.5"
-            strokeDasharray="3 5"
-            opacity="0.72"
-          />
-        </svg>
-        <span className="absolute left-[47%] top-[49%] h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/10" />
-        <span className="absolute left-[47%] top-[49%] h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/15" />
-        <span className="absolute left-[47%] top-[49%] h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.28)] dark:border-[#171d27]" />
-        {SHARE_LOCATION_AVATARS.map((avatar, index) => (
-          <span
-            key={avatar.src}
-            className={cn(
-              "absolute h-11 w-11 overflow-hidden rounded-full border-[3px] border-white bg-white shadow-[0_5px_14px_rgba(24,57,91,0.2)] dark:border-[#dce5ef]",
-              avatar.className,
-            )}
-            data-one-share-avatar={index + 1}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-            <img
-              src={avatar.src}
-              alt=""
-              loading="eager"
-              decoding="async"
-              fetchPriority="high"
-              className="h-full w-full object-cover"
-            />
-          </span>
-        ))}
+        <div className="relative h-[96px] w-[112px] overflow-hidden rounded-[18px] bg-[#f1f6fb] dark:bg-[#151c26]">
+          <MapBackdrop tone="share" />
+          <span className="absolute left-1/2 top-1/2 z-10 h-8 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/12" />
+          <span className="absolute left-1/2 top-1/2 z-20 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.22)]" />
+          {SHARE_LOCATION_AVATARS.map((avatar, index) => (
+            <span
+              key={avatar.src}
+              className={cn(
+                "absolute z-20 h-9 w-9 overflow-hidden rounded-full border-2 border-white bg-white shadow-[0_4px_10px_rgba(24,57,91,0.16)]",
+                index === 0 && "right-[5%] top-[11%]",
+                index === 1 && "bottom-[9%] left-[6%]",
+                index === 2 && "bottom-[10%] right-[8%]",
+              )}
+              data-one-share-avatar={index + 1}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
+              <img
+                src={avatar.src}
+                alt=""
+                loading="eager"
+                decoding="async"
+                fetchPriority="high"
+                className="h-full w-full object-cover"
+              />
+            </span>
+          ))}
+        </div>
       </div>
-      <FeatureStatusRow className="px-5">
-        Sharing with Mom, Driver +1
-      </FeatureStatusRow>
     </article>
   );
 }
@@ -715,66 +628,49 @@ function ShareLocationFeatureCard() {
 function CheckInFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
+      className="grid min-h-[126px] grid-cols-[minmax(0,1fr)_112px] items-center gap-4 px-4 py-4 sm:min-h-[132px] sm:grid-cols-[minmax(0,1fr)_128px]"
       data-testid="location-use-case-checkin"
       data-one-use-case-card
       data-one-feature-card="checkin"
+      data-one-feature-row
     >
-      <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
-        <span
-          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f] dark:bg-[#1c3f2b] dark:text-[#78d69a]"
-          data-one-use-case-tag
+      <div className="flex min-w-0 flex-col gap-2" data-one-feature-copy>
+        <h2
+          className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em] text-[#111823] dark:text-white"
+          data-one-feature-title
         >
-          Check in
-        </span>
-        <TwoLineFeatureTitle
-          lines={["Dreading the", "check-in queue?"]}
-          className="text-[19px]"
-        />
+          Need them to know you arrived?
+        </h2>
         <p
-          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
+          className="text-[15px] font-normal leading-[20px] text-[#6e737d] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Check in early, pick up your key, and skip the front desk.
+          Check in with one tap.
         </p>
       </div>
       <div
-        className="absolute inset-0"
-        data-one-checkin-map-backdrop
-        aria-hidden="true"
-      >
-        <MapBackdrop tone="checkin" />
-      </div>
-      <div
-        className="absolute inset-x-0 bottom-0 h-[52%]"
+        className="flex justify-end"
         data-one-use-case-art
         aria-hidden="true"
       >
-        <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[color:var(--app-primary-surface)] to-transparent" />
-        {/* Green location-pin overlay removed: the check-in card now shows the
-            clean building artwork on its own. The [data-one-checkin-pin]
-            responsive rules below are harmless no-ops now. */}
-        <span
-          className="absolute bottom-[48%] left-1/2 w-[54%] -translate-x-1/2"
-          style={{ perspective: "320px", perspectiveOrigin: "50% 100%" }}
-          data-one-checkin-art
+        <div
+          className="relative h-[96px] w-[112px] overflow-hidden rounded-[18px] bg-[#f2f8f3] dark:bg-[#132018]"
+          data-one-checkin-map-backdrop
         >
-          {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-          <img
-            src="/one-location/onboarding/feature-checkin-house-transparent.webp"
-            alt=""
-            loading="eager"
-            decoding="async"
-            fetchPriority="high"
-            className="block w-full origin-bottom object-contain drop-shadow-[0_8px_10px_rgba(20,30,50,0.22)]"
-            style={{ transform: "rotateY(8deg)" }}
-            data-one-checkin-hotel
-          />
-        </span>
+          <MapBackdrop tone="checkin" />
+          <span
+            className="absolute left-1/2 top-1/2 z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-[#34c759]/12"
+            data-one-checkin-arrival-ring
+          >
+            <span
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-[#34c759] text-white shadow-[0_5px_14px_rgba(52,199,89,0.22)]"
+              data-one-checkin-arrival
+            >
+              <Check className="h-5 w-5" strokeWidth={3} aria-hidden="true" />
+            </span>
+          </span>
+        </div>
       </div>
-      <FeatureStatusRow className="px-3">
-        Checked in at Hotel Grand
-      </FeatureStatusRow>
     </article>
   );
 }
@@ -782,61 +678,54 @@ function CheckInFeatureCard() {
 function SaveMySoulFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
+      className="grid min-h-[126px] grid-cols-[minmax(0,1fr)_112px] items-center gap-4 px-4 py-4 sm:min-h-[132px] sm:grid-cols-[minmax(0,1fr)_128px]"
       data-testid="location-use-case-sos"
       data-one-use-case-card
       data-one-feature-card="sms"
+      data-one-feature-row
     >
-      <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
-        <span
-          className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[#55252a] dark:text-[#ff9a98]"
-          data-one-use-case-tag
+      <div className="flex min-w-0 flex-col gap-2" data-one-feature-copy>
+        <h2
+          className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em] text-[#111823] dark:text-white"
+          data-one-feature-title
         >
-          SMS &middot; Save My Soul
-        </span>
-        <TwoLineFeatureTitle
-          lines={["Need help but", "can\u2019t talk?"]}
-          className="text-[19px]"
-        />
+          Need help but can’t talk?
+        </h2>
         <p
-          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#c2aeb2]"
+          className="text-[15px] font-normal leading-[20px] text-[#6e737d] dark:text-[#c2aeb2]"
           data-one-feature-body
         >
-          Send an SMS with your location in seconds.
+          Hold Save My Soul to alert your Circle.
         </p>
       </div>
       <div
-        className="relative z-10 flex min-h-0 flex-1 items-center justify-center"
-        data-one-feature-art-region
+        className="flex justify-end"
+        data-one-use-case-art
+        aria-hidden="true"
       >
         <div
-          className="relative flex h-[108px] w-[108px] shrink-0 items-center justify-center"
+          className="relative flex h-[96px] w-[112px] items-center justify-center rounded-[18px] bg-[#fff1f1] dark:bg-[#271416]"
+          data-one-feature-art-region
           data-one-sms-radar-clearance
-          aria-hidden="true"
         >
           <span
-            className="relative flex h-20 w-20 items-center justify-center"
+            className="relative flex h-16 w-16 items-center justify-center"
             data-one-sms-radar
           >
             <span
               data-one-onboarding-motion
               data-one-sms-radar-ring
-              className="absolute inset-0 rounded-full border-2 border-[#ef302f]/30 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite]"
+              className="absolute inset-0 rounded-full border-2 border-[#ff3b30]/25 bg-[#ff3b30]/[0.08] [animation:oneSmsRadar_2.4s_ease-out_infinite]"
             />
             <span
               data-one-onboarding-motion
               data-one-sms-radar-ring
-              className="absolute inset-[10px] rounded-full border-2 border-[#ef302f]/25 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
+              className="absolute inset-[9px] rounded-full border-2 border-[#ff3b30]/20 bg-[#ff3b30]/[0.08] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
             />
             <span
               data-one-sms-core
-              className="relative z-10 flex h-14 w-14 items-center justify-center text-[15px] font-bold text-white"
+              className="relative z-10 flex h-11 w-11 items-center justify-center rounded-full bg-[#ff3b30] text-[13px] font-bold text-white shadow-[0_8px_18px_rgba(255,59,48,0.28)]"
             >
-              <span
-                data-one-onboarding-motion
-                data-one-sms-core-pulse
-                className="absolute inset-0 rounded-full bg-[#ef302f] shadow-[0_12px_22px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
-              />
               <span className="relative z-10" data-one-sms-label>
                 SMS
               </span>
@@ -844,9 +733,6 @@ function SaveMySoulFeatureCard() {
           </span>
         </div>
       </div>
-      <FeatureStatusRow className="px-3">
-        Alerted 3 contacts
-      </FeatureStatusRow>
     </article>
   );
 }
@@ -899,7 +785,7 @@ function FeaturesScreen({
       data-one-feature-screen
     >
       <OnboardingNavigation
-        floating
+        plain
         onBack={onBack}
         onSkip={onSkip}
         disabled={leaving}
@@ -910,29 +796,29 @@ function FeaturesScreen({
            the viewport edges while everything else stayed in the column. Passed
            here rather than inside OnboardingNavigation: the welcome screen's
            copy of that nav is already railed at 560 by its parent. */
-        className="mx-auto w-full max-w-[1040px]"
+        className="mx-auto w-full max-w-[430px]"
       />
       <div
-        className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         data-one-feature-scroll
       >
-        <header className="mx-auto mt-3 w-full max-w-[700px] shrink-0" data-one-feature-header>
+        <header className="mx-auto mt-5 w-full max-w-[430px] shrink-0" data-one-feature-header>
           <h1
             className="ui-text-agent-title text-[#111823] dark:!text-[#f6f8fc]"
             data-one-feature-heading
           >
-            Keep your people updated.
+            <span className="block">When plans change,</span>
+            <span className="block">stay close.</span>
           </h1>
         </header>
-        <div className="mx-auto mt-6 grid w-full max-w-[700px] shrink-0 gap-4" data-one-feature-grid>
+        <div
+          className="mx-auto mt-5 w-full max-w-[430px] shrink-0 overflow-hidden rounded-[22px] bg-white ring-1 ring-black/[0.05] dark:bg-[#101721] dark:ring-white/[0.07]"
+          data-one-feature-grid
+          data-one-story-container
+        >
           <ShareLocationFeatureCard />
-          <div
-            className="grid grid-cols-2 items-start gap-4"
-            data-one-feature-lower-grid
-          >
-            <CheckInFeatureCard />
-            <SaveMySoulFeatureCard />
-          </div>
+          <CheckInFeatureCard />
+          <SaveMySoulFeatureCard />
         </div>
         <p
           className={cn(
@@ -944,12 +830,12 @@ function FeaturesScreen({
           {status}
         </p>
       </div>
-      <div className="mx-auto w-full max-w-[560px] shrink-0 pt-5" data-one-feature-cta>
+      <div className="mx-auto w-full max-w-[430px] shrink-0 pt-5" data-one-feature-cta>
         <PrimaryButton
           onClick={onContinue}
           busy={permissionBusy}
           disabled={permissionBusy}
-          className="h-[58px] min-h-[58px]"
+          className="h-[52px] min-h-[52px]"
         >
           {locationPreparationRetry ? "Try again" : "Continue"}
         </PrimaryButton>
@@ -960,507 +846,47 @@ function FeaturesScreen({
           80% { opacity: 0; }
           100% { transform: scale(1.35); opacity: 0; }
         }
-        @keyframes oneSmsCore {
-          0%, 100% { transform: scale(1); box-shadow: 0 14px 26px rgba(239,48,47,0.34); }
-          50% { transform: scale(1.06); box-shadow: 0 18px 34px rgba(239,48,47,0.46); }
-        }
         @media (prefers-reduced-motion: reduce) {
           [data-one-onboarding-motion] { animation: none !important; }
         }
         [data-one-feature-heading] {
-          --type-agent-title-size: 34px;
+          --type-agent-title-size: 31px;
           --type-agent-title-line: 1.08;
         }
-        [data-one-feature-copy] {
-          --one-feature-copy-gap: 12px;
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: var(--one-feature-copy-gap);
+        [data-one-feature-row] + [data-one-feature-row] {
+          border-top: 1px solid rgba(60, 60, 67, 0.11);
         }
-        @media (max-width: 431px), (min-width: 432px) and (max-height: 920px) {
-          [data-one-feature-scroll] { flex: 1 1 auto; }
-          [data-one-feature-grid] {
-            flex: 0 0 auto;
-            min-height: 0;
-            grid-template-rows: auto;
-          }
-          [data-one-feature-lower-grid] {
-            height: auto;
-            min-height: 0;
-            align-items: stretch;
-          }
-          [data-one-feature-card] {
-            height: auto;
-            min-height: 0;
-          }
+        .dark [data-one-feature-row] + [data-one-feature-row] {
+          border-color: rgba(255, 255, 255, 0.09);
         }
-        @media (max-height: 780px) {
-          [data-one-feature-screen] {
-            padding-top: max(var(--app-safe-area-top-effective, 0px), 8px);
-            padding-bottom: max(env(safe-area-inset-bottom, 0px), 10px);
-          }
-          [data-one-onboarding-navigation] { height: 52px; }
-          [data-one-feature-header] { margin-top: 8px; }
-          [data-one-feature-heading] { --type-agent-title-size: 32px; }
-          [data-one-feature-subtitle] { margin-top: 9px; font-size: 15px; line-height: 21px; }
-          [data-one-feature-grid] { margin-top: 14px; gap: 12px; }
-          [data-one-feature-lower-grid] { gap: 12px; }
-          [data-one-feature-cta] { padding-top: 14px; }
-          [data-one-feature-cta] button { min-height: 50px; height: 50px; }
-        }
-        @media (max-height: 680px) {
-          [data-one-feature-screen] {
-            padding-top: max(var(--app-safe-area-top-effective, 0px), 6px);
-            padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
-          }
-          [data-one-onboarding-navigation] { height: 44px; }
-          [data-one-feature-header] { margin-top: 4px; }
-          [data-one-feature-heading] { --type-agent-title-size: 30px; }
-          [data-one-feature-subtitle] {
-            margin-top: 6px;
-            font-size: 13px;
-            line-height: 17px;
-            white-space: nowrap;
-          }
-          [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
-          [data-one-feature-lower-grid] { gap: 8px; }
-          [data-one-feature-cta] { padding-top: 8px; }
-          [data-one-feature-cta] button { min-height: 46px; height: 46px; }
-        }
-        @media (max-width: 431px) and (min-height: 820px) {
-          [data-one-feature-header] { margin-top: 16px; }
-          [data-one-feature-grid] { margin-top: 26px; gap: 14px; }
-        }
-        @media (max-width: 431px) {
+        @media (max-width: 430px) {
           [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
-          [data-one-feature-heading] { --type-agent-title-size: 34px; }
-          [data-one-feature-subtitle] { font-size: 15px; line-height: 22px; }
-          [data-one-feature-grid] {
-            gap: 12px;
-          }
-          [data-one-feature-lower-grid] {
-            gap: 12px;
-          }
-          [data-one-feature-card] {
-            border-radius: 22px;
-          }
-        }
-        @media (min-width: 768px) {
-          [data-one-feature-scroll] {
-            align-items: center;
-            flex: 0 0 auto;
-            padding-right: 0;
-          }
-          [data-one-feature-header] {
-            margin-top: 18px;
-            max-width: 1040px;
-          }
-          [data-one-feature-heading] {
-            --type-agent-title-size: 34px;
-          }
-          [data-one-feature-grid] {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            grid-template-areas:
-              "share checkin sms";
-            align-items: stretch;
-            width: 100%;
-            max-width: 1040px;
-            margin-top: 24px;
-            gap: 18px;
-          }
-          [data-one-feature-lower-grid] {
-            display: contents;
-          }
-          [data-one-feature-card] {
-            min-height: 0;
-          }
-          [data-one-feature-card="share"] {
-            grid-area: share;
-            aspect-ratio: auto;
-            min-height: 390px;
-          }
-          [data-one-feature-card="checkin"] {
-            grid-area: checkin;
-          }
-          [data-one-feature-card="sms"] {
-            grid-area: sms;
-          }
-          [data-one-feature-card="checkin"],
-          [data-one-feature-card="sms"] {
-            aspect-ratio: auto;
-            min-height: 390px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-copy] {
-            width: auto;
-            padding: 20px 18px 0;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-art] {
-            inset: auto 0 42px 0;
-            width: 100%;
-            height: 50%;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title],
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: 20px;
-            line-height: 1.14;
-          }
-          [data-one-feature-card="share"] [data-one-feature-body],
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 15px;
-            line-height: 1.35;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] {
-            width: auto;
-            padding: 20px 18px 0;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-art] {
-            inset: auto 0 42px 0;
-            width: 100%;
-            height: 54%;
-          }
-          [data-one-feature-card="checkin"] [data-one-checkin-art] {
-            left: 50%;
-            width: 42%;
-          }
-          [data-one-feature-card="sms"] [data-one-feature-art-region] {
-            position: relative;
-            inset: auto;
-            align-items: center;
-            justify-content: center;
-          }
-          [data-one-feature-card="sms"] [data-one-sms-radar-clearance] {
-            width: 108px;
-            height: 108px;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-status-row],
-          [data-one-feature-card="sms"] [data-one-feature-status-row] {
-            padding-right: 18px;
-            padding-left: 18px;
-          }
-          [data-one-feature-cta] {
-            max-width: 430px;
-            padding-top: 22px;
-            padding-bottom: 4px;
-          }
         }
         @media (max-width: 380px) {
           [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
         }
         @media (max-width: 340px) {
           [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
-          [data-one-feature-heading] { --type-agent-title-size: 31px; }
-          [data-one-feature-grid] { gap: 10px; }
-          [data-one-feature-lower-grid] { gap: 8px; }
-          [data-one-feature-card] { border-radius: 20px; }
-        }
-        @media (max-width: 300px) {
-          [data-one-feature-lower-grid] { grid-template-columns: minmax(0, 1fr); }
-          [data-one-feature-card="checkin"], [data-one-feature-card="sms"] { aspect-ratio: 1.15 / 1; }
-          [data-one-feature-title] { font-size: 16px; }
-          [data-one-feature-body] { font-size: 11px; }
-          [data-one-use-case-alert] { font-size: 9px; }
-        }
-        @container (max-width: 420px) {
-          [data-one-feature-card="share"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 8px;
-            width: 60%;
-            padding: 16px 14px 0;
+          [data-one-feature-heading] { --type-agent-title-size: 29px; }
+          [data-one-feature-row] {
+            grid-template-columns: minmax(0, 1fr) 92px;
+            gap: 12px;
+            padding: 14px;
           }
-          [data-one-feature-card="share"] [data-one-use-case-tag] {
-            padding: 3px 9px;
-            font-size: 10px;
+          [data-one-feature-title] {
+            font-size: 16px;
+            line-height: 21px;
           }
-          [data-one-feature-card="share"] [data-one-feature-title] {
-            font-size: 19px;
-            line-height: 1.12;
-          }
-          [data-one-feature-card="share"] [data-one-feature-body] {
+          [data-one-feature-body] {
             font-size: 14px;
-            line-height: 1.35;
+            line-height: 19px;
           }
-          [data-one-feature-card="share"] [data-one-use-case-alert] {
-            height: 28px;
-            padding-left: 7px;
-            padding-right: 7px;
-            font-size: 9px;
+          [data-one-use-case-art] > div {
+            width: 92px;
+            height: 86px;
           }
-          [data-one-feature-card="share"] [data-one-feature-status-row] {
-            padding-right: 14px;
-            padding-left: 14px;
-          }
-        }
-        @container (max-width: 310px) {
-          [data-one-feature-card="share"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 6px;
-            padding: 13px 11px 0;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-tag] {
-            padding: 3px 7px;
-            font-size: 10px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title] {
-            font-size: 17px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-body] {
-            font-size: 12px;
-            line-height: 1.3;
-          }
-          [data-one-feature-card="share"] [data-one-feature-status-row] {
-            padding-bottom: 9px;
-            padding-right: 11px;
-            padding-left: 11px;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-alert] {
-            height: 24px;
-            gap: 3px;
-            padding-left: 5px;
-            padding-right: 5px;
-            font-size: 9px;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-alert] > span:first-child {
-            width: 12px;
-            height: 12px;
-          }
-        }
-        @container (max-width: 220px) {
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 6px;
-            padding-top: 10px;
-            padding-left: 12px;
-            padding-right: 10px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-tag],
-          [data-one-feature-card="sms"] [data-one-use-case-tag] {
-            padding: 3px 9px;
-            font-size: 10px;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: clamp(15px, calc(5vw - 4.5px), 17px);
-            line-height: 1.12;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title] {
-            letter-spacing: -0.025em;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 13.5px;
-            line-height: 1.3;
-          }
-          [data-one-checkin-pin] {
-            top: 14px;
-            bottom: auto;
-          }
-          [data-one-feature-card="sms"] [data-one-feature-art-region] {
-            align-items: flex-start;
-            padding-top: 12px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-alert],
-          [data-one-feature-card="sms"] [data-one-use-case-alert] {
-            height: 28px;
-            padding-left: 7px;
-            padding-right: 7px;
-            font-size: 9px;
-          }
-          [data-one-sms-radar-clearance] { width: 81px; height: 81px; }
-          [data-one-sms-radar] { width: 60px; height: 60px; }
-          [data-one-sms-core] { width: 44px; height: 44px; font-size: 13px; }
-        }
-        @container (max-width: 165px) {
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 4px;
-            padding-top: 8px;
-            padding-left: 7px;
-            padding-right: 5px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-tag],
-          [data-one-feature-card="sms"] [data-one-use-case-tag] {
-            padding: 3px 7px;
-            font-size: 10px;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: clamp(14px, 9.5cqw, 15px);
-            line-height: 1.08;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title] {
-            letter-spacing: -0.05em;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 12px;
-            line-height: 1.25;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-status-row],
-          [data-one-feature-card="sms"] [data-one-feature-status-row] {
-            padding-right: 6px;
-            padding-bottom: 8px;
-            padding-left: 6px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-alert],
-          [data-one-feature-card="sms"] [data-one-use-case-alert] {
-            height: 24px;
-            gap: 3px;
-            padding-left: 4px;
-            padding-right: 4px;
-            font-size: 9px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-alert] > span:first-child,
-          [data-one-feature-card="sms"] [data-one-use-case-alert] > span:first-child {
-            width: 12px;
-            height: 12px;
-          }
-          [data-one-checkin-pin] { top: 22px; bottom: auto; width: 24px; height: 24px; }
-          [data-one-checkin-art] { width: 52%; }
-          [data-one-sms-radar-clearance] { width: 54px; height: 54px; }
-          [data-one-sms-radar] { width: 40px; height: 40px; }
-          [data-one-sms-core] { width: 32px; height: 32px; font-size: 13px; }
-        }
-        @media (max-width: 431px) and (max-height: 680px) {
-          [data-one-feature-heading] { --type-agent-title-size: 30px; }
-          [data-one-feature-subtitle] {
-            margin-top: 6px;
-            font-size: 13px;
-            line-height: 17px;
-            white-space: nowrap;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 17px; }
-          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 12px; }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 15px; }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11.5px; }
-          [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
-          [data-one-feature-lower-grid] { gap: 8px; }
-          [data-one-feature-cta] { padding-top: 8px; }
-          [data-one-feature-cta] button { min-height: 46px; height: 46px; }
-        }
-        @media (max-width: 340px) and (max-height: 680px) {
-          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 16px; }
-          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 11px; }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 14px; }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11px; }
-        }
-        @media (max-width: 431px) and (max-height: 560px) {
-          [data-one-feature-screen] {
-            padding-top: max(var(--app-safe-area-top-effective, 0px), 4px);
-            padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px);
-          }
-          [data-one-onboarding-navigation] { height: 38px; }
-          [data-one-feature-header] { margin-top: 2px; }
-          [data-one-feature-heading] { --type-agent-title-size: 28px; }
-          [data-one-feature-subtitle] {
-            margin-top: 4px;
-            font-size: 11.5px;
-            line-height: 15px;
-          }
-          [data-one-feature-grid] {
-            grid-template-rows: auto;
-            margin-top: 6px;
-            gap: 6px;
-          }
-          [data-one-feature-lower-grid] { gap: 6px; }
-          [data-one-feature-cta] { padding-top: 6px; }
-          [data-one-feature-cta] button { min-height: 42px; height: 42px; }
-          [data-one-feature-card="share"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 5px;
-            width: 60%;
-            padding: 9px 9px 0;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-tag] {
-            padding: 2px 7px;
-            font-size: 9px;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title] {
-            font-size: 15.5px;
-            line-height: 1.08;
-          }
-          [data-one-feature-card="share"] [data-one-feature-body] {
-            font-size: 10px;
-            line-height: 1.2;
-          }
-          [data-one-feature-card="share"] [data-one-feature-status-row] {
-            padding-right: 9px;
-            padding-bottom: 6px;
-            padding-left: 9px;
-          }
-          [data-one-share-avatar="2"] { left: 20%; }
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] {
-            --one-feature-copy-gap: 4px;
-            padding-top: 7px;
-            padding-left: 6px;
-            padding-right: 5px;
-          }
-          [data-one-feature-card="checkin"] [data-one-use-case-tag],
-          [data-one-feature-card="sms"] [data-one-use-case-tag] {
-            padding: 2px 6px;
-            font-size: 9px;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: 13px;
-            line-height: 1.08;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 9.5px;
-            line-height: 1.2;
-          }
-          [data-one-feature-card="checkin"] [data-one-feature-status-row],
-          [data-one-feature-card="sms"] [data-one-feature-status-row] {
-            padding-right: 5px;
-            padding-bottom: 6px;
-            padding-left: 5px;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-alert],
-          [data-one-feature-card="checkin"] [data-one-use-case-alert],
-          [data-one-feature-card="sms"] [data-one-use-case-alert] {
-            height: 22px;
-            padding-right: 4px;
-            padding-left: 4px;
-            font-size: 8px;
-          }
-          [data-one-feature-card="share"] [data-one-use-case-alert] > span:first-child,
-          [data-one-feature-card="checkin"] [data-one-use-case-alert] > span:first-child,
-          [data-one-feature-card="sms"] [data-one-use-case-alert] > span:first-child {
-            width: 11px;
-            height: 11px;
-          }
-          [data-one-checkin-pin] { top: 8px; }
-          [data-one-checkin-art] { width: 44%; }
-          [data-one-sms-radar-clearance] { width: 40px; height: 40px; }
-          [data-one-sms-radar] { width: 32px; height: 32px; }
-          [data-one-sms-core] { width: 28px; height: 28px; font-size: 11px; }
-        }
-        @media (min-width: 768px) {
-          [data-one-feature-card="share"] [data-one-feature-copy],
-          [data-one-feature-card="checkin"] [data-one-feature-copy],
-          [data-one-feature-card="sms"] [data-one-feature-copy] {
-            width: auto;
-            padding: 20px 18px 0;
-          }
-          [data-one-feature-card="share"] [data-one-feature-title],
-          [data-one-feature-card="checkin"] [data-one-feature-title],
-          [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: 20px;
-            line-height: 1.14;
-          }
-          [data-one-feature-card="share"] [data-one-feature-body],
-          [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 15px;
-            line-height: 1.35;
-          }
+          [data-one-feature-cta] { padding-top: 14px; }
+          [data-one-feature-cta] button { min-height: 50px; height: 50px; }
         }
       `}</style>
     </div>
@@ -2585,12 +2011,10 @@ export function OneLocationOnboardingFlow({
 
   return (
     <main
-      // z-560, above the agent bar's elevated z-540. The bar normally sits at
-      // z-118 and onboarding covered it, but it raises itself to 540 for a
-      // pending confirmation or an interactive voice layer -- at which point it
-      // tied with this overlay and won on DOM order, drawing "Talk to One"
-      // across the primary CTA. Onboarding is modal; nothing belongs over it.
-      className="fixed inset-0 z-[560] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] [--type-agent-title-size:34px] dark:text-[#f4f7fb] sm:[--type-agent-title-size:44px]"
+      // Onboarding is modal; nothing from the app shell belongs over it. Keep
+      // it above elevated Talk to One / bottom-nav states without touching those
+      // global controls.
+      className="fixed inset-0 z-[9000] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] [--type-agent-title-size:34px] dark:text-[#f4f7fb] sm:[--type-agent-title-size:44px]"
       data-one-onboarding-design="location-agent-v2"
       data-no-route-swipe
       data-testid="one-location-onboarding"

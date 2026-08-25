@@ -2374,6 +2374,20 @@ html.native-ios [data-testid="one-location-onboarding"] {
   );
 }
 
+/* Location onboarding is a focused full-screen flow. Suppress persistent app
+   chrome while it is mounted so the primary CTA is never visually covered. */
+html:has([data-testid="one-location-onboarding"]) [data-app-bottom-nav],
+html:has([data-testid="one-location-onboarding"]) [data-app-bottom-shell],
+html:has([data-testid="one-location-onboarding"]) [data-agent-bar-shell],
+html:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass],
+body:has([data-testid="one-location-onboarding"]) [data-app-bottom-nav],
+body:has([data-testid="one-location-onboarding"]) [data-app-bottom-shell],
+body:has([data-testid="one-location-onboarding"]) [data-agent-bar-shell],
+body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass] {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 /* Theme-aware gradient text - follows the app accent family */
 .hushh-gradient-text {
   background-image: linear-gradient(
