@@ -150,7 +150,6 @@ import { SavedLocationsSection } from "@/components/one-location/saved-locations
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
-import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
 import { ContactAvatar } from "@/components/one-location/redesign/contact-picker/atoms";
@@ -837,6 +836,15 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
 // touch-friendly scrollbar keeps it unobtrusive on mobile.
 const PEOPLE_LIST_SCROLL_CLASS =
   "space-y-5 overflow-visible md:max-h-[420px] md:space-y-3 md:overflow-y-auto md:overscroll-contain md:pr-1 md:[scrollbar-width:thin] md:[&::-webkit-scrollbar]:w-1.5 md:[&::-webkit-scrollbar-track]:bg-transparent md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-black/15 dark:md:[&::-webkit-scrollbar-thumb]:bg-white/20";
+const FLOW_STEP_ONE_CLASSNAME =
+  "mx-auto w-full max-w-[640px] space-y-5 pb-[calc(env(safe-area-inset-bottom)+1rem)]";
+const STICKY_FLOW_ACTION_CLASSNAME =
+  "sticky bottom-0 z-20 -mx-1 bg-[linear-gradient(to_bottom,transparent,rgba(242,242,247,0.92)_24%,rgba(242,242,247,0.98))] px-1 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 dark:bg-[linear-gradient(to_bottom,transparent,color-mix(in_srgb,var(--background)_92%,transparent)_24%,var(--background))]";
+
+function selectedCountCopy(count: number, emptyCopy: string) {
+  if (count <= 0) return emptyCopy;
+  return `${count} selected`;
+}
 
 export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const router = useRouter();
@@ -4157,11 +4165,14 @@ function ShareFlow({
 
   // step === "person"
   return (
-    <div className="mx-auto w-full max-w-[640px] space-y-6 pb-[calc(var(--app-bottom-content-clearance,7rem)+9rem)]">
+    <div className={FLOW_STEP_ONE_CLASSNAME}>
       <TaskFlowHeader
         eyebrow="Step 1 of 2"
         title="Who can see you?"
-        description="Choose a Circle or contact."
+        description={selectedCountCopy(
+          selectedReady.length,
+          "Choose a Circle or contact.",
+        )}
       />
       {/* Trusted is not a group you share with.
        *
@@ -4264,7 +4275,6 @@ function ShareFlow({
           ) : null}
           {notSharing.length ? (
             <SettingsGroup
-              title="People"
               testId="one-location-share-people"
               separatorInset
               className="[&>div:first-child]:mt-0"
@@ -4291,14 +4301,7 @@ function ShareFlow({
           the confirm step stays reachable when sharing is blocked so the reason
           is visible on a disabled "Start sharing" rather than a button that
           silently does nothing here. */}
-      <div className="mt-6 rounded-[22px] border border-white/65 bg-white/80 p-2 shadow-[0_10px_28px_rgba(15,23,42,0.09)] backdrop-blur-xl supports-[not(backdrop-filter:blur(1px))]:bg-white dark:border-white/10 dark:bg-black/55">
-        <div className="mb-2 flex min-h-5 items-center justify-between px-1 text-[13px] leading-[18px] text-muted-foreground">
-          {selectedReady.length ? (
-            <span>{selectedReady.length} selected</span>
-          ) : (
-            <span>Choose who can see you.</span>
-          )}
-        </div>
+      <div className={STICKY_FLOW_ACTION_CLASSNAME}>
         <Button
           onClick={() => setStep("details")}
           disabled={!selectedReady.length}
@@ -4903,11 +4906,14 @@ function AskFlow({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[640px] space-y-6 pb-[calc(var(--app-bottom-content-clearance,7rem)+9rem)]">
+    <div className={FLOW_STEP_ONE_CLASSNAME}>
       <TaskFlowHeader
         eyebrow="Step 1 of 2"
         title="Request location"
-        description="Choose who to ask."
+        description={selectedCountCopy(
+          selectedRequestRecipients.length,
+          "Choose one or more people.",
+        )}
       />
 
       {justSent ? (
@@ -4923,8 +4929,11 @@ function AskFlow({
       ) : null}
 
       <section className="space-y-3">
-        <AppSectionLabel as="h2">People</AppSectionLabel>
-        <PersonSearchInput value={searchDraft} onChange={setSearchDraft} />
+        <PersonSearchInput
+          value={searchDraft}
+          onChange={setSearchDraft}
+          placeholder="Search people"
+        />
         {filtered.length ? (
           <VirtualContactList
             items={rosterRecipientRows}
@@ -5047,23 +5056,12 @@ function AskFlow({
           data-testid="one-location-ask-manage-connections"
           className="mt-2 inline-flex min-h-11 items-center gap-1 rounded-full px-1 text-[15px] font-medium text-[color:var(--app-accent)]"
         >
-          Don&apos;t see someone? Manage connections
+          Manage connections
           <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
         </Link>
       </section>
 
-      <div className="rounded-[22px] border border-white/65 bg-white/80 p-2 shadow-[0_10px_28px_rgba(15,23,42,0.09)] backdrop-blur-xl supports-[not(backdrop-filter:blur(1px))]:bg-white dark:border-white/10 dark:bg-black/55">
-        <div className="mb-2 flex min-h-5 items-center justify-between px-1 text-[13px] leading-[18px] text-muted-foreground">
-          {selectedRequestRecipients.length ? (
-            <span>
-              {selectedRequestRecipients.length === 1
-                ? "1 selected"
-                : `${selectedRequestRecipients.length} selected`}
-            </span>
-          ) : (
-            <span>Choose who to ask.</span>
-          )}
-        </div>
+      <div className={STICKY_FLOW_ACTION_CLASSNAME}>
         <Button
           onClick={() => setStep("details")}
           disabled={!selectedRequestRecipients.length}
