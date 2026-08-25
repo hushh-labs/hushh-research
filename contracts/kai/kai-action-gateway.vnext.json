@@ -2494,7 +2494,7 @@
         "add",
         "person"
       ],
-      "meaning": "Sends a no-scope connection request to one exact directory match after the person confirms it by voice. It never guesses between people with the same or a similar name. Say the name and this handles the rest hands-free: it searches the directory and matches the name itself. Call it directly the moment a name is spoken (e.g. 'connect with Sarah', 'send a request to Priya Singh') -- there is no need to open or run search_people first, and the person never has to type anything; if more than one match shares that name, a tap-to-pick card settles it, not typing.",
+      "meaning": "Sends a no-scope connection request to one or more exact directory matches after the person confirms it by voice -- multiple people can be named in one turn, e.g. 'Alice and Bob'. It never guesses between people with the same or a similar name. Say the name and this handles the rest hands-free: it searches the directory and matches the name itself. Call it directly the moment a name is spoken (e.g. 'connect with Sarah', 'send a request to Priya Singh') -- there is no need to open or run search_people first, and the person never has to type anything; if more than one match shares a spoken name, a tap-to-pick card settles it, not typing.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -2555,12 +2555,12 @@
             "prompt": "Who should receive the connection request?",
             "required": true,
             "slot": "person",
-            "resolver": "spoken_person_name"
+            "resolver": "spoken_person_name_list"
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name"
+          "person": "spoken_person_name_list"
         },
         "workflow_steps": [
           {

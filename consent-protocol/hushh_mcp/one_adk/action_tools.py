@@ -60,9 +60,11 @@ from hushh_mcp.services.spoken_name_resolver import (
     UnresolvedPersonName,
     ambiguous_match_names,
     join_names_for_speech,
+    match_by_name,
     match_circle_by_name,
     normalize_spoken_name,
     resolve_spoken_names,
+    split_spoken_names,
 )
 
 logger = logging.getLogger(__name__)
@@ -291,8 +293,14 @@ BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
         "location.rename_circle",
         "connect.remove_connection",
         "connect.cancel_request",
+        "connect.send_request",
     }
 )
+
+# Directory search shape connect.send_request's resolution mirrors exactly --
+# app/connect/page-client.tsx's own DIRECTORY_RESOLVE_MAX_PAGES/_PAGE_SIZE.
+_DIRECTORY_RESOLVE_MAX_PAGES = 5
+_DIRECTORY_RESOLVE_PAGE_SIZE = 50
 
 # Backend-direct errors that carry a spoken-safe .message, across the three
 # service modules these actions mutate through.
@@ -681,9 +689,103 @@ async def _execute_backend_direct_mutation(
         verb = "Approved" if action_id == "location.approve_request" else "Declined"
         return f"{verb} {join_names_for_speech(settled_names)}'s request.{note}"
 
-    if action_id in ("connect.remove_connection", "connect.cancel_request"):
+    if action_id in ("connect.remove_connection", "connect.cancel_request", "connect.send_request"):
         connections_service = ConnectionsService()
         raw_people = str(slots.get("person") or "").strip()
+        if action_id == "connect.send_request":
+            if not raw_people:
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_PERSON_REQUIRED", "Say who you want to connect with."
+                )
+
+            def _directory_name(c: dict[str, Any]) -> str:
+                return str(c.get("displayName") or "")
+
+            sent_names: list[str] = []
+            already_connected_names: list[str] = []
+            blocked_notes: list[str] = []
+            not_found_names: list[str] = []
+            ambiguous_entry: tuple[str, list[dict[str, Any]]] | None = None
+
+            for spoken_name in split_spoken_names(raw_people):
+                search_term = max(spoken_name.split() or [spoken_name], key=len)
+                directory_candidates: list[dict[str, Any]] = []
+                page = 1
+                while page <= _DIRECTORY_RESOLVE_MAX_PAGES:
+                    result = connections_service.search_directory(
+                        user_id, query=search_term, page=page, limit=_DIRECTORY_RESOLVE_PAGE_SIZE
+                    )
+                    directory_candidates.extend(result.get("items") or [])
+                    if not result.get("hasMore"):
+                        break
+                    page += 1
+                matches = match_by_name(directory_candidates, spoken_name, _directory_name)
+                if not matches:
+                    not_found_names.append(spoken_name)
+                    continue
+                if len(matches) > 1:
+                    if ambiguous_entry is None:
+                        ambiguous_entry = (spoken_name, matches)
+                    continue
+                person = matches[0]
+                display_name = _directory_name(person) or spoken_name
+                relationship = str(person.get("relationship") or "none")
+                # The backend already distinguishes these four states; asking
+                # to connect with someone already connected is success (the
+                # thing they wanted is already true), not a refusal.
+                if relationship == "connected":
+                    already_connected_names.append(display_name)
+                elif relationship == "pending_outgoing":
+                    blocked_notes.append(f"already asked {display_name}, waiting on them")
+                elif relationship == "pending_incoming":
+                    blocked_notes.append(
+                        f"{display_name} already asked you -- accept theirs instead"
+                    )
+                elif relationship != "none":
+                    blocked_notes.append(f"a new request isn't available for {display_name}")
+                else:
+                    connections_service.create_request(
+                        user_id, addressee_user_id=str(person.get("userId") or "")
+                    )
+                    sent_names.append(display_name)
+
+            if not sent_names and not already_connected_names:
+                if ambiguous_entry is not None:
+                    spoken_name, matches = ambiguous_entry
+                    names = ambiguous_match_names(matches, _directory_name)
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_AMBIGUOUS",
+                        f'More than one person matches "{spoken_name}": {names}. Say which one.',
+                    )
+                if blocked_notes:
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_BLOCKED", "; ".join(blocked_notes).capitalize() + "."
+                    )
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_NOT_FOUND",
+                    f"I could not find {join_names_for_speech(not_found_names) or 'that person'} "
+                    "in Connect.",
+                )
+
+            parts: list[str] = []
+            if sent_names:
+                parts.append(f"Sent a connection request to {join_names_for_speech(sent_names)}.")
+            if already_connected_names:
+                parts.append(
+                    f"Already connected to {join_names_for_speech(already_connected_names)}, "
+                    "so nothing to send there."
+                )
+            extra = list(blocked_notes)
+            if not_found_names:
+                extra.append(f"could not find {join_names_for_speech(not_found_names)}")
+            if ambiguous_entry is not None:
+                spoken_name, matches = ambiguous_entry
+                names = ambiguous_match_names(matches, _directory_name)
+                extra.append(f'more than one match for "{spoken_name}" ({names})')
+            if extra:
+                parts.append("Also: " + "; ".join(extra) + ".")
+            return " ".join(parts)
+
         if action_id == "connect.remove_connection":
             connections = connections_service.list_connections(user_id=user_id)
             name_of = lambda c: str(c.get("displayName") or "")  # noqa: E731
