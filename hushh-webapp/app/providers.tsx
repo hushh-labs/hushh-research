@@ -158,9 +158,11 @@ function AppShellFrame({ children }: ProvidersProps) {
       locationAction === "sms-contacts" ||
       locationAction === "create-circle" ||
       locationAction === "circle-detail");
+  const focusedSosChromeFlow =
+    shellPathname === ROUTES.ONE_LOCATION && locationAction === "sos";
   // Focused query-scoped Location flows clear the bottom command/navigation
   // stack while keeping the top shell route context.
-  const bottomChromeHidden = hidesPersistentChrome;
+  const bottomChromeHidden = hidesPersistentChrome || focusedSosChromeFlow;
   const effectiveHideCommandBar =
     chromeState.hideCommandBar || focusedLocationChromeFlow;
   const topShellRouteProfile = useMemo(() => {
@@ -561,7 +563,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                           <AppTopShell model={topShellModel} />
                         </Suspense>
                       ) : null}
-                      {!hidesPersistentChrome ? (
+                      {!hidesPersistentChrome && !effectiveHideCommandBar ? (
                         <Suspense fallback={null}>
                           <KaiCommandBarGlobal />
                         </Suspense>
