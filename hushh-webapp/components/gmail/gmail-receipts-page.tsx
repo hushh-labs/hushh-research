@@ -559,6 +559,7 @@ export default function GmailReceiptsPage({
     gmail.status?.connected_at,
   );
   const loadingStatus = gmail.loadingStatus;
+  const oauthCompletionPending = gmail.oauthCompletionPending;
   const showReceiptPlaceholders =
     isConnected &&
     hasSealedReceiptAccess &&
@@ -1499,10 +1500,14 @@ export default function GmailReceiptsPage({
                     Gmail
                   </p>
                   <h2 className="text-lg font-semibold tracking-tight text-foreground">
-                    Checking your Gmail status
+                    {oauthCompletionPending
+                      ? "Finishing Gmail connection"
+                      : "Checking your Gmail status"}
                   </h2>
                   <p className="text-sm text-muted-foreground">
-                    Your inbox and receipts will appear here as they are ready.
+                    {oauthCompletionPending
+                      ? "Your Gmail page is ready. Inbox details and receipts will appear here in the background."
+                      : "Your inbox and receipts will appear here as they are ready."}
                   </p>
                 </div>
                 <div aria-hidden="true" className="space-y-2 pt-1">
@@ -1557,7 +1562,7 @@ export default function GmailReceiptsPage({
                 behind for a bit.
               </p>
             ) : null}
-            {!isConnected ? (
+            {!isConnected && !loadingStatus ? (
               <div className="flex flex-col items-center justify-center gap-2 pt-2 sm:flex-row">
                 <Button
                   onClick={() => void handleConnectGmail()}

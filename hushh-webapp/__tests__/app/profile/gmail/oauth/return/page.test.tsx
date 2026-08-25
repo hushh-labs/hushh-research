@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
     completeConnect: vi.fn(),
     getStatus: vi.fn(),
   },
+  beginGmailOAuthCompletion: vi.fn(),
+  failGmailOAuthCompletion: vi.fn(),
+  primeConnectorStatus: vi.fn(),
   syncOnboardingJourney: vi.fn(),
   bootstrapState: vi.fn(),
 }));
@@ -39,7 +42,9 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
 }));
 
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
-  primeConnectorStatus: vi.fn(),
+  beginGmailOAuthCompletion: mocks.beginGmailOAuthCompletion,
+  failGmailOAuthCompletion: mocks.failGmailOAuthCompletion,
+  primeConnectorStatus: mocks.primeConnectorStatus,
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
@@ -157,6 +162,50 @@ describe("ProfileGmailOAuthReturnPage", () => {
         state: "live-state-123",
       });
     });
+  });
+
+  it("opens Gmail immediately while a direct OAuth completion continues in memory", async () => {
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "slow-code";
+      if (key === "state") return "slow-state";
+      return null;
+    });
+    let resolveCompletion:
+      | ((value: {
+          configured: boolean;
+          connected: boolean;
+          status: string;
+          scope_csv: string;
+          last_sync_status: string;
+          auto_sync_enabled: boolean;
+          revoked: boolean;
+        }) => void)
+      | undefined;
+    mocks.gmailReceiptsService.completeConnect.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => {
+      expect(mocks.beginGmailOAuthCompletion).toHaveBeenCalledWith("user-123");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
+    });
+
+    expect(mocks.primeConnectorStatus).not.toHaveBeenCalled();
+    resolveCompletion?.({
+      configured: true,
+      connected: true,
+      status: "connected",
+      scope_csv: "gmail.readonly gmail.send",
+      last_sync_status: "queued",
+      auto_sync_enabled: true,
+      revoked: false,
+    });
+    await waitFor(() => expect(mocks.primeConnectorStatus).toHaveBeenCalled());
   });
 
   it("returns a redacted terminal result to the retained Gmail popup opener", async () => {

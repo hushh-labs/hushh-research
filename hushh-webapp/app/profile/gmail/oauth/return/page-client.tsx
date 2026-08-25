@@ -19,7 +19,11 @@ import {
   sanitizeGmailUserMessage,
   stashProfileGmailReturnStatus,
 } from "@/lib/profile/mail-flow";
-import { primeConnectorStatus } from "@/lib/profile/gmail-connector-store";
+import {
+  beginGmailOAuthCompletion,
+  failGmailOAuthCompletion,
+  primeConnectorStatus,
+} from "@/lib/profile/gmail-connector-store";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import {
   clearOnboardingConnectorIntent,
@@ -246,6 +250,16 @@ export default function ProfileGmailOAuthReturnPageClient({
       return;
     }
 
+    const popupAttempt = readGmailOAuthPopupAttempt();
+    const completesInBackground = !popupAttempt;
+
+    if (completesInBackground) {
+      // Preserve code/state only in this in-flight closure. Putting either in
+      // the Gmail URL or storage would make the faster handoff less safe.
+      beginGmailOAuthCompletion(user.uid);
+      router.replace(ROUTES.GMAIL);
+    }
+
     void (async () => {
       // Connecting Gmail is complete once this verified callback has stored
       // the provider result. Setup acknowledgement is useful bookkeeping, but
@@ -281,7 +295,7 @@ export default function ProfileGmailOAuthReturnPageClient({
         }
       };
       try {
-        setStage("completing");
+        if (!completesInBackground) setStage("completing");
         const idToken = await user.getIdToken();
 
         const status = await GmailReceiptsService.completeConnect({
@@ -298,8 +312,8 @@ export default function ProfileGmailOAuthReturnPageClient({
         });
         stashProfileGmailReturnStatus(status);
 
-        setStage("redirecting");
-        if (readGmailOAuthPopupAttempt()) {
+        if (!completesInBackground) setStage("redirecting");
+        if (popupAttempt) {
           // A popup can close as soon as it settles, so finish its durable
           // acknowledgement before emitting the terminal result. The retained
           // main Gmail window remains available throughout.
@@ -308,7 +322,7 @@ export default function ProfileGmailOAuthReturnPageClient({
         }
 
         void settleSuccessfulSetupInBackground();
-        router.replace(ROUTES.GMAIL);
+        if (!completesInBackground) router.replace(ROUTES.GMAIL);
       } catch (completeError) {
         if (isRecoverableGmailOAuthReplayError(completeError)) {
           try {
@@ -326,19 +340,28 @@ export default function ProfileGmailOAuthReturnPageClient({
                 source: "oauth_return",
               });
               stashProfileGmailReturnStatus(status);
-              setStage("redirecting");
-              if (readGmailOAuthPopupAttempt()) {
+              if (!completesInBackground) setStage("redirecting");
+              if (popupAttempt) {
                 await settleSuccessfulSetupInBackground();
                 if (settlePopupOpener({ outcome: "succeeded" })) return;
               }
 
               void settleSuccessfulSetupInBackground();
-              router.replace(ROUTES.GMAIL);
+              if (!completesInBackground) router.replace(ROUTES.GMAIL);
               return;
             }
           } catch {
             // Fall through to the standard error path if status refresh fails.
           }
+        }
+        if (completesInBackground) {
+          failGmailOAuthCompletion(
+            user.uid,
+            sanitizeGmailUserMessage(completeError, {
+              fallback: "Gmail connection could not be completed. Try again from Gmail.",
+            }),
+          );
+          return;
         }
         setStage("error");
         setError(resolveErrorMessage(completeError));
