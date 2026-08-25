@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from hushh_mcp.services.spoken_name_resolver import (
     join_names_for_speech,
+    match_by_name,
     match_circle_by_name,
     normalize_spoken_name,
+    resolve_by_spoken_name,
     resolve_spoken_names,
     split_spoken_names,
 )
@@ -132,3 +134,100 @@ class TestMatchCircleByName:
         result = match_circle_by_name(circles, "friends", lambda c: c["name"])
         assert result.match is None
         assert result.ambiguous == []
+
+
+class TestResolveBySpokenName:
+    """Mirrors resolve-by-spoken-name.test.ts case for case."""
+
+    SARAH_CHEN = _person("1", "Sarah Chen")
+    SARAH_LEE = _person("2", "Sarah Lee")
+    ABDUL = _person("3", "Abdul Gaffar")
+    PEOPLE = [SARAH_CHEN, SARAH_LEE, ABDUL]
+
+    def test_matches_a_single_person_by_a_substring_of_their_name(self):
+        result = resolve_by_spoken_name([self.SARAH_CHEN, self.ABDUL], "sarah", _by_name)
+        assert result.kind == "one"
+        assert result.match == self.SARAH_CHEN
+
+    def test_is_case_insensitive(self):
+        result = resolve_by_spoken_name([self.SARAH_CHEN], "SARAH CHEN", _by_name)
+        assert result.kind == "one"
+        assert result.match == self.SARAH_CHEN
+
+    def test_never_guesses_between_two_or_more_matches(self):
+        result = resolve_by_spoken_name(self.PEOPLE, "sarah", _by_name)
+        assert result.kind == "many"
+        assert result.matches == [self.SARAH_CHEN, self.SARAH_LEE]
+
+    def test_returns_none_when_nobody_matches(self):
+        assert resolve_by_spoken_name(self.PEOPLE, "nobody", _by_name).kind == "none"
+
+    def test_returns_none_for_an_empty_or_whitespace_only_spoken_name(self):
+        assert resolve_by_spoken_name(self.PEOPLE, "", _by_name).kind == "none"
+        assert resolve_by_spoken_name(self.PEOPLE, "   ", _by_name).kind == "none"
+
+    def test_treats_a_missing_display_name_as_unmatchable_rather_than_raising(self):
+        nameless = _person("4", "")
+        result = resolve_by_spoken_name([nameless], "anything", lambda _p: None)
+        assert result.kind == "none"
+
+    def test_matches_against_a_separate_search_text_but_still_returns_the_real_item(self):
+        sarah = {"id": "1", "name": "Sarah Chen", "phone": "***1234"}
+        result = resolve_by_spoken_name(
+            [sarah],
+            "1234",
+            lambda c: c["name"],
+            lambda c: f"{c['name']} {c['phone']}",
+        )
+        assert result.kind == "one"
+        assert result.match == sarah
+
+    def test_defaults_search_text_to_display_name_when_none_is_given(self):
+        result = resolve_by_spoken_name([self.SARAH_CHEN], "chen", _by_name)
+        assert result.kind == "one"
+        assert result.match == self.SARAH_CHEN
+
+
+class TestMatchByName:
+    """Mirrors the local matchByName() in app/connect/page-client.tsx."""
+
+    def test_exact_match_wins_over_substring(self):
+        rows = [_person("1", "Sarah"), _person("2", "Sarah Chen")]
+        result = match_by_name(rows, "sarah", _by_name)
+        assert result == [rows[0]]
+
+    def test_word_boundary_tier_matches_a_leading_word(self):
+        rows = [_person("1", "Abdul Rashid")]
+        result = match_by_name(rows, "abdul", _by_name)
+        assert result == rows
+
+    def test_word_boundary_tier_does_not_match_a_trailing_word(self):
+        # Unlike match_circle_by_name, matchByName's word-boundary tier has no
+        # endswith check -- so a trailing-only word falls through to the final
+        # word-alignment tier instead (which still finds it via prefix match).
+        rows = [_person("1", "Kumar Rashid")]
+        result = match_by_name(rows, "rashid", _by_name)
+        assert result == rows
+
+    def test_word_alignment_tier_matches_an_initial_against_a_full_name(self):
+        rows = [_person("1", "Abdul Kumar Rashid")]
+        result = match_by_name(rows, "r", _by_name)
+        assert result == rows
+
+    def test_word_alignment_tier_matches_a_short_name_against_an_abbreviation(self):
+        rows = [_person("1", "Abdul R.")]
+        result = match_by_name(rows, "Abdul Rashid", _by_name)
+        assert result == rows
+
+    def test_ambiguous_when_multiple_tie_at_the_same_tier(self):
+        rows = [_person("1", "Sarah Chen"), _person("2", "Sarah Lee")]
+        result = match_by_name(rows, "sarah", _by_name)
+        assert result == rows
+
+    def test_no_match_returns_empty(self):
+        rows = [_person("1", "Sarah Chen")]
+        assert match_by_name(rows, "nobody", _by_name) == []
+
+    def test_empty_spoken_name_returns_empty(self):
+        rows = [_person("1", "Sarah Chen")]
+        assert match_by_name(rows, "", _by_name) == []

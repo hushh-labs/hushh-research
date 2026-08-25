@@ -44,9 +44,7 @@ _PUNCTUATION_RE = re.compile(r"[^\w\s]", re.UNICODE)
 def normalize_spoken_name(value: str) -> str:
     """No case, no accents, no punctuation. Mirrors normalizeSpokenName()."""
     decomposed = unicodedata.normalize("NFD", value or "")
-    without_marks = "".join(
-        ch for ch in decomposed if unicodedata.category(ch) != "Mn"
-    )
+    without_marks = "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
     lowered = without_marks.lower()
     # \w already covers \p{L}/\p{N}/\p{M} plus "_", so strip "_" separately to
     # match the TS punctuation-stripping behavior exactly.
@@ -128,9 +126,7 @@ def resolve_spoken_names(
         if not target:
             continue
         matches = [
-            item
-            for item in candidates
-            if target in normalize_spoken_name(str(search(item) or ""))
+            item for item in candidates if target in normalize_spoken_name(str(search(item) or ""))
         ]
         if not matches:
             matches = [
@@ -166,7 +162,7 @@ def ambiguous_match_names(
 
 
 def join_names_for_speech(names: list[str]) -> str:
-    """"Alice", "Alice and Bob", "Alice, Bob and Sarah" -- no Oxford comma, read as speech."""
+    """ "Alice", "Alice and Bob", "Alice, Bob and Sarah" -- no Oxford comma, read as speech."""
     clean = [name.strip() for name in names if name.strip()]
     if len(clean) <= 1:
         return clean[0] if clean else ""
@@ -181,7 +177,9 @@ class CircleMatch(Generic[T]):
     ambiguous: list[T]
 
 
-def match_circle_by_name(circles: list[T], spoken: str, name_of: Callable[[T], str]) -> CircleMatch[T]:
+def match_circle_by_name(
+    circles: list[T], spoken: str, name_of: Callable[[T], str]
+) -> CircleMatch[T]:
     """Port of matchCircleByName(): exact -> word-boundary -> substring tiers."""
     target = normalize_spoken_name(spoken)
     if not target:
@@ -202,3 +200,90 @@ def match_circle_by_name(circles: list[T], spoken: str, name_of: Callable[[T], s
         if len(tier) > 1:
             return CircleMatch(match=None, ambiguous=tier)
     return CircleMatch(match=None, ambiguous=[])
+
+
+@dataclass
+class SpokenNameMatch(Generic[T]):
+    kind: str  # "none" | "one" | "many"
+    match: T | None = None
+    matches: list[T] = field(default_factory=list)
+
+
+def resolve_by_spoken_name(
+    candidates: list[T],
+    spoken_name: str,
+    display_name: Callable[[T], str | None],
+    search_text: Callable[[T], str | None] | None = None,
+) -> SpokenNameMatch[T]:
+    """Port of resolveBySpokenName() (lib/one-location/resolve-by-spoken-name.ts).
+
+    Deliberately simpler than ``resolve_spoken_names``/``match_circle_by_name``:
+    one spoken name, case-insensitive substring only, no accent-stripping, no
+    fuzzy fallback, no tiering. Used by the grant/request voice actions
+    (stop_share, approve_request, decline_request), whose browser twins never
+    asked for anything more precise than this.
+    """
+    search = search_text or display_name
+    spoken = (spoken_name or "").strip().lower()
+    if not spoken:
+        return SpokenNameMatch(kind="none")
+    matches = [item for item in candidates if spoken in str(search(item) or "").lower()]
+    if not matches:
+        return SpokenNameMatch(kind="none")
+    if len(matches) == 1:
+        return SpokenNameMatch(kind="one", match=matches[0])
+    return SpokenNameMatch(kind="many", matches=matches)
+
+
+def match_by_name(rows: list[T], spoken: str, name_of: Callable[[T], str | None]) -> list[T]:
+    """Port of matchByName() (app/connect/page-client.tsx).
+
+    A third, independent tiered matcher (exact -> word-boundary -> per-word
+    alignment), local to the Connect page and used by both
+    connect.remove_connection and connect.cancel_request. Its last tier
+    differs from match_circle_by_name's (word alignment, not substring), and
+    its word-boundary tier checks only a leading/whole-word hit, not a
+    trailing one -- ported as-is rather than unified, since the point of a
+    port is parity with what already shipped, not a cleaner algorithm.
+    """
+    target = normalize_spoken_name(spoken)
+    if not target:
+        return []
+    indexed = [(row, normalize_spoken_name(str(name_of(row) or ""))) for row in rows]
+    named = [(row, n) for row, n in indexed if n]
+
+    exact = [row for row, n in named if n == target]
+    if exact:
+        return exact
+
+    contains = [row for row, n in named if n.startswith(f"{target} ") or target in n.split(" ")]
+    if contains:
+        return contains
+
+    target_words = [w for w in target.split(" ") if w]
+
+    def word_alignment_match(name_norm: str) -> bool:
+        name_words = [w for w in name_norm.split(" ") if w]
+        shorter, longer = (
+            (target_words, name_words)
+            if len(target_words) <= len(name_words)
+            else (name_words, target_words)
+        )
+        if not shorter:
+            return False
+        remaining = list(longer)
+        for word in shorter:
+            hit_index = next(
+                (
+                    i
+                    for i, candidate in enumerate(remaining)
+                    if candidate.startswith(word) or word.startswith(candidate)
+                ),
+                None,
+            )
+            if hit_index is None:
+                return False
+            remaining.pop(hit_index)
+        return True
+
+    return [row for row, n in named if word_alignment_match(n)]
