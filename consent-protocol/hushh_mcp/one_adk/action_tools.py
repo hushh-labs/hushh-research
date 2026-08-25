@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from google.adk.tools.tool_context import ToolContext
 
@@ -57,11 +57,11 @@ from hushh_mcp.services.one_location_circle_service import (
     OneLocationCircleService,
 )
 from hushh_mcp.services.spoken_name_resolver import (
+    UnresolvedPersonName,
+    ambiguous_match_names,
     join_names_for_speech,
-    match_by_name,
     match_circle_by_name,
     normalize_spoken_name,
-    resolve_by_spoken_name,
     resolve_spoken_names,
 )
 
@@ -474,6 +474,28 @@ def _resolve_named_circle(
     return resolved
 
 
+def _unresolved_people_note(
+    unresolved: list[UnresolvedPersonName[Any]], name_of: Callable[[Any], str], noun: str
+) -> str:
+    """One trailing sentence naming what a multi-person resolution left out.
+
+    Empty string when everyone named resolved. Shared by every backend-direct
+    action that now accepts more than one person in a turn -- silently
+    dropping "Bob" from "stop sharing with Sarah and Bob" without saying so
+    would leave the person thinking Bob was included.
+    """
+    if not unresolved:
+        return ""
+    parts: list[str] = []
+    for entry in unresolved:
+        if entry.kind == "ambiguous":
+            names = ambiguous_match_names(entry.matches, name_of)
+            parts.append(f'more than one match for "{entry.spoken_text}" ({names})')
+        else:
+            parts.append(f'no {noun} for "{entry.spoken_text}"')
+    return " Could not do this for: " + "; ".join(parts) + "."
+
+
 async def _execute_backend_direct_mutation(
     action_id: str, slots: dict[str, Any], user_id: str
 ) -> str:
@@ -597,92 +619,107 @@ async def _execute_backend_direct_mutation(
 
     if action_id in ("location.stop_share", "location.approve_request", "location.decline_request"):
         agent_service = OneLocationAgentService()
-        spoken_person = str(slots.get("person") or "").strip()
+        raw_people = str(slots.get("person") or "").strip()
         if action_id == "location.stop_share":
             candidates = agent_service.list_active_owner_grants(owner_user_id=user_id)
-            resolved = resolve_by_spoken_name(
-                candidates, spoken_person, lambda g: str(g.get("recipientDisplayName") or "")
-            )
-            if resolved.kind == "none":
+            name_of = lambda g: str(g.get("recipientDisplayName") or "")  # noqa: E731
+            resolution = resolve_spoken_names(candidates, raw_people, name_of)
+            if not resolution.resolved:
+                ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+                if ambiguous is not None:
+                    names = ambiguous_match_names(ambiguous.matches, name_of)
+                    raise OneLocationAgentError(
+                        "LOCATION_GRANT_AMBIGUOUS",
+                        f'More than one active share matches "{ambiguous.spoken_text}": {names}. '
+                        "Say which one.",
+                    )
                 raise OneLocationAgentError(
                     "LOCATION_GRANT_NOT_FOUND",
                     "Nobody currently has your location shared with that name.",
                 )
-            if resolved.kind == "many":
-                names = ", ".join(
-                    str(g.get("recipientDisplayName") or "") for g in resolved.matches[:4]
+            stopped_names: list[str] = []
+            for grant in resolution.resolved:
+                stopped_names.append(str(grant.get("recipientDisplayName") or "them"))
+                agent_service.revoke_grant(
+                    owner_user_id=user_id, grant_id=str(grant.get("id") or "")
                 )
-                raise OneLocationAgentError(
-                    "LOCATION_GRANT_AMBIGUOUS",
-                    f"More than one active share matches that name: {names}. Say which one.",
-                )
-            grant = resolved.match or {}
-            name = str(grant.get("recipientDisplayName") or "them")
-            agent_service.revoke_grant(owner_user_id=user_id, grant_id=str(grant.get("id") or ""))
-            return f"Stopped sharing your location with {name}."
+            note = _unresolved_people_note(resolution.unresolved, name_of, "active share")
+            return (
+                f"Stopped sharing your location with {join_names_for_speech(stopped_names)}.{note}"
+            )
 
         candidates = agent_service.list_pending_owner_requests(owner_user_id=user_id)
-        resolved = resolve_by_spoken_name(
-            candidates, spoken_person, lambda r: str(r.get("requesterDisplayName") or "")
-        )
-        if resolved.kind == "none":
+        name_of = lambda r: str(r.get("requesterDisplayName") or "")  # noqa: E731
+        resolution = resolve_spoken_names(candidates, raw_people, name_of)
+        if not resolution.resolved:
+            ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+            if ambiguous is not None:
+                names = ambiguous_match_names(ambiguous.matches, name_of)
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_AMBIGUOUS",
+                    f'More than one request matches "{ambiguous.spoken_text}": {names}. '
+                    "Say which one.",
+                )
             raise OneLocationAgentError(
                 "LOCATION_REQUEST_NOT_FOUND", "Nobody is waiting on your decision with that name."
             )
-        if resolved.kind == "many":
-            names = ", ".join(
-                str(r.get("requesterDisplayName") or "") for r in resolved.matches[:4]
-            )
-            raise OneLocationAgentError(
-                "LOCATION_REQUEST_AMBIGUOUS",
-                f"More than one request matches that name: {names}. Say which one.",
-            )
-        request = resolved.match or {}
-        name = str(request.get("requesterDisplayName") or "their")
-        request_id = str(request.get("id") or "")
-        if action_id == "location.approve_request":
-            agent_service.approve_request(
-                owner_user_id=user_id,
-                request_id=request_id,
-                approval_mode="manual",
-                duration_hours=None,
-                duration_mode=None,
-            )
-            return f"Approved {name}'s request."
-        agent_service.deny_request(owner_user_id=user_id, request_id=request_id)
-        return f"Declined {name}'s request."
+        settled_names: list[str] = []
+        for request in resolution.resolved:
+            settled_names.append(str(request.get("requesterDisplayName") or "their"))
+            request_id = str(request.get("id") or "")
+            if action_id == "location.approve_request":
+                agent_service.approve_request(
+                    owner_user_id=user_id,
+                    request_id=request_id,
+                    approval_mode="manual",
+                    duration_hours=None,
+                    duration_mode=None,
+                )
+            else:
+                agent_service.deny_request(owner_user_id=user_id, request_id=request_id)
+        note = _unresolved_people_note(resolution.unresolved, name_of, "request")
+        verb = "Approved" if action_id == "location.approve_request" else "Declined"
+        return f"{verb} {join_names_for_speech(settled_names)}'s request.{note}"
 
     if action_id in ("connect.remove_connection", "connect.cancel_request"):
         connections_service = ConnectionsService()
-        spoken_person = str(slots.get("person") or "").strip()
+        raw_people = str(slots.get("person") or "").strip()
         if action_id == "connect.remove_connection":
             connections = connections_service.list_connections(user_id=user_id)
-            matches = match_by_name(
-                connections, spoken_person, lambda c: str(c.get("displayName") or "")
-            )
-            if not matches:
+            name_of = lambda c: str(c.get("displayName") or "")  # noqa: E731
+            resolution = resolve_spoken_names(connections, raw_people, name_of)
+            if not resolution.resolved:
+                ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+                if ambiguous is not None:
+                    names = ambiguous_match_names(ambiguous.matches, name_of)
+                    raise ConnectionsError(
+                        "CONNECTION_AMBIGUOUS",
+                        f'More than one connection matches "{ambiguous.spoken_text}": {names}. '
+                        "Say which one.",
+                    )
                 raise ConnectionsError(
                     "CONNECTION_NOT_FOUND",
-                    f"{spoken_person or 'That person'} is not one of your connections.",
+                    f"{raw_people or 'That person'} is not one of your connections.",
                 )
-            if len(matches) > 1:
-                names = ", ".join(str(c.get("displayName") or "") for c in matches[:4])
-                raise ConnectionsError(
-                    "CONNECTION_AMBIGUOUS",
-                    f"More than one connection matches that name: {names}. Say which one.",
-                )
-            connection = matches[0]
-            display_name = str(connection.get("displayName") or "this person")
+            display_names = [
+                str(c.get("displayName") or "this person") for c in resolution.resolved
+            ]
             confirmed = bool(slots.get("confirmed") is True)
             if not confirmed:
                 raise _BackendDirectConfirmationNeeded(
-                    f"Ask: remove your connection with {display_name}? Only call this action again with "
+                    f"Ask: remove your connection{'s' if len(display_names) > 1 else ''} with "
+                    f"{join_names_for_speech(display_names)}? Only call this action again with "
                     "confirmed set to true after they say yes -- do not assume, and do not ask twice."
                 )
-            connections_service.remove_connection(
-                user_id=user_id, connection_id=str(connection.get("connectionId") or "")
+            for connection in resolution.resolved:
+                connections_service.remove_connection(
+                    user_id=user_id, connection_id=str(connection.get("connectionId") or "")
+                )
+            note = _unresolved_people_note(resolution.unresolved, name_of, "connection")
+            return (
+                f"Removed {join_names_for_speech(display_names)}. They can no longer be picked "
+                f"for location sharing.{note}"
             )
-            return f"Removed {display_name}. They can no longer be picked for location sharing."
 
         # cancel_request's real target is the pending CONNECTION REQUEST, not
         # the connection graph -- but ConnectionsService.cancel_request()
@@ -691,24 +728,31 @@ async def _execute_backend_direct_mutation(
         # silently answer the wrong question (only settled connections, never
         # pending outgoing asks). List outgoing requests instead.
         outgoing = connections_service.list_requests(user_id=user_id, direction="outgoing")
-        matches = match_by_name(
-            outgoing, spoken_person, lambda r: str(r.get("counterpartDisplayName") or "")
-        )
-        if not matches:
+        name_of = lambda r: str(r.get("counterpartDisplayName") or "")  # noqa: E731
+        resolution = resolve_spoken_names(outgoing, raw_people, name_of)
+        if not resolution.resolved:
+            ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
+            if ambiguous is not None:
+                names = ambiguous_match_names(ambiguous.matches, name_of)
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_AMBIGUOUS",
+                    f'More than one pending request matches "{ambiguous.spoken_text}": {names}. '
+                    "Say which one.",
+                )
             raise ConnectionsError(
                 "CONNECTION_REQUEST_NOT_FOUND",
-                f"You have no pending request to {spoken_person or 'that person'}.",
+                f"You have no pending request to {raw_people or 'that person'}.",
             )
-        if len(matches) > 1:
-            names = ", ".join(str(r.get("counterpartDisplayName") or "") for r in matches[:4])
-            raise ConnectionsError(
-                "CONNECTION_REQUEST_AMBIGUOUS",
-                f"More than one pending request matches that name: {names}. Say which one.",
+        cancelled_names: list[str] = []
+        for request in resolution.resolved:
+            cancelled_names.append(str(request.get("counterpartDisplayName") or "that person"))
+            connections_service.cancel_request(
+                user_id=user_id, request_id=str(request.get("id") or "")
             )
-        request = matches[0]
-        name = str(request.get("counterpartDisplayName") or spoken_person or "that person")
-        connections_service.cancel_request(user_id=user_id, request_id=str(request.get("id") or ""))
-        return f"Cancelled your connection request to {name}."
+        note = _unresolved_people_note(resolution.unresolved, name_of, "pending request")
+        return (
+            f"Cancelled your connection request to {join_names_for_speech(cancelled_names)}.{note}"
+        )
 
     raise AssertionError(f"{action_id} is in BACKEND_DIRECT_ACTION_IDS with no execution branch")
 

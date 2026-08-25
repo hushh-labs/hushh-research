@@ -2611,7 +2611,7 @@
         "pending",
         "connection"
       ],
-      "meaning": "Withdraws a connection request you already sent to one exact person, before they have accepted it. It does not affect anyone who is already connected to you.",
+      "meaning": "Withdraws connection requests you already sent to the named people, before they have accepted -- multiple people can be named in one turn, e.g. 'Alice and Bob'. It does not affect anyone who is already connected to you.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -2672,12 +2672,12 @@
             "prompt": "Whose request should I cancel?",
             "required": true,
             "slot": "person",
-            "resolver": "spoken_person_name"
+            "resolver": "spoken_person_name_list"
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name"
+          "person": "spoken_person_name_list"
         },
         "workflow_steps": [
           {
@@ -2728,7 +2728,7 @@
         "connection",
         "unfriend"
       ],
-      "meaning": "Ends an existing connection with one exact person. They stop being someone you can share things with, including your location. It does not notify them and it does not block them.",
+      "meaning": "Ends existing connections with the named people -- multiple people can be named in one turn, e.g. 'Alice and Bob'. They stop being someone you can share things with, including your location. It does not notify them and it does not block them.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -2789,12 +2789,12 @@
             "prompt": "Who should I remove from your connections?",
             "required": true,
             "slot": "person",
-            "resolver": "spoken_person_name"
+            "resolver": "spoken_person_name_list"
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name"
+          "person": "spoken_person_name_list"
         },
         "workflow_steps": [
           {
@@ -7313,7 +7313,7 @@
         "share",
         "access"
       ],
-      "meaning": "Stops an active share with the named person immediately, so your location no longer updates for them. It only ends the one share you named; every other active share is untouched. This is scoped to one person and does not touch your device's own broadcasting -- to stop sharing with everyone at once, use pause_updates instead.",
+      "meaning": "Stops active shares with the named people immediately, so your location no longer updates for them -- multiple people can be named in one turn, e.g. 'Alice and Bob'. It only ends the shares you named; every other active share is untouched. It does not touch your device's own broadcasting -- to stop sharing with everyone at once, use pause_updates instead.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -7374,12 +7374,12 @@
             "prompt": "Whose access do you want to stop?",
             "required": true,
             "slot": "person",
-            "resolver": "spoken_person_name"
+            "resolver": "spoken_person_name_list"
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name"
+          "person": "spoken_person_name_list"
         },
         "workflow_steps": [
           {
@@ -7430,7 +7430,7 @@
         "request",
         "grant"
       ],
-      "meaning": "Approves the named person's pending request to see your location, starting a share for it. It only acts on a request already waiting; it never invites someone new.",
+      "meaning": "Approves the named people's pending requests to see your location, starting a share for each -- multiple people can be named in one turn, e.g. 'Alice and Bob'. It only acts on requests already waiting; it never invites someone new.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -7491,12 +7491,12 @@
             "prompt": "Whose request do you want to approve?",
             "required": true,
             "slot": "person",
-            "resolver": "spoken_person_name"
+            "resolver": "spoken_person_name_list"
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name"
+          "person": "spoken_person_name_list"
         },
         "workflow_steps": [
           {
@@ -7547,7 +7547,7 @@
         "reject",
         "request"
       ],
-      "meaning": "Declines the named person's pending request to see your location. It only acts on a request already waiting and does not stop any share already in place with them.",
+      "meaning": "Declines the named people's pending requests to see your location -- multiple people can be named in one turn, e.g. 'Alice and Bob'. It only acts on requests already waiting and does not stop any share already in place with them.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -7608,12 +7608,12 @@
             "prompt": "Whose request do you want to decline?",
             "required": true,
             "slot": "person",
-            "resolver": "spoken_person_name"
+            "resolver": "spoken_person_name_list"
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name"
+          "person": "spoken_person_name_list"
         },
         "workflow_steps": [
           {
