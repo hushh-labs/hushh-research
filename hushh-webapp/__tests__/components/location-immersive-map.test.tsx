@@ -1830,6 +1830,47 @@ describe("LocationImmersiveMap open latency", () => {
       );
     });
   });
+
+  it("recovers from a failed renderer through its own Try again control, without remounting the screen", async () => {
+    // Issue #5921: this placeholder used to say "try again" with nothing on
+    // screen that actually did it -- the only way out was Back, then in
+    // again. A renderer failure is transient (network, a bad create call),
+    // unlike a missing Maps key, so it is the one unavailable reason worth
+    // retrying in place.
+    mapHarness.create.mockRejectedValueOnce(new Error("bridge unavailable"));
+
+    render(<LocationImmersiveMap />);
+    await waitFor(() => {
+      expect(screen.getByText("The map could not start")).toBeInTheDocument();
+    });
+    const retry = screen.getByTestId("one-location-map-unavailable-retry");
+    expect(retry).toHaveTextContent("Try again");
+
+    fireEvent.click(retry);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    expect(
+      screen.queryByText("The map could not start"),
+    ).not.toBeInTheDocument();
+    expect(mapHarness.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers no Try again for a missing Maps key, since retrying cannot fix a build-time config gap", async () => {
+    mapsKeyHarness.present = false;
+
+    render(<LocationImmersiveMap />);
+    await waitFor(() => {
+      expect(screen.getByText("Maps isn't available")).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("one-location-map-unavailable-retry"),
+    ).not.toBeInTheDocument();
+  });
 });
 
 /**

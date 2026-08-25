@@ -78,4 +78,14 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("!message.renderAsPlainAssistantMessage;");
     expect(workspace).toContain("renderAsPlainAssistantMessage: true,");
   });
+
+  it("minimizes the legacy full-page /agent route to One home, not Profile, when there is no referrer to retrace to", () => {
+    // Issue #5921: falling back to Profile stranded someone who opened this
+    // route with no browser history (e.g. a direct link) somewhere that is
+    // not the section this screen lives under.
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).toContain("router.push(ROUTES.ONE_HOME);");
+    expect(workspace).not.toContain("router.push(ROUTES.PROFILE);");
+  });
 });

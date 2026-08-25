@@ -1,4 +1,8 @@
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
+import {
+  ONE_CAPABILITIES,
+  ONE_SETUP_CAPABILITIES,
+} from "@/lib/onboarding/one-capabilities";
 import { describe, expect, it } from "vitest";
 
 describe("onboarding capability copy", () => {
@@ -15,7 +19,7 @@ describe("onboarding capability copy", () => {
     const location = getCapabilitySetupCopy("location");
 
     expect(location?.setupTitle).toBe("Set up location");
-    expect(location?.setupBlurb).toBe("Share where you are, when you want.");
+    expect(location?.setupBlurb).toBe("Share only when you choose.");
   });
 
   it("names the identity-check step in words, not an abbreviation", () => {
@@ -28,7 +32,7 @@ describe("onboarding capability copy", () => {
       actionLabel: "Set up KYC",
       resumeActionLabel: "Finish KYC",
     });
-    expect(email?.setupBlurb).toBe("One drafts the replies. You approve.");
+    expect(email?.setupBlurb).toBe("Verify with your approval.");
   });
 
   it("frames CRM setup as a connection the person approves", () => {
@@ -38,7 +42,19 @@ describe("onboarding capability copy", () => {
       setupTitle: "Connect your CRM",
       actionLabel: "Set up CRM",
     });
-    expect(connectedSystems?.setupBlurb).toBe("One finds your record. You approve.");
+    expect(connectedSystems?.setupBlurb).toBe("Find records with your approval.");
+  });
+
+  it("reuses the same launcher icon and tone registry for setup rows", () => {
+    for (const setupCapability of ONE_SETUP_CAPABILITIES) {
+      const launcherCapability = ONE_CAPABILITIES.find(
+        (candidate) => candidate.id === setupCapability.id,
+      );
+
+      expect(launcherCapability, setupCapability.id).toBeDefined();
+      expect(setupCapability.icon).toBe(launcherCapability?.icon);
+      expect(setupCapability.tone).toBe(launcherCapability?.tone);
+    }
   });
 
   it("keeps every setup row short enough to read at a glance", () => {

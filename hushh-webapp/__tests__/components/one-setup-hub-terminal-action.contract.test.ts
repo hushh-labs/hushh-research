@@ -107,9 +107,36 @@ describe("One setup hub terminal action contract", () => {
     expect(tile).toContain('aria-current={isCurrent ? "step" : undefined}');
   });
 
+  it("uses the canonical setup icon geometry instead of a setup-specific icon map", () => {
+    const tile = readFileSync(
+      join(
+        process.cwd(),
+        "components/onboarding/setup/capability-setup-tile.tsx",
+      ),
+      "utf8",
+    );
+    const icon = readFileSync(
+      join(process.cwd(), "components/app-ui/agent-section-icon.tsx"),
+      "utf8",
+    );
+
+    expect(tile).toContain("AgentSectionIcon");
+    expect(tile).toContain('size="setup"');
+    expect(icon).toContain("setup: {");
+    expect(icon).toContain('lucideSurface: "h-9 w-9 rounded-[10px]"');
+    expect(icon).toContain('lucide: "h-[19px] w-[19px]"');
+  });
+
   it("counts the mandatory AI access choice in the same progress projection as capability rows", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+      "utf8",
+    );
+    const styles = readFileSync(
+      join(
+        process.cwd(),
+        "components/onboarding/setup/one-setup-hub.module.css",
+      ),
       "utf8",
     );
 
@@ -120,6 +147,13 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain(
       "const done = progressSteps.filter((step) => step.complete).length",
     );
+    expect(source).toContain("className={styles.setupProgress}");
+    expect(source).toContain("{done} of {total} complete");
+    expect(source).toContain("className={styles.setupProgressTrack}");
+    expect(source).toContain("className={styles.setupProgressFill}");
+    expect(source).not.toContain("Array.from({ length: total })");
+    expect(styles).toContain(".setupProgressTrack");
+    expect(styles).not.toContain(".segmentedProgress");
     expect(source).not.toContain("masterSkipped");
     expect(source).not.toContain("const total = items.length");
   });
@@ -178,8 +212,8 @@ describe("One setup hub terminal action contract", () => {
     // `title` tooltip that used to carry the reason are gone -- the tooltip
     // never rendered on touch anyway, which is the only place that action ships.
     expect(footer).toContain("blocked?: boolean");
-    expect(footer).toContain(
-      "const isBlockedTappableAction =\n    blocked && !disabled && !busy && !isQuietSetupAction",
+    expect(footer).toMatch(
+      /const isBlockedTappableAction =\s+blocked && !disabled && !busy && !isQuietSetupAction/,
     );
     // One block, not a stacked description -- the two-line toast ceiling.
     expect(hub).toContain('toast.info("Choose your AI first."');

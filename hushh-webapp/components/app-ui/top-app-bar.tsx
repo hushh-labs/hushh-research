@@ -241,7 +241,7 @@ function resolveCommonRouteBreadcrumb(
 ): TopShellBreadcrumbConfig | null {
   const section = getAgentSection(lastAgentSectionId);
   const backHref = section?.href ?? ROUTES.ONE_HOME;
-  const parentLabel = section?.label ?? "Agents";
+  const parentLabel = section?.label ?? "One";
 
   if (pathname === ROUTES.PROFILE) {
     return {
@@ -274,7 +274,7 @@ function getScrolledRouteTitle(pathname: string): {
   }
   if (pathname === ROUTES.HOME || pathname === ROUTES.ONE_HOME) {
     return {
-      label: "Agents",
+      label: "One",
       icon: LayoutDashboard,
       interactive: false as const,
     };

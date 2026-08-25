@@ -51,17 +51,25 @@ function peopleEmptyState(src: string): string {
 describe("link 1 — People search hands over to Connect", () => {
   const block = peopleEmptyState(HUB);
 
-  it("asks the question the person is actually asking", () => {
-    expect(block).toContain("Don't see who you're looking for?");
+  it("names the empty result plainly", () => {
+    expect(block).toContain("No matching people");
+    expect(block).toContain("Try another name.");
   });
 
   it("offers the way into Connect", () => {
     expect(block).toContain("action=");
-    expect(block).toContain("Manage connections in Connect");
+    expect(block).toContain("Manage connections");
+    expect(block).toContain(
+      'data-voice-control-id="one-location-empty-connect-bridge"',
+    );
   });
 
   it("offers the same bridge when there are no connections at all", () => {
-    expect(block).toContain("Add someone in Connect");
+    expect(block).toContain("addPeopleEmptyAction");
+    expect(HUB).toContain("Add people");
+    expect(HUB).toContain(
+      'data-voice-control-id="one-location-add-connections"',
+    );
   });
 
   it("routes through the hub's single Connect entry point", () => {
@@ -107,7 +115,7 @@ describe("the chain holds end to end", () => {
 
   it("every link points at the next one", () => {
     // 1 -> Connect
-    expect(peopleEmptyState(HUB)).toContain("Manage connections in Connect");
+    expect(peopleEmptyState(HUB)).toContain("Manage connections");
     expect(HUB).toContain("ROUTES.CONNECT");
     // 2 -> invite
     expect(CONNECT).toContain("Invite them to One");
