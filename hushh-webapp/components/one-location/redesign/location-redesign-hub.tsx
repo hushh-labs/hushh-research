@@ -3082,7 +3082,7 @@ function PeopleHub({
       <DropdownMenuContent
         align="end"
         forceMount
-        className="min-w-52 rounded-2xl"
+        className="min-w-52 rounded-2xl border border-[color:var(--app-border,rgba(255,255,255,0.1))] bg-[color:var(--app-primary-surface)] p-1.5 shadow-xl dark:border-white/10 dark:bg-[#1c1c1e]"
       >
         <DropdownMenuItem
           aria-busy={vm.busy === "contactSync" || undefined}
@@ -3095,18 +3095,21 @@ function PeopleHub({
             vm.onSyncContacts();
           }}
           data-voice-control-id="one-location-find-contacts"
+          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-white/10"
         >
           {vm.busy === "contactSync" ? "Finding contacts…" : "Find contacts"}
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() => onInvite()}
           data-voice-control-id="one-location-action-invite"
+          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-white/10"
         >
           Invite to One
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() => onAddConnections()}
           data-voice-control-id="one-location-add-connections"
+          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-white/10"
         >
           Manage connections
         </DropdownMenuItem>
