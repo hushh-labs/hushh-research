@@ -27,6 +27,8 @@ from typing import Any
 
 from google.adk.tools.tool_context import ToolContext
 
+from hushh_mcp.consent.token import validate_token_with_db
+from hushh_mcp.constants import ConsentScope
 from hushh_mcp.one_adk.voice_domain_policy import (
     is_voice_domain_disabled,
     is_voice_entirely_disabled,
@@ -42,7 +44,14 @@ from hushh_mcp.services.live_voice_context import (
     read_completed_action,
     read_failed_action,
     read_live_voice_context,
+    record_completed_action,
+    record_failed_action,
 )
+from hushh_mcp.services.one_location_circle_service import (
+    OneLocationCircleError,
+    OneLocationCircleService,
+)
+from hushh_mcp.services.spoken_name_resolver import match_circle_by_name
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +61,8 @@ _STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
 _STATE_SCREEN = "hussh:screen"
 _STATE_VOICE_CONTEXT = "hussh:voice_context"
 _STATE_GOAL_RUN = "hussh:goal_run"
+_STATE_USER_ID = "hussh:user_id"
+_STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
 
 # Manifest delegate ids -> One's specialist tool names. Only these redirect;
 # other delegate markers (e.g. "agent_kyc", which has no conversational
@@ -249,6 +260,151 @@ def _directive_flags(
     }
 
 
+# Action ids that skip the client-directive/local-handler round trip entirely
+# and mutate through the backend service layer directly, the same functions
+# the REST endpoints call. Deliberately narrow: only actions with no
+# client-only secret (no live-coordinate encryption) and no editable draft
+# state (nothing a person picks and reconsiders before confirming) belong
+# here -- see the "Backend-direct voice execution" plan for the full
+# reasoning. Extend this set action by action, not by widening the shape.
+BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
+    {
+        "location.leave_circle",
+        "location.delete_circle",
+    }
+)
+
+
+async def _verify_backend_direct_authorization(
+    tool_context: ToolContext,
+) -> tuple[bool, str, str]:
+    """Re-validate auth for a backend-direct mutation, matching the REST layer exactly.
+
+    A backend-direct action skips the browser round trip that would
+    otherwise carry a REST call through ``require_vault_owner_token`` --
+    without this, a directive-parked action would be LESS guarded than the
+    same action run by tap, because the WebSocket's own consent token
+    (``_STATE_CONSENT_TOKEN``) is stored raw and unvalidated the moment it
+    arrives (``adk_live.py``'s app_context handler only length-bounds it).
+    This re-runs the identical cryptographic check
+    (``validate_token_with_db`` against ``ConsentScope.VAULT_OWNER``,
+    including the DB-backed revocation check) the REST endpoints already
+    depend on, plus a same-user cross-check the REST layer gets for free
+    from its own auth dependency binding token to path.
+
+    Returns ``(authorized, user_id, reason)`` -- ``reason`` is a message
+    safe to hand back to the model on refusal, never the raw validation
+    error.
+    """
+    session_user_id = str(tool_context.state.get(_STATE_USER_ID) or "").strip()
+    if not session_user_id:
+        return False, "", "The user is not signed in."
+    token = str(tool_context.state.get(_STATE_CONSENT_TOKEN) or "").strip()
+    if not token:
+        return False, "", "The vault is locked. Unlock it, then try again."
+    valid, _reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
+    if not valid or token_obj is None:
+        return False, "", "The vault is locked or the session has expired. Unlock it, then try again."
+    if str(token_obj.user_id) != session_user_id:
+        # Should be structurally impossible (the token was minted for the
+        # session that sent it) -- refuse rather than assume, since silently
+        # trusting a mismatch here is exactly the class of bug this
+        # re-validation exists to catch.
+        logger.warning("backend_direct_token_user_mismatch action_user=%s", session_user_id)
+        return False, "", "The vault is locked. Unlock it, then try again."
+    return True, session_user_id, ""
+
+
+async def _run_backend_direct_action(
+    clean_id: str,
+    clean_slots: dict[str, Any],
+    tool_context: ToolContext,
+    *,
+    label: str,
+) -> dict[str, Any]:
+    """Execute a BACKEND_DIRECT_ACTION_IDS action against the service layer directly.
+
+    No client_directive is parked and no browser round trip happens. On
+    success/failure this records the same completed/failed bookkeeping the
+    settlement path would have, so the existing already_completed/
+    already_failed loop-guard at the top of run_app_action still works with
+    no browser involved at all.
+    """
+    session_id = getattr(getattr(tool_context, "session", None), "id", None)
+    fingerprint = _slot_fingerprint(clean_slots)
+    authorized, user_id, reason = await _verify_backend_direct_authorization(tool_context)
+    if not authorized:
+        logger.info("one_adk_action_decision action=%s status=unauthorized", clean_id)
+        # Not recorded as a failure: an unauthorized attempt is not something
+        # retrying-with-the-same-inputs would ever fix by itself (it needs a
+        # sign-in/unlock in between), so it must not trip the "already
+        # failed, don't try again" guard the way a real execution failure
+        # should.
+        return {"status": "blocked", "message": reason}
+
+    try:
+        result_message = await _execute_backend_direct_mutation(clean_id, clean_slots, user_id)
+    except OneLocationCircleError as exc:
+        record_failed_action(session_id, clean_id, fingerprint, exc.message)
+        logger.info("one_adk_action_decision action=%s status=failed reason=%s", clean_id, exc.code)
+        return {"status": "failed", "message": exc.message}
+    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
+        record_failed_action(session_id, clean_id, fingerprint, "unexpected_error")
+        logger.exception("one_adk_action_decision action=%s status=failed reason=unexpected", clean_id)
+        return {
+            "status": "failed",
+            "message": f"{label} did not go through. Try again in a moment.",
+        }
+
+    record_completed_action(session_id, clean_id, fingerprint)
+    logger.info("one_adk_action_decision action=%s status=completed backend_direct=true", clean_id)
+    return {
+        "status": "completed",
+        "message": result_message,
+    }
+
+
+async def _execute_backend_direct_mutation(
+    action_id: str, slots: dict[str, Any], user_id: str
+) -> str:
+    """Resolve slots and call the real service function. Raises on failure.
+
+    Returns the sentence the model should say -- computed here, server-side,
+    rather than left generic, for the same reason ``_proposal_summary`` in
+    the Calendar service composes its own sentence: this is the one place
+    that knows exactly what happened.
+    """
+    circle_service = OneLocationCircleService()
+
+    if action_id in ("location.leave_circle", "location.delete_circle"):
+        spoken_circle = str(slots.get("circle") or "").strip()
+        circles = circle_service.list_circles(user_id=user_id)
+        match = match_circle_by_name(circles, spoken_circle, lambda c: str(c.get("name") or ""))
+        if match.match is None and match.ambiguous:
+            names = ", ".join(str(c.get("name") or "") for c in match.ambiguous[:4])
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_AMBIGUOUS",
+                f"More than one circle matches that: {names}. Say which one.",
+            )
+        if match.match is None:
+            available = ", ".join(str(c.get("name") or "") for c in circles[:6])
+            message = (
+                f"You do not have a circle by that name. Your circles are: {available}."
+                if available
+                else "You do not have any circles yet."
+            )
+            raise OneLocationCircleError("LOCATION_CIRCLE_NOT_FOUND", message)
+        circle_name = str(match.match.get("name") or "this circle")
+        circle_id = str(match.match.get("id") or "")
+        if action_id == "location.leave_circle":
+            circle_service.leave_circle(user_id=user_id, circle_id=circle_id)
+            return f"Left {circle_name}."
+        circle_service.delete_circle(owner_user_id=user_id, circle_id=circle_id)
+        return f"Deleted {circle_name}."
+
+    raise AssertionError(f"{action_id} is in BACKEND_DIRECT_ACTION_IDS with no execution branch")
+
+
 async def run_app_action(
     action_id: str, slots: dict[str, Any], tool_context: ToolContext
 ) -> dict[str, Any]:
@@ -444,11 +600,16 @@ async def run_app_action(
     available_action_ids = _available_action_ids(tool_context)
     # Navigation actions (route.*, allow_direct) are invocable from any
     # screen by design; the browser's per-screen inventory does not bound
-    # them. All other actions must be declared by the current surface.
+    # them. Backend-direct actions are the same in spirit: they mutate
+    # through the service layer directly and were never going to ask the
+    # browser to run a local handler, so there is no screen inventory for
+    # them to be missing from -- the person can be looking at anything.
+    # All other actions must be declared by the current surface.
     if (
         available_action_ids is not None
         and clean_id not in available_action_ids
         and not is_navigation_action(entry)
+        and clean_id not in BACKEND_DIRECT_ACTION_IDS
     ):
         # A journey entry action is legitimately off-screen right now, but it is
         # not out of reach: start_app_goal navigates to its authored destination
@@ -508,6 +669,7 @@ async def run_app_action(
         and action_screens
         and current_screen not in action_screens
         and not is_navigation_action(entry)
+        and clean_id not in BACKEND_DIRECT_ACTION_IDS
     ):
         label = str(entry.get("label") or clean_id)
         where = sorted(action_screens)[0]
@@ -565,6 +727,20 @@ async def run_app_action(
     )
     trusted_activation = flags["trustedActivationRequired"]
     needs_confirmation = flags["needsConfirmation"]
+
+    # Backend-direct actions never reach the directive-parking path below --
+    # once no confirmation is owed (the ordinary case; the person's own
+    # require_tap_confirmation preference still routes through the normal
+    # browser confirm card, unchanged), the mutation happens right here and
+    # the browser is never involved.
+    if (
+        clean_id in BACKEND_DIRECT_ACTION_IDS
+        and not needs_confirmation
+        and not trusted_activation
+    ):
+        label = str(entry.get("label") or clean_id)
+        return await _run_backend_direct_action(clean_id, clean_slots, tool_context, label=label)
+
     directive_payload: dict[str, Any] = {
         "actionId": clean_id,
         "slots": clean_slots,

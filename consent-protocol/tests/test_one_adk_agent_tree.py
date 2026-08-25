@@ -23,9 +23,11 @@ import pytest
 from hushh_mcp.adk_bridge.contract import A2ADirective, SpecialistTurnResult
 from hushh_mcp.one_adk import agent_tree as _tree
 from hushh_mcp.one_adk.action_tools import (
+    _STATE_CONSENT_TOKEN,
     _STATE_GOAL_RUN,
     _STATE_PENDING_DIRECTIVE,
     _STATE_SCREEN,
+    _STATE_USER_ID,
     _directive_flags,
     _is_journey_startable,
     _journey_slots,
@@ -57,6 +59,7 @@ from hushh_mcp.services.live_voice_context import (
     publish_live_voice_context,
     read_live_voice_context,
 )
+from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
 
 
 class TestAgentTreeShape:
@@ -779,6 +782,8 @@ class TestRunAppAction:
     def test_state_keys_stay_in_sync_with_agent_tree(self):
         assert _STATE_PENDING_DIRECTIVE == _tree.STATE_PENDING_DIRECTIVE
         assert _STATE_SCREEN == _tree.STATE_SCREEN
+        assert _STATE_USER_ID == STATE_USER_ID
+        assert _STATE_CONSENT_TOKEN == STATE_CONSENT_TOKEN
 
     @pytest.mark.asyncio
     async def test_unknown_action_never_infers_a_fallback(self):
@@ -1072,6 +1077,197 @@ class TestRunAppAction:
             state[f"{_STATE_PENDING_DIRECTIVE}:route.consents"]["payload"]["actionId"]
             == "route.consents"
         )
+
+
+class TestBackendDirectCircleActions:
+    """location.leave_circle / location.delete_circle bypass the client
+    directive entirely and mutate through OneLocationCircleService directly.
+    No client_directive should ever be parked for these two."""
+
+    def _authorized_state(self) -> dict:
+        return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
+
+    def _valid_token(self, user_id: str = "user_1"):
+        return (True, None, SimpleNamespace(user_id=user_id))
+
+    @pytest.mark.asyncio
+    async def test_leave_circle_executes_directly_and_parks_nothing(self):
+        state = self._authorized_state()
+        with (
+            patch(
+                "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+                new=AsyncMock(return_value=self._valid_token()),
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(OneLocationCircleService, "leave_circle") as leave_mock,
+        ):
+            result = await run_app_action(
+                "location.leave_circle", {"circle": "family"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "Family" in result["message"]
+        leave_mock.assert_called_once_with(user_id="user_1", circle_id="c1")
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
+
+    @pytest.mark.asyncio
+    async def test_delete_circle_executes_directly(self):
+        state = self._authorized_state()
+        with (
+            patch(
+                "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+                new=AsyncMock(return_value=self._valid_token()),
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                return_value=[{"id": "c1", "name": "Roommates"}],
+            ),
+            patch.object(OneLocationCircleService, "delete_circle") as delete_mock,
+        ):
+            result = await run_app_action(
+                "location.delete_circle", {"circle": "roommates"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        delete_mock.assert_called_once_with(owner_user_id="user_1", circle_id="c1")
+
+    @pytest.mark.asyncio
+    async def test_refuses_without_a_consent_token(self):
+        state = {STATE_USER_ID: "user_1"}  # no STATE_CONSENT_TOKEN
+        result = await run_app_action(
+            "location.leave_circle", {"circle": "family"}, _tool_context(state)
+        )
+        assert result["status"] == "blocked"
+        assert "locked" in result["message"].lower()
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
+
+    @pytest.mark.asyncio
+    async def test_refuses_when_token_fails_revalidation(self):
+        state = self._authorized_state()
+        with patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=(False, "expired", None)),
+        ):
+            result = await run_app_action(
+                "location.leave_circle", {"circle": "family"}, _tool_context(state)
+            )
+        assert result["status"] == "blocked"
+
+    @pytest.mark.asyncio
+    async def test_refuses_when_token_belongs_to_a_different_user(self):
+        # Structurally shouldn't happen, but must refuse rather than trust it.
+        state = self._authorized_state()
+        with patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=self._valid_token(user_id="someone_else")),
+        ):
+            result = await run_app_action(
+                "location.leave_circle", {"circle": "family"}, _tool_context(state)
+            )
+        assert result["status"] == "blocked"
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_circle_name_is_reported_not_guessed(self):
+        state = self._authorized_state()
+        with (
+            patch(
+                "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+                new=AsyncMock(return_value=self._valid_token()),
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                return_value=[
+                    {"id": "c1", "name": "Family Trip"},
+                    {"id": "c2", "name": "Family Reunion"},
+                ],
+            ),
+        ):
+            result = await run_app_action(
+                "location.leave_circle", {"circle": "family"}, _tool_context(state)
+            )
+        assert result["status"] == "failed"
+        assert "more than one circle" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_unknown_circle_name_names_the_real_ones(self):
+        state = self._authorized_state()
+        with (
+            patch(
+                "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+                new=AsyncMock(return_value=self._valid_token()),
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+        ):
+            result = await run_app_action(
+                "location.leave_circle", {"circle": "coworkers"}, _tool_context(state)
+            )
+        assert result["status"] == "failed"
+        assert "Family" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_service_failure_is_recorded_so_an_immediate_retry_is_refused(self):
+        state = self._authorized_state()
+        # The already_failed loop-guard is keyed by tool_context.session.id;
+        # the shared _tool_context() helper doesn't set one, so build a
+        # context with a real session id here to actually exercise it.
+        ctx = SimpleNamespace(state=state, session=SimpleNamespace(id="session_1"))
+        with (
+            patch(
+                "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+                new=AsyncMock(return_value=self._valid_token()),
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "leave_circle",
+                side_effect=RuntimeError("db exploded"),
+            ),
+        ):
+            first = await run_app_action("location.leave_circle", {"circle": "family"}, ctx)
+            assert first["status"] == "failed"
+            second = await run_app_action("location.leave_circle", {"circle": "family"}, ctx)
+        assert second["status"] == "already_failed"
+
+    @pytest.mark.asyncio
+    async def test_executes_from_a_completely_different_screen_no_navigation_needed(self):
+        # The whole point of going backend-direct: the person can be looking
+        # at Connect, Kai, anywhere -- there is no browser-side local handler
+        # to be on-screen for, so neither the screen-reachability guard nor
+        # the available_action_ids inventory check should apply here.
+        state = self._authorized_state()
+        state[_STATE_SCREEN] = "one_connect"
+        state["hussh:voice_context"] = {
+            "screen": "one_connect",
+            "available_action_ids": ["connect.search_people", "route.one_location"],
+        }
+        with (
+            patch(
+                "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+                new=AsyncMock(return_value=self._valid_token()),
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(OneLocationCircleService, "leave_circle"),
+        ):
+            result = await run_app_action(
+                "location.leave_circle", {"circle": "family"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
 
 
 class TestSettledActionJourneys:
