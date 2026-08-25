@@ -115,6 +115,9 @@ describe("PkmNaturalPanel", () => {
     vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue({
       profile: { risk_profile: "balanced" },
     });
+    vi.spyOn(PersonalKnowledgeModelService, "loadFullBlob").mockResolvedValue({
+      financial: { profile: { risk_profile: "balanced" } },
+    });
     vi.spyOn(PersonalKnowledgeModelService, "getMutationSharingImpact").mockResolvedValue({
       activeRecipientCount: 0,
       recipientLabels: [],
@@ -250,7 +253,7 @@ describe("PkmNaturalPanel", () => {
     fireEvent.change(note, {
       target: { value: "I prefer morning flights whenever possible." },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Review note" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
 
     await waitFor(() =>
       expect(previewAgentPkmMemory).toHaveBeenCalledWith(
@@ -263,7 +266,7 @@ describe("PkmNaturalPanel", () => {
     );
     expect(await screen.findByText("Proposed saved detail")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Save reviewed detail" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save to Memory" }));
     await waitFor(() =>
       expect(addToPKM).toHaveBeenCalledWith(
         expect.objectContaining({
