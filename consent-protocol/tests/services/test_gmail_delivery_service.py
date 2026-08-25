@@ -130,7 +130,7 @@ async def test_prepare_persists_only_hmac_metadata(monkeypatch):
             "subject": raw_subject,
             "body": raw_body,
         },
-        idempotency_key="idempotency-key-123",
+        idempotency_key="client-request-id-123",
     )
 
     assert result["state"] == "prepared"
@@ -144,7 +144,7 @@ async def test_prepare_persists_only_hmac_metadata(monkeypatch):
 def test_delivery_migration_has_metadata_only_contract():
     from pathlib import Path
 
-    migration = Path(__file__).parents[2] / "db/migrations/171_gmail_owner_approved_delivery.sql"
+    migration = Path(__file__).parents[2] / "db/migrations/173_gmail_owner_approved_delivery.sql"
     content = migration.read_text()
     assert "envelope_hmac" in content
     assert "idempotency_hmac" in content

@@ -42,7 +42,7 @@ export function NearbyDirectories({
   return (
     <div className="space-y-4" data-testid="nearby-directories">
       {/* Chips, not a segmented strip.
-          
+
           Two reasons, and the second is why it changed now.
 
           It never fitted: measured at 320px, "Insurance" needed 69px and had

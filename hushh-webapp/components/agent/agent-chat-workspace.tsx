@@ -38,6 +38,7 @@ import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
+import { EmailDraftCard } from "@/components/agent/email-draft-card";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
 import {
@@ -150,7 +151,6 @@ import {
   type PendingConsentLookupItem,
 } from "@/lib/services/consent-center-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
-import { EmailDraftCard } from "@/components/agent/email-draft-card";
 import { resolveGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-configuration";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";

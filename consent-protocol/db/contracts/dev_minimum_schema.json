@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 171,
+  "expected_migration_version": 173,
   "migration_version_policy": "minimum",
   "required_functions": [
     "merge_pkm_domain_summary",
@@ -1041,6 +1041,23 @@
       "expires_at",
       "executed_at",
       "created_at"
+    ],
+    "google_email_send_actions": [
+      "action_id",
+      "user_id",
+      "provider",
+      "payload_hmac",
+      "idempotency_hmac",
+      "recipient_count",
+      "status",
+      "expires_at",
+      "sending_at",
+      "completed_at",
+      "provider_message_id",
+      "provider_thread_id",
+      "error_code",
+      "created_at",
+      "updated_at"
     ],
     "trusted_device_audit_events": [
       "event_id",

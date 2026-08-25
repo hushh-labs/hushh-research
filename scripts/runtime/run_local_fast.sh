@@ -14,7 +14,7 @@ Starts the local stack in production-style fast mode:
   - activates the local runtime profile
   - starts the local backend on :8000 without Uvicorn reload
   - builds the frontend once
-  - starts the optimized frontend on :3000 with next start
+  - starts the optimized frontend on :3000 from its standalone build
 
 Options:
   --skip-build       Reuse the existing frontend build.
@@ -123,9 +123,25 @@ else
 fi
 
 echo "Starting optimized frontend on :3000..."
+STANDALONE_SERVER=""
+if [ -d "$WEB_DIR/.next/standalone" ]; then
+  STANDALONE_SERVER="$(find "$WEB_DIR/.next/standalone" -maxdepth 3 -type f -name server.js -print -quit)"
+fi
+if [ -z "$STANDALONE_SERVER" ]; then
+  echo "Standalone frontend server is missing after build. Re-run without --skip-build." >&2
+  exit 1
+fi
+
+STANDALONE_APP_DIR="$(dirname "$STANDALONE_SERVER")"
+mkdir -p "$STANDALONE_APP_DIR/.next"
+cp -R "$WEB_DIR/.next/static" "$STANDALONE_APP_DIR/.next/"
+if [ -d "$WEB_DIR/public" ]; then
+  mkdir -p "$STANDALONE_APP_DIR/public"
+  cp -R "$WEB_DIR/public/." "$STANDALONE_APP_DIR/public/"
+fi
 (
-  cd "$WEB_DIR"
-  HOSTNAME=0.0.0.0 PORT=3000 npm run start
+  cd "$STANDALONE_APP_DIR"
+  HOSTNAME=0.0.0.0 PORT=3000 node "$STANDALONE_SERVER"
 ) &
 WEB_PID=$!
 
