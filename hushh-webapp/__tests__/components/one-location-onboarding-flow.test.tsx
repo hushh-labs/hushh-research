@@ -105,7 +105,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "Be easy to reach when it actually matters.",
+        name: "Share your location easily with anyone.",
       }),
     ).toBeTruthy();
     expect(screen.getByTestId("location-agent-heading-icon")).toBeTruthy();
