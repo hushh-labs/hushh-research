@@ -37,6 +37,31 @@ type EmailBlock =
   | { kind: "aligned"; alignment: "left" | "center" | "right"; lines: string[] }
   | { kind: "paragraph"; lines: string[] };
 
+type FormattingAction =
+  | "bold"
+  | "italic"
+  | "underline"
+  | "heading"
+  | "bullet-list"
+  | "numbered-list"
+  | "quote"
+  | "align-left"
+  | "align-center"
+  | "align-right";
+
+const FORMATTING_CONTROLS = [
+  { label: "Bold", icon: Bold, action: "bold" },
+  { label: "Italic", icon: Italic, action: "italic" },
+  { label: "Underline", icon: Underline, action: "underline" },
+  { label: "Heading", icon: Heading2, action: "heading" },
+  { label: "Bullet list", icon: List, action: "bullet-list" },
+  { label: "Numbered list", icon: ListOrdered, action: "numbered-list" },
+  { label: "Quote", icon: Quote, action: "quote" },
+  { label: "Align left", icon: AlignLeft, action: "align-left" },
+  { label: "Center text", icon: AlignCenter, action: "align-center" },
+  { label: "Align right", icon: AlignRight, action: "align-right" },
+] as const satisfies ReadonlyArray<{ label: string; icon: typeof Bold; action: FormattingAction }>;
+
 const LINK_RE = /^\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^)\s]+)\)$/i;
 const INLINE_TOKEN_RE = /(\[[^\]]+\]\((?:https?:\/\/|mailto:)[^)\s]+\)|\*\*[^*]+\*\*|\*[^*]+\*|\+\+[^+]+\+\+)/g;
 
@@ -378,29 +403,50 @@ export function EmailRichTextComposer({
     setLinkUrl("");
   };
 
-  const controls = [
-    { label: "Bold", icon: Bold, action: () => replaceSelection("**") },
-    { label: "Italic", icon: Italic, action: () => replaceSelection("*") },
-    { label: "Underline", icon: Underline, action: () => replaceSelection("++") },
-    { label: "Heading", icon: Heading2, action: () => prefixLines("## ") },
-    { label: "Bullet list", icon: List, action: () => prefixLines("- ") },
-    { label: "Numbered list", icon: ListOrdered, action: () => prefixLines("", true) },
-    { label: "Quote", icon: Quote, action: () => prefixLines("> ") },
-    { label: "Align left", icon: AlignLeft, action: () => wrapBlock(":::left", ":::") },
-    { label: "Center text", icon: AlignCenter, action: () => wrapBlock(":::center", ":::") },
-    { label: "Align right", icon: AlignRight, action: () => wrapBlock(":::right", ":::") },
-  ];
+  const handleFormattingAction = (action: FormattingAction) => {
+    switch (action) {
+      case "bold":
+        replaceSelection("**");
+        return;
+      case "italic":
+        replaceSelection("*");
+        return;
+      case "underline":
+        replaceSelection("++");
+        return;
+      case "heading":
+        prefixLines("## ");
+        return;
+      case "bullet-list":
+        prefixLines("- ");
+        return;
+      case "numbered-list":
+        prefixLines("", true);
+        return;
+      case "quote":
+        prefixLines("> ");
+        return;
+      case "align-left":
+        wrapBlock(":::left", ":::");
+        return;
+      case "align-center":
+        wrapBlock(":::center", ":::");
+        return;
+      case "align-right":
+        wrapBlock(":::right", ":::");
+    }
+  };
 
   return (
     <div className="overflow-hidden rounded-[var(--app-radius-lg)] border border-border/80 bg-background shadow-sm">
       <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/30 px-2.5 py-2">
         <div aria-label="Text formatting" className="flex min-w-0 items-center gap-0.5" role="toolbar">
-          {controls.map(({ label, icon: Icon, action }) => (
+          {FORMATTING_CONTROLS.map(({ label, icon: Icon, action }) => (
             <Button
               aria-label={label}
               disabled={disabled || previewing}
               key={label}
-              onClick={action}
+              onClick={() => handleFormattingAction(action)}
               size="icon"
               type="button"
               variant="ghost"
