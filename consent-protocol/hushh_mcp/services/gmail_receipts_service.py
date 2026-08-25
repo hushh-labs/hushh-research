@@ -83,6 +83,11 @@ _NUDGE_BODY_MEETING_QUERY = (
     'zoom OR "google meet" OR "schedule a call" OR "schedule a meeting")'
 )
 _NUDGE_MAX_MEETINGS = 20
+_NUDGE_MEETING_FETCH_CONCURRENCY = 5
+# Meeting cards are supplementary to the inbox reply cards. Keep their live
+# Gmail work bounded so a mailbox with many calendar invitations never turns
+# the whole nudge response into a failed screen load.
+_NUDGE_MEETING_FETCH_TIMEOUT_SECONDS = 8.0
 
 _RECEIPT_SUBJECT_RE = re.compile(
     r"\b(receipt|invoice|order(?:\s+confirmation)?|payment|transaction|purchase|paid)\b",
@@ -1967,11 +1972,12 @@ class GmailReceiptsService:
         # (best-effort — never fail the whole nudge response over meeting parsing).
         # Invite events are listed first so they win the per-thread de-dupe.
         try:
-            invite_events = await self._fetch_meeting_events(
-                access_token=access_token, limit=bounded_limit
-            )
-            body_events = await self._fetch_body_meeting_events(
-                access_token=access_token, limit=bounded_limit
+            invite_events, body_events = await asyncio.wait_for(
+                asyncio.gather(
+                    self._fetch_meeting_events(access_token=access_token, limit=bounded_limit),
+                    self._fetch_body_meeting_events(access_token=access_token, limit=bounded_limit),
+                ),
+                timeout=_NUDGE_MEETING_FETCH_TIMEOUT_SECONDS,
             )
             meetings = derive_upcoming_meeting_nudges(
                 invite_events + body_events, limit=bounded_limit
@@ -2058,30 +2064,34 @@ class GmailReceiptsService:
             if len(message_ids) >= scan:
                 break
 
-        events: list = []
-        for message_id in message_ids:
+        semaphore = asyncio.Semaphore(_NUDGE_MEETING_FETCH_CONCURRENCY)
+
+        async def fetch_event(message_id: str):
             try:
-                message = await self._get_message_full(
-                    access_token=access_token, gmail_message_id=message_id
-                )
-                ics_text = await self._extract_ics_text(access_token=access_token, message=message)
+                async with semaphore:
+                    message = await self._get_message_full(
+                        access_token=access_token, gmail_message_id=message_id
+                    )
+                    ics_text = await self._extract_ics_text(
+                        access_token=access_token, message=message
+                    )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "gmail.nudges.meeting_fetch_failed id=%s reason=%s",
                     message_id,
                     str(exc)[:200],
                 )
-                continue
+                return None
             if not ics_text:
-                continue
-            event = parse_ics_event(
+                return None
+            return parse_ics_event(
                 ics_text,
                 message_id=message_id,
                 thread_id=_clean_text(message.get("threadId")),
             )
-            if event is not None:
-                events.append(event)
-        return events
+
+        events = await asyncio.gather(*(fetch_event(message_id) for message_id in message_ids))
+        return [event for event in events if event is not None]
 
     async def _fetch_body_meeting_events(self, *, access_token: str, limit: int) -> list:
         """Scan recent meeting-language emails (no .ics) and build meeting events.

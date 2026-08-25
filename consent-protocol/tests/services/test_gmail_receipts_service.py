@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+import hushh_mcp.services.gmail_receipts_service as gmail_receipts_service_module
 from hushh_mcp.services.gmail_receipts_service import (
     GmailApiError,
     GmailReceiptsService,
@@ -1414,3 +1415,85 @@ async def test_ensure_access_token_marks_needs_reauth_on_refresh_failure(monkeyp
 
     assert exc_info.value.status_code == 401
     assert any("SET status = 'error'" in sql for sql, _ in db_calls)
+
+
+@pytest.mark.asyncio
+async def test_meeting_invite_fetch_is_bounded_and_parallel(monkeypatch):
+    service = GmailReceiptsService()
+    message_ids = [f"message-{index}" for index in range(8)]
+
+    async def _list_messages(**kwargs):
+        return {"messages": [{"id": message_id} for message_id in message_ids]}
+
+    active = 0
+    max_active = 0
+
+    async def _get_message_full(*, gmail_message_id, **kwargs):
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        try:
+            await asyncio.sleep(0.01)
+            return {"id": gmail_message_id, "threadId": f"thread-{gmail_message_id}"}
+        finally:
+            active -= 1
+
+    async def _extract_ics_text(**kwargs):
+        return "\r\n".join(
+            [
+                "BEGIN:VCALENDAR",
+                "BEGIN:VEVENT",
+                "SUMMARY:Planning",
+                "DTSTART:20270101T120000Z",
+                "END:VEVENT",
+                "END:VCALENDAR",
+            ]
+        )
+
+    monkeypatch.setattr(service, "_list_messages", _list_messages)
+    monkeypatch.setattr(service, "_get_message_full", _get_message_full)
+    monkeypatch.setattr(service, "_extract_ics_text", _extract_ics_text)
+
+    events = await service._fetch_meeting_events(
+        access_token="token",  # noqa: S106 - non-secret test fixture
+        limit=4,
+    )
+
+    assert len(events) == len(message_ids)
+    assert max_active == gmail_receipts_service_module._NUDGE_MEETING_FETCH_CONCURRENCY
+
+
+@pytest.mark.asyncio
+async def test_nudges_keep_reply_results_when_meeting_scan_times_out(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(
+        service,
+        "_ensure_access_token",
+        lambda **kwargs: asyncio.sleep(0, result=("token", {})),
+    )
+
+    async def _http_get_json(url, **kwargs):
+        assert url.endswith("/profile")
+        return {"emailAddress": "person@example.com"}
+
+    async def _list_messages(**kwargs):
+        return {"messages": []}
+
+    async def _slow_meeting_scan(**kwargs):
+        await asyncio.sleep(1)
+        return []
+
+    monkeypatch.setattr(service, "_http_get_json", _http_get_json)
+    monkeypatch.setattr(service, "_list_messages", _list_messages)
+    monkeypatch.setattr(service, "_fetch_meeting_events", _slow_meeting_scan)
+    monkeypatch.setattr(service, "_fetch_body_meeting_events", _slow_meeting_scan)
+    monkeypatch.setattr(
+        gmail_receipts_service_module,
+        "_NUDGE_MEETING_FETCH_TIMEOUT_SECONDS",
+        0.01,
+    )
+
+    result = await service.list_nudges(user_id="user-123", limit=10)
+
+    assert result["account_email"] == "person@example.com"
+    assert result["nudges"] == []
