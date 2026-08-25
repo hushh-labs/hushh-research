@@ -639,13 +639,13 @@ function CheckInFeatureCard() {
           className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em] text-[#111823] dark:text-white"
           data-one-feature-title
         >
-          Need them to know you arrived?
+          Stuck waiting in line?
         </h2>
         <p
           className="text-[15px] font-normal leading-[20px] text-[#6e737d] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Check in with one tap.
+          Check in when you arrive.
         </p>
       </div>
       <div
@@ -807,8 +807,7 @@ function FeaturesScreen({
             className="ui-text-agent-title text-[#111823] dark:!text-[#f6f8fc]"
             data-one-feature-heading
           >
-            <span className="block">When plans change,</span>
-            <span className="block">stay close.</span>
+            Keep your people updated.
           </h1>
         </header>
         <div

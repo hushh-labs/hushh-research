@@ -257,7 +257,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: /When plans change,\s*stay close\./,
+        name: "Keep your people updated.",
       }),
     ).toBeTruthy();
     expect(
@@ -268,10 +268,10 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByText("Share location with your Circle.")).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "Need them to know you arrived?",
+        name: "Stuck waiting in line?",
       }),
     ).toBeTruthy();
-    expect(screen.getByText("Check in with one tap.")).toBeTruthy();
+    expect(screen.getByText("Check in when you arrive.")).toBeTruthy();
     expect(
       screen.getByRole("heading", {
         name: "Need help but can’t talk?",
@@ -281,7 +281,8 @@ describe("OneLocationOnboardingFlow", () => {
       screen.getByText("Hold Save My Soul to alert your Circle."),
     ).toBeTruthy();
 
-    expect(screen.queryByText("Keep your people updated.")).toBeNull();
+    expect(screen.queryByText("When plans change,")).toBeNull();
+    expect(screen.queryByText("stay close.")).toBeNull();
     expect(screen.queryByText("Share location")).toBeNull();
     expect(screen.queryByText("Check in")).toBeNull();
     expect(screen.queryByText("SMS · Save My Soul")).toBeNull();

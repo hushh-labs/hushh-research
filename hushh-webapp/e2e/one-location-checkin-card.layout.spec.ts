@@ -33,7 +33,7 @@ const STORY = `
   <section data-one-feature-screen>
     <div data-one-feature-scroll>
       <header data-one-feature-header>
-        <h1 data-one-feature-heading><span>When plans change,</span><span>stay close.</span></h1>
+        <h1 data-one-feature-heading>Keep your people updated.</h1>
       </header>
       <div data-one-story-container>
         <article data-one-feature-row data-one-use-case-card data-one-feature-card="share">
@@ -45,8 +45,8 @@ const STORY = `
         </article>
         <article data-one-feature-row data-one-use-case-card data-one-feature-card="checkin">
           <div data-one-feature-copy>
-            <h2 data-one-feature-title>Need them to know you arrived?</h2>
-            <p data-one-feature-body>Check in with one tap.</p>
+            <h2 data-one-feature-title>Stuck waiting in line?</h2>
+            <p data-one-feature-body>Check in when you arrive.</p>
           </div>
           <div data-one-use-case-art></div>
         </article>
@@ -88,7 +88,6 @@ html, body { margin: 0; min-height: 100%; font-family: InterVariable, Inter, sys
 [data-one-feature-scroll] { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow-x: hidden; overflow-y: auto; }
 [data-one-feature-header], [data-one-story-container], [data-one-feature-cta] { width: 100%; max-width: 430px; margin-left: auto; margin-right: auto; }
 [data-one-feature-heading] { margin: 20px 0 0; font-size: 31px; line-height: 1.08; letter-spacing: -0.02em; }
-[data-one-feature-heading] span { display: block; }
 [data-one-story-container] { margin-top: 20px; overflow: hidden; border-radius: 22px; background: #fff; border: 1px solid rgba(60, 60, 67, 0.10); }
 [data-one-feature-row] { box-sizing: border-box; display: grid; min-height: 126px; grid-template-columns: minmax(0, 1fr) 112px; align-items: center; gap: 16px; padding: 16px; }
 [data-one-feature-row] + [data-one-feature-row] { border-top: 1px solid rgba(60, 60, 67, 0.12); }

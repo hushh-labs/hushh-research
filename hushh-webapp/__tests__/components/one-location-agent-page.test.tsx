@@ -674,7 +674,7 @@ async function openLocationFeatureStep() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
   expect(
     await screen.findByRole("heading", {
-      name: /When plans change,\s*stay close\./,
+      name: "Keep your people updated.",
     }),
   ).toBeTruthy();
 }
@@ -3530,7 +3530,7 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
-          name: /When plans change,\s*stay close\./,
+          name: "Keep your people updated.",
         }),
       ).toBeNull();
       expect(
