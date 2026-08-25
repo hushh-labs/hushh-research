@@ -404,6 +404,7 @@ export type LocationHubViewModel = {
    * and left Save stuck spinning on the next Edit of the same person.
    */
   savingGrantId: string | null;
+  requestingMoreTimeKey: string | null;
   onEditGrantStart: (grantId: string) => void;
   onEditGrantCancel: () => void;
   editGrantDurationHours: string;
@@ -413,6 +414,12 @@ export type LocationHubViewModel = {
     grantId: string;
     ownerLabel: string;
   }) => void;
+  onRequestMoreTime: (params: {
+    ownerUserId: string;
+    grantId: string;
+    ownerLabel: string;
+    additionalHours: 0.5 | 2;
+  }) => Promise<void>;
   /*
    * The same edit, for the share you are giving rather than the one you are
    * receiving. It is separate state because it is a different consent: the
@@ -2869,11 +2876,12 @@ function PersonRow({
     // between the name and the shares underneath it would read as two people.
     <div
       className={cn(
-        "transition-colors hover:bg-[color:var(--app-neutral-fill)] motion-reduce:transition-none",
-        !first && "border-t border-[color:var(--app-separator)]",
+        "relative transition-colors hover:bg-[color:var(--app-neutral-fill)] motion-reduce:transition-none",
+        !first &&
+          "before:absolute before:left-16 before:right-4 before:top-0 before:h-px before:bg-[color:var(--app-separator)] before:content-['']",
       )}
     >
-      <div className="flex min-h-[62px] items-center gap-3 px-4 py-2 sm:min-h-16 sm:gap-3.5 sm:px-5">
+      <div className="flex min-h-[60px] items-center gap-3 px-4 py-2.5 sm:min-h-16">
         <div className="relative shrink-0">
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]">
             {personInitials(name)}
@@ -2882,11 +2890,11 @@ function PersonRow({
             <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-success)]" />
           ) : null}
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[17px] font-normal leading-[22px] tracking-[-0.3px] text-foreground">
+        <div className="min-w-0 flex-1 space-y-0.5">
+          <p className="break-words text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground">
             {name}
           </p>
-          <p className="truncate text-[14px] leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
+          <p className="break-words text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
             {subtitle}
           </p>
         </div>
@@ -2910,17 +2918,26 @@ function countdownAsLeft(label: string | null | undefined): string | null {
   return label;
 }
 
+function isGenericConnectionCopy(value: string): boolean {
+  return (
+    value === "Ready for private location sharing" ||
+    /existing trust or sharing history/i.test(value)
+  );
+}
+
 function peopleShareStatus(
   group: OneLocationGrantLaneGroup | null,
   receiving: boolean,
   countdownLabel: (value?: string | null) => string,
   fallback: string,
 ): string {
-  if (group && receiving) return "Sharing both ways";
+  if (group && receiving) {
+    return `${group.grants.length + 1} active shares`;
+  }
   if (!group) {
     return receiving
       ? "Sharing with you"
-      : fallback === "Ready for private location sharing"
+      : isGenericConnectionCopy(fallback)
         ? "Connected"
         : fallback;
   }
@@ -2936,6 +2953,13 @@ function peopleShareStatus(
   return left ? `${prefix} · ${left}` : prefix;
 }
 
+function requestMoreTimeLabel(hours: number | null | undefined): string {
+  if (hours === 0.5) return "30 min more";
+  if (hours === 2) return "2 hours more";
+  const duration = formatLocationDurationLabel(hours);
+  return duration ? `${duration} more` : "More time";
+}
+
 function requestDurationLabel(request: OneLocationAccessRequest): string {
   if (request.requestedDurationMode === "until_stopped") {
     return "Until stopped";
@@ -2946,9 +2970,15 @@ function requestDurationLabel(request: OneLocationAccessRequest): string {
 function sentRequestStatusLine(
   request: OneLocationAccessRequest,
   nowMs: number,
+  activeGrant?: OneLocationGrant | null,
+  countdownLabel?: (value?: string | null) => string,
 ): string {
   if (/active|approved|shared|granted/i.test(request.status)) {
-    return "Sharing with you";
+    const left =
+      activeGrant?.durationMode === "until_stopped"
+        ? "Until you stop"
+        : countdownAsLeft(countdownLabel?.(activeGrant?.expiresAt));
+    return left ? `Sharing with you · ${left}` : "Sharing with you";
   }
   const requestedAt = request.requestedAt
     ? Date.parse(request.requestedAt)
@@ -2963,7 +2993,7 @@ function sentRequestStatusLine(
   return requestStatusWord(request.status);
 }
 
-function PeopleHub({
+export function PeopleHub({
   vm,
   onAddConnections,
   onInvite,
@@ -3002,6 +3032,30 @@ function PeopleHub({
     }
     return byUserId;
   }, [vm.activeOwnerGrants]);
+  const activeReceivedGrantById = useMemo(() => {
+    const byId = new globalThis.Map<string, OneLocationGrant>();
+    for (const grant of vm.receivedGrants) {
+      if (grant.status === "active") byId.set(grant.id, grant);
+    }
+    return byId;
+  }, [vm.receivedGrants]);
+  const pendingExtensionByGrantId = useMemo(() => {
+    const byGrantId = new globalThis.Map<string, OneLocationAccessRequest>();
+    for (const request of vm.requestedByMe) {
+      if (request.status !== "pending" || !request.extendsGrantId) continue;
+      if (!byGrantId.has(request.extendsGrantId)) {
+        byGrantId.set(request.extendsGrantId, request);
+      }
+    }
+    return byGrantId;
+  }, [vm.requestedByMe]);
+  const requestsSentRows = useMemo(
+    () =>
+      vm.requestedByMe.filter(
+        (request) => !(request.status === "pending" && request.extendsGrantId),
+      ),
+    [vm.requestedByMe],
+  );
   const { expandedLaneUserIds, toggleLaneExpansion } = useExpandedShareLanes();
   const addPeopleEmptyAction = (
     <Button
@@ -3263,26 +3317,42 @@ function PeopleHub({
             </div>
           </section>
 
-          {vm.requestedByMe.length ? (
+          {requestsSentRows.length ? (
             <SettingsGroup
               title="Requests sent"
               separatorInset
               shellClassName="[--settings-group-radius:var(--app-radius-md)] !rounded-[var(--app-radius-md)] !bg-[color:var(--app-primary-surface)] !shadow-[var(--app-card-shadow-standard)]"
             >
-              {vm.requestedByMe.map((request) => {
+              {requestsSentRows.map((request) => {
                 const isLive = /active|approved|shared|granted/i.test(
                   request.status,
                 );
                 const grantId = request.approvedGrantId;
+                const activeGrant = grantId
+                  ? activeReceivedGrantById.get(grantId)
+                  : null;
+                const pendingExtension = grantId
+                  ? pendingExtensionByGrantId.get(grantId)
+                  : null;
                 const canEdit = isLive && Boolean(grantId);
                 const isEditing =
                   Boolean(grantId) && vm.editingGrantId === grantId;
                 const ownerLabel = vm.requestOwnerLabel(request);
+                const thirtyKey = grantId ? `${grantId}:0.5` : "";
+                const twoHourKey = grantId ? `${grantId}:2` : "";
+                const requestingMore =
+                  vm.requestingMoreTimeKey === thirtyKey ||
+                  vm.requestingMoreTimeKey === twoHourKey;
                 return (
                   <div key={request.id}>
                     <SettingsRow
                       title={ownerLabel}
-                      description={sentRequestStatusLine(request, vm.nowMs)}
+                      description={sentRequestStatusLine(
+                        request,
+                        vm.nowMs,
+                        activeGrant,
+                        vm.expiresCountdownLabel,
+                      )}
                       trailing={
                         canEdit && grantId ? (
                           <Button
@@ -3326,46 +3396,99 @@ function PeopleHub({
                         )
                       }
                       density="compact"
+                      className={cn(
+                        "[--settings-row-gap:12px] [--settings-row-px:16px] [--settings-row-py:10px]",
+                        "[&>button]:min-h-[60px] sm:[&>button]:min-h-16 [&>div]:min-h-[60px] sm:[&>div]:min-h-16",
+                        "[&_[data-slot=settings-row-title]]:!text-[17px] [&_[data-slot=settings-row-title]]:!font-medium [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.3px]",
+                        "[&_[data-slot=settings-row-description]]:!text-[13px] [&_[data-slot=settings-row-description]]:!font-normal [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px]",
+                      )}
                     />
                     {isEditing && grantId ? (
-                      <div className="space-y-3 px-4 pb-4 pt-1 sm:px-5">
-                        <DurationSelector
-                          value={vm.editGrantDurationHours}
-                          onChange={vm.setEditGrantDurationHours}
-                          label="New duration"
-                          presentation="select"
-                        />
-                        {/* Framed as "new duration", not "shorten"/"extend":
-                            the person picks a duration like any other
-                            duration picker in this app. Whether it applies
-                            immediately or turns into a fresh request the
-                            owner has to approve is decided server-side by
-                            whether it's shorter or longer than what's left --
-                            and either outcome is confirmed by the toast that
-                            follows. */}
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            className="h-9 flex-1 rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-                            onClick={() =>
-                              vm.onEditGrantSave({
-                                ownerUserId: request.ownerUserId,
-                                grantId,
-                                ownerLabel,
-                              })
-                            }
-                            isLoading={vm.savingGrantId === grantId}
-                          >
-                            Save
-                          </Button>
+                      <div className="space-y-3 px-4 pb-4 pt-1">
+                        <p className="text-[15px] font-semibold leading-5 text-foreground">
+                          Ask for more time
+                        </p>
+                        {pendingExtension ? (
+                          <div className="rounded-2xl bg-[color:var(--app-neutral-fill)] px-4 py-3">
+                            <p className="text-[15px] font-semibold leading-5 text-foreground">
+                              {requestMoreTimeLabel(
+                                pendingExtension.requestedDurationHours,
+                              )}{" "}
+                              requested
+                            </p>
+                            <div className="mt-1 flex items-center justify-between gap-3">
+                              <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                                Waiting for approval
+                              </p>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-9 px-2 text-[15px] font-medium text-[#FF3B30] hover:bg-transparent hover:text-[#D70015]"
+                                onClick={() =>
+                                  vm.onWithdrawRequest(pendingExtension.id)
+                                }
+                                disabled={
+                                  vm.withdrawingRequestId ===
+                                  pendingExtension.id
+                                }
+                              >
+                                Take back
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="grid gap-2 min-[340px]:grid-cols-2">
+                              {[
+                                {
+                                  hours: 0.5 as const,
+                                  label: "30 min more",
+                                  key: thirtyKey,
+                                },
+                                {
+                                  hours: 2 as const,
+                                  label: "2 hours more",
+                                  key: twoHourKey,
+                                },
+                              ].map((option) => (
+                                <Button
+                                  key={option.key}
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-11 min-h-11 rounded-2xl border-[color:var(--app-accent)]/30 bg-[color:var(--app-primary-surface)] px-3 text-[15px] font-semibold leading-5 text-[color:var(--app-accent)] shadow-none hover:bg-[color:var(--app-accent-surface)] hover:text-[color:var(--app-accent)]"
+                                  onClick={() =>
+                                    vm.onRequestMoreTime({
+                                      ownerUserId: request.ownerUserId,
+                                      grantId,
+                                      ownerLabel,
+                                      additionalHours: option.hours,
+                                    })
+                                  }
+                                  disabled={requestingMore}
+                                  isLoading={
+                                    vm.requestingMoreTimeKey === option.key
+                                  }
+                                >
+                                  {vm.requestingMoreTimeKey === option.key
+                                    ? "Requesting…"
+                                    : option.label}
+                                </Button>
+                              ))}
+                            </div>
+                            <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                              They’ll need to approve.
+                            </p>
+                          </>
+                        )}
+                        <div className="border-t border-[color:var(--app-separator)] pt-1">
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-9 rounded-full px-4 text-sm font-semibold text-[#FF3B30] hover:bg-[#FF3B30]/10 hover:text-[#D70015]"
+                            className="h-11 min-h-11 rounded-full px-0 text-[15px] font-medium text-[#FF3B30] hover:bg-transparent hover:text-[#D70015]"
                             onClick={() => vm.onStopGrant(grantId)}
                             disabled={vm.revokingGrantId === grantId}
                           >
-                            Stop
+                            Stop viewing
                           </Button>
                         </div>
                       </div>

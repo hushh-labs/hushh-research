@@ -14,7 +14,6 @@ import {
   Share2,
   ShieldCheck,
   Trash2,
-  Siren,
   UsersRound,
   MoreVertical,
 } from "lucide-react";
@@ -438,49 +437,41 @@ export function CirclesSection({
           testId="one-location-circle-list"
         >
           {orderedCircles.map((circle) => {
-            // STATE BEATS CATEGORY: a circle is the people role, but one
-            // holding nobody except the viewer has nothing to report and
-            // stays neutral. `memberCount` includes the viewer, so the
-            // count that decides this is `memberCount - 1` — the same
-            // test the check-in flow and the SMS contacts list apply.
-            const circleRole = roleClasses("people", {
-              inactive: Math.max(0, circle.memberCount - 1) === 0,
-            });
+            const isSmsCircle = circle.systemKind === "sms";
             return (
             <SettingsRow
               key={circle.id}
               leading={
                 <span
                   className={cn(
-                    "flex h-11 w-11 items-center justify-center rounded-[12px]",
-                    circleRole.tile,
-                    circleRole.glyph,
+                    "flex h-9 w-9 items-center justify-center",
+                    isSmsCircle
+                      ? "rounded-full bg-[#FF3B30] text-[11px] font-bold leading-none tracking-[-0.2px] text-white"
+                      : "rounded-full bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]",
                   )}
                 >
-                  {/* A different glyph, not just a different name. The SMS
-                      Circle is the one row here that does something on its own
-                      -- SOS reads it -- and a person scanning the list should
-                      be able to tell it apart without reading. */}
-                  {circle.isSystem ? (
-                    <Siren className="h-5 w-5" />
+                  {isSmsCircle ? (
+                    "SMS"
+                  ) : circle.name.trim() ? (
+                    circleInitials(circle.name)
                   ) : (
-                    <UsersRound className="h-5 w-5" />
+                    <UsersRound className="h-[17px] w-[17px]" />
                   )}
                 </span>
               }
               title={circle.name}
               description={
-                circle.isSystem
+                isSmsCircle
                   ? `Save My Soul · ${circleListMemberCountLabel(circle.memberCount)}`
                   : circleListMemberCountLabel(circle.memberCount)
               }
               chevron
               onClick={() => onOpen(circle.id)}
               className={cn(
-                "[--settings-row-gap:12px] [--settings-row-px:16px] [--settings-row-py:10px] sm:[--settings-row-gap:14px] sm:[--settings-row-px:18px] sm:[--settings-row-py:11px]",
-                "[&>button]:min-h-[62px] sm:[&>button]:min-h-16",
-                "[&_[data-slot=settings-row-title]]:!text-[17px] [&_[data-slot=settings-row-title]]:!font-normal [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.3px]",
-                "[&_[data-slot=settings-row-description]]:!text-[14px] [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px]",
+                "[--settings-row-gap:12px] [--settings-row-px:16px] [--settings-row-py:10px]",
+                "[&>button]:min-h-[60px] sm:[&>button]:min-h-16",
+                "[&_[data-slot=settings-row-title]]:!text-[17px] [&_[data-slot=settings-row-title]]:!font-medium [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.3px]",
+                "[&_[data-slot=settings-row-description]]:!text-[13px] [&_[data-slot=settings-row-description]]:!font-normal [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px]",
               )}
               testId={`one-location-circle-${circle.id}`}
             />

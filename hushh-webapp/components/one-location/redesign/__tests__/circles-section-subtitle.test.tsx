@@ -85,4 +85,20 @@ describe("the circle row's second line", () => {
     expect(screen.getByText("1 member")).toBeTruthy();
     expect(screen.getByText("3 members")).toBeTruthy();
   });
+
+  it("uses the red SMS identity for the Save My Soul system Circle", () => {
+    renderCircles([
+      circle({
+        id: "c_sms",
+        name: "SMS Circle",
+        memberCount: 2,
+        isSystem: true,
+        systemKind: "sms",
+      }),
+    ]);
+
+    expect(screen.getByText("SMS")).toBeTruthy();
+    expect(screen.getByText("Save My Soul · 1 member")).toBeTruthy();
+    expect(screen.queryByTestId("siren")).toBeNull();
+  });
 });

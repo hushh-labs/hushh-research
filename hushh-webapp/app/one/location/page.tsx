@@ -2576,6 +2576,9 @@ export function OneLocationAgentPageContent({
   const [editingGrantId, setEditingGrantId] = useState<string | null>(null);
   /** Which grant's duration is being saved. Separate from revoke on purpose. */
   const [savingGrantId, setSavingGrantId] = useState<string | null>(null);
+  const [requestingMoreTimeKey, setRequestingMoreTimeKey] = useState<
+    string | null
+  >(null);
   const [editGrantDurationHours, setEditGrantDurationHours] = useState(
     GRANT_EDIT_DURATION_FALLBACK,
   );
@@ -6453,6 +6456,49 @@ export function OneLocationAgentPageContent({
       }
     },
     [activeReceivedGrants, refresh, vaultOwnerToken],
+  );
+
+  const handleRequestMoreTime = useCallback(
+    async (params: {
+      ownerUserId: string;
+      grantId: string;
+      ownerLabel: string;
+      additionalHours: 0.5 | 2;
+    }) => {
+      if (!vaultOwnerToken) return;
+      const { ownerUserId, grantId, ownerLabel, additionalHours } = params;
+      const requestKey = `${grantId}:${additionalHours}`;
+      setRequestingMoreTimeKey(requestKey);
+      try {
+        await OneLocationService.requestAccess({
+          vaultOwnerToken,
+          ownerUserId,
+          requestedDurationHours: additionalHours,
+          requestedDurationMode: "timed",
+          extendsGrantId: grantId,
+          message:
+            additionalHours === 0.5
+              ? "Requesting 30 minutes more of your live location."
+              : "Requesting 2 hours more of your live location.",
+        });
+        toast.success(
+          additionalHours === 0.5
+            ? `Asked ${ownerLabel} for 30 min more.`
+            : `Asked ${ownerLabel} for 2 hours more.`,
+        );
+        setEditingGrantId(null);
+        await refresh({ background: true }).catch(() => null);
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : `Couldn't ask ${ownerLabel} for more time. Try again.`,
+        );
+      } finally {
+        setRequestingMoreTimeKey(null);
+      }
+    },
+    [refresh, vaultOwnerToken],
   );
 
   /**
@@ -12902,6 +12948,7 @@ export function OneLocationAgentPageContent({
     onAskReshare: (grant) => void handleAskReshare(grant),
     editingGrantId,
     savingGrantId,
+    requestingMoreTimeKey,
     onEditGrantStart: (grantId) => {
       // Open on what the share actually has left, not on a constant. The
       // editor used to say "1 hour" above a row reading "30 more min", so
@@ -12927,6 +12974,7 @@ export function OneLocationAgentPageContent({
     setEditGrantDurationHours,
     onEditGrantSave: (params) =>
       void handleEditGrantDuration(params, Number(editGrantDurationHours)),
+    onRequestMoreTime: handleRequestMoreTime,
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
     onCopyPublicInvite: handleCopyPublicInvite,
     onSharePublicInvite: () => void handleSharePublicInvite(),

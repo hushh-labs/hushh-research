@@ -9,7 +9,6 @@ import {
 import { Children, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError } from "@/lib/services/api-client";
 // The rungs themselves, not a copy of their labels: Ask and Share must offer
 // the same ladder, so the test reads the same list the component does.
 import { ROUTES } from "@/lib/navigation/routes";
@@ -4720,12 +4719,12 @@ describe("OneLocationAgentPage", () => {
       await screen.findByRole("heading", { name: "Requests sent" }),
     ).toBeTruthy();
     // A live request shows a real stop action, not a static "Active" label
-    // with no way off the list. The label is "Stop", not "Delete": it is the
-    // same vm.onStopGrant handler the other two revoke buttons use, and it ends
-    // access rather than erasing anything.
+    // with no way off the list. The label is "Stop viewing", not "Delete": it
+    // is the same vm.onStopGrant handler the other two revoke buttons use, and
+    // it ends access rather than erasing anything.
     expect(screen.queryByText("Active")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Manage" }));
-    const deleteButton = screen.getByRole("button", { name: "Stop" });
+    const deleteButton = screen.getByRole("button", { name: "Stop viewing" });
     fireEvent.click(deleteButton);
     await waitFor(() =>
       expect(mockRevokeGrant).toHaveBeenCalledWith({
@@ -4735,7 +4734,7 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("shortens a live request's duration immediately, with no re-approval", async () => {
+  it("asks for 30 minutes more from an active sent request", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -4759,69 +4758,58 @@ describe("OneLocationAgentPage", () => {
     await screen.findByRole("heading", { name: "Requests sent" });
 
     fireEvent.click(screen.getByRole("button", { name: "Manage" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "30 min more" }));
 
-    await waitFor(() =>
-      expect(mockShortenGrant).toHaveBeenCalledWith({
-        vaultOwnerToken: "vault-token",
-        grantId: "grant_from_request_live",
-        durationHours: 1,
-      }),
-    );
-    // Shortening never needs the owner's approval -- no new request goes out.
-    expect(mockRequestAccess).not.toHaveBeenCalled();
-  });
-
-  it("falls back to re-asking the owner when the new duration would extend access", async () => {
-    // shorten_grant's whole reason to exist is refusing to move expiry
-    // later. The UI has no idea what the current expiry is, so it always
-    // tries shorten first and lets this rejection decide whether a fresh,
-    // owner-approved request goes out instead.
-    mockShortenGrant.mockRejectedValueOnce(
-      new ApiError("shorten only", 422, {
-        code: "LOCATION_GRANT_SHORTEN_ONLY",
-      }),
-    );
-    mockGetState.mockResolvedValue({
-      ...locationState(),
-      ownerGrants: [],
-      requests: [
-        {
-          id: "request_live",
-          ownerUserId: "user_b",
-          requesterUserId: "user_a",
-          status: "approved",
-          approvedGrantId: "grant_from_request_live",
-          requestedAt: "2026-05-20T07:30:00.000Z",
-        },
-      ],
-    });
-
-    render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow();
-
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: "People" }));
-    await screen.findByRole("heading", { name: "Requests sent" });
-
-    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    // The amount asked for travels with the request, and the grant it
-    // would lengthen is named. This used to send the literal string
-    // "Requesting more time." -- the number the person had just picked
-    // from the control above the button was the one fact the owner
-    // never received.
     await waitFor(() =>
       expect(mockRequestAccess).toHaveBeenCalledWith({
         vaultOwnerToken: "vault-token",
         ownerUserId: "user_b",
-        message: "Requesting 1 hour more of your live location.",
-        requestedDurationHours: 1,
+        message: "Requesting 30 minutes more of your live location.",
+        requestedDurationHours: 0.5,
         requestedDurationMode: "timed",
         extendsGrantId: "grant_from_request_live",
       }),
     );
+    expect(mockShortenGrant).not.toHaveBeenCalled();
+  });
+
+  it("asks for 2 hours more from an active sent request", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      requests: [
+        {
+          id: "request_live",
+          ownerUserId: "user_b",
+          requesterUserId: "user_a",
+          status: "approved",
+          approvedGrantId: "grant_from_request_live",
+          requestedAt: "2026-05-20T07:30:00.000Z",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    await screen.findByRole("heading", { name: "Requests sent" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
+    fireEvent.click(screen.getByRole("button", { name: "2 hours more" }));
+
+    await waitFor(() =>
+      expect(mockRequestAccess).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        ownerUserId: "user_b",
+        message: "Requesting 2 hours more of your live location.",
+        requestedDurationHours: 2,
+        requestedDurationMode: "timed",
+        extendsGrantId: "grant_from_request_live",
+      }),
+    );
+    expect(mockShortenGrant).not.toHaveBeenCalled();
   });
 
   it("keeps the count with the action, since the two are a screen apart", async () => {
