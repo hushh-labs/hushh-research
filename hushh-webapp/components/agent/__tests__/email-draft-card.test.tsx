@@ -35,7 +35,7 @@ describe("EmailDraftCard", () => {
     });
   });
 
-  it("drafts, invalidates review on edit, and sends only after a second explicit click", async () => {
+  it("sends the visible draft from one explicit Send click", async () => {
     vi.mocked(EmailDeliveryService.draft).mockResolvedValue({
       to: "person@example.com",
       cc: "",
@@ -72,28 +72,14 @@ describe("EmailDraftCard", () => {
       screen.getByTestId("one-email-draft-missing-details"),
     ).toHaveTextContent("deadline");
 
-    fireEvent.click(screen.getByTestId("one-email-draft-review"));
-    await waitFor(() =>
-      expect(screen.getByTestId("one-email-draft-send")).toBeInTheDocument(),
-    );
-    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Open email details" }));
     fireEvent.change(screen.getByTestId("one-email-draft-subject"), {
       target: { value: "Changed subject" },
     });
-    expect(
-      screen.queryByTestId("one-email-draft-send"),
-    ).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("one-email-draft-review"));
-    await waitFor(() =>
-      expect(screen.getByTestId("one-email-draft-send")).toBeInTheDocument(),
-    );
     fireEvent.click(screen.getByTestId("one-email-draft-send"));
     await waitFor(() =>
       expect(EmailDeliveryService.send).toHaveBeenCalledTimes(1),
     );
+    expect(EmailDeliveryService.prepare).toHaveBeenCalledTimes(1);
     expect(onSent).toHaveBeenCalledTimes(1);
   });
 
@@ -110,7 +96,7 @@ describe("EmailDraftCard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId("one-email-draft-review"));
+    fireEvent.click(screen.getByTestId("one-email-draft-send"));
     await waitFor(() => expect(onRequireVault).toHaveBeenCalledTimes(1));
     expect(EmailDeliveryService.prepare).not.toHaveBeenCalled();
   });
@@ -134,7 +120,7 @@ describe("EmailDraftCard", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("folds into a compact email record immediately while review is prepared", async () => {
+  it("keeps the reviewed email visible while it is being sent", async () => {
     vi.mocked(EmailDeliveryService.prepare).mockImplementation(
       () => new Promise<never>(() => {}),
     );
@@ -155,12 +141,12 @@ describe("EmailDraftCard", () => {
     fireEvent.change(screen.getByTestId("one-email-draft-subject"), {
       target: { value: "Hello" },
     });
-    fireEvent.click(screen.getByTestId("one-email-draft-review"));
+    fireEvent.click(screen.getByTestId("one-email-draft-send"));
 
-    expect(screen.getByTestId("one-email-draft-collapsed")).toHaveTextContent(
-      "Preparing email",
+    expect(screen.getByTestId("one-email-draft-message")).toBeInTheDocument();
+    expect(screen.getByTestId("one-email-draft-send")).toHaveTextContent(
+      "Send",
     );
-    expect(screen.queryByTestId("one-email-draft-message")).not.toBeInTheDocument();
   });
 
   it("drafts automatically only after an explicit Email Agent handoff", async () => {
@@ -218,10 +204,6 @@ describe("EmailDraftCard", () => {
     fireEvent.change(screen.getByTestId("one-email-draft-to"), {
       target: { value: "person@example.com" },
     });
-    fireEvent.click(screen.getByTestId("one-email-draft-review"));
-    await waitFor(() =>
-      expect(screen.getByTestId("one-email-draft-send")).toBeInTheDocument(),
-    );
     fireEvent.click(screen.getByTestId("one-email-draft-send"));
 
     await waitFor(() => {

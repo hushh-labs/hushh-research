@@ -175,7 +175,6 @@ export class EmailDeliveryService {
   static async send(input: EmailDeliveryAuth & {
     actionId: string;
     draft: EmailDraft;
-    idempotencyKey: string;
   }): Promise<SentEmailResult> {
     const payload = await postJson<unknown>("/api/one/email/send", input, {
       action_id: input.actionId,
@@ -184,7 +183,6 @@ export class EmailDeliveryService {
       bcc: input.draft.bcc,
       subject: input.draft.subject,
       body: input.draft.body,
-      idempotency_key: input.idempotencyKey,
     });
     const record = asRecord(payload);
     return {
