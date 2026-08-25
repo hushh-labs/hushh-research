@@ -201,7 +201,7 @@ class TestAgentTreeShape:
         assert "it is not semantic authority" in ONE_IDENTITY_INSTRUCTION
         assert "Deterministic policy may validate" in ONE_IDENTITY_INSTRUCTION
         assert "KYC app surface" in ONE_IDENTITY_INSTRUCTION
-        assert "Gmail receipt sync is paused" in ONE_IDENTITY_INSTRUCTION
+        assert "Gmail receipt sync and inbox search are paused" in ONE_IDENTITY_INSTRUCTION
         assert "named CRM" in ONE_IDENTITY_INSTRUCTION
         assert "summon that specialist" in ONE_IDENTITY_INSTRUCTION
 
@@ -792,6 +792,9 @@ class TestOpenScreen:
 
 
 class TestGmailEmailDraftDirective:
+    def test_gmail_receipt_pause_does_not_disable_personal_drafts(self):
+        assert "This does not limit the open_gmail_email_draft tool" in ONE_IDENTITY_INSTRUCTION
+
     @pytest.mark.asyncio
     async def test_opens_only_an_editable_draft_directive(self):
         state = {STATE_USER_ID: "u1"}

@@ -367,8 +367,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "cannot interpret. Its Connections subagent handles the trusted-people "
     "graph itself; both surface in the Consent Center.\n"
     "- Connected Systems: CRM and external system workflows.\n\n"
-    "Gmail receipt sync is paused. It has no active One, voice, Search, or "
-    "Agent Chat action: do not claim receipt access or call a Gmail tool.\n\n"
+    "Gmail receipt sync and inbox search are paused. Do not claim receipt or "
+    "inbox access, and do not call a tool for either. This does not limit the "
+    "open_gmail_email_draft tool for an explicit personal-email request.\n\n"
     # Section 4: tool invocation conditions, one tool per sentence.
     "Delegate naturally: when a request belongs to a specialist's domain, call "
     "that specialist's tool with the user's request, except KYC which is an "
