@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Loader2, Mail, Send, X } from "lucide-react";
+import { ChevronDown, CheckCircle2, Loader2, Mail, Send, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +60,7 @@ export function EmailDraftCard({
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [busy, setBusy] = useState<"draft" | "prepare" | "send" | null>(null);
   const [error, setError] = useState<EmailDeliveryError | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(true);
   const autoDraftStartedRef = useRef(false);
 
   const updateDraft = (field: keyof EmailDraft, value: string) => {
@@ -126,8 +127,15 @@ export function EmailDraftCard({
   }, [askOneToDraft, autoDraft]);
 
   const prepare = async () => {
+    // The reviewed envelope is retained in component memory, but the large
+    // editor should get out of the conversation immediately. The compact
+    // record expands again if preparation fails or the owner wants to edit.
+    setDetailsOpen(false);
     const auth = await withAuth();
-    if (!auth) return;
+    if (!auth) {
+      setDetailsOpen(true);
+      return;
+    }
     const nextIdempotencyKey = newIdempotencyKey();
     setBusy("prepare");
     setError(null);
@@ -146,6 +154,7 @@ export function EmailDraftCard({
       setPrepared(next);
       setIdempotencyKey(nextIdempotencyKey);
     } catch (cause) {
+      setDetailsOpen(true);
       setError(
         cause instanceof EmailDeliveryError
           ? cause
@@ -172,6 +181,7 @@ export function EmailDraftCard({
       if (outcome.outcomeUnknown) {
         setPrepared(null);
         setIdempotencyKey(null);
+        setDetailsOpen(true);
         setError(
           new EmailDeliveryError(
             "We could not confirm delivery. Check Sent Mail before trying again.",
@@ -183,6 +193,7 @@ export function EmailDraftCard({
       }
       onSent();
     } catch (cause) {
+      setDetailsOpen(true);
       setError(
         cause instanceof EmailDeliveryError
           ? cause
@@ -197,6 +208,81 @@ export function EmailDraftCard({
   };
 
   const disabled = busy !== null;
+  if (!detailsOpen) {
+    // `withAuth()` yields before `busy` is set. Until the prepared action is
+    // present, this compact record must stay in its honest loading state.
+    const isPreparing = busy === "prepare" || !prepared;
+    const recipientSummary = draft.to.trim() || "No recipient added";
+    const subjectSummary = draft.subject.trim() || "No subject";
+
+    return (
+      <section
+        data-testid="one-email-draft-card"
+        aria-label="Email draft"
+        className="mb-4 overflow-hidden rounded-[calc(var(--app-card-radius-compact)+2px)] border border-border/80 bg-card shadow-[var(--app-card-shadow-standard)]"
+      >
+        <div
+          className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5"
+          data-testid="one-email-draft-collapsed"
+        >
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-center gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            onClick={() => setDetailsOpen(true)}
+            aria-expanded="false"
+            aria-label="Open email details"
+            disabled={busy === "send"}
+          >
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+              {isPreparing ? (
+                <Loader2 className="h-4.5 w-4.5 animate-spin" />
+              ) : (
+                <Mail className="h-4.5 w-4.5" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-foreground">
+                {isPreparing ? "Preparing email…" : "Email ready to send"}
+              </p>
+              <p className="truncate text-sm text-muted-foreground">
+                {recipientSummary} · {subjectSummary}
+              </p>
+            </div>
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </button>
+          <div className="flex items-center gap-2 sm:shrink-0">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onDismiss}
+              disabled={disabled}
+            >
+              Decline
+            </Button>
+            {prepared ? (
+              <Button
+                type="button"
+                size="sm"
+                className="gap-2"
+                onClick={() => void send()}
+                disabled={disabled}
+                data-testid="one-email-draft-send"
+              >
+                {busy === "send" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Send className="h-3.5 w-3.5" />
+                )}
+                Send email
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section
       data-testid="one-email-draft-card"

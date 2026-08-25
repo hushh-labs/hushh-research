@@ -26,6 +26,9 @@ const getAuth = vi.fn().mockResolvedValue({
 describe("EmailDraftCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(EmailDeliveryService.draft).mockReset();
+    vi.mocked(EmailDeliveryService.prepare).mockReset();
+    vi.mocked(EmailDeliveryService.send).mockReset();
     getAuth.mockResolvedValue({
       firebaseIdToken: "firebase-token",
       vaultOwnerToken: "vault-owner-token",
@@ -75,6 +78,7 @@ describe("EmailDraftCard", () => {
     );
     expect(EmailDeliveryService.send).not.toHaveBeenCalled();
 
+    fireEvent.click(screen.getByRole("button", { name: "Open email details" }));
     fireEvent.change(screen.getByTestId("one-email-draft-subject"), {
       target: { value: "Changed subject" },
     });
@@ -128,6 +132,35 @@ describe("EmailDraftCard", () => {
     expect(
       screen.queryByRole("button", { name: "Ask One to draft" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("folds into a compact email record immediately while review is prepared", async () => {
+    vi.mocked(EmailDeliveryService.prepare).mockImplementation(
+      () => new Promise<never>(() => {}),
+    );
+
+    render(
+      <EmailDraftCard
+        initialInstruction="Draft this"
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSent={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId("one-email-draft-to"), {
+      target: { value: "person@example.com" },
+    });
+    fireEvent.change(screen.getByTestId("one-email-draft-subject"), {
+      target: { value: "Hello" },
+    });
+    fireEvent.click(screen.getByTestId("one-email-draft-review"));
+
+    expect(screen.getByTestId("one-email-draft-collapsed")).toHaveTextContent(
+      "Preparing email",
+    );
+    expect(screen.queryByTestId("one-email-draft-message")).not.toBeInTheDocument();
   });
 
   it("drafts automatically only after an explicit Email Agent handoff", async () => {
