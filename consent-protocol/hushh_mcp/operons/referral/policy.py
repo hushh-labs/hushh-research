@@ -1,10 +1,17 @@
 """Referral qualification rules.
 
-Every function here is pure and takes its clock as an argument. That is not
-style: the qualification bar is fifteen real minutes, and a test that had to
-wait fifteen real minutes would never be written. Injecting the clock is what
-lets the exact boundary -- 899 seconds versus 900 -- be asserted in
-milliseconds, against the same code that runs in production.
+Qualification is decided once, at the moment a referred person finishes the
+required Hushh One onboarding flow: attribution bound, signed up, onboarded,
+Qualified. There is no post-onboarding engagement bar -- no active-minutes
+floor, no eligible-agent requirement, no minimum-event count. Those checks
+used to gate `evaluate()`; they were retired because the product no longer
+asks a referred person to do anything after finishing setup.
+
+The engagement-accounting functions below (`credit_for_heartbeat`,
+`merge_intervals`, `eligible_credited_seconds`) still exist because the
+underlying session infrastructure is still written to and still rendered on
+the Referrals tab as progress context. They simply no longer decide whether
+anyone qualifies.
 """
 
 from __future__ import annotations
@@ -176,27 +183,22 @@ def eligible_credited_seconds(intervals: list[tuple[datetime, datetime]]) -> int
     return int(sum((end - start).total_seconds() for start, end in merge_intervals(intervals)))
 
 
-def qualification_window_closes_at(onboarded_at: datetime, policy: ReferralPolicy) -> datetime:
-    return onboarded_at + timedelta(days=policy.qualification_window_days)
-
-
 def attribution_expires_at(first_seen_at: datetime, policy: ReferralPolicy) -> datetime:
     return first_seen_at + timedelta(days=policy.attribution_window_days)
 
 
 @dataclass(frozen=True)
 class QualificationInput:
-    """Everything the decision needs, already gathered by the caller."""
+    """Everything the decision needs, already gathered by the caller.
+
+    `onboarding_complete` is the whole qualification bar: it means the person
+    finished the required Hushh One onboarding flow server-side. Nothing here
+    asks what they did afterward.
+    """
 
     status: str
     phone_verified: bool
     onboarding_complete: bool
-    entered_application: bool
-    credited_active_seconds: int
-    meaningful_event_count: int
-    used_eligible_agent: bool
-    onboarded_at: datetime | None
-    now: datetime
     risk_level: str = "low"
 
 
@@ -210,9 +212,8 @@ class QualificationDecision:
 def evaluate(candidate: QualificationInput, policy: ReferralPolicy) -> QualificationDecision:
     """Decide what this relationship's status should now be.
 
-    Order matters. Expiry is checked before success so a person cannot qualify
-    on time they spent after the window closed, and risk is checked after the
-    bar is met so a clean referral is never held for review it did not earn.
+    Risk is checked after the bar is met so a clean referral is never held for
+    review it did not earn.
     """
     status = candidate.status
 
@@ -222,24 +223,10 @@ def evaluate(candidate: QualificationInput, policy: ReferralPolicy) -> Qualifica
     if not policy.program_enabled:
         return QualificationDecision(status, "program_disabled", changed=False)
 
-    if candidate.onboarded_at is not None:
-        closes_at = qualification_window_closes_at(candidate.onboarded_at, policy)
-        if candidate.now >= closes_at:
-            return QualificationDecision(EXPIRED, "qualification_window_closed", changed=True)
-
     if not candidate.phone_verified:
         return QualificationDecision(status, "phone_not_verified", changed=False)
     if not candidate.onboarding_complete:
         return QualificationDecision(status, "onboarding_incomplete", changed=False)
-    if not candidate.entered_application:
-        return QualificationDecision(status, "application_not_entered", changed=False)
-    if not candidate.used_eligible_agent:
-        return QualificationDecision(status, "no_eligible_agent", changed=False)
-
-    if candidate.credited_active_seconds < policy.required_active_seconds:
-        return QualificationDecision(status, "active_time_below_threshold", changed=False)
-    if candidate.meaningful_event_count < policy.minimum_meaningful_events:
-        return QualificationDecision(status, "events_below_threshold", changed=False)
 
     if candidate.risk_level == "high":
         return QualificationDecision(REJECTED, "risk_high", changed=True)

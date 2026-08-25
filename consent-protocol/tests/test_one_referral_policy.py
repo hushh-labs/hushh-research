@@ -1,9 +1,9 @@
 """The referral qualification rules, at their boundaries.
 
-Fifteen minutes is the product's promise, so 899 seconds versus 900 is the line
-the whole program turns on. It is asserted here in milliseconds against the same
-function that runs in production, because the alternative -- waiting fifteen
-real minutes -- is a test nobody runs twice.
+Qualification turns on exactly one thing: has the referred person finished the
+required Hushh One onboarding flow, server-side. There is no active-minutes
+floor, no eligible-agent requirement, and no minimum-event count -- those used
+to gate `evaluate()` and were retired along with the tests that pinned them.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ import pytest
 from hushh_mcp.operons.referral.policy import (
     ALLOWED_TRANSITIONS,
     ATTRIBUTED,
-    ENGAGING,
     EXPIRED,
+    ONBOARDED,
     QUALIFIED,
     REJECTED,
     REVOKED,
@@ -41,83 +41,36 @@ POLICY = ReferralPolicy(version=1, eligible_agent_keys=("one_location",))
 
 def _candidate(**overrides) -> QualificationInput:
     base = dict(
-        status=ENGAGING,
+        status=ONBOARDED,
         phone_verified=True,
         onboarding_complete=True,
-        entered_application=True,
-        credited_active_seconds=900,
-        meaningful_event_count=3,
-        used_eligible_agent=True,
-        onboarded_at=NOW - timedelta(days=1),
-        now=NOW,
         risk_level="low",
     )
     base.update(overrides)
     return QualificationInput(**base)
 
 
-# --- the fifteen-minute line ------------------------------------------------
+# --- onboarding completion is the whole bar ---------------------------------
 
 
-@pytest.mark.parametrize(
-    "seconds,expected",
-    [(0, ENGAGING), (899, ENGAGING), (900, QUALIFIED), (901, QUALIFIED)],
-)
-def test_the_active_time_boundary_is_exact(seconds, expected):
-    assert evaluate(_candidate(credited_active_seconds=seconds), POLICY).target_status == expected
+def test_completing_onboarding_alone_qualifies():
+    # No engagement session, no eligible agent, no elapsed time -- onboarding
+    # completion plus a verified phone is the entire bar.
+    assert evaluate(_candidate(), POLICY).target_status == QUALIFIED
 
 
-@pytest.mark.parametrize("events,expected", [(0, ENGAGING), (2, ENGAGING), (3, QUALIFIED)])
-def test_the_meaningful_event_boundary_is_exact(events, expected):
-    assert evaluate(_candidate(meaningful_event_count=events), POLICY).target_status == expected
-
-
-def test_a_twenty_minute_policy_moves_the_line_without_touching_the_code():
-    twenty = ReferralPolicy(version=2, required_active_seconds=1200)
-    assert evaluate(_candidate(credited_active_seconds=900), twenty).target_status == ENGAGING
-    assert evaluate(_candidate(credited_active_seconds=1200), twenty).target_status == QUALIFIED
-
-
-# --- every requirement is load-bearing --------------------------------------
-
-
-@pytest.mark.parametrize(
-    "missing",
-    ["phone_verified", "onboarding_complete", "entered_application", "used_eligible_agent"],
-)
+@pytest.mark.parametrize("missing", ["phone_verified", "onboarding_complete"])
 def test_no_single_requirement_can_be_skipped(missing):
     # Each of these alone must block qualification, with everything else passing.
-    assert evaluate(_candidate(**{missing: False}), POLICY).target_status == ENGAGING
+    assert evaluate(_candidate(**{missing: False}), POLICY).target_status == ONBOARDED
 
 
 def test_signing_in_alone_never_qualifies():
-    signed_in_only = _candidate(
-        status=ATTRIBUTED,
-        onboarding_complete=False,
-        entered_application=False,
-        used_eligible_agent=False,
-        credited_active_seconds=0,
-        meaningful_event_count=0,
-        onboarded_at=None,
-    )
+    signed_in_only = _candidate(status=ATTRIBUTED, phone_verified=False, onboarding_complete=False)
     assert evaluate(signed_in_only, POLICY).changed is False
 
 
-# --- windows, risk and settled states ---------------------------------------
-
-
-def test_time_spent_after_the_window_closes_does_not_qualify():
-    late = _candidate(onboarded_at=NOW - timedelta(days=8))
-    assert evaluate(late, POLICY).target_status == EXPIRED
-
-
-def test_the_window_boundary_is_exact():
-    closes = NOW - timedelta(days=POLICY.qualification_window_days)
-    assert (
-        evaluate(_candidate(onboarded_at=closes + timedelta(seconds=1)), POLICY).target_status
-        == QUALIFIED
-    )
-    assert evaluate(_candidate(onboarded_at=closes), POLICY).target_status == EXPIRED
+# --- risk and settled states -------------------------------------------------
 
 
 def test_medium_risk_is_held_for_a_human_and_high_risk_is_refused():
