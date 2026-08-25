@@ -100,6 +100,42 @@ describe("agent chat client", () => {
     });
   });
 
+  it("allows a cold Agent runtime to open before the bounded startup deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveResponse: ((response: Response) => void) | undefined;
+      let streamSignal: AbortSignal | undefined;
+      vi.spyOn(ApiService, "streamAgentChat").mockImplementation(({ signal }) => {
+        streamSignal = signal;
+        return new Promise<Response>((resolve) => {
+          resolveResponse = resolve;
+        });
+      });
+
+      const pending = streamAgentChat({
+        userId: "user-1",
+        message: "Hello",
+        vaultOwnerToken: "vault-token",
+      });
+
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(streamSignal?.aborted).toBe(false);
+
+      resolveResponse?.(
+        sseResponse([
+          'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
+          'event: complete\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
+        ]),
+      );
+
+      await expect(pending).resolves.toMatchObject({
+        conversationId: "conversation-1",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("passes runtime credential fields through to the backend stream request", async () => {
     vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
       sseResponse([

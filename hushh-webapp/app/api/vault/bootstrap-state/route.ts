@@ -8,12 +8,16 @@ import {
 } from "@/app/api/_utils/request-id";
 import { validateFirebaseToken } from "@/lib/auth/validate";
 import { isDevelopment } from "@/lib/config";
-import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
+import {
+  isRequestTimeoutError,
+  resolveSlowRequestTimeoutMs,
+} from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
 
 const PYTHON_API_URL = getPythonApiUrl();
 const UPSTREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000);
+const BOOTSTRAP_RETRY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000);
 
 export async function POST(request: NextRequest) {
   const requestId = resolveRequestId(request);
@@ -45,17 +49,38 @@ export async function POST(request: NextRequest) {
     // be invalidated reliably across server instances, so it must never answer
     // this endpoint with a stale grant or stale incomplete journey. The client
     // owns single-flight/session caching and explicitly refreshes on settlement.
-    const response = await fetch(`${PYTHON_API_URL}/db/vault/bootstrap-state`, {
-      method: "POST",
-      headers: createUpstreamHeaders(requestId, {
-        "Content-Type": "application/json",
-        ...(authHeader ? { Authorization: authHeader } : {}),
-      }),
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-      body: JSON.stringify({
-        ...(body.userId ? { userId: body.userId } : {}),
-      }),
-    });
+    const attempt = (timeoutMs: number) =>
+      fetch(`${PYTHON_API_URL}/db/vault/bootstrap-state`, {
+        method: "POST",
+        headers: createUpstreamHeaders(requestId, {
+          "Content-Type": "application/json",
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+        body: JSON.stringify({
+          ...(body.userId ? { userId: body.userId } : {}),
+        }),
+      });
+
+    // Setup admission must always read the backend; it cannot use a stale
+    // process cache. A single retry instead absorbs a cold local proxy/DB
+    // connection without leaving the user on a permanent setup error screen.
+    let response: Response;
+    try {
+      response = await attempt(UPSTREAM_TIMEOUT_MS);
+      if (response.status >= 500) {
+        console.warn(
+          `[API] request_id=${requestId} vault_bootstrap_state backend ${response.status}; retrying with extended timeout`,
+        );
+        response = await attempt(BOOTSTRAP_RETRY_TIMEOUT_MS);
+      }
+    } catch (error) {
+      if (!isRequestTimeoutError(error)) throw error;
+      console.warn(
+        `[API] request_id=${requestId} vault_bootstrap_state timed out after ${UPSTREAM_TIMEOUT_MS}ms; retrying with extended timeout`,
+      );
+      response = await attempt(BOOTSTRAP_RETRY_TIMEOUT_MS);
+    }
 
     const payload = await response.json().catch(() => ({}));
     const result = {

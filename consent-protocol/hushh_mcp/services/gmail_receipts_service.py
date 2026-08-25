@@ -63,7 +63,11 @@ _GMAIL_MESSAGES_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
 _GMAIL_THREADS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/threads"
 _GMAIL_HISTORY_URL = "https://gmail.googleapis.com/gmail/v1/users/me/history"
 _GMAIL_WATCH_URL = "https://gmail.googleapis.com/gmail/v1/users/me/watch"
-_GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
+# The origin remains environment-derived. Receipt sync and approved delivery
+# share this one callback and canonical token store.
+_GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
+_GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+_GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 
 # Bounds for the inbox scan behind "Needs a reply" nudges: how far back to look,
 # how many recent threads to inspect, and how many cards to return.
@@ -79,6 +83,11 @@ _NUDGE_BODY_MEETING_QUERY = (
     'zoom OR "google meet" OR "schedule a call" OR "schedule a meeting")'
 )
 _NUDGE_MAX_MEETINGS = 20
+_NUDGE_MEETING_FETCH_CONCURRENCY = 5
+# Meeting cards are supplementary to the inbox reply cards. Keep their live
+# Gmail work bounded so a mailbox with many calendar invitations never turns
+# the whole nudge response into a failed screen load.
+_NUDGE_MEETING_FETCH_TIMEOUT_SECONDS = 8.0
 
 _RECEIPT_SUBJECT_RE = re.compile(
     r"\b(receipt|invoice|order(?:\s+confirmation)?|payment|transaction|purchase|paid)\b",
@@ -120,6 +129,7 @@ _MERCHANT_HINTS = {
 _RUN_CANCELED_MESSAGE = "Gmail sync canceled because the connection was disconnected."
 _RUN_STALE_MESSAGE = "Gmail sync expired before completion. Please start a new sync."
 _RUN_ORPHANED_MESSAGE = "Gmail sync worker stopped before reporting a final status."
+_RUN_INTERRUPTED_MESSAGE = "Gmail sync stopped before completion. You can start another sync."
 _RUN_PREEMPTED_MESSAGE = "Older Gmail backfill was paused so a newer sync could run."
 _RUN_HISTORY_GAP_MESSAGE = (
     "Gmail history cursor expired. Starting a recovery sync to rebuild the mailbox snapshot."
@@ -132,6 +142,7 @@ class GmailApiError(RuntimeError):
     message: str
     status_code: int = 500
     payload: dict[str, Any] | None = None
+    code: str | None = None
 
     def __str__(self) -> str:
         return self.message
@@ -680,6 +691,53 @@ class GmailReceiptsService:
             },
         )
 
+    def _clear_interrupted_connection_sync_state(self, *, user_id: str) -> None:
+        """Keep a server restart from becoming a permanent Gmail health error."""
+
+        self.db.execute_raw(
+            """
+            UPDATE kai_gmail_connections
+            SET last_sync_status = CASE
+                    WHEN last_sync_status IN ('queued', 'running') THEN 'idle'
+                    ELSE last_sync_status
+                END,
+                last_sync_error = CASE
+                    WHEN last_sync_status IN ('queued', 'running') THEN NULL
+                    ELSE last_sync_error
+                END,
+                bootstrap_state = CASE
+                    WHEN bootstrap_state IN ('queued', 'running') THEN 'idle'
+                    ELSE bootstrap_state
+                END,
+                updated_at = NOW()
+            WHERE user_id = :user_id
+            """,
+            {"user_id": user_id},
+        )
+
+    @staticmethod
+    async def _clear_interrupted_connection_sync_state_in_tx(*, conn: Any, user_id: str) -> None:
+        await conn.execute(
+            """
+            UPDATE kai_gmail_connections
+            SET last_sync_status = CASE
+                    WHEN last_sync_status IN ('queued', 'running') THEN 'idle'
+                    ELSE last_sync_status
+                END,
+                last_sync_error = CASE
+                    WHEN last_sync_status IN ('queued', 'running') THEN NULL
+                    ELSE last_sync_error
+                END,
+                bootstrap_state = CASE
+                    WHEN bootstrap_state IN ('queued', 'running') THEN 'idle'
+                    ELSE bootstrap_state
+                END,
+                updated_at = NOW()
+            WHERE user_id = $1
+            """,
+            user_id,
+        )
+
     async def _recover_active_run_in_tx(self, *, conn: Any, run: dict[str, Any]) -> bool:
         run_id = _clean_text(run.get("run_id"))
         user_id = _clean_text(run.get("user_id"))
@@ -694,8 +752,8 @@ class GmailReceiptsService:
                 cancelled_fn = getattr(task, "cancelled", None)
                 if callable(cancelled_fn):
                     cancelled = bool(cancelled_fn())
-                status = "canceled" if cancelled else "failed"
-                error_message = _RUN_CANCELED_MESSAGE if cancelled else _RUN_ORPHANED_MESSAGE
+                status = "canceled"
+                error_message = _RUN_CANCELED_MESSAGE if cancelled else _RUN_INTERRUPTED_MESSAGE
                 await conn.execute(
                     """
                     UPDATE kai_gmail_sync_runs
@@ -710,24 +768,16 @@ class GmailReceiptsService:
                     status,
                     error_message,
                 )
-                if status == "failed":
-                    await conn.execute(
-                        """
-                        UPDATE kai_gmail_connections
-                        SET last_sync_status = 'failed',
-                            last_sync_error = $2,
-                            updated_at = NOW()
-                        WHERE user_id = $1
-                        """,
-                        user_id,
-                        error_message,
-                    )
+                await self._clear_interrupted_connection_sync_state_in_tx(
+                    conn=conn,
+                    user_id=user_id,
+                )
                 return True
             if self._is_stale_active_run(run):
                 await conn.execute(
                     """
                     UPDATE kai_gmail_sync_runs
-                    SET status = 'failed',
+                    SET status = 'canceled',
                         error_message = $2,
                         completed_at = COALESCE(completed_at, NOW()),
                         updated_at = NOW()
@@ -737,16 +787,9 @@ class GmailReceiptsService:
                     run_id,
                     _RUN_STALE_MESSAGE,
                 )
-                await conn.execute(
-                    """
-                    UPDATE kai_gmail_connections
-                    SET last_sync_status = 'failed',
-                        last_sync_error = $2,
-                        updated_at = NOW()
-                    WHERE user_id = $1
-                    """,
-                    user_id,
-                    _RUN_STALE_MESSAGE,
+                await self._clear_interrupted_connection_sync_state_in_tx(
+                    conn=conn,
+                    user_id=user_id,
                 )
                 self._cancel_local_sync_task(run_id)
                 return True
@@ -758,7 +801,7 @@ class GmailReceiptsService:
         await conn.execute(
             """
             UPDATE kai_gmail_sync_runs
-            SET status = 'failed',
+            SET status = 'canceled',
                 error_message = $2,
                 completed_at = COALESCE(completed_at, NOW()),
                 updated_at = NOW()
@@ -768,16 +811,9 @@ class GmailReceiptsService:
             run_id,
             _RUN_STALE_MESSAGE,
         )
-        await conn.execute(
-            """
-            UPDATE kai_gmail_connections
-            SET last_sync_status = 'failed',
-                last_sync_error = $2,
-                updated_at = NOW()
-            WHERE user_id = $1
-            """,
-            user_id,
-            _RUN_STALE_MESSAGE,
+        await self._clear_interrupted_connection_sync_state_in_tx(
+            conn=conn,
+            user_id=user_id,
         )
         return True
 
@@ -808,44 +844,31 @@ class GmailReceiptsService:
                     cancelled_fn = getattr(task, "cancelled", None)
                     if callable(cancelled_fn):
                         cancelled = bool(cancelled_fn())
-                    status = "canceled" if cancelled else "failed"
-                    error_message = _RUN_CANCELED_MESSAGE if cancelled else _RUN_ORPHANED_MESSAGE
+                    status = "canceled"
+                    error_message = _RUN_CANCELED_MESSAGE if cancelled else _RUN_INTERRUPTED_MESSAGE
                     self._mark_run_terminal(
                         run_id=current_run_id,
                         status=status,
                         error_message=error_message,
                     )
-                    if status == "failed":
-                        self._update_connection_sync_status(
-                            user_id=user_id,
-                            status="failed",
-                            error_message=error_message,
-                        )
+                    self._clear_interrupted_connection_sync_state(user_id=user_id)
                 elif self._is_stale_active_run(current):
                     self._mark_run_terminal(
                         run_id=current_run_id,
-                        status="failed",
+                        status="canceled",
                         error_message=_RUN_STALE_MESSAGE,
                     )
-                    self._update_connection_sync_status(
-                        user_id=user_id,
-                        status="failed",
-                        error_message=_RUN_STALE_MESSAGE,
-                    )
+                    self._clear_interrupted_connection_sync_state(user_id=user_id)
                     self._cancel_local_sync_task(current_run_id)
                 continue
             if not self._is_stale_active_run(current):
                 continue
             self._mark_run_terminal(
                 run_id=current_run_id,
-                status="failed",
+                status="canceled",
                 error_message=_RUN_STALE_MESSAGE,
             )
-            self._update_connection_sync_status(
-                user_id=user_id,
-                status="failed",
-                error_message=_RUN_STALE_MESSAGE,
-            )
+            self._clear_interrupted_connection_sync_state(user_id=user_id)
 
     def _llm_fallback_enabled(self) -> bool:
         return _to_bool(os.getenv("GMAIL_RECEIPT_LLM_FALLBACK_ENABLED"), False)
@@ -1041,7 +1064,8 @@ class GmailReceiptsService:
                 "openid",
                 "email",
                 "profile",
-                "https://www.googleapis.com/auth/gmail.readonly",
+                _GMAIL_READONLY_SCOPE,
+                _GMAIL_SEND_SCOPE,
             ]
         )
 
@@ -1230,6 +1254,43 @@ class GmailReceiptsService:
             return "needs_reauth"
         return "not_connected"
 
+    @staticmethod
+    def _granted_scopes(row: dict[str, Any] | None) -> set[str]:
+        """Normalize provider scopes without assuming legacy rows can send."""
+
+        if not row:
+            return set()
+        return {value for value in re.split(r"[\s,]+", _clean_text(row.get("scope_csv"))) if value}
+
+    def _send_permission_granted(self, row: dict[str, Any] | None) -> bool:
+        return self._derive_connection_state(
+            row
+        ) == "connected" and _GMAIL_SEND_SCOPE in self._granted_scopes(row)
+
+    async def assert_send_ready(self, *, user_id: str) -> None:
+        """Check provider delivery admission without refreshing or returning tokens."""
+
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
+        if not row or self._derive_connection_state(row) != "connected":
+            raise GmailApiError(
+                "Gmail is not connected for this user",
+                status_code=409,
+                code="GMAIL_NOT_CONNECTED",
+            )
+        if _GMAIL_SEND_SCOPE not in self._granted_scopes(row):
+            raise GmailApiError(
+                "Reconnect Gmail to grant email sending permission.",
+                status_code=409,
+                code="GMAIL_SEND_PERMISSION_REQUIRED",
+            )
+
+    async def get_send_access_token(self, *, user_id: str) -> str:
+        """Use the canonical receipt connector token only after provider admission."""
+
+        await self.assert_send_ready(user_id=user_id)
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        return access_token
+
     def _derive_sync_state(
         self, *, row: dict[str, Any] | None, latest_run: dict[str, Any] | None
     ) -> str:
@@ -1279,6 +1340,8 @@ class GmailReceiptsService:
             "google_email": (_clean_text(row.get("google_email")) or None) if row else None,
             "google_sub": (_clean_text(row.get("google_sub")) or None) if row else None,
             "scope_csv": _clean_text(row.get("scope_csv")) if row else "",
+            "send_permission_granted": self._send_permission_granted(row),
+            "send_reconnect_required": connected and not self._send_permission_granted(row),
             "last_sync_at": row.get("last_sync_at") if row else None,
             "last_sync_status": _clean_text(row.get("last_sync_status"), "idle") if row else "idle",
             "last_sync_error": (_clean_text(row.get("last_sync_error")) or None) if row else None,
@@ -1909,11 +1972,12 @@ class GmailReceiptsService:
         # (best-effort — never fail the whole nudge response over meeting parsing).
         # Invite events are listed first so they win the per-thread de-dupe.
         try:
-            invite_events = await self._fetch_meeting_events(
-                access_token=access_token, limit=bounded_limit
-            )
-            body_events = await self._fetch_body_meeting_events(
-                access_token=access_token, limit=bounded_limit
+            invite_events, body_events = await asyncio.wait_for(
+                asyncio.gather(
+                    self._fetch_meeting_events(access_token=access_token, limit=bounded_limit),
+                    self._fetch_body_meeting_events(access_token=access_token, limit=bounded_limit),
+                ),
+                timeout=_NUDGE_MEETING_FETCH_TIMEOUT_SECONDS,
             )
             meetings = derive_upcoming_meeting_nudges(
                 invite_events + body_events, limit=bounded_limit
@@ -2000,30 +2064,34 @@ class GmailReceiptsService:
             if len(message_ids) >= scan:
                 break
 
-        events: list = []
-        for message_id in message_ids:
+        semaphore = asyncio.Semaphore(_NUDGE_MEETING_FETCH_CONCURRENCY)
+
+        async def fetch_event(message_id: str):
             try:
-                message = await self._get_message_full(
-                    access_token=access_token, gmail_message_id=message_id
-                )
-                ics_text = await self._extract_ics_text(access_token=access_token, message=message)
+                async with semaphore:
+                    message = await self._get_message_full(
+                        access_token=access_token, gmail_message_id=message_id
+                    )
+                    ics_text = await self._extract_ics_text(
+                        access_token=access_token, message=message
+                    )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "gmail.nudges.meeting_fetch_failed id=%s reason=%s",
                     message_id,
                     str(exc)[:200],
                 )
-                continue
+                return None
             if not ics_text:
-                continue
-            event = parse_ics_event(
+                return None
+            return parse_ics_event(
                 ics_text,
                 message_id=message_id,
                 thread_id=_clean_text(message.get("threadId")),
             )
-            if event is not None:
-                events.append(event)
-        return events
+
+        events = await asyncio.gather(*(fetch_event(message_id) for message_id in message_ids))
+        return [event for event in events if event is not None]
 
     async def _fetch_body_meeting_events(self, *, access_token: str, limit: int) -> list:
         """Scan recent meeting-language emails (no .ics) and build meeting events.

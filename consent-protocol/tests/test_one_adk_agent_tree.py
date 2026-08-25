@@ -60,6 +60,7 @@ from hushh_mcp.one_adk.agent_tree import (
     build_one_root_agent,
     build_one_text_agent,
     get_one_runner,
+    open_gmail_email_draft,
     open_screen,
 )
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
@@ -96,6 +97,7 @@ class TestAgentTreeShape:
         }
         assert "google_search" in tool_names
         assert "open_screen" in tool_names
+        assert "open_gmail_email_draft" in tool_names
         assert "run_app_action" in tool_names
         assert "list_app_actions" in tool_names
         assert "finance" in tool_names
@@ -199,7 +201,7 @@ class TestAgentTreeShape:
         assert "it is not semantic authority" in ONE_IDENTITY_INSTRUCTION
         assert "Deterministic policy may validate" in ONE_IDENTITY_INSTRUCTION
         assert "KYC app surface" in ONE_IDENTITY_INSTRUCTION
-        assert "Gmail receipt sync is paused" in ONE_IDENTITY_INSTRUCTION
+        assert "Gmail receipt sync and inbox search are paused" in ONE_IDENTITY_INSTRUCTION
         assert "named CRM" in ONE_IDENTITY_INSTRUCTION
         assert "summon that specialist" in ONE_IDENTITY_INSTRUCTION
 
@@ -787,6 +789,38 @@ class TestOpenScreen:
 
         assert result["status"] == "action_required"
         assert not any(k.startswith(f"{STATE_PENDING_DIRECTIVE}:") for k in state)
+
+
+class TestGmailEmailDraftDirective:
+    def test_gmail_receipt_pause_does_not_disable_personal_drafts(self):
+        assert "This does not limit the open_gmail_email_draft tool" in ONE_IDENTITY_INSTRUCTION
+
+    @pytest.mark.asyncio
+    async def test_opens_only_an_editable_draft_directive(self):
+        state = {STATE_USER_ID: "u1"}
+
+        result = await open_gmail_email_draft(
+            "Send a hello email to me",
+            _tool_context(state),
+        )
+
+        assert result["status"] == "draft_opened"
+        assert state[f"{STATE_PENDING_DIRECTIVE}:gmail_email_draft"] == {
+            "kind": "prompt",
+            "payload": {
+                "kind": "gmail_email_draft",
+                "instruction": "Send a hello email to me",
+            },
+        }
+
+    @pytest.mark.asyncio
+    async def test_requires_authenticated_user_before_opening_draft(self):
+        state: dict = {}
+
+        result = await open_gmail_email_draft("Send an email", _tool_context(state))
+
+        assert result["status"] == "authentication_required"
+        assert f"{STATE_PENDING_DIRECTIVE}:gmail_email_draft" not in state
 
 
 class TestRunAppAction:

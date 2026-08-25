@@ -232,13 +232,36 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       const cached = cache.get<PreVaultUserState>(cacheKey);
       if (active && cached) setPreVaultState(cached);
     };
-    void PreVaultUserStateService.bootstrapState(uid)
-      .then((state) => {
-        if (active) setPreVaultState(state);
-      })
-      .catch(() => {
-        if (active) setPreVaultState(null);
-      });
+    const loadPreVaultState = () => {
+      void PreVaultUserStateService.bootstrapState(uid)
+        .then((state) => {
+          if (active) setPreVaultState(state);
+        })
+        .catch(() => {
+          if (active) setPreVaultState(null);
+        });
+    };
+    const isGmailRoute =
+      path.startsWith("/one/gmail") ||
+      path.startsWith("/one/setup/gmail") ||
+      path.startsWith("/one/email");
+    let cancelIdle: (() => void) | null = null;
+    if (isGmailRoute && typeof window !== "undefined") {
+      if ("requestIdleCallback" in window) {
+        const requestIdle = window.requestIdleCallback as (
+          callback: IdleRequestCallback,
+          options?: IdleRequestOptions,
+        ) => number;
+        const cancel = window.cancelIdleCallback as (handle: number) => void;
+        const handle = requestIdle(loadPreVaultState, { timeout: 4_000 });
+        cancelIdle = () => cancel(handle);
+      } else {
+        const timeout = globalThis.setTimeout(loadPreVaultState, 1_000);
+        cancelIdle = () => globalThis.clearTimeout(timeout);
+      }
+    } else {
+      loadPreVaultState();
+    }
     const unsubscribe = cache.subscribe((event) => {
       if (event.type === "set" && event.key === cacheKey) {
         refreshFromCache();
@@ -258,9 +281,10 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     });
     return () => {
       active = false;
+      cancelIdle?.();
       unsubscribe();
     };
-  }, [uid]);
+  }, [path, uid]);
 
   // hasPortfolioData mirrors the cache-subscribed computation that previously
   // lived only inside the chat workspace, so the shared state stays in sync as

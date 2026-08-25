@@ -55,6 +55,30 @@ import { setObservabilityUserId } from "@/lib/observability/identity";
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
 const AUTH_SESSION_INVALIDATED_EVENT = "auth-session-invalidated";
 
+function isGmailStartupRoute(): boolean {
+  if (typeof window === "undefined") return false;
+  const path = window.location.pathname;
+  return (
+    path.startsWith("/one/gmail") ||
+    path.startsWith("/one/setup/gmail") ||
+    path.startsWith("/one/email")
+  );
+}
+
+function runWhenBrowserIsIdle(task: () => void): () => void {
+  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+    const requestIdle = window.requestIdleCallback as (
+      callback: IdleRequestCallback,
+      options?: IdleRequestOptions,
+    ) => number;
+    const cancelIdle = window.cancelIdleCallback as (handle: number) => void;
+    const handle = requestIdle(task, { timeout: 4_000 });
+    return () => cancelIdle(handle);
+  }
+  const timeout = globalThis.setTimeout(task, 1_000);
+  return () => globalThis.clearTimeout(timeout);
+}
+
 function verifiedBackendPhoneNumber(
   identity:
     | {
@@ -157,17 +181,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // not awaited: analytics identity must never sit on the auth critical path.
     void setObservabilityUserId(nextUser?.uid ?? null);
     if (nextUser?.uid) {
-      void import("@/lib/services/connected-systems-resource-service")
-        .then(async ({ ConnectedSystemsResourceService }) => {
-          await ConnectedSystemsResourceService.hydrateRegistry(nextUser.uid);
-          const authToken = await nextUser.getIdToken().catch(() => null);
-          if (!authToken || userRef.current?.uid !== nextUser.uid) return;
-          await ConnectedSystemsResourceService.loadRegistry({
-            userId: nextUser.uid,
-            authToken,
-          });
-        })
-        .catch(() => undefined);
+      const hydrateConnectedSystems = () => {
+        void import("@/lib/services/connected-systems-resource-service")
+          .then(async ({ ConnectedSystemsResourceService }) => {
+            await ConnectedSystemsResourceService.hydrateRegistry(nextUser.uid);
+            const authToken = await nextUser.getIdToken().catch(() => null);
+            if (!authToken || userRef.current?.uid !== nextUser.uid) return;
+            await ConnectedSystemsResourceService.loadRegistry({
+              userId: nextUser.uid,
+              authToken,
+            });
+          })
+          .catch(() => undefined);
+      };
+      if (isGmailStartupRoute()) {
+        runWhenBrowserIsIdle(hydrateConnectedSystems);
+      } else {
+        hydrateConnectedSystems();
+      }
     }
   }, []);
 
@@ -189,10 +220,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     };
 
-    void hydrateBackendPhone();
+    if (!isGmailStartupRoute()) {
+      void hydrateBackendPhone();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const cancelIdle = runWhenBrowserIsIdle(() => {
+      void hydrateBackendPhone();
+    });
 
     return () => {
       cancelled = true;
+      cancelIdle();
     };
   }, [phoneNumber, user]);
 

@@ -134,11 +134,16 @@ def canonical_release_environment(release_environment: str) -> str:
 
 
 def release_migration_files(release_environment: str) -> tuple[str, ...]:
-    """Return the base lane, with the isolated UAT overlay only when requested."""
+    """Return the governed lane in numeric migration order."""
     environment = canonical_release_environment(release_environment)
     if environment == "production":
         return BASE_RELEASE_MIGRATION_FILES
-    return BASE_RELEASE_MIGRATION_FILES + RELEASE_ENVIRONMENT_OVERLAYS[environment]
+    return tuple(
+        sorted(
+            BASE_RELEASE_MIGRATION_FILES + RELEASE_ENVIRONMENT_OVERLAYS[environment],
+            key=lambda filename: int(filename.split("_", 1)[0]),
+        )
+    )
 
 
 def assert_uat_release_target(release_environment: str) -> str:
