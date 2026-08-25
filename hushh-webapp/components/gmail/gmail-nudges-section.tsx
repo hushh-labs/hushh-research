@@ -191,10 +191,13 @@ export default function GmailNudgesSection({
         limit: 10,
       });
       setNudges(response.nudges ?? []);
-      setLoaded(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load inbox nudges.");
+    } catch {
+      // A background nudge refresh must never spin while the local backend is
+      // unavailable. Keep the failure private and leave a deliberate Refresh
+      // action instead of re-running the effect on every render.
+      setError("Inbox details couldn’t load. Refresh to try again.");
     } finally {
+      setLoaded(true);
       setLoading(false);
     }
   }, [userId, vaultOwnerToken, idTokenProvider]);

@@ -58,7 +58,12 @@ cleanup() {
     wait "$BACKEND_PID" >/dev/null 2>&1 || true
   fi
 }
-trap cleanup EXIT INT TERM
+# EXIT owns child cleanup. INT and TERM must exit the foreground supervisor
+# after cleanup; trapping them to `cleanup` alone resumes the polling loop and
+# leaves the terminal appearing stuck after Ctrl-C.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 port_is_listening() {
   local host="$1"
@@ -107,7 +112,9 @@ if [ "$SKIP_PREFLIGHT" = "true" ]; then
 fi
 
 echo "Starting local backend on :8000 without reload..."
-"$REPO_ROOT/bin/hushh" "${backend_args[@]}" &
+(
+  exec "$REPO_ROOT/bin/hushh" "${backend_args[@]}"
+) &
 BACKEND_PID=$!
 
 wait_for_http "backend health" "http://127.0.0.1:8000/health" 90
@@ -141,7 +148,7 @@ if [ -d "$WEB_DIR/public" ]; then
 fi
 (
   cd "$STANDALONE_APP_DIR"
-  HOSTNAME=0.0.0.0 PORT=3000 node "$STANDALONE_SERVER"
+  exec env HOSTNAME=0.0.0.0 PORT=3000 node "$STANDALONE_SERVER"
 ) &
 WEB_PID=$!
 
