@@ -198,6 +198,9 @@ _MANAGED_ONLY_ENV = frozenset(
         "POD_STORAGE_GCS_PREFIX",
         "POD_STORAGE_BACKEND",
         "POD_AGENT_MEMORY_ENABLED",
+        # Stated by this renderer from the principal IT binds as run.invoker,
+        # rather than inherited from the managed one. See the extend below.
+        "HUSSH_POD_HUB_CALLER_EMAILS",
         # The Vertex address. The managed renderer resolves these as
         # `HUSSH_POD_VERTEX_PROJECT or self._project` (gcp_backend.py:372), so the
         # HUB's env wins -- and a user-owned pod would then run as the USER's service
@@ -407,6 +410,15 @@ class UserGcpBackend:
                 # building into that person's project, and it would be false anywhere
                 # hushh owns the ambient identity.
                 {"name": "HUSSH_POD_USER_ADC_ENABLED", "value": "true"},
+                # WHO may present a hub proof to this pod, stated here rather than
+                # inherited. The managed renderer derives it from
+                # `HUSSH_POD_INVOKER_MEMBER` and BYOC binds `run.invoker` from
+                # `HUSSH_CONSENT_PLANE_SA`; those happen to be the same account
+                # today, and inheriting would make this pod's in-app lock depend
+                # on that coincidence. Deriving it from the principal THIS
+                # renderer actually binds keeps the two locks naming one identity
+                # even if the two variables ever diverge.
+                {"name": "HUSSH_POD_HUB_CALLER_EMAILS", "value": self._hushh_invoker_sa},
             ]
         )
         # Two addresses in place of two secrets. The pod mints and wraps its own key on

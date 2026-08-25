@@ -339,6 +339,26 @@ class GcpBackend:
                     "name": "HUSSH_POD_TURN_ENABLED",
                     "value": "true" if pod_turn_enabled() else "false",
                 },
+                # Whether this pod may export or import its log for a migration,
+                # propagated from the hub for the same reason the turn flag is:
+                # the routes read their OWN copy, so a hub that has migration on
+                # and pods that do not would answer 404 to the very chain the hub
+                # is driving. Off by default, which is why absence is safe.
+                {
+                    "name": "HUSSH_POD_MIGRATION_ENABLED",
+                    "value": "true" if _flag("HUSSH_POD_MIGRATION_ENABLED") else "false",
+                },
+                # WHO may present a hub proof to this pod. Fail-closed inside the
+                # pod: an empty allowlist refuses every caller, so a pod rendered
+                # without this simply declines migration rather than trusting
+                # whoever reaches it. Derived from the same invoker member already
+                # bound as `run.invoker`, so the two can never name different
+                # principals -- the IAM lock and the in-app lock agree by
+                # construction rather than by anyone remembering to update both.
+                {
+                    "name": "HUSSH_POD_HUB_CALLER_EMAILS",
+                    "value": _hub_caller_email(self._invoker_member),
+                },
                 # The consent-token VERIFYING keys (Ed25519, public half only --
                 # public material is safe in plain config). This is what lets a
                 # pod check a token's authenticity at its own door without ever
@@ -850,6 +870,26 @@ def _int_env(name: str, default: int) -> int:
 
 def _flag(name: str) -> bool:
     return (os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _hub_caller_email(invoker_member: str) -> str:
+    """The bare email of the principal already bound as this pod's `run.invoker`.
+
+    Derived from the invoker member rather than read from a second variable, so
+    the IAM lock and the pod's in-app allowlist can never name different
+    principals -- they agree by construction instead of by anyone remembering to
+    update both.
+
+    `_bare_service_account` is imported at call time because `user_gcp_backend`
+    imports FROM this module; a module-level import here is a genuine cycle. The
+    normalizer stays in one place regardless, which is the point: the same
+    principal is spelled two ways across this codebase (`serviceAccount:`-
+    prefixed for IAM, bare for a token's email claim), and a second copy of that
+    fix is a second thing that can drift.
+    """
+    from hushh_mcp.services.user_gcp_backend import _bare_service_account  # noqa: PLC0415
+
+    return str(_bare_service_account(invoker_member))
 
 
 # Keep the logical/dedicated tier names importable from this module too.

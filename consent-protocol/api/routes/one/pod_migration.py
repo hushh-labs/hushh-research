@@ -12,13 +12,19 @@ ferries an envelope it cannot open.
 
 That is the migration keeping the promise rather than suspending it for a minute.
 
-AUTH: THE EXISTING SCHEDULER IDENTITY, NOT A NEW CREDENTIAL
------------------------------------------------------------
-Same shape as ``/pod/tick``: Google-signed per-invocation OIDC, audience-bound,
-fail-closed on an empty allowlist. A pod deployed without the migration wiring
-declines rather than doing unauthenticated work with its own memory. Adding a
-third credential shape to this codebase would be the wrong trade, and the tick
-route already proved this one.
+AUTH: TWO LOCKS, TWO AUDIENCES, ONE REQUEST
+-------------------------------------------
+Cloud Run's IAM invoker binding is the first lock and the one that already
+exists: a pod is created with a single ``run.invoker`` member and no ``allUsers``
+binding, so an anonymous request never reaches this process. The platform
+validates that token's audience against the service URL.
+
+The second lock lives here, in its own ``X-Hussh-Hub-Proof`` header, because the
+``Authorization`` slot is already spoken for. It is the same Google-signed OIDC
+shape ``/pod/tick`` uses (``verify_scheduler_request``: fail-closed on an empty
+allowlist, no third credential shape invented), but bound to an audience derived
+from **this pod's own HusshID** rather than its URL -- see ``hub_proof_audience``
+for why that is both necessary and stronger.
 
 SHIPS DARK. ``HUSSH_POD_MIGRATION_ENABLED`` is off by default, so these routes
 404 on every pod until a lane deliberately turns them on.
@@ -65,23 +71,58 @@ def _require_enabled() -> None:
         raise HTTPException(status_code=404, detail="not found")
 
 
-def _require_hub_caller(authorization: Optional[str]) -> None:
-    """The same fail-closed scheduler identity `/pod/tick` uses."""
+def hub_proof_audience(hushh_id: str) -> str:
+    """The audience a hub proof for THIS pod must carry.
+
+    Deliberately derived from the pod's own HusshID rather than from its URL.
+    Two reasons, and the second is the interesting one:
+
+    1. **A Cloud Run service is not told its own URL.** There is no env var and
+       no reliable way to derive it (the project hash in the hostname is not
+       predictable), so a URL-audience check inside the pod would need a second
+       deploy per pod purely to tell it where it lives.
+    2. **A HusshID audience is STRONGER than a URL audience.** It binds the
+       proof to this person's agent, so a proof minted for one pod cannot be
+       replayed at another even by a caller who legitimately holds one. The URL
+       audience is still checked -- by Cloud Run, on the `Authorization` token,
+       before the request reaches this process -- so the two together bind both
+       *which service* and *which agent*.
+    """
+    return f"hussh-pod-migration:{str(hushh_id or '').strip()}"
+
+
+def _require_hub_caller(proof: Optional[str]) -> None:
+    """Fail-closed hub-caller check, on top of Cloud Run's IAM invoker binding.
+
+    Defence in depth, not the only defence: a pod is created with a single
+    `run.invoker` member and no `allUsers` binding, so an anonymous request never
+    arrives here at all. This is the second lock, and it is the one that survives
+    an ingress or IAM misconfiguration.
+
+    Carried in its own header rather than `Authorization`, because that slot
+    already holds the token Cloud Run itself validates against the service URL.
+    One request, two audiences, two different checkers.
+    """
     from hushh_mcp.services.scheduler_identity import (  # noqa: PLC0415
         SchedulerIdentityError,
         verify_scheduler_request,
     )
 
-    audience = str(os.getenv("HUSSH_POD_TICK_AUDIENCE") or "").strip()
+    hushh_id = str(os.getenv("HUSHH_ID") or "").strip()
     allowed = tuple(
         email.strip()
-        for email in str(os.getenv("HUSSH_POD_TICK_ALLOWED_EMAILS") or "").split(",")
+        for email in str(os.getenv("HUSSH_POD_HUB_CALLER_EMAILS") or "").split(",")
         if email.strip()
     )
+    if not hushh_id:
+        # A pod that does not know which agent it is cannot bind a proof to
+        # itself, and accepting an unbound proof would make every pod
+        # interchangeable to a caller holding any one of them.
+        raise HTTPException(status_code=403, detail="migration refused")
     try:
         verify_scheduler_request(
-            authorization_header=authorization,
-            audience=audience,
+            authorization_header=proof,
+            audience=hub_proof_audience(hushh_id),
             allowed_emails=allowed,
         )
     except SchedulerIdentityError as exc:
@@ -122,7 +163,7 @@ class ExportRequest(BaseModel):
 async def export_log(
     request: Request,
     body: ExportRequest,
-    authorization: str | None = Header(default=None),
+    x_hussh_hub_proof: str | None = Header(default=None, alias="X-Hussh-Hub-Proof"),
 ) -> dict:
     """Replay this pod's log and seal it for exactly one destination pod.
 
@@ -131,7 +172,7 @@ async def export_log(
     the envelope without any means of opening it.
     """
     _require_enabled()
-    _require_hub_caller(authorization)
+    _require_hub_caller(x_hussh_hub_proof)
 
     from hushh_mcp.services.pod_migration_bundle import (  # noqa: PLC0415
         PodMigrationBundleError,
@@ -196,7 +237,7 @@ class ImportRequest(BaseModel):
 async def import_log(
     request: Request,
     body: ImportRequest,
-    authorization: str | None = Header(default=None),
+    x_hussh_hub_proof: str | None = Header(default=None, alias="X-Hussh-Hub-Proof"),
 ) -> dict:
     """Open a bundle sealed to this pod and rebuild the chain under OUR key.
 
@@ -210,7 +251,7 @@ async def import_log(
     be able to make a broken chain look whole.
     """
     _require_enabled()
-    _require_hub_caller(authorization)
+    _require_hub_caller(x_hussh_hub_proof)
 
     from hushh_mcp.services.pod_migration_bundle import (  # noqa: PLC0415
         PodMigrationBundleError,

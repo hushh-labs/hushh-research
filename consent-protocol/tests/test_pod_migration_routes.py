@@ -63,7 +63,7 @@ async def test_the_surface_is_absent_until_a_lane_turns_it_on(monkeypatch, value
             body=pod_migration.ExportRequest(
                 recipientPublicKey="A" * 44, recipientKeyId="pod-key-1"
             ),
-            authorization="Bearer x",
+            x_hussh_hub_proof="Bearer x",
         )
 
     # 404, not 403: an off surface should be indistinguishable from one that does
@@ -90,7 +90,7 @@ async def test_an_unauthenticated_caller_is_refused(monkeypatch):
             body=pod_migration.ExportRequest(
                 recipientPublicKey="A" * 44, recipientKeyId="pod-key-1"
             ),
-            authorization=None,
+            x_hussh_hub_proof=None,
         )
 
     assert excinfo.value.status_code == 403
@@ -113,7 +113,7 @@ async def test_exporting_to_ourselves_is_refused(enabled, tmp_path):
             body=pod_migration.ExportRequest(
                 recipientPublicKey=keys.public_key_b64, recipientKeyId=keys.key_id
             ),
-            authorization="Bearer x",
+            x_hussh_hub_proof="Bearer x",
         )
 
     assert excinfo.value.status_code == 400
@@ -141,7 +141,7 @@ async def test_a_broken_chain_is_refused_before_anything_is_sealed(enabled, tmp_
             body=pod_migration.ExportRequest(
                 recipientPublicKey=other.public_key_b64, recipientKeyId=other.key_id
             ),
-            authorization="Bearer x",
+            x_hussh_hub_proof="Bearer x",
         )
 
     assert excinfo.value.status_code == 409
@@ -163,7 +163,7 @@ async def test_an_export_returns_ciphertext_and_coordinates(enabled, tmp_path):
             recipientPublicKey=destination.public_key_b64,
             recipientKeyId=destination.key_id,
         ),
-        authorization="Bearer x",
+        x_hussh_hub_proof="Bearer x",
     )
 
     assert result["recordCount"] == 1
@@ -205,7 +205,7 @@ async def test_importing_over_an_existing_history_is_refused(enabled, tmp_path):
         await pod_migration.import_log(
             request=None,
             body=pod_migration.ImportRequest(bundle=envelope),
-            authorization="Bearer x",
+            x_hussh_hub_proof="Bearer x",
         )
 
     assert excinfo.value.status_code == 409
@@ -237,7 +237,7 @@ async def test_an_import_rebuilds_the_identical_head(enabled, tmp_path):
     result = await pod_migration.import_log(
         request=None,
         body=pod_migration.ImportRequest(bundle=envelope),
-        authorization="Bearer x",
+        x_hussh_hub_proof="Bearer x",
     )
 
     assert result["headSha"] == source_head
@@ -265,7 +265,7 @@ async def test_a_bundle_for_another_pod_is_refused(enabled, tmp_path):
         await pod_migration.import_log(
             request=None,
             body=pod_migration.ImportRequest(bundle=envelope),
-            authorization="Bearer x",
+            x_hussh_hub_proof="Bearer x",
         )
 
     assert excinfo.value.status_code == 400
@@ -286,3 +286,60 @@ def test_the_pod_mounts_the_migration_surface():
 
     assert "/pod/migration/export" in paths
     assert "/pod/migration/import" in paths
+
+
+# --------------------------------------------------------------------------- #
+# The proof is bound to THIS agent, not merely to a valid caller
+# --------------------------------------------------------------------------- #
+
+
+def test_the_proof_audience_names_this_agent():
+    """A proof minted for one pod must not open another.
+
+    A URL audience would only say "a hussh pod"; every pod in the fleet shares
+    that shape. Binding to the HusshID means a caller holding a legitimate proof
+    for their own agent cannot present it at someone else's.
+    """
+    a = pod_migration.hub_proof_audience("ha1_alice")
+    b = pod_migration.hub_proof_audience("ha1_bob")
+
+    assert a != b
+    assert "ha1_alice" in a
+
+
+async def test_a_pod_that_does_not_know_which_agent_it_is_refuses(monkeypatch):
+    """Without a HusshID there is nothing to bind a proof to, and an unbound
+    proof would make every pod interchangeable to a caller holding any one."""
+    monkeypatch.setenv("HUSSH_POD_MIGRATION_ENABLED", "1")
+    monkeypatch.delenv("HUSHH_ID", raising=False)
+    monkeypatch.setenv("HUSSH_POD_HUB_CALLER_EMAILS", "hub@example.iam.gserviceaccount.com")
+
+    with pytest.raises(HTTPException) as excinfo:
+        await pod_migration.export_log(
+            request=None,
+            body=pod_migration.ExportRequest(
+                recipientPublicKey="A" * 44, recipientKeyId="pod-key-1"
+            ),
+            x_hussh_hub_proof="Bearer anything",
+        )
+
+    assert excinfo.value.status_code == 403
+
+
+async def test_an_empty_caller_allowlist_refuses_everything(monkeypatch):
+    """An unconfigured allowlist is a misconfiguration, not permission -- the
+    fail-closed rule `verify_scheduler_request` was written to enforce."""
+    monkeypatch.setenv("HUSSH_POD_MIGRATION_ENABLED", "1")
+    monkeypatch.setenv("HUSHH_ID", "ha1_abc")
+    monkeypatch.delenv("HUSSH_POD_HUB_CALLER_EMAILS", raising=False)
+
+    with pytest.raises(HTTPException) as excinfo:
+        await pod_migration.export_log(
+            request=None,
+            body=pod_migration.ExportRequest(
+                recipientPublicKey="A" * 44, recipientKeyId="pod-key-1"
+            ),
+            x_hussh_hub_proof="Bearer anything",
+        )
+
+    assert excinfo.value.status_code == 403
