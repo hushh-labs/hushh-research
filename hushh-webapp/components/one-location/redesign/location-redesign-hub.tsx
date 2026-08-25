@@ -3085,6 +3085,7 @@ function PeopleHub({
         className="min-w-52 rounded-2xl border border-[color:var(--app-border,rgba(255,255,255,0.1))] bg-[color:var(--app-primary-surface)] p-1.5 shadow-xl dark:border-white/10 dark:bg-[#1c1c1e]"
       >
         <DropdownMenuItem
+          data-voice-control-id="one-location-find-contacts"
           aria-busy={vm.busy === "contactSync" || undefined}
           disabled={vm.busy === "contactSync"}
           onSelect={(event) => {
@@ -3094,7 +3095,6 @@ function PeopleHub({
             }
             vm.onSyncContacts();
           }}
-          data-voice-control-id="one-location-find-contacts"
           className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-white/10"
         >
           {vm.busy === "contactSync" ? "Finding contacts…" : "Find contacts"}
