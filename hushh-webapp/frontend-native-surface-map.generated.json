@@ -200,12 +200,24 @@
       "file": "app/api/one/location/sos-email/route.ts"
     },
     {
+      "template": "/api/one/referrals/events",
+      "file": "app/api/one/referrals/events/route.ts"
+    },
+    {
       "template": "/api/pkm/{path*}",
       "file": "app/api/pkm/[...path]/route.ts"
     },
     {
       "template": "/api/portfolio/share-link",
       "file": "app/api/portfolio/share-link/route.ts"
+    },
+    {
+      "template": "/api/products/hushh-tech/launch/authorize",
+      "file": "app/api/products/hushh-tech/launch/authorize/route.ts"
+    },
+    {
+      "template": "/api/products/hushh-tech/launch/exchange",
+      "file": "app/api/products/hushh-tech/launch/exchange/route.ts"
     },
     {
       "template": "/api/ria/{path*}",
@@ -607,7 +619,10 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/circle/join",
+        "classification": "excluded-web-only"
+      },
       "shell": {
         "app_page_shell": true,
         "page_header": true,
@@ -3998,6 +4013,7 @@
         "location.decline_request",
         "location.delete_circle",
         "location.delete_saved_location",
+        "location.find_contacts",
         "location.leave_circle",
         "location.open_active_shares",
         "location.open_ask",
@@ -4304,7 +4320,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "hidden",
-        "exemption_reason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell.",
+        "exemption_reason": "Legacy public one-location link path. Forwards to /one/location/view/[token]; kept only so links minted before the rename keep resolving.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -4312,7 +4328,56 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.location.request.token",
-          "purpose": "Help the person understand and use the request screen through its generated controls.",
+          "purpose": "Forwarding route only: say nothing and let the redirect complete.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/location/view/[token]",
+      "page_file": "app/one/location/view/[token]/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Public one-location live-location view is a standalone recipient page outside the signed-in app shell.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.location.view.token",
+          "purpose": "Help the person read the shared live location through its generated controls.",
           "screen": "app",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -4556,6 +4621,7 @@
         "route.profile",
         "route.profile_connected_systems",
         "route.profile_pkm_agent_lab",
+        "route.profile_referrals_panel",
         "route.profile_security_panel",
         "route.profile_support_panel"
       ],
@@ -5890,6 +5956,61 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/profile/preferences/voice/examples",
+      "page_file": "app/one/profile/preferences/voice/examples/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.preferences.voice.examples",
+          "purpose": "A read-only list of example phrases for what voice can do. Nothing to act on here.",
+          "screen": "profile_preferences",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/profile/receipts",
       "page_file": "app/one/profile/receipts/page.tsx",
       "physical_page_exists": true,
@@ -5939,6 +6060,63 @@
           "unavailable-valid"
         ]
       },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/referrals",
+      "page_file": "app/one/profile/referrals/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.support",
+          "purpose": "Help the person understand and use the support screen through its generated controls.",
+          "screen": "profile_referrals_panel",
+          "entry_cue": "You can say “Open Support Panel” to use the primary control on this screen.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.profile_referrals_panel",
+          "happy_path_action_ids": [
+            "route.profile_referrals_panel"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": "/one/profile/referrals",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -7675,6 +7853,55 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/products/hushh-tech/launch",
+      "page_file": "app/products/hushh-tech/launch/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Cross-product sign-in handoff intentionally suppresses the signed-in app shell while it validates and completes the one-time launch.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.products.hushh.tech.launch",
+          "purpose": "Complete the verified Hushh Tech sign-in handoff without exposing credentials.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain that the handoff cannot continue and return to Hushh Tech.",
+            "cancelled": "Respect the cancellation and return to Hushh Tech.",
+            "failed": "Return to Hushh Tech without claiming sign-in succeeded.",
+            "timeout": "Return to Hushh Tech and offer one safe retry.",
+            "callback_error": "Return to Hushh Tech without exposing the launch code.",
+            "route_mismatch": "Use only the verified Hushh Tech launch route."
+          },
+          "completion_boundary": "The handoff completes only after the signed-in Firebase user receives a bound one-time launch code and the browser reaches the exact allowlisted Hushh Tech callback.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/profile/google/oauth/return",
       "page_file": "app/profile/google/oauth/return/page.tsx",
       "physical_page_exists": true,
@@ -7712,6 +7939,55 @@
       "native": null,
       "shell": {
         "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/r/[slug]",
+      "page_file": "app/r/[slug]/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Public referral landing route. It records the attribution on the server before anyone signs in, keeps the opaque id it is given, and hands off to the normal sign-in journey; it owns no signed-in app shell of its own and never reveals who the referrer is.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.r.slug",
+          "purpose": "Explain that the referral link is being opened and the person is being taken into sign-in.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": true,
         "page_header": false,
         "settings_ui": false,
         "shared_loader": false,
@@ -8741,5 +9017,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "ab3a35068348762fad945d543ae4127193cbef19e52ab63233744c0471bd1eea"
+  "content_sha256": "68c862d4c24977a9256f9c9ed932902fca7b81318f7fd26c4adc24657e896ec3"
 }

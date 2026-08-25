@@ -64,7 +64,7 @@ export function OnboardingShell({
   const isAccent = heroImage?.variant === "accent";
   useScrollReset(currentStepIndex, { enabled: true });
   return (
-    <div className="mx-auto flex w-full max-w-[54rem] flex-col px-6 pb-[var(--app-scroll-bottom-pad)]">
+    <div className="mx-auto flex w-full max-w-[54rem] flex-col px-6 pb-[calc(var(--app-bottom-inset)+6rem)]">
       <div className="flex w-full flex-col">
         {/* Progress + step counter share one row (design has no back arrow —
             back/forward is by swipe within the pinned chrome). */}
@@ -209,7 +209,7 @@ export function OnboardingShell({
         <div className={cn(isHero ? "mt-[22px]" : "mt-[18px]")}>{children}</div>
 
         {!hideTerminal ? (
-          <div className="mt-8 space-y-1 pb-[calc(var(--app-bottom-inset)+1rem)]">
+          <div className="mt-8 space-y-1 pb-[calc(var(--app-bottom-inset)+6rem)]">
             <div className="mx-auto w-full sm:max-w-[22rem]">
               <Button
                 type="button"

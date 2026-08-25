@@ -11,7 +11,7 @@ export function KaiMockSonnerNotice() {
   useEffect(() => {
     toast.info("Kai home is an exploratory mock surface.", {
       id: "kai-mock-home-notice",
-      description: "Use Portfolio for live, data-bound insights and actions.",
+      
       action: {
         label: "Go to Portfolio",
         onClick: () => router.push(ROUTES.KAI_PORTFOLIO),

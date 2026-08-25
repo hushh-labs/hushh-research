@@ -9,7 +9,7 @@
  * projection; the token itself is never logged or echoed into the UI.
  *
  * Structure mirrors the repo's proven public route,
- * `app/one/location/request/[token]` — thin server page, all state in a client
+ * `app/one/location/view/[token]` — thin server page, all state in a client
  * component, one service call, explicit terminal states.
  *
  * This page emits no analytics.

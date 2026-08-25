@@ -7,6 +7,8 @@ export { ONE_SETUP_CAPABILITY_IDS } from "@/lib/onboarding/setup-capability-ids"
 
 /** The Finance workspace is a One-owned query-tabbed route, not a nested market page. */
 export const KAI_MARKET_PATH = "/one/kai";
+/** Browser-only Firebase handoff; never part of signed-in app navigation. */
+export const HUSHH_TECH_LAUNCH_PATH = "/products/hushh-tech/launch";
 
 export type KaiMarketTab = "market" | "portfolio" | "analysis";
 export type KaiPortfolioSection =
@@ -75,7 +77,10 @@ export const ROUTES = {
   PROFILE_PREFERENCES_GEMINI: "/one/profile/preferences/gemini",
   PROFILE_PREFERENCES_DEVICE: "/one/profile/preferences/device",
   PROFILE_PREFERENCES_VOICE: "/one/profile/preferences/voice",
-  PROFILE_PREFERENCES_VOICE_CHANGELOG: "/one/profile/preferences/voice/changelog",
+  PROFILE_PREFERENCES_VOICE_CHANGELOG:
+    "/one/profile/preferences/voice/changelog",
+  PROFILE_PREFERENCES_VOICE_EXAMPLES:
+    "/one/profile/preferences/voice/examples",
   PROFILE_SECURITY: "/one/profile/security",
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",
@@ -89,6 +94,7 @@ export const ROUTES = {
   PROFILE_GMAIL: "/one/profile/gmail",
   PROFILE_GMAIL_CONNECTION: "/one/profile/gmail/connection",
   PROFILE_GMAIL_ACTIONS: "/one/profile/gmail/actions",
+  PROFILE_REFERRALS: "/one/profile/referrals",
   PROFILE_SUPPORT: "/one/profile/support",
   PROFILE_SUPPORT_ROUTING: "/one/profile/support/routing",
   PROFILE_SUPPORT_COMPOSE: "/one/profile/support/compose",
@@ -142,6 +148,12 @@ export const ROUTES = {
    * as the same feature.
    */
   ONE_LOCATION_CHECK_IN: "/one/location/check-in",
+  /**
+   * Recipient landing for a shared Circle join link. An entry point from
+   * outside the app, like LOGIN — the destination is the reason the person
+   * opened the app at all, so it must render before setup is checked.
+   */
+  CIRCLE_JOIN: "/circle/join",
   LEGACY_GMAIL: "/gmail",
   LEGACY_PKM: "/pkm",
   LEGACY_CONNECTED_SYSTEMS: "/connected-systems",
@@ -213,8 +225,15 @@ export function normalizeInternalRouteHref(
   const href = String(value ?? "").trim();
   if (!href) return null;
   if (!href.startsWith("/") || href.startsWith("//")) return null;
-  if (/[\r\n]/.test(href)) return null;
-  return href;
+  if (/[\\\u0000-\u001f\u007f]/.test(href) || /%5c/i.test(href)) return null;
+  try {
+    const parsed = new URL(href, "https://one.local");
+    if (parsed.origin !== "https://one.local") return null;
+    const canonical = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return canonical === href ? canonical : null;
+  } catch {
+    return null;
+  }
 }
 
 export function resolveInternalRouteHref(
@@ -439,6 +458,7 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
     normalizedPathname === ROUTES.LOGIN ||
+    isFirebaseSessionOnlyRoute(normalizedPathname) ||
     normalizedPathname === ROUTES.GETTING_STARTED ||
     normalizedPathname === ROUTES.PHONE_MANDATE ||
     // Reached straight from the phone mandate when the number the adviser just
@@ -447,8 +467,16 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.LOGOUT ||
     normalizedPathname === ROUTES.PROFILE ||
     normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
-    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/view/`) ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
+    normalizedPathname === ROUTES.CIRCLE_JOIN
   );
+}
+
+/** Routes that require Firebase identity, but no setup or private-place state. */
+export function isFirebaseSessionOnlyRoute(pathname: string): boolean {
+  const pathOnly = String(pathname || "/").split(/[?#]/, 1)[0] || "/";
+  return normalizeStaticExportPathname(pathOnly) === HUSHH_TECH_LAUNCH_PATH;
 }
 
 /**
@@ -684,6 +712,11 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    // Both prefixes. `/view/` is where public live-location links point now;
+    // `/request/` is what every link minted before the rename carries, and it
+    // has to stay public or those land on /login instead of on the forwarder
+    // that would have taken them to the right page.
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/view/`) ||
     normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
     normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
     normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)

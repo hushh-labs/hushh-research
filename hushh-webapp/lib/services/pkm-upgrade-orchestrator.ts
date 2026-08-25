@@ -331,8 +331,7 @@ export class PkmUpgradeOrchestrator {
   }): void {
     AppBackgroundTaskService.completeTask(params.taskId, params.description, params.metadata ?? null);
     if (params.mode === "real") {
-      toast.success("Saved details updated", {
-        description: params.description,
+      toast.success("Saved details updated. Your saved details are up to date.", {
         id: `pkm-upgrade-complete:${params.userId}`,
       });
     }

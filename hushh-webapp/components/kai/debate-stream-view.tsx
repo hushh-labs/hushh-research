@@ -1099,9 +1099,7 @@ export function DebateStreamView({
             setKaiThinking("Preparing your final recommendation...");
             if (!finalizingNotifiedRef.current) {
               finalizingNotifiedRef.current = true;
-              toast.message("Final recommendation in progress", {
-                description: "Final consensus is being prepared.",
-              });
+              toast.message("Final recommendation in progress. Final consensus is being prepared.");
             }
           }
           break;
@@ -1644,7 +1642,7 @@ export function DebateStreamView({
               ) : loading && kaiThinking ? (
                 <Badge
                   variant="outline"
-                  className="max-w-[260px] truncate text-[10px] bg-primary/10 text-primary border-primary/30 font-medium"
+                  className="max-w-[180px] xs:max-w-[260px] truncate text-[10px] bg-primary/10 text-primary border-primary/30 font-medium"
                 >
                   <Icon icon={Loader2} size={12} className="mr-1 animate-spin" /> {kaiThinking}
                 </Badge>

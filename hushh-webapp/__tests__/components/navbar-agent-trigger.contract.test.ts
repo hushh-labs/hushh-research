@@ -120,7 +120,7 @@ describe("Navbar bottom chrome contract", () => {
     );
     expect(bottomShell).toContain('<AgentBar layout="slot" />');
     expect(bottomShell).toContain("items-center gap-1.5");
-    expect(agentBar).toContain('? "h-10 rounded-[1.25rem] px-2"');
+    expect(agentBar).toContain('? "h-11 rounded-[22px] px-2.5"');
     expect(agentBar).toContain("var(--app-agent-bar-max-width)");
     expect(bottomShell).toContain("var(--bottom-chrome-full-height)");
     expect(bottomShell).toContain("--app-bottom-shell-height");
@@ -141,10 +141,10 @@ describe("Navbar bottom chrome contract", () => {
       "const pinnedBottomChrome =\n    isRiaRoute(pathname) || foundationVoiceOnlyChrome;",
     );
     expect(providers).toContain(
-      "navigationHidden:\n      chromeState.hideCommandBar || foundationVoiceOnlyChrome,",
+      "navigationHidden:\n      effectiveHideCommandBar || foundationVoiceOnlyChrome,",
     );
     expect(providers).toContain(
-      "!pinnedBottomChrome &&\n      !hidesPersistentChrome",
+      "!pinnedBottomChrome &&\n      !bottomChromeHidden",
     );
   });
 });

@@ -340,6 +340,9 @@ export function deriveVoiceRouteScreen(
     if (panel === "connected-systems") {
       return { screen: "connected_systems", subview: tab || "legacy" };
     }
+    if (panel === "referrals") {
+      return { screen: "profile_referrals_panel", subview: tab || null };
+    }
     if (panel === "support") {
       return { screen: "profile_support_panel", subview: tab || null };
     }
@@ -367,6 +370,9 @@ export function deriveVoiceRouteScreen(
     }
     if (panel === "connected-systems") {
       return { screen: "connected_systems", subview: "legacy" };
+    }
+    if (panel === "referrals") {
+      return { screen: "profile_referrals_panel", subview: null };
     }
     if (panel === "support") {
       return {

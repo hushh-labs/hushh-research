@@ -831,6 +831,57 @@
       "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service"
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "hushh_tech_account_links",
+        "hushh_tech_shadow_records"
+      ],
+      "id": "hushh_tech_client_identity_state",
+      "lifecycle_status": "uat_synthetic",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "UAT-only HushhTech product linking and allowlisted compatibility metadata routes"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "hushh_tech_launch_authorizations"
+      ],
+      "id": "hushh_tech_client_launch_workflows",
+      "lifecycle_status": "uat_synthetic",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "single-use Hussh Research to HushhTech PKCE launch authorize and exchange"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "hushh_tech_link_events"
+      ],
+      "id": "hushh_tech_client_link_audit",
+      "lifecycle_status": "uat_synthetic",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "append-only synthetic link activation, conflict, relink, recovery, import, and revocation audit"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "hushh_tech_migration_events"
+      ],
+      "id": "hushh_tech_client_migration_audit",
+      "lifecycle_status": "uat_synthetic",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "append-only synthetic importer start, transactional per-record outcome, failure, and completion evidence"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "hushh_tech_migration_runs"
+      ],
+      "id": "hushh_tech_client_migration_workflows",
+      "lifecycle_status": "uat_synthetic",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "strict checked-in JSONL synthetic shadow importer dry-run, apply, checkpoint, and deterministic replay"
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "marketplace_recipient_keys",
@@ -957,6 +1008,7 @@
       "data_class": "workflow_state",
       "exact_tables": [
         "one_location_access_requests",
+        "one_location_auto_approve_preferences",
         "one_location_circle_invite_codes",
         "one_location_circle_invites",
         "one_location_envelopes",
@@ -974,7 +1026,7 @@
       "id": "one_location_agent",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
+      "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
     },
     {
       "data_class": "personal_metadata",
@@ -987,6 +1039,22 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_agent_engagement_sessions",
+        "one_referral_attributions",
+        "one_referral_codes",
+        "one_referral_events",
+        "one_referral_policies",
+        "one_referral_relationships",
+        "one_referral_risk_reviews"
+      ],
+      "id": "one_referral_program",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only."
     },
     {
       "data_class": "personal_projection",
@@ -3062,6 +3130,7 @@
           "location.decline_request",
           "location.delete_circle",
           "location.delete_saved_location",
+          "location.find_contacts",
           "location.leave_circle",
           "location.open_active_shares",
           "location.open_ask",
@@ -3236,6 +3305,29 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/location/view/[token]/page.tsx",
+      "pathname": "/one/location/view/[token]",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.location.view.token"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
       "native_surface_id": "native-route-one-marketplace",
       "page_file": "app/one/marketplace/page.tsx",
       "pathname": "/one/marketplace",
@@ -3297,6 +3389,7 @@
           "route.profile",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
+          "route.profile_referrals_panel",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -3374,6 +3467,7 @@
           "route.profile",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
+          "route.profile_referrals_panel",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -3405,6 +3499,7 @@
           "route.profile",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
+          "route.profile_referrals_panel",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -3818,6 +3913,29 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/profile/preferences/voice/examples/page.tsx",
+      "pathname": "/one/profile/preferences/voice/examples",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.preferences.voice.examples"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "none",
         "refresh_trigger": "none",
         "resource_classes": [
@@ -3836,6 +3954,31 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.receipts"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/profile/referrals/page.tsx",
+      "pathname": "/one/profile/referrals",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.profile_referrals_panel"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.support"
       }
     },
     {
@@ -4513,6 +4656,29 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/products/hushh-tech/launch/page.tsx",
+      "pathname": "/products/hushh-tech/launch",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.products.hushh.tech.launch"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "none",
         "refresh_trigger": "none",
         "resource_classes": [
@@ -4530,6 +4696,29 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.legacy.profile.google.oauth.return"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/r/[slug]/page.tsx",
+      "pathname": "/r/[slug]",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.r.slug"
       }
     },
     {
@@ -4990,28 +5179,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "7636f82d68eede3901c67538e8977aeb6625b11acf61160e027c8e7c6042c349",
-    "agent_registry": "76289ac8fb44c1d26a3cb2eb80f0f847e291674921dc88a811ac22929bc41ed9",
-    "cache_manifest": "f47f121e29aa4f52590ec9b5e2816a7101ec94eadff0bc519e0160000dd5bcc4",
-    "data_plane": "3645088de7a01a02aa3c3f2f98b91debf91f3e1b49ea82ac1f74fd75b0959b81",
+    "action_gateway": "218c87c6b63b14f7f073f2805f1a6b4bb6d50e6b40ccd07f3c0146ff2680d160",
+    "agent_registry": "986f51c99eb5adee75ae5ed00b630a64f9e3b7c8d419b1d0b29802bf31e133d6",
+    "cache_manifest": "05e9fe0a4ffd6b0c81bb613673959efe3514e3c7c55a5136b7242e7192c42206",
+    "data_plane": "e53957006a12640057fa12a557cdbfc58df0e44149e0eb28425b4b4acc5ec558",
     "in_process_dispatch": "a921011a2127245cae09bc9375cec4d22d0e3b00d31a4f1146daedbc1d379c8a",
     "one_specialist_tools": "e6e3e5388d1f1660d0f72c295fceb091116bbf66944f00b85454fa7d2c76d768",
-    "route_index": "29d29aba1473cd2f9698032841636c9ac7d74bfeadc25b67cdd7d37e60f1d82e",
-    "route_layout": "f2db6959fdf4c957386ef7b85802d72245ac009d88f839a50458666f2d70aa8f",
-    "surface_map": "298ef2f9ac50c8b38c47bdd46b747c2dbe6aa4630478859d235d7031bbe3959c",
+    "route_index": "13ab6c1c425a67815171b2dc67adca2927ee91ecf229a3b019030206ddd38bb3",
+    "route_layout": "b15c63b5302ebe9931329a7c906efc8d6b30b2714b3ad429572f6575aff8dd6c",
+    "surface_map": "7b8ea0511be239a4e3dc84c5cd1b723ffec1fce28f54a6382c406296d6ee13e7",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 185,
+    "actions": 187,
     "agents": 19,
     "aliases": 3,
     "decision_required": 2,
     "in_process_specialists": 6,
     "one_specialist_tools": 5,
-    "physical_routes": 129,
+    "physical_routes": 134,
     "semantic_routes": 14,
-    "table_families": 51
+    "table_families": 57
   }
 }

@@ -26,6 +26,7 @@ import {
   MapPin,
   Mic,
   MessageCircleQuestion,
+  Users,
   Monitor,
   Phone,
   Palette,
@@ -71,6 +72,7 @@ import { GeminiLogo } from "@/components/brand/gemini-logo";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
 import { VoiceChangelogPage } from "@/components/profile/voice-changelog-page";
+import { VoiceExamplesPage } from "@/components/profile/voice-examples-page";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
@@ -149,6 +151,7 @@ import {
   SupportService,
   type SupportMessageKind,
 } from "@/lib/services/support-service";
+import { ReferralsPanel } from "@/components/profile/referrals-panel";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
   buildPkmAccessConnections,
@@ -203,6 +206,7 @@ const PROFILE_LABELS = {
   account: "Your account",
   preferences: "Appearance & preferences",
   security: "Security & privacy",
+  referrals: "Invite friends",
   support: "Help & feedback",
   developerTools: "Developer tools",
   accountAccess: "Account access",
@@ -1937,7 +1941,7 @@ function ProfilePageContent() {
     "Clears saved details. Keeps sign-in.";
   const resetDialogTitle = "Reset account?";
   const resetDialogDescription =
-    "This clears all your saved details: connected services, finance and Gmail, your knowledge base, consents, and saved preferences. It keeps your account, your sign-in, and your vault. You will start onboarding again.";
+    "Clears saved details and setup progress. Your sign-in and vault stay.";
 
   const handleVaultUnlockOpenChange = (open: boolean) => {
     setShowVaultUnlock(open);
@@ -2092,6 +2096,14 @@ function ProfilePageContent() {
         actionId: "route.profile_receipts",
         role: "card",
         voiceAliases: ["gmail receipts", "receipts"],
+      },
+      {
+        id: "profile_referrals",
+        label: PROFILE_LABELS.referrals,
+        purpose: "opens your referral link and referral status.",
+        actionId: "route.profile_referrals_panel",
+        role: "card",
+        voiceAliases: ["referrals", "invite friends", "my referral link"],
       },
       {
         id: "profile_support",
@@ -3890,7 +3902,7 @@ function ProfilePageContent() {
     if (activeDetail === "kai-preferences") {
       profileStackEntries.push({
         key: "detail:kai-preferences",
-        title: "Kai preferences",
+        title: "Finance preferences",
         description: "Investing preferences.",
         content: (
           <ProfileKaiPreferencesPanel
@@ -3919,7 +3931,11 @@ function ProfilePageContent() {
           />
         ),
       });
-    } else if (activeDetail === "voice" || activeDetail === "voice-changelog") {
+    } else if (
+      activeDetail === "voice" ||
+      activeDetail === "voice-changelog" ||
+      activeDetail === "voice-examples"
+    ) {
       profileStackEntries.push({
         key: "detail:voice",
         title: "Voice",
@@ -3930,6 +3946,9 @@ function ProfilePageContent() {
             onOpenChangelog={() =>
               updateProfileView({ detail: "voice-changelog" }, "push")
             }
+            onOpenExamples={() =>
+              updateProfileView({ detail: "voice-examples" }, "push")
+            }
           />
         ),
       });
@@ -3939,6 +3958,13 @@ function ProfilePageContent() {
           title: "What's new",
           description: "Voice engine updates and fixes.",
           content: <VoiceChangelogPage />,
+        });
+      } else if (activeDetail === "voice-examples") {
+        profileStackEntries.push({
+          key: "detail:voice-examples",
+          title: "What can I say",
+          description: "Examples for every part of the app.",
+          content: <VoiceExamplesPage />,
         });
       }
     }
@@ -3996,6 +4022,13 @@ function ProfilePageContent() {
         content: gmailActionsContent,
       });
     }
+  } else if (!routeBlockedByVault && activePanel === "referrals") {
+    profileStackEntries.push({
+      key: "panel:referrals",
+      title: PROFILE_LABELS.referrals,
+      description: "Your link and referrals.",
+      content: <ReferralsPanel />,
+    });
   } else if (!routeBlockedByVault && activePanel === "support") {
     profileStackEntries.push({
       key: "panel:support",
@@ -4077,6 +4110,20 @@ function ProfilePageContent() {
                 voiceLabel={PROFILE_LABELS.security}
                 voicePurpose="Opens vault, account access, and account deletion controls."
                 onClick={openSecurityPanel}
+              />
+              <SettingsRow
+                icon={Users}
+                iconTone="blue"
+                title={PROFILE_LABELS.referrals}
+                chevron
+                density="compact"
+                voiceControlId="profile_referrals"
+                voiceActionId="route.profile_referrals_panel"
+                voiceLabel={PROFILE_LABELS.referrals}
+                voicePurpose="Opens your referral link and referral status."
+                onClick={() =>
+                  updateProfileView({ panel: "referrals", detail: null }, "push")
+                }
               />
               <SettingsRow
                 icon={MessageCircleQuestion}
@@ -4312,7 +4359,7 @@ function ProfilePageContent() {
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle className="app-critical-title flex items-center gap-2">
+            <AlertDialogTitle className="flex items-center gap-2 text-[color:var(--app-destructive)]">
               <Icon icon={AlertTriangle} size="md" />
               {deleteDialogTitle}
             </AlertDialogTitle>
@@ -4328,15 +4375,15 @@ function ProfilePageContent() {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              variant="default"
-              className="app-critical-action min-h-10 w-full !whitespace-normal px-4 py-2 text-center leading-tight opacity-90 transition-opacity hover:opacity-100 sm:w-auto sm:min-w-[12rem]"
+              variant="destructive"
+              className="min-h-10 w-full px-4 py-2 text-center leading-tight sm:w-auto sm:min-w-[10rem]"
               onClick={(event) => {
                 event.preventDefault();
                 void handleDeleteAccount();
               }}
               disabled={isDeleting}
             >
-              {isDeleting ? "Deleting..." : "Yes, delete my account"}
+              {isDeleting ? "Deleting..." : "Delete account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -4362,14 +4409,14 @@ function ProfilePageContent() {
             </AlertDialogCancel>
             <AlertDialogAction
               variant="default"
-              className="min-h-10 w-full !whitespace-normal px-4 py-2 text-center leading-tight sm:w-auto sm:min-w-[12rem]"
+              className="min-h-10 w-full px-4 py-2 text-center leading-tight sm:w-auto sm:min-w-[10rem]"
               onClick={(event) => {
                 event.preventDefault();
                 void handleResetAccount();
               }}
               disabled={isResetting}
             >
-              {isResetting ? "Resetting..." : "Yes, reset my account"}
+              {isResetting ? "Resetting..." : "Reset account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

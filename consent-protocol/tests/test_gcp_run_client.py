@@ -19,7 +19,21 @@ def test_service_url_extraction():
 
 
 def test_load_operator_credentials_requires_env(monkeypatch):
+    # With the key env absent AND no attached identity to fall back to -- the
+    # outside-GCP / CI case -- the loader must fail closed rather than silently
+    # returning nothing. The shipped function tries Application Default Credentials
+    # when the key is unset, so patch google.auth.default to stand in for "no
+    # attached service account"; without this the contract only holds by accident
+    # on a machine where ADC happens to be unconfigured.
+    import google.auth
+    from google.auth.exceptions import DefaultCredentialsError
+
     monkeypatch.delenv("GCP_DEPLOY_SA_KEY_B64", raising=False)
+
+    def _no_attached_identity(*_args, **_kwargs):
+        raise DefaultCredentialsError("no attached identity")
+
+    monkeypatch.setattr(google.auth, "default", _no_attached_identity)
     with pytest.raises(RuntimeError):
         load_operator_credentials()
 

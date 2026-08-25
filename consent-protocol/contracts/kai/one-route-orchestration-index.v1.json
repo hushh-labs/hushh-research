@@ -2816,6 +2816,7 @@
         "location.decline_request",
         "location.delete_circle",
         "location.delete_saved_location",
+        "location.find_contacts",
         "location.leave_circle",
         "location.open_active_shares",
         "location.open_ask",
@@ -3003,7 +3004,50 @@
       "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.one.location.request.token",
-        "purpose": "Help the person understand and use the request screen through its generated controls.",
+        "purpose": "Forwarding route only: say nothing and let the redirect complete.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/location/view/[token]",
+      "page_file": "app/one/location/view/[token]/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.one.location.view.token",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.one.location.view.token",
+        "purpose": "Help the person read the shared live location through its generated controls.",
         "screen": "app",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -3169,6 +3213,7 @@
         "route.profile",
         "route.profile_connected_systems",
         "route.profile_pkm_agent_lab",
+        "route.profile_referrals_panel",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -3306,6 +3351,7 @@
         "route.profile",
         "route.profile_connected_systems",
         "route.profile_pkm_agent_lab",
+        "route.profile_referrals_panel",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -3357,6 +3403,7 @@
         "route.profile",
         "route.profile_connected_systems",
         "route.profile_pkm_agent_lab",
+        "route.profile_referrals_panel",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -4103,6 +4150,49 @@
       "native_surface_id": "native-route-profile"
     },
     {
+      "route_pattern": "/one/profile/preferences/voice/examples",
+      "page_file": "app/one/profile/preferences/voice/examples/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.preferences.voice.examples",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.preferences.voice.examples",
+        "purpose": "A read-only list of example phrases for what voice can do. Nothing to act on here.",
+        "screen": "profile_preferences",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_preferences",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
       "route_pattern": "/one/profile/receipts",
       "page_file": "app/one/profile/receipts/page.tsx",
       "route_mode": "redirect",
@@ -4144,6 +4234,53 @@
       },
       "trust_boundary": "none",
       "native_surface_id": "native-route-gmail"
+    },
+    {
+      "route_pattern": "/one/profile/referrals",
+      "page_file": "app/one/profile/referrals/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.profile.support",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.profile.support",
+        "purpose": "Help the person understand and use the support screen through its generated controls.",
+        "screen": "profile_referrals_panel",
+        "entry_cue": "You can say “Open Support Panel” to use the primary control on this screen.",
+        "proactivity": "on_entry",
+        "primary_action_id": "route.profile_referrals_panel",
+        "happy_path_action_ids": [
+          "route.profile_referrals_panel"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": "/one/profile/referrals",
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_referrals_panel",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.profile_referrals_panel"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
     },
     {
       "route_pattern": "/one/profile/regulatory",
@@ -5331,6 +5468,49 @@
       "native_surface_id": "native-route-portfolio-shared"
     },
     {
+      "route_pattern": "/products/hushh-tech/launch",
+      "page_file": "app/products/hushh-tech/launch/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.products.hushh.tech.launch",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.products.hushh.tech.launch",
+        "purpose": "Complete the verified Hushh Tech sign-in handoff without exposing credentials.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain that the handoff cannot continue and return to Hushh Tech.",
+          "cancelled": "Respect the cancellation and return to Hushh Tech.",
+          "failed": "Return to Hushh Tech without claiming sign-in succeeded.",
+          "timeout": "Return to Hushh Tech and offer one safe retry.",
+          "callback_error": "Return to Hushh Tech without exposing the launch code.",
+          "route_mismatch": "Use only the verified Hushh Tech launch route."
+        },
+        "completion_boundary": "The handoff completes only after the signed-in Firebase user receives a bound one-time launch code and the browser reaches the exact allowlisted Hushh Tech callback.",
+        "next_route": null,
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
       "route_pattern": "/profile/google/oauth/return",
       "page_file": "app/profile/google/oauth/return/page.tsx",
       "route_mode": "redirect",
@@ -5363,6 +5543,49 @@
         "allowed_families": []
       },
       "canonical_screen": "calendar",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "block_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/r/[slug]",
+      "page_file": "app/r/[slug]/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.r.slug",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.r.slug",
+        "purpose": "Explain that the referral link is being opened and the person is being taken into sign-in.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",

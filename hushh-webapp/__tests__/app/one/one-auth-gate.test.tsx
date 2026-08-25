@@ -44,7 +44,7 @@ describe("OneAuthGate", () => {
   });
 
   it("renders public temporary location links without the login guards", () => {
-    mocks.pathname = "/one/location/request/public-token";
+    mocks.pathname = "/one/location/view/public-token";
 
     render(
       <OneAuthGate>
@@ -53,6 +53,24 @@ describe("OneAuthGate", () => {
     );
 
     expect(screen.getByText("shared location")).toBeTruthy();
+    expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
+    expect(screen.queryByTestId("phone-mandate-guard")).toBeNull();
+  });
+
+  it("keeps the pre-rename link path public too", () => {
+    // Links minted before the page moved to /view still carry /request. If
+    // this prefix stopped being public they would land on /login instead of
+    // on the forwarder that takes them to the right page — which is exactly
+    // what a recipient with no Hushh account cannot get past.
+    mocks.pathname = "/one/location/request/public-token";
+
+    render(
+      <OneAuthGate>
+        <div>legacy shared location</div>
+      </OneAuthGate>,
+    );
+
+    expect(screen.getByText("legacy shared location")).toBeTruthy();
     expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
     expect(screen.queryByTestId("phone-mandate-guard")).toBeNull();
   });

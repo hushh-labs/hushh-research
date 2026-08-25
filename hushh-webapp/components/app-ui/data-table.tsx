@@ -101,6 +101,10 @@ interface DataTableProps<TData, TValue> {
   enableSearch?: boolean;
   tableContainerClassName?: string;
   tableClassName?: string;
+  renderMobileCard?: (
+    row: TData,
+    context: { index: number; tableRow: Row<TData> },
+  ) => React.ReactNode;
   density?: "default" | "compact";
   stickyHeader?: boolean;
 }
@@ -121,6 +125,7 @@ export function DataTable<TData, TValue>({
   enableSearch = true,
   tableContainerClassName,
   tableClassName,
+  renderMobileCard,
   density = "default",
   stickyHeader = false,
 }: DataTableProps<TData, TValue>) {
@@ -293,9 +298,26 @@ export function DataTable<TData, TValue>({
         </div>
       )}
 
+      {renderMobileCard ? (
+        <div className="grid gap-3 md:hidden" data-slot="data-table-mobile-list">
+          {table.getRowModel().rows?.length ? (
+            table.getRowModel().rows.map((row, index) => (
+              <React.Fragment key={row.id}>
+                {renderMobileCard(row.original, { index, tableRow: row })}
+              </React.Fragment>
+            ))
+          ) : (
+            <div className="rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-8 text-center text-sm text-muted-foreground shadow-[var(--app-card-shadow-standard)]">
+              No results found.
+            </div>
+          )}
+        </div>
+      ) : null}
+
       <div
         className={cn(
           surfaceDataTableShellClassName,
+          renderMobileCard && "hidden md:block",
           resolvedTableShellClassName,
         )}
         data-slot="surface-data-table-shell"

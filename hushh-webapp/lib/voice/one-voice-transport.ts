@@ -32,10 +32,20 @@ export type OneVoiceSessionEvent =
       sessionId?: string | null;
       sourceId?: string | null;
       sourceSeq?: number | null;
+      /**
+       * Set only when the relay's own sessionEnded frame said so. A close
+       * with no such frame (a raw network drop, a user hangup) carries no
+       * opinion either way -- absence is not "not resumable", it is "unknown".
+       */
+      resumable?: boolean;
     }
   | {
       type: "closed";
       provider: OneVoiceProvider;
+      /** Whatever resumption handle the provider last issued this session, if
+       * any -- captured here since the client instance carrying it is torn
+       * down immediately after, so a reconnect needs it handed off now. */
+      resumptionHandle?: string | null;
     }
   | {
       type: "transcript_final";
@@ -109,6 +119,15 @@ export type OneVoiceTransportStartOptions = {
   runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
   runtimeVertexProject?: string | null;
   runtimeVertexLocation?: string | null;
+  /**
+   * An opaque provider token from a previous socket for this same
+   * conversation. Passing it lets a reconnect continue where the dropped
+   * session left off instead of starting over; omitted, a fresh conversation
+   * starts as it always did.
+   */
+  resumptionHandle?: string | null;
+  /** A Gemini TTS prebuilt voice name from voice-persona-options.ts, or null/absent for the deployment default. */
+  voiceName?: string | null;
   signal?: AbortSignal;
 };
 

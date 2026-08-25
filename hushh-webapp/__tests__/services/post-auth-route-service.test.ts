@@ -31,6 +31,7 @@ import {
   buildOneSetupRoute,
   buildPhoneMandateRoute,
   buildProfileVaultRoute,
+  normalizeInternalRouteHref,
   ROUTES,
 } from "@/lib/navigation/routes";
 import { OneSetupGateService } from "@/lib/services/one-setup-gate-service";
@@ -44,6 +45,35 @@ describe("PostAuthRouteService", () => {
     loadPendingOnboardingMock.mockReset();
   });
 
+  it("returns to the Hushh Tech launch after Firebase sign-in without setup", async () => {
+    const launchPath =
+      "/products/hushh-tech/launch?audience=hushh-tech-uat&state=state-value";
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "research-user",
+        redirectPath: launchPath,
+        idToken: "firebase-id-token",
+      }),
+    ).resolves.toBe(launchPath);
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "/\\evil.example/products/hushh-tech/launch",
+    "/%5Cevil.example/products/hushh-tech/launch",
+    "//evil.example/products/hushh-tech/launch",
+    "/products/hushh-tech/launch\n?audience=hushh-tech-uat",
+  ])("rejects an unsafe post-login redirect: %s", (redirect) => {
+    expect(normalizeInternalRouteHref(redirect)).toBeNull();
+  });
+
+  it("keeps the canonical launch path and query unchanged", () => {
+    const redirect =
+      "/products/hushh-tech/launch?audience=hushh-tech-uat&state=state-value";
+    expect(normalizeInternalRouteHref(redirect)).toBe(redirect);
+  });
+
   it("routes vault users with unresolved onboarding to the setup hub", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: true,
@@ -52,7 +82,7 @@ describe("PostAuthRouteService", () => {
     });
 
     await expect(
-      PostAuthRouteService.resolveAfterLogin({ userId: "user_123" })
+      PostAuthRouteService.resolveAfterLogin({ userId: "user_123" }),
     ).resolves.toBe(ROUTES.ONE_SETUP);
   });
 
@@ -171,7 +201,7 @@ describe("PostAuthRouteService", () => {
       PostAuthRouteService.resolveAfterLogin({
         userId: "user_123",
         redirectPath: ROUTES.KAI_PORTFOLIO,
-      })
+      }),
     ).resolves.toBe(ROUTES.KAI_PORTFOLIO);
   });
 
@@ -186,7 +216,7 @@ describe("PostAuthRouteService", () => {
       PostAuthRouteService.resolveAfterLogin({
         userId: "user_123",
         redirectPath: ROUTES.ONE_SETUP_KAI,
-      })
+      }),
     ).resolves.toBe(ROUTES.ONE_HOME);
   });
 
@@ -213,7 +243,7 @@ describe("PostAuthRouteService", () => {
       PostAuthRouteService.resolveAfterLogin({
         userId: "user_123",
         phoneNumber: "+16505550101",
-      })
+      }),
     ).resolves.toBe(ROUTES.ONE_HOME);
     expect(updatePreVaultStateMock).toHaveBeenCalledTimes(1);
   });
@@ -240,7 +270,7 @@ describe("PostAuthRouteService", () => {
       PostAuthRouteService.resolveAfterLogin({
         userId: "user_123",
         phoneNumber: "+16505550101",
-      })
+      }),
     ).resolves.toBe(ROUTES.ONE_SETUP);
     expect(updatePreVaultStateMock).not.toHaveBeenCalled();
   });
@@ -267,7 +297,7 @@ describe("PostAuthRouteService", () => {
       PostAuthRouteService.resolveAfterLogin({
         userId: "user_123",
         phoneNumber: "+16505550101",
-      })
+      }),
     ).resolves.toBe(ROUTES.ONE_SETUP);
     expect(updatePreVaultStateMock).not.toHaveBeenCalled();
   });
@@ -295,7 +325,7 @@ describe("PostAuthRouteService", () => {
       PostAuthRouteService.resolveAfterLogin({
         userId: "user_123",
         phoneNumber: "+16505550101",
-      })
+      }),
     ).resolves.toBe(ROUTES.ONE_HOME);
     expect(updatePreVaultStateMock).toHaveBeenCalledTimes(1);
   });
@@ -313,7 +343,7 @@ describe("PostAuthRouteService", () => {
       PostAuthRouteService.resolveAfterLogin({
         userId: "user_123",
         phoneNumber: null,
-      })
+      }),
     ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP));
   });
 
@@ -330,7 +360,7 @@ describe("PostAuthRouteService", () => {
       PostAuthRouteService.resolveAfterLogin({
         userId: "user_123",
         phoneNumber: "",
-      })
+      }),
     ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_HOME));
   });
 
@@ -347,7 +377,7 @@ describe("PostAuthRouteService", () => {
       PostAuthRouteService.resolveAfterLogin({
         userId: "user_123",
         phoneNumber: "+16505550101",
-      })
+      }),
     ).resolves.toBe(ROUTES.ONE_HOME);
   });
 
@@ -365,7 +395,7 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: null,
         phoneVerified: true,
-      })
+      }),
     ).resolves.toBe(ROUTES.ONE_HOME);
   });
 
@@ -404,7 +434,7 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         redirectPath: inviteRedirect,
         phoneVerified: true,
-      })
+      }),
     ).resolves.toBe(buildProfileVaultRoute(inviteRedirect));
   });
 
@@ -425,7 +455,8 @@ describe("PostAuthRouteService", () => {
         redirectPath: inviteRedirect,
         phoneNumber: null,
         phoneVerified: false,
-      })
+        hostname: "uat.one.hushh.ai",
+      }),
     ).resolves.toBe(buildPhoneMandateRoute(inviteRedirect));
   });
 
@@ -446,7 +477,7 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         redirectPath: profileVaultRoute,
         phoneVerified: true,
-      })
+      }),
     ).resolves.toBe(profileVaultRoute);
   });
 
@@ -465,7 +496,8 @@ describe("PostAuthRouteService", () => {
         redirectPath: inviteRedirect,
         phoneNumber: null,
         phoneVerified: false,
-      })
+        hostname: "uat.one.hushh.ai",
+      }),
     ).resolves.toBe(buildPhoneMandateRoute(inviteRedirect));
   });
 
@@ -484,10 +516,9 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: null,
         hostname: "localhost",
-      })
+      }),
     ).resolves.toBe(ROUTES.ONE_HOME);
   });
-
   it("skips the phone mandate for localhost hostname variants in development", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
     bootstrapStateMock.mockResolvedValue({
@@ -503,7 +534,7 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: null,
         hostname: "127.0.0.1",
-      })
+      }),
     ).resolves.toBe(ROUTES.ONE_HOME);
   });
 
@@ -546,7 +577,7 @@ describe("PostAuthRouteService", () => {
           userId: "user_gate",
           phoneVerified: true,
           enableFirstRunSetupGate: true,
-        })
+        }),
       ).resolves.toBe(ROUTES.ONE_SETUP);
     });
 
@@ -564,7 +595,7 @@ describe("PostAuthRouteService", () => {
           userId: "user_gate",
           phoneVerified: true,
           enableFirstRunSetupGate: true,
-        })
+        }),
       ).resolves.toBe(ROUTES.ONE_SETUP);
     });
 
@@ -581,7 +612,7 @@ describe("PostAuthRouteService", () => {
           userId: "user_gate",
           phoneVerified: true,
           enableFirstRunSetupGate: true,
-        })
+        }),
       ).resolves.toBe(ROUTES.ONE_HOME);
     });
 
@@ -596,7 +627,7 @@ describe("PostAuthRouteService", () => {
         PostAuthRouteService.resolveAfterLogin({
           userId: "user_gate",
           phoneVerified: true,
-        })
+        }),
       ).resolves.toBe(ROUTES.ONE_HOME);
     });
 
@@ -613,7 +644,7 @@ describe("PostAuthRouteService", () => {
           redirectPath: ROUTES.KAI_PORTFOLIO,
           phoneVerified: true,
           enableFirstRunSetupGate: true,
-        })
+        }),
       ).resolves.toBe(ROUTES.KAI_PORTFOLIO);
     });
 
@@ -629,7 +660,7 @@ describe("PostAuthRouteService", () => {
           userId: "user_gate",
           phoneVerified: true,
           enableFirstRunSetupGate: true,
-        })
+        }),
       ).resolves.toBe(ROUTES.ONE_SETUP);
     });
   });

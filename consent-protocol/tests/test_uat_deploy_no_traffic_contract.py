@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
+
+import yaml
 
 from tests._deploy_contract import backend_deploy_surface
 
@@ -9,6 +12,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
+
+
+def test_manual_rollback_jobs_bind_exact_deployment_environments() -> None:
+    workflow = yaml.safe_load(_read(".github/workflows/rollback.yml"))
+
+    assert workflow["jobs"]["rollback-uat"]["environment"] == "uat"
+    assert workflow["jobs"]["rollback-production"]["environment"] == "production"
 
 
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
@@ -34,6 +44,17 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     assert (
         'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then\n          cmd+=("--no-traffic")'
         in frontend_build
+    )
+
+
+def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
+    workflow_source = _read(".github/workflows/deploy-uat.yml")
+    workflow = yaml.safe_load(workflow_source)
+
+    assert workflow["env"]["UAT_FIREBASE_PROJECT_ID"] == "hushh-pda"
+    assert (
+        workflow_source.count('--expected-firebase-project "${{ env.UAT_FIREBASE_PROJECT_ID }}"')
+        == 2
     )
 
 
@@ -76,12 +97,31 @@ def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None
     assert "gcloud services describe" not in backend_build
 
 
-def test_cross_project_vertex_fallback_is_dev_only_and_shared_by_readiness() -> None:
+def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+
+    assert "PROBE_LINE=\"${probe_line}\" python - <<'PY'" in backend_build
+    assert 'marker = "managed_vertex_probe_result"' in backend_build
+    assert "json.loads(payload)" in backend_build
+    assert 'verdict.get("classification")' in backend_build
+    assert 'sed -n \'s/.*"classification":"' not in backend_build
+
+
+def test_cross_project_vertex_fallback_is_dev_or_exact_uat_bridge_only() -> None:
+    # The IAM preflight (allowlist) lives in the cloudbuild's verify-runtime-iam
+    # step, while the deployed service's GOOGLE_CLOUD_PROJECT env is assembled in
+    # scripts/deploy/backend-deploy.sh. Read the whole deploy surface -- both files.
     backend_build = backend_deploy_surface()
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    production_workflow = _read(".github/workflows/deploy-production.yml")
 
     assert 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then' in backend_build
     assert 'genai_project_id="hushh-pda-uat"' in backend_build
-    assert '"${_DEPLOY_ENV}" != "dev"' in backend_build
+    assert backend_build.count('case "${_DEPLOY_ENV}:${genai_project_id}" in') == 1
+    assert "dev:hushh-pda-uat|uat:hushh-gemini-bridge)" in backend_build
+    assert "Cross-project managed Vertex target is not allowlisted." in backend_build
+    assert "##_GENAI_PROJECT_ID=hushh-gemini-bridge" in uat_workflow
+    assert "hushh-gemini-bridge" not in production_workflow
     assert "roles/serviceusage.serviceUsageConsumer" in backend_build
     assert '"GOOGLE_CLOUD_PROJECT=${genai_project_id}"' in backend_build
     assert backend_build.count('"GOOGLE_CLOUD_PROJECT=${genai_project_id}"') == 1
@@ -112,6 +152,11 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     assert '"DB_POOL_MAX_SIZE=${_DB_POOL_MAX_SIZE}"' in backend_build
     assert '"DB_SQLALCHEMY_POOL_SIZE=${_DB_SQLALCHEMY_POOL_SIZE}"' in backend_build
     assert '"DB_SQLALCHEMY_MAX_OVERFLOW=${_DB_SQLALCHEMY_MAX_OVERFLOW}"' in backend_build
+    assert (
+        'append_optional_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"'
+        in backend_build
+    )
+    assert 'append_optional_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"' in backend_build
     assert '"--max=${_CLOUD_RUN_MAX_INSTANCES}"' in backend_build
     assert '"--min=${_CLOUD_RUN_MIN_INSTANCES}"' in backend_build
     assert '"--min-instances=0"' in backend_build
@@ -120,31 +165,95 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     assert '_DB_SQLALCHEMY_POOL_SIZE: "4"' in backend_build
     assert '_DB_SQLALCHEMY_MAX_OVERFLOW: "0"' in backend_build
 
+    # Both pools are per-process module globals, so the real Cloud SQL ceiling
+    # is (pool sizes) x (gunicorn workers) x (Cloud Run instances). Read the
+    # worker count from the image rather than hardcoding it: raising -w without
+    # lowering the pools multiplies the ceiling silently, which is exactly how
+    # this arithmetic drifted 2x out of date before 2026-08-23.
+    dockerfile = _read("consent-protocol/Dockerfile")
+    worker_flag = re.search(r"gunicorn\s+server:app\s+-w\s+(\d+)", dockerfile)
+    assert worker_flag is not None, "could not read the gunicorn worker count from the Dockerfile"
+    gunicorn_workers = int(worker_flag.group(1))
+    assert gunicorn_workers == 2
+
     assert "_DB_POOL_MIN_SIZE=1" in uat_workflow
-    assert "_DB_POOL_MAX_SIZE=3" in uat_workflow
-    assert "_DB_SQLALCHEMY_POOL_SIZE=2" in uat_workflow
+    assert "_DB_POOL_MAX_SIZE=4" in uat_workflow
+    assert "_DB_SQLALCHEMY_POOL_SIZE=3" in uat_workflow
     assert "_DB_SQLALCHEMY_MAX_OVERFLOW=0" in uat_workflow
-    assert "_CLOUD_RUN_MIN_INSTANCES=1" in uat_workflow
-    assert "_CLOUD_RUN_MAX_INSTANCES=3" in uat_workflow
-    # Each backend instance opens the asyncpg pool (DB_POOL_MAX_SIZE) plus the
+    assert "_CONSENT_WEB_FALLBACK_ENABLED=false" in uat_workflow
+    assert "_CONSENT_SSE_ENABLED=false" in uat_workflow
+    assert "_CLOUD_RUN_MIN_INSTANCES=2" in uat_workflow
+    assert "_CLOUD_RUN_MAX_INSTANCES=5" in uat_workflow
+    # Each gunicorn WORKER opens the asyncpg pool (DB_POOL_MAX_SIZE) plus the
     # SQLAlchemy pool (DB_SQLALCHEMY_POOL_SIZE + DB_SQLALCHEMY_MAX_OVERFLOW).
-    # UAT: at most 5 connections per instance and 15 total across 3 instances.
-    uat_per_instance = 3 + 2 + 0
-    assert uat_per_instance == 5
-    assert uat_per_instance * 3 == 15
+    # Both pools are module globals, so the ceiling is per worker process and
+    # multiplies by the gunicorn worker count before it multiplies by instances.
+    # UAT: 7 per worker, 14 per instance, 70 total across 5 instances.
+    #
+    # Two incidents shaped this number, in opposite directions.
+    #
+    # 2026-08-23: the bound was 5 per worker (3 + 2 + 0). Cloud Run admits 80
+    # concurrent requests per instance and every asyncpg call site did a plain
+    # pool.acquire() with no timeout, so once three connections were held by
+    # slow routes every later request waited forever and died at Cloud Run's
+    # 3600s request timeout, holding a concurrency slot for the full hour.
+    #
+    # 2026-08-24: raising it to 18 per worker to fix that exhausted Postgres.
+    # db-custom-1-3840 gets a Cloud SQL default max_connections near 100 — NOT
+    # the ~400 the first fix assumed from the disk/tier size. 18 x 2 workers x
+    # 3 instances is 108 on its own, and a revision cutover briefly runs a
+    # fourth instance, so UAT started answering
+    # "FATAL: remaining connection slots are reserved for non-replication
+    # superuser connections" as soon as traffic scaled out.
+    #
+    # 2026-08-24 later the same day: maxScale=3 saturated the Cloud Run request
+    # plane under long-lived consent event requests, so UAT answered Cloud Run's
+    # own "no available instance" 429 before authenticated setup calls could hit
+    # app code. Rebalance toward more instances and smaller deterministic pools:
+    # request headroom grows, while deploy peak stays under the same Postgres cap.
+    #
+    # So the ceiling is Postgres, not the app. Keep the total under ~70 and the
+    # cutover peak under ~85 to leave room for migrations, cron jobs, ad-hoc
+    # psql, and the extra instance a deploy briefly adds. Starvation is no
+    # longer a hang: db/connection.py bounds pool.acquire(), so a pool that is
+    # too small fails fast with a 503 instead of queueing until Cloud Run kills
+    # the request.
+    #
+    # Overflow stays pinned at 0 so the ceiling remains deterministic.
+    POSTGRES_MAX_CONNECTIONS = 100  # Cloud SQL default for db-custom-1-3840
+
+    uat_per_worker = 4 + 3 + 0
+    assert uat_per_worker == 7
+    assert uat_per_worker * gunicorn_workers == 14
+    uat_total = uat_per_worker * gunicorn_workers * 5
+    assert uat_total == 70
+    # A revision cutover briefly runs one instance more than the cap.
+    uat_peak_during_deploy = uat_per_worker * gunicorn_workers * 6
+    assert uat_peak_during_deploy <= POSTGRES_MAX_CONNECTIONS * 0.85, (
+        f"UAT would use {uat_peak_during_deploy} of ~{POSTGRES_MAX_CONNECTIONS} "
+        "Postgres connections during a deploy, leaving no room for migrations, "
+        "cron, or psql"
+    )
 
     assert "_DB_POOL_MIN_SIZE=1" in production_workflow
     assert "_DB_POOL_MAX_SIZE=4" in production_workflow
     assert "_DB_SQLALCHEMY_POOL_SIZE=4" in production_workflow
     assert "_DB_SQLALCHEMY_MAX_OVERFLOW=0" in production_workflow
+    assert "_CONSENT_WEB_FALLBACK_ENABLED=false" in production_workflow
+    assert "_CONSENT_SSE_ENABLED=false" in production_workflow
     assert "_CLOUD_RUN_MIN_INSTANCES=1" in production_workflow
     assert "_CLOUD_RUN_MAX_INSTANCES=5" in production_workflow
-    # Production: at most 8 connections per instance and 40 total across 5
-    # instances (overflow pinned to 0 so the ceiling is deterministic, not
-    # a burstable QueuePool overflow that can exhaust Cloud SQL slots).
-    prod_per_instance = 4 + 4 + 0
-    assert prod_per_instance == 8
-    assert prod_per_instance * 5 == 40
+    # Production: 8 per worker, 16 per instance, 80 total across 5 instances
+    # (overflow pinned to 0 so the ceiling is deterministic, not a burstable
+    # QueuePool overflow that can exhaust Cloud SQL slots).
+    prod_per_worker = 4 + 4 + 0
+    assert prod_per_worker == 8
+    assert prod_per_worker * gunicorn_workers == 16
+    prod_total = prod_per_worker * gunicorn_workers * 5
+    assert prod_total == 80
+    # Prod runs a larger instance, but pin the same shape so a future bump has
+    # to state the ceiling it is sizing against rather than assume one.
+    assert prod_total <= 100
 
     for workflow in (uat_workflow, production_workflow):
         assert 'BACKEND_REVISION_RETENTION: "3"' in workflow

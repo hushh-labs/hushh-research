@@ -27,6 +27,7 @@ from .pod_lifecycle import router as pod_lifecycle_router
 from .pod_relay import router as pod_relay_router
 from .pod_specialist import router as pod_specialist_router
 from .pod_wake import router as pod_wake_router
+from .referrals import router as referrals_router
 from .runtime import router as runtime_router
 from .webauthn import router as webauthn_router
 
@@ -64,6 +65,7 @@ router.include_router(pod_relay_router)
 # keyless pod. A pod holds no DB credential and must never mount this. The
 # allowlist in pod_server.py keeps it off the pod surface.
 router.include_router(pod_specialist_router)
+router.include_router(referrals_router)
 router.include_router(runtime_router)
 router.include_router(webauthn_router)
 

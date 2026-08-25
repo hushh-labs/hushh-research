@@ -117,7 +117,7 @@ function inlineStyle(style: Record<string, unknown>): string {
  * a scrolling root that owns the bottom clearance, a spacer that clears the top
  * bar, and the page's own `.app-page-shell` inside it.
  */
-function shellMarkup(): string {
+function shellMarkup(navigationHidden = false): string {
   const offset = resolveSignedInShellContentOffset({
     shellVisible: true,
     routeLayoutMode: "standard",
@@ -133,7 +133,9 @@ function shellMarkup(): string {
     "--app-bottom-shell-height": `${BOTTOM_SHELL_HEIGHT_PX}px`,
     // The standard signed-in branch of providers.tsx: neither hidden chrome nor
     // an RIA/setup surface.
-    "--bottom-chrome-stack-height": "var(--app-bottom-shell-height)",
+    "--bottom-chrome-stack-height": navigationHidden
+      ? "var(--app-bottom-shell-height, calc(var(--onboarding-agent-bar-clearance) + 1.5rem))"
+      : "var(--app-bottom-shell-height)",
     "--app-scroll-bottom-pad": "var(--bottom-chrome-stack-height)",
   });
 
@@ -153,12 +155,13 @@ function shellMarkup(): string {
       </div>
       <div
         data-bottom-chrome
+        data-navigation-hidden="${navigationHidden || ""}"
         style="position: fixed; inset-inline: 0; bottom: 0; height: var(--bottom-chrome-stack-height);"
       ></div>
     </div>`;
 }
 
-async function writeFixture(): Promise<string> {
+async function writeFixture(navigationHidden = false): Promise<string> {
   const css = await buildStylesheet(["app-page-shell"]);
   const dir = fs.mkdtempSync(
     path.join(os.tmpdir(), "app-shell-bottom-clearance-"),
@@ -173,7 +176,7 @@ async function writeFixture(): Promise<string> {
   html { --top-chrome-collapse-px: 0px; }
   body { margin: 0; }
 </style></head>
-<body data-ambient-chrome-primed="true">${shellMarkup()}</body></html>`,
+<body data-ambient-chrome-primed="true">${shellMarkup(navigationHidden)}</body></html>`,
   );
   return `file://${path.join(dir, "fixture.html")}`;
 }
@@ -231,6 +234,40 @@ test.describe("app shell bottom clearance", () => {
         measured.bodyBottomToViewport,
         `${measured.bodyBottomToViewport}px of empty screen under the last card at ${width}px, against a ${measured.chromeHeight}px bottom chrome`,
       ).toBeLessThanOrEqual(budget);
+    });
+  }
+
+  for (const width of WIDTHS.filter((candidate) => candidate <= 430)) {
+    test(`an Agent-Bar-only flow stays clear at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(await writeFixture(true));
+
+      const measured = await page.evaluate(() => {
+        const scrollRoot = document.querySelector<HTMLElement>(
+          "[data-app-scroll-root]",
+        )!;
+        const body = document.querySelector<HTMLElement>("[data-route-body]")!;
+        const chrome = document.querySelector<HTMLElement>(
+          "[data-bottom-chrome]",
+        )!;
+        scrollRoot.scrollTop = scrollRoot.scrollHeight;
+        return {
+          bodyBottom: body.getBoundingClientRect().bottom,
+          chromeTop: chrome.getBoundingClientRect().top,
+          rootPad: Number.parseFloat(
+            getComputedStyle(scrollRoot).paddingBottom || "0",
+          ),
+          chromeHeight: chrome.getBoundingClientRect().height,
+        };
+      });
+
+      expect(measured.rootPad).toBeGreaterThanOrEqual(measured.chromeHeight);
+      expect(
+        measured.bodyBottom,
+        "the last action must finish above the fixed Agent Bar",
+      ).toBeLessThanOrEqual(measured.chromeTop);
     });
   }
 });

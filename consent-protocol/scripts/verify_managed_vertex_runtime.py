@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
@@ -21,8 +22,22 @@ from hushh_mcp.runtime_providers import (  # noqa: E402
     build_generate_content_config,
     resolve_model_entry,
 )
+from hushh_mcp.runtime_providers.dependency_health import (  # noqa: E402
+    DEPENDENCY_OK,
+    PROVIDER_UNAVAILABLE,
+    classify_provider_error,
+    is_advisory,
+    summarize,
+)
 
 PROBE_TIMEOUT_SECONDS = 25
+
+#: Stable prefix the Cloud Build step greps for in the job's logs.
+RESULT_PREFIX = "managed_vertex_probe_result"
+
+#: EX_TEMPFAIL. Distinguishes "the provider is down" from a hard failure, so the
+#: caller can continue the release while still reporting the outage.
+EXIT_PROVIDER_UNAVAILABLE = 75
 
 
 def _managed_manifest_models() -> tuple[tuple[str, ...], str]:
@@ -56,16 +71,35 @@ def _managed_manifest_models() -> tuple[tuple[str, ...], str]:
     return tuple(sorted(text_models)), next(iter(live_models))
 
 
-async def main() -> None:
+async def main() -> dict[str, object]:
     binding = ManagedGeminiRuntimeBinding.from_environment()
     models, live_model = _managed_manifest_models()
     live_location = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
-    live_binding = ManagedGeminiRuntimeBinding(
-        project=binding.project,
-        locations=(live_location,),
-        auth_mode=binding.auth_mode,
+    # The live model's endpoint follows its declared transport, mirroring
+    # agent_tree._build_one_live_model: vertex-transport live models probe the
+    # regional Vertex Live endpoint; developer_api-transport models (e.g. the
+    # canonical gemini-3.1-flash-live-preview, which is not published on
+    # Vertex) probe the Gemini Developer API with the Hussh-managed live key.
+    from hushh_mcp.runtime_providers.live_compatibility import (
+        GEMINI_LIVE_COMPATIBILITY,
     )
-    live_client = live_binding.build_direct_client()
+
+    _live_compat = GEMINI_LIVE_COMPATIBILITY.get(live_model)
+    _live_is_developer_api = _live_compat is not None and _live_compat.transport == "developer_api"
+    if _live_is_developer_api:
+        from hushh_mcp.runtime_providers.factory import build_developer_api_live_client
+
+        _managed_live_key = (os.getenv("HUSHH_MANAGED_GEMINI_LIVE_API_KEY") or "").strip()
+        live_client = (
+            build_developer_api_live_client(_managed_live_key) if _managed_live_key else None
+        )
+    else:
+        live_binding = ManagedGeminiRuntimeBinding(
+            project=binding.project,
+            locations=(live_location,),
+            auth_mode=binding.auth_mode,
+        )
+        live_client = live_binding.build_direct_client()
 
     def binding_for(location: str) -> ManagedGeminiRuntimeBinding:
         return ManagedGeminiRuntimeBinding(
@@ -121,6 +155,16 @@ async def main() -> None:
         await asyncio.wait_for(consume_first_response(), timeout=PROBE_TIMEOUT_SECONDS)
 
     async def probe_live_setup() -> None:
+        if live_client is None:
+            # developer_api transport with no managed key in this environment.
+            # The runtime fails loudly at session build (managed_live_key_missing
+            # in agent_tree), so the release evidence records the gap instead of
+            # silently passing a probe that never connected.
+            raise RuntimeError(
+                "managed_live_key_missing: developer_api live model "
+                f"'{live_model}' cannot be probed without "
+                "HUSHH_MANAGED_GEMINI_LIVE_API_KEY"
+            )
         manager = live_client.aio.live.connect(
             model=live_model,
             config=types.LiveConnectConfig(response_modalities=[types.Modality.AUDIO]),
@@ -141,17 +185,83 @@ async def main() -> None:
             + ",".join(unsupported_models)
         )
 
-    await asyncio.gather(
-        *(probe_text(model, location) for model in models for location in locations_for(model)),
-        *(probe_adk_text(model, location) for model in models for location in locations_for(model)),
-        probe_live_setup(),
-    )
-    print(
-        "managed_vertex_ready "
-        f"models={','.join(models)} live={live_model} "
-        f"text_locations={','.join(binding.locations)} live_location={live_location}"
-    )
+    # Labelled so a failure is attributable to one model/location, and gathered
+    # with return_exceptions so ALL probe outcomes survive. Without it the first
+    # exception cancels the rest, discarding exactly the evidence that separates
+    # an outage ("every probe failed the same way") from a candidate defect
+    # ("only this model, only this location").
+    labelled: list[tuple[str, object]] = []
+    for model in models:
+        for location in locations_for(model):
+            labelled.append((f"text:{model}@{location}", probe_text(model, location)))
+            labelled.append((f"adk:{model}@{location}", probe_adk_text(model, location)))
+    _live_endpoint = "developer_api" if _live_is_developer_api else live_location
+    labelled.append((f"live:{live_model}@{_live_endpoint}", probe_live_setup()))
+
+    outcomes = await asyncio.gather(*(coro for _, coro in labelled), return_exceptions=True)
+
+    probes: list[dict[str, object]] = []
+    for (name, _), outcome in zip(labelled, outcomes, strict=True):
+        if isinstance(outcome, BaseException):
+            probes.append(
+                {
+                    "probe": name,
+                    "ok": False,
+                    "classification": classify_provider_error(outcome),
+                    "error_type": type(outcome).__name__,
+                    "error": str(outcome)[:400],
+                }
+            )
+        else:
+            probes.append({"probe": name, "ok": True, "classification": DEPENDENCY_OK})
+
+    failed = [item for item in probes if not item["ok"]]
+    classification = summarize([str(item["classification"]) for item in failed])
+    return {
+        "check": "managed_vertex_runtime",
+        "ok": not failed,
+        "classification": classification,
+        "advisory": is_advisory(classification),
+        "models": list(models),
+        "live_model": live_model,
+        "live_location": _live_endpoint,
+        "probes": probes,
+        # A provider-side denial is returned before any model-specific
+        # validation, so an outage verdict does NOT clear the candidate. Say so,
+        # rather than letting a green-ish release imply the models were checked.
+        "candidate_models_exercised": classification != PROVIDER_UNAVAILABLE,
+    }
+
+
+def _run() -> int:
+    """Emit one machine-readable line and map the verdict onto an exit code."""
+    try:
+        report = asyncio.run(main())
+    except BaseException as exc:  # noqa: BLE001 - setup failures classify too
+        classification = classify_provider_error(exc)
+        report = {
+            "check": "managed_vertex_runtime",
+            "ok": False,
+            "classification": classification,
+            "advisory": is_advisory(classification),
+            "error_type": type(exc).__name__,
+            "error": str(exc)[:400],
+            "probes": [],
+            "candidate_models_exercised": False,
+        }
+
+    # Single-line, greppable, and printed on BOTH paths. The caller runs this as
+    # a Cloud Run job via `gcloud run jobs execute --wait`, which surfaces exit
+    # status only -- so the classification has to be recoverable from the job's
+    # logs, which means one stable prefix and valid JSON after it.
+    print(f"{RESULT_PREFIX} {json.dumps(report, separators=(',', ':'), sort_keys=True)}")
+
+    if report["ok"]:
+        return 0
+    if report["advisory"]:
+        return EXIT_PROVIDER_UNAVAILABLE
+    return 1
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(_run())

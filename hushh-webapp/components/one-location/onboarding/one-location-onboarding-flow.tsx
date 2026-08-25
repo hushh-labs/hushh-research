@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -20,11 +21,15 @@ import {
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
 import {
+  READY_CODE_CLASSNAME,
   READY_MAP_CLASSNAME,
+  READY_MAP_SHORT_WINDOW_CSS,
   READY_PANEL_CLASSNAME,
   READY_SURFACE_CLASSNAME,
 } from "@/components/one-location/onboarding/ready-panel-layout";
+import { resolveOnboardingFinaleMapPoint } from "@/lib/one-location/onboarding-map-point";
 import { normalizeCircleCode } from "@/lib/one-location/pending-circle-join";
+import { useCurrentLocation } from "@/lib/one-location/use-current-location";
 import { useGoogleMaps } from "@/lib/one-location/use-google-maps";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
@@ -91,6 +96,7 @@ export type OnboardingCirclePreview = {
 export type OnboardingContactSyncResult =
   | { status: "matched"; matches: OnboardingContactMatch[] }
   | { status: "none"; partial: boolean }
+  | { status: "cancelled" }
   | { status: "failed"; message: string; canOpenSettings: boolean };
 
 type OneLocationOnboardingFlowProps = {
@@ -128,6 +134,8 @@ type OneLocationOnboardingFlowProps = {
   /** Where to centre the finale map. Null renders the stylised fallback. */
   mapPoint?: { lat: number; lng: number } | null;
   contactsStepAvailable?: boolean;
+  /** Account-backed web fallback versus the device address book. */
+  contactsSource?: "device" | "google";
   /**
    * Read the address book and return whichever contacts already have One.
    * Called only after the person taps on the contacts screen, never on mount.
@@ -397,7 +405,7 @@ function WelcomeScreen({
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(var(--app-safe-area-top-effective,0px),10px)] text-white dark:bg-[#073d78]">
       <span className="pointer-events-none absolute -right-24 -top-32 h-72 w-72 rounded-full bg-white/[0.05]" />
       <span className="pointer-events-none absolute -bottom-28 -left-32 h-72 w-72 rounded-full bg-[#006bd9]/55" />
-      <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-[560px] flex-1 flex-col">
+      <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-[700px] flex-1 flex-col">
         <OnboardingNavigation
           inverse
           onBack={onBack}
@@ -414,15 +422,15 @@ function WelcomeScreen({
                 strokeWidth={2.5}
                 data-testid="location-agent-heading-icon"
               />
-              Location Agent
+              Location
             </p>
             <h1
               className="mx-auto mt-5 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.015em]"
               data-one-welcome-heading
             >
-              Share your location
+              Be easy to reach
               <br />
-              easily with anyone.
+              when it actually matters.
             </h1>
           </div>
           <div className="flex min-h-0 flex-1 items-center justify-center py-4">
@@ -629,13 +637,13 @@ function TwoLineFeatureTitle({
 function ShareLocationFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[1.72/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#f2f5f8] [container-type:inline-size] dark:bg-[#171d27]"
+      className="relative flex aspect-[1.72/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
       data-testid="location-use-case-trip"
       data-one-use-case-card
       data-one-feature-card="share"
     >
       <MapBackdrop tone="share" />
-      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#f2f5f8] from-[35%] via-[#f2f5f8]/95 via-[51%] to-transparent dark:from-[#171d27] dark:via-[#171d27]/95" />
+      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[color:var(--app-primary-surface)] from-[35%] via-[color:var(--app-primary-surface)] via-[51%] to-transparent" />
       <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
         <span
           className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)]"
@@ -651,7 +659,7 @@ function ShareLocationFeatureCard() {
           className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Share once. Your Circle can find you safely.
+          Share your live location with your Circle in one tap.
         </p>
       </div>
       <div
@@ -707,7 +715,7 @@ function ShareLocationFeatureCard() {
 function CheckInFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#f4f6f8] [container-type:inline-size] dark:bg-[#171d27]"
+      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
       data-testid="location-use-case-checkin"
       data-one-use-case-card
       data-one-feature-card="checkin"
@@ -720,23 +728,29 @@ function CheckInFeatureCard() {
           Check in
         </span>
         <TwoLineFeatureTitle
-          lines={["At the venue, but", "can\u2019t find each other?"]}
+          lines={["Dreading the", "check-in queue?"]}
           className="text-[19px]"
         />
         <p
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Check in anywhere. Your Circle knows you arrived.
+          Check in early, pick up your key, and skip the front desk.
         </p>
       </div>
       <div
-        className="absolute inset-x-0 bottom-0 h-[47%]"
-        data-one-use-case-art
+        className="absolute inset-0"
+        data-one-checkin-map-backdrop
         aria-hidden="true"
       >
         <MapBackdrop tone="checkin" />
-        <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#f4f6f8] to-transparent dark:from-[#171d27]" />
+      </div>
+      <div
+        className="absolute inset-x-0 bottom-0 h-[52%]"
+        data-one-use-case-art
+        aria-hidden="true"
+      >
+        <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[color:var(--app-primary-surface)] to-transparent" />
         {/* Green location-pin overlay removed: the check-in card now shows the
             clean building artwork on its own. The [data-one-checkin-pin]
             responsive rules below are harmless no-ops now. */}
@@ -768,7 +782,7 @@ function CheckInFeatureCard() {
 function SaveMySoulFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#fff3f2] [container-type:inline-size] dark:bg-[#2a191c]"
+      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
       data-testid="location-use-case-sos"
       data-one-use-case-card
       data-one-feature-card="sms"
@@ -781,14 +795,14 @@ function SaveMySoulFeatureCard() {
           SMS &middot; Save My Soul
         </span>
         <TwoLineFeatureTitle
-          lines={["Need help but can\u2019t", "call or speak?"]}
+          lines={["Need help but", "can\u2019t talk?"]}
           className="text-[19px]"
         />
         <p
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#c2aeb2]"
           data-one-feature-body
         >
-          Send your location when you need help fast.
+          Send an SMS with your location in seconds.
         </p>
       </div>
       <div
@@ -881,7 +895,7 @@ function FeaturesScreen({
 
   return (
     <div
-      className="mx-auto flex h-full min-h-0 w-full max-w-[430px] max-[431px]:max-w-none flex-1 flex-col overflow-hidden bg-white px-5 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] dark:bg-[#0c1017] sm:px-8 md:max-w-none md:px-10 lg:px-14"
+      className="mx-auto flex h-full min-h-0 w-full max-w-[430px] max-[431px]:max-w-none flex-1 flex-col overflow-hidden bg-[color:var(--app-grouped-background)] px-5 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] sm:px-8 md:max-w-none md:px-10 lg:px-14"
       data-one-feature-screen
     >
       <OnboardingNavigation
@@ -896,7 +910,7 @@ function FeaturesScreen({
            the viewport edges while everything else stayed in the column. Passed
            here rather than inside OnboardingNavigation: the welcome screen's
            copy of that nav is already railed at 560 by its parent. */
-        className="mx-auto w-full max-w-[700px]"
+        className="mx-auto w-full max-w-[1040px]"
       />
       <div
         className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
@@ -907,14 +921,8 @@ function FeaturesScreen({
             className="ui-text-agent-title text-[#111823] dark:!text-[#f6f8fc]"
             data-one-feature-heading
           >
-            Need to keep people updated?
+            Keep your people updated.
           </h1>
-          <p
-            className="mt-3 text-[15px] font-normal leading-[20px] text-[#737a84] dark:text-[#aeb8c7]"
-            data-one-feature-subtitle
-          >
-            Share location, check in, or send help in seconds.
-          </p>
         </header>
         <div className="mx-auto mt-6 grid w-full max-w-[700px] shrink-0 gap-4" data-one-feature-grid>
           <ShareLocationFeatureCard />
@@ -943,10 +951,7 @@ function FeaturesScreen({
           disabled={permissionBusy}
           className="h-[58px] min-h-[58px]"
         >
-          {/* Names the next screen, which is finding people you already know.
-              A deliberately distinct string also keeps the reviewer flow's
-              exact button match from colliding with a generic "Continue". */}
-          {locationPreparationRetry ? "Try again" : "Find my people"}
+          {locationPreparationRetry ? "Try again" : "Continue"}
         </PrimaryButton>
       </div>
       <style>{`
@@ -963,8 +968,8 @@ function FeaturesScreen({
           [data-one-onboarding-motion] { animation: none !important; }
         }
         [data-one-feature-heading] {
-          --foundation-title1-size: 34px;
-          --foundation-title1-line: 1.08;
+          --type-agent-title-size: 34px;
+          --type-agent-title-line: 1.08;
         }
         [data-one-feature-copy] {
           --one-feature-copy-gap: 12px;
@@ -997,7 +1002,7 @@ function FeaturesScreen({
           }
           [data-one-onboarding-navigation] { height: 52px; }
           [data-one-feature-header] { margin-top: 8px; }
-          [data-one-feature-heading] { --foundation-title1-size: 32px; }
+          [data-one-feature-heading] { --type-agent-title-size: 32px; }
           [data-one-feature-subtitle] { margin-top: 9px; font-size: 15px; line-height: 21px; }
           [data-one-feature-grid] { margin-top: 14px; gap: 12px; }
           [data-one-feature-lower-grid] { gap: 12px; }
@@ -1011,7 +1016,7 @@ function FeaturesScreen({
           }
           [data-one-onboarding-navigation] { height: 44px; }
           [data-one-feature-header] { margin-top: 4px; }
-          [data-one-feature-heading] { --foundation-title1-size: 30px; }
+          [data-one-feature-heading] { --type-agent-title-size: 30px; }
           [data-one-feature-subtitle] {
             margin-top: 6px;
             font-size: 13px;
@@ -1029,7 +1034,7 @@ function FeaturesScreen({
         }
         @media (max-width: 431px) {
           [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
-          [data-one-feature-heading] { --foundation-title1-size: 34px; }
+          [data-one-feature-heading] { --type-agent-title-size: 34px; }
           [data-one-feature-subtitle] { font-size: 15px; line-height: 22px; }
           [data-one-feature-grid] {
             gap: 12px;
@@ -1052,7 +1057,7 @@ function FeaturesScreen({
             max-width: 1040px;
           }
           [data-one-feature-heading] {
-            --foundation-title1-size: 34px;
+            --type-agent-title-size: 34px;
           }
           [data-one-feature-grid] {
             display: grid;
@@ -1116,7 +1121,7 @@ function FeaturesScreen({
           [data-one-feature-card="checkin"] [data-one-use-case-art] {
             inset: auto 0 42px 0;
             width: 100%;
-            height: 46%;
+            height: 54%;
           }
           [data-one-feature-card="checkin"] [data-one-checkin-art] {
             left: 50%;
@@ -1148,7 +1153,7 @@ function FeaturesScreen({
         }
         @media (max-width: 340px) {
           [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
-          [data-one-feature-heading] { --foundation-title1-size: 31px; }
+          [data-one-feature-heading] { --type-agent-title-size: 31px; }
           [data-one-feature-grid] { gap: 10px; }
           [data-one-feature-lower-grid] { gap: 8px; }
           [data-one-feature-card] { border-radius: 20px; }
@@ -1319,7 +1324,7 @@ function FeaturesScreen({
           [data-one-sms-core] { width: 32px; height: 32px; font-size: 13px; }
         }
         @media (max-width: 431px) and (max-height: 680px) {
-          [data-one-feature-heading] { --foundation-title1-size: 30px; }
+          [data-one-feature-heading] { --type-agent-title-size: 30px; }
           [data-one-feature-subtitle] {
             margin-top: 6px;
             font-size: 13px;
@@ -1352,7 +1357,7 @@ function FeaturesScreen({
           }
           [data-one-onboarding-navigation] { height: 38px; }
           [data-one-feature-header] { margin-top: 2px; }
-          [data-one-feature-heading] { --foundation-title1-size: 28px; }
+          [data-one-feature-heading] { --type-agent-title-size: 28px; }
           [data-one-feature-subtitle] {
             margin-top: 4px;
             font-size: 11.5px;
@@ -1486,6 +1491,7 @@ function formatCircleCode(code: string): string {
  */
 function ContactsScreen({
   state,
+  source,
   matches,
   addedUserIds,
   addingUserIds,
@@ -1503,6 +1509,7 @@ function ContactsScreen({
     | { kind: "none"; partial: boolean }
     | { kind: "matched" }
     | { kind: "failed"; message: string; canOpenSettings: boolean };
+  source: "device" | "google";
   matches: OnboardingContactMatch[];
   addedUserIds: string[];
   addingUserIds: string[];
@@ -1515,11 +1522,14 @@ function ContactsScreen({
   leaving: boolean;
 }) {
   const primed = state.kind === "idle" || state.kind === "busy";
+  const contactOperationBusy = state.kind === "busy";
+  const navigationDisabled = leaving || contactOperationBusy;
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]"
+      className="flex min-h-0 flex-1 flex-col bg-[color:var(--app-grouped-background)]"
       data-testid="one-location-onboarding-contacts-surface"
+      aria-busy={contactOperationBusy}
     >
       {/* pt clears the status bar and notch. A bare pt-2 put Back and Skip
           under the clock and battery on every notched iPhone -- reachable
@@ -1528,12 +1538,13 @@ function ContactsScreen({
         <button
           type="button"
           onClick={onBack}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
+          disabled={navigationDisabled}
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] disabled:opacity-50 dark:bg-white/[0.08] dark:text-white"
           aria-label="Go back"
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
+        <OnboardingSkipButton onClick={onSkip} disabled={navigationDisabled} />
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
@@ -1565,11 +1576,14 @@ function ContactsScreen({
                       A vague ask on a location product is what makes people
                       decline, and the decline is permanent on iOS. */}
                   <p className="text-[14px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
-                    Your contacts are checked using a one-way hash. One never
-                    stores your contact list, and nobody is contacted for you.
+                    One sends a protected match code and the last four digits,
+                    not names or full phone numbers. Your contact list is never
+                    stored, and nobody is contacted for you.
                   </p>
                   <PrimaryButton onClick={onSync} disabled={leaving}>
-                    Check my contacts
+                    {source === "google"
+                      ? "Connect Google Contacts"
+                      : "Check my contacts"}
                   </PrimaryButton>
                 </div>
               )}
@@ -1637,6 +1651,16 @@ function ContactsScreen({
                 Open Settings
               </button>
             ) : null}
+            {source === "google" ? (
+              <button
+                type="button"
+                onClick={onSync}
+                disabled={leaving}
+                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+              >
+                Try again
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -1646,7 +1670,7 @@ function ContactsScreen({
             nobody, or a plugin failure must never be a dead end. */}
         <PrimaryButton
           onClick={onContinue}
-          disabled={leaving}
+          disabled={navigationDisabled}
           inverse={primed && state.kind === "idle"}
         >
           {state.kind === "idle" ? "Not now" : "Continue"}
@@ -1672,6 +1696,7 @@ function ContactsScreen({
 function ReadyScreen({
   currentUserName: _currentUserName,
   mapPoint,
+  mapEmptyLabel,
   invite,
   loading,
   error,
@@ -1699,6 +1724,8 @@ function ReadyScreen({
 }: {
   currentUserName: string;
   mapPoint: { lat: number; lng: number } | null;
+  /** What the map band says when there is no coordinate to draw. */
+  mapEmptyLabel: string;
   invite: OnboardingCircleInvite | null;
   loading: boolean;
   error: string | null;
@@ -1739,6 +1766,7 @@ function ReadyScreen({
           layout every map product converges on for the same reason. */}
       <OnboardingLiveMap
         point={mapPoint}
+        emptyLabel={mapEmptyLabel}
         className={READY_MAP_CLASSNAME}
       />
 
@@ -1766,39 +1794,34 @@ function ReadyScreen({
         data-testid="one-location-onboarding-ready-panel"
       >
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 pt-6 md:px-7 md:pb-5 md:pt-7">
+          {/* The headline is the map's, so it only gets to make the claim when
+              there is a map. Reaching this screen with Location declined is an
+              ordinary outcome -- the features screen offers "Not now" -- and
+              telling that person they are on a map, over a panel that says the
+              map is unavailable, is the one thing this screen must not do. */}
           <h1
             className="ui-text-agent-title pb-1 leading-[1.15] text-[#151b26] dark:!text-[#f5f7fb]"
             data-one-ready-title
           >
-            You&apos;re on the map.
+            {mapPoint ? "You're on the map." : "You're all set."}
           </h1>
           <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
             Private until you share.
           </p>
 
-        <p
-          className="mt-6 flex items-center gap-2 text-[14px] font-medium leading-5 text-[#5c626c] dark:text-[#aeb8c7]"
-          data-testid="onboarding-ready-empty-seat"
-          data-one-ready-seat
-        >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-[color:var(--app-accent)]/45">
-            <UserPlus
-              className="h-3.5 w-3.5 text-[color:var(--app-accent)]/70"
-              strokeWidth={2.2}
-            />
-          </span>
-          Your people show up here once they join.
-        </p>
-
+        {/* "Your people show up here once they join." used to sit here, with a
+            dashed empty-seat avatar beside it. The map above and the invite
+            card below already say it between them, and a screen a person reads
+            in three seconds cannot afford a sentence that only restates its own
+            layout. */}
         <div
-          className="mt-5 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-white/[0.08] dark:bg-[#1c212a]"
+          className="mt-6 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-white/[0.08] dark:bg-[#1c212a]"
           data-testid="one-location-onboarding-invite-card"
           data-one-ready-code
         >
           {loading ? (
             <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[#8d99a8]">
-              <Loader2 className="h-5 w-5 animate-spin" /> Preparing your circle
-              code
+              <Loader2 className="h-5 w-5 animate-spin" /> Getting your code
             </div>
           ) : error ? (
             <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
@@ -1815,17 +1838,27 @@ function ReadyScreen({
             </div>
           ) : invite ? (
             <>
+              {/* The circle's name, not a sentence wrapped around it. "Bring
+                  your people to Ankit's Circle" spent five words introducing
+                  the two things directly under it -- a code and a Share
+                  button -- which the card's own shape already introduces. */}
               <p className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[#aeb8c7]">
-                Bring your people to {invite.circleName}
+                {invite.circleName}
               </p>
               <p
-                className="mt-2 select-all whitespace-nowrap font-mono text-[clamp(20px,6vw,28px)] font-bold uppercase leading-[1.15] tracking-[0.12em] text-[#151b26] dark:text-[#f5f7fb]"
+                className={READY_CODE_CLASSNAME}
                 data-testid="one-location-onboarding-invite-code"
+                data-ui-contract="required-copy"
+                data-ui-id="onboarding-invite-code"
+                data-ui-truncation="forbid"
               >
                 {formattedCode}
               </p>
+              {/* Kept, shortened. The expiry changes what the person does with
+                  the code, so it stays; "You can get a fresh one any time" is a
+                  reassurance about a screen they have not reached yet. */}
               <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[#8d99a8]">
-                Expires in 72 hours. You can get a fresh one any time.
+                Expires in 72 hours
               </p>
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <button
@@ -1852,8 +1885,10 @@ function ReadyScreen({
             </>
           ) : (
             <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[#8d99a8]">
-              Your circle code will be ready in One. You can share it any time
-              from your circle.
+              {/* Where to get it is the button at the bottom of this screen,
+                  which already says "Open One Location". Saying it again here
+                  is the paragraph this card used to be. */}
+              Your code isn&apos;t ready yet.
             </p>
           )}
         </div>
@@ -1869,8 +1904,8 @@ function ReadyScreen({
                   className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
                   strokeWidth={2.5}
                 />
-                You&apos;ll join {joinPreview?.name ?? "their circle"} as soon as
-                One finishes setting up.
+                You&apos;ll join {joinPreview?.name ?? "their circle"} after
+                setup.
               </p>
             ) : joinPreview ? (
               <div
@@ -1894,7 +1929,7 @@ function ReadyScreen({
                 </p>
                 {joinPreview.alreadyMember ? (
                   <p className="mt-3 text-[13px] leading-[18px] text-[#73777f] dark:text-[#aeb8c7]">
-                    You&apos;re already in this circle.
+                    Already in this circle.
                   </p>
                 ) : (
                   <button
@@ -1924,8 +1959,11 @@ function ReadyScreen({
               </div>
             ) : (
               <details className="group" data-testid="onboarding-join-circle-toggle" open={Boolean(joinCode)}>
+                {/* An action, not a question. "Someone sent you a code?" asks
+                    the person to confirm a situation before it offers to do
+                    anything about it; this names what tapping does. */}
                 <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]">
-                  Someone sent you a code?
+                  Join with a code
                 </summary>
                 <div className="mt-3 flex gap-2">
                   <input
@@ -1964,13 +2002,17 @@ function ReadyScreen({
         ) : null}
         </div>
 
-        <footer className="relative z-10 shrink-0 bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 dark:bg-[#14171d] md:px-7 md:pb-7">
+        {/* The SAME surface as the panel it sits inside, by token rather than
+            by a second hand-picked hex. When the panel moved to the semantic
+            token and this did not, dark mode showed the panel at #1c1c1e and
+            its own footer at #14171d -- one card with a seam across it. */}
+        <footer className="relative z-10 shrink-0 bg-[color:var(--app-primary-surface)] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 md:px-7 md:pb-7">
           {settlementRetryCount > 0 ? (
             <p
               className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]"
               role="status"
             >
-              That didn&apos;t save. Tap again to finish setting up Location.
+              That didn&apos;t save. Tap again.
             </p>
           ) : null}
           {/* Always the completion CTA. A code that failed to load is not a
@@ -1985,24 +2027,14 @@ function ReadyScreen({
 
       <style>{`
         [data-one-ready-title] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; }
-        [data-one-ready-seat] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 80ms; }
         [data-one-ready-code] { animation: oneReadyRise 560ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 140ms; }
-        /* 34dvh of map is right on a phone, which is tall. A 1366x768 laptop is
-           shorter than an iPhone, and there the same fraction pushed the join
-           link below the fold -- so the last thing on the screen needed a
-           scroll to discover it existed. The map yields the height instead,
-           since it is atmosphere and the link is a way in. Phones are past 820px
-           and keep the taller band. */
-        @media (max-width: 767px) and (max-height: 820px) {
-          [data-testid="onboarding-live-map"] { height: 24dvh; min-height: 150px; }
-        }
+        ${READY_MAP_SHORT_WINDOW_CSS}
         @keyframes oneReadyRise {
           from { opacity: 0; transform: translateY(14px); }
           to   { opacity: 1; transform: translateY(0); }
         }
         @media (prefers-reduced-motion: reduce) {
           [data-one-ready-title],
-          [data-one-ready-seat],
           [data-one-ready-code] {
             animation: none;
             opacity: 1;
@@ -2037,6 +2069,7 @@ export function OneLocationOnboardingFlow({
   completeLabel = "Open One Location",
   mapPoint = null,
   contactsStepAvailable = true,
+  contactsSource = "device",
   onSyncOnboardingContacts,
   onAddOnboardingContact,
   onOpenContactSettings,
@@ -2059,6 +2092,38 @@ export function OneLocationOnboardingFlow({
   preconnect("https://maps.googleapis.com");
   preconnect("https://maps.gstatic.com");
   useGoogleMaps({ enabled: true });
+
+  /**
+   * The account's position, from the one place the whole app already keeps it.
+   *
+   * `auto` resolves a fix on mount ONLY when the OS has already granted
+   * permission; it never triggers a first prompt, which matters more here than
+   * anywhere -- iOS grants exactly one Core Location alert per install, and
+   * this flow's entire second screen exists to spend it deliberately.
+   *
+   * Subscribed here rather than in the Location page because the bus updates
+   * as the device reports, and the page is a very large tree that has no reason
+   * to re-render for a coordinate only the finale reads. The onboarding overlay
+   * is mounted for a minute at most.
+   */
+  const { snapshot: deviceSnapshot } = useCurrentLocation({ auto: true });
+
+  /**
+   * Where the finale's camera actually goes.
+   *
+   * `mapPoint` is the page's answer from the three sources it owns. All three
+   * are empty on ordinary runs -- someone who skipped the save-place step, or
+   * granted Location and walked straight through -- and the screen then drew a
+   * picture of a map the person was not on. The bus is the last resort.
+   */
+  const finaleMapPoint = useMemo(
+    () =>
+      resolveOnboardingFinaleMapPoint({
+        onboarding: mapPoint,
+        device: deviceSnapshot,
+      }),
+    [deviceSnapshot, mapPoint],
+  );
 
   const [screen, setScreen] = useState<OnboardingScreen>(() =>
     initialScreen(startAt),
@@ -2121,6 +2186,18 @@ export function OneLocationOnboardingFlow({
   const locationGranted =
     locationPermission?.state === "granted" &&
     locationPermission.locationServicesEnabled !== false;
+  /**
+   * The states where asking again cannot help: refused, held by device policy,
+   * or the phone's Location Services switch is off. `prompt` and a null (not
+   * yet read) permission are deliberately NOT blocked -- those are the states
+   * where the answer is still coming.
+   *
+   * Read on the finale only, to name the right reason for an empty map band.
+   */
+  const locationBlocked =
+    locationPermission?.state === "denied" ||
+    locationPermission?.state === "restricted" ||
+    locationPermission?.locationServicesEnabled === false;
   const notificationsGranted = notificationDeliveryMode === "push_active";
 
   const requestMissingPermissions = useCallback(() => {
@@ -2180,6 +2257,11 @@ export function OneLocationOnboardingFlow({
   }, [requestMissingPermissions, startAt]);
 
   useEffect(() => {
+    if (screen !== "features" || !requireLocationToComplete) return;
+    requestMissingPermissions();
+  }, [requestMissingPermissions, requireLocationToComplete, screen]);
+
+  useEffect(() => {
     if (screen !== "features" || !locationGranted) return;
     void prepareSavedLocation();
   }, [locationGranted, prepareSavedLocation, screen]);
@@ -2199,7 +2281,9 @@ export function OneLocationOnboardingFlow({
       setCircleInviteError(
         error instanceof Error && error.message
           ? error.message
-          : "We couldn't prepare your circle code. Try again.",
+          // The state, not the apology. "Try again" is the button directly
+          // under this line, so the sentence does not have to say it too.
+          : "Couldn't get your code.",
       );
     } finally {
       circleInviteInFlightRef.current = false;
@@ -2261,6 +2345,10 @@ export function OneLocationOnboardingFlow({
     setContactState({ kind: "busy" });
     try {
       const result = await onSyncOnboardingContacts();
+      if (result.status === "cancelled") {
+        setContactState({ kind: "idle" });
+        return;
+      }
       if (result.status === "matched" && result.matches.length > 0) {
         setContactMatches(result.matches);
         setContactState({ kind: "matched" });
@@ -2502,7 +2590,8 @@ export function OneLocationOnboardingFlow({
       // pending confirmation or an interactive voice layer -- at which point it
       // tied with this overlay and won on DOM order, drawing "Talk to One"
       // across the primary CTA. Onboarding is modal; nothing belongs over it.
-      className="fixed inset-0 z-[560] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[#eef3f8] text-[#171d28] dark:bg-[#070a0f] dark:text-[#f4f7fb]"
+      className="fixed inset-0 z-[560] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] [--type-agent-title-size:34px] dark:text-[#f4f7fb] sm:[--type-agent-title-size:44px]"
+      data-one-onboarding-design="location-agent-v2"
       data-no-route-swipe
       data-testid="one-location-onboarding"
       data-location-onboarding-screen={screen}
@@ -2564,15 +2653,16 @@ export function OneLocationOnboardingFlow({
             full-size instance renders here, invisibly, so the tiles are in the
             browser cache before the screen that shows them exists. It unmounts
             as the finale mounts, so there is never a second live map. */}
-        {screen === "contacts" && mapPoint ? (
+        {screen === "contacts" && finaleMapPoint ? (
           <OnboardingLiveMap
-            point={mapPoint}
+            point={finaleMapPoint}
             className="pointer-events-none absolute inset-0 -z-10 opacity-0"
           />
         ) : null}
         {screen === "contacts" ? (
           <ContactsScreen
             state={contactState}
+            source={contactsSource}
             matches={contactMatches}
             addedUserIds={addedContactIds}
             addingUserIds={addingContactIds}
@@ -2588,7 +2678,12 @@ export function OneLocationOnboardingFlow({
         {screen === "invite" ? (
           <ReadyScreen
             currentUserName={currentUserName}
-            mapPoint={mapPoint}
+            mapPoint={finaleMapPoint}
+            // Two different reasons produce an empty map band, and only the
+            // caller can tell them apart. "Map unavailable" in front of someone
+            // who refused Location blames the wrong thing and hides the one
+            // thing they could change.
+            mapEmptyLabel={locationBlocked ? "Location is off" : "Map unavailable"}
             invite={circleInvite}
             loading={circleInviteLoading}
             error={circleInviteError}

@@ -20,19 +20,81 @@
 
 /** Full-bleed surface the map and panel sit in. Owns the positioning context. */
 export const READY_SURFACE_CLASSNAME =
-  "relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white dark:bg-[#14171d] md:bg-[#eef3f8] md:dark:bg-[#070a0f]";
+  "relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--app-grouped-background)]";
 
-/** A band of its own on phones; the full backdrop from `md:` up. */
+/**
+ * A band of its own on phones; the full backdrop from `md:` up.
+ *
+ * 42dvh, not the 34dvh it carried while it drew a decorative grid. The band was
+ * sized for a picture nobody was meant to look at, and the screen paid for that
+ * twice: too little map to read as a place, and a panel with a hand's width of
+ * empty white in the middle of it once the copy below it came down to what it
+ * needed to be. The 400px cap keeps a 932pt phone from turning the finale into
+ * a map with a strip of content, and `min-h` holds a usable band on a short
+ * landscape window.
+ */
 export const READY_MAP_CLASSNAME =
-  "h-[34dvh] max-h-[300px] min-h-[190px] w-full shrink-0 md:absolute md:inset-0 md:h-full md:max-h-none md:min-h-0";
+  "h-[42dvh] max-h-[400px] min-h-[190px] w-full shrink-0 md:absolute md:inset-0 md:h-full md:max-h-none md:min-h-0";
+
+/**
+ * Where the band yields.
+ *
+ * 42dvh is right on a phone, which is tall. A 1366x768 laptop is shorter than
+ * an iPhone, and there the same fraction pushed "Join with a code" below the
+ * fold -- so the last thing on the screen needed a scroll to discover it
+ * existed. The map yields the height, since it is atmosphere and the link is a
+ * way in. iPhone SE is 667pt and lands here too: 30dvh is 200px there, which
+ * still reads as a place rather than a texture.
+ *
+ * Exported rather than inlined for the same reason as the class strings above:
+ * `e2e/one-location-ready-panel.layout.spec.ts` measures the composition this
+ * produces, and it can only do that if it is reading the same source the
+ * component renders.
+ */
+export const READY_MAP_SHORT_WINDOW_CSS = `
+  @media (max-width: 767px) and (max-height: 820px) {
+    [data-testid="onboarding-live-map"] { height: 30dvh; min-height: 168px; }
+  }
+`;
+
+/**
+ * The invite code itself.
+ *
+ * Here rather than inline for the same reason as the panel: this string is the
+ * one thing on the screen that must survive every width intact. It is twelve
+ * characters plus two separators of fixed-width type, so it cannot reflow --
+ * it either fits or it clips, and clipping a code makes it useless. `clamp`
+ * with a `6vw` middle term is what keeps it inside a 320px phone;
+ * `e2e/one-location-ready-panel.layout.spec.ts` measures that rather than
+ * trusting the arithmetic.
+ */
+export const READY_CODE_CLASSNAME =
+  "mt-2 select-all whitespace-nowrap font-mono text-[clamp(20px,6vw,28px)] font-bold uppercase leading-[1.15] tracking-[0.12em] text-[#151b26] dark:text-[#f5f7fb]";
 
 /**
  * Phones keep the full-width sheet in normal flow -- that is also what the iOS
  * build renders, so the `md:` rules must never leak into phone widths. From
  * `md:` up the panel becomes a fixed-width dialog centred on both axes.
+ *
+ * Three things here are deliberate and were changed together once the map
+ * behind this panel actually started rendering (it never had -- see
+ * `resolveOnboardingMapPoint`, which is the state bug that kept this screen
+ * showing its stylised fallback on every run):
+ *
+ *  - The surface is the semantic token, not `bg-white` + a hand-picked dark
+ *    hex. Light is the same #ffffff it always was; dark now matches every other
+ *    sheet in the app instead of being one screen's private shade.
+ *  - The desktop cap is `min(760px, 100dvh-176px)` rather than `100dvh-96px`.
+ *    The old one let the dialog grow to within 48px of both edges on a laptop,
+ *    which reads as a slab with a hairline of map around it. 176px guarantees a
+ *    real band of map above and below, and 760px stops a tall monitor from
+ *    stretching a short panel into a column.
+ *  - The desktop chrome is the immersive map's: an accent hairline and its
+ *    accent-tinted shadow, so the dialog reads as the same family of surface as
+ *    the people tray on Your Map rather than a generic modal.
  */
 export const READY_PANEL_CLASSNAME =
-  "relative z-10 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-[28px] bg-white shadow-[0_-8px_24px_rgba(24,57,91,0.10)] dark:bg-[#14171d] md:absolute md:left-1/2 md:top-1/2 md:mt-0 md:h-auto md:max-h-[calc(100dvh-96px)] md:w-[430px] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-[30px] md:shadow-[0_24px_80px_rgba(24,57,91,0.22)]";
+  "relative z-10 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-[28px] bg-[color:var(--app-primary-surface)] shadow-[0_-8px_24px_rgba(24,57,91,0.10)] md:absolute md:left-1/2 md:top-1/2 md:mt-0 md:h-auto md:max-h-[min(760px,calc(100dvh-176px))] md:w-[430px] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-[30px] md:border md:border-[var(--app-accent-border)] md:shadow-[0_18px_60px_color-mix(in_oklab,var(--app-accent)_18%,transparent)]";
 
 /** Tailwind's `md:` breakpoint -- where the sheet becomes a centred dialog. */
 export const READY_PANEL_DIALOG_MIN_WIDTH_PX = 768;

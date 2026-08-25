@@ -62,6 +62,11 @@ that file for the full record; this table is the index.
 | `developer_access` | `audit_regulated` | `mcp-developer-surface` | `developer_*` |
 | `feed_events` | `workflow_state` | `backend-runtime-governance` | 1 table |
 | `funding_trading_audit` | `audit_regulated` | `backend-runtime-governance` | `kai_funding_*` |
+| `hushh_tech_client_identity_state` *(uat_synthetic)* | `personal_metadata` | `iam-consent-governance` | 2 tables |
+| `hushh_tech_client_launch_workflows` *(uat_synthetic)* | `workflow_state` | `iam-consent-governance` | 1 table |
+| `hushh_tech_client_link_audit` *(uat_synthetic)* | `audit_regulated` | `iam-consent-governance` | 1 table |
+| `hushh_tech_client_migration_workflows` *(uat_synthetic)* | `workflow_state` | `backend-runtime-governance` | 1 table |
+| `hushh_tech_client_migration_audit` *(uat_synthetic)* | `audit_regulated` | `backend-runtime-governance` | 1 table |
 | `information_marketplace_delivery` | `workflow_state` | `iam-consent-governance` | 2 tables |
 | `information_marketplace_opportunity_signals` | `workflow_state` | `iam-consent-governance` | 1 table |
 | `information_marketplace_requests` | `workflow_state` | `iam-consent-governance` | 1 table |
@@ -70,7 +75,7 @@ that file for the full record; this table is the index.
 | `market_reference_and_cache` | `reference` | `backend-runtime-governance` | `tickers`, `ticker_*`, `renaissance_*`, `kai_market_cache_entries` |
 | `one_action_directive_authority` | `workflow_state` | `backend-agents-operons` | 1 table |
 | `one_email_kyc_workflow` | `workflow_state` | `backend-runtime-governance` | 4 tables |
-| `one_location_agent` | `workflow_state` | `iam-consent-governance` | 13 tables |
+| `one_location_agent` | `workflow_state` | `iam-consent-governance` | 15 tables |
 | `one_location_named_circle_relationships` | `personal_metadata` | `iam-consent-governance` | 3 tables |
 | `pkm_default_available_projection` | `personal_projection` | `vault-pkm-governance` | 1 table |
 | `pkm_encrypted_memory` | `personal_encrypted` | `vault-pkm-governance` | 3 tables |
@@ -122,18 +127,17 @@ These tables exist only for the bounded encrypted-user cutover window. No new pr
 
 ## Required Table Set
 
-The authoritative per-environment table list is not duplicated here. Both UAT and
-production run the same Cloud SQL schema and both contracts use the `exact`
-policy, so one file answers "which tables must exist":
+The authoritative per-environment table list is not duplicated here. Production
+uses the exact base release lane; UAT uses that base plus its explicit overlay:
 
 - `consent-protocol/db/contracts/prod_core_schema.json`
 - `consent-protocol/db/contracts/uat_integrated_schema.json`
 
-They are table-for-table identical by policy; see
+The production contract must exclude UAT-only overlay tables. See
 [migration-governance.md](../operations/migration-governance.md) for the contract
 model and [report_prod_contract_posture.py](../../../scripts/ops/report_prod_contract_posture.py)
-for the parity check (`./bin/hushh db report-prod-posture`, which exits non-zero
-on any delta).
+for the posture check (`./bin/hushh db report-prod-posture`, which exits non-zero
+unless the delta is exactly the declared UAT overlay).
 
 ## Key Column Snapshots
 

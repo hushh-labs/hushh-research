@@ -6,17 +6,20 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
 import {
   Check,
-  Clock3,
+  ChevronDown,
   Compass,
   Loader2,
   LocateFixed,
   MapPin,
   Search,
   ShieldCheck,
+  Star,
   UsersRound,
+  X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -27,6 +30,17 @@ import {
   DURATION_CELL_ON_CLASS,
   DURATION_GRID_CLASS,
 } from "@/components/one-location/redesign/duration-presets";
+import {
+  CHECK_IN_CATEGORY_ROW_CLASSNAME,
+  CHECK_IN_PANEL_DESKTOP_WIDTH_REM,
+  CHECK_IN_PLACE_DISTANCE_CLASSNAME,
+  CHECK_IN_PLACE_META_CLASSNAME,
+  CHECK_IN_PLACE_NAME_CLASSNAME,
+  CHECK_IN_PLACE_ROW_CLASSNAME,
+  CHECK_IN_PLACE_ROW_OFF_CLASSNAME,
+  CHECK_IN_PLACE_ROW_ON_CLASSNAME,
+  CHECK_OUT_BUTTON_VARIANT,
+} from "@/components/one-location/nearby-check-in/check-in-panel-layout";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -47,6 +61,12 @@ import {
   rememberLocationGrant,
 } from "@/lib/one-location/location-grant-memory";
 import { locationBlockReason } from "@/lib/one-location/location-readiness";
+import {
+  addSavedLocation,
+  DuplicateSavedLocationError,
+  findDuplicateSavedLocation,
+  loadSavedLocations,
+} from "@/lib/one-location/saved-locations";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
@@ -65,7 +85,6 @@ import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
 
 const SUCCESS_ROLE = SEMANTIC_ROLE_CLASSES.success;
-const NEUTRAL_ROLE = SEMANTIC_ROLE_CLASSES.neutral;
 
 const DURATIONS = [
   { value: 30 as const, label: "30 min" },
@@ -73,14 +92,24 @@ const DURATIONS = [
   { value: 120 as const, label: "2 hours" },
 ];
 
+/**
+ * Chip labels only. The `value` on each row is the backend category and is
+ * untouched — a chip narrows the already-loaded sweep locally, so nothing here
+ * reaches a server.
+ *
+ * The two multi-word labels were the only ones that could not fit a chip: at
+ * 320px "Food & drink" and "Shops & services" pushed every remaining chip off
+ * the scroller, so the row read as three choices instead of eight. One word
+ * each keeps all eight reachable by a short swipe.
+ */
 const PLACE_CATEGORIES: Array<{
   value: OneLocationNearbyPlaceCategory;
   label: string;
 }> = [
   { value: "all", label: "All" },
-  { value: "food_drink", label: "Food & drink" },
+  { value: "food_drink", label: "Food" },
   { value: "health", label: "Health" },
-  { value: "shopping_services", label: "Shops & services" },
+  { value: "shopping_services", label: "Shops" },
   { value: "hotels_stays", label: "Hotels" },
   { value: "education", label: "Education" },
   { value: "outdoors_landmarks", label: "Outdoors" },
@@ -165,6 +194,17 @@ function distanceLabel(distanceMeters?: number | null): string {
     return `${Math.max(1, Math.round(distanceMeters))} m away`;
   }
   return `${(distanceMeters / 1_000).toFixed(1)} km`;
+}
+
+/**
+ * The same distance, for a column rather than a sentence.
+ *
+ * A place row is already a list of distances in one aligned column, so "away"
+ * is the same word repeated on every line to say what the column is. Prose
+ * still uses `distanceLabel`, where the word does work.
+ */
+function compactDistanceLabel(distanceMeters?: number | null): string {
+  return distanceLabel(distanceMeters).replace(" away", "");
 }
 
 function normalizeAutomaticPlaces(
@@ -272,10 +312,7 @@ const OFFSET_WORTH_MENTIONING_METERS = 75;
 function offsetNotice(distanceMeters: number | null): string | null {
   if (distanceMeters === null) return null;
   if (distanceMeters < OFFSET_WORTH_MENTIONING_METERS) return null;
-  return `You're about ${distanceLabel(distanceMeters).replace(
-    " away",
-    "",
-  )} from here right now.`;
+  return `About ${compactDistanceLabel(distanceMeters)} from here.`;
 }
 
 function hasCheckInAccuracy(point: PlainLocationPoint): boolean {
@@ -397,10 +434,47 @@ function NearbyPersonRow({
   );
 }
 
+/** A checked-out venue offered to Saved Places. */
+type SavePlaceCandidate = {
+  label: string;
+  latitude: number;
+  longitude: number;
+};
+
+/**
+ * The venue a check-in was anchored to, as a Saved Places candidate.
+ *
+ * Must be read from the presence record BEFORE checkout runs, because checkout
+ * clears it. `placeLat`/`placeLng` are the public venue the owner picked, never
+ * their live position — which is the whole reason this is safe to offer: it
+ * saves the bar they chose, not wherever they happened to be standing.
+ *
+ * Returns null for a check-in with no named anchor. A place with no label is
+ * not worth prompting about, since Saved Places would show a blank row.
+ */
+function savePlaceCandidate(
+  presence: OneLocationNearbyPresenceState["presence"],
+): SavePlaceCandidate | null {
+  if (!presence) return null;
+  const label = presence.placeLabel?.trim();
+  const { placeLat, placeLng } = presence;
+  if (
+    !label ||
+    typeof placeLat !== "number" ||
+    typeof placeLng !== "number" ||
+    !Number.isFinite(placeLat) ||
+    !Number.isFinite(placeLng)
+  ) {
+    return null;
+  }
+  return { label, latitude: placeLat, longitude: placeLng };
+}
+
 export function NearbyCheckInSheet({
   open,
   ownerId,
   vaultOwnerToken,
+  vaultKey = null,
   captureCurrentPosition,
   onOpenChange,
   onStateChange,
@@ -410,6 +484,13 @@ export function NearbyCheckInSheet({
   open: boolean;
   ownerId: string | null;
   vaultOwnerToken: string | null;
+  /**
+   * Passed in rather than read from `useVault()` so this sheet stays free of
+   * the vault provider, matching how it already receives `ownerId` and
+   * `vaultOwnerToken`. Null simply means Saved Places is unavailable this
+   * session, and the post-checkout offer is skipped.
+   */
+  vaultKey?: string | null;
   captureCurrentPosition: (options?: {
     maxAgeMs?: number;
     fresh?: boolean;
@@ -461,9 +542,19 @@ export function NearbyCheckInSheet({
   const [durationMinutes, setDurationMinutes] = useState<30 | 60 | 120>(60);
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [allowConnectionRequests, setAllowConnectionRequests] = useState(false);
+  /** Whether the secondary preference row is revealed. Presentation only. */
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [busy, setBusy] = useState<"check-in" | "checkout" | string | null>(
     null,
   );
+  /**
+   * The post-checkout Saved Places offer. Null whenever there is nothing to
+   * offer — no anchor, vault locked, or the place is already saved — so the
+   * banner's presence alone is the whole condition for showing it.
+   */
+  const [savePlaceCandidateState, setSavePlaceCandidateState] =
+    useState<SavePlaceCandidate | null>(null);
+  const [savingPlace, setSavingPlace] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationRecovery, setLocationRecovery] =
     useState<LocationRecovery>(null);
@@ -880,6 +971,7 @@ export function NearbyCheckInSheet({
     setLoadingPresence(false);
     setConsentAccepted(false);
     setAllowConnectionRequests(false);
+    setOptionsOpen(false);
     setDurationMinutes(60);
     setVisiblePlacesCount(3);
     setBusy(null);
@@ -914,6 +1006,7 @@ export function NearbyCheckInSheet({
     setSearching(false);
     setConsentAccepted(false);
     setAllowConnectionRequests(false);
+    setOptionsOpen(false);
     setDurationMinutes(60);
     setVisiblePlacesCount(3);
     setLocationError(null);
@@ -1180,6 +1273,15 @@ export function NearbyCheckInSheet({
    * live anchor from the server, so the pin survives a reload and keeps
    * describing where the owner checked in rather than where they now stand.
    */
+  /**
+   * Retire the Saved Places offer when the sheet closes. It belongs to the
+   * checkout that just happened; re-opening the sheet an hour later should not
+   * resurface a decision the person already walked away from.
+   */
+  useEffect(() => {
+    if (!open) setSavePlaceCandidateState(null);
+  }, [open]);
+
   useEffect(() => {
     if (!open) {
       onPlaceFocusChange?.(null);
@@ -1265,6 +1367,9 @@ export function NearbyCheckInSheet({
       return;
     }
     if (mutationInFlightRef.current) return;
+    // A new check-in supersedes any offer left over from the previous one, so
+    // the banner never sits above an active check-in naming a different venue.
+    setSavePlaceCandidateState(null);
     const ownerToken = vaultOwnerToken;
     const expectedOwnerEpoch = ownerEpochRef.current;
     const generation = ++presenceMutationGenerationRef.current;
@@ -1379,9 +1484,80 @@ export function NearbyCheckInSheet({
     }
   };
 
+  /**
+   * Decide whether the checked-out venue is worth offering to Saved Places.
+   *
+   * Silent on every "no": a locked vault, a read failure, or a place already
+   * saved within {@link SAVED_LOCATION_DUPLICATE_RADIUS_METERS} all just skip
+   * the banner. This runs after a checkout the person already saw succeed, so
+   * a follow-up nicety must never produce an error toast of its own.
+   */
+  const offerSavePlace = useCallback(
+    async (candidate: SavePlaceCandidate | null) => {
+      if (!candidate || !ownerId || !vaultKey || !vaultOwnerToken) return;
+      try {
+        const existing = await loadSavedLocations({
+          userId: ownerId,
+          vaultKey,
+          vaultOwnerToken,
+        });
+        if (findDuplicateSavedLocation(existing, candidate)) return;
+        setSavePlaceCandidateState(candidate);
+      } catch {
+        // Reading Saved Places is best-effort here. If it fails we simply do
+        // not offer, rather than reporting a second failure for something the
+        // person never asked for.
+      }
+    },
+    [ownerId, vaultKey, vaultOwnerToken],
+  );
+
+  const saveCheckedOutPlace = async () => {
+    if (
+      !savePlaceCandidateState ||
+      !ownerId ||
+      !vaultKey ||
+      !vaultOwnerToken ||
+      savingPlace
+    ) {
+      return;
+    }
+    const candidate = savePlaceCandidateState;
+    setSavingPlace(true);
+    try {
+      await addSavedLocation({
+        context: { userId: ownerId, vaultKey, vaultOwnerToken },
+        input: {
+          // Pinned to "other" rather than `defaultSavedLocationCategory`, which
+          // returns "home" whenever no home is set yet. A venue you checked out
+          // of is not your home, and silently filing the first one as Home
+          // would be a wrong answer that is tedious to undo.
+          category: "other",
+          label: candidate.label,
+          latitude: candidate.latitude,
+          longitude: candidate.longitude,
+        },
+      });
+      toast.success(`Saved ${candidate.label} to your places.`);
+      setSavePlaceCandidateState(null);
+    } catch (error) {
+      if (error instanceof DuplicateSavedLocationError) {
+        // Saved from somewhere else between the offer and the tap. The intent
+        // is satisfied either way, so retire the banner without an error.
+        setSavePlaceCandidateState(null);
+        return;
+      }
+      toast.error("Couldn't save that place. Try again from Saved Places.");
+    } finally {
+      setSavingPlace(false);
+    }
+  };
+
   const checkout = async () => {
     if (!ownerId || !vaultOwnerToken || mutationInFlightRef.current) return;
     const ownerToken = vaultOwnerToken;
+    // Snapshot the anchor before checkout clears the presence record.
+    const savedPlaceOffer = savePlaceCandidate(state.presence);
     const expectedOwnerEpoch = ownerEpochRef.current;
     const generation = ++presenceMutationGenerationRef.current;
     presenceReadGenerationRef.current += 1;
@@ -1400,7 +1576,9 @@ export function NearbyCheckInSheet({
       publishState(next);
       setConsentAccepted(false);
       setAllowConnectionRequests(false);
+      setOptionsOpen(false);
       toast.success("You checked out.");
+      void offerSavePlace(savedPlaceOffer);
       void captureAndLoadPlaces();
     } catch {
       if (
@@ -1520,8 +1698,21 @@ export function NearbyCheckInSheet({
     <Sheet modal={false} open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        dragDismiss={false}
-        showDragHandle={false}
+        // Handle-only, not the whole body.
+        //
+        // This sheet owns an inner scroll container (see below), so its own
+        // `scrollTop` never leaves 0 — and the body-drag rule engages on
+        // exactly that condition. Enabled for the body, every downward swipe
+        // over the place list would have dismissed the sheet instead of
+        // scrolling it. `contentDragDismiss={false}` leaves the handle as the
+        // only drag surface: the phone gets the native grab-and-pull it
+        // expects, the list scrolls, and dismissal still leaves the map
+        // standing with its "Check in" pill to re-open.
+        //
+        // The panel used to pass `dragDismiss={false}`, which switched the
+        // gesture off AND took the grab handle with it — a phone bottom sheet
+        // with no affordance to put it away.
+        contentDragDismiss={false}
         showOverlay={false}
         onInteractOutside={(event) => event.preventDefault()}
         // The map is a native view below the WebView, so a tap that lands on it
@@ -1535,28 +1726,28 @@ export function NearbyCheckInSheet({
         // (56px control row + 8px gap + the Sharing row + its 16px padding)
         // plus the top safe area, and leaves a visible strip of map between the
         // two. Phone-only; the md rail is a side sheet and sets max-h-none.
-        className="max-h-[calc(100dvh-env(safe-area-inset-top)-8.5rem-var(--kb-height,0px))] gap-0 overflow-hidden px-0 pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[26rem] md:rounded-none md:rounded-l-[var(--app-card-radius-feature)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right"
+        //
+        // The desktop rail width comes from the shared constant so the browser
+        // contract that asserts the map keeps the majority of the viewport is
+        // measuring the number that actually ships.
+        style={
+          {
+            "--check-in-rail-width": `${CHECK_IN_PANEL_DESKTOP_WIDTH_REM}rem`,
+          } as CSSProperties
+        }
+        className="max-h-[calc(100dvh-env(safe-area-inset-top)-8.5rem-var(--kb-height,0px))] gap-0 overflow-hidden px-0 pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[var(--check-in-rail-width)] md:rounded-none md:rounded-l-[var(--app-card-radius-feature)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right"
         data-testid="one-location-nearby-check-in-sheet"
         data-one-location-nearby-check-in-sheet=""
       >
+        {/* No build-stage badge. "Preview" reported how finished the FEATURE
+            is, which is a fact about our roadmap, not about the person or the
+            decision in front of them — and it sat in the highest-priority slot
+            on the screen, beside the title. Admission to nearby check-in is
+            already gated by a build flag and a server cohort, so nobody
+            reaches this sheet who was not meant to. */}
         <SheetHeader className="gap-0 border-b border-border/60 px-5 py-4 text-left">
           <div className="flex min-h-9 items-center gap-2 pr-10">
             <SheetTitle className="text-[17px] leading-6">Check in</SheetTitle>
-            {/* Preview reports how finished the FEATURE is, not a state the
-                person is in, so it is secondary utility and takes the resting
-                neutral. Orange is spent elsewhere on Location for "awaiting
-                acceptance" and "needs my review"; spending it on a build label
-                too would dilute the one attention signal. The word keeps the
-                label tone so a 10px uppercase badge stays readable. */}
-            <span
-              className={cn(
-                "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                NEUTRAL_ROLE.tile,
-                "text-[color:var(--app-label)]",
-              )}
-            >
-              Preview
-            </span>
           </div>
         </SheetHeader>
 
@@ -1597,6 +1788,53 @@ export function NearbyCheckInSheet({
             </div>
           ) : null}
 
+          {/* Post-checkout Saved Places offer. Deliberately rendered ABOVE the
+              branch below: checkout flips this sheet from the active view to
+              the setup view, so a banner living inside either branch would be
+              unmounted by the very action that creates it. Non-blocking — the
+              setup view stays fully usable behind it, and it carries its own
+              dismiss. */}
+          {savePlaceCandidateState ? (
+            <div
+              className="mb-4 rounded-2xl border border-border/60 bg-muted/60 p-3"
+              data-testid="nearby-save-place-prompt"
+            >
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
+                  <Star className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-foreground">
+                    Checked out from {savePlaceCandidateState.label}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Save this to your Saved Places?
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  className="-mr-1 -mt-1 shrink-0 text-muted-foreground"
+                  onClick={() => setSavePlaceCandidateState(null)}
+                  aria-label="Dismiss saved place suggestion"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="mt-3 w-full"
+                isLoading={savingPlace}
+                onClick={() => void saveCheckedOutPlace()}
+              >
+                <Star />
+                Save to Places
+              </Button>
+            </div>
+          ) : null}
+
           {loadingPresence && !state.presence ? null : state.presence ? (
             <div className="space-y-4" data-testid="nearby-presence-active">
               {/* Only rendered while a check-in is actually live, so the green
@@ -1614,13 +1852,32 @@ export function NearbyCheckInSheet({
                 <div className="flex items-start gap-3">
                   <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold">You’re visible nearby</p>
-                    <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
-                      {state.presence.placeLabel || "Your selected place"} ·{" "}
-                      {state.presence.radiusMeters} m radius ·{" "}
+                    {/* Three facts, one per line: that it worked, where, and
+                        how long is left. The radius and the full address were
+                        dropped — the radius is drawn on the map behind this
+                        card, and the place name is what the person picked, so
+                        repeating its postal address adds a line of reading and
+                        no decision. */}
+                    <p className="font-semibold">Checked in</p>
+                    <p
+                      className="mt-0.5 truncate text-sm font-medium"
+                      title={state.presence.placeLabel || undefined}
+                    >
+                      {state.presence.placeLabel || "Your place"}
+                    </p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">
                       {timeLeftLabel(state.presence.expiresAt)}
                     </p>
-                    {activeDriftMeters !== null ? (
+                    {/*
+                      Only the case that changes what someone would do.
+                      Under the nudge distance the gap is receiver noise and a
+                      building footprint, and saying "you are 37 m from it" is
+                      a fact nobody acts on. Past it, the person is somewhere
+                      else while still discoverable here, which is a privacy
+                      statement and earns its line.
+                    */}
+                    {activeDriftMeters !== null &&
+                    activeDriftMeters > NEARBY_DRIFT_NUDGE_METERS ? (
                       <p
                         className="mt-2 flex items-start gap-1.5 text-xs leading-4 text-muted-foreground"
                         data-testid="nearby-active-drift"
@@ -1630,16 +1887,7 @@ export function NearbyCheckInSheet({
                           aria-hidden="true"
                         />
                         <span>
-                          {activeDriftMeters <= NEARBY_DRIFT_NUDGE_METERS
-                            ? `You're about ${distanceLabel(
-                                activeDriftMeters,
-                              ).replace(" away", "")} from it right now.`
-                            : `You've moved about ${distanceLabel(
-                                activeDriftMeters,
-                              ).replace(
-                                " away",
-                                "",
-                              )} away. People here still match against the place, not you — check out if you've left.`}
+                          You’ve moved away. People still see you here.
                         </span>
                       </p>
                     ) : null}
@@ -1648,20 +1896,23 @@ export function NearbyCheckInSheet({
               </section>
 
               <section aria-labelledby="nearby-people-title">
-                <div className="flex items-end justify-between gap-3">
-                  <div>
-                    <h2 id="nearby-people-title" className="font-semibold">
-                      People nearby
-                    </h2>
-                    <p className="text-sm text-muted-foreground">
-                      Nearby check-ins appear in this list, not as map pins. A
-                      pin appears only after that person explicitly shares
-                      their location with you.
-                    </p>
-                  </div>
-                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold">
-                    {state.attendees.length}
-                  </span>
+                {/* The privacy mechanism used to be spelled out here in two
+                    sentences, every time. The behaviour is unchanged — an
+                    attendee object carries a name and nothing else, never a
+                    coordinate — but a person reading a roster of names is not
+                    asking how the roster is built. The count keeps its badge
+                    only once there is a count worth reading; beside an empty
+                    state that already says "nobody", a "0" is the same word
+                    twice. */}
+                <div className="flex items-center justify-between gap-3">
+                  <h2 id="nearby-people-title" className="font-semibold">
+                    People nearby
+                  </h2>
+                  {state.attendees.length ? (
+                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold">
+                      {state.attendees.length}
+                    </span>
+                  ) : null}
                 </div>
                 {state.attendees.length ? (
                   <ul className="mt-2" data-testid="nearby-attendee-roster">
@@ -1691,19 +1942,31 @@ export function NearbyCheckInSheet({
                 ) : (
                   <div className="mt-3 rounded-2xl bg-muted/70 px-4 py-5 text-center">
                     <UsersRound className="mx-auto h-5 w-5 text-muted-foreground" />
-                    <p className="mt-2 text-sm font-medium">
-                      No one else is checked in nearby yet
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      We’ll refresh automatically while your check-in is active.
-                    </p>
+                    {/* The auto-refresh line is gone. The list refreshes on a
+                        timer whether or not it is advertised, and telling
+                        someone their empty list will keep checking itself is
+                        an implementation detail dressed as reassurance. */}
+                    <p className="mt-2 text-sm font-medium">Nobody nearby yet</p>
                   </div>
                 )}
               </section>
 
+              {/*
+                Neutral, not destructive.
+                `variant="destructive"` paints --app-destructive solid with
+                white on it, which is the treatment this product reserves for
+                SOS, delete, revoke and stop-sharing. Checking out ends a
+                presence that was always going to end on its own timer, keeps
+                the row (it only flips status and destroys the anchor key), and
+                can be redone in three taps. Red on a reversible lifecycle step
+                spends the one colour that is supposed to mean consequence, and
+                makes the calm state read as an alarm. `secondary` is the
+                neutral fill from the same button contract, so size, radius,
+                focus ring and loading behaviour are unchanged.
+              */}
               <Button
                 type="button"
-                variant="destructive"
+                variant={CHECK_OUT_BUTTON_VARIANT}
                 className="w-full"
                 disabled={busy !== null}
                 onClick={() => void checkout()}
@@ -1711,19 +1974,20 @@ export function NearbyCheckInSheet({
                 {busy === "checkout" ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : null}
-                Check out now
+                Check out
               </Button>
-              <p className="text-center text-xs text-muted-foreground">
-                Nearby people appear as a list. Their precise locations are
-                never pinned on your map.
-              </p>
             </div>
           ) : (
             <div className="space-y-5" data-testid="nearby-presence-setup">
               <section>
+                {/* "Places within 500 m" restated the circle the map is
+                    already drawing directly behind this panel, in the units
+                    the backend happens to use. The radius is unchanged and
+                    still named on the map's own legend; the heading only has
+                    to say what the list is. */}
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="font-semibold">Places within 500 m</h2>
+                    <h2 className="font-semibold">Nearby places</h2>
                   </div>
                   {capturing ? (
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -1851,14 +2115,7 @@ export function NearbyCheckInSheet({
                     </label>
 
                     <div
-                      className={cn(
-                        "mt-3 flex gap-2 overflow-x-auto pb-1",
-                        "[scrollbar-width:none] hover:[scrollbar-width:thin]",
-                        "[&::-webkit-scrollbar]:hidden hover:[&::-webkit-scrollbar]:block",
-                        "[&::-webkit-scrollbar]:h-1.5",
-                        "[&::-webkit-scrollbar-track]:bg-transparent",
-                        "[&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/30"
-                      )}
+                      className={CHECK_IN_CATEGORY_ROW_CLASSNAME}
                       aria-label="Nearby place categories"
                     >
                       {typedSearchActive ? (
@@ -1899,14 +2156,23 @@ export function NearbyCheckInSheet({
                       {places.slice(0, visiblePlacesCount).map((place) => {
                         const selected = place.placeId === selectedPlaceId;
                         const name = place.name?.trim() || place.text;
-                        const metadata = Array.from(
-                          new Set(
-                            [place.category?.trim(), place.address?.trim()].filter(
-                              (value): value is string => Boolean(value),
-                            ),
-                          ),
-                        );
-                        const metadataLabel = metadata.join(" · ");
+                        // One supporting line, not two joined by a middot.
+                        //
+                        // The row is a choice between venues the person can
+                        // see out of the window, so the useful cue is what
+                        // kind of place it is. A postal address is longer than
+                        // the row, always truncates, and the tail that gets
+                        // cut is the part that would have disambiguated it —
+                        // so it cost a line and answered nothing. The address
+                        // still shows when there is no category to show
+                        // instead, and the full pair stays in the title
+                        // attribute for a pointer and for assistive tech.
+                        const category = place.category?.trim() || "";
+                        const address = place.address?.trim() || "";
+                        const metadataLabel = category || address;
+                        const metadataTitle = Array.from(
+                          new Set([category, address].filter(Boolean)),
+                        ).join(" · ");
                         return (
                           <button
                             key={place.placeId}
@@ -1914,10 +2180,10 @@ export function NearbyCheckInSheet({
                             role="radio"
                             aria-checked={selected}
                             className={cn(
-                              "flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors",
+                              CHECK_IN_PLACE_ROW_CLASSNAME,
                               selected
-                                ? "border-[var(--app-accent)] bg-[var(--app-accent-surface)]"
-                                : "border-border/60 bg-muted/50 hover:bg-muted",
+                                ? CHECK_IN_PLACE_ROW_ON_CLASSNAME
+                                : CHECK_IN_PLACE_ROW_OFF_CLASSNAME,
                             )}
                             onClick={() => setSelectedPlaceId(place.placeId)}
                           >
@@ -1925,21 +2191,21 @@ export function NearbyCheckInSheet({
                             <span className="min-w-0 flex-1">
                               <span
                                 title={name}
-                                className="block truncate text-sm font-semibold leading-5"
+                                className={CHECK_IN_PLACE_NAME_CLASSNAME}
                               >
                                 {name}
                               </span>
-                              {metadata.length ? (
+                              {metadataLabel ? (
                                 <span
-                                  title={metadataLabel}
-                                  className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground"
+                                  title={metadataTitle}
+                                  className={CHECK_IN_PLACE_META_CLASSNAME}
                                 >
                                   {metadataLabel}
                                 </span>
                               ) : null}
                             </span>
-                            <span className="shrink-0 text-xs text-muted-foreground">
-                              {distanceLabel(place.distanceMeters)}
+                            <span className={CHECK_IN_PLACE_DISTANCE_CLASSNAME}>
+                              {compactDistanceLabel(place.distanceMeters)}
                             </span>
                             {selected ? (
                               <Check className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
@@ -1956,7 +2222,7 @@ export function NearbyCheckInSheet({
                             className="w-full text-muted-foreground"
                             onClick={() => setVisiblePlacesCount(places.length)}
                           >
-                            Show all {places.length} places
+                            See all {places.length}
                           </Button>
                         </div>
                       ) : null}
@@ -1987,12 +2253,7 @@ export function NearbyCheckInSheet({
                         className="mt-3 rounded-2xl bg-muted/60 px-4 py-5 text-center"
                         data-testid="nearby-category-empty"
                       >
-                        <p className="text-sm font-medium">
-                          Nothing in this category within 500 m
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {automaticPlaces.length} other places are nearby.
-                        </p>
+                        <p className="text-sm font-medium">Nothing here</p>
                         <Button
                           type="button"
                           size="sm"
@@ -2000,17 +2261,17 @@ export function NearbyCheckInSheet({
                           className="mt-3"
                           onClick={() => selectCategory("all")}
                         >
-                          Show all {automaticPlaces.length} places
+                          See all {automaticPlaces.length}
                         </Button>
                       </div>
                     ) : null}
+                    {/* Attribution only. The count that used to lead this line
+                        is already on the "See all N" control and in the list
+                        itself, and "N places · Google Maps" read as one fact
+                        when it was two. The provider name stays because the
+                        Places terms require it wherever their data is shown. */}
                     {places.length ? (
                       <p className="mt-2 text-xs text-muted-foreground">
-                        {typedSearchActive
-                          ? null
-                          : `${places.length} ${
-                              places.length === 1 ? "place" : "places"
-                            } · `}
                         <span translate="no" className="whitespace-nowrap font-normal">
                           Google Maps
                         </span>
@@ -2026,10 +2287,11 @@ export function NearbyCheckInSheet({
               </section>
 
               <section>
-                <div className="flex items-center gap-2">
-                  <Clock3 className="h-4 w-4 text-muted-foreground" />
-                  <h2 className="font-semibold">Stay visible for</h2>
-                </div>
+                {/* Matches the "Nearby places" heading above it: a plain word
+                    pair, no leading glyph. One of the two section headings
+                    carrying an icon and the other not was the only reason
+                    they did not read as a pair. */}
+                <h2 className="font-semibold">Visible for</h2>
                 {/* Raw <button>, not the morphy <Button>: at `size="default"`
                     that component carries min-h-[50px] in a different
                     tailwind-merge group from h-*, and `.ui-text-button-label`
@@ -2058,8 +2320,23 @@ export function NearbyCheckInSheet({
                 </div>
               </section>
 
-              <section className="space-y-3 rounded-2xl border border-border/60 p-4">
-                <label className="flex cursor-pointer items-start gap-3">
+              {/*
+                Two preferences, one of them load-bearing.
+
+                "Appear nearby" stays in the open because it is the consent the
+                server requires and the condition the Check in button is
+                disabled on. Hiding the only reason a primary action is greyed
+                out behind a disclosure would make the button look broken.
+
+                "Connection requests" is genuinely a preference: it defaults
+                off, changes nothing about who can see the person, and only
+                decides whether someone already looking at their name may ask
+                to connect. It does not need answering before every check-in,
+                so it drops one level. Same state, same default, same value
+                sent — only its prominence changes.
+              */}
+              <section className="rounded-2xl border border-border/60">
+                <label className="flex cursor-pointer items-start gap-3 p-4">
                   <Checkbox
                     className="mt-0.5"
                     checked={consentAccepted}
@@ -2072,22 +2349,40 @@ export function NearbyCheckInSheet({
                       Appear nearby
                     </span>
                     <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
-                      People see your name only.
+                      Your name only
                     </span>
                   </span>
                 </label>
 
-                <div className="flex items-center justify-between gap-4 border-t border-border/60 pt-3">
-                  <div>
-                    <p className="text-sm font-semibold">
-                      Connection requests
-                    </p>
-                  </div>
-                  <Switch
-                    checked={allowConnectionRequests}
-                    onCheckedChange={setAllowConnectionRequests}
-                    aria-label="Allow nearby connection requests"
+                <button
+                  type="button"
+                  className="flex min-h-11 w-full items-center justify-between gap-4 border-t border-border/60 px-4 py-2.5 text-left"
+                  aria-expanded={optionsOpen}
+                  aria-controls="nearby-check-in-options"
+                  onClick={() => setOptionsOpen((current) => !current)}
+                >
+                  <span className="text-sm font-semibold">Options</span>
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                      optionsOpen && "rotate-180",
+                    )}
+                    aria-hidden="true"
                   />
+                </button>
+                <div
+                  id="nearby-check-in-options"
+                  hidden={!optionsOpen}
+                  className="px-4 pb-4"
+                >
+                  <div className="flex min-h-11 items-center justify-between gap-4">
+                    <p className="text-sm">Connection requests</p>
+                    <Switch
+                      checked={allowConnectionRequests}
+                      onCheckedChange={setAllowConnectionRequests}
+                      aria-label="Allow nearby connection requests"
+                    />
+                  </div>
                 </div>
               </section>
 

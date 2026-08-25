@@ -140,6 +140,33 @@
     }
   },
   {
+    "route": "/r/[slug]",
+    "mode": "redirect",
+    "exemptionReason": "Public referral landing route. It records the attribution on the server before anyone signs in, keeps the opaque id it is given, and hands off to the normal sign-in journey; it owns no signed-in app shell of its own and never reveals who the referrer is.",
+    "voicePlaybook": {
+      "playbookId": "route.r.slug",
+      "purpose": "Explain that the referral link is being opened and the person is being taken into sign-in.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/circle/join",
     "mode": "redirect",
     "exemptionReason": "Public Circle join landing route reads the invite code from the query string and redirects into the in-app Join-with-code flow; it owns no signed-in app shell of its own.",
@@ -484,10 +511,37 @@
   {
     "route": "/one/location/request/[token]",
     "mode": "hidden",
-    "exemptionReason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell.",
+    "exemptionReason": "Legacy public one-location link path. Forwards to /one/location/view/[token]; kept only so links minted before the rename keep resolving.",
     "voicePlaybook": {
       "playbookId": "route.one.location.request.token",
-      "purpose": "Help the person understand and use the request screen through its generated controls.",
+      "purpose": "Forwarding route only: say nothing and let the redirect complete.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/location/view/[token]",
+    "mode": "hidden",
+    "exemptionReason": "Public one-location live-location view is a standalone recipient page outside the signed-in app shell.",
+    "voicePlaybook": {
+      "playbookId": "route.one.location.view.token",
+      "purpose": "Help the person read the shared live location through its generated controls.",
       "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",
@@ -2913,6 +2967,42 @@
     }
   },
   {
+    "route": "/one/profile/preferences/voice/examples",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.preferences.voice.examples",
+      "purpose": "A read-only list of example phrases for what voice can do. Nothing to act on here.",
+      "screen": "profile_preferences",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/one/profile/security",
     "mode": "standard",
     "shellVerification": {
@@ -3342,6 +3432,44 @@
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
       "nextRoute": null,
       "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/referrals",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.support",
+      "purpose": "Help the person understand and use the support screen through its generated controls.",
+      "screen": "profile_referrals_panel",
+      "entryCue": "You can say \u201cOpen Support Panel\u201d to use the primary control on this screen.",
+      "proactivity": "on_entry",
+      "primaryActionId": "route.profile_referrals_panel",
+      "happyPathActionIds": [
+        "route.profile_referrals_panel"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": "/one/profile/referrals",
+      "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -4175,6 +4303,33 @@
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
       "nextRoute": null,
       "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/products/hushh-tech/launch",
+    "mode": "hidden",
+    "exemptionReason": "Cross-product sign-in handoff intentionally suppresses the signed-in app shell while it validates and completes the one-time launch.",
+    "voicePlaybook": {
+      "playbookId": "route.products.hushh.tech.launch",
+      "purpose": "Complete the verified Hushh Tech sign-in handoff without exposing credentials.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain that the handoff cannot continue and return to Hushh Tech.",
+        "cancelled": "Respect the cancellation and return to Hushh Tech.",
+        "failed": "Return to Hushh Tech without claiming sign-in succeeded.",
+        "timeout": "Return to Hushh Tech and offer one safe retry.",
+        "callbackError": "Return to Hushh Tech without exposing the launch code.",
+        "routeMismatch": "Use only the verified Hushh Tech launch route."
+      },
+      "completionBoundary": "The handoff completes only after the signed-in Firebase user receives a bound one-time launch code and the browser reaches the exact allowlisted Hushh Tech callback.",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   }

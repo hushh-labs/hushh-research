@@ -15,6 +15,7 @@ import inspect
 import logging
 from contextlib import contextmanager
 from typing import Any, Callable
+from uuid import UUID
 
 from sqlalchemy import text
 
@@ -141,11 +142,24 @@ def _default_directory_visible(owner_user_id: str, candidate_user_id: str) -> bo
     )
 
 
-def _default_notifier(*, addressee_user_id: str, requester_user_id: str) -> None:
-    """Best-effort real push (deferred import keeps Firebase off the import path)."""
+def _default_notifier(
+    *,
+    addressee_user_id: str,
+    requester_user_id: str,
+    connection_request_id: str | None = None,
+) -> None:
+    """Best-effort real push (deferred import keeps Firebase off the import path).
+
+    ``connection_request_id`` is forwarded so the notification can deep-link
+    straight to the review sheet; without it a tap can only open the list.
+    """
     from hushh_mcp.services.push_notifications import send_connection_request_push
 
-    send_connection_request_push(addressee_user_id, requester_user_id)
+    send_connection_request_push(
+        addressee_user_id,
+        requester_user_id,
+        connection_request_id=connection_request_id,
+    )
 
 
 def _default_scope_entries_lookup(owner_user_id: str) -> list[dict[str, Any]]:
@@ -792,7 +806,7 @@ class ConnectionsService:
                         event_type="PROPOSED",
                         actor_user_id=requester_user_id,
                     )
-        self._notify_new_request(target, requester_user_id)
+        self._notify_new_request(target, requester_user_id, request_id)
         # Avoid a redundant post-insert read for ordinary connections. Scoped
         # requests are hydrated from the canonical child rows on the next
         # request/list read; authority never comes from this response.
@@ -955,7 +969,7 @@ class ConnectionsService:
                         AND NOT EXISTS (SELECT 1 FROM connected)
                         AND NOT EXISTS (SELECT 1 FROM existing)
                       ON CONFLICT DO NOTHING
-                      RETURNING requester_user_id, addressee_user_id
+                      RETURNING id, requester_user_id, addressee_user_id
                     )
                     SELECT
                       e.addressee_user_id AS target_user_id,
@@ -969,7 +983,11 @@ class ConnectionsService:
                         WHEN EXISTS (SELECT 1 FROM existing) THEN 'pending_incoming'
                         ELSE 'pending_outgoing'
                       END AS relationship,
-                      EXISTS (SELECT 1 FROM inserted) AS created
+                      EXISTS (SELECT 1 FROM inserted) AS created,
+                      -- The new row's id, so the nudge can deep-link to the
+                      -- review sheet. Without it this path could only ever send
+                      -- the unscoped Connections-list link.
+                      (SELECT i.id FROM inserted i LIMIT 1) AS created_request_id
                     FROM eligible e
                     WHERE EXISTS (SELECT 1 FROM connected)
                        OR EXISTS (SELECT 1 FROM existing)
@@ -988,6 +1006,7 @@ class ConnectionsService:
             self._notify_new_request(
                 str(row.get("target_user_id") or ""),
                 requester,
+                str(row.get("created_request_id") or ""),
             )
         return {"relationship": str(row.get("relationship") or "")}
 
@@ -1023,8 +1042,22 @@ class ConnectionsService:
         """
         return (x, y) if x < y else (y, x)
 
-    def _notify_new_request(self, addressee_user_id: str, requester_user_id: str) -> None:
-        """Fire the (best-effort) addressee nudge. Never raises."""
+    def _notify_new_request(
+        self,
+        addressee_user_id: str,
+        requester_user_id: str,
+        connection_request_id: str | None = None,
+    ) -> None:
+        """Fire the (best-effort) addressee nudge. Never raises.
+
+        ``connection_request_id`` is what lets the notification deep-link to the
+        review sheet rather than the Connections list -- the Consent Center opens
+        that sheet purely from ``?requestId``. It is threaded through here rather
+        than re-queried in the notifier because both call sites already hold it.
+        The requester's display name is deliberately NOT looked up here: this
+        runs immediately after a write, and the notifier resolves it lazily so a
+        cosmetic read never sits on the request path.
+        """
         notifier = getattr(self, "_notifier", None)
         if notifier is None:
             return
@@ -1032,6 +1065,7 @@ class ConnectionsService:
             notifier(
                 addressee_user_id=addressee_user_id,
                 requester_user_id=requester_user_id,
+                connection_request_id=str(connection_request_id or "").strip() or None,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("connections.notify_failed error=%s", exc)
@@ -1352,6 +1386,92 @@ class ConnectionsService:
                 reason=reason,
             )
 
+    def _join_trusted_system_circles(
+        self,
+        *,
+        user_a_id: str,
+        user_b_id: str,
+    ) -> None:
+        """Put a newly connected pair into each other's Trusted Circle.
+
+        The mirror image of `_end_one_location_circle_memberships`, which does
+        the reverse on disconnect. Runs on this transaction's connection so the
+        membership and the connection commit together -- the Circle is a
+        projection of the connection, and the two should never be seen apart.
+
+        Contained in a savepoint on purpose. Accepting a connection is a consent
+        transition; the roster is a view of it. A view that fails must not
+        refuse a consent that succeeded. It can only ever lag, never over-grant
+        -- Trusted is excluded from every location-eligibility query in
+        `one_location_agent_service` -- and `ensure_trusted_system_circle` heals
+        it on the owner's next bootstrap.
+        """
+
+        connection = getattr(self, "_transaction_connection", None)
+        if connection is None:
+            # Only reachable behind the lightweight doubles `_transaction`
+            # falls back to. Quiet, unlike the disconnect path above: a missing
+            # membership grants nothing and self-heals, where a missing
+            # teardown leaves a live location path open.
+            logger.info("connections.trusted_circle_join_skipped_no_transaction")
+            return
+        from hushh_mcp.services.one_location_circle_service import (
+            OneLocationCircleService,
+        )
+
+        try:
+            with self._scope_activation_savepoint():
+                OneLocationCircleService.ensure_trusted_membership_for_pair(
+                    connection,
+                    user_a_id=user_a_id,
+                    user_b_id=user_b_id,
+                    source="connection",
+                )
+        except Exception:  # noqa: BLE001 - a projection cannot roll back consent
+            logger.exception("connections.trusted_circle_join_failed")
+
+    def _end_one_location_circle_memberships(
+        self,
+        *,
+        user_a_id: str,
+        user_b_id: str,
+    ) -> None:
+        """Take a disconnected pair out of each other's Circles.
+
+        Revoking the connection is not enough on its own. One Location decides
+        whether a location may be delivered by asking for an active non-Circle
+        connection origin OR a shared active Circle -- so a membership that
+        outlives the connection keeps the second arm of that OR true, and the
+        person who disconnected keeps receiving live location and, through the
+        system Circle's roster, an address in an emergency SMS.
+
+        Runs on this transaction's connection so it commits with the
+        disconnect, and AFTER the connection row is revoked: the grant
+        reconciliation inside asks whether an independent relationship still
+        supports each share, and would answer yes to a connection this
+        statement is in the middle of ending.
+        """
+
+        connection = getattr(self, "_transaction_connection", None)
+        if connection is None:
+            # Only reachable behind the lightweight doubles `_transaction`
+            # falls back to; a real runtime database always exposes
+            # `engine.begin`. Loud, because silently skipping this leaves a
+            # live location path open.
+            logger.warning(
+                "connections.disconnect_circle_cleanup_skipped_no_transaction",
+            )
+            return
+        from hushh_mcp.services.one_location_circle_service import (
+            OneLocationCircleService,
+        )
+
+        OneLocationCircleService.end_memberships_for_disconnected_pair(
+            connection,
+            user_a_id=user_a_id,
+            user_b_id=user_b_id,
+        )
+
     def _revoke_pair_capabilities(
         self,
         *,
@@ -1585,6 +1705,16 @@ class ConnectionsService:
             # Mirror both directional trusted edges so location/SOS readers keep working.
             self._mirror_trusted_edge(requester, user_id)
             self._mirror_trusted_edge(user_id, requester)
+            # And the same fact once more, as a Circle, because Connect shows
+            # "Trusted" as a real grouping rather than recomputing a tier per
+            # response. A projection, not a permission: the row inserted above
+            # is the consent, and Trusted membership authorizes nothing on its
+            # own.
+            # The canonical pair the RETURNING gave back, not the Python-ordered
+            # one: connections_service already carries a note about Python
+            # bytewise ordering disagreeing with Postgres collation and breaking
+            # 88 of 390 accepts.
+            self._join_trusted_system_circles(user_a_id=user_a, user_b_id=user_b)
             scope_results = self._resolve_scope_proposals(
                 request_id=str(req.get("id") or ""),
                 actor_user_id=user_id,
@@ -1736,7 +1866,29 @@ class ConnectionsService:
         request_id = (request_id or "").strip()
         with self._transaction():
             req = None
+            # The fallback below has always been intended, and was unreachable.
+            #
+            # Callers that hold only the other person's user id -- a Circle
+            # roster row, a directory row whose outgoing-request map has not
+            # loaded yet -- pass that instead of a request id, and this method
+            # was written to accept it. But `_load_request` casts the string to
+            # a UUID primary key, so a Firebase uid raised a driver error, not
+            # the `ConnectionsError` the `except` was waiting for: the person
+            # got "Request failed (500)" and the request stayed pending.
+            #
+            # Asking whether it parses first is what makes the fallback real.
+            looks_like_request_id = True
             try:
+                UUID(request_id)
+            except (TypeError, ValueError):
+                looks_like_request_id = False
+            try:
+                if not looks_like_request_id:
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_NOT_FOUND",
+                        "Request not found.",
+                        status_code=404,
+                    )
                 req = self._load_request(request_id, for_update=True)
             except ConnectionsError as err:
                 if err.code == "CONNECTION_REQUEST_NOT_FOUND":
@@ -2155,6 +2307,11 @@ class ConnectionsService:
                 """,
                 {"id": (connection_id or "").strip()},
             )
+            if conn:
+                self._end_one_location_circle_memberships(
+                    user_a_id=str(user_a or ""),
+                    user_b_id=str(user_b or ""),
+                )
         if conn:
             user_a_id = str(user_a or "")
             user_b_id = str(user_b or "")

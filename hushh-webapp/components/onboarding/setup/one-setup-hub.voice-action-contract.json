@@ -55,7 +55,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "setup.open_cloud"
+        "target": "/one/setup/cloud"
       },
       "control_ids": [
         "one_setup_tile_cloud"

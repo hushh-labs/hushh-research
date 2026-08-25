@@ -291,6 +291,38 @@ async def health_ready():
     )
 
 
+#: Capabilities a screen can ask about before offering an action that needs one.
+#: Deliberately short: this is the set the UI actually branches on, not every
+#: provider the backend talks to.
+_REPORTED_CAPABILITIES = ("vertex_ai", "voice", "maps")
+
+
+@router.get("/health/capabilities")
+def capability_health():
+    """Per-capability availability for the app to degrade against.
+
+    Served SEPARATELY from ``/health`` on purpose. That payload is asserted by
+    whole-dict equality in its tests and read by scripts/env/doctor.sh, so
+    adding fields there to carry this would break existing consumers for no
+    benefit. The two answer different questions anyway: /health is "is this
+    service up", this is "which features can it currently deliver".
+
+    The body is safe to serve to a browser. It carries availability only -- no
+    provider name, status code, project number or error text, because none of
+    that belongs in front of a person.
+    """
+    from hushh_mcp.runtime_providers.capability_health import public_snapshot
+
+    capabilities = public_snapshot(_REPORTED_CAPABILITIES)
+    return {
+        # The app itself is healthy whenever this endpoint answers at all. A
+        # provider being down degrades capabilities, never the service.
+        "app": "healthy",
+        "capabilities": capabilities,
+        "degraded": sorted(name for name, status in capabilities.items() if status != "available"),
+    }
+
+
 @router.get("/api/app-config/review-mode")
 def app_review_mode_config():
     """Runtime app-review-mode config served from backend env (not frontend build env)."""

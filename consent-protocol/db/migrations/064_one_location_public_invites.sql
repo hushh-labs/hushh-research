@@ -89,6 +89,7 @@ ALTER TABLE one_location_events
       'location_share_expired',
       'location_access_request',
       'location_access_approved',
+      'location_auto_approve_rule_changed',
       'location_access_denied',
       -- Emitted when the person who SENT a request takes it back, before the
       -- owner has answered. Added here rather than in a later migration for

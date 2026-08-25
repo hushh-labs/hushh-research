@@ -162,6 +162,9 @@ class AccountService:
                    OR referred_by_user_id = :user_id
                 """
             ),
+            "one_location_auto_approve_preferences": text(
+                "DELETE FROM one_location_auto_approve_preferences WHERE user_id = :user_id"
+            ),
             "one_location_envelopes": text(
                 """
                 DELETE FROM one_location_envelopes
@@ -479,6 +482,28 @@ class AccountService:
         self._table_exists_cache[table_name] = exists
         return exists
 
+    def _column_exists(self, conn, table_name: str, column_name: str) -> bool:
+        cache_key = f"{table_name}.{column_name}"
+        cached = self._table_exists_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        exists = bool(
+            conn.execute(
+                text(
+                    """
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = :table_name
+                      AND column_name = :column_name
+                    """
+                ),
+                {"table_name": table_name, "column_name": column_name},
+            ).scalar()
+        )
+        self._table_exists_cache[cache_key] = exists
+        return exists
+
     def _delete_user_rows_if_table_exists(
         self,
         conn,
@@ -746,6 +771,52 @@ class AccountService:
                 ),
                 params,
             )
+        if self._table_exists(conn, "one_location_circles") and self._column_exists(
+            conn, "one_location_circles", "is_system"
+        ):
+            # Migration 160 added `one_location_circles_block_system_delete`, a
+            # trigger that refuses to hard- or soft-delete a Circle with
+            # is_system=true (the SMS/Emergency Circle) so an ordinary product
+            # code path can't silently switch off a user's SOS roster. That
+            # protection has no meaning once the SAME owner's account is being
+            # fully deleted or reset to fresh: the identity the Circle served
+            # is being wiped along with it, so demote it first in this same
+            # transaction and let the delete below proceed normally.
+            conn.execute(
+                text(
+                    """
+                    UPDATE one_location_circles
+                    SET is_system = FALSE
+                    WHERE owner_user_id = :user_id
+                      AND is_system
+                    """
+                ),
+                params,
+            )
+        # Migration 163 widened that same trigger to fire on `system_kind IS
+        # NOT NULL` as well, because Trusted is deliberately NOT `is_system`.
+        # Clearing only the flag therefore stopped being enough to open the
+        # escape hatch: 163 backfills `system_kind = 'sms'` onto every existing
+        # SMS Circle, so the row demoted above still trips the trigger on the
+        # DELETE below, and a Trusted Circle trips it having never been
+        # `is_system` at all. That is incident #5574 -- account deletion 500s --
+        # arriving a second time by a different column.
+        #
+        # Guarded on the column so a database that predates 163 still deletes.
+        if self._table_exists(conn, "one_location_circles") and self._column_exists(
+            conn, "one_location_circles", "system_kind"
+        ):
+            conn.execute(
+                text(
+                    """
+                    UPDATE one_location_circles
+                    SET system_kind = NULL
+                    WHERE owner_user_id = :user_id
+                      AND system_kind IS NOT NULL
+                    """
+                ),
+                params,
+            )
         conn.execute(
             text(
                 """
@@ -1003,6 +1074,7 @@ class AccountService:
             results=results,
         )
         for table_name in (
+            "one_location_auto_approve_preferences",
             "one_location_events",
             "one_location_nearby_presences",
             "one_location_sms_contacts",
@@ -1182,6 +1254,7 @@ class AccountService:
             "marketplace_investor_actions": False,
             "marketplace_profile": False,
             "one_kyc_workflows": False,
+            "one_location_auto_approve_preferences": False,
             "one_location_events": False,
             "one_location_nearby_presences": False,
             "one_location_sms_contacts": False,
@@ -1403,6 +1476,7 @@ class AccountService:
                     results=results,
                 )
                 for table_name in (
+                    "one_location_auto_approve_preferences",
                     "one_location_events",
                     "one_location_nearby_presences",
                     "one_location_sms_contacts",

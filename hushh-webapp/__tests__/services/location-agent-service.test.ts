@@ -232,11 +232,140 @@ describe("OneLocationService", () => {
     });
   });
 
+  it("sends the current server-owned rule version for automatic approval", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      request: { id: "request_1", status: "approved" },
+      grant: { id: "grant_1", status: "active" },
+    });
+
+    await OneLocationService.approveRequest({
+      vaultOwnerToken: "vault-token",
+      requestId: "request_1",
+      approvalMode: "automatic",
+      autoApproveRuleVersion: 7,
+    });
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/one/location/requests/request_1/approve",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer vault-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          approvalMode: "automatic",
+          autoApproveRuleVersion: 7,
+        }),
+      },
+    );
+  });
+
+  it("updates the server-owned all-contacts rule", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      preference: {
+        enabled: true,
+        scope: { kind: "all_contacts" },
+        enabledAt: "2026-08-24T09:00:00.000Z",
+        ruleVersion: 1,
+      },
+    });
+
+    await OneLocationService.updateAutoApprovePreference({
+      vaultOwnerToken: "vault-token",
+      enabled: true,
+      scope: { kind: "all_contacts" },
+    });
+
+    const body = JSON.parse(String(mockApiJson.mock.calls[0]?.[1]?.body));
+    expect(mockApiJson.mock.calls[0]?.[0]).toBe(
+      "/api/one/location/auto-approve-preference",
+    );
+    expect(mockApiJson.mock.calls[0]?.[1]?.method).toBe("PATCH");
+    expect(body).toEqual({ enabled: true, scopeKind: "all_contacts" });
+  });
+
+  it("updates a Circle rule and can turn the server rule off", async () => {
+    const circleId = "550e8400-e29b-41d4-a716-446655440000";
+    mockApiJson
+      .mockResolvedValueOnce({
+        preference: {
+          enabled: true,
+          scope: { kind: "circle", circleId },
+          enabledAt: "2026-08-24T09:00:00.000Z",
+          ruleVersion: 2,
+        },
+      })
+      .mockResolvedValueOnce({
+        preference: {
+          enabled: false,
+          scope: null,
+          enabledAt: null,
+          ruleVersion: 3,
+        },
+      });
+
+    await OneLocationService.updateAutoApprovePreference({
+      vaultOwnerToken: "vault-token",
+      enabled: true,
+      scope: { kind: "circle", circleId },
+    });
+    await OneLocationService.updateAutoApprovePreference({
+      vaultOwnerToken: "vault-token",
+      enabled: false,
+    });
+
+    expect(JSON.parse(String(mockApiJson.mock.calls[0]?.[1]?.body))).toEqual({
+      enabled: true,
+      scopeKind: "circle",
+      circleId,
+    });
+    expect(JSON.parse(String(mockApiJson.mock.calls[1]?.[1]?.body))).toEqual({
+      enabled: false,
+    });
+  });
+
+  it("marks manual approval explicitly and omits standing-rule context", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      request: { id: "request_1", status: "approved" },
+      grant: { id: "grant_1", status: "active" },
+    });
+
+    await OneLocationService.approveRequest({
+      vaultOwnerToken: "vault-token",
+      requestId: "request_1",
+      approvalMode: "manual",
+      durationHours: 1,
+    });
+
+    const body = JSON.parse(String(mockApiJson.mock.calls[0]?.[1]?.body));
+    expect(body).toEqual({ approvalMode: "manual", durationHours: 1 });
+    expect(JSON.stringify(body)).not.toContain("autoApprove");
+  });
+
+  it("preserves an invalid automatic rule version so the server can reject it", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      request: { id: "request_1", status: "pending" },
+      grant: { id: "grant_1", status: "inactive" },
+    });
+
+    await OneLocationService.approveRequest({
+      vaultOwnerToken: "vault-token",
+      requestId: "request_1",
+      approvalMode: "automatic",
+      autoApproveRuleVersion: 0,
+    });
+
+    const body = JSON.parse(String(mockApiJson.mock.calls[0]?.[1]?.body));
+    expect(body.approvalMode).toBe("automatic");
+    expect(body.autoApproveRuleVersion).toBe(0);
+  });
+
   it("creates public location links with an owner-captured snapshot", async () => {
     mockApiJson.mockResolvedValueOnce({
       invite: { id: "invite_1", status: "active" },
       publicToken: "token_1",
-      publicUrl: "/one/location/request/token_1",
+      publicUrl: "/one/location/view/token_1",
     });
     const locationSnapshot = {
       latitude: 28.6139,

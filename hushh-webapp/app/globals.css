@@ -68,6 +68,13 @@ button,
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Search controls frequently live inside rounded, clipped grouped cards.
+ * Keep the system focus affordance inside the input so its edges never crop. */
+input[type="search"]:focus,
+input[type="search"]:focus-visible {
+  --tw-ring-inset: inset;
+}
+
 /* Prevent auto-zoom on iOS Safari when focusing inputs */
 @media screen and (max-width: 767px) {
   input,
@@ -5784,6 +5791,35 @@ body[data-persona-surface="ria"] {
   --ria-success-border: color-mix(in oklab, var(--tone-green) 28%, transparent);
   --ria-amber-note: var(--app-accent-deep);
   --ria-fee-active: var(--app-accent-deep);
+
+  /* Warning and danger, in the shape --ria-success already proved on this
+     surface: a base tone, a legible text tone, a wash, and the hairline that
+     pairs with the wash. They alias the app families rather than introducing
+     colours, which is what every other token in this block does -- the RIA
+     layer is a naming layer over the shared theme, not a second palette.
+
+     Before these existed the only way to paint a warning or an error here was
+     to reach for a Tailwind palette class, and 66 such colours accumulated
+     across 41 distinct values -- three different red families among them. */
+  --ria-warning: var(--app-warning);
+  --ria-warning-text: var(--app-warning-deep);
+  --ria-warning-bg: var(--app-warning-tint);
+  --ria-warning-border: var(--app-warning-border);
+  --ria-danger: var(--app-destructive);
+  --ria-danger-text: var(--app-destructive-deep);
+  --ria-danger-bg: var(--app-destructive-tint);
+  --ria-danger-border: var(--app-destructive-border);
+}
+
+/* `-bg` and `-border` alias tokens the theme already redefines for dark, so
+   they follow on their own. The text tone does not: `-deep` is a light-mode
+   ink (#9a5b00) with no dark counterpart of its own, and `-bright` is its
+   dark partner. This is the same light/dark pairing the shared semantic-role
+   layer applies through `dark:` variants; RIA reads these through inline
+   `style`, so the switch has to live on the token. */
+.dark body[data-persona-surface="ria"] {
+  --ria-warning-text: var(--app-warning-bright);
+  --ria-danger-text: var(--app-destructive-bright);
 }
 
 /* RIA primitive helper classes (composed by onboarding + surface restyles). */

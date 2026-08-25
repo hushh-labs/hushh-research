@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import base64
 import contextvars
 import hashlib
+import hmac
 import json
 import logging
 import os
 import secrets
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator
 from uuid import UUID
@@ -30,6 +32,7 @@ from hushh_mcp.operons.location.policy import (
     normalize_duration_mode,
     normalize_source_platform,
 )
+from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.types import AgentID, UserID
 from mcp_modules.log_redaction import redact_log_field, redact_log_value
 
@@ -446,8 +449,115 @@ def _hash_public_value(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+# The public-link token is DERIVED from the invite row's UUID rather than
+# generated at random, so the owner can read their own live link back.
+#
+# It used to be `secrets.token_urlsafe(32)`, hashed on the way in and returned
+# exactly once in the create response. Nothing could recover it afterwards --
+# not the owner, not a second device, not the same tab after a reload -- so an
+# invite the server reported as active had a link the product could no longer
+# show. Copy and Share silently did nothing, and the only way back was to
+# revoke.
+#
+# The row UUID is not secret; the app signing key supplies the entropy, exactly
+# as `one_location_circle_service._code_for_invite_id` does for Circle codes. A
+# database-only compromise still yields nothing but the UUID and a keyed
+# digest. Rows minted before this carry no version marker, so their token stays
+# unrecoverable and the payload simply omits the URL -- unchanged behaviour for
+# them, rather than a wrong link.
+# A public link is readable by anyone who holds it, so its ceiling is one hour
+# and the screen says so.
+#
+# The screen was the ONLY thing saying so. `normalize_duration_hours` allows up
+# to 24, the Pydantic field allows up to 24, and the DB CHECK allows up to 24 --
+# all three are the private-share ceiling, which is a different promise made to
+# a named person who can be un-shared. A request carrying `durationHours: 24`
+# was accepted and minted a public link that watched the owner for a day.
+#
+# Rejected rather than clamped: silently shortening what was asked for is how
+# the client-side clamp hid this in the first place, and no shipped client can
+# reach this branch -- every public-link caller already clamps to one hour
+# before it posts.
+PUBLIC_INVITE_MAX_DURATION_HOURS = 1.0
+
+_PUBLIC_INVITE_TOKEN_DOMAIN = b"one-location-public-invite-token:v1:"
+_PUBLIC_INVITE_CODE_VERSION = "derived-v1"
+
+
+def _public_invite_signing_key() -> bytes:
+    return get_core_security_settings().app_signing_key.encode("utf-8")
+
+
+def _public_invite_token_for_id(invite_id: str) -> str:
+    """The share token belonging to one invite row, re-derivable on every read."""
+
+    normalized_invite_id = str(uuid.UUID(str(invite_id)))
+    digest = hmac.new(
+        _public_invite_signing_key(),
+        _PUBLIC_INVITE_TOKEN_DOMAIN + normalized_invite_id.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _public_invite_token_if_derivable(row: dict[str, Any] | None) -> str | None:
+    """The share token for an invite row, or None if it cannot be recovered.
+
+    Re-derives the token from the row's UUID and checks it against the
+    digest that was stored when the row was written. Two rows fail that
+    check, and both must fail closed:
+
+      - anything minted before tokens were derived from the id, which
+        carries no `codeVersion` and whose random token is gone for good
+      - a row whose stored digest no longer matches, which means the
+        signing key rotated or the row was tampered with
+
+    Returning a token that does not resolve would be worse than returning
+    none: the owner would copy a link that 404s and have no reason to think
+    it was ever broken.
+    """
+
+    if not row:
+        return None
+    metadata = _loads_json(row.get("metadata")) or {}
+    if not isinstance(metadata, dict):
+        return None
+    if metadata.get("codeVersion") != _PUBLIC_INVITE_CODE_VERSION:
+        return None
+    invite_id = str(row.get("id") or "")
+    if not invite_id:
+        return None
+    try:
+        token = _public_invite_token_for_id(invite_id)
+    except (ValueError, AttributeError):
+        return None
+    stored_hash = str(row.get("public_code_hash") or "")
+    if not stored_hash:
+        return None
+    if not hmac.compare_digest(stored_hash, _hash_public_value(token)):
+        logger.warning(
+            "one_location.public_invite_token_integrity_failed invite=%s",
+            redact_log_field("invite_id", invite_id),
+        )
+        return None
+    return token
+
+
 def _public_invite_url(token: str) -> str:
-    return f"/one/location/request/{token}"
+    """The app-relative page a public live-location link points at.
+
+    `/view/`, not `/request/`. The path was named after the submission form the
+    page used to be -- a stranger asking the owner for access -- but the page a
+    shared link opens today SHOWS a live location. "Request" told the recipient
+    the opposite of what the link does, and it is the one part of the URL a
+    person actually reads before deciding whether to tap.
+
+    Links already in the wild keep working: the web proxy redirects
+    `/one/location/request/<token>` here, and the old route stays mounted as a
+    client-side forwarder for the native static export, which has no proxy.
+    """
+
+    return f"/one/location/view/{token}"
 
 
 def _circle_invite_url(token: str) -> str:
@@ -487,10 +597,25 @@ def _identity_notification_label(
     row: dict[str, Any] | None,
     fallback: str = "A trusted person",
 ) -> str:
-    """Return a lock-screen-safe identity label without phone-derived data."""
-    if not row:
-        return fallback
-    return str(row.get("display_name") or "").strip() or fallback
+    """Return a lock-screen-safe identity label without phone-derived data.
+
+    Delegates the ladder to `resolve_requester_label` -- the resolver #5442
+    added when connection-request pushes were reading "Someone wants to connect
+    with you". It tries the display name, rejects values that are identifiers
+    rather than names (a UUID, the raw user id, an opaque token), and falls back
+    to the handle from the account's email.
+
+    `fallback` survives as the last resort, for an account that genuinely
+    resolves to nothing. That is the one case where a generic phrase is the
+    truthful answer rather than a missing one.
+    """
+
+    # Run against the row already in hand rather than through
+    # `resolve_requester_label`, which would re-query the same row for its
+    # email rung. Same ladder, one read instead of two.
+    from hushh_mcp.services.requester_identity import label_from_identity_row
+
+    return label_from_identity_row(row, fallback=fallback)
 
 
 def _notification_safe_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -526,6 +651,54 @@ _INTERNAL_SHARE_REASONS = {
     _DRIVE_TO_SHARE_REASON,
     _CHECK_IN_SHARE_REASON,
 }
+
+
+# Which replacement lane a grant belongs to. Replacement of a live share is
+# scoped to a LANE, and there are exactly TWO of them: the emergency lane
+# (``share_kind == 'sos'``) and everything else. This is deliberately NOT one
+# lane per share kind. `_classify_share_kind` below can return four kinds, the
+# `/api/one/location/grants` route accepts `share_kind` as free text up to 40
+# characters with no enum, and the web client already sends values this module
+# never produces (e.g. `pick_me_up`). Per-exact-kind scoping would therefore let
+# a single owner/recipient pair accumulate an unbounded number of live grants
+# that no surface exposes a Stop for. Two lanes caps a pair at exactly two live
+# grants: one normal share and one SOS.
+#
+# The invariant this enforces: an SOS grant must never supersede a normal share,
+# and a normal share must never supersede an SOS grant. Within a lane, the newest
+# grant still replaces the older one exactly as it always has -- `drive_to`,
+# `check_in`, `pick_me_up` and plain `share` all sit in the non-emergency lane
+# together and keep replacing each other.
+#
+# Bound as ``:is_sos_lane`` (a boolean) by every caller. The second arm reads the
+# legacy `reason` marker for rows written before `share_kind` was persisted in
+# metadata; it is belt-and-braces only and must never be relied on alone, because
+# a user-typed SOS message REPLACES the `sos_panic` reason on the way in.
+#
+# Defined once, on purpose. Three hand-copied divergent versions of the
+# replacement UPDATE are exactly what let an SMS alert silently revoke a normal
+# share (#5506); a fourth write path must not be addable without this predicate.
+_SHARE_LANE_MATCH_SQL = """
+                AND (
+                  COALESCE({alias}metadata->>'share_kind', '') = 'sos'
+                  OR (
+                    {alias}metadata->>'share_kind' IS NULL
+                    AND {alias}metadata->>'reason' = 'sos_panic'
+                  )
+                ) = CAST(:is_sos_lane AS BOOLEAN)"""
+
+
+def _share_lane_match_sql(alias: str = "") -> str:
+    """The lane predicate, optionally qualified for an aliased UPDATE target."""
+    return _SHARE_LANE_MATCH_SQL.format(alias=f"{alias}." if alias else "")
+
+
+def _is_sos_lane(share_kind: str | None) -> bool:
+    """True when a grant belongs to the emergency replacement lane.
+
+    The lane split is `sos` vs everything-else -- NOT one lane per share kind.
+    """
+    return str(share_kind or "").strip() == "sos"
 
 
 def _classify_share_kind(reason: str | None) -> str:
@@ -1044,6 +1217,7 @@ class OneLocationAgentService:
         request_id: str | None = None,
         referral_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        required: bool = False,
     ) -> None:
         try:
             self._execute_one(
@@ -1072,6 +1246,8 @@ class OneLocationAgentService:
                 },
             )
         except Exception as exc:
+            if required:
+                raise
             logger.warning("one.location.event_insert_failed type=%s error=%s", event_type, exc)
 
     def _send_metadata_notification(
@@ -1287,11 +1463,43 @@ class OneLocationAgentService:
             "withoutEmail": without_email,
         }
 
+    def _public_invite_owner_label(self, owner_user_id: str) -> str:
+        """The sharer's name, for a page anyone holding the URL can open.
+
+        `allow_email_handle=False` is the whole point. The ladder underneath
+        offers a display name and then an email local part, and its own
+        docstring draws the line this call sits on: an email handle "is a name
+        to someone who already knows you and an identifier to someone who does
+        not, so it is offered only on surfaces already scoped to a
+        relationship". A bearer link that can be forwarded to anyone is the
+        broadest surface this product has -- broader than the discovery
+        directory, which already passes False.
+
+        Deliberately NOT `_identity_display_label`, which the Circle invite
+        uses: that one appends a masked phone, and publishing the last four
+        digits of a phone number beside a live map pin is a different promise
+        from the one this link makes. The Circle asymmetry is intentional --
+        a Circle invite is handed to one named person.
+
+        Returns "" when the account resolves to nothing real, so callers
+        choose their own fallback wording.
+        """
+
+        from hushh_mcp.services.requester_identity import label_from_identity_row
+
+        if not owner_user_id:
+            return ""
+        return label_from_identity_row(
+            self._identity_row(owner_user_id),
+            allow_email_handle=False,
+            fallback="",
+        )
+
     def _identity_row(self, user_id: str) -> dict[str, Any] | None:
         try:
             return self._execute_one(
                 """
-                SELECT user_id, display_name, phone_number, phone_verified
+                SELECT user_id, display_name, email, phone_number, phone_verified
                 FROM actor_identity_cache
                 WHERE user_id = :user_id
                 LIMIT 1
@@ -1335,13 +1543,40 @@ class OneLocationAgentService:
             return None
 
     @staticmethod
-    def _recipient_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _recipient_payload(
+        row: dict[str, Any] | None,
+        *,
+        allow_email_handle: bool = False,
+    ) -> dict[str, Any] | None:
+        """Project one person for a client list.
+
+        ``allow_email_handle`` is a privacy boundary, not a default. This same
+        projection serves two lists: the recipients list, scoped to people the
+        viewer is connected to or shares a Circle with, and the discovery
+        directory, which includes phone-verified strangers. An email's local
+        part is a name to the first group and an identifier about the second,
+        so only the relationship-scoped caller opts in.
+
+        Off, the behaviour is exactly what it was: the masked phone, then
+        "Verified user".
+        """
+
         if not row:
             return None
-        display_name = str(row.get("display_name") or "").strip()
+        from hushh_mcp.services.requester_identity import label_from_identity_row
+
         email = str(row.get("email") or "").strip()
         masked_phone = _mask_phone(row.get("phone_number"))
         user_id = str(row.get("user_id") or "")
+        # The masked phone stays a rung, below the name and the handle. It is
+        # the one the client rejects on sight (MASKED_PHONE_ONLY_PATTERN) and
+        # replaces with "A trusted person", so anything resolvable above it is
+        # the difference between a name and a generic line.
+        display_name = label_from_identity_row(
+            row,
+            allow_email_handle=allow_email_handle,
+            fallback="",
+        )
         return {
             "userId": user_id,
             "displayName": display_name or masked_phone or "Verified user",
@@ -2276,6 +2511,38 @@ class OneLocationAgentService:
         }
 
     @staticmethod
+    def _auto_approve_preference_payload(
+        row: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        enabled = bool((row or {}).get("enabled"))
+        scope_kind = str((row or {}).get("scope_kind") or "")
+        circle_id = str((row or {}).get("circle_id") or "") or None
+        if (
+            not enabled
+            or scope_kind not in {"all_contacts", "circle"}
+            or (scope_kind == "circle" and not circle_id)
+        ):
+            return {
+                "enabled": False,
+                "scope": None,
+                "enabledAt": None,
+                "ruleVersion": int((row or {}).get("rule_version") or 0),
+                "updatedAt": _iso((row or {}).get("updated_at")),
+            }
+        scope = (
+            {"kind": "circle", "circleId": circle_id}
+            if scope_kind == "circle" and circle_id
+            else {"kind": "all_contacts"}
+        )
+        return {
+            "enabled": True,
+            "scope": scope,
+            "enabledAt": _iso((row or {}).get("enabled_at")),
+            "ruleVersion": int((row or {}).get("rule_version") or 0),
+            "updatedAt": _iso((row or {}).get("updated_at")),
+        }
+
+    @staticmethod
     def _request_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not row:
             return None
@@ -2362,6 +2629,21 @@ class OneLocationAgentService:
         }
         if safe_label:
             payload["ownerLabel"] = safe_label
+        # The owner's own link, handed back on every read.
+        #
+        # This branch is owner-only -- the `public` branch above is what a
+        # recipient sees, and it must never carry the token. For the owner the
+        # link is the whole point of the object: without it the product could
+        # report "you have a live link" and then have nothing to copy, which is
+        # exactly what happened after any reload.
+        #
+        # Only while the invite can still be used. A revoked or expired row's
+        # token no longer resolves, so offering it would hand over a link that
+        # 404s.
+        if str(row.get("status") or "") == "active":
+            token = _public_invite_token_if_derivable(row)
+            if token:
+                payload["publicUrl"] = _public_invite_url(token)
         return payload
 
     @staticmethod
@@ -2568,11 +2850,27 @@ class OneLocationAgentService:
                 else f"You viewed {owner_label}'s update"
             )
         elif event_type == "location_share_revoked":
-            title = (
-                f"Sharing stopped with {recipient_label}"
-                if owner_user_id == user_id
-                else f"{owner_label} stopped sharing"
+            # The feed lists both lanes together, so an entry that does not say
+            # which one ended reads as ambiguous next to a still-live share
+            # with the same person.
+            revoked_via_sms = (
+                str((_loads_json(row.get("metadata")) or {}).get("share_kind") or "")
+                .strip()
+                .lower()
+                == "sos"
             )
+            if revoked_via_sms:
+                title = (
+                    f"SMS sharing stopped with {recipient_label}"
+                    if owner_user_id == user_id
+                    else f"{owner_label} stopped SMS location sharing"
+                )
+            else:
+                title = (
+                    f"Sharing stopped with {recipient_label}"
+                    if owner_user_id == user_id
+                    else f"{owner_label} stopped sharing"
+                )
         elif event_type == "location_share_expired":
             title = (
                 f"Share expired for {recipient_label}"
@@ -3354,7 +3652,11 @@ class OneLocationAgentService:
                 "This secure key id is already bound to different key material.",
                 status_code=409,
             )
-        return self._recipient_payload(row) or {}
+        # The caller's own record, handed straight back to them. There is no
+        # privacy line to draw against yourself, and withholding it here would
+        # show a person their own masked phone where every other surface now
+        # shows their name.
+        return self._recipient_payload(row, allow_email_handle=True) or {}
 
     def list_verified_recipients(
         self, *, owner_user_id: str, limit: int = 50
@@ -3412,6 +3714,37 @@ class OneLocationAgentService:
                   JOIN one_location_circles circle
                     ON circle.id = mine.circle_id
                    AND circle.status = 'active'
+                   -- A product-managed Circle lists people together without introducing
+                   -- them, and this arm never said so. It joins membership to membership
+                   -- and never mentions `circle.owner_user_id`, so two people became
+                   -- eligible for each other's live location the moment they shared a
+                   -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                   -- appeared in the other's share picker by name.
+                   --
+                   -- On the SMS Circle that is ten strangers, and contradicts that
+                   -- Circle's own design note. On a Trusted Circle holding every
+                   -- connection it would be every PAIR of your connections: 19,900 edges
+                   -- at 200 connections, none of them consented to. An auto-share hook
+                   -- was removed from `accept_request` once already for a smaller
+                   -- version of this.
+                   --
+                   -- So for a Circle the product manages, one side has to be its owner.
+                   -- Circles a person made themselves are untouched: those members chose
+                   -- each other's company.
+                   -- Trusted is excluded outright, not merely owner-scoped.
+                   -- Everyone in it is already a connection, so they satisfy the
+                   -- connection arm above and lose nothing here. What it closes is the
+                   -- other direction: contact sync (#5458) puts matched people into
+                   -- Trusted before they have accepted anything, and membership must not
+                   -- be what makes them shareable. Authority comes from the connection.
+                   -- Trusted records who you are connected to; it never decides who can
+                   -- see you.
+                   AND circle.system_kind IS DISTINCT FROM 'trusted'
+                   AND (
+                     (circle.system_kind IS NULL AND NOT circle.is_system)
+                     OR circle.owner_user_id = mine.user_id
+                     OR circle.owner_user_id = theirs.user_id
+                   )
                   WHERE mine.user_id = :owner_user_id
                     AND mine.status = 'active'
                 )
@@ -3422,7 +3755,14 @@ class OneLocationAgentService:
             {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
         )
 
-        recipients = [payload for row in rows if (payload := self._recipient_payload(row))]
+        # Relationship-scoped: the statement above admits a person only on an
+        # active connection or a shared active Circle, so a name resolved from
+        # their email handle is a name about someone the viewer already knows.
+        recipients = [
+            payload
+            for row in rows
+            if (payload := self._recipient_payload(row, allow_email_handle=True))
+        ]
         return self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,
@@ -3701,9 +4041,10 @@ class OneLocationAgentService:
                 "LOCATION_RECIPIENT_UNAVAILABLE",
                 unavailable_message
                 or (
-                    "They are in your One Network but their secure location key "
-                    "isn't ready yet. Ask them to open One Location and unlock "
-                    "their vault once, then try again."
+                    # Two lines in a toast. The old copy explained the whole
+                    # mechanism and ran to four; what the reader needs is the
+                    # one action that fixes it.
+                    "Ask them to open One Location and unlock once, then try again."
                 ),
                 status_code=409,
             )
@@ -3823,6 +4164,37 @@ class OneLocationAgentService:
                 JOIN one_location_circles circle
                   ON circle.id = mine.circle_id
                  AND circle.status = 'active'
+                 -- A product-managed Circle lists people together without introducing
+                 -- them, and this arm never said so. It joins membership to membership
+                 -- and never mentions `circle.owner_user_id`, so two people became
+                 -- eligible for each other's live location the moment they shared a
+                 -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                 -- appeared in the other's share picker by name.
+                 --
+                 -- On the SMS Circle that is ten strangers, and contradicts that
+                 -- Circle's own design note. On a Trusted Circle holding every
+                 -- connection it would be every PAIR of your connections: 19,900 edges
+                 -- at 200 connections, none of them consented to. An auto-share hook
+                 -- was removed from `accept_request` once already for a smaller
+                 -- version of this.
+                 --
+                 -- So for a Circle the product manages, one side has to be its owner.
+                 -- Circles a person made themselves are untouched: those members chose
+                 -- each other's company.
+                 -- Trusted is excluded outright, not merely owner-scoped.
+                 -- Everyone in it is already a connection, so they satisfy the
+                 -- connection arm above and lose nothing here. What it closes is the
+                 -- other direction: contact sync (#5458) puts matched people into
+                 -- Trusted before they have accepted anything, and membership must not
+                 -- be what makes them shareable. Authority comes from the connection.
+                 -- Trusted records who you are connected to; it never decides who can
+                 -- see you.
+                 AND circle.system_kind IS DISTINCT FROM 'trusted'
+                 AND (
+                   (circle.system_kind IS NULL AND NOT circle.is_system)
+                   OR circle.owner_user_id = mine.user_id
+                   OR circle.owner_user_id = theirs.user_id
+                 )
                 WHERE mine.user_id = :owner_user_id
                   AND mine.status = 'active'
                   AND (
@@ -3875,9 +4247,28 @@ class OneLocationAgentService:
             row = self._execute_one(
                 """
                 SELECT 1
-                FROM one_location_sms_contacts
-                WHERE owner_user_id = :owner_user_id
-                  AND contact_user_id = :contact_user_id
+                WHERE EXISTS (
+                        SELECT 1
+                        FROM one_location_sms_contacts
+                        WHERE owner_user_id = :owner_user_id
+                          AND contact_user_id = :contact_user_id
+                      )
+                   -- The same two-armed test the grant gate makes. This one is
+                   -- only the EXPLAINER -- it produces
+                   -- LOCATION_SMS_CONTACT_REQUIRED -- but a narrow explainer
+                   -- beside a wide gate is worse than either: the share would
+                   -- succeed and the message would say it could not.
+                   OR EXISTS (
+                        SELECT 1
+                        FROM one_location_circle_memberships membership
+                        JOIN one_location_circles circle
+                          ON circle.id = membership.circle_id
+                         AND circle.owner_user_id = :owner_user_id
+                         AND circle.is_system
+                         AND circle.status = 'active'
+                        WHERE membership.user_id = :contact_user_id
+                          AND membership.status = 'active'
+                      )
                 LIMIT 1
                 """,
                 {
@@ -3898,7 +4289,7 @@ class OneLocationAgentService:
     def list_sms_contact_ids(self, *, owner_user_id: str) -> list[str]:
         rows = self._execute_many(
             """
-            SELECT sms.contact_user_id
+            SELECT sms.contact_user_id AS contact_user_id
             FROM one_location_sms_contacts sms
             WHERE sms.owner_user_id = :owner_user_id
               AND EXISTS (
@@ -3926,11 +4317,64 @@ class OneLocationAgentService:
                   JOIN one_location_circles circle
                     ON circle.id = mine.circle_id
                    AND circle.status = 'active'
+                   -- A product-managed Circle lists people together without introducing
+                   -- them, and this arm never said so. It joins membership to membership
+                   -- and never mentions `circle.owner_user_id`, so two people became
+                   -- eligible for each other's live location the moment they shared a
+                   -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                   -- appeared in the other's share picker by name.
+                   --
+                   -- On the SMS Circle that is ten strangers, and contradicts that
+                   -- Circle's own design note. On a Trusted Circle holding every
+                   -- connection it would be every PAIR of your connections: 19,900 edges
+                   -- at 200 connections, none of them consented to. An auto-share hook
+                   -- was removed from `accept_request` once already for a smaller
+                   -- version of this.
+                   --
+                   -- So for a Circle the product manages, one side has to be its owner.
+                   -- Circles a person made themselves are untouched: those members chose
+                   -- each other's company.
+                   -- Trusted is excluded outright, not merely owner-scoped.
+                   -- Everyone in it is already a connection, so they satisfy the
+                   -- connection arm above and lose nothing here. What it closes is the
+                   -- other direction: contact sync (#5458) puts matched people into
+                   -- Trusted before they have accepted anything, and membership must not
+                   -- be what makes them shareable. Authority comes from the connection.
+                   -- Trusted records who you are connected to; it never decides who can
+                   -- see you.
+                   AND circle.system_kind IS DISTINCT FROM 'trusted'
+                   AND (
+                     (circle.system_kind IS NULL AND NOT circle.is_system)
+                     OR circle.owner_user_id = mine.user_id
+                     OR circle.owner_user_id = theirs.user_id
+                   )
                   WHERE mine.user_id = :owner_user_id
                     AND mine.status = 'active'
                 )
               )
-            ORDER BY sms.created_at, sms.contact_user_id
+
+            UNION
+
+            -- The emergency Circle's roster, which since #5426 is where the
+            -- product actually keeps this list. This query drove from
+            -- `one_location_sms_contacts` alone, and the Circle detail screen
+            -- does not write that table -- so somebody added the way the
+            -- product now tells you to add them was simply absent from the
+            -- fallback list.
+            --
+            -- No eligibility EXISTS on this arm: membership of the owner's own
+            -- system Circle is already the stronger statement, and it is
+            -- reconciled on every bootstrap. The legacy arm keeps its check
+            -- because that table has rows nothing prunes.
+            SELECT membership.user_id AS contact_user_id
+            FROM one_location_circle_memberships membership
+            JOIN one_location_circles circle
+              ON circle.id = membership.circle_id
+             AND circle.owner_user_id = :owner_user_id
+             AND circle.is_system
+             AND circle.status = 'active'
+            WHERE membership.status = 'active'
+              AND membership.user_id <> :owner_user_id
             """,
             {"owner_user_id": owner_user_id},
         )
@@ -4119,6 +4563,7 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_user_id: str,
         requested_circle_id: str | None,
+        require_owned_person_circle: bool = False,
     ) -> str | None:
         """Lock and revalidate a relationship before an authority mutation.
 
@@ -4189,6 +4634,37 @@ class OneLocationAgentService:
                         JOIN one_location_circles circle
                           ON circle.id = mine.circle_id
                          AND circle.status = 'active'
+                         -- A product-managed Circle lists people together without introducing
+                         -- them, and this arm never said so. It joins membership to membership
+                         -- and never mentions `circle.owner_user_id`, so two people became
+                         -- eligible for each other's live location the moment they shared a
+                         -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                         -- appeared in the other's share picker by name.
+                         --
+                         -- On the SMS Circle that is ten strangers, and contradicts that
+                         -- Circle's own design note. On a Trusted Circle holding every
+                         -- connection it would be every PAIR of your connections: 19,900 edges
+                         -- at 200 connections, none of them consented to. An auto-share hook
+                         -- was removed from `accept_request` once already for a smaller
+                         -- version of this.
+                         --
+                         -- So for a Circle the product manages, one side has to be its owner.
+                         -- Circles a person made themselves are untouched: those members chose
+                         -- each other's company.
+                         -- Trusted is excluded outright, not merely owner-scoped.
+                         -- Everyone in it is already a connection, so they satisfy the
+                         -- connection arm above and lose nothing here. What it closes is the
+                         -- other direction: contact sync (#5458) puts matched people into
+                         -- Trusted before they have accepted anything, and membership must not
+                         -- be what makes them shareable. Authority comes from the connection.
+                         -- Trusted records who you are connected to; it never decides who can
+                         -- see you.
+                         AND circle.system_kind IS DISTINCT FROM 'trusted'
+                         AND (
+                           (circle.system_kind IS NULL AND NOT circle.is_system)
+                           OR circle.owner_user_id = mine.user_id
+                           OR circle.owner_user_id = theirs.user_id
+                         )
                         WHERE mine.user_id = :owner_user_id
                           AND mine.status = 'active'
                         ORDER BY mine.joined_at, mine.circle_id
@@ -4222,10 +4698,22 @@ class OneLocationAgentService:
                     FROM one_location_circles
                     WHERE id = CAST(:circle_id AS UUID)
                       AND status = 'active'
+                      AND (
+                        CAST(:require_owned_person_circle AS BOOLEAN) IS FALSE
+                        OR (
+                          owner_user_id = :owner_user_id
+                          AND system_kind IS NULL
+                          AND NOT is_system
+                        )
+                      )
                     FOR SHARE
                     """
                 ),
-                {"circle_id": cleaned_circle_id},
+                {
+                    "circle_id": cleaned_circle_id,
+                    "owner_user_id": owner_user_id,
+                    "require_owned_person_circle": require_owned_person_circle,
+                },
             )
             .mappings()
             .first()
@@ -4277,13 +4765,22 @@ class OneLocationAgentService:
         grant_params: dict[str, Any],
     ) -> dict[str, Any] | None:
         """Atomically authorize and replace a relationship-backed grant."""
+        bound_connection = getattr(self, "_key_writer_connection", None)
+        transaction = (
+            nullcontext(bound_connection)
+            if bound_connection is not None
+            else get_db().engine.begin()
+        )
         try:
-            with get_db().engine.begin() as conn:
+            with transaction as conn:
                 source_circle_id = self._lock_circle_share_eligibility(
                     conn,
                     owner_user_id=owner_user_id,
                     recipient_user_id=recipient_user_id,
                     requested_circle_id=requested_circle_id,
+                    require_owned_person_circle=bool(
+                        grant_params.get("require_owned_source_circle")
+                    ),
                 )
                 params = {
                     **grant_params,
@@ -4292,6 +4789,16 @@ class OneLocationAgentService:
                     ),
                     "source_circle_id": source_circle_id,
                 }
+                # Replacement is scoped to ONE LANE, and there are exactly two
+                # of them: the emergency lane (`share_kind == 'sos'`) and
+                # everything else. An SOS grant must never supersede a normal
+                # share, and a normal share must never supersede an SOS grant --
+                # a person who shared their location for four hours and then
+                # raised an SMS alert with the same person had the four-hour
+                # share silently revoked at SEND time (#5506). This is two lanes,
+                # NOT one lane per share kind: `drive_to`, `check_in`,
+                # `pick_me_up` and plain `share` all sit in the non-emergency
+                # lane together and go on replacing each other exactly as before.
                 conn.execute(
                     text(
                         """
@@ -4299,7 +4806,12 @@ class OneLocationAgentService:
                         SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                         WHERE owner_user_id = :owner_user_id
                           AND recipient_user_id = :recipient_user_id
-                          AND status = 'active'
+                          AND status = 'active'"""  # nosec B608 - the lane predicate
+                        # below is a module-level constant of static SQL text and the
+                        # lane itself is BOUND as `:is_sos_lane`; nothing
+                        # caller-supplied reaches this statement.
+                        + _share_lane_match_sql()
+                        + """
                         """
                     ),
                     params,
@@ -4357,6 +4869,10 @@ class OneLocationAgentService:
                                     params.get("recipient_display_name") or ""
                                 ).strip()
                                 or "A trusted person",
+                                # The Feed fan-out suppresses the generic
+                                # share-created row when request approval writes
+                                # its richer event immediately afterwards.
+                                "reason": str(params.get("event_reason") or ""),
                             }
                         ),
                     },
@@ -4385,6 +4901,7 @@ class OneLocationAgentService:
         source_circle_id: str | None = None,
         require_recipient_phone_verified: bool = True,
         enforce_connection: bool = False,
+        require_owned_source_circle: bool = False,
         source: str | None = None,
         _key_writer_guarded: bool = False,
     ) -> dict[str, Any]:
@@ -4410,6 +4927,7 @@ class OneLocationAgentService:
                     source_circle_id=source_circle_id,
                     require_recipient_phone_verified=require_recipient_phone_verified,
                     enforce_connection=enforce_connection,
+                    require_owned_source_circle=require_owned_source_circle,
                     source=source,
                     _key_writer_guarded=True,
                 )
@@ -4440,6 +4958,12 @@ class OneLocationAgentService:
                 "LOCATION_RECIPIENT_NOT_CONNECTED",
                 LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
                 status_code=403,
+            )
+        if require_owned_source_circle and not source_circle_id:
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
+                "Choose who can be auto-approved.",
+                status_code=422,
             )
         resolved_kind = share_kind or _classify_share_kind(reason)
         duration, expires_at, resolved_duration_mode = _resolve_share_duration(
@@ -4479,15 +5003,24 @@ class OneLocationAgentService:
         }
         if capability is not None:
             metadata["capability_token"] = capability["token"]
+        # Which of the two replacement lanes this grant lands in. Bound into
+        # BOTH write paths below -- the enforced transaction reads it out of
+        # `grant_params`, the non-enforced branch binds it on its own revoke.
+        is_sos_lane = _is_sos_lane(resolved_kind)
         grant_params = {
             "owner_user_id": owner_user_id,
             "recipient_user_id": recipient_user_id,
             "recipient_key_id": key_id,
+            "is_sos_lane": is_sos_lane,
             "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
             "duration_hours": duration,
             "expires_at": expires_at,
             "duration_mode": resolved_duration_mode,
             "source_circle_id": source_circle_id,
+            "require_owned_source_circle": require_owned_source_circle,
+            # Feed de-duplication needs this exact internal marker for request
+            # approval. Do not fan arbitrary owner notes into event metadata.
+            "event_reason": "request_approved" if reason == "request_approved" else "",
             "metadata_json": _json_param(metadata),
             "recipient_display_name": recipient.get("display_name"),
             "recipient_phone_number": recipient.get("phone_number"),
@@ -4500,18 +5033,30 @@ class OneLocationAgentService:
                 grant_params=grant_params,
             )
         else:
+            # Same two-lane replacement rule as the enforced path above: an
+            # SOS grant never supersedes a normal share and vice versa, and the
+            # split is `sos` vs everything-else rather than one lane per share
+            # kind. This is the branch `approve_request` reaches (it calls
+            # `create_grant` without `enforce_connection`), so approving a
+            # plain access request must not tear down a live SOS share either.
             self._execute_many(
                 """
                 UPDATE one_location_share_grants
                 SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
                 WHERE owner_user_id = :owner_user_id
                   AND recipient_user_id = :recipient_user_id
-                  AND status = 'active'
+                  AND status = 'active'"""  # nosec B608 - the lane predicate below
+                # is a module-level constant of static SQL text and the lane itself is
+                # BOUND as `:is_sos_lane`; nothing caller-supplied reaches this
+                # statement.
+                + _share_lane_match_sql()
+                + """
                 RETURNING id
                 """,
                 {
                     "owner_user_id": owner_user_id,
                     "recipient_user_id": recipient_user_id,
+                    "is_sos_lane": is_sos_lane,
                 },
             )
             row = self._execute_one(
@@ -4791,6 +5336,37 @@ class OneLocationAgentService:
                     JOIN one_location_circles circle
                       ON circle.id = mine.circle_id
                      AND circle.status = 'active'
+                     -- A product-managed Circle lists people together without introducing
+                     -- them, and this arm never said so. It joins membership to membership
+                     -- and never mentions `circle.owner_user_id`, so two people became
+                     -- eligible for each other's live location the moment they shared a
+                     -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                     -- appeared in the other's share picker by name.
+                     --
+                     -- On the SMS Circle that is ten strangers, and contradicts that
+                     -- Circle's own design note. On a Trusted Circle holding every
+                     -- connection it would be every PAIR of your connections: 19,900 edges
+                     -- at 200 connections, none of them consented to. An auto-share hook
+                     -- was removed from `accept_request` once already for a smaller
+                     -- version of this.
+                     --
+                     -- So for a Circle the product manages, one side has to be its owner.
+                     -- Circles a person made themselves are untouched: those members chose
+                     -- each other's company.
+                     -- Trusted is excluded outright, not merely owner-scoped.
+                     -- Everyone in it is already a connection, so they satisfy the
+                     -- connection arm above and lose nothing here. What it closes is the
+                     -- other direction: contact sync (#5458) puts matched people into
+                     -- Trusted before they have accepted anything, and membership must not
+                     -- be what makes them shareable. Authority comes from the connection.
+                     -- Trusted records who you are connected to; it never decides who can
+                     -- see you.
+                     AND circle.system_kind IS DISTINCT FROM 'trusted'
+                     AND (
+                       (circle.system_kind IS NULL AND NOT circle.is_system)
+                       OR circle.owner_user_id = mine.user_id
+                       OR circle.owner_user_id = theirs.user_id
+                     )
                     WHERE mine.user_id = :owner_user_id
                       AND mine.status = 'active'
                       AND (
@@ -4807,15 +5383,54 @@ class OneLocationAgentService:
                     WHERE sc.owner_user_id = :owner_user_id
                       AND sc.contact_user_id = :recipient_user_id
                   )
+                  -- ...or a member of the owner's emergency Circle.
+                  --
+                  -- Since #5426 the SMS Circle IS the emergency list, and the
+                  -- screen picks SOS recipients from its roster
+                  -- (app/one/location/page.tsx). This gate never learned that:
+                  -- it still asked `one_location_sms_contacts`, which the
+                  -- Circle detail screen does not write. So anybody added the
+                  -- way the product now tells you to add them was accepted by
+                  -- the UI and refused here, with LOCATION_SMS_CONTACT_REQUIRED
+                  -- -- at the moment an SOS was being sent.
+                  --
+                  -- A widening of an emergency gate, so it is worth being
+                  -- precise about what it opens: only the owner's own system
+                  -- Circle, only active memberships, and only a roster the
+                  -- owner curated by hand. It is safe to widen to it only
+                  -- because the same commit stops a system Circle from ever
+                  -- having a join code -- without that, redeeming a code was a
+                  -- way into this roster.
+                  OR EXISTS (
+                    SELECT 1
+                    FROM one_location_circle_memberships membership
+                    JOIN one_location_circles circle
+                      ON circle.id = membership.circle_id
+                     AND circle.owner_user_id = :owner_user_id
+                     AND circle.is_system
+                     AND circle.status = 'active'
+                    WHERE membership.user_id = :recipient_user_id
+                      AND membership.status = 'active'
+                  )
                 )
               LIMIT 1
             ),
             revoked_grants AS (
+              -- Two-lane replacement, same invariant as the two non-atomic
+              -- create paths: replacement is scoped to the emergency lane, so
+              -- an SOS grant never supersedes a normal share and a normal share
+              -- never supersedes an SOS grant. Two lanes (`sos` vs
+              -- everything-else), NOT one lane per share kind.
               UPDATE one_location_share_grants g
               SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
               WHERE g.owner_user_id = :owner_user_id
                 AND g.recipient_user_id = :recipient_user_id
-                AND g.status = 'active'
+                AND g.status = 'active'"""  # nosec B608 - the lane predicate below
+            # is a module-level constant of static SQL text with a fixed alias
+            # substituted, and the lane itself is BOUND as `:is_sos_lane`; nothing
+            # caller-supplied reaches this statement.
+            + _share_lane_match_sql("g")
+            + """
                 AND EXISTS (SELECT 1 FROM eligible_recipient)
                 AND NOT EXISTS (SELECT 1 FROM replayed_grant)
               RETURNING g.id
@@ -4947,6 +5562,10 @@ class OneLocationAgentService:
                 "enforce_connection": enforce_connection,
                 "source_circle_id": grant_source_circle_id,
                 "require_sms_contact": resolved_kind == "sos",
+                # The `revoked_grants` CTE above is lane-scoped. This dict is
+                # built independently of `create_grant`'s, so a missing bind
+                # here fails OPEN to the old kind-blind replacement.
+                "is_sos_lane": _is_sos_lane(resolved_kind),
                 "envelope_metadata_json": envelope_fields["metadata_json"],
                 **{key: value for key, value in envelope_fields.items() if key != "metadata_json"},
             },
@@ -5318,6 +5937,204 @@ class OneLocationAgentService:
             "status": "published",
         }
 
+    def get_auto_approve_preference(self, *, user_id: str) -> dict[str, Any]:
+        """Return the server-authoritative standing approval rule.
+
+        A missing row is off. Browser storage is never authority for this
+        setting because another tab or device must be able to revoke it.
+        """
+        row = self._execute_one(
+            """
+            SELECT enabled, scope_kind, circle_id, enabled_at, rule_version, updated_at
+            FROM one_location_auto_approve_preferences
+            WHERE user_id = :user_id
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+        return self._auto_approve_preference_payload(row)
+
+    def update_auto_approve_preference(
+        self,
+        *,
+        user_id: str,
+        enabled: bool,
+        scope_kind: str | None,
+        circle_id: str | None,
+    ) -> dict[str, Any]:
+        """Write one revocable standing rule using the server clock."""
+        normalized_scope = str(scope_kind or "").strip()
+        normalized_circle_id = str(circle_id or "").strip() or None
+        if not enabled:
+            normalized_scope = ""
+            normalized_circle_id = None
+        elif normalized_scope not in {"all_contacts", "circle"}:
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
+                "Choose who can be auto-approved.",
+                status_code=422,
+            )
+        if enabled and (normalized_scope == "circle") != bool(normalized_circle_id):
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
+                "Choose who can be auto-approved.",
+                status_code=422,
+            )
+        if normalized_circle_id is not None:
+            try:
+                normalized_circle_id = str(UUID(normalized_circle_id))
+            except (TypeError, ValueError, AttributeError) as exc:
+                raise OneLocationAgentError(
+                    "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
+                    "Choose a Circle you created.",
+                    status_code=422,
+                ) from exc
+
+        with get_db_connection() as connection:
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                {"lock_key": f"one-location-auto-approve:{user_id}"},
+            )
+            if normalized_scope == "circle":
+                circle = (
+                    connection.execute(
+                        text(
+                            """
+                            SELECT id
+                            FROM one_location_circles
+                            WHERE id = CAST(:circle_id AS UUID)
+                              AND owner_user_id = :user_id
+                              AND status = 'active'
+                              AND system_kind IS NULL
+                              AND NOT is_system
+                            FOR SHARE
+                            """
+                        ),
+                        {"circle_id": normalized_circle_id, "user_id": user_id},
+                    )
+                    .mappings()
+                    .first()
+                )
+                if not circle:
+                    raise OneLocationAgentError(
+                        "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
+                        "Choose a Circle you created.",
+                        status_code=403,
+                    )
+
+            row = (
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO one_location_auto_approve_preferences (
+                          user_id, enabled, scope_kind, circle_id, enabled_at,
+                          rule_version, created_at, updated_at
+                        ) VALUES (
+                          :user_id, :enabled, :scope_kind,
+                          CAST(:circle_id AS UUID),
+                          CASE WHEN :enabled THEN NOW() ELSE NULL END,
+                          1, NOW(), NOW()
+                        )
+                        ON CONFLICT (user_id) DO UPDATE SET
+                          enabled = EXCLUDED.enabled,
+                          scope_kind = EXCLUDED.scope_kind,
+                          circle_id = EXCLUDED.circle_id,
+                          enabled_at = CASE WHEN EXCLUDED.enabled THEN NOW() ELSE NULL END,
+                          rule_version = one_location_auto_approve_preferences.rule_version + 1,
+                          updated_at = NOW()
+                        RETURNING enabled, scope_kind, circle_id, enabled_at,
+                                  rule_version, updated_at
+                        """
+                    ),
+                    {
+                        "user_id": user_id,
+                        "enabled": enabled,
+                        "scope_kind": normalized_scope or None,
+                        "circle_id": normalized_circle_id,
+                    },
+                )
+                .mappings()
+                .first()
+            )
+            if not row:
+                raise OneLocationAgentError(
+                    "LOCATION_AUTO_APPROVE_UPDATE_FAILED",
+                    "Could not update auto-approve.",
+                    status_code=500,
+                )
+            stored = dict(row)
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO one_location_events (
+                      owner_user_id, actor_user_id, event_type, metadata, created_at
+                    ) VALUES (
+                      :user_id, :user_id, 'location_auto_approve_rule_changed',
+                      CAST(:metadata_json AS JSONB), NOW()
+                    )
+                    """
+                ),
+                {
+                    "user_id": user_id,
+                    "metadata_json": _json_param(
+                        {
+                            "enabled": bool(stored.get("enabled")),
+                            "scope_kind": str(stored.get("scope_kind") or "") or None,
+                            "circle_id": str(stored.get("circle_id") or "") or None,
+                            "enabled_at": _iso(stored.get("enabled_at")),
+                            "rule_version": int(stored.get("rule_version") or 0),
+                        }
+                    ),
+                },
+            )
+        return self._auto_approve_preference_payload(stored)
+
+    def _lock_current_auto_approve_preference(
+        self,
+        *,
+        user_id: str,
+        expected_rule_version: int,
+    ) -> dict[str, Any]:
+        """Lock and return the exact standing rule an automatic grant cites."""
+        bound_connection = getattr(self, "_key_writer_connection", None)
+        if bound_connection is not None:
+            bound_connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                {"lock_key": f"one-location-auto-approve:{user_id}"},
+            )
+        row = self._execute_one(
+            """
+            SELECT enabled, scope_kind, circle_id, enabled_at, rule_version, updated_at
+            FROM one_location_auto_approve_preferences
+            WHERE user_id = :user_id
+            FOR UPDATE
+            """,
+            {"user_id": user_id},
+        )
+        if (
+            not row
+            or not bool(row.get("enabled"))
+            or int(row.get("rule_version") or 0) != int(expected_rule_version)
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_RULE_STALE",
+                "Auto-approve changed. Review this request.",
+                status_code=409,
+            )
+        scope_kind = str(row.get("scope_kind") or "")
+        circle_id = str(row.get("circle_id") or "") or None
+        if (
+            scope_kind not in {"all_contacts", "circle"}
+            or row.get("enabled_at") is None
+            or (scope_kind == "circle") != bool(circle_id)
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_RULE_INVALID",
+                "Auto-approve is unavailable. Review this request.",
+                status_code=409,
+            )
+        return dict(row)
+
     def get_map_preferences(self, *, user_id: str) -> dict[str, Any]:
         """Return the caller's metadata-only Map visibility preference.
 
@@ -5486,10 +6303,24 @@ class OneLocationAgentService:
         }
 
     def _expire_public_invite(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Settle a public link whose window has closed. The DB clock decides.
+
+        Two clocks used to own this one fact. The window was stamped from the
+        app host's clock, the create path's pre-settle and reuse lookup gated
+        on `NOW()` -- the database's -- and this method compared against the
+        app host's again. An API host running a minute fast therefore killed
+        every link a minute early on the first read, and the owner's countdown,
+        which reads the row, agreed with it; a host running slow let the reuse
+        lookup hand back a link the database already considered dead.
+
+        Now the comparison lives in the statement, beside the write it guards.
+        `updated` is the row only when the database agreed it was past, so
+        there is no branch left that can report an expiry the storage layer
+        does not hold. The cost is one extra statement per read of a live
+        link, which matches at most one row and writes none.
+        """
+
         if not row or str(row.get("status") or "") != "active":
-            return row
-        expires_at = _parse_datetime(row.get("expires_at"), field_name="expires_at")
-        if expires_at > _utcnow():
             return row
         updated = self._execute_one(
             """
@@ -5497,11 +6328,12 @@ class OneLocationAgentService:
             SET status = 'expired', updated_at = NOW()
             WHERE id = CAST(:invite_id AS UUID)
               AND status = 'active'
+              AND expires_at <= NOW()
             RETURNING *
             """,
             {"invite_id": str(row.get("id") or "")},
         )
-        return updated or {**row, "status": "expired"}
+        return updated or row
 
     @staticmethod
     def _project_expired(row: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -5547,30 +6379,202 @@ class OneLocationAgentService:
                 str(exc),
                 status_code=422,
             ) from exc
-        raw_token = secrets.token_urlsafe(32)
-        token_hash = _hash_public_value(raw_token)
-        expires_at = _utcnow() + timedelta(hours=duration)
+        if duration > PUBLIC_INVITE_MAX_DURATION_HOURS:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_INVALID",
+                "A public location link can stay live for at most 1 hour.",
+                status_code=422,
+            )
+        # Validated before either branch below: a malformed snapshot is a 422
+        # whether this call mints a link or refreshes the live one, and doing it
+        # here means the reuse path cannot write a half-checked point.
         public_location = self._public_location_snapshot_payload(location_snapshot)
-        metadata: dict[str, Any] = {}
+        # The name the recipient will see, stamped onto the row so a reader
+        # needs no identity lookup. `resolve_public_invite` resolves it again
+        # when the row predates this write.
+        owner_safe_label = self._public_invite_owner_label(owner_user_id)
+
+        # Expiry is written lazily -- `_expire_public_invite` only flips a row
+        # when something reads it -- so a link whose time has passed can still
+        # be sitting at status 'active'. Settle that here first, or the reuse
+        # check below hands back a dead link instead of minting a fresh one.
+        self._execute_one(
+            """
+            UPDATE one_location_public_invites
+            SET status = 'expired', updated_at = NOW()
+            WHERE owner_user_id = :owner_user_id
+              AND status = 'active'
+              AND expires_at <= NOW()
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+
+        # One live public link per person, enforced where it can actually hold.
+        #
+        # Nothing stopped a second: no unique index, no lookup, just an INSERT.
+        # A reload, a second device or a double tap therefore left two links
+        # resolvable while the screen showed one, and revoking the one on
+        # screen left the other watching. The client now hides its create
+        # control while a link is live, but a client rule is not an invariant --
+        # a stale tab defeats it.
+        #
+        # Reuse rather than reject: this is the same call the person makes when
+        # they mean "give me my link", and a 409 would be a dead end on a
+        # screen whose whole job is to hand it over. Matches
+        # `one_location_circle_service.create_invite_code`, which returns the
+        # circle's existing active code rather than minting a second.
+        existing = self._execute_one(
+            """
+            SELECT *
+            FROM one_location_public_invites
+            WHERE owner_user_id = :owner_user_id
+              AND status = 'active'
+              AND expires_at > NOW()
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+        if existing:
+            existing_token = _public_invite_token_if_derivable(existing)
+            if existing_token:
+                # Reuse used to hand the row back exactly as it was found, and
+                # that made this call lie twice.
+                #
+                # Expiry: the person picked a duration and pressed a control
+                # labelled "Create link". Returning a link with four minutes
+                # left on it because one was minted 56 minutes ago breaks the
+                # only promise the screen makes -- "link stays live for 1 hour"
+                # -- and nothing on screen could contradict it, because the
+                # countdown shown afterwards is read from this row, so it
+                # agreed with the wrong answer. The window is restarted from
+                # now for exactly the duration that was asked for, in both
+                # directions: shortening is equally deliberate, and only the
+                # owner can ask for it.
+                #
+                # Snapshot: the caller has just captured a fresh point (every
+                # entry point runs the readiness gate before it posts). Keeping
+                # the old one meant a reused link opened on where the owner was
+                # up to an hour ago, presented as where they are now.
+                #
+                # Label: written on every pass, so a link minted before the
+                # name was recorded -- or one whose owner has since set a
+                # display name -- stops reading "A trusted person".
+                existing_metadata = _loads_json(existing.get("metadata")) or {}
+                if not isinstance(existing_metadata, dict):
+                    existing_metadata = {}
+                refreshed_metadata = dict(existing_metadata)
+                refreshed_metadata["codeVersion"] = _PUBLIC_INVITE_CODE_VERSION
+                if public_location:
+                    refreshed_metadata["publicLocation"] = public_location
+                if owner_safe_label:
+                    refreshed_metadata["owner_safe_label"] = owner_safe_label
+                refreshed = self._execute_one(
+                    """
+                    UPDATE one_location_public_invites
+                    SET duration_hours = :duration_hours,
+                        expires_at = NOW() + (
+                          CAST(:duration_hours AS double precision) * INTERVAL '1 hour'
+                        ),
+                        metadata = CAST(:metadata_json AS JSONB),
+                        updated_at = NOW()
+                    WHERE id = CAST(:invite_id AS UUID)
+                      AND status = 'active'
+                    RETURNING *
+                    """,
+                    {
+                        "invite_id": str(existing.get("id") or ""),
+                        "duration_hours": duration,
+                        "metadata_json": _json_param_with_public_location(refreshed_metadata),
+                    },
+                )
+                # Only the row the UPDATE actually wrote. The SELECT above and
+                # this UPDATE are separate statements, so a second device -- or
+                # the `revoke_public_link` agent tool -- can revoke the invite
+                # in between; the UPDATE is guarded on `status = 'active'` and
+                # returns nothing when that happens. Falling back to the row
+                # the SELECT read would hand the owner a link whose stored
+                # status still says 'active', so `_public_invite_payload`
+                # would attach a `publicUrl` -- a link they can copy and share
+                # that 410s the first time anyone opens it. Falling through to
+                # the mint path instead gives them a link that works, which is
+                # what they asked for.
+                existing_payload = self._public_invite_payload(refreshed) if refreshed else None
+                if existing_payload:
+                    self._insert_event(
+                        owner_user_id=owner_user_id,
+                        actor_user_id=owner_user_id,
+                        event_type="location_public_invite_created",
+                        metadata={
+                            "invite_id": existing_payload["id"],
+                            "duration_hours": duration,
+                            "location_snapshot": ("attached" if public_location else "none"),
+                            "reused": True,
+                        },
+                    )
+                    return {
+                        "invite": existing_payload,
+                        "publicToken": existing_token,
+                        "publicUrl": _public_invite_url(existing_token),
+                        # The caller asked for a link and got one; it is simply
+                        # the one that was already live. Named so a client can
+                        # tell "created" from "here is the one you have" without
+                        # comparing timestamps.
+                        "reused": True,
+                    }
+            # A row minted before tokens were derivable, or one whose digest no
+            # longer verifies. Its token is genuinely unrecoverable, so leaving
+            # it active would strand the owner behind a link nothing can show.
+            # Retire it and mint a replacement rather than refuse.
+            self._execute_one(
+                """
+                UPDATE one_location_public_invites
+                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                WHERE id = CAST(:invite_id AS UUID)
+                  AND status = 'active'
+                """,
+                {"invite_id": str(existing.get("id") or "")},
+            )
+
+        # The id is chosen here rather than by the default, because the token is
+        # derived FROM it and has to be known before the row exists.
+        invite_id = str(uuid.uuid4())
+        raw_token = _public_invite_token_for_id(invite_id)
+        token_hash = _hash_public_value(raw_token)
+        metadata: dict[str, Any] = {"codeVersion": _PUBLIC_INVITE_CODE_VERSION}
         if public_location:
             metadata["publicLocation"] = public_location
+        # The one field on this row a recipient is ever shown. Circle invites
+        # have recorded it since they shipped; public links never did, which is
+        # the whole reason every shared live location opened as "A trusted
+        # person shared this public location with you" -- the recipient payload
+        # reads `metadata.owner_safe_label` and nothing ever wrote it.
+        if owner_safe_label:
+            metadata["owner_safe_label"] = owner_safe_label
+        # `expires_at` is computed by the database, from the same clock every
+        # read of this row is compared against. Stamping it from the app host
+        # instead put the start of the window on one clock and the end of it on
+        # another, and the difference between them came straight off the time
+        # the owner was promised.
         row = self._execute_one(
             """
             INSERT INTO one_location_public_invites (
-              owner_user_id, public_code_hash, status, duration_hours,
+              id, owner_user_id, public_code_hash, status, duration_hours,
               expires_at, created_at, updated_at, metadata
             )
             VALUES (
+              CAST(:invite_id AS UUID),
               :owner_user_id, :public_code_hash, 'active', :duration_hours,
-              :expires_at, NOW(), NOW(), CAST(:metadata_json AS JSONB)
+              NOW() + (CAST(:duration_hours AS double precision) * INTERVAL '1 hour'),
+              NOW(), NOW(), CAST(:metadata_json AS JSONB)
             )
             RETURNING *
             """,
             {
+                "invite_id": invite_id,
                 "owner_user_id": owner_user_id,
                 "public_code_hash": token_hash,
                 "duration_hours": duration,
-                "expires_at": expires_at,
                 "metadata_json": _json_param_with_public_location(metadata),
             },
         )
@@ -5578,7 +6582,7 @@ class OneLocationAgentService:
         if not invite:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_CREATE_FAILED",
-                "Could not create the public request link.",
+                "Could not create the live location link.",
                 status_code=500,
             )
         self._insert_event(
@@ -5597,12 +6601,113 @@ class OneLocationAgentService:
             "publicUrl": _public_invite_url(raw_token),
         }
 
+    def refresh_public_invite_location(
+        self,
+        *,
+        owner_user_id: str,
+        invite_id: str,
+        location_snapshot: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Move the pin on the owner's live public link to where they are now.
+
+        Without this the snapshot was written once, at create time, and never
+        again -- so a link sold to the recipient as live showed one frozen
+        point for its whole window, under a chip that said "Live" and a share
+        message that said "View my live location". This is the statement that
+        makes those true.
+
+        Deliberately narrow. It writes `metadata.publicLocation` and nothing
+        else: not the window, not the label, not the status. An owner
+        heartbeating their position must never be able to extend their own
+        link past what they agreed to, and `expires_at` is the only thing
+        standing between "I shared for an hour" and "I shared until I
+        remembered to stop".
+
+        Scoped to one owner and one still-live row, so a stale tab that keeps
+        publishing after a revoke gets a 404 rather than quietly resurrecting
+        the pin on a link the owner already stopped.
+        """
+
+        if not owner_user_id:
+            raise OneLocationAgentError(
+                "LOCATION_AUTH_REQUIRED", "A user is required.", status_code=401
+            )
+        public_location = self._public_location_snapshot_payload(location_snapshot)
+        if not public_location:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_LOCATION_INVALID",
+                "Public location links need a valid captured location.",
+                status_code=422,
+            )
+        row = self._execute_one(
+            """
+            SELECT *
+            FROM one_location_public_invites
+            WHERE id = CAST(:invite_id AS UUID)
+              AND owner_user_id = :owner_user_id
+              AND status = 'active'
+              AND expires_at > NOW()
+            LIMIT 1
+            """,
+            {"invite_id": str(invite_id or ""), "owner_user_id": owner_user_id},
+        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
+                "This public location link is no longer active.",
+                status_code=404,
+            )
+        metadata = _loads_json(row.get("metadata")) or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata = dict(metadata)
+        metadata["publicLocation"] = public_location
+        updated = self._execute_one(
+            """
+            UPDATE one_location_public_invites
+            SET metadata = CAST(:metadata_json AS JSONB),
+                updated_at = NOW()
+            WHERE id = CAST(:invite_id AS UUID)
+              AND owner_user_id = :owner_user_id
+              AND status = 'active'
+              AND expires_at > NOW()
+            RETURNING *
+            """,
+            {
+                "invite_id": str(row.get("id") or ""),
+                "owner_user_id": owner_user_id,
+                "metadata_json": _json_param_with_public_location(metadata),
+            },
+        )
+        if not updated:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
+                "This public location link is no longer active.",
+                status_code=404,
+            )
+        invite = self._public_invite_payload(updated)
+        # No event per heartbeat. This runs every twenty seconds for as long as
+        # a link is live; writing an audit row each time would bury the events
+        # that record a decision -- created, revoked, expired -- under a
+        # position log nobody reads.
+        return {"invite": invite}
+
     def _public_invite_row_for_token(self, *, public_token: str) -> dict[str, Any]:
+        """The live row behind a public token, or a refusal the recipient can read.
+
+        Both messages below are rendered verbatim on the recipient's page --
+        `page-client.tsx` takes `loadError.message` straight into the headline --
+        so they are product copy, not internal detail. They said "request link"
+        until the page moved to /view, which left the one screen a person sees
+        when their link has run out describing it as something that asks them
+        for a location rather than shows them one.
+        """
+
         normalized_token = str(public_token or "").strip()
         if len(normalized_token) < 16:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_INVALID",
-                "This request link is invalid.",
+                "This live location link is invalid.",
                 status_code=404,
             )
         row = self._execute_one(
@@ -5618,7 +6723,7 @@ class OneLocationAgentService:
         if not row or str(row.get("status") or "") != "active":
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
-                "This request link is no longer active.",
+                "This live location link is no longer active.",
                 status_code=410 if row else 404,
             )
         return row
@@ -5626,6 +6731,24 @@ class OneLocationAgentService:
     def resolve_public_invite(self, *, public_token: str) -> dict[str, Any]:
         row = self._public_invite_row_for_token(public_token=public_token)
         invite = self._public_invite_payload(row, public=True)
+        # Resolved on read as well as stamped on write.
+        #
+        # Every link minted before the write existed carries no
+        # `owner_safe_label`, and those are exactly the links this change
+        # promises to keep working -- they are already inside messages that
+        # were sent. Without this they would read "A trusted person" forever,
+        # which is the bug, still visible, on the only links anyone currently
+        # holds. It also means a sharer who sets or corrects their display name
+        # is named correctly on a link they created before doing so.
+        #
+        # Read-only: no write is issued here. This endpoint is anonymous, and
+        # a write on an unauthenticated read path is a different kind of
+        # problem from the one being fixed.
+        if invite and invite.get("ownerLabel") == PUBLIC_INVITE_DEFAULT_OWNER_LABEL:
+            invite["ownerLabel"] = (
+                self._public_invite_owner_label(str(row.get("owner_user_id") or ""))
+                or PUBLIC_INVITE_DEFAULT_OWNER_LABEL
+            )
         result = {"invite": invite}
         metadata = _loads_json(row.get("metadata")) or {}
         public_location = metadata.get("publicLocation") if isinstance(metadata, dict) else None
@@ -6145,7 +7268,7 @@ class OneLocationAgentService:
         # rarely-used table) must NOT 500 the whole endpoint. A 500 here cascades
         # into the consent-center contributor (which then returns empty buckets)
         # AND breaks the One Location page on every load. Each section below is
-        # fetched by `_run_read_queries_parallel`, which gives every task the
+        # fetched by `_run_read_queries_parallel`, which gives every auxiliary task the
         # same per-section degrade-to-`[]`-and-log resilience a sequential
         # `_safe_many` call gave it before, while running the 10 independent
         # reads concurrently instead of one cross-continent round trip at a
@@ -6211,6 +7334,13 @@ class OneLocationAgentService:
         # vault-key-encrypted private blob. Scoped to this user_id and returned only
         # here (never in the `recipients` list shown to other users), so a device the
         # user signs into can recover the shared keypair after vault unlock.
+        #
+        # Standing permission is different from the auxiliary projections: an
+        # unavailable read must not look like "off" while a live rule remains
+        # enabled on the server. Query it outside the best-effort batch so the
+        # state request fails visibly on database or permission errors. A real
+        # missing row is still projected as off by this method.
+        auto_approve_preference = self.get_auto_approve_preference(user_id=user_id)
         _sections = self._run_read_queries_parallel(
             [
                 (
@@ -6314,7 +7444,7 @@ class OneLocationAgentService:
                 (
                     "sms_contacts",
                     """
-                    SELECT sms.contact_user_id
+                    SELECT sms.contact_user_id AS contact_user_id
                     FROM one_location_sms_contacts sms
                     WHERE sms.owner_user_id = :user_id
                       AND EXISTS (
@@ -6338,11 +7468,58 @@ class OneLocationAgentService:
                           JOIN one_location_circles circle
                             ON circle.id = mine.circle_id
                            AND circle.status = 'active'
+                           -- A product-managed Circle lists people together without introducing
+                           -- them, and this arm never said so. It joins membership to membership
+                           -- and never mentions `circle.owner_user_id`, so two people became
+                           -- eligible for each other's live location the moment they shared a
+                           -- Circle -- and `list_verified_recipients` uses the same arm, so each
+                           -- appeared in the other's share picker by name.
+                           --
+                           -- On the SMS Circle that is ten strangers, and contradicts that
+                           -- Circle's own design note. On a Trusted Circle holding every
+                           -- connection it would be every PAIR of your connections: 19,900 edges
+                           -- at 200 connections, none of them consented to. An auto-share hook
+                           -- was removed from `accept_request` once already for a smaller
+                           -- version of this.
+                           --
+                           -- So for a Circle the product manages, one side has to be its owner.
+                           -- Circles a person made themselves are untouched: those members chose
+                           -- each other's company.
+                           -- Trusted is excluded outright, not merely owner-scoped.
+                           -- Everyone in it is already a connection, so they satisfy the
+                           -- connection arm above and lose nothing here. What it closes is the
+                           -- other direction: contact sync (#5458) puts matched people into
+                           -- Trusted before they have accepted anything, and membership must not
+                           -- be what makes them shareable. Authority comes from the connection.
+                           -- Trusted records who you are connected to; it never decides who can
+                           -- see you.
+                           AND circle.system_kind IS DISTINCT FROM 'trusted'
+                           AND (
+                             (circle.system_kind IS NULL AND NOT circle.is_system)
+                             OR circle.owner_user_id = mine.user_id
+                             OR circle.owner_user_id = theirs.user_id
+                           )
                           WHERE mine.user_id = :user_id
                             AND mine.status = 'active'
                         )
                       )
-                    ORDER BY sms.created_at, sms.contact_user_id
+
+                    UNION
+
+                    -- The emergency Circle's roster. Same reason as
+                    -- `list_sms_contact_ids`: since #5426 this is where the
+                    -- list actually lives, and driving from
+                    -- `one_location_sms_contacts` alone left anyone added
+                    -- through Circle detail out of the state the client reads.
+                    SELECT membership.user_id AS contact_user_id
+                    FROM one_location_circle_memberships membership
+                    JOIN one_location_circles circle
+                      ON circle.id = membership.circle_id
+                     AND circle.owner_user_id = :user_id
+                     AND circle.is_system
+                     AND circle.status = 'active'
+                    WHERE membership.status = 'active'
+                      AND membership.user_id <> :user_id
                     """,
                     {"user_id": user_id},
                 ),
@@ -6400,6 +7577,7 @@ class OneLocationAgentService:
         return {
             "recipients": recipients,
             "circles": named_circles,
+            "autoApprovePreference": auto_approve_preference,
             "myRecipientKey": my_recipient_key,
             "ownerGrants": [
                 payload
@@ -6496,6 +7674,12 @@ class OneLocationAgentService:
         owner_label = _identity_notification_label(owner_identity)
         recipient_identity = self._identity_row(recipient_user_id or "")
         recipient_label = _identity_notification_label(recipient_identity)
+        # Which lane ended. #5552 made `share_kind` the discriminator between
+        # the emergency (SMS / Save My Soul) lane and every other share, and a
+        # person can hold one of each at the same time -- so "a share ended"
+        # without naming the lane is genuinely ambiguous to the recipient.
+        revoked_share_kind = str(row.get("share_kind") or "").strip().lower()
+        revoked_via_sms = revoked_share_kind == "sos"
         self._insert_event(
             owner_user_id=str(row.get("owner_user_id") or owner_user_id),
             actor_user_id=owner_user_id,
@@ -6505,6 +7689,7 @@ class OneLocationAgentService:
             metadata={
                 "reason": "owner_revoke" if actor_is_owner else "recipient_revoke",
                 "counterpart_label": recipient_label,
+                "share_kind": revoked_share_kind or "standard",
             },
         )
         notification_user_id = (
@@ -6513,11 +7698,24 @@ class OneLocationAgentService:
         self._send_metadata_notification(
             user_id=notification_user_id,
             notification_type="location_share_revoked",
-            title="Location access revoked",
+            # "SMS location sharing" is the recipient's name for this, not
+            # "SOS" -- an SMS alert is how it reached them, and the phrase has
+            # to match what they remember receiving.
+            title=(
+                "SMS location sharing stopped" if revoked_via_sms else "Location access revoked"
+            ),
             body=(
-                f"{owner_label} removed your location access."
+                (
+                    f"{owner_label} stopped sharing their location with you over SMS."
+                    if revoked_via_sms
+                    else f"{owner_label} removed your location access."
+                )
                 if actor_is_owner
-                else f"{recipient_label} stopped receiving your location share."
+                else (
+                    f"{recipient_label} stopped receiving your SMS location sharing."
+                    if revoked_via_sms
+                    else f"{recipient_label} stopped receiving your location share."
+                )
             ),
             notification_tag=f"one-location-revoked:{grant_id}",
             request_url=_one_location_url(
@@ -6529,6 +7727,10 @@ class OneLocationAgentService:
                 "owner_display_label": owner_label,
                 "recipient_user_id": recipient_user_id,
                 "recipient_display_label": recipient_label,
+                # Carried so the client's own fallback copy can name the same
+                # lane instead of re-deriving it from a grant it may no longer
+                # be holding -- the grant is revoked by the time this arrives.
+                "share_kind": revoked_share_kind or "standard",
             },
         )
         return self._grant_payload(row) or {}
@@ -6661,9 +7863,23 @@ class OneLocationAgentService:
         return self._grant_payload(updated) or {}
 
     def _active_grant_between(
-        self, *, owner_user_id: str, recipient_user_id: str
+        self, *, owner_user_id: str, recipient_user_id: str, is_sos_lane: bool | None
     ) -> dict[str, Any] | None:
-        """The live share from owner to recipient, if there is one right now."""
+        """The live share from owner to recipient IN ONE LANE, if there is one.
+
+        A pair can now hold two live grants at once -- one normal share and one
+        SOS -- so "the live share between these two people" is no longer a
+        single well-defined row and this read must say which one it means.
+        ``is_sos_lane`` is required for exactly that reason: left implicit, the
+        ``ORDER BY created_at DESC`` below silently resolves to whichever grant
+        was created most recently, which during an emergency is the SOS grant.
+
+        Pass ``False`` for the normal-share lane, ``True`` for the emergency
+        lane, or ``None`` to deliberately mean "either lane, newest wins" --
+        which is the pre-#5506 behaviour and is almost never what a caller
+        wants.
+        """
+        lane_predicate = "" if is_sos_lane is None else _share_lane_match_sql()
         return self._execute_one(
             """
             SELECT id, expires_at, duration_mode, duration_hours
@@ -6671,11 +7887,20 @@ class OneLocationAgentService:
             WHERE owner_user_id = :owner_user_id
               AND recipient_user_id = :recipient_user_id
               AND status = 'active'
-              AND (expires_at IS NULL OR expires_at > NOW())
+              AND (expires_at IS NULL OR expires_at > NOW())"""  # nosec B608 -
+            # `lane_predicate` is either empty or a module-level constant of static
+            # SQL text, and the lane itself is BOUND as `:is_sos_lane`; nothing
+            # caller-supplied reaches this statement.
+            + lane_predicate
+            + """
             ORDER BY created_at DESC
             LIMIT 1
             """,
-            {"owner_user_id": owner_user_id, "recipient_user_id": recipient_user_id},
+            {
+                "owner_user_id": owner_user_id,
+                "recipient_user_id": recipient_user_id,
+                "is_sos_lane": bool(is_sos_lane),
+            },
         )
 
     def set_grant_duration(
@@ -6872,8 +8097,18 @@ class OneLocationAgentService:
         # crafted id cannot attach an ask to somebody else's grant. When it does
         # not check out we fall back to the real active grant rather than
         # failing: the person is asking for time either way.
+        # Scoped to the NORMAL-SHARE lane on purpose. An access request is an
+        # ask for ordinary visibility, and the only grant it can sensibly be an
+        # extension of is the ordinary one. Unscoped, this read returns the
+        # newest live grant -- so while the owner has an SOS share running with
+        # this same person, a client correctly naming the share it wants
+        # extended was silently redirected onto the SOS grant by the mismatch
+        # fallback below, and `remaining_label` then quoted the SOS grant's
+        # hours back at them. Nobody may extend an emergency share by asking.
         active_grant = self._active_grant_between(
-            owner_user_id=owner_user_id, recipient_user_id=requester_user_id
+            owner_user_id=owner_user_id,
+            recipient_user_id=requester_user_id,
+            is_sos_lane=False,
         )
         active_grant_id = str(active_grant.get("id") or "") if active_grant else ""
         requested_grant_id = str(extends_grant_id or "").strip()
@@ -6959,7 +8194,7 @@ class OneLocationAgentService:
                         requested_duration_mode = :requested_duration_mode,
                         extends_grant_id = CAST(:extends_grant_id AS UUID),
                         request_revision = request_revision + CASE WHEN :ask_changed THEN 1 ELSE 0 END,
-                        requested_at = NOW()
+                        requested_at = CASE WHEN :ask_changed THEN NOW() ELSE requested_at END
                     WHERE id = CAST(:request_id AS UUID)
                       AND status = 'pending'
                     RETURNING *
@@ -7051,10 +8286,12 @@ class OneLocationAgentService:
         *,
         owner_user_id: str,
         request_id: str,
+        approval_mode: str,
         duration_hours: float | None,
         duration_mode: str | None = None,
+        auto_approve_rule_version: int | None = None,
     ) -> dict[str, Any]:
-        """Grant the access that was asked for, defaulting to the amount asked.
+        """Grant the requested access and resolve the ask in one transaction.
 
         ``duration_hours``/``duration_mode`` left as ``None`` means "give them
         what they asked for" -- the owner approved a request that named a
@@ -7063,10 +8300,50 @@ class OneLocationAgentService:
         who had asked for four. An explicitly supplied duration still wins: the
         owner is always free to grant less (or more) than was asked, and the
         approve control sends one whenever they adjust it.
+
+        ``approval_mode`` is required: omission cannot silently turn a cached
+        automatic call into manual consent. Manual approval is the owner's
+        direct action and forbids a rule version. Automatic approval must cite
+        the current server-owned standing-rule version. The pending row,
+        standing rule, relationship, grant, and audit event remain locked until
+        they commit together, so a concurrent denial, withdrawal, or rule
+        revocation cannot be overwritten by a split write.
         """
-        request_row = self._execute_one(
+        normalized_approval_mode = str(approval_mode or "").strip().lower()
+        if normalized_approval_mode not in {"manual", "automatic"}:
+            raise OneLocationAgentError(
+                "LOCATION_APPROVAL_MODE_INVALID",
+                "Refresh and review this request.",
+                status_code=422,
+            )
+        automatic = normalized_approval_mode == "automatic"
+        if automatic and auto_approve_rule_version is None:
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_RULE_INVALID",
+                "Auto-approve is unavailable. Review this request.",
+                status_code=422,
+            )
+        if not automatic and auto_approve_rule_version is not None:
+            raise OneLocationAgentError(
+                "LOCATION_APPROVAL_MODE_INVALID",
+                "Refresh and review this request.",
+                status_code=422,
+            )
+        if automatic and int(auto_approve_rule_version) < 1:
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_RULE_INVALID",
+                "Auto-approve is unavailable. Review this request.",
+                status_code=422,
+            )
+        if automatic and (duration_hours is not None or duration_mode is not None):
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_DURATION_OVERRIDE_INVALID",
+                "Automatic approval must use the requested duration.",
+                status_code=422,
+            )
+        request_identity = self._execute_one(
             """
-            SELECT *
+            SELECT requester_user_id
             FROM one_location_access_requests
             WHERE id = CAST(:request_id AS UUID)
               AND owner_user_id = :owner_user_id
@@ -7075,83 +8352,202 @@ class OneLocationAgentService:
             """,
             {"owner_user_id": owner_user_id, "request_id": request_id},
         )
-        if not request_row:
+        if not request_identity:
             raise OneLocationAgentError(
                 "LOCATION_REQUEST_NOT_FOUND",
                 "Pending location access request was not found.",
                 status_code=404,
             )
-        requester_user_id = str(request_row.get("requester_user_id") or "")
-        requested_hours, requested_mode = _normalized_requested_duration(
-            duration_hours=request_row.get("requested_duration_hours"),
-            duration_mode=request_row.get("requested_duration_mode"),
-        )
-        was_extension = bool(str(request_row.get("extends_grant_id") or "").strip())
-        if duration_hours is None and duration_mode is None:
-            resolved_mode = requested_mode or TIMED_LOCATION_SHARE_DURATION_MODE
-            resolved_hours = (
-                None
-                if _is_until_stopped_share(resolved_mode)
-                else (
-                    requested_hours
-                    if requested_hours is not None
-                    else DEFAULT_APPROVAL_DURATION_HOURS
-                )
+        expected_requester_user_id = str(request_identity.get("requester_user_id") or "")
+
+        with self._key_bound_writer_guard(
+            owner_user_id=owner_user_id,
+            recipient_user_id=expected_requester_user_id,
+        ):
+            request_row = self._execute_one(
+                """
+                SELECT *
+                FROM one_location_access_requests
+                WHERE id = CAST(:request_id AS UUID)
+                  AND owner_user_id = :owner_user_id
+                  AND status = 'pending'
+                LIMIT 1
+                FOR UPDATE
+                """,
+                {"owner_user_id": owner_user_id, "request_id": request_id},
             )
-        else:
-            resolved_mode = duration_mode or TIMED_LOCATION_SHARE_DURATION_MODE
-            resolved_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
-        grant = self.create_grant(
-            owner_user_id=owner_user_id,
-            recipient_user_id=requester_user_id,
-            recipient_key_id=None,
-            duration_hours=resolved_hours,
-            duration_mode=resolved_mode,
-            reason="request_approved",
-            require_recipient_phone_verified=False,
-        )
-        resolved = self._execute_one(
-            """
-            UPDATE one_location_access_requests
-            SET status = 'approved',
-                resolved_at = NOW(),
-                approved_grant_id = CAST(:grant_id AS UUID)
-            WHERE id = CAST(:request_id AS UUID)
-            RETURNING *
-            """,
-            {"request_id": request_id, "grant_id": grant["id"]},
-        )
-        requester_label = _identity_notification_label(self._identity_row(requester_user_id))
-        owner_identity = self._identity_row(owner_user_id)
-        owner_label = _identity_notification_label(owner_identity)
-        granted_hours = _duration_metadata_value(grant.get("durationHours"))
-        granted_mode = grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE
-        granted_label = (
-            "for as long as you need"
-            if _is_until_stopped_share(str(granted_mode))
-            else format_duration_label(granted_hours)
-        )
-        self._insert_event(
-            owner_user_id=owner_user_id,
-            actor_user_id=owner_user_id,
-            recipient_user_id=requester_user_id,
-            grant_id=grant["id"],
-            request_id=request_id,
-            event_type="location_access_approved",
-            metadata={
-                "duration_hours": granted_hours,
-                "duration_mode": granted_mode,
-                "counterpart_label": requester_label,
-                # Swapped in for the requester's copy of this feed row, so they
-                # read the owner's name rather than their own.
-                "owner_label": owner_label,
-                # Kept so the feed can say "You gave them 3 more hours" rather
-                # than reporting an extension as a brand-new share.
-                "is_extension": was_extension,
-                "requested_duration_hours": requested_hours,
-                "requested_duration_mode": requested_mode,
-            },
-        )
+            if not request_row:
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_NOT_FOUND",
+                    "Pending location access request was not found.",
+                    status_code=404,
+                )
+            requester_user_id = str(request_row.get("requester_user_id") or "")
+            if requester_user_id != expected_requester_user_id:
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_CHANGED",
+                    "This request changed. Review it again.",
+                    status_code=409,
+                )
+
+            automatic_preference: dict[str, Any] | None = None
+            automatic_scope = ""
+            automatic_circle_id: str | None = None
+            automatic_enabled_at: datetime | None = None
+            if automatic:
+                automatic_preference = self._lock_current_auto_approve_preference(
+                    user_id=owner_user_id,
+                    expected_rule_version=int(auto_approve_rule_version),
+                )
+                automatic_scope = str(automatic_preference.get("scope_kind") or "")
+                automatic_circle_id = str(automatic_preference.get("circle_id") or "") or None
+                automatic_enabled_at = _parse_datetime(
+                    automatic_preference.get("enabled_at"),
+                    field_name="autoApproveEnabledAt",
+                )
+                requested_at = _parse_datetime(
+                    request_row.get("requested_at"),
+                    field_name="requestedAt",
+                )
+                if requested_at <= automatic_enabled_at:
+                    raise OneLocationAgentError(
+                        "LOCATION_AUTO_APPROVE_REQUEST_OUT_OF_SCOPE",
+                        "This request needs approval.",
+                        status_code=403,
+                    )
+
+            requested_hours, requested_mode = _normalized_requested_duration(
+                duration_hours=request_row.get("requested_duration_hours"),
+                duration_mode=request_row.get("requested_duration_mode"),
+            )
+            was_extension = bool(str(request_row.get("extends_grant_id") or "").strip())
+            if automatic_preference is not None:
+                # Standing permission answers the locked request exactly. A
+                # browser-supplied override is not a fresh owner decision and
+                # must not silently lengthen or reshape what was asked for.
+                resolved_mode = requested_mode or TIMED_LOCATION_SHARE_DURATION_MODE
+                resolved_hours = (
+                    None
+                    if _is_until_stopped_share(resolved_mode)
+                    else (
+                        requested_hours
+                        if requested_hours is not None
+                        else DEFAULT_APPROVAL_DURATION_HOURS
+                    )
+                )
+            elif duration_hours is None and duration_mode is None:
+                resolved_mode = requested_mode or TIMED_LOCATION_SHARE_DURATION_MODE
+                resolved_hours = (
+                    None
+                    if _is_until_stopped_share(resolved_mode)
+                    else (
+                        requested_hours
+                        if requested_hours is not None
+                        else DEFAULT_APPROVAL_DURATION_HOURS
+                    )
+                )
+            else:
+                resolved_mode = duration_mode or TIMED_LOCATION_SHARE_DURATION_MODE
+                resolved_hours = None if _is_until_stopped_share(resolved_mode) else duration_hours
+            if automatic_preference and (
+                _is_until_stopped_share(requested_mode) or _is_until_stopped_share(resolved_mode)
+            ):
+                raise OneLocationAgentError(
+                    "LOCATION_AUTO_APPROVE_DURATION_REQUIRES_APPROVAL",
+                    "Approve ongoing access yourself.",
+                    status_code=403,
+                )
+            grant = self.create_grant(
+                owner_user_id=owner_user_id,
+                recipient_user_id=requester_user_id,
+                recipient_key_id=None,
+                duration_hours=resolved_hours,
+                duration_mode=resolved_mode,
+                reason="request_approved",
+                source_circle_id=(automatic_circle_id if automatic_scope == "circle" else None),
+                require_recipient_phone_verified=False,
+                # Manual approval is explicit owner consent. A standing rule is
+                # narrower and must recheck its relationship under this same
+                # transaction before the grant is inserted.
+                enforce_connection=automatic_preference is not None,
+                require_owned_source_circle=automatic_scope == "circle",
+                _key_writer_guarded=True,
+            )
+            approved_recipient = self._recipient_payload(
+                self._recipient_key_row(
+                    recipient_user_id=requester_user_id,
+                    recipient_key_id=str(grant.get("recipientKeyId") or "") or None,
+                    require_phone_verified=False,
+                ),
+                allow_email_handle=True,
+            )
+            resolved = self._execute_one(
+                """
+                UPDATE one_location_access_requests
+                SET status = 'approved',
+                    resolved_at = NOW(),
+                    approved_grant_id = CAST(:grant_id AS UUID)
+                WHERE id = CAST(:request_id AS UUID)
+                  AND owner_user_id = :owner_user_id
+                  AND status = 'pending'
+                RETURNING *
+                """,
+                {
+                    "owner_user_id": owner_user_id,
+                    "request_id": request_id,
+                    "grant_id": grant["id"],
+                },
+            )
+            if not resolved:
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_CHANGED",
+                    "This request changed. Review it again.",
+                    status_code=409,
+                )
+            requester_label = _identity_notification_label(self._identity_row(requester_user_id))
+            owner_identity = self._identity_row(owner_user_id)
+            owner_label = _identity_notification_label(owner_identity)
+            granted_hours = _duration_metadata_value(grant.get("durationHours"))
+            granted_mode = grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE
+            granted_label = (
+                "for as long as you need"
+                if _is_until_stopped_share(str(granted_mode))
+                else format_duration_label(granted_hours)
+            )
+            self._insert_event(
+                owner_user_id=owner_user_id,
+                actor_user_id=owner_user_id,
+                recipient_user_id=requester_user_id,
+                grant_id=grant["id"],
+                request_id=request_id,
+                event_type="location_access_approved",
+                metadata={
+                    "duration_hours": granted_hours,
+                    "duration_mode": granted_mode,
+                    "counterpart_label": requester_label,
+                    "owner_label": owner_label,
+                    "is_extension": was_extension,
+                    "requested_duration_hours": requested_hours,
+                    "requested_duration_mode": requested_mode,
+                    "approval_mode": "automatic" if automatic_preference else "manual",
+                    "auto_approve_rule_version": (
+                        int(automatic_preference.get("rule_version") or 0)
+                        if automatic_preference
+                        else None
+                    ),
+                    "auto_approve_enabled_at": (
+                        _iso(automatic_preference.get("enabled_at"))
+                        if automatic_preference
+                        else None
+                    ),
+                    "auto_approve_scope_kind": automatic_scope or None,
+                    "auto_approve_circle_id": (
+                        automatic_circle_id if automatic_scope == "circle" else None
+                    ),
+                },
+                required=True,
+            )
+
         if granted_label and was_extension:
             approved_body = f"{owner_label} gave you {granted_label} more of their live location."
         elif granted_label:
@@ -7181,7 +8577,11 @@ class OneLocationAgentService:
                 "is_extension": "true" if was_extension else None,
             },
         )
-        return {"request": self._request_payload(resolved), "grant": grant}
+        return {
+            "request": self._request_payload(resolved),
+            "grant": grant,
+            "recipient": approved_recipient,
+        }
 
     def deny_request(self, *, owner_user_id: str, request_id: str) -> dict[str, Any]:
         row = self._execute_one(

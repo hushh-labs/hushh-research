@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/sheet";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { EmptyState } from "@/components/one-location/redesign/primitives";
+import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
 import type {
   OneLocationCircleEligibleConnection,
   OneLocationCircleEligibleConnections,
@@ -248,7 +249,10 @@ export function CircleInvitePeopleSheet({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search connections"
-              className="h-12 w-full rounded-full border border-border bg-muted/40 pl-11 pr-4 text-base outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+              className={cn(
+                LOCATION_SEARCH_INPUT_CLASSNAME,
+                "h-12 rounded-full bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70",
+              )}
             />
           </label>
 

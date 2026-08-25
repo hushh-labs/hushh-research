@@ -6,7 +6,9 @@ Usage:
     python db/migrate.py --table vault_keys        # Create vault_keys table
     python db/migrate.py --table consent_audit     # Create consent_audit table
     python db/migrate.py --consent                 # Create all consent-related tables
-    python db/migrate.py --release                 # Apply the canonical release lane
+    python db/migrate.py --release                 # Apply the production-safe base lane
+    python db/migrate.py --release --release-environment uat
+                                                 # Apply base + UAT overlay
     python db/migrate.py --dev-extra               # Apply the dev-only parked lane (dev/local only)
     python db/migrate.py --full                    # Drop and recreate ALL tables (DESTRUCTIVE!)
     python db/migrate.py --clear consent_audit     # Clear specific table
@@ -46,14 +48,11 @@ from db.migration_authority import (  # noqa: E402
     establish_baseline,
     load_preservation_evidence,
 )
-
-try:
-    _database_url = get_database_url()
-    _ssl_config = get_database_ssl()
-except EnvironmentError as e:
-    print(f"❌ ERROR: {e}")
-    print("   Set DB_USER, DB_PASSWORD, DB_HOST in .env (and optionally DB_PORT, DB_NAME).")
-    sys.exit(1)
+from hushh_mcp.services.hushh_tech_uat_database_attestation import (  # noqa: E402
+    UAT_DATABASE_ATTESTATION_SQL,
+    is_attested_hushh_tech_uat_database,
+    parse_connected_database_identity,
+)
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 CONSENT_EVOLUTION_MIGRATION_FILES = (
@@ -61,26 +60,49 @@ CONSENT_EVOLUTION_MIGRATION_FILES = (
     "062_consent_exports_export_key_guard.sql",
 )
 RELEASE_MANIFEST_PATH = Path(__file__).resolve().parent / "release_migration_manifest.json"
+RELEASE_ENVIRONMENTS = ("production", "uat")
+UAT_GCP_PROJECT_ID = "hushh-pda-uat"
+UAT_CLOUDSQL_INSTANCE = "hushh-pda-uat:us-central1:hushh-uat-pg"
 
 
-def _load_release_manifest(path: Path) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+def _load_release_manifest(
+    path: Path,
+) -> tuple[
+    tuple[str, ...],
+    dict[str, tuple[str, ...]],
+    tuple[str, ...],
+    tuple[str, ...],
+]:
     if not path.exists():
         raise FileNotFoundError(f"Release migration manifest missing: {path}")
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     ordered = payload.get("ordered_migrations")
+    overlays = payload.get("environment_overlays")
     groups = payload.get("groups", {})
     iam = groups.get("iam")
     pkm = groups.get("pkm")
 
     if not isinstance(ordered, list) or not ordered:
         raise RuntimeError("release_migration_manifest.json must define ordered_migrations")
+    if not isinstance(overlays, dict):
+        raise RuntimeError("release_migration_manifest.json must define environment_overlays")
+    if set(overlays) != {"uat"}:
+        raise RuntimeError(
+            "release_migration_manifest.json environment_overlays must define only uat"
+        )
+    if not isinstance(overlays.get("uat"), list) or not overlays["uat"]:
+        raise RuntimeError("release_migration_manifest.json must define environment_overlays.uat")
     if not isinstance(iam, list) or not iam:
         raise RuntimeError("release_migration_manifest.json must define groups.iam")
     if not isinstance(pkm, list) or not pkm:
         raise RuntimeError("release_migration_manifest.json must define groups.pkm")
 
     ordered_tuple = tuple(str(item).strip() for item in ordered if str(item).strip())
+    overlay_tuples = {
+        environment: tuple(str(item).strip() for item in entries if str(item).strip())
+        for environment, entries in overlays.items()
+    }
     iam_tuple = tuple(str(item).strip() for item in iam if str(item).strip())
     pkm_tuple = tuple(str(item).strip() for item in pkm if str(item).strip())
     ordered_set = set(ordered_tuple)
@@ -88,12 +110,94 @@ def _load_release_manifest(path: Path) -> tuple[tuple[str, ...], tuple[str, ...]
         raise RuntimeError(
             "release_migration_manifest.json groups must be subsets of ordered_migrations"
         )
-    return ordered_tuple, iam_tuple, pkm_tuple
+    canonical_entries = ordered_tuple + tuple(
+        entry for entries in overlay_tuples.values() for entry in entries
+    )
+    if len(canonical_entries) != len(set(canonical_entries)):
+        raise RuntimeError(
+            "release_migration_manifest.json base and environment overlays must not overlap"
+        )
+    return ordered_tuple, overlay_tuples, iam_tuple, pkm_tuple
 
 
-RELEASE_MIGRATION_FILES, IAM_MIGRATION_FILES, PKM_MIGRATION_FILES = _load_release_manifest(
-    RELEASE_MANIFEST_PATH
-)
+(
+    BASE_RELEASE_MIGRATION_FILES,
+    RELEASE_ENVIRONMENT_OVERLAYS,
+    IAM_MIGRATION_FILES,
+    PKM_MIGRATION_FILES,
+) = _load_release_manifest(RELEASE_MANIFEST_PATH)
+# Backward-compatible name for code that imports the production-safe base lane.
+RELEASE_MIGRATION_FILES = BASE_RELEASE_MIGRATION_FILES
+
+
+def canonical_release_environment(release_environment: str) -> str:
+    """Accept only an exact governed lane name; never normalize around a guard."""
+    value = str(release_environment or "")
+    if value not in RELEASE_ENVIRONMENTS:
+        raise ValueError(f"Unsupported release environment: {release_environment!r}")
+    return value
+
+
+def release_migration_files(release_environment: str) -> tuple[str, ...]:
+    """Return the base lane, with the isolated UAT overlay only when requested."""
+    environment = canonical_release_environment(release_environment)
+    if environment == "production":
+        return BASE_RELEASE_MIGRATION_FILES
+    return BASE_RELEASE_MIGRATION_FILES + RELEASE_ENVIRONMENT_OVERLAYS[environment]
+
+
+def assert_uat_release_target(release_environment: str) -> str:
+    """Fail closed before a UAT-only overlay can reach the wrong database."""
+    environment = canonical_release_environment(release_environment)
+    if environment != "uat":
+        return environment
+
+    marker = str(os.getenv("HUSSH_RELEASE_ENVIRONMENT") or "").strip().lower()
+    project_id = str(os.getenv("GCP_PROJECT_ID") or "").strip()
+    instance = str(os.getenv("CLOUDSQL_INSTANCE_CONNECTION_NAME") or "").strip()
+    errors: list[str] = []
+    if marker != "uat":
+        errors.append("HUSSH_RELEASE_ENVIRONMENT must equal uat")
+    if project_id != UAT_GCP_PROJECT_ID:
+        errors.append(f"GCP_PROJECT_ID must equal {UAT_GCP_PROJECT_ID}")
+    if instance != UAT_CLOUDSQL_INSTANCE:
+        errors.append(f"CLOUDSQL_INSTANCE_CONNECTION_NAME must equal {UAT_CLOUDSQL_INSTANCE}")
+    if errors:
+        raise RuntimeError("UAT release target verification failed: " + "; ".join(errors))
+    return environment
+
+
+async def assert_connected_uat_database(connection: asyncpg.Connection) -> None:
+    """Attest the server-derived UAT cluster identity before any write or DDL."""
+    try:
+        row = await connection.fetchrow(UAT_DATABASE_ATTESTATION_SQL)
+    except Exception as exc:
+        raise RuntimeError(
+            "UAT database identity is unavailable; no migrations were attempted"
+        ) from exc
+    if not row:
+        raise RuntimeError("UAT database identity is unavailable; no migrations were attempted")
+    try:
+        identity = parse_connected_database_identity(row)
+    except ValueError as exc:
+        raise RuntimeError(
+            "UAT database identity is unavailable; no migrations were attempted"
+        ) from exc
+    if not is_attested_hushh_tech_uat_database(identity):
+        raise RuntimeError(
+            "Connected database is not the attested UAT target; no migrations were attempted"
+        )
+
+
+async def assert_uat_pool_attested(pool: asyncpg.Pool, release_environment: str) -> str:
+    """Make server attestation the first pool query for UAT init/full paths."""
+    environment = assert_uat_release_target(release_environment)
+    if environment != "uat":
+        return environment
+    async with pool.acquire() as connection:
+        await assert_connected_uat_database(connection)
+    return environment
+
 
 # ============================================================================
 # DEV-ONLY PARKED MIGRATION LANE
@@ -1027,25 +1131,35 @@ async def apply_migration_files(
     *,
     label: str,
     mode: MigrationMode = MigrationMode.REPLAY,
+    connection: asyncpg.Connection | None = None,
 ):
     """Apply an explicit ordered list of SQL migration files."""
     print(f"Running {label} migration set (mode={mode.value})...")
     entries = build_manifest_entries(MIGRATIONS_DIR, filenames)
-    async with pool.acquire() as conn:
+    if connection is not None:
         applied = await apply_manifest_entries(
-            conn,
+            connection,
             entries,
             mode=mode,
             deploy_sha=str(os.getenv("HUSSH_DEPLOY_SHA") or "").strip(),
         )
+    else:
+        async with pool.acquire() as conn:
+            applied = await apply_manifest_entries(
+                conn,
+                entries,
+                mode=mode,
+                deploy_sha=str(os.getenv("HUSSH_DEPLOY_SHA") or "").strip(),
+            )
     for filename in applied:
         print(f"  -> applied {filename}")
     skipped = len(entries) - len(applied)
     print(f"{label} migration set complete! applied={len(applied)} skipped={skipped}")
 
 
-async def run_full_migration(pool: asyncpg.Pool):
+async def run_full_migration(pool: asyncpg.Pool, *, release_environment: str = "production"):
     """Drop all tables and recreate (DESTRUCTIVE!)."""
+    release_environment = await assert_uat_pool_attested(pool, release_environment)
     print("⚠️  FULL MIGRATION - This will DROP all tables!")
     print("🗑️  Dropping existing tables...")
 
@@ -1112,7 +1226,7 @@ async def run_full_migration(pool: asyncpg.Pool):
     print("[15/15] Creating developer registry (public MCP beta auth)...")
     await create_developer_registry(pool)
     print("[16/16] Applying canonical release migrations...")
-    await run_release_migration(pool)
+    await run_release_migration(pool, release_environment=release_environment)
 
     print("\n✅ Full migration complete!")
 
@@ -1137,9 +1251,32 @@ async def run_pkm_migration(pool: asyncpg.Pool, *, mode: MigrationMode = Migrati
     await apply_migration_files(pool, PKM_MIGRATION_FILES, label="PKM schema", mode=mode)
 
 
-async def run_release_migration(pool: asyncpg.Pool, *, mode: MigrationMode = MigrationMode.REPLAY):
-    """Apply the full canonical release schema lane used by operators and UAT automation."""
-    await apply_migration_files(pool, RELEASE_MIGRATION_FILES, label="release schema", mode=mode)
+async def run_release_migration(
+    pool: asyncpg.Pool,
+    *,
+    mode: MigrationMode = MigrationMode.REPLAY,
+    release_environment: str = "production",
+):
+    """Apply the selected canonical release lane; production is the safe default."""
+    release_environment = assert_uat_release_target(release_environment)
+    filenames = release_migration_files(release_environment)
+    if release_environment == "uat":
+        async with pool.acquire() as connection:
+            await assert_connected_uat_database(connection)
+            await apply_migration_files(
+                pool,
+                filenames,
+                label=f"{release_environment} release schema",
+                mode=mode,
+                connection=connection,
+            )
+        return
+    await apply_migration_files(
+        pool,
+        filenames,
+        label=f"{release_environment} release schema",
+        mode=mode,
+    )
 
 
 async def _record_dev_migration(
@@ -1258,11 +1395,19 @@ async def run_dev_extra_migration(
     return tuple(applied)
 
 
-async def establish_release_baseline(pool: asyncpg.Pool, evidence_path: Path) -> None:
+async def establish_release_baseline(
+    pool: asyncpg.Pool,
+    evidence_path: Path,
+    *,
+    release_environment: str = "production",
+) -> None:
     """Record an explicit UAT/local baseline without replaying historical SQL."""
+    release_environment = assert_uat_release_target(release_environment)
     evidence = load_preservation_evidence(evidence_path)
-    entries = build_manifest_entries(MIGRATIONS_DIR, RELEASE_MIGRATION_FILES)
+    entries = build_manifest_entries(MIGRATIONS_DIR, release_migration_files(release_environment))
     async with pool.acquire() as conn:
+        if release_environment == "uat":
+            await assert_connected_uat_database(conn)
         marker = await establish_baseline(
             conn,
             entries,
@@ -1290,12 +1435,13 @@ async def run_consent_evolution_migration(pool: asyncpg.Pool):
     print("Consent evolution migration complete!")
 
 
-async def run_init_migration(pool: asyncpg.Pool):
+async def run_init_migration(pool: asyncpg.Pool, *, release_environment: str = "production"):
     """
     Initialize all tables in correct dependency order.
     Non-destructive - uses CREATE TABLE IF NOT EXISTS.
     Safe for first-time setup or adding missing tables.
     """
+    release_environment = await assert_uat_pool_attested(pool, release_environment)
     print("Initializing database tables (non-destructive)...")
 
     # Create in dependency order
@@ -1338,7 +1484,7 @@ async def run_init_migration(pool: asyncpg.Pool):
     print("[15/15] Creating developer registry (public MCP beta auth)...")
     await create_developer_registry(pool)
     print("[16/16] Applying canonical release migrations...")
-    await run_release_migration(pool)
+    await run_release_migration(pool, release_environment=release_environment)
 
     print("\nAll tables initialized successfully!")
 
@@ -1423,7 +1569,9 @@ Examples:
   python db/migrate.py --iam                     # Apply IAM schema foundation
   python db/migrate.py --pkm                     # Apply PKM evolution migrations
   python db/migrate.py --consent-evolution       # Apply strict consent export evolution
-  python db/migrate.py --release                 # Apply the ordered release migration manifest
+  python db/migrate.py --release                 # Apply production base lane (safe default)
+  python db/migrate.py --release --release-environment uat
+                                               # Apply base plus UAT overlay
   python db/migrate.py --dev-extra               # Apply the dev-only parked lane (dev/local only)
   python db/migrate.py --full                    # Full reset (WARNING: DESTRUCTIVE!)
   python db/migrate.py --status                  # Show table summary
@@ -1468,6 +1616,16 @@ Examples:
             "(db/migrations/parked/). Applied automatically alongside --release/--init/"
             "--full when GCP_PROJECT_ID is the dev project; this flag forces it for "
             "manual/local runs. Never applies in UAT or production."
+        ),
+    )
+    parser.add_argument(
+        "--release-environment",
+        choices=RELEASE_ENVIRONMENTS,
+        default="production",
+        help=(
+            "Select the release lane: production applies only ordered_migrations; "
+            "uat applies ordered_migrations plus environment_overlays.uat. "
+            "Defaults to production."
         ),
     )
     parser.add_argument(
@@ -1540,36 +1698,49 @@ Examples:
     ):
         parser.error("--establish-baseline cannot be combined with schema mutation options")
 
-    # Mask password in URL for display
-    display_url = _database_url
+    if args.release_environment == "uat" and any(
+        [args.init, args.release, args.establish_baseline, args.full]
+    ):
+        assert_uat_release_target(args.release_environment)
+
     try:
-        parts = _database_url.split(":")
+        database_url = get_database_url()
+        ssl_config = get_database_ssl()
+    except EnvironmentError as exc:
+        print(f"ERROR: {exc}")
+        print("Set DB_USER, DB_PASSWORD, DB_HOST in .env (and optionally DB_PORT, DB_NAME).")
+        raise SystemExit(1) from exc
+
+    # Mask password in URL for display
+    display_url = database_url
+    try:
+        parts = database_url.split(":")
         if len(parts) >= 3 and "@" in parts[2]:
             display_url = (
                 f"{parts[0]}:{parts[1]}:****@{parts[2].split('@')[1]}:{':'.join(parts[3:])}"
             )
     except Exception:
-        display_url = _database_url
+        display_url = database_url
     print("Connecting to database (DB_* env)...")
     print(f"   URL: {display_url}")
-    if _ssl_config:
+    if ssl_config:
         print("   SSL: enabled (Cloud SQL)")
 
     pool = await asyncpg.create_pool(
-        _database_url,
+        database_url,
         min_size=1,
         max_size=2,
-        ssl=_ssl_config,
+        ssl=ssl_config,
     )
 
     try:
         print("Connected successfully!")
 
         if args.init:
-            await run_init_migration(pool)
+            await run_init_migration(pool, release_environment=args.release_environment)
 
         if args.full:
-            await run_full_migration(pool)
+            await run_full_migration(pool, release_environment=args.release_environment)
 
         if args.table:
             table_func = TABLE_CREATORS.get(args.table)
@@ -1590,7 +1761,11 @@ Examples:
         if args.consent_evolution:
             await run_consent_evolution_migration(pool)
         if args.release:
-            await run_release_migration(pool, mode=migration_mode)
+            await run_release_migration(
+                pool,
+                mode=migration_mode,
+                release_environment=args.release_environment,
+            )
 
         # Dev-only tail. Runs after the release lane so the parked 900-band
         # migrations land on top of the canonical schema. Implicit activation is
@@ -1606,7 +1781,11 @@ Examples:
             await run_dev_extra_migration(pool, mode=migration_mode)
 
         if args.establish_baseline:
-            await establish_release_baseline(pool, args.establish_baseline)
+            await establish_release_baseline(
+                pool,
+                args.establish_baseline,
+                release_environment=args.release_environment,
+            )
 
         if args.clear:
             await clear_table(pool, args.clear)

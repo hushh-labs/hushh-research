@@ -9,9 +9,19 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import { Check, Loader2, Phone, Plus, SendHorizontal } from "lucide-react";
+import { Check, Loader2, Phone } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { TaskFlowHeader } from "./primitives";
 import { SUBCARD_SURFACE } from "./tokens";
@@ -25,7 +35,7 @@ import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-l
 const HOLD_DURATION_MS = 2_000;
 export type SmsQuickMessage = "Come get me" | "I'm not safe";
 /**
- * The two presets from the Save my Soul design. Picking one writes its text
+ * The two presets from the Save My Soul design. Picking one writes its text
  * into the single always-visible message field instead of holding a separate
  * "which preset is selected" state: to the sender a preset and a typed note
  * are the same thing, so there is only ever one message to reason about.
@@ -75,12 +85,12 @@ export type SosPanelProps = {
    */
   onTrigger: (message?: string | null) => void | Promise<void>;
   /**
-   * Stop a live SMS/SOS session: revokes the location grants created by the
+   * Stop a live SMS session: revokes the location grants created by the
    * alert AND clears the incident, so "SENT · Live now" resets. Kept separate
    * from `onClose` (which only closes the screen without stopping sharing).
    */
   onStopSos: () => void;
-  /** True while the stop request is in flight (shows a spinner on Cancel). */
+  /** True while the stop request is in flight. */
   stopBusy: boolean;
   onClose: () => void;
   onEditContacts: () => void;
@@ -92,18 +102,6 @@ export type SosPanelProps = {
   onResolveEmergencyNumber: () => void;
 };
 
-function firstNameOf(label: string): string {
-  return label.trim().split(/\s+/)[0] || label.trim();
-}
-
-function formatNames(names: string[]): string {
-  if (names.length === 0) return "";
-  if (names.length === 1) return names[0]!;
-  if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`;
-  return `${names[0]}, ${names[1]} and ${names.length - 2} others`;
-}
-
 export function SosPanel({
   recipients,
   active,
@@ -111,15 +109,15 @@ export function SosPanel({
   onTrigger,
   onStopSos,
   stopBusy,
-  onClose,
   onEditContacts,
-  recipientLabel,
   isRecipientShareReady,
   emergency,
   emergencyStatus,
   onResolveEmergencyNumber,
 }: SosPanelProps) {
   const [customMessage, setCustomMessage] = useState("");
+  const [messageFocused, setMessageFocused] = useState(false);
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
 
   /**
    * The message that actually went out, held for as long as the alert is live.
@@ -144,15 +142,6 @@ export function SosPanel({
     () => recipients.filter(isRecipientShareReady),
     [isRecipientShareReady, recipients],
   );
-  const names = useMemo(
-    () =>
-      formatNames(
-        readyRecipients.map((recipient) =>
-          firstNameOf(recipientLabel(recipient)),
-        ),
-      ),
-    [readyRecipients, recipientLabel],
-  );
   const customMessageLength = customMessage.length;
   const customMessageLimitExceeded =
     customMessageLength > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH;
@@ -161,24 +150,27 @@ export function SosPanel({
   // stay reachable in the state someone is actually in when they need it.
   const selectedMessage = customMessage.trim() || null;
   const customMessageInvalid = customMessageLimitExceeded;
-  // True when the owner has not added any share-ready SMS contact yet. In this
-  // case we keep the button PRESSABLE (see `hardDisabled` below) so the hold
-  // handler can surface an actionable toast instead of silently doing nothing.
   const noReadyRecipients = readyRecipients.length === 0;
-  // Blockers that must keep the button truly inert (sending in progress, already
-  // live, or an invalid custom message). Missing contacts is intentionally NOT
-  // here so the press can explain what to do.
   const hardDisabled = busy || active || customMessageInvalid;
-  // Full guard used by the hold-completion path so a hold can never actually
-  // send an SMS while there are no ready recipients.
   const disabled = hardDisabled || noReadyRecipients;
   const shouldFallbackWindowsEmergencyCall =
     isWindowsDesktopEmCallUnsupported();
-  // Radar pulse is active the moment the user starts pressing, and keeps
-  // emanating continuously while the SMS is sending and after it goes live.
-  const showPulse = active || busy || progress > 0;
   // Editing is closed from the moment the alert is sent until it is cancelled.
   const messageLocked = active || busy;
+  const recipientCount = readyRecipients.length;
+  const recipientCountLabel =
+    recipientCount === 1 ? "1 contact" : `${recipientCount} contacts`;
+  const recipientSummary = `Alerts ${recipientCountLabel}`;
+  const showMessageCount =
+    messageFocused ||
+    customMessageLength > 0 ||
+    customMessageLength >= ONE_LOCATION_SHARE_NOTE_MAX_LENGTH - 20 ||
+    customMessageLimitExceeded;
+  const messageDescribedBy = customMessageLimitExceeded
+    ? "sos-short-message-error sos-short-message-count"
+    : showMessageCount
+      ? "sos-short-message-count"
+      : undefined;
 
   // Endpoint of each half-arc, computed directly from `progress` rather than
   // via stroke-dasharray/-dashoffset. The dash trick reliably anchors growth
@@ -196,7 +188,7 @@ export function SosPanel({
   const ringLeftArcD = `M${RING_CENTER},${RING_CENTER - RING_RADIUS} A${RING_RADIUS},${RING_RADIUS} 0 0 0 ${RING_CENTER - ringEndDx},${ringEndY}`;
 
   // The alert ending is the only thing that releases the record and the lock.
-  // Cancelling is deliberately the single escape: an editable picker over a
+  // Stopping is deliberately the single escape: an editable picker over a
   // live alert invites someone to believe they have changed a message that has
   // already been delivered.
   useEffect(() => {
@@ -253,37 +245,14 @@ export function SosPanel({
   }, []);
 
   const startHold = useCallback(() => {
-    if (hardDisabled || holdStartedAtRef.current || firedRef.current) return;
-    if (noReadyRecipients) {
-      toast.error(
-        "Please add at least one contact in your SMS emergency contact list.",
-      );
-      return;
-    }
+    if (disabled || holdStartedAtRef.current || firedRef.current) return;
     holdStartedAtRef.current = performance.now();
     setProgress(0);
     frameRef.current = requestAnimationFrame(updateProgress);
     timeoutRef.current = setTimeout(completeHold, HOLD_DURATION_MS);
-  }, [completeHold, hardDisabled, noReadyRecipients, updateProgress]);
+  }, [completeHold, disabled, updateProgress]);
 
   const cancelHold = useCallback(() => clearHold(true), [clearHold]);
-
-  /**
-   * Send button inside the message box. A typed message is already a deliberate
-   * act, so this sends immediately rather than asking for a second two-second
-   * hold. Enter deliberately still inserts a newline: an emergency alert must
-   * not be one stray keystroke away.
-   */
-  const handleSendCustomMessage = useCallback(() => {
-    if (hardDisabled) return;
-    if (noReadyRecipients) {
-      toast.error(
-        "Please add at least one contact in your SMS emergency contact list.",
-      );
-      return;
-    }
-    fireTrigger();
-  }, [fireTrigger, hardDisabled, noReadyRecipients]);
 
   useEffect(() => {
     const onWindowBlur = () => cancelHold();
@@ -361,14 +330,12 @@ export function SosPanel({
     try {
       await navigator.clipboard.writeText(emergency.number);
       setWindowsCopyStatus("copied");
-      toast.success(`${emergency.number} copied`, {
-        description: `This browser cannot open a dialer. Call ${emergency.number} from your phone now — ${emergency.countryName}.`,
+      toast.success(`${emergency.number} copied. Call from your phone.`, {
         duration: 10_000,
       });
     } catch {
       setWindowsCopyStatus("error");
-      toast.error("Could not copy the number", {
-        description: `Dial ${emergency.number} from your phone now — ${emergency.countryName}.`,
+      toast.error(`Call ${emergency.number} from your phone.`, {
         duration: 10_000,
       });
     }
@@ -378,127 +345,151 @@ export function SosPanel({
     setWindowsCopyStatus("idle");
   }, [emergency?.number]);
 
-  // The alert's own status line, shown where the design puts "Hold to send
-  // location". It carries every state the ring can be in, so the ring itself
-  // never has to grow a second label.
+  // The alert's own status line carries every state the ring can be in, so the
+  // ring itself never has to grow a second label.
   const statusLabel = busy
-    ? "Sending…"
+    ? "Sending alert…"
     : active
-      ? "Live location"
+      ? "Alert active"
       : progress > 0
-        ? `${Math.max(0, 2 - progress * 2).toFixed(1)} s`
-        : "Hold to send location";
+        ? `Holding ${Math.max(1, Math.ceil(2 - progress * 2))} s`
+        : noReadyRecipients
+          ? "Add contacts to alert"
+          : "Hold to alert contacts";
 
   const quickPill =
-    "press-scale flex h-[52px] flex-1 items-center justify-center rounded-xl text-[16px] tracking-[-0.3px] transition-colors lg:h-14 lg:text-[17px] lg:tracking-[-0.37px]";
+    "press-scale flex h-11 flex-1 items-center justify-center rounded-xl text-[15px] font-medium leading-5 transition-colors sm:h-12";
+
+  const callControl =
+    emergencyStatus === "resolved" && emergency ? (
+      shouldFallbackWindowsEmergencyCall ? (
+        <button
+          type="button"
+          onClick={handleWindowsEmergencyCopy}
+          aria-label={`Copy ${emergency.number} emergency services (${emergency.countryName})`}
+          className="press-scale ml-auto flex min-h-11 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-destructive)] px-4 text-[15px] font-semibold leading-5 text-[color:var(--app-destructive-fg)] transition-opacity hover:opacity-90"
+        >
+          {windowsCopyStatus === "copied" ? "Copied" : "Copy"}
+        </button>
+      ) : (
+        <a
+          href={`tel:${emergency.number}`}
+          aria-label={`Call ${emergency.number} emergency services (${emergency.countryName})`}
+          className="press-scale ml-auto flex min-h-11 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-destructive)] px-4 text-[15px] font-semibold leading-5 text-[color:var(--app-destructive-fg)] transition-opacity hover:opacity-90"
+        >
+          Call
+        </a>
+      )
+    ) : (
+      <button
+        type="button"
+        onClick={onResolveEmergencyNumber}
+        disabled={emergencyStatus === "resolving"}
+        aria-label={
+          emergencyStatus === "unavailable"
+            ? "Retry local emergency number"
+            : emergencyStatus === "resolving"
+              ? "Finding local emergency number"
+              : "Find local emergency number"
+        }
+        className="press-scale ml-auto flex min-h-11 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-destructive)] px-4 text-[15px] font-semibold leading-5 text-[color:var(--app-destructive-fg)] transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
+      >
+        {emergencyStatus === "resolving" ? (
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        ) : emergencyStatus === "unavailable" ? (
+          "Retry"
+        ) : (
+          "Find"
+        )}
+      </button>
+    );
 
   return (
-    // SOS is a Location task flow, not a separate app. It renders INSIDE the
+    // SMS is a Location task flow, not a separate app. It renders INSIDE the
     // signed-in shell like every other `?action=…` flow (Settings, Check-In,
     // Shared with me), so the top bar keeps showing the single back control,
-    // the "Location › Save my Soul" breadcrumb and the profile avatar. It used
+    // the "Location › SMS" breadcrumb and the profile avatar. It used
     // to escape the shell as a pinned full-viewport black overlay, which is
     // what removed all three and forced a second back button into the content.
     <section data-testid="sms-safety-screen">
-      {/* Same header grammar as every other Location screen: the crumb text and
-          the heading are the same words. Back lives in the top bar only. */}
       <TaskFlowHeader
-        title="Save my Soul"
-        // Two facts, and only the two the screen cannot show: who it reaches,
-        // and that it sends where you are. "Hold to…" was the third statement
-        // of an instruction the button itself carries and the line under it
-        // repeats verbatim.
-        //
-        // Still the literal truth, which matters more here than anywhere else
-        // in the product: this creates a location grant and fires one push, so
-        // it needs the network and it is not an offline text message. Someone
-        // may hold this instead of calling for help.
+        title="Save My Soul"
         description="Alerts your emergency contacts with your live location."
       />
 
-      {/* The design's top-right actions. The screen's own title moved into the
-          header above, so only the two controls remain here. */}
-      <div className="mt-4 flex flex-wrap items-center justify-end gap-x-6 gap-y-2 sm:gap-x-8">
-        {active ? (
-          <span className="mr-auto flex items-center gap-2 sm:mr-0">
-            <span
-              aria-hidden
-              className="h-[7px] w-[7px] rounded-full bg-[color:var(--app-destructive)]"
-            />
-            <span className="text-[15px] font-medium tracking-[-0.2px] text-[color:var(--app-destructive)]">
-              Live
+      <div className="mx-auto mt-5 w-full max-w-[560px] space-y-3">
+        <div
+          data-testid="sos-emergency-actions"
+          className="flex min-h-[64px] items-center gap-3 rounded-[20px] border border-[color:var(--app-destructive)]/18 bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.06)]"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-[color:var(--app-destructive)]/10 text-[color:var(--app-destructive)]">
+            <Phone className="h-5 w-5 fill-current" aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[17px] font-semibold leading-[22px] text-[color:var(--app-destructive)]">
+              Call local emergency services
+            </span>
+            <span className="block truncate text-[13px] leading-[18px] text-muted-foreground">
+              {emergencyStatus === "resolved" && emergency
+                ? shouldFallbackWindowsEmergencyCall
+                  ? `${emergency.number} · ${emergency.countryName}`
+                  : `${emergency.number} · ${emergency.countryName}`
+                : emergencyStatus === "resolving"
+                  ? "Finding local number"
+                  : emergencyStatus === "unavailable"
+                    ? "Location unavailable"
+                    : "Use your location"}
             </span>
           </span>
+          {callControl}
+        </div>
+
+        <div className="flex min-h-[64px] items-center gap-3 rounded-[20px] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-[color:var(--app-destructive)]/10 text-[color:var(--app-destructive)]">
+            <Check className="h-5 w-5" aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[17px] font-semibold leading-[22px] text-foreground">
+              Emergency contacts
+            </span>
+            <span className="block text-[13px] leading-[18px] text-muted-foreground">
+              {active ? `${recipientCountLabel} alerted` : `${recipientCountLabel} selected`}
+            </span>
+          </span>
+          {!active ? (
+            <button
+              type="button"
+              onClick={onEditContacts}
+              aria-label="Edit emergency contacts"
+              className="press-scale min-h-11 shrink-0 rounded-full px-3 text-[15px] font-semibold leading-5 text-[color:var(--app-accent)]"
+            >
+              {noReadyRecipients ? "Add" : "Edit"}
+            </button>
+          ) : null}
+        </div>
+
+        {noReadyRecipients ? (
+          <div className="rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
+            <p className="text-[17px] font-semibold leading-[22px] text-foreground">
+              No emergency contacts
+            </p>
+            <p className="mt-0.5 text-[15px] leading-5 text-muted-foreground">
+              Add at least one contact to send an alert.
+            </p>
+          </div>
         ) : null}
-        <button
-          type="button"
-          onClick={onEditContacts}
-          aria-label="Edit SMS contacts"
-          className="press-scale flex items-center gap-[7px] text-[15px] tracking-[-0.2px] text-[color:var(--sos-label)] transition-colors hover:text-foreground"
-        >
-          <Plus className="h-[15px] w-[15px]" strokeWidth={1.8} aria-hidden />
-          <span>Contacts</span>
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="press-scale text-[15px] tracking-[-0.2px] text-[color:var(--sos-label)] transition-colors hover:text-foreground"
-        >
-          Cancel
-        </button>
       </div>
 
       {/* One centered column at every width. The ring, its label and the
           message controls scale together; nothing splits into a desktop grid. */}
-      <div className="mt-8 flex flex-col items-center lg:mt-10">
-        <div className="relative flex aspect-square w-[232px] items-center justify-center sm:w-[288px] lg:w-[344px]">
-          {/* Ambient bloom behind the core — sized off the ring so it grows
-              with it instead of needing its own breakpoints. */}
-          <span
-            aria-hidden
-            className="pointer-events-none absolute h-[180%] w-[180%] rounded-full"
-            style={{
-              background:
-                "radial-gradient(closest-side, rgb(var(--sos-glow-rgb) / 0.2), rgb(var(--sos-glow-rgb) / 0) 72%)",
-            }}
-          />
-
-          {/* Alarm rings, emanating while the hold runs and while the alert is
-              live. `vector-effect` keeps the stroke a true 2px/3px at every
-              size, so the ring does not thin out on a phone. */}
-          {showPulse ? (
-            <>
-              <span
-                aria-hidden
-                data-sos-pulse
-                className="absolute h-[64%] w-[64%] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite]"
-              />
-              <span
-                aria-hidden
-                data-sos-pulse
-                className="absolute h-[64%] w-[64%] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:0.73s]"
-              />
-              <span
-                aria-hidden
-                data-sos-pulse
-                className="absolute h-[64%] w-[64%] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:1.46s]"
-              />
-            </>
-          ) : null}
-
-          {active ? (
-            <>
-              <span
-                aria-hidden
-                data-sos-pulse
-                className="absolute inset-0 rounded-full border border-[color:var(--app-destructive)]/50 [animation:sosHalo_2.8s_cubic-bezier(0.4,0,0.2,1)_infinite]"
-              />
-              <span
-                aria-hidden
-                data-sos-pulse
-                className="absolute inset-0 rounded-full border border-[color:var(--app-destructive)]/50 [animation:sosHalo_2.8s_cubic-bezier(0.4,0,0.2,1)_1.4s_infinite]"
-              />
-            </>
+      <div className="mt-6 flex flex-col items-center sm:mt-7">
+        <div className="relative flex aspect-square w-[216px] items-center justify-center sm:w-[232px] lg:w-[264px]">
+          {progress > 0 ? (
+            <span
+              aria-hidden
+              data-sos-pulse
+              className="absolute inset-1 rounded-full bg-[color:var(--app-destructive)]/8"
+            />
           ) : null}
 
           <svg
@@ -554,11 +545,10 @@ export function SosPanel({
             <button
               type="button"
               // Only HARD blockers (sending, already live, an over-length
-              // message) disable the control. When the sole blocker is "no SMS
-              // contacts added" the button stays pressable, so the hold handler
-              // can show an actionable toast instead of the press doing nothing.
-              disabled={hardDisabled}
-              aria-label="Press and hold for two seconds to send SMS"
+              // message) disable the control. Missing contacts disables it too,
+              // with the inline blocker explaining the next action.
+              disabled={disabled}
+              aria-label={`Press and hold for two seconds to send Save My Soul SMS alert with your live location to ${recipientCountLabel}`}
               onPointerDown={handlePointerDown}
               onPointerUp={handlePointerEnd}
               onPointerCancel={handlePointerEnd}
@@ -580,17 +570,17 @@ export function SosPanel({
                   "linear-gradient(180deg, var(--sos-core-from) 0%, var(--sos-core-to) 100%)",
                 boxShadow:
                   progress > 0
-                    ? "0 0 118px 16px rgb(var(--sos-glow-rgb) / 0.44), inset 0 1px 0 rgba(255,255,255,0.24)"
-                    : "0 0 64px 4px rgb(var(--sos-glow-rgb) / 0.2), inset 0 1px 0 rgba(255,255,255,0.24)",
+                    ? "0 16px 42px rgb(var(--sos-glow-rgb) / 0.24), inset 0 1px 0 rgba(255,255,255,0.24)"
+                    : "0 10px 28px rgb(var(--sos-glow-rgb) / 0.16), inset 0 1px 0 rgba(255,255,255,0.24)",
               }}
             >
               {/* "SMS", the name this feature carries everywhere else in the
-                  product — the Location menu tile is "SMS / Save my soul", and
+                  product — the Location menu tile is "SMS / Save My Soul", and
                   the outgoing message is an SMS. Only the visible glyph
                   changes: every identifier (data-testid, event name, scope
                   handle, backend enum) still says sos, because those are
                   contracts, not copy. */}
-              <span className="text-[44px] font-semibold tracking-[1.5px] lg:text-[64px] lg:tracking-[2px]">
+              <span className="text-[42px] font-semibold tracking-[1px] sm:text-[46px]">
                 SMS
               </span>
             </button>
@@ -599,19 +589,16 @@ export function SosPanel({
 
         <p
           data-testid="sos-status-label"
-          className="mt-[26px] text-center text-[15px] tracking-[-0.2px] text-[color:var(--sos-label)] lg:mt-[34px] lg:text-[17px] lg:tracking-[-0.37px]"
+          className="mt-4 text-center text-[15px] font-medium leading-5 text-[color:var(--sos-label)]"
         >
           {statusLabel}
         </p>
 
-        {/* Who the SMS reaches. The design has no equivalent, but sending an
-            emergency message to an audience you cannot see is not a thing to
-            ask anyone to do. */}
-        <p className="mt-2 max-w-full truncate px-2 text-center text-[13px] text-[color:var(--sos-label)]">
-          {names ? `Alerts ${names}` : "No emergency contacts selected"}
+        <p className="mt-1 max-w-full truncate px-2 text-center text-[13px] leading-[18px] text-muted-foreground">
+          {noReadyRecipients ? "No emergency contacts" : recipientSummary}
         </p>
 
-        <div className="mt-9 flex w-full max-w-[520px] flex-col gap-2.5 lg:mt-[52px] lg:gap-3">
+        <div className="mt-6 flex w-full max-w-[560px] flex-col gap-3">
           {/* What actually went out. A live alert with an editable field and no
               record of the sent text left people unsure which message their
               contacts had received — and free to change a selection that could
@@ -625,14 +612,14 @@ export function SosPanel({
                 "p-3 text-[13px] leading-relaxed text-foreground",
               )}
             >
-              <p className="font-semibold">{busy ? "Sending" : "Alert sent"}</p>
+              <p className="font-semibold">{busy ? "Sending alert" : "Alert active"}</p>
+              <p className="mt-1 text-muted-foreground">
+                Live location shared with {recipientCountLabel}.
+              </p>
               <p className="mt-1 text-muted-foreground">
                 {sentMessage
                   ? `“${sentMessage}”`
-                  : "Your location, with no message."}
-              </p>
-              <p className="mt-2 text-muted-foreground/70">
-                Cancel to change it.
+                  : "No message added."}
               </p>
             </div>
           ) : null}
@@ -683,51 +670,22 @@ export function SosPanel({
             <input
               id="sos-short-message"
               type="text"
-              aria-describedby={
-                customMessageLimitExceeded
-                  ? "sos-short-message-count sos-short-message-error"
-                  : "sos-short-message-count"
-              }
+              aria-describedby={messageDescribedBy}
               aria-invalid={customMessageLimitExceeded}
               value={customMessage}
               onChange={(event) => setCustomMessage(event.target.value)}
+              onFocus={() => setMessageFocused(true)}
+              onBlur={() => setMessageFocused(false)}
               readOnly={messageLocked}
               placeholder="Add a message"
               className={cn(
-                // pr-14 reserves the send button's column so typed text never
-                // runs underneath it.
-                "h-[52px] w-full rounded-xl border bg-[color:var(--sos-control-surface)] pl-[18px] pr-14 text-[16px] tracking-[-0.3px] text-foreground outline-none placeholder:text-[color:var(--sos-placeholder)] lg:h-14 lg:pl-5 lg:text-[17px] lg:tracking-[-0.37px]",
+                "h-12 w-full rounded-xl border bg-[color:var(--sos-control-surface)] px-4 text-[16px] leading-[22px] text-foreground outline-none placeholder:text-[color:var(--sos-placeholder)] sm:h-[52px]",
                 customMessageLimitExceeded
                   ? "border-[color:var(--app-destructive)]"
                   : "border-transparent focus:border-ring",
                 messageLocked && "cursor-not-allowed opacity-60",
               )}
             />
-            {/* Without this the only way to send a typed message was to go back
-                up and hold the ring for two seconds, with nothing in the field
-                confirming the text had been taken. */}
-            <button
-              type="button"
-              data-testid="sos-send-custom-message"
-              onClick={handleSendCustomMessage}
-              disabled={hardDisabled || !selectedMessage}
-              aria-label="Send this SMS alert"
-              className={cn(
-                "press-scale absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full transition-colors",
-                // Solid emergency red is deliberate here and nowhere else in
-                // the message box: this button IS the send, so it is the one
-                // control whose consequence is the alert going out.
-                hardDisabled || !selectedMessage
-                  ? "bg-[color:var(--sos-control-surface-active)] text-[color:var(--sos-label)]"
-                  : "bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]",
-              )}
-            >
-              {busy ? (
-                <Loader2 className="h-[18px] w-[18px] animate-spin" />
-              ) : (
-                <SendHorizontal className="h-[18px] w-[18px]" strokeWidth={2} />
-              )}
-            </button>
           </div>
 
           <div className="flex items-baseline justify-between gap-3">
@@ -746,131 +704,64 @@ export function SosPanel({
             ) : (
               <span />
             )}
-            <div
-              id="sos-short-message-count"
-              className={cn(
-                "text-right text-[12px]",
-                customMessageLimitExceeded
-                  ? "text-[color:var(--app-destructive)]"
-                  : "text-[color:var(--sos-label)]",
-              )}
-            >
-              {customMessageLength}/{ONE_LOCATION_SHARE_NOTE_MAX_LENGTH}
-            </div>
+            {showMessageCount ? (
+              <div
+                id="sos-short-message-count"
+                className={cn(
+                  "text-right text-[12px]",
+                  customMessageLimitExceeded
+                    ? "text-[color:var(--app-destructive)]"
+                    : "text-[color:var(--sos-label)]",
+                )}
+              >
+                {customMessageLength}/{ONE_LOCATION_SHARE_NOTE_MAX_LENGTH}
+              </div>
+            ) : null}
           </div>
 
-          {/* While an alert is live the primary action becomes stopping it.
-              This revokes the location grants the alert created AND clears the
-              incident, so the live state resets here and in Active shares. */}
           {active ? (
             <button
               type="button"
-              onClick={onStopSos}
+              onClick={() => setStopConfirmOpen(true)}
               disabled={stopBusy}
-              aria-label="Cancel the alert and stop sharing your location"
+              aria-label="Stop Save My Soul alert"
               data-testid="sos-cancel-alert"
-              className="press-scale mt-1 flex h-[52px] w-full items-center justify-center gap-2 self-center rounded-xl bg-[color:var(--sos-control-surface)] text-[16px] text-[color:var(--sos-control-text)] transition-colors hover:bg-[color:var(--sos-control-surface-hover)] disabled:opacity-60 lg:h-14 lg:w-[220px] lg:text-[17px]"
+              className="press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-[color:var(--sos-control-surface)] px-5 text-[17px] font-semibold leading-[22px] text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--sos-control-surface-hover)] disabled:opacity-60"
             >
               {stopBusy ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               ) : null}
-              {stopBusy ? "Stopping…" : "Stop sharing"}
+              {stopBusy ? "Stopping…" : "Stop alert"}
             </button>
           ) : null}
         </div>
-
-        {/* The dialer. Outlined and tinted, never filled — it needs to read as
-            tappable without becoming a peer of the SOS control.
-            It had no surface at all and measured ~35px tall, under the 44px
-            this product enforces everywhere else, on the one screen where the
-            person is least able to aim. An outline buys the affordance; the
-            filled treatment stays reserved for SOS. */}
-        <div className="mt-10 flex min-h-[52px] items-center justify-center lg:mt-14">
-          {emergencyStatus === "resolved" && emergency ? (
-            shouldFallbackWindowsEmergencyCall ? (
-              <button
-                type="button"
-                onClick={handleWindowsEmergencyCopy}
-                aria-label={`Copy ${emergency.number} emergency services (${emergency.countryName})`}
-                className="press-scale flex min-h-11 items-center gap-2.5 rounded-full border border-[color:var(--app-destructive)]/25 bg-[color:var(--app-destructive)]/8 px-4 py-2 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/14"
-              >
-                <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
-                <span className="text-left leading-tight">
-                  <span className="block text-[16px] font-medium tracking-[-0.3px] lg:text-[17px] lg:tracking-[-0.37px]">
-                    {windowsCopyStatus === "copied"
-                      ? `Copied ${emergency.number}`
-                      : `Copy ${emergency.number}`}
-                  </span>
-                  <span className="block text-[12px] text-[color:var(--sos-label)]">
-                    {windowsCopyStatus === "copied"
-                      ? "Dial it from your phone"
-                      : emergency.countryName}
-                  </span>
-                </span>
-              </button>
-            ) : (
-              <a
-                href={`tel:${emergency.number}`}
-                aria-label={`Call ${emergency.number} emergency services (${emergency.countryName})`}
-                className="press-scale flex min-h-11 items-center gap-2.5 rounded-full border border-[color:var(--app-destructive)]/25 bg-[color:var(--app-destructive)]/8 px-4 py-2 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/14"
-              >
-                <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
-                <span className="text-left leading-tight">
-                  <span className="block text-[16px] font-medium tracking-[-0.3px] lg:text-[17px] lg:tracking-[-0.37px]">
-                    Call {emergency.number}
-                  </span>
-                  <span className="block text-[12px] text-[color:var(--sos-label)]">
-                    {emergency.countryName}
-                  </span>
-                </span>
-              </a>
-            )
-          ) : (
-            <button
-              type="button"
-              onClick={onResolveEmergencyNumber}
-              // "resolving" is the only state that must stay inert -- it means
-              // a lookup is already in flight. "idle" (nothing looked up yet)
-              // and "unavailable" (a lookup failed) both stay tappable, since
-              // each needs the tap to be the thing that starts the next lookup.
-              disabled={emergencyStatus === "resolving"}
-              aria-label={
-                emergencyStatus === "unavailable"
-                  ? "Retry local emergency number"
-                  : emergencyStatus === "resolving"
-                    ? "Finding local emergency number"
-                    : "Find local emergency number"
-              }
-              className="press-scale flex items-center gap-2.5 text-[color:var(--app-destructive)] transition-opacity hover:opacity-70 disabled:cursor-wait disabled:opacity-75"
-            >
-              {emergencyStatus === "resolving" ? (
-                <Loader2
-                  className="h-[17px] w-[17px] animate-spin"
-                  aria-hidden
-                />
-              ) : (
-                <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
-              )}
-              <span className="text-left leading-tight">
-                <span className="block text-[16px] font-medium tracking-[-0.3px] lg:text-[17px] lg:tracking-[-0.37px]">
-                  {emergencyStatus === "unavailable"
-                    ? "Retry local number"
-                    : emergencyStatus === "resolving"
-                      ? "Finding local number"
-                      : "Find local number"}
-                </span>
-                <span className="block text-[12px] text-[color:var(--sos-label)]">
-                  {emergencyStatus === "unavailable"
-                    ? "Location unavailable"
-                    : emergencyStatus === "resolving"
-                      ? "Using current location"
-                      : "Tap to look up"}
-                </span>
-              </span>
-            </button>
-          )}
-        </div>
       </div>
+      <AlertDialog open={stopConfirmOpen} onOpenChange={setStopConfirmOpen}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Stop Save My Soul alert?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your emergency contacts will stop receiving your live location.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={stopBusy}>
+              Keep active
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={stopBusy}
+              onClick={(event) => {
+                event.preventDefault();
+                onStopSos();
+                setStopConfirmOpen(false);
+              }}
+            >
+              Stop alert
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

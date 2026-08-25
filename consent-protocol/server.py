@@ -126,7 +126,6 @@ def _parse_cors_allowed_origins() -> list[str]:
 
 # Import route modules
 # Import rate limiting
-from slowapi import _rate_limit_exceeded_handler  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
 
 from api.middlewares.observability import (  # noqa: E402
@@ -134,7 +133,7 @@ from api.middlewares.observability import (  # noqa: E402
     get_request_id,
     observability_middleware,
 )
-from api.middlewares.rate_limit import limiter  # noqa: E402
+from api.middlewares.rate_limit import limiter, rate_limit_exceeded_handler  # noqa: E402
 from api.routes import (  # noqa: E402
     account,
     agents,
@@ -144,6 +143,7 @@ from api.routes import (  # noqa: E402
     debug_firebase,
     developer,
     health,
+    hushh_tech,
     notifications,
     session,
     sse,
@@ -168,7 +168,7 @@ app.middleware("http")(observability_middleware)
 
 # Rate limiting
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 
 def _database_error_payload(
@@ -310,6 +310,10 @@ app.include_router(trust.router)
 
 # Developer API routes (/api/v1/*)
 app.include_router(developer.router)
+
+# UAT-only Hushh Tech product-client routes. The router is registered in every
+# environment, while its service guard returns FEATURE_DISABLED outside UAT.
+app.include_router(hushh_tech.router)
 
 # Database proxy routes (/db/vault/...) - for iOS native app
 app.include_router(db_proxy.router)
@@ -558,6 +562,13 @@ async def startup_consent_listener():
     from api.consent_listener import run_consent_listener
 
     asyncio.create_task(run_consent_listener())
+
+    # The referral tab's live stream. Same shape, its own channel: one LISTEN
+    # connection per instance, pushing doorbells to whichever referrers have a
+    # stream open here.
+    from api.referral_listener import run_referral_listener
+
+    asyncio.create_task(run_referral_listener())
 
 
 @app.on_event("startup")

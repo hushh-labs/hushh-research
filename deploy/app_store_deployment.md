@@ -5,8 +5,8 @@
 >   current UAT build and uploads it to TestFlight — runbook:
 >   [docs/guides/mobile/ship-ios-testflight.md](../docs/guides/mobile/ship-ios-testflight.md).
 > - **Public App Store:** `make ios-prod-release` (or
->   `.github/workflows/release-ios-appstore.yml`) builds against the **UAT backend + UAT Firebase**
->   (`hushh-pda-uat`, the same latest frontend+backend as TestFlight), signs with the production APNs
+>   `.github/workflows/release-ios-appstore.yml`) builds against the **UAT backend + shared Firebase authority**
+>   (`hushh-pda`; its config is stored in `hushh-pda-uat` Secret Manager), signs with the production APNs
 >   entitlement, uploads to App Store Connect, sets "What's New," attaches the build, and — one-click,
 >   opt-in — submits for public Apple review — runbook:
 >   [docs/guides/mobile/release-ios-appstore.md](../docs/guides/mobile/release-ios-appstore.md).

@@ -7,11 +7,14 @@ import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
+  PICKER_MAP_HEIGHT_CLASSNAME,
   SHEET_BODY_CLASSNAME,
   SHEET_DETAILS_SHELL_CLASSNAME,
   SHEET_FOOTER_CLASSNAME,
+  SHEET_FULL_BLEED_WIDTHS,
   SHEET_HEADER_CLASSNAME,
   SHEET_LAYOUT_WIDTHS,
+  SHEET_SURFACE_CLASSNAME,
 } from "../components/one-location/onboarding/save-location-sheet-layout";
 
 /**
@@ -66,8 +69,13 @@ async function buildFixture(): Promise<string> {
     },
   });
 
-  const shell =
-    "fixed left-1/2 bottom-0 w-full max-w-[420px] -translate-x-1/2 flex min-h-0 flex-col max-h-[min(92dvh,760px)] rounded-t-[24px] border";
+  // The primitive's own `side="bottom"` positioning, verbatim from
+  // components/ui/sheet.tsx, plus the surface contract this sheet adds on top.
+  // Hand-writing a `max-w-[420px]` here is exactly what the fixture used to do,
+  // which is why it measured a floating card and reported it as correct.
+  const sheetPositioning =
+    "fixed inset-x-0 bottom-[var(--kb-height,0px)] h-auto flex min-h-0 flex-col rounded-t-[24px] border-t";
+  const shell = `${sheetPositioning} ${SHEET_SURFACE_CLASSNAME}`;
   const row = "flex items-center gap-2";
   const button = "relative flex h-9 w-9 shrink-0 items-center justify-center";
   const title =
@@ -79,6 +87,7 @@ async function buildFixture(): Promise<string> {
 
   const classes = [
     shell,
+    PICKER_MAP_HEIGHT_CLASSNAME,
     SHEET_DETAILS_SHELL_CLASSNAME,
     SHEET_HEADER_CLASSNAME,
     SHEET_BODY_CLASSNAME,
@@ -120,6 +129,7 @@ async function buildFixture(): Promise<string> {
     </div>
   </header>
   <div class="${SHEET_BODY_CLASSNAME}" data-testid="sheet-body">
+    <div class="${PICKER_MAP_HEIGHT_CLASSNAME} w-full" data-testid="sheet-map"></div>
     <div class="space-y-3.5">${fields}</div>
   </div>
   <div class="${SHEET_FOOTER_CLASSNAME}" data-testid="sheet-footer">
@@ -154,6 +164,8 @@ test.describe("Save-location address sheet layout", () => {
       const header = await boxOf(page, "sheet-header");
       const body = await boxOf(page, "sheet-body");
       const footer = await boxOf(page, "sheet-footer");
+
+
 
       // Three stacked rows, in order, touching but never overlapping.
       expect(Math.round(body.y)).toBeGreaterThanOrEqual(
@@ -218,6 +230,167 @@ test.describe("Save-location address sheet layout", () => {
       );
     });
   }
+
+
+  /**
+   * THE FLOATING-PAD CONTRACT.
+   *
+   * The band that broke was 421-639px: wide enough to clear a 420px cap, still
+   * narrow enough to be a bottom sheet. Nothing in the old matrix went past
+   * 430, so a card centred in a 540px window with 60px of dead screen on each
+   * side passed six widths of "layout is correct".
+   *
+   * Measured, not read off a class string: `max-w` is one of several ways to
+   * end up narrower than the viewport, and only the rendered box knows.
+   */
+  for (const width of SHEET_FULL_BLEED_WIDTHS) {
+    test(`spans the whole viewport at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(await buildFixture());
+      await awaitProductFont(page);
+
+      const sheet = await boxOf(page, "save-location-modal");
+
+      // Attached to both edges: no strip of app showing beside a sheet.
+      expect(Math.round(sheet.x)).toBe(0);
+      expect(Math.round(sheet.width)).toBe(width);
+
+      // And nothing inside it reaches past those edges.
+      const overflow = await page.evaluate(
+        () =>
+          Math.max(
+            document.documentElement.scrollWidth,
+            document.body.scrollWidth,
+          ) - document.documentElement.clientWidth,
+      );
+      expect(overflow).toBeLessThanOrEqual(1);
+    });
+
+    test(`terminates at the bottom edge at ${width}px`, async ({ page }) => {
+      // The home indicator belongs INSIDE the sheet's padding. An outer gap
+      // puts a band of wallpaper under a surface that is meant to be attached
+      // to the bottom of the screen.
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(await buildFixture());
+      await awaitProductFont(page);
+
+      const sheet = await boxOf(page, "save-location-modal");
+      const footer = await boxOf(page, "sheet-footer");
+
+      expect(Math.round(sheet.y + sheet.height)).toBe(844);
+      expect(Math.round(footer.y + footer.height)).toBe(844);
+    });
+  }
+
+  /** The three devices the redesign has to hold, named rather than implied. */
+  const DEVICES = [
+    { name: "iPhone SE", width: 320, height: 568 },
+    { name: "iPhone 15", width: 390, height: 844 },
+    { name: "iPhone 15 Pro Max", width: 430, height: 932 },
+  ] as const;
+
+  for (const device of DEVICES) {
+    test(`keeps both actions whole and on screen on ${device.name}`, async ({
+      page,
+    }) => {
+      // The smallest supported screen is not allowed to become the neglected
+      // one: the map used to take `min(56vh,420px)` -- 318 of an SE's 568
+      // points -- and pushed Confirm and Skip below the fold on the one screen
+      // whose whole job is "look at this, then press the button".
+      await page.setViewportSize({ width: device.width, height: device.height });
+      await page.goto(await buildFixture());
+      await awaitProductFont(page);
+
+      for (const testId of ["sheet-save", "sheet-skip"] as const) {
+        const box = await boxOf(page, testId);
+        expect(
+          Math.round(box.y + box.height),
+          `${testId} bottom on ${device.name}`,
+        ).toBeLessThanOrEqual(device.height);
+        expect(
+          Math.round(box.x),
+          `${testId} left on ${device.name}`,
+        ).toBeGreaterThanOrEqual(0);
+        expect(
+          Math.round(box.x + box.width),
+          `${testId} right on ${device.name}`,
+        ).toBeLessThanOrEqual(device.width);
+        // A real target, not a sliver squeezed by the shrinking viewport.
+        expect(
+          Math.round(box.height),
+          `${testId} height on ${device.name}`,
+        ).toBeGreaterThanOrEqual(44);
+      }
+    });
+
+    test(`keeps the header and footer usable with the keyboard up on ${device.name}`, async ({
+      page,
+    }) => {
+      // KeyboardInsetManager publishes the keyboard height as `--kb-height` on
+      // <html>, and the sheet is pinned to `bottom-[var(--kb-height,0px)]`.
+      // Lifting without ALSO shrinking is the bug: the surface rides up by the
+      // full keyboard height and its top -- the step rail, the back button, the
+      // title -- leaves the screen. The old `max-h-[min(92dvh,760px)]` did
+      // exactly that.
+      await page.setViewportSize({ width: device.width, height: device.height });
+      await page.goto(await buildFixture());
+      await awaitProductFont(page);
+
+      const keyboard = 300;
+      await page.evaluate((height) => {
+        document.documentElement.style.setProperty("--kb-height", `${height}px`);
+      }, keyboard);
+
+      const sheet = await boxOf(page, "save-location-modal");
+      const header = await boxOf(page, "sheet-header");
+      const footer = await boxOf(page, "sheet-footer");
+
+
+      // Nothing above the top edge.
+      expect(Math.round(sheet.y), `sheet top on ${device.name}`).toBeGreaterThanOrEqual(0);
+      expect(Math.round(header.y), `header top on ${device.name}`).toBeGreaterThanOrEqual(0);
+
+      // The whole surface sits in the band above the keyboard, so Save is
+      // pressable rather than underneath it.
+      expect(
+        Math.round(sheet.y + sheet.height),
+        `sheet bottom on ${device.name}`,
+      ).toBeLessThanOrEqual(device.height - keyboard + 1);
+      expect(
+        Math.round(footer.y + footer.height),
+        `footer bottom on ${device.name}`,
+      ).toBeLessThanOrEqual(device.height - keyboard + 1);
+
+      // And it is still the full width of the phone while lifted.
+      expect(Math.round(sheet.x)).toBe(0);
+      expect(Math.round(sheet.width)).toBe(device.width);
+    });
+  }
+
+  test("sizes the map so a small phone still sees the buttons", async ({
+    page,
+  }) => {
+    // The clamp measured in the engine that ships, at both ends of the range.
+    await page.goto(await buildFixture());
+    await awaitProductFont(page);
+
+    for (const [height, lower, upper] of [
+      [568, 160, 220],
+      [844, 240, 320],
+      [932, 280, 340],
+    ] as const) {
+      await page.setViewportSize({ width: 390, height });
+      const mapHeight = await page
+        .getByTestId("sheet-map")
+        .evaluate((element) => element.getBoundingClientRect().height);
+      expect(Math.round(mapHeight), `map at ${height}px tall`).toBeGreaterThanOrEqual(
+        lower,
+      );
+      expect(Math.round(mapHeight), `map at ${height}px tall`).toBeLessThanOrEqual(
+        upper,
+      );
+    }
+  });
 
   test("paints the footer on a fully opaque surface", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });

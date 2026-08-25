@@ -58,7 +58,9 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   resolveCompactConsentSummary,
   resolveConsentRequesterLabel,
+  resolveRequesterDisplayName,
 } from "@/lib/consent/consent-display";
+import { connectionRequestBody } from "@/lib/branding/brand";
 import {
   emailHelperConsentSummary,
   emailHelperWorkflowHref,
@@ -425,7 +427,10 @@ function isOneLocationWorkflowNotificationType(
     value === "location_referral_invite" ||
     value === "location_public_invite_submitted" ||
     value === "location_one_network_joined" ||
-    value === "location_circle_member_invite"
+    value === "location_circle_member_invite" ||
+    value === "location_circle_member_invite_accepted" ||
+    value === "location_circle_code_joined" ||
+    value === "location_circle_member_added"
   );
 }
 
@@ -462,7 +467,12 @@ function oneLocationNetworkLabel(data: Record<string, string>): string {
   return privacySafeOneLocationNotificationLabel(
     String(data.network_display_label || "").trim() ||
       String(data.invitee_display_label || "").trim() ||
-      String(data.inviter_display_label || "").trim(),
+      String(data.inviter_display_label || "").trim() ||
+      // Being added to a Circle names the person who did it. The key differs
+      // because nobody was invited here -- and if this ladder cannot see it,
+      // the toast says "A trusted person" while the banner beside it says the
+      // name, which is the #5422 split all over again.
+      String(data.added_by_label || "").trim(),
   );
 }
 
@@ -905,6 +915,9 @@ export function ConsentNotificationProvider({
         referringLabel: oneLocationReferringLabel(data),
         visitorLabel: oneLocationVisitorLabel(data),
         networkLabel: oneLocationNetworkLabel(data),
+        // Which Circle they were added to. Only the added-to-a-Circle line
+        // uses it; everything else ignores it.
+        circleName: data.circle_name || null,
         // How much time the ask is about. Both delivery paths carry these —
         // the FCM payload from the service, and the reconciliation payload
         // built from state — so the popup names the same number the feed and
@@ -915,6 +928,10 @@ export function ConsentNotificationProvider({
         extendsGrantExpiresAt: data.extends_grant_expires_at || null,
         grantedDurationHours: data.duration_hours || null,
         grantedDurationMode: data.duration_mode || null,
+        // Which lane ended. Stamped by the service on the revoke payload,
+        // because the grant is gone by the time this arrives -- the client
+        // cannot look the kind up from a share that no longer exists.
+        shareKind: data.share_kind || null,
       });
       const copy = {
         title:
@@ -1553,25 +1570,101 @@ export function ConsentNotificationProvider({
           reconcile: true,
         });
 
-        // Interactive top-center toast banner for connection request
-        const toastKey = `connection_request:${data.requester_user_id || "new"}`;
-        if (!toastedIdsRef.current.has(toastKey)) {
+        // Who asked. Runs through the same ladder + technical-identity filter
+        // the Consent Center uses, so a raw Firebase uid or a "ria:" handle can
+        // never reach the sentence — `actor_identity_cache.display_name` is
+        // seeded to the user id for never-synced actors, so that is a real value
+        // and not a hypothetical. `null` here means "genuinely unnamed", which
+        // connectionRequestBody turns into the generic line.
+        const requesterName = resolveRequesterDisplayName({
+          requesterLabel: data.requester_label,
+          counterpartLabel: data.requester_display_label,
+          counterpartEmail: data.requester_email,
+          counterpartSecondaryLabel: data.requester_handle,
+          counterpartId: data.requester_user_id,
+        });
+
+        // Where "View Request" goes. The Consent Center opens the review sheet
+        // purely from `?requestId`, so the old hardcoded `?tab=connections`
+        // could only ever land on a list. Resolve through the shared helper (same
+        // one the consent toast and the native tap path use) so the href is
+        // validated and fails closed instead of being a bare literal.
+        const connectionRequestId = String(data.request_id || "").trim();
+        const currentConnectionQuery = searchParams.toString();
+        const reviewTarget = resolveConsentNavigationTarget(
+          data.request_url || data.deep_link,
+          "pending",
+          {
+            requestId: connectionRequestId || undefined,
+            from: `${pathname}${currentConnectionQuery ? `?${currentConnectionQuery}` : ""}`,
+          },
+        );
+
+        // Presentation policy, matching the rule documented at the top of this
+        // file and the split One Location already uses above: iOS presents its
+        // own system banner while the app is foregrounded (AppDelegate's
+        // willPresent returns .banner), so an in-app toast there would say the
+        // same thing twice. Android shows no banner in the foreground, so it owns
+        // the toast. On web the service worker suppresses its banner only when a
+        // visible client acknowledges delivery, so a hidden tab must not toast —
+        // otherwise the user gets the banner now and a stale toast on refocus.
+        const shouldPresentToast = isNativePlatform
+          ? Capacitor.getPlatform() === "android"
+          : typeof document === "undefined" ||
+            document.visibilityState === "visible";
+
+        // Keyed on the request, not the requester. The old key was
+        // `connection_request:<requester_user_id>` and was never deleted, so a
+        // second request from the same person — after the first was accepted or
+        // declined — was silently swallowed for the rest of the session.
+        //
+        // With an id present the generic per-message de-dup above (`dedupKey`)
+        // has already claimed this exact string and returned early on a repeat,
+        // so re-checking the set here would suppress every toast. Only the
+        // id-less payload — a backend that predates this change — needs its own
+        // guard, and it can only be keyed per requester, so it keeps the old
+        // limitation for that legacy case alone.
+        const toastKey = connectionRequestId
+          ? `connection_request:${connectionRequestId}`
+          : `connection_request_toast:${data.requester_user_id || "new"}`;
+        const alreadyToasted =
+          !connectionRequestId && toastedIdsRef.current.has(toastKey);
+        if (shouldPresentToast && !alreadyToasted) {
           toastedIdsRef.current.add(toastKey);
+          const openReview = () => {
+            toast.dismiss(toastKey);
+            if (reviewTarget.kind !== "internal") {
+              assignWindowLocation(reviewTarget.href);
+              return;
+            }
+            // Already on the Consent Center: replace so the sheet opens without
+            // stacking a history entry the back button has to unwind. Same
+            // decision the consent toast makes above.
+            if (
+              pathname === ROUTES.CONSENTS &&
+              reviewTarget.pathname === ROUTES.CONSENTS
+            ) {
+              router.replace(reviewTarget.href, { scroll: false });
+              return;
+            }
+            router.push(reviewTarget.href, { scroll: false });
+          };
           toast(
             <div className="flex flex-col gap-2">
-              <div className="space-y-0.5">
+              <button
+                type="button"
+                onClick={openReview}
+                className="space-y-0.5 text-left"
+              >
                 <p className="line-clamp-1 text-sm font-semibold">New Connection Request</p>
-                <p className="line-clamp-1 text-xs text-muted-foreground">
-                  {data.requester_label || "Someone"} wants to connect with you on hushh.
+                <p className="line-clamp-2 text-xs text-muted-foreground">
+                  {connectionRequestBody(requesterName)}
                 </p>
-              </div>
+              </button>
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    toast.dismiss(toastKey);
-                    router.push("/one/consent?tab=connections", { scroll: false });
-                  }}
+                  onClick={openReview}
                   className="px-4 py-2 bg-foreground text-background text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
                 >
                   View Request
@@ -1594,7 +1687,9 @@ export function ConsentNotificationProvider({
   }, [
     isNativePlatform,
     isVaultUnlocked,
+    pathname,
     router,
+    searchParams,
     showConsentToast,
     showOneLocationWorkflowNotification,
     user?.uid,

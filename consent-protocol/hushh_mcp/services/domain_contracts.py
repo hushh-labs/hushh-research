@@ -52,6 +52,14 @@ class DomainSharingPolicy:
 
 CANONICAL_DOMAIN_REGISTRY: tuple[DomainContractEntry, ...] = (
     DomainContractEntry(
+        domain_key="identity",
+        display_name="Identity",
+        icon_name="user-round",
+        color_hex="#0F766E",
+        description="Owner-authored identity details and personal profile facts",
+        status="active_core",
+    ),
+    DomainContractEntry(
         domain_key="financial",
         display_name="Financial",
         icon_name="wallet",
@@ -276,6 +284,10 @@ CANONICAL_REGISTRY_KEYS = tuple(sorted({*CANONICAL_DOMAIN_KEYS, *CANONICAL_SUBIN
 OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset({"source_library"})
 
 DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
+    "identity": DomainSharingPolicy(
+        domain_key="identity",
+        allow_public_projection=False,
+    ),
     "financial": DomainSharingPolicy(
         domain_key="financial",
         allow_domain_wildcard=False,

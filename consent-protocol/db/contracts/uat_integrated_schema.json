@@ -1,10 +1,8 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 157,
+  "expected_migration_version": 170,
   "migration_version_policy": "exact",
   "required_functions": [
-    "merge_domain_summary",
-    "merge_pkm_domain_summary",
     "remove_domain_summary_key",
     "upsert_pkm_data_blob",
     "auto_register_domain",
@@ -24,7 +22,9 @@
     "delete_pkm_domain_v2",
     "delete_pkm_domain_v3",
     "prune_expired_pkm_domain_revisions_v1",
-    "prune_expired_pkm_recovery_for_user_v1"
+    "prune_expired_pkm_recovery_for_user_v1",
+    "commit_pkm_scope_exposure_v1",
+    "repair_pkm_scope_exposure_revision_v1"
   ],
   "required_tables": {
     "vault_keys": [
@@ -717,6 +717,16 @@
       "source_errors",
       "metadata"
     ],
+    "one_location_auto_approve_preferences": [
+      "user_id",
+      "enabled",
+      "scope_kind",
+      "circle_id",
+      "enabled_at",
+      "rule_version",
+      "created_at",
+      "updated_at"
+    ],
     "one_location_circle_invites": [
       "id",
       "owner_user_id",
@@ -739,10 +749,12 @@
       "kind",
       "status",
       "member_limit",
+      "is_system",
       "created_at",
       "updated_at",
       "deleted_at",
-      "metadata"
+      "metadata",
+      "system_kind"
     ],
     "one_location_circle_memberships": [
       "circle_id",
@@ -1346,14 +1358,61 @@
       "metadata"
     ],
     "google_provider_connections": [
-      "user_id", "provider", "provider_subject", "provider_email", "status",
-      "refresh_token_ciphertext", "refresh_token_iv", "refresh_token_tag",
-      "access_token_ciphertext", "access_token_iv", "access_token_tag",
-      "token_key_version", "access_token_expires_at", "connected_at", "revoked_at", "created_at", "updated_at"
+      "user_id",
+      "provider",
+      "provider_subject",
+      "provider_email",
+      "status",
+      "refresh_token_ciphertext",
+      "refresh_token_iv",
+      "refresh_token_tag",
+      "access_token_ciphertext",
+      "access_token_iv",
+      "access_token_tag",
+      "token_key_version",
+      "access_token_expires_at",
+      "connected_at",
+      "revoked_at",
+      "created_at",
+      "updated_at"
     ],
-    "google_service_grants": ["user_id", "provider", "service", "status", "scope_csv", "access_level", "last_used_at", "disconnected_at", "created_at", "updated_at"],
-    "google_oauth_attempts": ["attempt_id", "user_id", "service", "redirect_uri", "requested_scope_csv", "state_digest", "verifier_ciphertext", "verifier_iv", "verifier_tag", "expires_at", "consumed_at", "created_at"],
-    "google_calendar_action_proposals": ["proposal_id", "user_id", "action", "payload_json", "expected_event_etag", "status", "expires_at", "executed_at", "created_at"],
+    "google_service_grants": [
+      "user_id",
+      "provider",
+      "service",
+      "status",
+      "scope_csv",
+      "access_level",
+      "last_used_at",
+      "disconnected_at",
+      "created_at",
+      "updated_at"
+    ],
+    "google_oauth_attempts": [
+      "attempt_id",
+      "user_id",
+      "service",
+      "redirect_uri",
+      "requested_scope_csv",
+      "state_digest",
+      "verifier_ciphertext",
+      "verifier_iv",
+      "verifier_tag",
+      "expires_at",
+      "consumed_at",
+      "created_at"
+    ],
+    "google_calendar_action_proposals": [
+      "proposal_id",
+      "user_id",
+      "action",
+      "payload_json",
+      "expected_event_etag",
+      "status",
+      "expires_at",
+      "executed_at",
+      "created_at"
+    ],
     "one_wallet_cards": [
       "user_id",
       "pass_serial",
@@ -1370,6 +1429,77 @@
       "revoked_at",
       "last_scanned_at",
       "scan_count"
+    ],
+    "hushh_tech_launch_authorizations": [
+      "authorization_id",
+      "code_hash",
+      "firebase_uid",
+      "audience",
+      "redirect_uri",
+      "code_challenge",
+      "code_challenge_method",
+      "firebase_valid_after_ms",
+      "created_at_ms",
+      "expires_at_ms",
+      "consumed_at_ms"
+    ],
+    "hushh_tech_account_links": [
+      "link_id",
+      "legacy_project",
+      "legacy_user_uuid",
+      "firebase_uid",
+      "status",
+      "linked_at_ms",
+      "revoked_at_ms",
+      "created_by_app_id",
+      "provenance"
+    ],
+    "hushh_tech_link_events": [
+      "event_id",
+      "link_id",
+      "firebase_uid",
+      "legacy_project",
+      "legacy_user_uuid",
+      "event_type",
+      "app_id",
+      "proof_session_id",
+      "metadata",
+      "created_at_ms"
+    ],
+    "hushh_tech_shadow_records": [
+      "record_id",
+      "legacy_project",
+      "legacy_user_uuid",
+      "record_type",
+      "payload",
+      "source_hash",
+      "source_deleted",
+      "imported_at_ms",
+      "updated_at_ms"
+    ],
+    "hushh_tech_migration_runs": [
+      "run_id",
+      "fixture_name",
+      "fixture_hash",
+      "status",
+      "record_count",
+      "applied_count",
+      "skipped_count",
+      "checkpoint_sequence",
+      "started_at_ms",
+      "completed_at_ms",
+      "updated_at_ms",
+      "error_code"
+    ],
+    "hushh_tech_migration_events": [
+      "event_id",
+      "run_id",
+      "fixture_hash",
+      "phase",
+      "outcome",
+      "sequence",
+      "event_at_ms",
+      "metadata"
     ]
   }
 }

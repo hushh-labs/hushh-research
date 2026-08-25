@@ -880,7 +880,17 @@ export type HushhContactRecord = {
 
 export type HushhContactsReadResult = {
   contacts: HushhContactRecord[];
-  sourcePlatform: "web" | "ios" | "android" | "native";
+  /**
+   * Where the contacts came from.
+   *
+   * `google` is not a platform in the Capacitor sense — it is a different
+   * ACCOUNT on the same platform, read in the browser through the People API.
+   * It is a member here because everything downstream keys off this field, and
+   * folding a Google read into `web` would route it to the partial-read remedy
+   * ("Check more"), whose action re-runs the picker and returns the identical
+   * set.
+   */
+  sourcePlatform: "web" | "ios" | "android" | "native" | "google";
   /**
    * ISO-3166 alpha-2 region the device believes it is in (SIM, then network,
    * then locale). National-format contact numbers are meaningless without it —

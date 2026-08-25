@@ -288,7 +288,7 @@ export function GeminiRuntimeSettingsCard({
       }
       if (error instanceof Error && error.message === "CLOUD_GRANT_REVOKED") {
         toast.error(
-          "Hushh’s access to your project was removed. Re-run the authorization step, then try again.",
+          "Re-authorize Hushh’s access to your project to continue.",
         );
         router.push(ROUTES.ONE_SETUP_CLOUD);
         return;

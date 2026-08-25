@@ -4367,7 +4367,9 @@ export function AgentChatWorkspace({
                         setPendingAppAction((current) =>
                           current === pending ? { ...current, receipt } : current,
                         );
-                        toast.success("Authorized. Tap Run to execute.");
+                        toast.success(
+                          `Authorized. Tap "${pending.event.label || "Run"}" to continue.`,
+                        );
                         return;
                       }
                       await pending.execute(pending.receipt);

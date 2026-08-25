@@ -12,6 +12,10 @@ const outputPath = path.join(
   "cache-coherence-screen-manifest.generated.json",
 );
 
+function toPosixPath(filePath) {
+  return filePath.split(path.sep).join("/");
+}
+
 function read(filePath) {
   return fs.readFileSync(filePath, "utf8");
 }
@@ -41,7 +45,7 @@ function routeSort(left, right) {
 }
 
 function routeFromPageFile(filePath) {
-  const relative = path.relative(path.join(appRoot, "app"), filePath);
+  const relative = toPosixPath(path.relative(path.join(appRoot, "app"), filePath));
   const route = relative.replace(/(?:^|\/)page\.tsx$/, "");
   return route ? `/${route}` : "/";
 }
@@ -488,8 +492,9 @@ function findingsFor(route, mode, flags, screenClass, nativeRow) {
 }
 
 function buildManifest() {
-  const pageRoutes = walkFiles(path.join(appRoot, "app"), (filePath) =>
-    filePath.endsWith("/page.tsx"),
+  const pageRoutes = walkFiles(
+    path.join(appRoot, "app"),
+    (filePath) => path.basename(filePath) === "page.tsx",
   )
     .map(routeFromPageFile)
     .sort(routeSort);

@@ -45,6 +45,8 @@ Brand and compatibility rules live in [../operations/brand-and-compatibility-con
 - [loading-policy.md](./loading-policy.md): canonical loading and empty-state policy.
 - [cache-coherence.md](./cache-coherence.md): cache invalidation and freshness model.
 - [data-model-governance.md](./data-model-governance.md): maintainer SOP for schema, data classes, retention, deletion, and table-family changes.
+- [hushh-tech-uat-client.md](./hushh-tech-uat-client.md): default-off, synthetic UAT product-client boundary for Firebase launch, verified linking, compatibility metadata, and encrypted consent exports.
+- [hushh-tech-uat-client-disposition-matrix.md](./hushh-tech-uat-client-disposition-matrix.md): frozen 70-table, 112-function, six-bucket Supabase disposition evidence for this UAT delivery.
 - [runtime-db-fact-sheet.md](./runtime-db-fact-sheet.md): runtime storage facts and boundaries.
 - [crd-scraping-api.md](./crd-scraping-api.md): CRD scraping and financial-verification provider contract behind the `/api/ria` facade.
 - [one-location-agent.md](./one-location-agent.md): One Location agent v1 implementation contract.

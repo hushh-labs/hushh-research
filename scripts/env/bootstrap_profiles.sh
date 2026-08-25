@@ -1081,6 +1081,15 @@ hydrate_frontend_cloud() {
     set_secret_key_or_cached "$file" "$profile" "$project" "$key" "true" "$cache_file"
   done
 
+  # Contacts is an environment-isolated, staged browser capability. Hydrate a
+  # configured project without making an intentionally dark project noisy.
+  local google_contacts_client_id=""
+  if google_contacts_client_id="$(resolve_cloud_or_cached_secret_value "$project" "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID" "$cache_file")"; then
+    upsert_env_value "$file" "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID" "$google_contacts_client_id"
+  else
+    upsert_env_value "$file" "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID" ""
+  fi
+
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "FIREBASE_ADMIN_CREDENTIALS_JSON" "true" "$cache_file" FIREBASE_ADMIN_CREDENTIALS_JSON FIREBASE_SERVICE_ACCOUNT_JSON
 
   local measurement_id=""

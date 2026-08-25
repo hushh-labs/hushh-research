@@ -15,11 +15,16 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/register-phone",
 }));
 
-function renderPhoneVerificationFlow(options?: { startRejects?: boolean }) {
+function renderPhoneVerificationFlow(options?: {
+  startRejects?: boolean;
+  confirmVerification?: ReturnType<typeof vi.fn>;
+}) {
   const startVerification = options?.startRejects
     ? vi.fn().mockRejectedValue(new Error("provider unavailable"))
     : vi.fn().mockResolvedValue({ autoVerified: false });
-  const confirmVerification = vi.fn().mockResolvedValue({ uid: "user_1" });
+  const confirmVerification =
+    options?.confirmVerification ??
+    vi.fn().mockResolvedValue({ uid: "user_1" });
   const onCompleted = vi.fn();
 
   render(
@@ -36,6 +41,14 @@ function renderPhoneVerificationFlow(options?: { startRejects?: boolean }) {
     confirmVerification,
     onCompleted,
   };
+}
+
+async function reachCodeStep(startVerification: ReturnType<typeof vi.fn>) {
+  const phoneInput = screen.getByRole("textbox", { name: "Phone number" });
+  fireEvent.change(phoneInput, { target: { value: "6505550101" } });
+  fireEvent.submit(phoneInput.closest("form")!);
+  await waitFor(() => expect(startVerification).toHaveBeenCalledTimes(1));
+  return screen.findByRole("textbox", { name: "One-time code" });
 }
 
 async function selectIndiaOnce() {
@@ -340,5 +353,108 @@ describe("PhoneVerificationFlow country selector", () => {
       (screen.getByRole("textbox", { name: "One-time code" }) as HTMLInputElement)
         .value,
     ).toBe("");
+  });
+
+  it("clears stale OTP digits on resend so the newest verification session wins", async () => {
+    const { startVerification } = renderPhoneVerificationFlow();
+    const codeInput = (await reachCodeStep(
+      startVerification,
+    )) as HTMLInputElement;
+
+    fireEvent.change(codeInput, { target: { value: "111111" } });
+    expect(codeInput.value).toBe("111111");
+
+    fireEvent.click(screen.getByRole("button", { name: "Resend code" }));
+
+    await waitFor(() => expect(startVerification).toHaveBeenCalledTimes(2));
+    expect(startVerification).toHaveBeenLastCalledWith("+16505550101", {
+      resendCode: true,
+    });
+    await waitFor(() => expect(codeInput.value).toBe(""));
+  });
+
+  it("clears the OTP input when the code has expired, keeping the person on the OTP screen with Resend available", async () => {
+    const confirmVerification = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(
+          new Error("This verification code has expired. Please request a new code."),
+          { code: "code-expired" },
+        ),
+      );
+    const { startVerification } = renderPhoneVerificationFlow({
+      confirmVerification,
+    });
+    const codeInput = (await reachCodeStep(
+      startVerification,
+    )) as HTMLInputElement;
+
+    fireEvent.change(codeInput, { target: { value: "222222" } });
+    fireEvent.submit(codeInput.closest("form")!);
+
+    await waitFor(() => expect(confirmVerification).toHaveBeenCalledWith("222222"));
+    await waitFor(() => expect(codeInput.value).toBe(""));
+    // Stays on the OTP screen (not bounced back to the phone step) and no
+    // second SMS was auto-sent.
+    expect(screen.getByRole("button", { name: "Resend code" })).toBeTruthy();
+    expect(startVerification).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a wrong OTP in place instead of clearing it, so a typo can be fixed", async () => {
+    const confirmVerification = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(
+          new Error(
+            "That verification code is incorrect. Please check the code and try again.",
+          ),
+          { code: "invalid-verification-code" },
+        ),
+      );
+    const { startVerification } = renderPhoneVerificationFlow({
+      confirmVerification,
+    });
+    const codeInput = (await reachCodeStep(
+      startVerification,
+    )) as HTMLInputElement;
+
+    fireEvent.change(codeInput, { target: { value: "333333" } });
+    fireEvent.submit(codeInput.closest("form")!);
+
+    await waitFor(() =>
+      expect(confirmVerification).toHaveBeenCalledWith("333333"),
+    );
+    expect(codeInput.value).toBe("333333");
+  });
+
+  it("does not fire a second verify request while one is still in flight", async () => {
+    let resolveConfirm: (value: { uid: string }) => void = () => {};
+    const confirmVerification = vi.fn(
+      () =>
+        new Promise<{ uid: string }>((resolve) => {
+          resolveConfirm = resolve;
+        }),
+    );
+    const { startVerification } = renderPhoneVerificationFlow({
+      confirmVerification,
+    });
+    const codeInput = (await reachCodeStep(
+      startVerification,
+    )) as HTMLInputElement;
+    fireEvent.change(codeInput, { target: { value: "444444" } });
+
+    const verifyButton = screen.getByRole("button", {
+      name: "Verify and continue",
+    });
+    fireEvent.click(verifyButton);
+    fireEvent.click(verifyButton);
+    // A Resend click while the verify request is still in flight must not
+    // start a second, competing network request either.
+    fireEvent.click(screen.getByRole("button", { name: "Resend code" }));
+
+    await waitFor(() => expect(confirmVerification).toHaveBeenCalledTimes(1));
+    expect(startVerification).toHaveBeenCalledTimes(1);
+
+    resolveConfirm({ uid: "user_1" });
   });
 });

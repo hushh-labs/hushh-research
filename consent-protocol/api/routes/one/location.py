@@ -11,7 +11,7 @@ import hmac
 import logging
 import os
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import (
@@ -24,7 +24,7 @@ from fastapi import (
     Response,
     status,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -147,6 +147,17 @@ class UpdateMapPreferencesRequest(_CamelModel):
     )
 
 
+class UpdateAutoApprovePreferenceRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    enabled: bool
+    scope_kind: Literal["all_contacts", "circle"] | None = Field(
+        default=None,
+        alias="scopeKind",
+    )
+    circle_id: UUID | None = Field(default=None, alias="circleId")
+
+
 class CreateAccessRequest(_CamelModel):
     owner_user_id: str = Field(alias="ownerUserId", min_length=1, max_length=160)
     message: str | None = Field(default=None, max_length=500)
@@ -167,6 +178,12 @@ class CreateAccessRequest(_CamelModel):
 
 
 class ResolveAccessRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    # Required so a cached pre-standing-rule browser cannot make an automatic
+    # call look like an explicit manual tap merely by omitting the new context.
+    approval_mode: Literal["manual", "automatic"] = Field(alias="approvalMode")
+
     # Both default to None so an approval with no duration means "grant what
     # they asked for". Sending one still wins -- the owner can always give less
     # (or more) than was asked.
@@ -176,6 +193,25 @@ class ResolveAccessRequest(_CamelModel):
         alias="durationMode",
         pattern="^(timed|until_stopped)$",
     )
+    # Present only when the first-party client is applying the current
+    # server-owned standing rule. The service locks and revalidates this exact
+    # version before it writes a grant.
+    auto_approve_rule_version: int | None = Field(
+        default=None,
+        alias="autoApproveRuleVersion",
+        ge=1,
+    )
+
+    @model_validator(mode="after")
+    def validate_approval_intent(self) -> "ResolveAccessRequest":
+        automatic = self.approval_mode == "automatic"
+        if automatic and self.auto_approve_rule_version is None:
+            raise ValueError("automatic approval requires a current rule version")
+        if automatic and (self.duration_hours is not None or self.duration_mode is not None):
+            raise ValueError("automatic approval must use the requested duration")
+        if not automatic and self.auto_approve_rule_version is not None:
+            raise ValueError("manual approval cannot cite an automatic rule")
+        return self
 
 
 class ShortenGrantRequest(_CamelModel):
@@ -203,7 +239,12 @@ class ReferralRequest(_CamelModel):
 
 
 class CreatePublicInviteRequest(_CamelModel):
-    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=24)
+    # `le=1`, not `le=24`. A public link is readable by anyone holding it, which
+    # is a different promise from a private share to a named person who can be
+    # un-shared -- and 24 was the private ceiling, copied. The service checks it
+    # again (PUBLIC_INVITE_MAX_DURATION_HOURS): this stops the request at the
+    # edge with a field-level error, that one holds for every other caller.
+    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=1)
     location_snapshot: dict[str, Any] | None = Field(default=None, alias="locationSnapshot")
 
 
@@ -243,6 +284,12 @@ class CreateCircleMemberInvitesRequest(_CamelModel):
         min_length=1,
         max_length=20,
     )
+
+
+class RefreshPublicInviteLocationRequest(_CamelModel):
+    # Required, unlike the create payload's optional snapshot: a heartbeat with
+    # no point is not a heartbeat.
+    location_snapshot: dict[str, Any] = Field(alias="locationSnapshot")
 
 
 class SubmitPublicInviteRequest(_CamelModel):
@@ -613,6 +660,24 @@ def update_location_map_preferences(
         raise _handle_error(exc) from exc
 
 
+@router.patch("/location/auto-approve-preference")
+def update_location_auto_approve_preference(
+    payload: UpdateAutoApprovePreferenceRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "preference": _service().update_auto_approve_preference(
+                user_id=_user_id(token_data),
+                enabled=payload.enabled,
+                scope_kind=payload.scope_kind,
+                circle_id=(str(payload.circle_id) if payload.circle_id is not None else None),
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.get("/location/activity")
 def get_location_activity(
     range_key: str = Query(default="30d", alias="range", pattern="^(7d|30d|90d|all)$"),
@@ -859,6 +924,73 @@ def bootstrap_named_location_circle(
         raise _handle_error(exc) from exc
 
 
+@router.post("/location/circles/sms-system")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def ensure_sms_system_circle_route(
+    request: Request,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Find-or-create the caller's SMS Circle and fold their contacts into it.
+
+    Called on bootstrap, so it is a find-or-create rather than a create: the
+    second and every later call return the same Circle, and a contact the owner
+    has since removed is not re-added (see `ensure_sms_system_circle`).
+
+    Vault-owner token, unlike the onboarding bootstrap route above, because this
+    one migrates real recipients rather than minting an empty Circle -- it reads
+    who the owner picked for emergency SMS, which is exactly the material the
+    vault gate exists to protect.
+    """
+
+    del request
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "circle": _circle_service().ensure_sms_system_circle(
+                owner_user_id=_user_id(token_data),
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circles/trusted")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def ensure_trusted_system_circle_route(
+    request: Request,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Find-or-create the caller's Trusted Circle and top up its roster.
+
+    Trusted is a projection of the accepted-connection graph (#5458): everyone
+    you are connected to is in it, and the way out of it is to disconnect.
+
+    Called on bootstrap, so find-or-create rather than create. The reconcile
+    inside adds every connection with no membership row of ANY status, which is
+    what makes a removal stick instead of being undone on the next login, and
+    what heals a membership missed while an older revision was serving.
+
+    Vault-owner token, like the SMS route beside it: the reconcile reads the
+    caller's whole connection graph, which is exactly the material the vault
+    gate exists to protect. It is a projection and nothing more -- Trusted
+    membership grants no location authority, and every shared-Circle
+    eligibility query excludes it explicitly.
+    """
+
+    del request
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "circle": _circle_service().ensure_trusted_system_circle(
+                owner_user_id=_user_id(token_data),
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.delete("/location/circles/{circle_id}/invite-code")
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def revoke_named_location_circle_code(
@@ -963,12 +1095,17 @@ def create_named_circle_member_invites(
         actor_user_id = _user_id(token_data)
         service = _circle_service()
         invitee_user_ids = list(dict.fromkeys(payload.invitee_user_ids))
+        result = service.create_member_invites(
+            actor_user_id=actor_user_id,
+            circle_id=str(payload.circle_id),
+            invitee_user_ids=invitee_user_ids,
+        )
+        # `invites` is always empty now -- connections are added outright
+        # rather than invited -- and is kept so older clients parse the same
+        # shape. `added` is what actually happened.
         return {
-            "invites": service.create_member_invites(
-                actor_user_id=actor_user_id,
-                circle_id=str(payload.circle_id),
-                invitee_user_ids=invitee_user_ids,
-            )["invites"]
+            "invites": result.get("invites") or [],
+            "added": list(result.get("addedUserIds") or []),
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -1048,10 +1185,18 @@ def cancel_named_circle_member_invite(
 
 
 @router.post("/location/public-invites")
+# Every sibling mutation on this router is throttled and this one was not, so
+# nothing stood between a retry loop -- or a double tap on a slow connection --
+# and a run of simultaneously live public links. Same budget as the circle
+# mutations: minting a link people can watch you through is not something
+# anyone does six times a minute on purpose.
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def create_public_location_invite(
+    request: Request,
     payload: CreatePublicInviteRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
+    del request
     try:
         return _service().create_public_invite(
             owner_user_id=_user_id(token_data),
@@ -1066,6 +1211,35 @@ def create_public_location_invite(
 def resolve_public_location_invite(public_token: _PublicToken):
     try:
         return _service().resolve_public_invite(public_token=public_token)
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/public-invites/{invite_id}/location")
+@limiter.limit(RateLimits.ONE_LOCATION_PUBLIC_LINK_HEARTBEAT)
+def refresh_public_location_invite_location(
+    request: Request,
+    invite_id: _InviteId,
+    payload: RefreshPublicInviteLocationRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Move the pin on the caller's own live public link.
+
+    Declared above the `{public_token}/submit` route on purpose: FastAPI
+    matches in declaration order, and both live under
+    `/location/public-invites/{...}/`. They cannot actually collide -- the
+    suffixes differ -- but keeping the two owner-scoped, invite-id-keyed
+    routes together is what stops a future third one from being added under
+    the anonymous token prefix by accident.
+    """
+
+    del request
+    try:
+        return _service().refresh_public_invite_location(
+            owner_user_id=_user_id(token_data),
+            invite_id=invite_id,
+            location_snapshot=payload.location_snapshot,
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -1089,10 +1263,13 @@ def submit_public_location_invite(
 
 
 @router.delete("/location/public-invites/{invite_id}")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def revoke_public_location_invite(
+    request: Request,
     invite_id: _InviteId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
+    del request
     try:
         return {
             "invite": _service().revoke_public_invite(
@@ -1595,8 +1772,10 @@ def approve_location_access_request(
         return _service().approve_request(
             owner_user_id=_user_id(token_data),
             request_id=request_id,
+            approval_mode=payload.approval_mode,
             duration_hours=payload.duration_hours,
             duration_mode=payload.duration_mode,
+            auto_approve_rule_version=payload.auto_approve_rule_version,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc

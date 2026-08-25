@@ -53,6 +53,7 @@ describe("observability route map", () => {
     ).toBe("connected_systems");
     expect(resolveRouteId("/research")).toBe("research");
     expect(resolveRouteId("/research/protocol")).toBe("research_protocol");
+    expect(resolveRouteId("/products/hushh-tech/launch")).toBe("hushh_tech_launch");
     expect(resolveRouteId("/blog")).toBe("blog");
     expect(resolveRouteId("/blog/sample")).toBe("blog_post");
     expect(resolveRouteId("/gmail")).toBe("gmail");
@@ -97,7 +98,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/oauth/authorize")).toBe("oauth_authorize");
     expect(resolveRouteId("/one/location")).toBe("one_location");
     expect(resolveRouteId("/one/location/map")).toBe("one_location_map");
-    expect(resolveRouteId("/one/location/request/sample")).toBe(
+    expect(resolveRouteId("/one/location/view/sample")).toBe(
       "one_location_public_request",
     );
     expect(resolveRouteId("/one/location/invite/sample")).toBe(
@@ -115,6 +116,15 @@ describe("observability route map", () => {
     expect(resolveRouteId("/one/connect/settings")).toBe("connect_settings");
     expect(resolveRouteId("/one/profile/preferences/gemini")).toBe(
       "profile_preferences_gemini",
+    );
+    expect(resolveRouteId("/one/profile/preferences/voice")).toBe(
+      "profile_preferences_voice",
+    );
+    expect(resolveRouteId("/one/profile/preferences/voice/changelog")).toBe(
+      "profile_preferences_voice_changelog",
+    );
+    expect(resolveRouteId("/one/profile/preferences/voice/examples")).toBe(
+      "profile_preferences_voice_examples",
     );
     expect(resolveRouteId("/portfolio/shared")).toBe("portfolio_shared");
     expect(resolveRouteId("/ria/clients")).toBe("ria_clients");
@@ -281,6 +291,12 @@ describe("route ids from the native (trailing-slash) build", () => {
   it("still resolves token routes, which must never fall through", () => {
     // Falling through logs the raw pathname, and on these routes the pathname
     // carries the token.
+    expect(resolveRouteId("/one/location/view/abc123/")).toBe(
+      "one_location_public_request",
+    );
+    // The pre-rename path still resolves to the SAME id: it is one screen,
+    // and splitting it would break every dashboard reading this route at the
+    // moment of the rename.
     expect(resolveRouteId("/one/location/request/abc123/")).toBe(
       "one_location_public_request",
     );

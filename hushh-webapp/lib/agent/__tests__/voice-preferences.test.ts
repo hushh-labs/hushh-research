@@ -18,7 +18,9 @@ describe("One voice preferences", () => {
     expect(readVoicePreferences(userId)).toEqual({
       voiceEnabled: true,
       requireTapConfirmation: false,
+      walkthroughMode: true,
       disabledDomains: [],
+      voiceName: null,
     });
   });
 
@@ -26,12 +28,16 @@ describe("One voice preferences", () => {
     expect(readVoicePreferences(null)).toEqual({
       voiceEnabled: true,
       requireTapConfirmation: false,
+      walkthroughMode: true,
       disabledDomains: [],
+      voiceName: null,
     });
     expect(readVoicePreferences(undefined)).toEqual({
       voiceEnabled: true,
       requireTapConfirmation: false,
+      walkthroughMode: true,
       disabledDomains: [],
+      voiceName: null,
     });
   });
 
@@ -40,13 +46,16 @@ describe("One voice preferences", () => {
       ...current,
       voiceEnabled: false,
       requireTapConfirmation: true,
+      walkthroughMode: true,
       disabledDomains: ["location"],
     }));
 
     expect(readVoicePreferences(userId)).toEqual({
       voiceEnabled: false,
       requireTapConfirmation: true,
+      walkthroughMode: true,
       disabledDomains: ["location"],
+      voiceName: null,
     });
   });
 
@@ -59,7 +68,9 @@ describe("One voice preferences", () => {
     expect(readVoicePreferences(userId)).toEqual({
       voiceEnabled: true,
       requireTapConfirmation: false,
+      walkthroughMode: true,
       disabledDomains: [],
+      voiceName: null,
     });
   });
 
@@ -77,6 +88,22 @@ describe("One voice preferences", () => {
       "location",
       "email",
     ]);
+  });
+
+  it("reads walkthroughMode as on unless it is exactly false", () => {
+    window.localStorage.setItem(
+      `one_voice_preferences_v1:${userId}`,
+      JSON.stringify({ voiceEnabled: true, walkthroughMode: "no" }),
+    );
+
+    expect(readVoicePreferences(userId).walkthroughMode).toBe(true);
+
+    window.localStorage.setItem(
+      `one_voice_preferences_v1:${userId}`,
+      JSON.stringify({ voiceEnabled: true, walkthroughMode: false }),
+    );
+
+    expect(readVoicePreferences(userId).walkthroughMode).toBe(false);
   });
 
   it("notifies subscribers on update, and stops after unsubscribing", () => {
@@ -112,7 +139,9 @@ describe("One voice preferences", () => {
     expect(readVoicePreferences(userId)).toEqual({
       voiceEnabled: true,
       requireTapConfirmation: false,
+      walkthroughMode: true,
       disabledDomains: [],
+      voiceName: null,
     });
     expect(
       window.localStorage.getItem(`one_voice_preferences_v1:${userId}`),

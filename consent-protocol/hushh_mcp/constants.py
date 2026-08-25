@@ -67,6 +67,23 @@ class ConsentScope(str, Enum):
     CAP_LOCATION_NEARBY_DISCOVER = "cap.location.nearby.discover"
     CAP_LOCATION_NEARBY_REVOKE = "cap.location.nearby.revoke"
 
+    # ==================== CONTACT DISCOVERY ====================
+    # Matching an address book against the user directory. Declared here so the
+    # capability has a name the consent surface can show and an audit row can
+    # carry -- until now, the single most identity-revealing query in the
+    # product was the only one with no scope attached to it at all.
+    #
+    # NOT yet enforced on `POST /api/marketplace/contacts/match`. That route
+    # authenticates with a Firebase ID token, and every shipped client -- web,
+    # iOS and Android -- calls it that way, so requiring a consent token here
+    # would break contact sync on all three the moment it deployed. Making this
+    # a hard gate is a coordinated client change, and it should be one rather
+    # than a silent outage.
+    CAP_CONTACT_DISCOVERY = "cap.contact.discovery"
+    # Registered in `_STATIC_SCOPE_META` (hushh_mcp/consent/scope_helpers.py) so
+    # the consent surface renders a sentence rather than title-casing the raw
+    # handle into "Cap Contact Discovery".
+
     # ============ MARKETPLACE / PERSONAL INFORMATION AGENT CAPABILITIES ============
     # Capability scopes for the One Personal Information Agent — the marketplace
     # chatbot that lets an owner query, publish, and manage their own PKM data

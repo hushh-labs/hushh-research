@@ -74,6 +74,7 @@ const CARD_WIDTH_PX = 187;
 const CARD = `
 <article class="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#f4f6f8] [container-type:inline-size]"
          data-testid="location-use-case-checkin" data-one-use-case-card data-one-feature-card="checkin">
+  <div class="absolute inset-0" data-one-checkin-map-backdrop aria-hidden="true"></div>
   <div class="relative z-20 px-4 pt-4" data-one-feature-copy>
     <span class="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f]" data-one-use-case-tag>Check in</span>
     <!-- TwoLineFeatureTitle's real structure: two BLOCK spans, each
@@ -83,10 +84,10 @@ const CARD = `
          line once the fixture stopped using the machine's fallback font and
          started using the InterVariable the product ships. That reported a 22px
          overlap with the artwork at every width, on a card that is fine. -->
-    <div class="text-[19px] font-bold leading-[1.13] tracking-[-0.015em]" role="heading" aria-level="2" data-one-feature-title><span class="block whitespace-nowrap" data-one-feature-title-line>At the venue, but</span><span class="block whitespace-nowrap" data-one-feature-title-line>can&rsquo;t find each other?</span></div>
-    <p class="text-[14px] leading-[1.4] text-[#747b86]" data-one-feature-body>Check in anywhere. Your Circle knows you arrived.</p>
+    <div class="text-[19px] font-bold leading-[1.13] tracking-[-0.015em]" role="heading" aria-level="2" data-one-feature-title><span class="block whitespace-nowrap" data-one-feature-title-line>Dreading the</span><span class="block whitespace-nowrap" data-one-feature-title-line>check-in queue?</span></div>
+    <p class="text-[14px] leading-[1.4] text-[#747b86]" data-one-feature-body>Check in early, pick up your key, and skip the front desk.</p>
   </div>
-  <div class="absolute inset-x-0 bottom-0 h-[47%]" data-one-use-case-art aria-hidden="true">
+  <div class="absolute inset-x-0 bottom-0 h-[52%]" data-one-use-case-art aria-hidden="true">
     <span class="absolute bottom-[48%] left-1/2 w-[54%] -translate-x-1/2" data-one-checkin-art>
       <img data-one-checkin-hotel alt="" class="block w-full origin-bottom object-contain"
            src="/one-location/onboarding/feature-checkin-house-transparent.webp" />

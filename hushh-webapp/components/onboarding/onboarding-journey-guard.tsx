@@ -381,9 +381,11 @@ export function OnboardingJourneyGuard({
             variant="muted"
             effect="fade"
             className="mt-3"
-            onClick={() => router.push(ROUTES.PROFILE)}
+            onClick={() =>
+              router.push(buildOneSetupRoute({ returnTo: currentHref }))
+            }
           >
-            Open profile
+            Open setup
           </Button>
         </div>
       </div>

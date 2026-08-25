@@ -20,7 +20,7 @@ describe("private-agent action confirmation contract", () => {
     expect(consumeAt).toBeGreaterThan(confirmAt);
     expect(receiptAt).toBeGreaterThan(consumeAt);
     expect(executeAt).toBeGreaterThan(receiptAt);
-    expect(source).toContain("Authorized. Tap Run to execute.");
+    expect(source).toContain('Authorized. Tap "${pending.event.label || "Run"}" to continue.');
     expect(source).toContain("executeTrustedActivationGatewayAction");
     expect(source).toContain("A new user turn supersedes any unconfirmed proposal");
     expect(source).toContain("setPendingAppAction(null);");

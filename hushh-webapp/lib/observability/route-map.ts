@@ -1,4 +1,5 @@
 import {
+  HUSHH_TECH_LAUNCH_PATH,
   KAI_MARKET_PATH,
   normalizeStaticExportPathname,
   ROUTES,
@@ -11,6 +12,7 @@ export const ROUTE_ID_VALUES = [
   "developers",
   "research",
   "research_protocol",
+  "hushh_tech_launch",
   "blog",
   "blog_post",
   "login",
@@ -24,6 +26,9 @@ export const ROUTE_ID_VALUES = [
   "profile_preferences_kai",
   "profile_preferences_gemini",
   "profile_preferences_device",
+  "profile_preferences_voice",
+  "profile_preferences_voice_changelog",
+  "profile_preferences_voice_examples",
   "profile_security",
   "profile_security_vault",
   "profile_security_session",
@@ -40,6 +45,8 @@ export const ROUTE_ID_VALUES = [
   "profile_gmail",
   "profile_gmail_connection",
   "profile_gmail_actions",
+  "profile_referrals",
+  "referral_landing",
   "profile_support",
   "profile_support_routing",
   "profile_support_compose",
@@ -147,6 +154,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.DEVELOPERS) return "developers";
   if (pathname === ROUTES.RESEARCH) return "research";
   if (pathname === ROUTES.RESEARCH_PROTOCOL) return "research_protocol";
+  if (pathname === HUSHH_TECH_LAUNCH_PATH) return "hushh_tech_launch";
   if (pathname === ROUTES.BLOG) return "blog";
   if (pathname.startsWith(`${ROUTES.BLOG}/`)) return "blog_post";
   if (pathname === ROUTES.LOGIN) return "login";
@@ -163,6 +171,12 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "profile_preferences_gemini";
   if (pathname === ROUTES.PROFILE_PREFERENCES_DEVICE)
     return "profile_preferences_device";
+  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE)
+    return "profile_preferences_voice";
+  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG)
+    return "profile_preferences_voice_changelog";
+  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES)
+    return "profile_preferences_voice_examples";
   if (pathname === ROUTES.PROFILE_SECURITY) return "profile_security";
   if (pathname === ROUTES.PROFILE_SECURITY_VAULT)
     return "profile_security_vault";
@@ -195,6 +209,8 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.PROFILE_GMAIL_CONNECTION)
     return "profile_gmail_connection";
   if (pathname === ROUTES.PROFILE_GMAIL_ACTIONS) return "profile_gmail_actions";
+  if (/^\/r\/[^/]+$/.test(pathname)) return "referral_landing";
+  if (pathname === ROUTES.PROFILE_REFERRALS) return "profile_referrals";
   if (pathname === ROUTES.PROFILE_SUPPORT) return "profile_support";
   if (pathname === ROUTES.PROFILE_SUPPORT_ROUTING)
     return "profile_support_routing";
@@ -248,11 +264,25 @@ export function resolveRouteId(rawPathname: string): RouteId {
   // folding them together would hide the split from every page-view metric.
   if (pathname === ROUTES.ONE_LOCATION_CHECK_IN) return "one_location_check_in";
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
-  // Both forms: the bare route and a token beneath it. Normalization strips the
-  // trailing slash, so a `startsWith("/one/location/request/")` check alone would send
-  // "/one/location/request/" to "unknown" — and falling through logs the raw pathname on the
-  // one route family whose pathname carries a share token.
-  if (pathname === "/one/location/request" || pathname.startsWith("/one/location/request/"))
+  // Both paths and both forms.
+  //
+  // The page moved from `/one/location/request/<token>` to
+  // `/one/location/view/<token>`; the old path still resolves because links
+  // minted under it are already in messages that were sent. They report the
+  // SAME id on purpose — it is one screen, and splitting it would break every
+  // dashboard reading this route at the moment of the rename, for a name only
+  // this file ever sees.
+  //
+  // Both forms of each: the bare route and a token beneath it. Normalization
+  // strips the trailing slash, so a `startsWith(".../")` check alone would send
+  // "/one/location/view/" to "unknown" — and falling through logs the raw
+  // pathname on the one route family whose pathname carries a share token.
+  if (
+    pathname === "/one/location/view" ||
+    pathname.startsWith("/one/location/view/") ||
+    pathname === "/one/location/request" ||
+    pathname.startsWith("/one/location/request/")
+  )
     return "one_location_public_request";
   // Both forms: the bare route and a token beneath it. Normalization strips the
   // trailing slash, so a `startsWith("/one/location/invite/")` check alone would send

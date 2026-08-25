@@ -28,51 +28,16 @@
 # also asserts every step arg stays under the 10,000 limit.
 
 set -euo pipefail
-if [[ -z "${_RUNTIME_SERVICE_ACCOUNT}" ]]; then
-  echo "_RUNTIME_SERVICE_ACCOUNT is required." >&2
-  exit 1
-fi
-if [[ "${_RUNTIME_SERVICE_ACCOUNT}" != *"@${PROJECT_ID}.iam.gserviceaccount.com" ]]; then
-  echo "Runtime service account must belong to ${PROJECT_ID}; got '${_RUNTIME_SERVICE_ACCOUNT}'." >&2
-  exit 1
-fi
+# The runtime-IAM preflight -- runtime service-account validity, the cross-project
+# managed Vertex allowlist, and the aiplatform.user / serviceUsageConsumer role
+# checks -- runs in the dedicated `verify-runtime-iam` build step BEFORE this one,
+# so it is not repeated here. This body only needs the resolved genai project id,
+# which the deployed service carries as GOOGLE_CLOUD_PROJECT.
 genai_project_id="${_GENAI_PROJECT_ID}"
 if [[ -z "${genai_project_id}" ]]; then
   genai_project_id="$PROJECT_ID"
   if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
     genai_project_id="hushh-pda-uat"
-  fi
-fi
-if [[ "${genai_project_id}" != "$PROJECT_ID" && "${_DEPLOY_ENV}" != "dev" ]]; then
-  echo "Cross-project managed Vertex is allowed only for the isolated dev lane." >&2
-  exit 1
-fi
-gcloud iam service-accounts describe "${_RUNTIME_SERVICE_ACCOUNT}" \
-  --project="$PROJECT_ID" >/dev/null
-vertex_api_name="$(gcloud services list --enabled \
-  --project="${genai_project_id}" \
-  --filter='config.name=aiplatform.googleapis.com' \
-  --format='value(config.name)' | head -n 1)"
-if [[ "${vertex_api_name}" != "aiplatform.googleapis.com" ]]; then
-  echo "Vertex AI API must be enabled in ${genai_project_id}." >&2
-  exit 1
-fi
-runtime_vertex_role="$(gcloud projects get-iam-policy "${genai_project_id}" \
-  --flatten='bindings[].members' \
-  --filter="bindings.role=roles/aiplatform.user AND bindings.members=serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}" \
-  --format='value(bindings.role)' | head -n 1)"
-if [[ "${runtime_vertex_role}" != "roles/aiplatform.user" ]]; then
-  echo "${_RUNTIME_SERVICE_ACCOUNT} must have roles/aiplatform.user in ${genai_project_id}." >&2
-  exit 1
-fi
-if [[ "${genai_project_id}" != "$PROJECT_ID" ]]; then
-  runtime_service_usage_role="$(gcloud projects get-iam-policy "${genai_project_id}" \
-    --flatten='bindings[].members' \
-    --filter="bindings.role=roles/serviceusage.serviceUsageConsumer AND bindings.members=serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}" \
-    --format='value(bindings.role)' | head -n 1)"
-  if [[ "${runtime_service_usage_role}" != "roles/serviceusage.serviceUsageConsumer" ]]; then
-    echo "${_RUNTIME_SERVICE_ACCOUNT} must have roles/serviceusage.serviceUsageConsumer in ${genai_project_id}." >&2
-    exit 1
   fi
 fi
 append_optional_secret() {
@@ -98,6 +63,7 @@ fi
 if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
   secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=${_PLAID_ACCESS_TOKEN_KEY_SECRET}:latest"
 fi
+append_optional_secret "${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}" "HUSHH_MANAGED_GEMINI_LIVE_API_KEY"
 append_optional_secret "${_FINNHUB_API_KEY_SECRET}" "FINNHUB_API_KEY"
 append_optional_secret "${_PMP_API_KEY_SECRET}" "PMP_API_KEY"
 append_optional_secret "${_NEWSAPI_KEY_SECRET}" "NEWSAPI_KEY"
@@ -124,6 +90,8 @@ append_optional_secret "${_OMNIGATEWAY_CLIENT_SECRET_SECRET}" "OMNIGATEWAY_CLIEN
 append_optional_secret "${_OMNIGATEWAY_EXT_CRM_CLIENT_ID_SECRET}" "OMNIGATEWAY_EXT_CRM_CLIENT_ID"
 append_optional_secret "${_OMNIGATEWAY_EXT_CRM_CLIENT_SECRET_SECRET}" "OMNIGATEWAY_EXT_CRM_CLIENT_SECRET"
 append_optional_secret "${_HUSHH_DEVELOPER_TOKEN_SECRET}" "HUSHH_DEVELOPER_TOKEN"
+append_optional_secret "${_HUSHH_TECH_LAUNCH_PEPPER_SECRET}" "HUSSH_TECH_LAUNCH_PEPPER"
+append_optional_secret "${_RATE_LIMIT_STORAGE_URI_SECRET}" "RATE_LIMIT_STORAGE_URI"
 append_optional_secret "${_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET}" "HUSHH_UAT_PHONE_TEST_NUMBERS"
 append_optional_secret "${_HUSHH_UAT_PHONE_TEST_CODE_SECRET}" "HUSHH_UAT_PHONE_TEST_CODE"
 append_optional_secret "${_HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET_SECRET}" "HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET"
@@ -230,6 +198,7 @@ env_vars=(
   "DB_POOL_MAX_SIZE=${_DB_POOL_MAX_SIZE}"
   "DB_SQLALCHEMY_POOL_SIZE=${_DB_SQLALCHEMY_POOL_SIZE}"
   "DB_SQLALCHEMY_MAX_OVERFLOW=${_DB_SQLALCHEMY_MAX_OVERFLOW}"
+  "DB_POOL_ACQUIRE_TIMEOUT_SECONDS=${_DB_POOL_ACQUIRE_TIMEOUT_SECONDS}"
   "RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}"
   "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
 )
@@ -254,6 +223,8 @@ append_optional_env "WALLET_PASS_PROVIDER" "${_WALLET_PASS_PROVIDER}"
 append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
 append_optional_env "HUSHH_PROD_PHONE_TEST_ENABLED" "${_HUSHH_PROD_PHONE_TEST_ENABLED}"
 append_optional_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
+append_optional_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
+append_optional_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
 
 # Slim pod image reference, dev only. GcpBackend reads HUSSH_ONE_POD_IMAGE
 # (gcp_backend.py) and until now it resolved to empty in every environment,
@@ -595,6 +566,10 @@ fi
 
 if [[ -n "${_CLOUDSQL_INSTANCES}" ]]; then
   cmd+=("--add-cloudsql-instances=${_CLOUDSQL_INSTANCES}")
+fi
+
+if [[ -n "${_VPC_CONNECTOR}" ]]; then
+  cmd+=("--vpc-connector=${_VPC_CONNECTOR}" "--vpc-egress=private-ranges-only")
 fi
 
 "${cmd[@]}"

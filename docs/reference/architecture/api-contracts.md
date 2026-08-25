@@ -246,6 +246,38 @@ this first release.
 | POST | `/api/one/calendar/proposals` | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google. |
 | POST | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed. |
 
+### Contact Discovery
+
+Matching an address book against the Hussh user directory. The device normalizes each
+number to E.164 and hashes it; **raw phone numbers and contact names never leave the
+device**, and the server **persists nothing** — the request body is consumed in memory and
+discarded, so a contact who is not a Hussh user leaves no trace.
+
+`last4` is an index bucket, not an answer: it narrows the candidate rows so the query can
+use `idx_actor_identity_cache_phone_last4`, and the full digest is what decides a match.
+Nothing about a matched person's phone number is returned.
+
+Rate limited per authenticated user, on two ceilings — see
+`RateLimits.CONTACT_DISCOVERY_MATCH`. One number cannot describe the abuse: the per-minute
+bound stops a tight loop, the per-day bound is the one that stops the patient walk, which is
+the realistic way to enumerate a user base through a discovery endpoint. The minute bound is
+deliberately generous because the web picker returns hand-picked contacts and the product
+offers a "Check more" action that re-runs the sync.
+
+**Both bounds are per worker process, not global.** slowapi falls back to in-process memory
+storage unless `RATE_LIMIT_STORAGE_URI` points at a shared backend. UAT passes that secret;
+production does not, and runs `gunicorn -w 2` on a scale-to-zero Cloud Run service — so in
+production the effective ceiling is the stated number multiplied by however many workers are
+live. That is survivable for a minute bound and materially weakens the day bound. Wiring
+`RATE_LIMIT_STORAGE_URI` into the production backend is what makes the number above the real
+one; until then, read it as a per-worker bound.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| POST | `/api/marketplace/contacts/match` | Firebase Bearer | Match up to 1000 `{hash, last4}` lookups against the directory. `scope: "one_network"` matches any phone-verified account that has not turned off contact discoverability (what One Location contact sync needs); `scope: "marketplace"` (the default) keeps the Connect deck's publicly-discoverable-profiles policy. Returns `user_id`, `kind`, `display_name`, `headline`, `profile` — and **no phone digits** |
+| GET | `/api/iam/contact-discoverability` | Firebase Bearer | Whether the signed-in account can be found by someone who has their number |
+| POST | `/api/iam/contact-discoverability` | Firebase Bearer | Turn that on or off. Defaults on — a match discloses nothing beyond confirming a number the requester already had |
+
 ### One Location Agent
 
 One Location Agent is One-owned live-location sharing for trusted people. The
@@ -274,7 +306,8 @@ not the product owner for live location.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
-| GET | `/api/one/location/state` | VAULT_OWNER Bearer | List eligible recipients, named Circle summaries, incoming targeted Circle invitations, owner grants, received grants, pending requests, and referrals for the authenticated user |
+| GET | `/api/one/location/state` | VAULT_OWNER Bearer | List eligible recipients, named Circle summaries, incoming targeted Circle invitations, owner grants, received grants, pending requests, referrals, and the current server-owned automatic-approval preference (`enabled`, scope, server `enabledAt`, and monotonic `ruleVersion`) for the authenticated user. A preference read failure fails the state request instead of displaying a live rule as off |
+| PATCH | `/api/one/location/auto-approve-preference` | VAULT_OWNER Bearer | Enable a server-timestamped standing rule for `all_contacts` or one active, person-created Circle owned by the caller, or disable it and clear its scope. Every change increments `ruleVersion` and writes metadata-only audit evidence |
 | POST | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Idempotently add an active, location-ready connection or named-Circle co-member to the authenticated owner's Save My Soul contacts; Circle eligibility and selection are committed under the same membership locks |
 | DELETE | `/api/one/location/sms-contacts/{recipient_user_id}` | VAULT_OWNER Bearer | Idempotently remove one owner-scoped Save My Soul contact without changing the underlying connection |
 | GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | List active connections and active named-Circle co-members excluding self, with masked labels and public-key readiness only |
@@ -287,8 +320,9 @@ not the product owner for live location.
 | GET | `/api/one/location/nearby-presence` | VAULT_OWNER Bearer | Non-production simulation only: return the caller's active posture and one stable maximum-20 projection of mutually active check-ins whose independently selected places are at most 500 m apart; never returns peer coordinates, place, distance, contact details, or stable user ids; response is `private, no-store` |
 | DELETE | `/api/one/location/nearby-presence` | VAULT_OWNER Bearer | Idempotently check the caller out, clear encrypted anchor/index material immediately, and remove them from discovery; available even when discovery is disabled |
 | POST | `/api/one/location/nearby-presence/connection-request` | VAULT_OWNER Bearer | Non-production simulation only: resolve a rotating alias supplied in the JSON body, revalidate both active presence versions and exact radius, then create only the canonical pending Connect request if the target still opts in |
-| POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public request link; the raw token is returned once and only its hash is stored |
-| GET | `/api/one/location/public-invites/{public_token}` | Public | Resolve safe owner label, status, duration, expiry, and the attached `publicLocation` snapshot when the owner created a public location link |
+| POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public live-location link at `/one/location/view/<token>`; the raw token is returned once and only its hash is stored. One live link per owner: calling this while one is live returns that same link with `reused: true`, its window restarted for the duration just asked for and its snapshot refreshed |
+| POST | `/api/one/location/public-invites/{invite_id}/location` | VAULT_OWNER Bearer | Owner heartbeat that moves the pin on their own live public link. Writes `publicLocation` only - never the window, the label or the status, so a heartbeat can never extend a link past what the owner agreed to |
+| GET | `/api/one/location/public-invites/{public_token}` | Public | Resolve the sharer's display-name label (resolved with `allow_email_handle=False`, so never a phone number or an email handle), status, duration, expiry, and the attached `publicLocation` snapshot when the owner created a public location link |
 | POST | `/api/one/location/public-invites/{public_token}/submit` | Public | Legacy/request-only visitor intake; submit visitor name, phone, and optional message as metadata-only request intent for links without public location snapshots |
 | DELETE | `/api/one/location/public-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active public request link |
 | POST | `/api/one/location/circle-invites` | VAULT_OWNER Bearer | Create a hash-only Invite to One link; claiming never grants live location access directly |
@@ -303,7 +337,7 @@ not the product owner for live location.
 | POST | `/api/one/location/circles/{circle_id}/invite-code` | VAULT_OWNER Bearer | Active-member idempotent ensure/read of the shared reusable 72-hour code; `?rotate=true` is authorized only by canonical `circle.owner_user_id`, responses are `private, no-store`, and only a keyed HMAC digest plus derivation metadata is persisted. An unreadable legacy active code returns `LOCATION_CIRCLE_CODE_ROTATION_REQUIRED` until the owner explicitly rotates it |
 | DELETE | `/api/one/location/circles/{circle_id}/invite-code` | VAULT_OWNER Bearer | Owner-only revoke of the active code |
 | GET | `/api/one/location/circles/{circle_id}/eligible-connections` | VAULT_OWNER Bearer | Active-member list of that caller's own active `direct_request` connections who are not active Circle members or covered by a pending invitation. Owner-removed users are offered only to the canonical Circle owner; `remainingCapacity` is bounded by both Circle capacity and the caller's pending-invitation quota |
-| POST | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | Active-member batch create or idempotent reuse of targeted, expiring invitations for the caller's selected direct connections; actor identity comes only from the token. Non-owners may hold at most five pending invitations, terminal invitees have a 12-hour Circle-wide cooldown aligned with terminal-record retention, and only the canonical owner may re-invite an owner-removed user. Creation grants no membership, location, SMS, trusted edge, or capability |
+| POST | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | OWNER-ONLY batch ADD of the owner's selected direct connections. Only the Circle owner may add anyone, and only the owner may read or create the join code: sharing through a Circle is authorized by shared membership alone, so whoever decides membership decides who may receive the owner's location. Details: every person named must already be an active connection of the actor, so membership is written outright rather than invited, and each is notified by name. Actor identity comes only from the token. Terminal invitees keep the 12-hour Circle-wide cooldown so a direct add cannot overrule a decline, someone who LEFT the Circle within the same 12 hours cannot be re-added by anyone including the owner, and only the canonical owner may re-add an owner-removed user. There is no cap on how many Circles a person may belong to. An SMS/Emergency Circle holds at most 10 people, an ordinary Circle 100; existing SMS Circles are lowered to 10 on the owner's next bootstrap and nobody already on one is removed. Any pending invitation for an added person is marked accepted. Adding grants no location, SMS, or trusted authorization; the response's `invites` array is retained and always empty |
 | GET | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | List the authenticated user's incoming invitations or outgoing invitations authored by that member; Circle owners may also see outgoing invitations for moderation |
 | POST | `/api/one/location/circle-member-invites/{invite_id}/accept` | VAULT_OWNER Bearer | Invitee-only acceptance after Circle-first locking and revalidation that the actual inviter remains an active Circle member and their direct connection remains active; only an owner-authored invitation may restore an owner-removed membership. Acceptance atomically joins and creates source-aware connection origins without location/SMS/trusted authorization |
 | POST | `/api/one/location/circle-member-invites/{invite_id}/decline` | VAULT_OWNER Bearer | Invitee-only decline of a pending targeted Circle invitation |
@@ -318,7 +352,7 @@ not the product owner for live location.
 | GET | `/api/one/location/grants/{grant_id}/envelope` | VAULT_OWNER Bearer | Return ciphertext only to the exact approved recipient while grant is active |
 | DELETE | `/api/one/location/grants/{grant_id}` | VAULT_OWNER Bearer | Revoke an active owner grant immediately |
 | POST | `/api/one/location/requests` | VAULT_OWNER Bearer | Create metadata-only request for owner approval. Optionally carries the amount asked for (`requestedDurationHours` + `requestedDurationMode`) and the live grant it would lengthen (`extendsGrantId`, verified server-side against the real grant between the two identities and otherwise detected from it). A request, never an authorization: no grant is written here. Re-asking for a different amount updates the one pending row in place and bumps `requestRevision`, so the owner's client shows the raised number instead of de-duplicating it against the first |
-| POST | `/api/one/location/requests/{request_id}/approve` | VAULT_OWNER Bearer | Owner approves request and creates a fresh recipient grant, replacing any live grant to that recipient. Omitting `durationHours`/`durationMode` grants exactly what was requested (falling back to 1 hour when the request named no amount); sending either still wins, so the owner can always grant less than was asked |
+| POST | `/api/one/location/requests/{request_id}/approve` | VAULT_OWNER Bearer | Every caller must send `approvalMode` as `manual` or `automatic`; omission is rejected so a cached automatic client cannot be mistaken for an explicit tap. Manual approval forbids rule context and may omit duration to grant exactly what was requested (1 hour when absent), or supply a duration override. Automatic approval requires only the current `autoApproveRuleVersion` beside its mode and forbids duration overrides; the service locks the pending request and rule, derives duration from that request, requires it to be newer than activation, revalidates the relationship or exact Circle, refuses ongoing access, and commits grant, request transition, and audit atomically. |
 | POST | `/api/one/location/requests/{request_id}/deny` | VAULT_OWNER Bearer | Owner denies pending request. Denying an extra-time request leaves any access the requester already holds untouched |
 | POST | `/api/one/location/grants/{grant_id}/refer` | VAULT_OWNER Bearer | Recipient refers another verified user into a request flow; no access is forwarded |
 | POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Scrub due nearby-presence anchor material, then delete terminal expired/revoked location grants, nearby-presence metadata, ciphertext envelopes, terminal requests, referrals, public request-link submissions, Invite to One links, expired/revoked named-Circle codes, terminal targeted Circle-member invitations, and related events after the retention window; the hourly hosted scheduler is a release prerequisite |
@@ -389,6 +423,7 @@ RIA relationship bundle note:
 - investor private information -> RIA stays on explicit scope consent
 - RIA active picks feed -> investor is the reserved bilateral capability (`ria_active_picks_feed_v1`)
 - connection acceptance is social only; it grants no information access
+- disconnecting ends BOTH people's One Location Circle memberships in Circles the other OWNS, in the same transaction and after the connection row is revoked. One Location authorizes a delivery on an active non-Circle connection origin OR a shared active Circle, so a membership left behind keeps that permission alive on its own -- including the system Circle SOS reads. A third party's Circle both happen to be in is untouched; either can leave it
 - advisor picks require a current proposal, active relationship-share grant, and active share artifact with matching lineage
 - legacy RIA Picks uploads were product-authorized clean-start retirement; they have no read, migration, fallback, or access route
 
@@ -871,6 +906,25 @@ HCT:<base64(user_id|agent_id|scope|issued_at|expires_at)>.<hmac_sha256_signature
 | 429 | Rate limited | Back off and retry |
 
 ---
+
+## HushhTech UAT Product Client
+
+The complete boundary is [hushh-tech-uat-client.md](./hushh-tech-uat-client.md).
+These routes are UAT-only, disabled by default, and accept only a synthetic
+Firebase UID cohort. Production and Supabase stay unchanged.
+
+| Method | Route | Required proofs | Result |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/products/hushh-tech/launch/authorize` | Research Firebase ID token; exact audience, redirect, and S256 challenge | 60-second single-use code |
+| `POST` | `/api/v1/products/hushh-tech/launch/exchange` | code, verifier, exact audience and redirect | product-bound Firebase custom token and link state |
+| `GET` | `/api/v1/products/hushh-tech/link/status` | Firebase ID token plus server-only HushhTech developer token | `READY` or `LINK_REQUIRED` |
+| `POST` | `/api/v1/products/hushh-tech/link/verify` | recent Firebase authentication, product token, synthetic legacy-session proof | active UID-to-legacy-UUID link or `LINK_CONFLICT` |
+| `POST` | `/api/v1/products/hushh-tech/link/revoke` | recent Firebase authentication plus product token | revoked link and `LINK_REQUIRED` state |
+| `GET` | `/api/v1/products/hushh-tech/compatibility/{record_type}` | Firebase ID token plus product token | one allowlisted synthetic record or a typed fail-closed state |
+
+Email, phone, Apple relay address, and provider identifiers are never mapping
+keys. Link and compatibility routes accept only the exact developer app with
+the `hushh_tech_client` tool group and no broader capability.
 
 ## Response Format
 

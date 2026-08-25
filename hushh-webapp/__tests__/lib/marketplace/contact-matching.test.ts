@@ -10,6 +10,73 @@ vi.mock("@/lib/capacitor", () => ({
   },
 }));
 
+/**
+ * The injected-source cases. Google Contacts feeds the SAME pipeline as the
+ * device address book — normalization, dedupe, mobile-first ordering, the 1000
+ * cap and the hashing all have exactly one implementation, and these pin that
+ * a second source does not get a second copy of any of it.
+ */
+describe("buildMarketplaceContactLookups with an injected source", () => {
+  const googleResult = {
+    contacts: [
+      { id: "g1", displayName: "Asha", phoneNumbers: ["98765 43210"] },
+      { id: "g2", displayName: "Asha again", phoneNumbers: ["+91 98765 43210"] },
+      { id: "g3", displayName: "Landline", phoneNumbers: ["+91 11 2345 6789"] },
+    ],
+    sourcePlatform: "google" as const,
+    defaultRegion: null,
+    limited: false,
+    truncated: false,
+    totalAvailable: 3,
+  };
+
+  it("dedupes across the source exactly as it does for the device book", async () => {
+    const source = vi.fn(async () => googleResult);
+    const result = await buildMarketplaceContactLookups({
+      accountPhoneNumber: "+919000000000",
+      source,
+    });
+
+    // Two spellings of one number collapse to one digest.
+    const digests = new Set(result.lookups.map((l) => l.hash));
+    expect(digests.size).toBe(result.lookups.length);
+    expect(result.sourcePlatform).toBe("google");
+    expect(result.limited).toBe(false);
+  });
+
+  it("sends the source only the limit, and nothing else", async () => {
+    // A source has no business receiving the account phone number or the abort
+    // signal. Both stay on this side of the seam.
+    const source = vi.fn(async () => googleResult);
+    await buildMarketplaceContactLookups({
+      limit: 42,
+      accountPhoneNumber: "+919000000000",
+      source,
+    });
+    expect(source).toHaveBeenCalledWith({ limit: 42 });
+  });
+
+  it("still hashes on this side, never trusting the source for a digest", async () => {
+    const source = vi.fn(async () => googleResult);
+    const result = await buildMarketplaceContactLookups({
+      accountPhoneNumber: "+919000000000",
+      source,
+    });
+    for (const lookup of result.lookups) {
+      expect(lookup.hash).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
+
+  it("propagates truncation from the source", async () => {
+    const source = vi.fn(async () => ({ ...googleResult, truncated: true }));
+    const result = await buildMarketplaceContactLookups({
+      accountPhoneNumber: "+919000000000",
+      source,
+    });
+    expect(result.truncated).toBe(true);
+  });
+});
+
 describe("marketplace contact matching", () => {
   beforeEach(() => {
     readContactsMock.mockReset();

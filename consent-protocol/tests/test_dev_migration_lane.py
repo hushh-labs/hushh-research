@@ -237,20 +237,35 @@ def test_release_manifest_still_matches_the_repo_migration_head() -> None:
         for path in MIGRATIONS_DIR.iterdir()
         if path.is_file() and path.name[:3].isdigit() and path.suffix == ".sql"
     )
-    manifest_versions = [_migration_version(name) for name in migrate.RELEASE_MIGRATION_FILES]
+    # The release lane is the production-safe base PLUS every environment overlay
+    # (e.g. the isolated UAT-only hushh_tech foundation at 170, which is not in the
+    # base and never reaches production). Every active .sql under db/migrations/
+    # must be accounted for by one of them, so the head is the max across all.
+    release_versions = [_migration_version(name) for name in migrate.BASE_RELEASE_MIGRATION_FILES]
+    for overlay in migrate.RELEASE_ENVIRONMENT_OVERLAYS.values():
+        release_versions.extend(_migration_version(name) for name in overlay)
 
-    assert max(manifest_versions) == max(repo_versions)
+    assert max(release_versions) == max(repo_versions)
     assert max(repo_versions) < 900, "parked migrations leaked into the active sequence"
 
 
 def test_uat_and_prod_contracts_still_match_the_manifest_head() -> None:
-    """The dev lane must not move either environment's expected version."""
-    manifest_head = max(_migration_version(name) for name in migrate.RELEASE_MIGRATION_FILES)
+    """The dev lane must not move either environment's expected version.
 
-    for contract_name in ("uat_integrated_schema.json", "prod_core_schema.json"):
+    Each environment pins ITS release head: production stays on the base lane,
+    while UAT additionally carries the isolated overlay (e.g. hushh_tech's 170).
+    """
+    contract_environments = {
+        "uat_integrated_schema.json": "uat",
+        "prod_core_schema.json": "production",
+    }
+    for contract_name, environment in contract_environments.items():
+        environment_head = max(
+            _migration_version(name) for name in migrate.release_migration_files(environment)
+        )
         contract = json.loads((DB_DIR / "contracts" / contract_name).read_text(encoding="utf-8"))
         assert contract["migration_version_policy"] == "exact"
-        assert contract["expected_migration_version"] == manifest_head
+        assert contract["expected_migration_version"] == environment_head
 
 
 def test_release_migration_files_are_exactly_the_release_manifest() -> None:

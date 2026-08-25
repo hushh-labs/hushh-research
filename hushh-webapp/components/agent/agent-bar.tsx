@@ -25,6 +25,8 @@ import { useTheme } from "next-themes";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import { VoiceActionCard } from "@/components/agent/voice-action-card";
+import { VoiceWalkthroughPanel } from "@/components/agent/voice-walkthrough-panel";
+import { VoiceErrorCard } from "@/components/agent/voice-error-card";
 import { useAuth } from "@/hooks/use-auth";
 import {
   executeAgentGatewayAction,
@@ -34,6 +36,10 @@ import {
 import { settleAgentGatewayAction } from "@/lib/agent/agent-gateway-action-settlement";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import { requiresHardTapConfirmation } from "@/lib/agent/confirmation-tap-policy";
+import {
+  readVoicePreferences,
+  subscribeVoicePreferences,
+} from "@/lib/agent/voice-preferences";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { ApiService } from "@/lib/services/api-service";
 import {
@@ -67,6 +73,7 @@ import {
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { parseVoiceSubject } from "@/lib/voice/voice-action-card";
 import { classifySpokenConfirmation } from "@/lib/voice/spoken-confirmation";
 import {
   clearJourneyApproval,
@@ -187,6 +194,13 @@ async function settleAgentBarAction(
 // most once per card (see pendingConfirmationNudgeTimerRef).
 const PENDING_CONFIRMATION_NUDGE_MS = 12_000;
 
+// Kill switch for the dead-end insight card, off by request while the
+// experience is reworked. Flip back to true to restore it -- the backend
+// dead_end context and the remedy-action handler are untouched. Typed as
+// `boolean`, not inferred as the literal `false`, so flipping it doesn't
+// also require silencing a "this is always null" narrowing complaint below.
+const DEAD_END_INSIGHTS_ENABLED: boolean = false;
+
 // Screen-aware hint copy. First matching prefix wins, so order longest/most
 // specific routes before their parents. Falls back to a generic prompt.
 const AGENT_BAR_HINTS: ReadonlyArray<{ prefix: string; hint: string }> = [
@@ -283,6 +297,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // the bar highlights and an ambient waveform animates in place, reacting to
   // the user's voice (listening) and the agent's reply (speaking).
   const [conversationActive, setConversationActive] = useState(false);
+  // Bumped to trigger a deferred (re)start -- manual retry or automatic
+  // reconnect -- once conversationActive has genuinely settled. See the
+  // effect near startConversation for why this can't just call it directly.
+  const [retryNonce, setRetryNonce] = useState(0);
   const [pendingConfirmation, setPendingConfirmation] =
     useState<PendingVoiceConfirmation | null>(null);
   // The journey approval lives in module scope, not component state: it has
@@ -292,6 +310,37 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     clearJourneyApproval(reason);
   }, []);
   const activeActionRun = useActiveActionRun();
+  // Read directly rather than through AgentRuntimeState's snapshot: that
+  // snapshot is deliberately the subset of preferences the backend relay
+  // needs to see, and walk-through mode is a purely client-side rendering
+  // choice with nothing for the relay to act on.
+  const [walkthroughModeEnabled, setWalkthroughModeEnabled] = useState(
+    () => readVoicePreferences(user?.uid).walkthroughMode,
+  );
+  useEffect(() => {
+    setWalkthroughModeEnabled(readVoicePreferences(user?.uid).walkthroughMode);
+    if (!user?.uid) return;
+    return subscribeVoicePreferences(user.uid, (next) =>
+      setWalkthroughModeEnabled(next.walkthroughMode),
+    );
+  }, [user?.uid]);
+  // Present only while the current screen has genuinely stopped -- e.g. no
+  // connections to share location with -- and names the one action that
+  // unsticks it. Already computed and reactive (screen-context-builder.ts
+  // moves the context revision whenever it appears or clears); today it only
+  // ever reaches the model as a spoken hint. Shown here too, so the same
+  // "you're stuck, here's the way out" reaches someone who never asked out
+  // loud and is just looking at a dead screen.
+  //
+  // Temporarily switched off -- gated here rather than deleted, since the
+  // backend/context plumbing is unchanged and this is meant to come back.
+  const deadEnd = DEAD_END_INSIGHTS_ENABLED
+    ? runtime?.oneVoiceContextSnapshot.ui.dead_end ?? null
+    : null;
+  const deadEndRemedyAction = deadEnd
+    ? getKaiActionById(deadEnd.remedy_action_id)
+    : null;
+  const [deadEndRemedyBusy, setDeadEndRemedyBusy] = useState(false);
   const pendingConfirmationRef = useRef<PendingVoiceConfirmation | null>(null);
   const voiceStatus = useAgentVoiceState((s) => s.status);
   const voiceMessage = useAgentVoiceState((s) => s.message);
@@ -309,6 +358,63 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const activeRuntimeModeRef = useRef<"hushh_managed_vertex" | "byok" | null>(null);
   const lastTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
   const prewarmedRelayRef = useRef<PrewarmedGeminiRelay | null>(null);
+
+  // Test-only dispatch entry point: invokes the same pure execution boundary a
+  // real Gemini tool-call reaches, but skips the confirmation card and journey
+  // grant machinery that wraps it in normal use. Automation supplies the
+  // actionId/slots a voice turn would have produced; this proves the action
+  // itself works end-to-end without simulating audio/STT.
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const bridge = window.__HUSHH_NATIVE_TEST__;
+    if (!bridge?.enabled) return undefined;
+
+    const dispatch = async (actionId: string, slots?: Record<string, unknown>) => {
+      bridge.dispatchAgentActionStatus = `running:${actionId}`;
+      bridge.dispatchAgentActionError = "";
+      const runtimeState = runtime?.appRuntimeState;
+      if (!runtimeState) {
+        const message = "App runtime state is not ready.";
+        bridge.dispatchAgentActionStatus = `error:${actionId}`;
+        bridge.dispatchAgentActionError = message;
+        throw new Error(message);
+      }
+      try {
+        const result = await executeAgentGatewayAction({
+          actionId,
+          slots: slots ?? {},
+          userId: user?.uid ?? "",
+          router,
+          appRuntimeState: runtimeState,
+          surfaceMetadata: getVoiceSurfaceMetadata(),
+          allowedActionIds:
+            runtime?.oneVoiceContextSnapshot.available_action_ids ?? null,
+          hasPortfolioData:
+            runtimeState.portfolio.has_portfolio_data ||
+            runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
+          busyOperations,
+          setAnalysisParams,
+          switchPersona,
+        });
+        bridge.dispatchAgentActionStatus = `ok:${actionId}`;
+        return result;
+      } catch (error) {
+        bridge.dispatchAgentActionStatus = `error:${actionId}`;
+        bridge.dispatchAgentActionError =
+          error instanceof Error ? error.message : "native action dispatch failed";
+        throw error;
+      }
+    };
+
+    bridge.dispatchAgentAction = dispatch;
+
+    return () => {
+      const currentBridge = window.__HUSHH_NATIVE_TEST__;
+      if (currentBridge && currentBridge.dispatchAgentAction === dispatch) {
+        currentBridge.dispatchAgentAction = null;
+      }
+    };
+  }, [runtime, user?.uid, router, busyOperations, setAnalysisParams, switchPersona]);
   const relayMintInFlightRef = useRef(false);
   const relayMintCooldownUntilRef = useRef(0);
   const relayMintBackoffMsRef = useRef(5_000);
@@ -332,10 +438,32 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // Tracks whether the active session ended with an error, so the bar can keep
   // showing the error status (instead of snapping shut) until it is dismissed.
   const erroredRef = useRef(false);
+  // Set only when the relay's own sessionEnded frame said the failure is
+  // resumable; cleared on every "closed" so a later unsignaled drop (a raw
+  // network blip, carrying no opinion either way) never inherits a stale
+  // "yes, reconnect" from an unrelated earlier failure.
+  const lastErrorResumableRef = useRef(false);
+  // The provider's own continuation token, handed off in the "closed" event
+  // just before the client instance carrying it is torn down. Consumed by
+  // the next start() -- manual retry or automatic reconnect alike -- so the
+  // provider continues the SAME conversation instead of starting fresh.
+  const lastResumptionHandleRef = useRef<string | null>(null);
+  const pendingResumptionHandleRef = useRef<string | null>(null);
+  // Deliberately conservative: at most ONE automatic reconnect for the whole
+  // life of this bar, not one per failure. A provider that keeps failing the
+  // same resumed conversation must never be able to loop silently -- a
+  // person tapping Try Again by hand (which re-arms this in retryConversation)
+  // is always a safe, bounded way past that cap, so nothing is actually lost
+  // by keeping the automatic side of this strict.
+  const autoReconnectedRef = useRef(false);
   // Ref indirection lets the idle-timer callback always call the CURRENT
   // stopConversation without needing it in handleTransportEvent's deps
   // (stopConversation is declared further down, after handleTransportEvent).
   const stopConversationRef = useRef<() => void>(() => {});
+  // Same indirection: startConversation is declared even further down, but
+  // handleTransportEvent needs to be able to trigger a reconnect the moment
+  // a resumable session closes.
+  const startConversationRef = useRef<() => void>(() => {});
   const handleTransportEventRef = useRef<(event: OneVoiceSessionEvent) => void>(
     () => {},
   );
@@ -467,6 +595,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           "The confirmation was cancelled because the voice session hit an error.",
         );
         erroredRef.current = true;
+        lastErrorResumableRef.current = event.resumable === true;
         setVoiceStatus("error", event.message, eventOptions);
         return;
       }
@@ -710,6 +839,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               label: action.label,
               source: "voice",
               directiveId,
+              goalId,
               message: `Preparing ${action.label}`,
             });
             actionRunId = actionRun.id;
@@ -877,6 +1007,18 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                         }
                       : null,
                 });
+                // A handler that resolved who this run is about (a matched
+                // recipient, a person a request just went to) says so through
+                // the same `data` bag the confirm/disambiguation cards read.
+                // Surfacing it here, before settlement, is what lets the
+                // walkthrough panel show a name the moment it is known
+                // instead of only once the whole run finishes.
+                const resolvedSubject = parseVoiceSubject(executionResult.data);
+                if (resolvedSubject) {
+                  appInteractionCoordinator.updateActionRun(actionRun.id, {
+                    subject: resolvedSubject,
+                  });
+                }
                 if (executionResult.routeAfter) {
                   appInteractionCoordinator.updateActionRun(actionRun.id, {
                     phase: "navigating",
@@ -1006,7 +1148,26 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         voiceLeaseRef.current?.release("transport_closed");
         voiceLeaseRef.current = null;
         activeRuntimeModeRef.current = null;
-        if (erroredRef.current) return;
+        lastResumptionHandleRef.current = event.resumptionHandle ?? null;
+        if (erroredRef.current) {
+          // A resumable failure gets one automatic attempt to pick the same
+          // conversation back up before this becomes something the person
+          // has to notice and act on themselves -- that is the entire point
+          // of the relay bothering to say "resumable" in the first place.
+          if (lastErrorResumableRef.current && !autoReconnectedRef.current) {
+            autoReconnectedRef.current = true;
+            pendingResumptionHandleRef.current = lastResumptionHandleRef.current;
+            erroredRef.current = false;
+            lastErrorResumableRef.current = false;
+            // Not just skipped this time -- startConversation's own guard
+            // treats a still-true conversationActive as "already running"
+            // and would route straight to stopConversation instead of
+            // actually reconnecting.
+            setConversationActive(false);
+            setRetryNonce((current) => current + 1);
+          }
+          return;
+        }
         setConversationActive(false);
       }
     },
@@ -1035,6 +1196,20 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     handleTransportEventRef.current = handleTransportEvent;
   }, [handleTransportEvent]);
 
+  // Narrower than stopConversation: aborts whatever the walkthrough panel is
+  // currently showing without ending the voice session it belongs to. The
+  // abort is best-effort -- not every handler checks its signal mid-flight --
+  // so cancelActiveActionRuns is what actually makes the UI reflect "stopped"
+  // immediately rather than waiting on work that may keep running unseen.
+  const cancelActiveWalkthroughTask = useCallback(() => {
+    actionAbortControllerRef.current?.abort();
+    appInteractionCoordinator.cancelActiveActionRuns("Cancelled");
+    abandonPendingConfirmation(
+      "cancelled_from_walkthrough",
+      "The confirmation was cancelled.",
+    );
+  }, [abandonPendingConfirmation]);
+
   const stopConversation = useCallback(() => {
     actionAbortControllerRef.current?.abort();
     appInteractionCoordinator.cancelActiveActionRuns("Action cancelled when the voice session ended");
@@ -1053,6 +1228,46 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     setConversationActive(false);
     resetVoice();
   }, [abandonPendingConfirmation, clearVoiceIdleTimer, resetVoice]);
+
+  const runDeadEndRemedy = useCallback(() => {
+    if (!deadEndRemedyAction || deadEndRemedyBusy) return;
+    const runtimeState = runtime?.appRuntimeState;
+    if (!runtimeState) return;
+    // A tap is its own confirmation, the same trust the pending-confirmation
+    // card's own Authorize button and every VoiceActionCard row already
+    // extend -- so this runs through the same direct execution path they do,
+    // not the spoken/ledger-confirmed one a voice command would take.
+    const execute =
+      deadEndRemedyAction.activation_policy === "trusted_activation_required"
+        ? executeTrustedActivationGatewayAction
+        : executeAgentGatewayAction;
+    setDeadEndRemedyBusy(true);
+    void execute({
+      actionId: deadEndRemedyAction.action_id,
+      slots: {},
+      userId: user?.uid ?? "",
+      router,
+      appRuntimeState: runtimeState,
+      surfaceMetadata: getVoiceSurfaceMetadata(),
+      allowedActionIds:
+        runtime?.oneVoiceContextSnapshot.available_action_ids ?? null,
+      hasPortfolioData:
+        runtimeState.portfolio.has_portfolio_data ||
+        runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
+      busyOperations,
+      setAnalysisParams,
+      switchPersona,
+    }).finally(() => setDeadEndRemedyBusy(false));
+  }, [
+    deadEndRemedyAction,
+    deadEndRemedyBusy,
+    runtime,
+    user?.uid,
+    router,
+    busyOperations,
+    setAnalysisParams,
+    switchPersona,
+  ]);
 
   const settlePendingConfirmation = useCallback(
     (confirmed: boolean) => {
@@ -1333,6 +1548,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     lastPushedContextRef.current = context
       ? actionableContextKey(context)
       : null;
+    // Consumed once: a resumption handle belongs to the session that just
+    // ended, not to whatever the person starts after it. Reading it here
+    // and clearing it in the same breath means an ordinary, unrelated later
+    // start never accidentally inherits a stale one.
+    const resumptionHandle = pendingResumptionHandleRef.current;
+    pendingResumptionHandleRef.current = null;
     void client.start({
       context,
       accessTier: runtime?.tier ?? null,
@@ -1345,6 +1566,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       runtimeCredentialTransport: runtimeConnection.transport,
       runtimeVertexProject: runtimeConnection.vertexProject,
       runtimeVertexLocation: runtimeConnection.vertexLocation,
+      resumptionHandle,
+      voiceName: readVoicePreferences(user?.uid).voiceName,
     });
   }, [
     conversationActive,
@@ -1358,6 +1581,37 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     user?.uid,
     setVoiceStatus,
   ]);
+
+  // Retrying from an error is stop-then-start, but not in the same tick:
+  // startConversation's own guard reads `conversationActive` from THIS
+  // render's closure, which is still whatever it was before stopConversation
+  // just changed it -- calling both back to back here would see the stale
+  // value and hit the "already active" branch again instead of actually
+  // starting. A pre-setup failure (mic blocked, no device) never set
+  // conversationActive true in the first place, so waiting for it to CHANGE
+  // would wait forever for exactly that case -- the counter always changes,
+  // regardless of whether conversationActive does, so the effect below is
+  // guaranteed to run on every retry.
+  useEffect(() => {
+    startConversationRef.current = () => void startConversation();
+  }, [startConversation]);
+  // A manual retry gets the same continuation token an automatic reconnect
+  // would use, and resets the one-per-session automatic budget: a person
+  // choosing to retry by hand is a fresh decision, not a continuation of
+  // whatever already failed once automatically.
+  const retryConversation = useCallback(() => {
+    pendingResumptionHandleRef.current = lastResumptionHandleRef.current;
+    autoReconnectedRef.current = false;
+    stopConversation();
+    setRetryNonce((current) => current + 1);
+  }, [stopConversation]);
+  useEffect(() => {
+    if (retryNonce === 0) return;
+    startConversationRef.current();
+    // Only a fresh retry request should re-fire this -- startConversationRef
+    // is a ref, kept current by the effect above, and reading .current here
+    // does not need to be declared as a dependency.
+  }, [retryNonce]);
 
   // Continuous voice context: when the user navigates while a live session is
   // active, push the fresh redacted snapshot into the session so One always
@@ -1680,13 +1934,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     pendingAction?.activation_policy === "trusted_activation_required";
   const pendingActionLabel = pendingAction?.label || "Continue this action";
 
-  // In the error state, prefer the specific reason (e.g. mic blocked, no device)
-  // over the generic "Voice error" so the user knows how to recover.
+  // The specific reason (mic blocked, no device, setup timeout) now lives in
+  // VoiceErrorCard, which shows it in full. This pill is a compact status
+  // strip with real estate for maybe half a sentence -- long enough to
+  // truncate any real reason into an ellipsis that told nobody what to do.
   const voiceStatusLabel =
-    activeActionRun?.message ??
-    (voiceStatus === "error" && voiceMessage
-      ? voiceMessage
-      : getAgentVoiceStatusLabel(voiceStatus));
+    activeActionRun?.message ?? getAgentVoiceStatusLabel(voiceStatus);
   const nativeVoiceMode = !conversationActive
     ? "idle"
     : voiceStatus === "connecting"
@@ -1805,10 +2058,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             className={cn(
               "shrink-0 text-[12px] font-medium",
               voiceStatus === "error"
-                ? "min-w-0 max-w-[60%] flex-1 truncate text-right text-destructive/80"
+                ? "text-destructive/80"
                 : "tabular-nums text-current/60",
             )}
-            title={voiceStatus === "error" ? voiceStatusLabel : undefined}
           >
             {voiceStatusLabel}
           </span>
@@ -1909,6 +2161,38 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           raised when an action could not run at all, so there is nothing
           pending to confirm at the same moment. */}
       <VoiceActionCard />
+      <VoiceWalkthroughPanel
+        enabled={walkthroughModeEnabled}
+        onCancel={cancelActiveWalkthroughTask}
+      />
+      {/* Only while nothing more immediate is already up: a confirmation or
+          error is the person's next decision, and a dead end describing a
+          state the screen has already moved past would be stale advice
+          competing with it. */}
+      {deadEnd && !pendingConfirmation ? (
+        <div
+          role="status"
+          aria-label="What's blocking this screen"
+          className="agent-approval-glass pointer-events-auto w-full max-w-[min(calc(100vw-3rem),392px)] rounded-3xl p-4 text-[#1d1d1f] dark:text-[#f5f5f7]"
+        >
+          <p className="text-[13px] leading-relaxed">{deadEnd.reason}</p>
+          {deadEndRemedyAction ? (
+            <button
+              type="button"
+              onClick={runDeadEndRemedy}
+              disabled={deadEndRemedyBusy}
+              className="mt-4 h-12 w-full rounded-full bg-primary text-[15px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:opacity-50"
+            >
+              {deadEndRemedyBusy ? "Working…" : deadEndRemedyAction.label}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      <VoiceErrorCard
+        message={voiceStatus === "error" ? voiceMessage : null}
+        onRetry={retryConversation}
+        onClose={stopConversation}
+      />
       {pendingConfirmation ? (
         <div
           role="dialog"
@@ -1921,6 +2205,17 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               : "One is ready to"}
           </p>
           <p className="mt-1 text-[16px] font-semibold">{pendingActionLabel}</p>
+          {/* Sourced from the generated contract's own `meaning`, the same
+              field VoiceConfirm's `consequence` already reads for the 7
+              handler-authored cards -- so every confirmation names what will
+              actually happen, not just that something needs a yes, and stays
+              true when the action's behavior changes instead of drifting
+              into static copy nobody updates alongside it. */}
+          {pendingAction?.meaning ? (
+            <p className="mt-1 text-[13px] leading-relaxed">
+              {pendingAction.meaning}
+            </p>
+          ) : null}
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
             {pendingActionNeedsTrustedActivation
               ? "This tap opens the provider window and keeps One active here."

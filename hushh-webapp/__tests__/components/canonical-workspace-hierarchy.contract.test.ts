@@ -10,12 +10,12 @@ function read(relativePath: string) {
 }
 
 describe("canonical workspace hierarchy", () => {
-  it("keeps nested Profile pages behind the stack-owned shared header", () => {
+  it("keeps nested Profile pages behind the stack-owned shared PageHeader", () => {
     const stack = read("components/profile/profile-stack-navigator.tsx");
 
-    expect(stack).toContain("function StackHeader");
     expect(stack).toContain("<PageHeader");
     expect(stack).toContain('data-profile-stack-content="true"');
+    expect(stack).not.toContain("function StackHeader");
     expect(stack).not.toContain("<AppPageShell");
   });
 
@@ -41,7 +41,7 @@ describe("canonical workspace hierarchy", () => {
     const finance = read("components/kai/kai-market-hub-page.tsx");
 
     expect(finance).toContain('width="reading"');
-    expect(finance).toContain('className="relative !px-0 pb-32"');
+    expect(finance).toContain('"relative !px-0"');
     expect(finance).toContain('panelInset="page"');
     expect(finance).not.toContain('style={{ "--one-gutter": "0px" }}');
   });

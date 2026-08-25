@@ -991,7 +991,9 @@ describe("ProfileReceiptsPage", () => {
       screen.getByRole("heading", { name: /gmail not connected/i }),
     ).toBeTruthy();
     expect(
-      screen.getByText(/receipt emails capture purchase interactions/i),
+      screen.getByText(
+        /flag what needs a reply, surfaces upcoming meetings, and turns your receipts/i,
+      ),
     ).toBeTruthy();
     expect(screen.queryByText("0 receipts")).toBeNull();
     expect(
@@ -1104,7 +1106,7 @@ describe("ProfileReceiptsPage", () => {
 
     await waitFor(() => {
       expect(mocks.toast.error).toHaveBeenCalledWith(
-        "Gmail connection needs the native Google handoff. Open Gmail on the web app to connect this inbox for now.",
+        "Connect this inbox from the web app for now.",
       );
     });
     expect(mocks.gmailOAuthPopup.open).not.toHaveBeenCalled();

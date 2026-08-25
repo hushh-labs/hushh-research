@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Cloud, PlugZap } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   AppPageContentRegion,
@@ -559,6 +560,20 @@ export function OneSetupHub() {
         };
       }
       if (!runtimeChoiceConfirmed) {
+        // The action stays tappable precisely so this can fire. A permanent
+        // line under the button was the only thing naming the blocker before,
+        // and it sat there unread until someone had already tapped and got
+        // nothing back; the phone action had a `title` tooltip, which a touch
+        // device never shows at all. A toast answers the tap that asked, and
+        // carries the way out with it.
+        //
+        // One block, no description: the toast ceiling is two lines.
+        toast.info("Choose your AI first.", {
+          action: {
+            label: "Choose",
+            onClick: () => router.push(ROUTES.ONE_SETUP_CONNECTIONS),
+          },
+        });
         return {
           status: "blocked" as const,
           summary: "Choose your AI first.",

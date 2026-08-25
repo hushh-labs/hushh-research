@@ -1,106 +1,89 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { KycIdentityPreface } from "@/components/onboarding/setup/kyc-identity-preface";
-import {
-  KycIdentityProfileDraftService,
-  KycIdentityProfilePkmService,
-} from "@/lib/services/kyc-identity-profile-pkm-service";
+import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 
 const mocks = vi.hoisted(() => ({
   saveProfile: vi.fn(),
-  stageProfile: vi.fn(),
   toastError: vi.fn(),
+  toastInfo: vi.fn(),
+  toastSuccess: vi.fn(),
+  vault: {
+    isVaultUnlocked: false,
+    vaultKey: null as string | null,
+    vaultOwnerToken: null as string | null,
+  },
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: "user_1" } }),
 }));
-
-// Both tests below exercise the vault-locked path deliberately ("without
-// opening the vault") -- the component stages the draft in memory instead of
-// saving to the PKM vault whenever isVaultUnlocked/vaultKey/vaultOwnerToken
-// aren't all present.
-vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({
-    isVaultUnlocked: false,
-    vaultKey: null,
-    vaultOwnerToken: null,
-  }),
-}));
-
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => mocks.vault }));
 vi.mock("@/lib/services/kyc-identity-profile-pkm-service", () => ({
-  KycIdentityProfilePkmService: {
-    saveProfile: mocks.saveProfile,
-  },
-  KycIdentityProfileDraftService: {
-    stage: mocks.stageProfile,
-  },
+  KycIdentityProfilePkmService: { saveProfile: mocks.saveProfile },
 }));
-
+vi.mock("@/components/vault/vault-unlock-dialog", () => ({
+  VaultUnlockDialog: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog">Vault setup</div> : null,
+}));
 vi.mock("sonner", () => ({
   toast: {
     error: mocks.toastError,
-    success: vi.fn(),
+    info: mocks.toastInfo,
+    success: mocks.toastSuccess,
   },
 }));
+
+function enterIdentityForm(): void {
+  const continueButton = screen.queryByRole("button", { name: "Continue" });
+  if (continueButton) fireEvent.click(continueButton);
+}
 
 describe("KycIdentityPreface", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    window.sessionStorage.clear();
+    mocks.vault.isVaultUnlocked = false;
+    mocks.vault.vaultKey = null;
+    mocks.vault.vaultOwnerToken = null;
     mocks.saveProfile.mockResolvedValue({ success: true });
   });
 
-  it("keeps the shared gutter while removing the standard route's duplicate top offset", () => {
-    const { container } = render(
-      <KycIdentityPreface onComplete={vi.fn()} />,
-    );
-
-    expect(
-      container.querySelector('[data-capability-cinematic-intro="email"]'),
-    ).toBeInTheDocument();
-    const shell = container.querySelector(
-      '[data-fullscreen-flow-shell="true"]',
-    );
-    expect(shell).toBeInTheDocument();
-    expect(shell?.className).toContain("!pt-0");
-  });
-
-  it("stages the about-me summary in memory without opening the vault", () => {
+  it("keeps KYC on screen and opens vault setup before writing sensitive information", () => {
     const onComplete = vi.fn();
     render(<KycIdentityPreface onComplete={onComplete} />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
-    expect(
-      screen.getByRole("button", { name: "Save & Continue" }),
-    ).toBeDisabled();
-
+    enterIdentityForm();
     fireEvent.change(screen.getByLabelText("Tell us about yourself"), {
-      target: { value: "  Product designer in Pune, settling estate matters. " },
+      target: { value: "Product designer in Pune, settling estate matters." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save & Continue" }));
+
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(KycIdentityProfilePkmService.saveProfile).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("continues immediately and reports the actual background import result", async () => {
+    mocks.vault.isVaultUnlocked = true;
+    mocks.vault.vaultKey = "vault-key";
+    mocks.vault.vaultOwnerToken = "owner-token";
+    let finishSave: ((result: { success: boolean; message?: string }) => void) | null = null;
+    mocks.saveProfile.mockImplementationOnce(
+      () => new Promise((resolve) => { finishSave = resolve; }),
+    );
+    const onComplete = vi.fn();
+    render(<KycIdentityPreface onComplete={onComplete} />);
+    enterIdentityForm();
+    fireEvent.change(screen.getByLabelText("Tell us about yourself"), {
+      target: { value: "I study engineering and enjoy Rocket League." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save & Continue" }));
 
     expect(onComplete).toHaveBeenCalledTimes(1);
-    expect(KycIdentityProfileDraftService.stage).toHaveBeenCalledWith(
-      "user_1",
-      {
-        aboutMe: "Product designer in Pune, settling estate matters.",
-      },
-    );
-    expect(KycIdentityProfilePkmService.saveProfile).not.toHaveBeenCalled();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
-  it("lets a user skip KYC setup without writing a partial identity profile", () => {
-    const onComplete = vi.fn();
-    render(<KycIdentityPreface onComplete={onComplete} />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "Skip KYC setup" }));
-
-    expect(onComplete).toHaveBeenCalledTimes(1);
-    expect(KycIdentityProfilePkmService.saveProfile).not.toHaveBeenCalled();
-    expect(KycIdentityProfileDraftService.stage).not.toHaveBeenCalled();
+    expect(mocks.toastInfo).toHaveBeenCalledWith("Saving your details to Memory in the background…");
+    finishSave?.({ success: true, message: "Saved 2 separate memory details." });
+    await waitFor(() => {
+      expect(mocks.toastSuccess).toHaveBeenCalledWith("Saved 2 separate memory details.");
+    });
   });
 });

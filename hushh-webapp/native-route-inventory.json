@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-08-02",
-  "total_routes": 114,
+  "total_routes": 115,
   "native_required_routes": 100,
-  "excluded_routes": 10,
+  "excluded_routes": 15,
   "routes": [
     {
       "route": "/",
@@ -36,6 +36,10 @@
     },
     {
       "route": "/blog/[slug]",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/circle/join",
       "classification": "excluded-web-only"
     },
     {
@@ -1031,6 +1035,18 @@
       "classification": "excluded-web-only"
     },
     {
+      "route": "/one/setup/cloud",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
+      "expectedMarker": "native-route-one-setup-cloud",
+      "expectedRoute": "/one/setup/cloud",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
       "route": "/one/setup/connected-systems",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",
@@ -1329,18 +1345,6 @@
     {
       "route": "/welcome",
       "classification": "excluded-web-only"
-    },
-    {
-      "route": "/one/setup/cloud",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
-      "expectedMarker": "native-route-one-setup-cloud",
-      "expectedRoute": "/one/setup/cloud",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded"
-      ]
     }
   ]
 }
