@@ -48,6 +48,7 @@ from api.routes.one.a2a import router as a2a_router  # noqa: E402
 from api.routes.one.a2a import well_known_router as a2a_well_known_router  # noqa: E402
 from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E402
 from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
+from api.routes.one.pod_migration import router as pod_migration_router  # noqa: E402
 from api.routes.one.pod_turn import router as pod_turn_router  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
@@ -109,6 +110,12 @@ _POD_ROUTERS = (
     # could live in. Fail-closed without its audience/allowlist env; see the
     # module docstring for why the wake wiring lands separately.
     pod_maintenance_router,
+    # Export and import: the two steps of a migration that only a pod can do,
+    # because reading the source log needs the source pod's key and writing the
+    # destination needs the destination's, and hushh holds neither. Ships dark
+    # behind HUSSH_POD_MIGRATION_ENABLED and fail-closed on the same scheduler
+    # identity the tick uses.
+    pod_migration_router,
 )
 
 app = FastAPI(

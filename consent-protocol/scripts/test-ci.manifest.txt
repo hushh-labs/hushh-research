@@ -153,6 +153,8 @@ tests/test_pod_observability_contract.py
 tests/test_pod_reconcile.py
 tests/test_pod_resource_tier_is_per_person.py
 tests/test_pod_relay.py
+tests/test_pod_migration_bundle.py
+tests/test_pod_migration_routes.py
 tests/test_pod_server.py
 tests/test_pod_service_account_id_fits_google.py
 tests/test_pod_spec_deployment_axes.py

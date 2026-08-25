@@ -43,6 +43,8 @@ EXPECTED_PARKED_MIGRATIONS = (
     "908_personal_agent_tombstone_metadata.sql",
     "909_byoc_setup_jobs.sql",
     "910_personal_agent_status_needs_reinit.sql",
+    "911_pod_migration_jobs.sql",
+    "912_personal_agent_status_migrating.sql",
 )
 
 
