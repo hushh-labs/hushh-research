@@ -3428,16 +3428,58 @@ class TestNamedShareChain:
         assert "navigate first, then ask" not in instruction
         assert "NOTHING has been matched yet" not in instruction
 
-    def test_every_named_action_is_one_call_for_everyone_named(self):
+    def test_every_named_action_points_back_to_the_multi_person_rule(self):
+        """Repeating "never ask who first" in every paragraph on its own was
+        not enough -- live testing showed the model still asking it. The
+        rule now lives in ONE place, stated first with a concrete worked
+        example, and each action's own paragraph just points back to it
+        rather than re-arguing it. If a paragraph stops pointing back, the
+        model reading only that paragraph loses the rule entirely.
+        """
         instruction = ONE_IDENTITY_INSTRUCTION
 
-        for action_id in self.NAMED_ACTIONS:
+        assert instruction.count("MULTI-PERSON RULE") >= 5
+        for action_id in self.NAMED_ACTIONS + ("location.add_to_circle",):
             assert action_id in instruction, action_id
-        # Each of the three named-action paragraphs says this explicitly --
-        # one occurrence missing means one paragraph regressed to the old
-        # one-call-per-name shape.
-        assert instruction.count("never call it once per name") == 3
-        assert instruction.count("One call handles everyone named") == 3
+            # `action id '<id>'` matches each paragraph's own reference, not
+            # the worked example inside the rule itself (which spells the
+            # call as run_app_action('<id>', ...) instead).
+            start = instruction.rindex(f"'{action_id}'")
+            # Governed by the shared rule within the same paragraph -- the
+            # reference has to be close by, not just present somewhere in
+            # the whole instruction.
+            nearby = instruction[start : start + 400]
+            assert "MULTI-PERSON RULE" in nearby, action_id
+
+    def test_the_multi_person_rule_names_the_exact_wrong_question(self):
+        """Naming the failure mode almost verbatim ('who first', 'which one
+        first') is what actually held in testing -- a purely positive
+        instruction ("one call handles everyone") did not stop the model
+        asking it. This is the one place that wording is allowed to live;
+        it must not quietly disappear in a future edit."""
+        instruction = ONE_IDENTITY_INSTRUCTION
+
+        rule_start = instruction.index("MULTI-PERSON RULE")
+        rule = instruction[rule_start : rule_start + 1200]
+        assert "who first" in rule
+        assert "which one first" in rule
+        assert "stop" in rule.lower()
+        # The worked example: a real tool call with two names in one slot.
+        assert "'person': 'Alex and Sam'" in rule
+
+    def test_the_one_tool_per_turn_rule_is_disambiguated_at_its_source(self):
+        """The likely root cause: 'at most ONE action-producing tool per
+        turn' is stated early and authoritatively, long before any
+        multi-person carve-out -- a model pattern-matching on it alone
+        could reasonably read 'one tool' as 'one person'. Patching the
+        carve-outs further down was not enough; this asserts the
+        clarification sits at the rule's own source, not just later."""
+        instruction = ONE_IDENTITY_INSTRUCTION
+
+        rule_index = instruction.index("at most ONE action-producing tool per turn")
+        nearby = instruction[rule_index : rule_index + 700]
+        assert "it does not mean one person per call" in nearby
+        assert "still exactly one call" in nearby
 
     def test_every_required_slot_one_must_fill_is_spelled_out(self):
         """Name the slot key, never imply it.
