@@ -3400,27 +3400,44 @@ class TestNavigationActionMembership:
 
 
 class TestNamedShareChain:
-    """The named location-share journey is navigate-first, ask-second.
+    """The named location-share/ask/connect flows are one call, not a chain.
 
-    The single question exists to catch a MIS-HEARD name, so it is worth
-    nothing unless it says the name the app matched. One does not have that
-    name when the journey starts: ``start_app_goal`` issues the route step and
-    answers ``navigation_started``, and the pick only runs later, under
-    ``continue_app_goal``. An instruction that promised the match up front left
-    One with nothing to ask from but the word it heard -- so it asked "which
-    Sarah did you mean?", from a screen showing no Sarahs at all.
+    Superseded a three-call navigate-then-pick-then-act journey
+    (``location.select_share_recipient`` -> ``continue_app_goal`` ->
+    ``location.share_selected``, and the mirror for ``send_request``) once
+    those actions became backend-direct and multi-person: the app resolves
+    every named person, checks ambiguity, and runs the action in the SAME
+    call the model makes. An instruction that still described the old chain
+    left One doing exactly what a live session showed: asking for one person
+    at a time and waiting between names the backend pipeline already handled
+    together. These assert the instruction actually tells One to call once
+    with everyone named, not the retired multi-call shape.
     """
 
-    def test_the_start_of_the_chain_is_not_treated_as_a_match(self):
+    NAMED_ACTIONS = ("location.share_selected", "location.send_request", "connect.send_request")
+
+    def test_the_old_navigate_then_pick_chain_is_gone_for_named_requests(self):
         instruction = ONE_IDENTITY_INSTRUCTION
 
-        assert "navigate first, then ask" in instruction
-        assert "NOTHING has been matched yet" in instruction
-        # The two beats, in order, both named.
-        start = instruction.index("location.select_share_recipient")
-        assert instruction.index("continue_app_goal", start) < instruction.index(
-            "location.share_selected", start
-        )
+        # The retired escort actions/verb no longer appear anywhere in the
+        # instruction -- they still exist as real, reachable actions for the
+        # tap-driven composer, but nothing here should still be telling One
+        # to call them for a named share/ask/connect request.
+        assert "location.select_share_recipient" not in instruction
+        assert "location.select_ask_recipient" not in instruction
+        assert "navigate first, then ask" not in instruction
+        assert "NOTHING has been matched yet" not in instruction
+
+    def test_every_named_action_is_one_call_for_everyone_named(self):
+        instruction = ONE_IDENTITY_INSTRUCTION
+
+        for action_id in self.NAMED_ACTIONS:
+            assert action_id in instruction, action_id
+        # Each of the three named-action paragraphs says this explicitly --
+        # one occurrence missing means one paragraph regressed to the old
+        # one-call-per-name shape.
+        assert instruction.count("never call it once per name") == 3
+        assert instruction.count("One call handles everyone named") == 3
 
     def test_every_required_slot_one_must_fill_is_spelled_out(self):
         """Name the slot key, never imply it.
@@ -3432,7 +3449,7 @@ class TestNamedShareChain:
         analysis.start has always spelled out {'symbol': <ticker>}; this asserts
         the same for every action the instruction tells One to start by name.
         """
-        for action_id in ("location.select_share_recipient", "analysis.start"):
+        for action_id in ("location.share_selected", "connect.send_request", "analysis.start"):
             entry = get_action_gateway_action(action_id)
             assert action_id in ONE_IDENTITY_INSTRUCTION, action_id
             required = [
@@ -3444,13 +3461,24 @@ class TestNamedShareChain:
             for slot in required:
                 assert f"'{slot}':" in ONE_IDENTITY_INSTRUCTION, f"{action_id} slot {slot}"
 
-    def test_the_question_is_forbidden_before_the_pick_settles(self):
+    def test_a_wrong_or_ambiguous_name_is_relayed_not_guessed(self):
         instruction = ONE_IDENTITY_INSTRUCTION
 
-        assert "ask no question" in instruction
-        assert "never the" in instruction and "name you heard" in instruction
-        # The matched name has exactly one source, and it is not a tool return.
-        assert "settlement report is the first and only place" in instruction
+        assert "never guess" in instruction
+        # Each named-action paragraph tells One to ask again for just the
+        # names that failed, not to re-run the whole request.
+        assert "ask again for just those" in instruction or "ask again" in instruction
+
+    def test_the_generic_confirm_rule_still_gates_every_named_action(self):
+        """These three actions rely on the SAME 'ask out loud, then stop and
+        wait' rule as every other confirm_required action -- there is no
+        per-tool-call confirmation gate underneath backend-direct dispatch,
+        so an instruction that stopped telling One to ask first would mean
+        these fire on a bare mention with nothing said out loud at all."""
+        instruction = ONE_IDENTITY_INSTRUCTION
+
+        assert instruction.count("ASK FOR IT OUT LOUD") >= 3
+        assert "then STOP and wait" in instruction
 
 
 def test_a_named_request_goes_to_its_journey_not_to_a_specialist():
