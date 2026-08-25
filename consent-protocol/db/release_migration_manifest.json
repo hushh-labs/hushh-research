@@ -143,11 +143,12 @@
     "163_one_location_system_circle_kinds.sql",
     "165_one_referral_program.sql",
     "167_one_referral_realtime_notify.sql",
-    "169_one_location_auto_approve_preferences.sql"
+    "169_one_location_auto_approve_preferences.sql",
+    "171_gmail_owner_approved_delivery.sql"
   ],
   "environment_overlays": {
     "uat": [
-      "170_hushh_tech_uat_client_foundation.sql"
+      "172_hushh_tech_uat_client_foundation.sql"
     ]
   },
   "groups": {

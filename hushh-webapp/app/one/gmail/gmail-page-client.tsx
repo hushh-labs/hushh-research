@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
 import GmailReceiptsPage from "@/components/gmail/gmail-receipts-page";
+import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
 import { ROUTES } from "@/lib/navigation/routes";
 import { isOneCapabilityEnabled } from "@/lib/onboarding/one-capabilities";
 
@@ -23,5 +24,9 @@ export default function OneGmailPageClient() {
 
   if (!enabled) return <RouteLoadingState label="Opening One…" />;
 
-  return <GmailReceiptsPage />;
+  return (
+    <CapabilityVaultPrerequisite capabilityLabel="Gmail" routeKey={ROUTES.GMAIL}>
+      <GmailReceiptsPage />
+    </CapabilityVaultPrerequisite>
+  );
 }

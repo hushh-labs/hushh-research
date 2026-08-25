@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 170,
+  "expected_migration_version": 172,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -276,6 +276,22 @@
       "metadata",
       "created_at",
       "completed_at"
+    ],
+    "gmail_owner_send_actions": [
+      "action_id",
+      "user_id",
+      "envelope_hmac",
+      "idempotency_hmac",
+      "recipient_count",
+      "state",
+      "expires_at",
+      "sending_at",
+      "sent_at",
+      "gmail_message_id",
+      "gmail_thread_id",
+      "safe_error_code",
+      "created_at",
+      "updated_at"
     ],
     "one_action_directive_ledger": [
       "directive_id",

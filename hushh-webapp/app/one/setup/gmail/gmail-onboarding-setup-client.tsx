@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
 import GmailReceiptsPage from "@/components/gmail/gmail-receipts-page";
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
+import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
 import {
   SetupCapabilityLoading,
   useSetupCapabilityCoordinator,
@@ -53,15 +54,20 @@ function EnabledGmailOnboardingSetup() {
 
   return (
     <CapabilityCinematicIntroGate capabilityId="gmail">
-      <GmailReceiptsPage
-        journeyVariant="onboarding"
-        onConnectionStateChange={setConnected}
-        onFinishSetup={() => void coordinator.finish()}
-        finishingSetup={coordinator.isSettling}
-        onSkipSetup={() => void coordinator.skip()}
-        skippingSetup={coordinator.isSettling}
-        voicePublisherRole="chrome"
-      />
+      <CapabilityVaultPrerequisite
+        capabilityLabel="Gmail"
+        routeKey={ROUTES.ONE_SETUP_GMAIL}
+      >
+        <GmailReceiptsPage
+          journeyVariant="onboarding"
+          onConnectionStateChange={setConnected}
+          onFinishSetup={() => void coordinator.finish()}
+          finishingSetup={coordinator.isSettling}
+          onSkipSetup={() => void coordinator.skip()}
+          skippingSetup={coordinator.isSettling}
+          voicePublisherRole="chrome"
+        />
+      </CapabilityVaultPrerequisite>
     </CapabilityCinematicIntroGate>
   );
 }

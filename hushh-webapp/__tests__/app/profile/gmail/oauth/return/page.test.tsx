@@ -236,11 +236,65 @@ describe("ProfileGmailOAuthReturnPage", () => {
         expectedJourneyUpdatedAt: 123,
         expectedCallbackAttemptId: "connector-test",
       });
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup/gmail");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
     });
     expect(
       window.sessionStorage.getItem("one_onboarding_connector_intent_v1"),
     ).toBeNull();
+  });
+
+  it("opens Gmail before a slow setup acknowledgement finishes", async () => {
+    window.sessionStorage.setItem(
+      "one_onboarding_connector_intent_v1",
+      JSON.stringify({
+        version: 1,
+        capability: "gmail",
+        returnTo: "/one/setup",
+        correlationId: "connector-slow-setup",
+        startedAt: Date.now(),
+      }),
+    );
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "code-slow-setup";
+      if (key === "state") return "state-slow-setup";
+      return null;
+    });
+    const pendingJourney = {
+      setupCompleted: false,
+      onboardingPhase: "external_connector",
+      onboardingActiveCapability: "gmail",
+      onboardingCallbackState: "pending",
+      onboardingCallbackAttemptId: "connector-slow-setup",
+      onboardingJourneyUpdatedAt: 456,
+    };
+    let resolveJourney: ((value: typeof pendingJourney) => void) | undefined;
+    mocks.bootstrapState
+      .mockImplementationOnce(
+        () =>
+          new Promise<typeof pendingJourney>((resolve) => {
+            resolveJourney = resolve;
+          }),
+      )
+      .mockResolvedValue(pendingJourney);
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => {
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
+    });
+    expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
+
+    resolveJourney?.(pendingJourney);
+    await waitFor(() => {
+      expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
+        userId: "user-123",
+        phase: "capability_setup",
+        activeCapability: "gmail",
+        callbackState: "succeeded",
+        expectedJourneyUpdatedAt: 456,
+        expectedCallbackAttemptId: "connector-slow-setup",
+      });
+    });
   });
 
   it("recovers setup acknowledgement from the durable journey when the browser correlation is missing", async () => {
@@ -275,7 +329,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
         expectedJourneyUpdatedAt: 789,
         expectedCallbackAttemptId: "connector-ios-durable",
       });
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup/gmail");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
     });
   });
 
@@ -324,7 +378,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
           expectedJourneyUpdatedAt: 987,
           expectedCallbackAttemptId: "connector-storage-blocked",
         });
-        expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup/gmail");
+        expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
       });
     } finally {
       if (sessionStorageDescriptor) {

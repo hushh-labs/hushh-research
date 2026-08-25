@@ -26,6 +26,24 @@ def test_one_navigation_directive_uses_existing_tool_sse_contract(action_id):
     assert frames[1][1]["status"] == "waiting_for_frontend"
 
 
+def test_one_gmail_draft_directive_reaches_the_editable_draft_surface():
+    frames = _one_directive_frames(
+        OneTextDirective(
+            kind="prompt",
+            payload={
+                "kind": "gmail_email_draft",
+                "instruction": "Send a hello email to me",
+            },
+        ),
+        conversation_text="Opening an editable email draft.",
+    )
+
+    assert [name for name, _ in frames] == ["specialist_directive"]
+    payload = frames[0][1]
+    assert payload["delegate_agent_id"] == "one"
+    assert payload["directive"]["payload"]["instruction"] == "Send a hello email to me"
+
+
 def test_frames_for_action_directive():
     result = SpecialistTurnResult(
         conversation_id="c1",

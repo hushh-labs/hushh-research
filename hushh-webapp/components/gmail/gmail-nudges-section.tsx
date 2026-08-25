@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   GmailReceiptsService,
@@ -83,6 +84,26 @@ function NudgeCard({ nudge }: { nudge: GmailNudge }) {
   );
 }
 
+function NudgeListSkeleton({ label }: { label: string }) {
+  return (
+    <div aria-busy="true" aria-label={`Loading ${label}`} className="space-y-2">
+      <p className="sr-only">Loading {label}. Gmail remains available.</p>
+      {Array.from({ length: 2 }, (_, index) => (
+        <div
+          className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3"
+          key={index}
+        >
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-1/2" />
+          </div>
+          <Skeleton className="h-8 w-14 shrink-0" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function NudgeGroup({
   eyebrow,
   blurb,
@@ -124,7 +145,7 @@ function NudgeGroup({
       {error ? (
         <p className="text-xs text-red-600">{error}</p>
       ) : loading && !loaded ? (
-        <p className="text-xs text-muted-foreground">Reading your inbox…</p>
+        <NudgeListSkeleton label={eyebrow.toLowerCase()} />
       ) : nudges.length === 0 && loaded ? (
         <p className="text-xs text-muted-foreground">{emptyText}</p>
       ) : (

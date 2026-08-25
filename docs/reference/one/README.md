@@ -13,6 +13,7 @@ flowchart TD
   kai["Kai Runtime Compatibility"]
   ontology["Agent Ontology"]
   feed["Feed Notification Model"]
+  gmail["Owner-Approved Gmail Email"]
 
   root --> voice
   voice --> goal
@@ -22,6 +23,7 @@ flowchart TD
   voice --> kai
   root --> ontology
   root --> feed
+  root --> gmail
 ```
 
 One is the private agent and relationship layer. Current-state One reference
@@ -53,3 +55,4 @@ for finance-specialist runtime references, and keep future-only One plans under
 - [../../vision/agent-ontology.md](../../vision/agent-ontology.md): Hussh / One / Kai / Nav / KYC role contract.
 - [one-voice-onboarding-journey.md](./one-voice-onboarding-journey.md): the One Voice onboarding journey and its state contract.
 - [feed-notification-model.md](./feed-notification-model.md): the cross-domain Feed route (`/one/feed`) that replaced the top-bar `ActivityInbox` bell — the `feed_events` table, its six domain write paths (Consent, Location, Kai, KYC, Connected Systems, Connections), read/unread semantics, and the bottom-nav tab.
+- [gmail-owner-approved-email.md](./gmail-owner-approved-email.md): one shared Gmail connection for receipt/inbox context and owner-approved personal email drafting and delivery; includes the explicit boundary from the `one@hushh.ai` KYC mailbox.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -36,24 +37,24 @@ def test_state_token_round_trip():
     service = GmailReceiptsService()
     state = service._build_state_token(
         user_id="user_123",
-        redirect_uri="http://localhost:3000/profile/gmail/oauth/return",
+        redirect_uri="http://localhost:3000/one/profile/gmail/oauth/return",
     )
 
     payload = service._verify_state_token(
         state=state,
         user_id="user_123",
-        redirect_uri="http://localhost:3000/profile/gmail/oauth/return",
+        redirect_uri="http://localhost:3000/one/profile/gmail/oauth/return",
     )
 
     assert payload["uid"] == "user_123"
-    assert payload["redirect_uri"] == "http://localhost:3000/profile/gmail/oauth/return"
+    assert payload["redirect_uri"] == "http://localhost:3000/one/profile/gmail/oauth/return"
 
 
 def test_state_token_invalid_signature_rejected():
     service = GmailReceiptsService()
     state = service._build_state_token(
         user_id="user_123",
-        redirect_uri="http://localhost:3000/profile/gmail/oauth/return",
+        redirect_uri="http://localhost:3000/one/profile/gmail/oauth/return",
     )
     broken = f"{state}x"
 
@@ -61,14 +62,14 @@ def test_state_token_invalid_signature_rejected():
         service._verify_state_token(
             state=broken,
             user_id="user_123",
-            redirect_uri="http://localhost:3000/profile/gmail/oauth/return",
+            redirect_uri="http://localhost:3000/one/profile/gmail/oauth/return",
         )
 
     assert exc_info.value.status_code == 400
 
 
 def _configure_gmail_oauth(monkeypatch, *, origin: str = "https://uat.one.hushh.ai"):
-    redirect_uri = f"{origin}/profile/gmail/oauth/return"
+    redirect_uri = f"{origin}/one/profile/gmail/oauth/return"
     monkeypatch.setenv("APP_FRONTEND_ORIGIN", origin)
     monkeypatch.setenv("GMAIL_OAUTH_CLIENT_ID", "test-client-id")
     monkeypatch.setenv("GMAIL_OAUTH_CLIENT_SECRET", "test-client-secret")
@@ -85,12 +86,75 @@ def test_oauth_redirect_uses_environment_owned_callback(monkeypatch):
     assert service._resolve_oauth_redirect_uri(None) == redirect_uri
 
 
+@pytest.mark.asyncio
+async def test_connect_requests_read_and_send_scopes_together(monkeypatch):
+    _configure_gmail_oauth(monkeypatch)
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "_build_state_token", lambda **kwargs: "state")
+
+    result = await service.start_connect(
+        user_id="user_123",
+        redirect_uri=None,
+        login_hint=None,
+        include_granted_scopes=False,
+    )
+
+    scope = parse_qs(urlparse(result["authorize_url"]).query)["scope"][0].split()
+    assert "https://www.googleapis.com/auth/gmail.readonly" in scope
+    assert "https://www.googleapis.com/auth/gmail.send" in scope
+
+
+@pytest.mark.asyncio
+async def test_legacy_readonly_connection_requires_reconnect_for_send(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(service, "_watch_enabled", lambda: False)
+    monkeypatch.setattr(service, "_reconcile_active_runs", lambda **kwargs: None)
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row",
+        lambda user_id: {
+            "status": "connected",
+            "revoked": False,
+            "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
+        },
+    )
+    monkeypatch.setattr(service, "_latest_sync_run", lambda user_id: None)
+
+    status = await service.get_status(user_id="user_123")
+
+    assert status["send_permission_granted"] is False
+    assert status["send_reconnect_required"] is True
+
+
+@pytest.mark.asyncio
+async def test_send_requires_combined_gmail_scope(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row",
+        lambda user_id: {
+            "status": "connected",
+            "revoked": False,
+            "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
+        },
+    )
+
+    with pytest.raises(GmailApiError) as exc_info:
+        await service.assert_send_ready(user_id="user_123")
+
+    assert exc_info.value.code == "GMAIL_SEND_PERMISSION_REQUIRED"
+
+
 def test_oauth_redirect_rejects_caller_selected_origin(monkeypatch):
     _configure_gmail_oauth(monkeypatch)
     service = GmailReceiptsService()
 
     with pytest.raises(GmailApiError) as exc_info:
-        service._resolve_oauth_redirect_uri("https://untrusted.example/profile/gmail/oauth/return")
+        service._resolve_oauth_redirect_uri(
+            "https://untrusted.example/one/profile/gmail/oauth/return"
+        )
 
     assert exc_info.value.status_code == 400
 
@@ -99,7 +163,7 @@ def test_oauth_redirect_rejects_environment_configuration_drift(monkeypatch):
     _configure_gmail_oauth(monkeypatch)
     monkeypatch.setenv(
         "GMAIL_OAUTH_REDIRECT_URI",
-        "http://localhost:3000/profile/gmail/oauth/return",
+        "http://localhost:3000/one/profile/gmail/oauth/return",
     )
     service = GmailReceiptsService()
 
@@ -114,7 +178,7 @@ def test_oauth_redirect_rejects_environment_configuration_drift(monkeypatch):
 async def test_connect_boundaries_reject_wrong_redirect_before_oauth_work(monkeypatch):
     _configure_gmail_oauth(monkeypatch)
     service = GmailReceiptsService()
-    wrong_redirect = "https://untrusted.example/profile/gmail/oauth/return"
+    wrong_redirect = "https://untrusted.example/one/profile/gmail/oauth/return"
 
     with pytest.raises(GmailApiError) as start_error:
         await service.start_connect(
@@ -925,6 +989,10 @@ async def test_disconnect_cancels_inflight_sync_run_and_marks_it_canceled(monkey
         and isinstance(params, dict)
         and params.get("status") == "canceled"
         for query, params in active_run_queries
+    )
+    assert any(
+        "UPDATE kai_gmail_connections" in query and "status = 'disconnected'" in query
+        for query, _ in active_run_queries
     )
 
 

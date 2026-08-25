@@ -63,7 +63,11 @@ _GMAIL_MESSAGES_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
 _GMAIL_THREADS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/threads"
 _GMAIL_HISTORY_URL = "https://gmail.googleapis.com/gmail/v1/users/me/history"
 _GMAIL_WATCH_URL = "https://gmail.googleapis.com/gmail/v1/users/me/watch"
-_GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
+# The origin remains environment-derived. Receipt sync and approved delivery
+# share this one callback and canonical token store.
+_GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
+_GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+_GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 
 # Bounds for the inbox scan behind "Needs a reply" nudges: how far back to look,
 # how many recent threads to inspect, and how many cards to return.
@@ -132,6 +136,7 @@ class GmailApiError(RuntimeError):
     message: str
     status_code: int = 500
     payload: dict[str, Any] | None = None
+    code: str | None = None
 
     def __str__(self) -> str:
         return self.message
@@ -1041,7 +1046,8 @@ class GmailReceiptsService:
                 "openid",
                 "email",
                 "profile",
-                "https://www.googleapis.com/auth/gmail.readonly",
+                _GMAIL_READONLY_SCOPE,
+                _GMAIL_SEND_SCOPE,
             ]
         )
 
@@ -1230,6 +1236,43 @@ class GmailReceiptsService:
             return "needs_reauth"
         return "not_connected"
 
+    @staticmethod
+    def _granted_scopes(row: dict[str, Any] | None) -> set[str]:
+        """Normalize provider scopes without assuming legacy rows can send."""
+
+        if not row:
+            return set()
+        return {value for value in re.split(r"[\s,]+", _clean_text(row.get("scope_csv"))) if value}
+
+    def _send_permission_granted(self, row: dict[str, Any] | None) -> bool:
+        return self._derive_connection_state(
+            row
+        ) == "connected" and _GMAIL_SEND_SCOPE in self._granted_scopes(row)
+
+    async def assert_send_ready(self, *, user_id: str) -> None:
+        """Check provider delivery admission without refreshing or returning tokens."""
+
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
+        if not row or self._derive_connection_state(row) != "connected":
+            raise GmailApiError(
+                "Gmail is not connected for this user",
+                status_code=409,
+                code="GMAIL_NOT_CONNECTED",
+            )
+        if _GMAIL_SEND_SCOPE not in self._granted_scopes(row):
+            raise GmailApiError(
+                "Reconnect Gmail to grant email sending permission.",
+                status_code=409,
+                code="GMAIL_SEND_PERMISSION_REQUIRED",
+            )
+
+    async def get_send_access_token(self, *, user_id: str) -> str:
+        """Use the canonical receipt connector token only after provider admission."""
+
+        await self.assert_send_ready(user_id=user_id)
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        return access_token
+
     def _derive_sync_state(
         self, *, row: dict[str, Any] | None, latest_run: dict[str, Any] | None
     ) -> str:
@@ -1279,6 +1322,8 @@ class GmailReceiptsService:
             "google_email": (_clean_text(row.get("google_email")) or None) if row else None,
             "google_sub": (_clean_text(row.get("google_sub")) or None) if row else None,
             "scope_csv": _clean_text(row.get("scope_csv")) if row else "",
+            "send_permission_granted": self._send_permission_granted(row),
+            "send_reconnect_required": connected and not self._send_permission_granted(row),
             "last_sync_at": row.get("last_sync_at") if row else None,
             "last_sync_status": _clean_text(row.get("last_sync_status"), "idle") if row else "idle",
             "last_sync_error": (_clean_text(row.get("last_sync_error")) or None) if row else None,
