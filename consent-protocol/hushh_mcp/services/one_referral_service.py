@@ -24,8 +24,19 @@ from sqlalchemy import text
 
 from db.db_client import get_db_connection
 from hushh_mcp.operons.referral.policy import (
+    ATTRIBUTED,
+    ENGAGING,
+    EXPIRED,
+    ONBOARDED,
+    PHONE_VERIFIED,
     QUALIFIED,
+    REJECTED,
+    SIGNED_UP,
+    TERMINAL_STATES,
+    UNDER_REVIEW,
+    QualificationInput,
     ReferralPolicy,
+    evaluate,
     public_status,
 )
 from hushh_mcp.operons.referral.slug import (
@@ -496,3 +507,144 @@ def bind_attribution(attribution_id: str, user_id: str) -> dict:
         )
 
     return {"status": "bound"}
+
+
+# ---------------------------------------------------------------------------
+# Qualification: driven by onboarding completion, nothing else
+# ---------------------------------------------------------------------------
+# The funnel a relationship walks through on its way to a decision. Each entry
+# past the current status is a legal single-step transition under the database
+# trigger, so advancing several steps at once means issuing one UPDATE per
+# step rather than jumping straight to the end. `engaging` stays a stop on
+# this path for exactly one reason: it is already a legal hop out of
+# `onboarded` and into `qualified`/`under_review`, so reusing it here needs no
+# schema or trigger change. Nothing about reaching it requires engagement any
+# more -- a relationship passes through it the instant onboarding completes.
+_FUNNEL_ORDER = (ATTRIBUTED, SIGNED_UP, PHONE_VERIFIED, ONBOARDED, ENGAGING)
+
+_STEP_SQL = {
+    SIGNED_UP: text(
+        "UPDATE one_referral_relationships"
+        "   SET status = 'signed_up', signed_up_at = COALESCE(signed_up_at, :ts)"
+        " WHERE id = :rid"
+    ),
+    PHONE_VERIFIED: text(
+        "UPDATE one_referral_relationships"
+        "   SET status = 'phone_verified', phone_verified_at = COALESCE(phone_verified_at, :ts)"
+        " WHERE id = :rid"
+    ),
+    ONBOARDED: text(
+        "UPDATE one_referral_relationships"
+        "   SET status = 'onboarded', onboarded_at = COALESCE(onboarded_at, :ts)"
+        " WHERE id = :rid"
+    ),
+    ENGAGING: text(
+        "UPDATE one_referral_relationships"
+        "   SET status = 'engaging', engagement_started_at = COALESCE(engagement_started_at, :ts)"
+        " WHERE id = :rid"
+    ),
+}
+
+_TARGET_SQL = {
+    QUALIFIED: text(
+        "UPDATE one_referral_relationships"
+        "   SET status = 'qualified', qualified_at = :ts"
+        " WHERE id = :rid"
+    ),
+    UNDER_REVIEW: text(
+        "UPDATE one_referral_relationships SET status = 'under_review' WHERE id = :rid"
+    ),
+    REJECTED: text(
+        "UPDATE one_referral_relationships"
+        "   SET status = 'rejected', rejected_at = :ts"
+        " WHERE id = :rid"
+    ),
+    EXPIRED: text(
+        "UPDATE one_referral_relationships"
+        "   SET status = 'expired', expired_at = :ts"
+        " WHERE id = :rid"
+    ),
+}
+
+
+def sync_referral_qualification_from_onboarding(referred_user_id: str) -> dict:
+    """Advance this person's referral relationship after they finish onboarding.
+
+    This is the only place a relationship moves past `signed_up`. It is called
+    from the same authenticated write that marks a user's own setup complete,
+    so it carries no attack surface beyond what that write already has: nobody
+    can qualify a referral by acting on someone else's account.
+
+    Reads two backend-persisted facts, never anything the caller asserts:
+
+      * ``vault_keys.setup_completed`` -- the One product's own record of
+        whether this person finished the required onboarding flow.
+      * ``actor_identity_cache.phone_verified`` -- set from a live Firebase
+        Admin lookup, not from a client-supplied flag.
+
+    Safe to call for someone who was never referred (a no-op), for a
+    relationship that already settled (a no-op), and to call twice for the
+    same onboarding-completed event (the second call finds nothing left to
+    change and writes nothing).
+    """
+    try:
+        policy = get_active_policy()
+    except ReferralProgramDisabled:
+        return {"status": "program_disabled"}
+
+    with get_db_connection() as connection:
+        relationship = connection.execute(
+            text(
+                """
+                SELECT id, status
+                  FROM one_referral_relationships
+                 WHERE referred_user_id = :uid
+                 LIMIT 1
+                 FOR UPDATE
+                """
+            ),
+            {"uid": referred_user_id},
+        ).fetchone()
+        if relationship is None:
+            return {"status": "not_referred"}
+        if relationship.status in TERMINAL_STATES or relationship.status == QUALIFIED:
+            return {"status": "no_change", "relationship_status": relationship.status}
+
+        vault_row = connection.execute(
+            text("SELECT setup_completed, setup_completed_at FROM vault_keys WHERE user_id = :uid"),
+            {"uid": referred_user_id},
+        ).fetchone()
+        identity_row = connection.execute(
+            text("SELECT phone_verified FROM actor_identity_cache WHERE user_id = :uid"),
+            {"uid": referred_user_id},
+        ).fetchone()
+
+        onboarding_complete = bool(vault_row and vault_row.setup_completed)
+        onboarded_at = (
+            datetime.fromtimestamp(vault_row.setup_completed_at / 1000, tz=timezone.utc)
+            if vault_row and vault_row.setup_completed_at
+            else None
+        )
+        phone_verified = bool(identity_row and identity_row.phone_verified)
+
+        decision = evaluate(
+            QualificationInput(
+                status=relationship.status,
+                phone_verified=phone_verified,
+                onboarding_complete=onboarding_complete,
+                risk_level="low",
+            ),
+            policy,
+        )
+        if not decision.changed:
+            return {"status": "no_change", "relationship_status": relationship.status}
+
+        now = _now()
+        if relationship.status in _FUNNEL_ORDER:
+            start = _FUNNEL_ORDER.index(relationship.status)
+            for step in _FUNNEL_ORDER[start + 1 :]:
+                step_ts = onboarded_at if step == ONBOARDED and onboarded_at else now
+                connection.execute(_STEP_SQL[step], {"ts": step_ts, "rid": relationship.id})
+        connection.execute(_TARGET_SQL[decision.target_status], {"ts": now, "rid": relationship.id})
+
+    return {"status": "updated", "relationship_status": decision.target_status}
