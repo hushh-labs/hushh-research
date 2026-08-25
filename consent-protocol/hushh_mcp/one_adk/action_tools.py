@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Literal
 
 from google.adk.tools.tool_context import ToolContext
 
@@ -680,6 +680,82 @@ async def _execute_backend_direct_mutation(
         return f"Cancelled your connection request to {name}."
 
     raise AssertionError(f"{action_id} is in BACKEND_DIRECT_ACTION_IDS with no execution branch")
+
+
+async def _read_tool_user_id(tool_context: ToolContext) -> tuple[str | None, dict[str, Any] | None]:
+    """Shared auth gate for the backend-direct read tools below.
+
+    Same re-validated check the backend-direct mutations use
+    (``_verify_backend_direct_authorization``) -- these tools return
+    consent-scoped personal and location data, so they get the real
+    VAULT_OWNER re-validation, not a lighter signed-in-only check.
+    """
+    authorized, user_id, reason = await _verify_backend_direct_authorization(tool_context)
+    if not authorized:
+        return None, {"status": "blocked", "message": reason}
+    return user_id, None
+
+
+async def list_my_location_circles(tool_context: ToolContext) -> dict[str, Any]:
+    """List the person's own Location circles: name, kind, and role in each.
+
+    Reads live from the backend, not from whatever the current screen has
+    published -- safe to call from anywhere, any time.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    circles = OneLocationCircleService().list_circles(user_id=user_id)
+    return {"status": "ok", "circles": circles}
+
+
+async def list_my_location_shares(tool_context: ToolContext) -> dict[str, Any]:
+    """List who the person is currently sharing their live location with."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    shares = OneLocationAgentService().list_active_owner_grants(owner_user_id=user_id)
+    return {"status": "ok", "shares": shares}
+
+
+async def list_location_shared_with_me(tool_context: ToolContext) -> dict[str, Any]:
+    """List who is currently sharing their live location with this person."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    shares = OneLocationAgentService().list_active_recipient_grants(recipient_user_id=user_id)
+    return {"status": "ok", "shares": shares}
+
+
+async def list_pending_location_requests(tool_context: ToolContext) -> dict[str, Any]:
+    """List location access requests waiting on this person's approve/decline."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    requests = OneLocationAgentService().list_pending_owner_requests(owner_user_id=user_id)
+    return {"status": "ok", "requests": requests}
+
+
+async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
+    """List the person's Connect connections."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    connections = ConnectionsService().list_connections(user_id=user_id)
+    return {"status": "ok", "connections": connections}
+
+
+async def list_pending_connection_requests(
+    tool_context: ToolContext,
+    direction: Literal["incoming", "outgoing"] = "incoming",
+) -> dict[str, Any]:
+    """List pending Connect requests. "incoming" = waiting on this person to accept;
+    "outgoing" = this person's own asks still waiting on someone else."""
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    requests = ConnectionsService().list_requests(user_id=user_id, direction=direction)
+    return {"status": "ok", "requests": requests}
 
 
 async def run_app_action(

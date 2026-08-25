@@ -35,6 +35,12 @@ from hushh_mcp.one_adk.action_tools import (
     _navigation_journey_definition,
     continue_app_goal,
     list_app_actions,
+    list_location_shared_with_me,
+    list_my_connections,
+    list_my_location_circles,
+    list_my_location_shares,
+    list_pending_connection_requests,
+    list_pending_location_requests,
     run_app_action,
     start_app_goal,
 )
@@ -1759,6 +1765,179 @@ class TestBackendDirectConnectionActions:
             )
         assert result["status"] == "failed"
         assert "no pending request" in result["message"].lower()
+
+
+class TestBackendDirectLocationReadTools:
+    """list_my_location_circles / list_my_location_shares /
+    list_location_shared_with_me / list_pending_location_requests -- plain
+    root-agent tools, no specialist detour, no dependency on anything the
+    frontend published. Each test's state carries only STATE_USER_ID/
+    STATE_CONSENT_TOKEN -- no hussh:screen, no hussh:voice_context at all --
+    which is itself the proof these tools need nothing from the frontend."""
+
+    def _authorized_state(self) -> dict:
+        return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
+
+    def _auth_patch(self):
+        return patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=(True, None, SimpleNamespace(user_id="user_1"))),
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_my_location_circles_reads_live_from_the_service(self):
+        state = self._authorized_state()
+        assert _STATE_SCREEN not in state
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ) as list_mock,
+        ):
+            result = await list_my_location_circles(_tool_context(state))
+        assert result["status"] == "ok"
+        assert result["circles"] == [{"id": "c1", "name": "Family"}]
+        assert list_mock.call_args.kwargs == {"user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_list_my_location_shares_reads_active_owner_grants(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_active_owner_grants",
+                autospec=True,
+                return_value=[{"id": "g1", "recipientDisplayName": "Roopmann"}],
+            ) as grants_mock,
+        ):
+            result = await list_my_location_shares(_tool_context(state))
+        assert result["status"] == "ok"
+        assert result["shares"][0]["recipientDisplayName"] == "Roopmann"
+        assert grants_mock.call_args.kwargs == {"owner_user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_list_location_shared_with_me_reads_active_recipient_grants(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_active_recipient_grants",
+                autospec=True,
+                return_value=[{"id": "g2", "ownerDisplayName": "Friend"}],
+            ) as grants_mock,
+        ):
+            result = await list_location_shared_with_me(_tool_context(state))
+        assert result["status"] == "ok"
+        assert result["shares"][0]["ownerDisplayName"] == "Friend"
+        assert grants_mock.call_args.kwargs == {"recipient_user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_list_pending_location_requests_reads_pending_owner_requests(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_pending_owner_requests",
+                autospec=True,
+                return_value=[{"id": "r1", "requesterDisplayName": "Asker"}],
+            ) as requests_mock,
+        ):
+            result = await list_pending_location_requests(_tool_context(state))
+        assert result["status"] == "ok"
+        assert result["requests"][0]["requesterDisplayName"] == "Asker"
+        assert requests_mock.call_args.kwargs == {"owner_user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_refuses_without_a_consent_token(self):
+        state = {STATE_USER_ID: "user_1"}  # no STATE_CONSENT_TOKEN
+        with patch.object(OneLocationCircleService, "list_circles", autospec=True) as list_mock:
+            result = await list_my_location_circles(_tool_context(state))
+        assert result["status"] == "blocked"
+        list_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_refuses_when_token_fails_revalidation(self):
+        state = self._authorized_state()
+        with (
+            patch(
+                "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+                new=AsyncMock(return_value=(False, "expired", None)),
+            ),
+            patch.object(OneLocationCircleService, "list_circles", autospec=True) as list_mock,
+        ):
+            result = await list_my_location_circles(_tool_context(state))
+        assert result["status"] == "blocked"
+        list_mock.assert_not_called()
+
+
+class TestBackendDirectConnectionReadTools:
+    """list_my_connections / list_pending_connection_requests."""
+
+    def _authorized_state(self) -> dict:
+        return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
+
+    def _auth_patch(self):
+        return patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=(True, None, SimpleNamespace(user_id="user_1"))),
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_my_connections_reads_live_from_the_service(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[{"connectionId": "cx1", "displayName": "Sarah"}],
+            ) as list_mock,
+        ):
+            result = await list_my_connections(_tool_context(state))
+        assert result["status"] == "ok"
+        assert result["connections"][0]["displayName"] == "Sarah"
+        assert list_mock.call_args.kwargs == {"user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_list_pending_connection_requests_defaults_to_incoming(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService, "list_requests", autospec=True, return_value=[]
+            ) as requests_mock,
+        ):
+            result = await list_pending_connection_requests(_tool_context(state))
+        assert result["status"] == "ok"
+        assert requests_mock.call_args.kwargs == {"user_id": "user_1", "direction": "incoming"}
+
+    @pytest.mark.asyncio
+    async def test_list_pending_connection_requests_accepts_outgoing(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService, "list_requests", autospec=True, return_value=[]
+            ) as requests_mock,
+        ):
+            result = await list_pending_connection_requests(_tool_context(state), "outgoing")
+        assert result["status"] == "ok"
+        assert requests_mock.call_args.kwargs == {"user_id": "user_1", "direction": "outgoing"}
+
+    @pytest.mark.asyncio
+    async def test_refuses_without_a_consent_token(self):
+        state = {STATE_USER_ID: "user_1"}  # no STATE_CONSENT_TOKEN
+        with patch.object(ConnectionsService, "list_connections", autospec=True) as list_mock:
+            result = await list_my_connections(_tool_context(state))
+        assert result["status"] == "blocked"
+        list_mock.assert_not_called()
 
 
 class TestSettledActionJourneys:
