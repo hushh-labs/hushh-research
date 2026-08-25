@@ -728,7 +728,14 @@ export function OneSetupHub() {
             />
           ) : localFirstStage === "explainer" ? (
             <VaultExplainerScreens
-              onComplete={() => setVaultDialogOpen(true)}
+              // Arm the completion effect the same way the flag-off path does at
+              // handleMasterAck: it is gated on vaultInvitationOpen, so without this
+              // the local-first (flag-on) user sets their lock and is stranded on the
+              // explainer -- the buffer never drains and the hub never routes home.
+              onComplete={() => {
+                setVaultInvitationOpen(true);
+                setVaultDialogOpen(true);
+              }}
             />
           ) : (
             <BufferHandoffScreen />

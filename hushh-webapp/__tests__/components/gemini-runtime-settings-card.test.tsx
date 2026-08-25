@@ -25,12 +25,22 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
   morphyToast: { error: toastErrorMock, success: toastSuccessMock },
 }));
 
+// The card calls useRouter() to route to the cloud/authorization step on a revoked
+// grant; the test harness mounts no Next.js App Router, so provide a stub push.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     validateGeminiRuntimeCredential: (...args: unknown[]) =>
       validateGeminiRuntimeCredentialMock(...args),
     selectManagedGeminiRuntime: (...args: unknown[]) =>
       selectManagedGeminiRuntimeMock(...args),
+    // Mounted-effect poll for a previously-recorded BYOC project; a neutral
+    // (non-"recorded") status keeps the card in its default managed-first state.
+    getByocSetupStatus: () =>
+      Promise.resolve({ status: "not_started", projectId: null }),
   },
 }));
 

@@ -236,15 +236,28 @@ describe("flag OFF — onboarding is unchanged", () => {
   });
 
   it("routes home on vault success without running any migration", async () => {
-    render(<OneSetupHub />);
+    const { rerender } = render(<OneSetupHub />);
 
+    // Main removed the invitation interstitial: Finish setup opens the lock
+    // dialog directly, so there is no invitation screen to step through.
     fireEvent.click(screen.getByTestId("one-setup-master-ack"));
-    await waitFor(() => screen.getByTestId("one-setup-vault-invitation"));
-    fireEvent.click(screen.getByTestId("one-setup-vault-invitation-open"));
     await waitFor(() => screen.getByTestId("vault-unlock-dialog"));
 
     fireEvent.click(screen.getByText("complete vault"));
+    // The dialog's onSuccess is a no-op: the unlocked key only reaches the hub
+    // on the NEXT render (VaultFlow unlocks the context in the same tick), so
+    // nothing routes yet.
+    expect(replace).not.toHaveBeenCalled();
 
+    vaultState = {
+      vaultKey: "ab".repeat(32),
+      vaultOwnerToken: "owner-token",
+      isVaultUnlocked: true,
+    };
+    rerender(<OneSetupHub />);
+
+    // With the flag off, the freshly unlocked key finalizes the setup and routes
+    // straight home -- no migration pass runs on either side of the vault.
     await waitFor(() => {
       expect(replace).toHaveBeenCalledWith("/one");
     });
@@ -394,8 +407,9 @@ describe("flag ON — vault is the last step, after the migration", () => {
     });
 
     fireEvent.click(screen.getByText("complete vault"));
-    await waitFor(() => screen.getByTestId("one-setup-buffer-handoff"));
-    // The hub stays mounted: the key only arrives on the next render.
+    // The dialog's onSuccess is a no-op: the unlocked key only reaches the hub on
+    // the NEXT render (VaultFlow unlocks the context in the same tick), so nothing
+    // drains or navigates yet.
     expect(replace).not.toHaveBeenCalled();
 
     vaultState = {
@@ -405,6 +419,9 @@ describe("flag ON — vault is the last step, after the migration", () => {
     };
     rerender(<OneSetupHub />);
 
+    // The freshly unlocked key drives the hub into its draining hand-off, which
+    // drains the buffer with the real key and only then routes home.
+    await waitFor(() => screen.getByTestId("one-setup-buffer-handoff"));
     await waitFor(() => {
       expect(migrateOnboardingBufferMock).toHaveBeenCalledWith({
         userId: "local-first-user",

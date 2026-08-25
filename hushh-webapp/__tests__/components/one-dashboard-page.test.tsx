@@ -1,7 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
+
+// The dashboard renders the live agent-presence chip, which reaches for VaultProvider,
+// the Next.js router, and best-effort pod-status polling. This suite asserts nothing
+// about the chip, so stub it out rather than standing up all three dependencies.
+vi.mock("@/components/dashboard/one-agent-presence", () => ({
+  OneAgentPresence: () => null,
+}));
 import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
