@@ -211,9 +211,9 @@ describe("OneLocationOnboardingFlow", () => {
     const featureNavigation = document.querySelector(
       "[data-one-onboarding-navigation]",
     );
-    expect(featureNavigation?.className).toContain("max-w-[430px]");
+    expect(featureNavigation?.className).toContain("max-w-[700px]");
     expect(document.querySelector("[data-one-feature-subtitle]")).toBeNull();
-    expect(document.querySelector("[data-one-feature-lower-grid]")).toBeNull();
+    expect(document.querySelector("[data-one-feature-lower-grid]")).toBeTruthy();
 
     const featureScroll = document.querySelector("[data-one-feature-scroll]");
     expect(featureScroll?.className).toContain("overflow-y-auto");
@@ -223,9 +223,9 @@ describe("OneLocationOnboardingFlow", () => {
 
     const storyContainer = document.querySelector("[data-one-story-container]");
     expect(storyContainer?.className).toContain("mt-5");
-    expect(storyContainer?.className).toContain("max-w-[430px]");
-    expect(storyContainer?.className).toContain("bg-white");
-    expect(storyContainer?.className).toContain("rounded-[22px]");
+    expect(storyContainer?.className).toContain("max-w-[700px]");
+    expect(storyContainer?.className).toContain("grid");
+    expect(storyContainer?.className).toContain("gap-3");
 
     const featureCta = document.querySelector("[data-one-feature-cta]");
     expect(featureCta?.className).not.toContain("mt-auto");
@@ -239,21 +239,18 @@ describe("OneLocationOnboardingFlow", () => {
     );
     expect(responsiveStyles).not.toContain("oneSmsCore");
     expect(responsiveStyles).toContain("@media (max-width: 340px)");
+    expect(responsiveStyles).toContain("@media (min-width: 768px)");
     expect(responsiveStyles).toContain(
-      "grid-template-columns: minmax(0, 1fr) 92px",
+      'grid-template-areas: "share checkin sms"',
     );
 
     const cards = document.querySelectorAll("[data-one-use-case-card]");
     expect(cards).toHaveLength(3);
-    for (const card of cards) {
-      expect(card.className).toContain("min-h-[126px]");
-      expect(card.className).toContain("grid-cols-[minmax(0,1fr)_112px]");
-      expect(card.querySelector("[data-one-use-case-alert]")).toBeNull();
-      expect(card.querySelector("[data-one-feature-status-row]")).toBeNull();
-      expect(card.querySelectorAll("[data-one-feature-title-line]")).toHaveLength(
-        0,
-      );
-    }
+    expect(cards[0]?.className).toContain("aspect-[1.56/1]");
+    expect(cards[1]?.className).toContain("aspect-[0.68/1]");
+    expect(cards[2]?.className).toContain("aspect-[0.68/1]");
+    expect(document.querySelectorAll("[data-one-feature-status-row]")).toHaveLength(0);
+    expect(document.querySelectorAll("[data-one-feature-title-line]").length).toBeGreaterThan(0);
 
     expect(
       screen.getByRole("heading", {
@@ -265,27 +262,27 @@ describe("OneLocationOnboardingFlow", () => {
         name: "Can’t explain where you are?",
       }),
     ).toBeTruthy();
-    expect(screen.getByText("Share location with your Circle.")).toBeTruthy();
+    expect(
+      screen.getByText("Share your live location with your Circle in one tap."),
+    ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
         name: "Stuck waiting in line?",
       }),
     ).toBeTruthy();
-    expect(screen.getByText("Check in when you arrive.")).toBeTruthy();
+    expect(screen.getByText("Check in on spot. Your Circle knows.")).toBeTruthy();
     expect(
       screen.getByRole("heading", {
         name: "Need help but can’t talk?",
       }),
     ).toBeTruthy();
-    expect(
-      screen.getByText("Hold Save My Soul to alert your Circle."),
-    ).toBeTruthy();
+    expect(screen.getByText("Send an SMS with your location in seconds.")).toBeTruthy();
 
     expect(screen.queryByText("When plans change,")).toBeNull();
     expect(screen.queryByText("stay close.")).toBeNull();
-    expect(screen.queryByText("Share location")).toBeNull();
-    expect(screen.queryByText("Check in")).toBeNull();
-    expect(screen.queryByText("SMS · Save My Soul")).toBeNull();
+    expect(screen.getByText("Share location")).toBeTruthy();
+    expect(screen.getByText("Check in")).toBeTruthy();
+    expect(screen.getByText("SMS · Save My Soul")).toBeTruthy();
     expect(screen.queryByText("Dreading the check-in queue?")).toBeNull();
     expect(
       screen.queryByText(
@@ -295,6 +292,14 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.queryByText("Checked in at Hotel Grand")).toBeNull();
     expect(screen.queryByText("Sharing with Mom, Driver +1")).toBeNull();
     expect(screen.queryByText("Alerted 3 contacts")).toBeNull();
+    expect(screen.queryByText("Sharing with Circle")).toBeNull();
+    expect(screen.queryByText("Arrival sent")).toBeNull();
+    expect(screen.queryByText("Alerted Circle")).toBeNull();
+    expect(
+      document.querySelector(
+        'img[src="/one-location/onboarding/feature-checkin-house-transparent.webp"]',
+      ),
+    ).toBeNull();
 
     const smsCard = screen.getByTestId("location-use-case-sos");
     const smsCore = smsCard.querySelector("[data-one-sms-core]");
@@ -306,11 +311,11 @@ describe("OneLocationOnboardingFlow", () => {
       "[data-one-sms-radar-clearance]",
     );
     const smsRadar = smsCard.querySelector("[data-one-sms-radar]");
-    expect(smsArtRegion?.className).toContain("bg-[#fff1f1]");
-    expect(smsRadarClearance?.className).toContain("h-[96px]");
-    expect(smsRadarClearance?.className).toContain("w-[112px]");
-    expect(smsRadar?.className).toContain("h-16");
-    expect(smsRadar?.className).toContain("w-16");
+    expect(smsArtRegion?.className).toContain("items-center");
+    expect(smsRadarClearance?.className).toContain("h-[108px]");
+    expect(smsRadarClearance?.className).toContain("w-[108px]");
+    expect(smsRadar?.className).toContain("h-20");
+    expect(smsRadar?.className).toContain("w-20");
     expect(smsCore?.className).not.toContain("animation:");
     expect(smsLabel?.className).not.toContain("animation:");
     expect(smsPulse).toBeNull();
@@ -322,15 +327,11 @@ describe("OneLocationOnboardingFlow", () => {
     const checkInCard = screen.getByTestId("location-use-case-checkin");
     expect(checkInCard.querySelector("[data-one-checkin-pin]")).toBeNull();
     expect(checkInCard.querySelector("[data-one-checkin-map-backdrop]")).toBeTruthy();
+    expect(checkInCard.querySelector("[data-one-checkin-destination]")).toBeTruthy();
     expect(
       checkInCard.querySelector("[data-one-use-case-art]")?.className,
-    ).toContain("justify-end");
-    expect(
-      checkInCard.querySelector(
-        'img[src="/one-location/onboarding/feature-checkin-house-transparent.webp"]',
-      ),
-    ).toBeNull();
-    expect(checkInCard.querySelector("[data-one-checkin-art]")).toBeNull();
+    ).toContain("bottom-0");
+    expect(checkInCard.querySelector("[data-one-checkin-illustration]")).toBeTruthy();
 
     const shareCard = screen.getByTestId("location-use-case-trip");
     for (const asset of [

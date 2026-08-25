@@ -97,7 +97,7 @@ const CIRCLES_GROUP_SURFACE =
   "[--settings-group-radius:17px] !rounded-[17px] !bg-[color:var(--app-primary-surface)] !shadow-none";
 
 const CIRCLES_EMPTY_STATE_WRAPPER =
-  "[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)]";
+  "[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)] dark:[&>[data-ui-role=grouped-card]]:shadow-none";
 
 /**
  * Leave / Delete circle.
@@ -292,12 +292,12 @@ export function CirclesSection({
           <DropdownMenuContent
             align="end"
             sideOffset={8}
-            className="w-[186px] rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1 shadow-[0_12px_28px_rgba(0,0,0,0.12)]"
+            className="w-[186px] rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-1 shadow-[0_12px_28px_rgba(0,0,0,0.12)] dark:shadow-[var(--app-glass-shadow)]"
           >
             <DropdownMenuItem
               onSelect={onCreate}
               data-voice-control-id="one-location-action-create-circle"
-              className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-white/10"
+              className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
             >
               <Plus
                 className="h-4 w-4 text-[color:var(--app-secondary-label)]"
@@ -308,7 +308,7 @@ export function CirclesSection({
             <DropdownMenuItem
               onSelect={onJoin}
               data-voice-control-id="one-location-action-join-circle"
-              className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-white/10"
+              className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
             >
               <KeyRound
                 className="h-4 w-4 text-[color:var(--app-secondary-label)]"
@@ -346,7 +346,7 @@ export function CirclesSection({
       !incomingInvitesError ? (
         <div
           role="status"
-          className="flex min-h-16 items-center justify-center gap-2 rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] text-sm text-[color:var(--app-secondary-label)] shadow-[var(--app-card-shadow-standard)]"
+          className="flex min-h-16 items-center justify-center gap-2 rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] text-sm text-[color:var(--app-secondary-label)] shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
         >
           <Loader2 className="h-5 w-5 animate-spin" />
           Checking Circle invitations…

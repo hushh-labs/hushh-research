@@ -256,7 +256,7 @@ function OnboardingSkipButton({
         plain
           ? "px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]"
           : floating
-          ? "h-11 bg-[#eef1f5] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-[color:var(--app-accent-bright)] dark:ring-white/[0.06]"
+          ? "h-11 bg-[#eef1f5] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-accent-bright)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
           : inverse
             ? "text-white"
             : "min-h-11 px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
@@ -302,12 +302,12 @@ function OnboardingNavigation({
         className={cn(
           "press-scale flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-50",
           plain
-            ? "text-[#59616c] dark:text-white"
+            ? "text-[#59616c] dark:text-[color:var(--app-label)]"
             : floating
-            ? "bg-[#eef1f5] text-[#59616c] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-white dark:ring-white/[0.06]"
+              ? "bg-[#eef1f5] text-[#59616c] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
             : inverse
               ? "bg-white/15 text-white"
-              : "bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white",
+              : "bg-black/[0.05] text-[#1f2b3d] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]",
         )}
         aria-label="Go back"
       >
@@ -484,7 +484,7 @@ function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
       <rect
         width="200"
         height="168"
-        className="fill-[#edf1f6] dark:fill-[#1b222d]"
+        className="fill-[#edf1f6] dark:fill-[color:var(--app-secondary-surface)]"
       />
       {/* green / park blocks */}
       <rect x="10" y="4" width="48" height="42" rx="6" fill={park} />
@@ -496,7 +496,7 @@ function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
         width="34"
         height="30"
         rx="4"
-        className="fill-[#e4e9f0] dark:fill-[#232c39]"
+        className="fill-[#e4e9f0] dark:fill-[color:var(--app-neutral-fill-strong)]"
       />
       <rect
         x="150"
@@ -504,7 +504,7 @@ function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
         width="52"
         height="34"
         rx="4"
-        className="fill-[#e4e9f0] dark:fill-[#232c39]"
+        className="fill-[#e4e9f0] dark:fill-[color:var(--app-neutral-fill-strong)]"
       />
       <rect
         x="8"
@@ -512,37 +512,37 @@ function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
         width="44"
         height="48"
         rx="5"
-        className="fill-[#e4e9f0] dark:fill-[#232c39]"
+        className="fill-[#e4e9f0] dark:fill-[color:var(--app-neutral-fill-strong)]"
       />
       {/* road casings */}
       <path
         d="M-12 86 H212"
-        className="stroke-white dark:stroke-[#0f141c]"
+        className="stroke-white dark:stroke-[color:var(--app-primary-surface)]"
         strokeWidth="15"
         fill="none"
       />
       <path
         d="M100 -12 V180"
-        className="stroke-white dark:stroke-[#0f141c]"
+        className="stroke-white dark:stroke-[color:var(--app-primary-surface)]"
         strokeWidth="15"
         fill="none"
       />
       <path
         d="M150 58 L214 122"
-        className="stroke-white dark:stroke-[#0f141c]"
+        className="stroke-white dark:stroke-[color:var(--app-primary-surface)]"
         strokeWidth="10"
         fill="none"
       />
       {/* road centre hairlines */}
       <path
         d="M-12 86 H212"
-        className="stroke-[#dde3ec] dark:stroke-[#2a323f]"
+        className="stroke-[#dde3ec] dark:stroke-[color:var(--app-separator)]"
         strokeWidth="1.5"
         fill="none"
       />
       <path
         d="M100 -12 V180"
-        className="stroke-[#dde3ec] dark:stroke-[#2a323f]"
+        className="stroke-[#dde3ec] dark:stroke-[color:var(--app-separator)]"
         strokeWidth="1.5"
         fill="none"
       />
@@ -565,61 +565,108 @@ const SHARE_LOCATION_AVATARS = [
   },
 ] as const;
 
+function TwoLineFeatureTitle({
+  lines,
+  className,
+}: {
+  lines: readonly [string, string];
+  className?: string;
+}) {
+  return (
+    <div
+      role="heading"
+      aria-level={2}
+      aria-label={lines.join(" ")}
+      className={cn(
+        "font-bold leading-[1.13] tracking-[-0.015em] text-[#111823] dark:text-[color:var(--app-label)]",
+        className,
+      )}
+      data-one-feature-title
+    >
+      {lines.map((line) => (
+        <span
+          key={line}
+          aria-hidden="true"
+          className="block whitespace-nowrap"
+          data-one-feature-title-line
+        >
+          {line}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function ShareLocationFeatureCard() {
   return (
     <article
-      className="grid min-h-[126px] grid-cols-[minmax(0,1fr)_112px] items-center gap-4 px-4 py-4 sm:min-h-[132px] sm:grid-cols-[minmax(0,1fr)_128px]"
+      className="relative flex aspect-[1.56/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
       data-testid="location-use-case-trip"
       data-one-use-case-card
       data-one-feature-card="share"
-      data-one-feature-row
     >
-      <div className="flex min-w-0 flex-col gap-2" data-one-feature-copy>
-        <h2
-          className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em] text-[#111823] dark:text-white"
-          data-one-feature-title
+      <MapBackdrop tone="share" />
+      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[color:var(--app-primary-surface)] from-[35%] via-[color:var(--app-primary-surface)] via-[51%] to-transparent" />
+      <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
+        <span
+          className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]"
+          data-one-use-case-tag
         >
-          Can’t explain where you are?
-        </h2>
+          Share location
+        </span>
+        <TwoLineFeatureTitle
+          lines={["Can’t explain", "where you are?"]}
+          className="font-[family-name:var(--font-app-display)] text-[21px]"
+        />
         <p
-          className="text-[15px] font-normal leading-[20px] text-[#6e737d] dark:text-[#aeb8c7]"
+          className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
-          Share location with your Circle.
+          Share your live location with your Circle in one tap.
         </p>
       </div>
       <div
-        className="flex justify-end"
+        className="absolute inset-y-0 right-0 z-10 w-[53%]"
         data-one-use-case-art
         aria-hidden="true"
       >
-        <div className="relative h-[96px] w-[112px] overflow-hidden rounded-[18px] bg-[#f1f6fb] dark:bg-[#151c26]">
-          <MapBackdrop tone="share" />
-          <span className="absolute left-1/2 top-1/2 z-10 h-8 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/12" />
-          <span className="absolute left-1/2 top-1/2 z-20 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.22)]" />
-          {SHARE_LOCATION_AVATARS.map((avatar, index) => (
-            <span
-              key={avatar.src}
-              className={cn(
-                "absolute z-20 h-9 w-9 overflow-hidden rounded-full border-2 border-white bg-white shadow-[0_4px_10px_rgba(24,57,91,0.16)]",
-                index === 0 && "right-[5%] top-[11%]",
-                index === 1 && "bottom-[9%] left-[6%]",
-                index === 2 && "bottom-[10%] right-[8%]",
-              )}
-              data-one-share-avatar={index + 1}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
-              <img
-                src={avatar.src}
-                alt=""
-                loading="eager"
-                decoding="async"
-                fetchPriority="high"
-                className="h-full w-full object-cover"
-              />
-            </span>
-          ))}
-        </div>
+        <svg
+          viewBox="0 0 220 240"
+          preserveAspectRatio="none"
+          className="absolute inset-0 h-full w-full"
+        >
+          <path
+            d="M104 119 L178 42 M104 119 L42 198 M104 119 L178 198"
+            fill="none"
+            stroke="var(--app-accent)"
+            strokeWidth="1.5"
+            strokeDasharray="3 5"
+            opacity="0.72"
+          />
+        </svg>
+        <span className="absolute left-[47%] top-[49%] h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/10" />
+        <span className="absolute left-[47%] top-[49%] h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/15" />
+        <span className="absolute left-[47%] top-[49%] h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.28)] dark:border-[color:var(--app-primary-surface)] dark:shadow-none" />
+        {SHARE_LOCATION_AVATARS.map((avatar, index) => (
+          <span
+            key={avatar.src}
+            className={cn(
+              "absolute h-11 w-11 overflow-hidden rounded-full border-[3px] border-white bg-white shadow-[0_5px_14px_rgba(24,57,91,0.2)] dark:border-[color:var(--app-primary-surface)] dark:bg-[color:var(--app-secondary-surface)] dark:shadow-none",
+              avatar.className,
+            )}
+            data-one-share-avatar={index + 1}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
+            <img
+              src={avatar.src}
+              alt=""
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+              className="h-full w-full object-cover"
+            />
+          </span>
+        ))}
       </div>
     </article>
   );
@@ -628,48 +675,64 @@ function ShareLocationFeatureCard() {
 function CheckInFeatureCard() {
   return (
     <article
-      className="grid min-h-[126px] grid-cols-[minmax(0,1fr)_112px] items-center gap-4 px-4 py-4 sm:min-h-[132px] sm:grid-cols-[minmax(0,1fr)_128px]"
+      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
       data-testid="location-use-case-checkin"
       data-one-use-case-card
       data-one-feature-card="checkin"
-      data-one-feature-row
     >
-      <div className="flex min-w-0 flex-col gap-2" data-one-feature-copy>
-        <h2
-          className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em] text-[#111823] dark:text-white"
-          data-one-feature-title
+      <div
+        className="relative z-20 bg-gradient-to-b from-[color:var(--app-primary-surface)] via-[color:var(--app-primary-surface)] to-[color:var(--app-primary-surface)]/90 px-4 pb-2 pt-4"
+        data-one-feature-copy
+      >
+        <span
+          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f] dark:bg-[color:var(--app-success-surface)] dark:text-[color:var(--app-success-bright)]"
+          data-one-use-case-tag
         >
-          Stuck waiting in line?
-        </h2>
+          Check in
+        </span>
+        <TwoLineFeatureTitle
+          lines={["Stuck waiting", "in line?"]}
+          className="text-[19px]"
+        />
         <p
-          className="text-[15px] font-normal leading-[20px] text-[#6e737d] dark:text-[#aeb8c7]"
+          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
-          Check in when you arrive.
+          Check in on spot. Your Circle knows.
         </p>
       </div>
       <div
-        className="flex justify-end"
+        className="absolute inset-0"
+        data-one-checkin-map-backdrop
+        aria-hidden="true"
+      >
+        <MapBackdrop tone="checkin" />
+      </div>
+      <span
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[68%] bg-gradient-to-b from-[color:var(--app-primary-surface)] via-[color:var(--app-primary-surface)] to-transparent"
+        aria-hidden="true"
+      />
+      <div
+        className="absolute inset-x-0 bottom-0 h-[46%]"
         data-one-use-case-art
         aria-hidden="true"
       >
-        <div
-          className="relative h-[96px] w-[112px] overflow-hidden rounded-[18px] bg-[#f2f8f3] dark:bg-[#132018]"
-          data-one-checkin-map-backdrop
+        <span className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-[color:var(--app-primary-surface)] via-[color:var(--app-primary-surface)]/85 to-transparent" />
+        <span
+          className="absolute bottom-[18%] left-1/2 flex h-[64px] w-[64px] -translate-x-1/2 items-center justify-center rounded-full bg-white/90 shadow-[0_8px_22px_rgba(24,57,91,0.16)] ring-1 ring-white/80 dark:bg-[color:var(--app-secondary-surface)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
+          data-one-checkin-destination
         >
-          <MapBackdrop tone="checkin" />
+          <MapPin
+            className="h-9 w-9 text-[color:var(--app-accent)]"
+            strokeWidth={2.4}
+          />
           <span
-            className="absolute left-1/2 top-1/2 z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-[#34c759]/12"
-            data-one-checkin-arrival-ring
+            className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-[color:var(--app-success)] text-white ring-[3px] ring-white dark:ring-[color:var(--app-secondary-surface)]"
+            data-one-checkin-illustration
           >
-            <span
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-[#34c759] text-white shadow-[0_5px_14px_rgba(52,199,89,0.22)]"
-              data-one-checkin-arrival
-            >
-              <Check className="h-5 w-5" strokeWidth={3} aria-hidden="true" />
-            </span>
+            <Check className="h-3.5 w-3.5" strokeWidth={3.2} />
           </span>
-        </div>
+        </span>
       </div>
     </article>
   );
@@ -678,53 +741,55 @@ function CheckInFeatureCard() {
 function SaveMySoulFeatureCard() {
   return (
     <article
-      className="grid min-h-[126px] grid-cols-[minmax(0,1fr)_112px] items-center gap-4 px-4 py-4 sm:min-h-[132px] sm:grid-cols-[minmax(0,1fr)_128px]"
+      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[color:var(--app-primary-surface)] [container-type:inline-size]"
       data-testid="location-use-case-sos"
       data-one-use-case-card
       data-one-feature-card="sms"
-      data-one-feature-row
     >
-      <div className="flex min-w-0 flex-col gap-2" data-one-feature-copy>
-        <h2
-          className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em] text-[#111823] dark:text-white"
-          data-one-feature-title
+      <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
+        <span
+          className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[color:var(--app-destructive-surface)] dark:text-[color:var(--app-destructive-bright)]"
+          data-one-use-case-tag
         >
-          Need help but can’t talk?
-        </h2>
+          SMS · Save My Soul
+        </span>
+        <TwoLineFeatureTitle
+          lines={["Need help but", "can’t talk?"]}
+          className="text-[19px]"
+        />
         <p
-          className="text-[15px] font-normal leading-[20px] text-[#6e737d] dark:text-[#c2aeb2]"
+          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
-          Hold Save My Soul to alert your Circle.
+          Send an SMS with your location in seconds.
         </p>
       </div>
       <div
-        className="flex justify-end"
-        data-one-use-case-art
-        aria-hidden="true"
+        className="relative z-10 flex min-h-0 flex-1 items-center justify-center"
+        data-one-feature-art-region
       >
         <div
-          className="relative flex h-[96px] w-[112px] items-center justify-center rounded-[18px] bg-[#fff1f1] dark:bg-[#271416]"
-          data-one-feature-art-region
+          className="relative flex h-[108px] w-[108px] shrink-0 items-center justify-center"
           data-one-sms-radar-clearance
+          aria-hidden="true"
         >
           <span
-            className="relative flex h-16 w-16 items-center justify-center"
+            className="relative flex h-20 w-20 items-center justify-center"
             data-one-sms-radar
           >
             <span
               data-one-onboarding-motion
               data-one-sms-radar-ring
-              className="absolute inset-0 rounded-full border-2 border-[#ff3b30]/25 bg-[#ff3b30]/[0.08] [animation:oneSmsRadar_2.4s_ease-out_infinite]"
+              className="absolute inset-0 rounded-full border-2 border-[#ff3b30]/30 bg-[#ff3b30]/[0.08] [animation:oneSmsRadar_2.4s_ease-out_infinite]"
             />
             <span
               data-one-onboarding-motion
               data-one-sms-radar-ring
-              className="absolute inset-[9px] rounded-full border-2 border-[#ff3b30]/20 bg-[#ff3b30]/[0.08] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
+              className="absolute inset-[10px] rounded-full border-2 border-[#ff3b30]/25 bg-[#ff3b30]/[0.08] [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
             />
             <span
               data-one-sms-core
-              className="relative z-10 flex h-11 w-11 items-center justify-center rounded-full bg-[#ff3b30] text-[13px] font-bold text-white shadow-[0_8px_18px_rgba(255,59,48,0.28)]"
+              className="relative z-10 flex h-14 w-14 items-center justify-center rounded-full bg-[#ff3b30] text-[15px] font-bold text-white shadow-[0_12px_22px_rgba(255,59,48,0.28)] dark:shadow-none"
             >
               <span className="relative z-10" data-one-sms-label>
                 SMS
@@ -796,32 +861,37 @@ function FeaturesScreen({
            the viewport edges while everything else stayed in the column. Passed
            here rather than inside OnboardingNavigation: the welcome screen's
            copy of that nav is already railed at 560 by its parent. */
-        className="mx-auto w-full max-w-[430px]"
+        className="mx-auto w-full max-w-[700px] md:max-w-[1040px]"
       />
       <div
         className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         data-one-feature-scroll
       >
-        <header className="mx-auto mt-5 w-full max-w-[430px] shrink-0" data-one-feature-header>
+        <header className="mx-auto mt-5 w-full max-w-[700px] shrink-0" data-one-feature-header>
           <h1
-            className="ui-text-agent-title text-[#111823] dark:!text-[#f6f8fc]"
+            className="ui-text-agent-title text-[#111823] dark:!text-[color:var(--app-label)]"
             data-one-feature-heading
           >
             Keep your people updated.
           </h1>
         </header>
         <div
-          className="mx-auto mt-5 w-full max-w-[430px] shrink-0 overflow-hidden rounded-[22px] bg-white ring-1 ring-black/[0.05] dark:bg-[#101721] dark:ring-white/[0.07]"
+          className="mx-auto mt-5 grid w-full max-w-[700px] shrink-0 gap-3"
           data-one-feature-grid
           data-one-story-container
         >
           <ShareLocationFeatureCard />
-          <CheckInFeatureCard />
-          <SaveMySoulFeatureCard />
+          <div
+            className="grid grid-cols-2 items-start gap-3"
+            data-one-feature-lower-grid
+          >
+            <CheckInFeatureCard />
+            <SaveMySoulFeatureCard />
+          </div>
         </div>
         <p
           className={cn(
-            "shrink-0 pt-3 text-center text-[11px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]",
+            "shrink-0 pt-3 text-center text-[11px] font-semibold leading-4 text-[#7d838d] dark:text-[color:var(--app-secondary-label)]",
             !waitingForLocation && !permissionBusy && "sr-only",
           )}
           aria-live="polite"
@@ -852,40 +922,144 @@ function FeaturesScreen({
           --type-agent-title-size: 31px;
           --type-agent-title-line: 1.08;
         }
-        [data-one-feature-row] + [data-one-feature-row] {
-          border-top: 1px solid rgba(60, 60, 67, 0.11);
-        }
-        .dark [data-one-feature-row] + [data-one-feature-row] {
-          border-color: rgba(255, 255, 255, 0.09);
+        [data-one-feature-copy] {
+          --one-feature-copy-gap: 10px;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: var(--one-feature-copy-gap);
         }
         @media (max-width: 430px) {
           [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
+          [data-one-feature-heading] { --type-agent-title-size: 31px; }
+          [data-one-feature-card] { border-radius: 22px; }
         }
         @media (max-width: 380px) {
           [data-one-feature-screen] { padding-left: 14px; padding-right: 14px; }
+          [data-one-feature-grid] { gap: 10px; }
+          [data-one-feature-lower-grid] { gap: 10px; }
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] {
+            font-size: 17px;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] {
+            font-size: 12.5px;
+            line-height: 1.34;
+          }
         }
         @media (max-width: 340px) {
           [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
           [data-one-feature-heading] { --type-agent-title-size: 29px; }
-          [data-one-feature-row] {
-            grid-template-columns: minmax(0, 1fr) 92px;
-            gap: 12px;
-            padding: 14px;
+          [data-one-feature-grid] { gap: 8px; }
+          [data-one-feature-lower-grid] { gap: 8px; }
+          [data-one-feature-card] { border-radius: 20px; }
+          [data-one-feature-card="share"] [data-one-feature-copy] {
+            width: 60%;
+            padding: 14px 14px 0;
           }
-          [data-one-feature-title] {
-            font-size: 16px;
-            line-height: 21px;
-          }
-          [data-one-feature-body] {
-            font-size: 14px;
-            line-height: 19px;
-          }
-          [data-one-use-case-art] > div {
-            width: 92px;
-            height: 86px;
-          }
+          [data-one-feature-card="share"] [data-one-feature-title] { font-size: 18px; }
+          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 12.5px; line-height: 1.34; }
+          [data-one-feature-card="checkin"] [data-one-feature-copy],
+          [data-one-feature-card="sms"] [data-one-feature-copy] { padding: 12px 12px 0; gap: 7px; }
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 15px; }
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11.5px; line-height: 1.3; }
+          [data-one-use-case-tag] { padding: 4px 9px; font-size: 10px; }
           [data-one-feature-cta] { padding-top: 14px; }
           [data-one-feature-cta] button { min-height: 50px; height: 50px; }
+        }
+        @media (max-height: 780px) {
+          [data-one-feature-screen] {
+            padding-top: max(var(--app-safe-area-top-effective, 0px), 8px);
+            padding-bottom: max(env(safe-area-inset-bottom, 0px), 10px);
+          }
+          [data-one-onboarding-navigation] { height: 52px; }
+          [data-one-feature-header] { margin-top: 8px; }
+          [data-one-feature-grid] { margin-top: 14px; gap: 10px; }
+          [data-one-feature-lower-grid] { gap: 10px; }
+          [data-one-feature-cta] { padding-top: 14px; }
+          [data-one-feature-cta] button { min-height: 50px; height: 50px; }
+        }
+        @media (min-width: 768px) {
+          [data-one-feature-scroll] {
+            align-items: center;
+            flex: 0 0 auto;
+          }
+          [data-one-feature-header] {
+            max-width: 1040px;
+          }
+          [data-one-feature-heading] {
+            --type-agent-title-size: 34px;
+          }
+          [data-one-feature-grid] {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-areas: "share checkin sms";
+            align-items: stretch;
+            max-width: 1040px;
+            margin-top: 24px;
+            gap: 18px;
+          }
+          [data-one-feature-lower-grid] {
+            display: contents;
+          }
+          [data-one-feature-card="share"] {
+            grid-area: share;
+            aspect-ratio: auto;
+            min-height: 390px;
+          }
+          [data-one-feature-card="checkin"] {
+            grid-area: checkin;
+          }
+          [data-one-feature-card="sms"] {
+            grid-area: sms;
+          }
+          [data-one-feature-card="checkin"],
+          [data-one-feature-card="sms"] {
+            aspect-ratio: auto;
+            min-height: 390px;
+          }
+          [data-one-feature-card="share"] [data-one-feature-copy],
+          [data-one-feature-card="checkin"] [data-one-feature-copy],
+          [data-one-feature-card="sms"] [data-one-feature-copy] {
+            width: auto;
+            padding: 20px 18px 0;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-art] {
+            inset: auto 0 42px 0;
+            width: 100%;
+            height: 50%;
+          }
+          [data-one-feature-card="share"] [data-one-feature-title],
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] {
+            font-size: 20px;
+            line-height: 1.14;
+          }
+          [data-one-feature-card="share"] [data-one-feature-body],
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] {
+            font-size: 15px;
+            line-height: 1.35;
+          }
+          [data-one-feature-card="checkin"] [data-one-use-case-art] {
+            inset: auto 0 42px 0;
+            width: 100%;
+            height: 54%;
+          }
+          [data-one-feature-card="checkin"] [data-one-checkin-art] {
+            width: 42%;
+          }
+          [data-one-feature-card="sms"] [data-one-feature-art-region] {
+            align-items: center;
+            justify-content: center;
+          }
+          [data-one-feature-cta] {
+            max-width: 430px;
+            padding-top: 22px;
+            padding-bottom: 4px;
+          }
         }
       `}</style>
     </div>
@@ -964,7 +1138,7 @@ function ContactsScreen({
           type="button"
           onClick={onBack}
           disabled={navigationDisabled}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] disabled:opacity-50 dark:bg-white/[0.08] dark:text-white"
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] disabled:opacity-50 dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
           aria-label="Go back"
         >
           <ArrowLeft className="h-6 w-6" />
@@ -976,10 +1150,10 @@ function ContactsScreen({
         <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
           <UserPlus className="h-7 w-7" strokeWidth={2} />
         </span>
-        <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[#f5f7fb]">
+        <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[color:var(--app-label)]">
           Find your people
         </h1>
-        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
+        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
           {primed
             ? "Find contacts already on One."
             : state.kind === "matched"
@@ -989,9 +1163,9 @@ function ContactsScreen({
 
         {primed ? (
           <>
-            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 dark:border-white/[0.08] dark:bg-[#1c212a]">
+            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
               {state.kind === "busy" ? (
-                <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[#8d99a8]">
+                <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
                   <Loader2 className="h-5 w-5 animate-spin" /> Checking your
                   contacts
                 </div>
@@ -1000,7 +1174,7 @@ function ContactsScreen({
                   {/* Say what happens to the address book before asking for it.
                       A vague ask on a location product is what makes people
                       decline, and the decline is permanent on iOS. */}
-                  <p className="text-[14px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
+                  <p className="text-[14px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
                     One sends a protected match code and the last four digits,
                     not names or full phone numbers. Your contact list is never
                     stored, and nobody is contacted for you.
@@ -1024,9 +1198,9 @@ function ContactsScreen({
               return (
                 <li
                   key={match.userId}
-                  className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-white/[0.08] dark:bg-[#1c212a]"
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
                 >
-                  <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[#151b26] dark:text-[#f5f7fb]">
+                  <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[#151b26] dark:text-[color:var(--app-label)]">
                     {match.displayName}
                   </span>
                   <button
@@ -1049,13 +1223,13 @@ function ContactsScreen({
         ) : null}
 
         {state.kind === "none" ? (
-          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-white/[0.08] dark:bg-[#1c212a]">
-            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
+          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
               {state.partial
                 ? "None of the contacts you shared are on One yet."
                 : "None of your contacts are on One yet."}
             </p>
-            <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
+            <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
               Your circle code is on the next screen — send it to whoever you
               want here.
             </p>
@@ -1063,15 +1237,15 @@ function ContactsScreen({
         ) : null}
 
         {state.kind === "failed" ? (
-          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-white/[0.08] dark:bg-[#1c212a]">
-            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
+          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
               {state.message}
             </p>
             {state.canOpenSettings ? (
               <button
                 type="button"
                 onClick={onOpenSettings}
-                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
               >
                 Open Settings
               </button>
@@ -1081,7 +1255,7 @@ function ContactsScreen({
                 type="button"
                 onClick={onSync}
                 disabled={leaving}
-                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
               >
                 Try again
               </button>
@@ -1204,12 +1378,12 @@ function ReadyScreen({
         <button
           type="button"
           onClick={onBack}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-white/85 text-[#1f2b3d] shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[#1c212a]/85 dark:text-white"
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-white/85 text-[#1f2b3d] shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[color:var(--app-glass-surface)] dark:text-[color:var(--app-label)] dark:shadow-[var(--app-glass-shadow)]"
           aria-label="Go back"
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <span className="rounded-full bg-white/85 px-1 shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[#1c212a]/85">
+        <span className="rounded-full bg-white/85 px-1 shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[color:var(--app-glass-surface)] dark:shadow-[var(--app-glass-shadow)]">
           <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
         </span>
       </header>
@@ -1225,12 +1399,12 @@ function ReadyScreen({
               telling that person they are on a map, over a panel that says the
               map is unavailable, is the one thing this screen must not do. */}
           <h1
-            className="ui-text-agent-title pb-1 leading-[1.15] text-[#151b26] dark:!text-[#f5f7fb]"
+            className="ui-text-agent-title pb-1 leading-[1.15] text-[#151b26] dark:!text-[color:var(--app-label)]"
             data-one-ready-title
           >
             {mapPoint ? "You're on the map." : "You're all set."}
           </h1>
-          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
+          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
             Private until you share.
           </p>
 
@@ -1240,17 +1414,17 @@ function ReadyScreen({
             in three seconds cannot afford a sentence that only restates its own
             layout. */}
         <div
-          className="mt-6 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-white/[0.08] dark:bg-[#1c212a]"
+          className="mt-6 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
           data-testid="one-location-onboarding-invite-card"
           data-one-ready-code
         >
           {loading ? (
-            <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[#8d99a8]">
+            <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
               <Loader2 className="h-5 w-5 animate-spin" /> Getting your code
             </div>
           ) : error ? (
             <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
-              <p className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[#aeb8c7]">
+              <p className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
                 {error}
               </p>
               <button
@@ -1267,7 +1441,7 @@ function ReadyScreen({
                   your people to Ankit's Circle" spent five words introducing
                   the two things directly under it -- a code and a Share
                   button -- which the card's own shape already introduces. */}
-              <p className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[#aeb8c7]">
+              <p className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[color:var(--app-secondary-label)]">
                 {invite.circleName}
               </p>
               <p
@@ -1282,14 +1456,14 @@ function ReadyScreen({
               {/* Kept, shortened. The expiry changes what the person does with
                   the code, so it stays; "You can get a fresh one any time" is a
                   reassurance about a screen they have not reached yet. */}
-              <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[#8d99a8]">
+              <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
                 Expires in 72 hours
               </p>
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <button
                   type="button"
                   onClick={onCopy}
-                  className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                  className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                 >
                   {copied ? (
                     <Check className="h-5 w-5" strokeWidth={2.5} />
@@ -1309,7 +1483,7 @@ function ReadyScreen({
               </div>
             </>
           ) : (
-            <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[#8d99a8]">
+            <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
               {/* Where to get it is the button at the bottom of this screen,
                   which already says "Open One Location". Saying it again here
                   is the paragraph this card used to be. */}
@@ -1322,7 +1496,7 @@ function ReadyScreen({
           <div className="mt-4" data-testid="onboarding-join-circle">
             {joinAccepted ? (
               <p
-                className="flex items-center gap-2 rounded-[20px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-5 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:text-[#dce6f5]"
+                className="flex items-center gap-2 rounded-[20px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-5 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:bg-[color:var(--app-accent-tint)] dark:text-[color:var(--app-label)]"
                 role="status"
               >
                 <Check
@@ -1338,22 +1512,22 @@ function ReadyScreen({
                 // stack at the same width, so a 16px inset under a 20px one put
                 // every line of the join card 4px left of the code card's --
                 // a visibly ragged edge down the panel.
-                className="rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-white/[0.08] dark:bg-[#1c212a]"
+                className="rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
                 data-testid="onboarding-join-circle-preview"
               >
                 {/* Name, owner and size before accepting. Deciding whether to
                     share your location with a group is not a decision anyone
                     should make against an opaque string. */}
-                <p className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[#f5f7fb]">
+                <p className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[color:var(--app-label)]">
                   {joinPreview.name}
                 </p>
-                <p className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[#aeb8c7]">
+                <p className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
                   {joinPreview.ownerDisplayName} &middot;{" "}
                   {joinPreview.memberCount}{" "}
                   {joinPreview.memberCount === 1 ? "person" : "people"}
                 </p>
                 {joinPreview.alreadyMember ? (
-                  <p className="mt-3 text-[13px] leading-[18px] text-[#73777f] dark:text-[#aeb8c7]">
+                  <p className="mt-3 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
                     Already in this circle.
                   </p>
                 ) : (
@@ -1399,13 +1573,13 @@ function ReadyScreen({
                     autoCapitalize="characters"
                     autoCorrect="off"
                     spellCheck={false}
-                    className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-white/15 dark:bg-white/[0.06] dark:text-[#f5f7fb]"
+                    className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                   />
                   <button
                     type="button"
                     onClick={onPreviewJoinCode}
                     disabled={joinBusy || !joinCode.trim() || leaving}
-                    className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-5 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                    className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-5 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
                   >
                     {joinBusy ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -1417,7 +1591,7 @@ function ReadyScreen({
             )}
             {joinError ? (
               <p
-                className="mt-2 text-center text-[13px] leading-[18px] text-[#c8372d] dark:text-[#ff9a90]"
+                className="mt-2 text-center text-[13px] leading-[18px] text-[#c8372d] dark:text-[color:var(--app-destructive)]"
                 role="status"
               >
                 {joinError}
@@ -1434,7 +1608,7 @@ function ReadyScreen({
         <footer className="relative z-10 shrink-0 bg-[color:var(--app-primary-surface)] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 md:px-7 md:pb-7">
           {settlementRetryCount > 0 ? (
             <p
-              className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]"
+              className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]"
               role="status"
             >
               That didn&apos;t save. Tap again.
@@ -2013,7 +2187,7 @@ export function OneLocationOnboardingFlow({
       // Onboarding is modal; nothing from the app shell belongs over it. Keep
       // it above elevated Talk to One / bottom-nav states without touching those
       // global controls.
-      className="fixed inset-0 z-[9000] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] [--type-agent-title-size:34px] dark:text-[#f4f7fb] sm:[--type-agent-title-size:44px]"
+      className="fixed inset-0 z-[9000] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[#171d28] [--type-agent-title-size:34px] dark:text-[color:var(--app-label)] sm:[--type-agent-title-size:44px]"
       data-one-onboarding-design="location-agent-v2"
       data-no-route-swipe
       data-testid="one-location-onboarding"
@@ -2022,7 +2196,7 @@ export function OneLocationOnboardingFlow({
       <NativeTestBeacon {...nativeTest} />
       <section
         className={cn(
-          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[#0c1017]",
+          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[color:var(--app-grouped-background)]",
           // The welcome and feature screens own the full-bleed desktop canvas,
           // while their inner content rails keep the designed width. Expanding
           // the canvas is fine; stretching feature cards is what creates the

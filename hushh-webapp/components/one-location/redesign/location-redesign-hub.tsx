@@ -1658,7 +1658,7 @@ function LocationMenuListGroup({
     <div
       data-ui-role="grouped-card"
       data-testid={testId}
-      className="overflow-hidden rounded-[16px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.045),0_6px_16px_rgba(0,0,0,0.035)] ring-1 ring-inset ring-black/[0.035] dark:bg-[#1c1c1e] dark:ring-white/10"
+      className="overflow-hidden rounded-[16px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.045),0_6px_16px_rgba(0,0,0,0.035)] ring-1 ring-inset ring-black/[0.035] dark:bg-[color:var(--app-primary-surface)] dark:shadow-none dark:ring-[color:var(--app-separator)]"
     >
       {children}
     </div>
@@ -1693,7 +1693,7 @@ function LocationMenuListRow({
       data-voice-label={ariaLabel}
       aria-label={ariaLabel}
       onClick={onClick}
-      className="flex min-h-14 w-full cursor-pointer items-center justify-between border-b border-[#e5e5ea]/80 px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:border-white/10 dark:hover:bg-white/5"
+      className="flex min-h-14 w-full cursor-pointer items-center justify-between border-b border-[#e5e5ea]/80 px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:border-[color:var(--app-separator)] dark:hover:bg-[color:var(--app-secondary-surface)]"
     >
       <span className="flex min-w-0 items-center gap-3">
         {leading}
@@ -1703,13 +1703,13 @@ function LocationMenuListRow({
       </span>
       <span className="flex shrink-0 items-center gap-2">
         {typeof trailingValue === "number" ? (
-          <span className="min-w-4 text-right text-[16px] font-normal leading-[21px] tracking-[-0.01em] text-[#8e8e93]">
+          <span className="min-w-4 text-right text-[16px] font-normal leading-[21px] tracking-[-0.01em] text-[#8e8e93] dark:text-[color:var(--app-secondary-label)]">
             {trailingValue}
           </span>
         ) : null}
         <ChevronRight
           aria-hidden="true"
-          className="h-5 w-5 shrink-0 text-[#c7c7cc] transition-transform group-active:translate-x-0.5"
+          className="h-5 w-5 shrink-0 text-[#c7c7cc] transition-transform group-active:translate-x-0.5 dark:text-[color:var(--app-tertiary-label)]"
         />
       </span>
     </button>
@@ -1721,7 +1721,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
     <section aria-label="Share location" data-testid="one-location-now-primary">
       <div
         data-testid="one-location-share-row"
-        className="grid w-full gap-4 rounded-[20px] bg-white px-5 py-5 text-left shadow-[0_1px_2px_rgba(0,0,0,0.02),0_5px_16px_rgba(0,0,0,0.025)] ring-1 ring-inset ring-black/[0.025] dark:bg-[#1c1c1e] dark:ring-white/10 sm:grid-cols-[auto_minmax(0,1fr)_216px] sm:items-center sm:gap-6 sm:px-6 sm:py-6"
+        className="grid w-full gap-4 rounded-[20px] bg-white px-5 py-5 text-left shadow-[0_1px_2px_rgba(0,0,0,0.02),0_5px_16px_rgba(0,0,0,0.025)] ring-1 ring-inset ring-black/[0.025] dark:bg-[color:var(--app-primary-surface)] dark:shadow-none dark:ring-[color:var(--app-separator)] sm:grid-cols-[auto_minmax(0,1fr)_216px] sm:items-center sm:gap-6 sm:px-6 sm:py-6"
       >
         <div className="flex min-w-0 items-center gap-4">
           <LocationSharePulseIcon />
@@ -1729,7 +1729,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
             <span className="block text-[20px] font-semibold leading-[25px] tracking-[-0.015em] text-[#1a1b1f] dark:text-[#f5f5f7]">
               You&apos;re not sharing
             </span>
-            <span className="block text-[15px] font-normal leading-5 tracking-[-0.01em] text-[#8e8e93]">
+            <span className="block text-[15px] font-normal leading-5 tracking-[-0.01em] text-[#8e8e93] dark:text-[color:var(--app-secondary-label)]">
               Choose a Circle or contact.
             </span>
           </span>
@@ -1767,11 +1767,11 @@ function LocationSharePulseIcon() {
     <span
       aria-hidden="true"
       data-location-share-pulse-icon=""
-      className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#eff6ff] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.025)] sm:h-16 sm:w-16"
+      className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#eff6ff] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.025)] dark:bg-[color:var(--app-accent-tint)] dark:shadow-none sm:h-16 sm:w-16"
     >
-      <span className="absolute inset-[13%] rounded-full bg-[#dcecff]" />
-      <span className="absolute inset-[28%] rounded-full bg-[#b9d7ff]" />
-      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_#ffffff,0_8px_16px_rgba(0,122,255,0.22)] dark:shadow-[0_0_0_4px_#1c1c1e,0_8px_16px_rgba(0,122,255,0.28)]" />
+      <span className="absolute inset-[13%] rounded-full bg-[#dcecff] dark:bg-[rgba(10,132,255,0.18)]" />
+      <span className="absolute inset-[28%] rounded-full bg-[#b9d7ff] dark:bg-[rgba(10,132,255,0.28)]" />
+      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_#ffffff,0_8px_16px_rgba(0,122,255,0.22)] dark:shadow-[0_0_0_4px_var(--app-primary-surface)]" />
     </span>
   );
 }
@@ -1814,7 +1814,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             aria-label={item.ariaLabel}
             onClick={item.onClick}
             className={cn(
-              "group flex min-h-[100px] min-w-0 flex-col items-center justify-center gap-3 rounded-[16px] bg-white px-5 py-4 text-center shadow-[0_1px_2px_rgba(0,0,0,0.018),0_2px_7px_rgba(0,0,0,0.018)] ring-1 ring-inset ring-black/[0.025] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-gray-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:bg-[#1c1c1e] dark:hover:bg-white/5 dark:ring-white/10",
+              "group flex min-h-[100px] min-w-0 flex-col items-center justify-center gap-3 rounded-[16px] bg-white px-5 py-4 text-center shadow-[0_1px_2px_rgba(0,0,0,0.018),0_2px_7px_rgba(0,0,0,0.018)] ring-1 ring-inset ring-black/[0.025] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-gray-50 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:bg-[color:var(--app-primary-surface)] dark:shadow-none dark:hover:bg-[color:var(--app-secondary-surface)] dark:ring-[color:var(--app-separator)]",
             )}
           >
             <span
@@ -1844,7 +1844,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
           data-voice-label={emergencyItem.ariaLabel}
           aria-label={emergencyItem.ariaLabel}
           onClick={emergencyItem.onClick}
-          className="group mt-3 flex min-h-[68px] w-full items-center justify-between gap-4 rounded-[16px] bg-[#fff7f7] px-5 py-3 text-left ring-1 ring-inset ring-[#ff3b30]/16 transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[#fff3f3] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#ff3b30]/40 dark:bg-[#2a1f1f] dark:ring-[#ff3b30]/20 dark:hover:bg-[#302121]"
+          className="group mt-3 flex min-h-[68px] w-full items-center justify-between gap-4 rounded-[16px] bg-[#fff7f7] px-5 py-3 text-left ring-1 ring-inset ring-[#ff3b30]/16 transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[#fff3f3] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#ff3b30]/40 dark:bg-[color:var(--app-destructive)]/10 dark:shadow-none dark:ring-[color:var(--app-destructive)]/30 dark:hover:bg-[color:var(--app-destructive)]/12"
         >
           <span className="flex min-w-0 items-center gap-4">
             <span
@@ -1987,7 +1987,7 @@ function LocationMenuListIcon({ name }: { name: LocationMenuGlyphName }) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f2f2f7] text-[#6e6e73] dark:bg-white/10 dark:text-[#aeaeb2]"
+      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#f2f2f7] text-[#6e6e73] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-secondary-label)]"
       data-location-menu-list-icon=""
     >
       <span className="inline-flex h-[18px] w-[18px] items-center justify-center">
@@ -3119,7 +3119,7 @@ export function PeopleHub({
       <DropdownMenuContent
         align="end"
         forceMount
-        className="min-w-52 rounded-2xl border border-[color:var(--app-border,rgba(255,255,255,0.1))] bg-[color:var(--app-primary-surface)] p-1.5 shadow-xl dark:border-white/10 dark:bg-[#1c1c1e]"
+        className="min-w-52 rounded-2xl border border-[color:var(--app-border,rgba(255,255,255,0.1))] bg-[color:var(--app-primary-surface)] p-1.5 shadow-xl dark:border-[color:var(--app-separator)] dark:shadow-[var(--app-glass-shadow)]"
       >
         <DropdownMenuItem
           data-voice-control-id="one-location-find-contacts"
@@ -3132,21 +3132,21 @@ export function PeopleHub({
             }
             vm.onSyncContacts();
           }}
-          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-white/10"
+          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
         >
           {vm.busy === "contactSync" ? "Finding contacts…" : "Find contacts"}
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() => onInvite()}
           data-voice-control-id="one-location-action-invite"
-          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-white/10"
+          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
         >
           Invite to One
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() => onAddConnections()}
           data-voice-control-id="one-location-add-connections"
-          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-white/10"
+          className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
         >
           Manage connections
         </DropdownMenuItem>
@@ -3196,7 +3196,7 @@ export function PeopleHub({
             <div
               className={cn(
                 "col-span-3 row-start-2 mt-3 sm:col-span-4 sm:mt-3.5",
-                "[&_input]:h-[46px] [&_input]:rounded-full [&_input]:border-0 [&_input]:bg-[color:var(--app-primary-surface)] [&_input]:pl-[46px] [&_input]:pr-[18px] [&_input]:text-[17px] [&_input]:leading-[22px] [&_input]:tracking-[-0.3px]",
+                "[&_input]:h-[46px] [&_input]:rounded-full [&_input]:border-0 [&_input]:bg-[color:var(--app-primary-surface)] [&_input]:pl-[46px] [&_input]:pr-[18px] [&_input]:text-[17px] [&_input]:leading-[22px] [&_input]:tracking-[-0.3px] dark:[&_input]:bg-[color:var(--app-secondary-surface)]",
                 "[&_svg]:left-[18px] [&_svg]:text-[color:var(--app-tertiary-label)]",
                 "sm:[&_input]:h-12 sm:[&_input]:rounded-[var(--app-radius-md)] sm:[&_input]:pl-12 sm:[&_input]:pr-5 sm:[&_input]:text-base sm:[&_svg]:left-5",
               )}
@@ -3309,7 +3309,7 @@ export function PeopleHub({
                   })}
                 </div>
               ) : (
-                <div className="[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)]">
+                <div className="[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)] dark:[&>[data-ui-role=grouped-card]]:shadow-none">
                   <EmptyState
                     title={
                       hasSearch ? "No matching people" : "No connections yet"

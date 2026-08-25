@@ -449,7 +449,6 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
     normalizedPathname === ROUTES.LOGIN ||
-    normalizedPathname.endsWith("-visual-preview") ||
     isFirebaseSessionOnlyRoute(normalizedPathname) ||
     normalizedPathname === ROUTES.GETTING_STARTED ||
     normalizedPathname === ROUTES.PHONE_MANDATE ||

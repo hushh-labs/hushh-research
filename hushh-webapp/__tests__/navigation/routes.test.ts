@@ -229,13 +229,6 @@ describe("navigation routes", () => {
     expect(isOnboardingAdmissionExemptRoute(ROUTES.ONE_LOCATION)).toBe(false);
   });
 
-  it("exempts local visual preview routes from onboarding admission", () => {
-    expect(
-      isOnboardingAdmissionExemptRoute("/one-location-menu-visual-preview"),
-    ).toBe(true);
-    expect(isOnboardingAdmissionExemptRoute(ROUTES.ONE_LOCATION)).toBe(false);
-  });
-
   it("preserves ria route classification for nested workspace paths", () => {
     expect(isRiaRoute("/ria")).toBe(true);
     expect(isRiaRoute("/ria/clients")).toBe(true);

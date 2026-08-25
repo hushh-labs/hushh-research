@@ -7,11 +7,9 @@ import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 /**
  * Guard the One Location onboarding feature step.
  *
- * The product no longer presents Check in as a hotel/front-desk flow. The
- * feature step is now one calm story container with three equal rows, so this
- * spec protects the new structure and the old regression at the same time:
- * no hotel copy, no hotel asset dependency, no horizontal overflow, and no
- * persistent app chrome covering Continue.
+ * The feature step keeps the approved 1+2 onboarding composition with blended
+ * map artwork and tightened copy. This protects against copy regressions,
+ * horizontal overflow, clipped artwork, and app chrome covering Continue.
  */
 
 const FLOW_SOURCE_PATH = path.join(
@@ -36,29 +34,34 @@ const STORY = `
         <h1 data-one-feature-heading>Keep your people updated.</h1>
       </header>
       <div data-one-story-container>
-        <article data-one-feature-row data-one-use-case-card data-one-feature-card="share">
+        <article data-one-use-case-card data-one-feature-card="share">
           <div data-one-feature-copy>
             <h2 data-one-feature-title>Can’t explain where you are?</h2>
-            <p data-one-feature-body>Share location with your Circle.</p>
+            <p data-one-feature-body>Share your live location with your Circle in one tap.</p>
           </div>
           <div data-one-use-case-art></div>
         </article>
-        <article data-one-feature-row data-one-use-case-card data-one-feature-card="checkin">
+        <div data-one-feature-lower-grid>
+        <article data-one-use-case-card data-one-feature-card="checkin">
           <div data-one-feature-copy>
             <h2 data-one-feature-title>Stuck waiting in line?</h2>
-            <p data-one-feature-body>Check in when you arrive.</p>
+            <p data-one-feature-body>Check in on spot. Your Circle knows.</p>
           </div>
-          <div data-one-use-case-art></div>
+          <div data-one-checkin-map-backdrop></div>
+          <div data-one-use-case-art>
+            <span data-one-checkin-destination><span data-one-checkin-illustration></span></span>
+          </div>
         </article>
-        <article data-one-feature-row data-one-use-case-card data-one-feature-card="sms">
+        <article data-one-use-case-card data-one-feature-card="sms">
           <div data-one-feature-copy>
             <h2 data-one-feature-title>Need help but can’t talk?</h2>
-            <p data-one-feature-body>Hold Save My Soul to alert your Circle.</p>
+            <p data-one-feature-body>Send an SMS with your location in seconds.</p>
           </div>
-          <div data-one-use-case-art>
+          <div data-one-feature-art-region>
             <span data-one-sms-radar><span data-one-sms-radar-ring></span><span data-one-sms-radar-ring></span><span data-one-sms-core>SMS</span></span>
           </div>
         </article>
+        </div>
       </div>
     </div>
     <div data-one-feature-cta><button>Continue</button></div>
@@ -75,7 +78,7 @@ function featureStyleFromSource(): string {
   return (
     [...appSource.matchAll(/<style>\{`([\s\S]*?)`\}<\/style>/g)]
       .map((match) => match[1])
-      .find((style) => style.includes("[data-one-feature-row]")) ?? ""
+      .find((style) => style.includes("[data-one-feature-card]")) ?? ""
   );
 }
 
@@ -88,15 +91,14 @@ html, body { margin: 0; min-height: 100%; font-family: InterVariable, Inter, sys
 [data-one-feature-scroll] { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow-x: hidden; overflow-y: auto; }
 [data-one-feature-header], [data-one-story-container], [data-one-feature-cta] { width: 100%; max-width: 430px; margin-left: auto; margin-right: auto; }
 [data-one-feature-heading] { margin: 20px 0 0; font-size: 31px; line-height: 1.08; letter-spacing: -0.02em; }
-[data-one-story-container] { margin-top: 20px; overflow: hidden; border-radius: 22px; background: #fff; border: 1px solid rgba(60, 60, 67, 0.10); }
-[data-one-feature-row] { box-sizing: border-box; display: grid; min-height: 126px; grid-template-columns: minmax(0, 1fr) 112px; align-items: center; gap: 16px; padding: 16px; }
-[data-one-feature-row] + [data-one-feature-row] { border-top: 1px solid rgba(60, 60, 67, 0.12); }
+[data-one-story-container] { margin-top: 20px; display: grid; gap: 12px; }
+[data-one-feature-lower-grid] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+[data-one-use-case-card] { box-sizing: border-box; position: relative; overflow: hidden; border-radius: 22px; background: #fff; min-height: 160px; padding: 16px; }
 [data-one-feature-copy] { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 [data-one-feature-title] { margin: 0; font-size: 17px; font-weight: 600; line-height: 22px; letter-spacing: -0.01em; }
 [data-one-feature-body] { margin: 0; color: #6e737d; font-size: 15px; line-height: 20px; }
-[data-one-use-case-art] { justify-self: end; width: 112px; height: 96px; border-radius: 18px; background: #f1f6fb; }
-[data-one-feature-card="checkin"] [data-one-use-case-art] { background: #f2f8f3; }
-[data-one-feature-card="sms"] [data-one-use-case-art] { display: flex; align-items: center; justify-content: center; background: #fff1f1; }
+[data-one-use-case-art], [data-one-feature-art-region] { position: absolute; inset: auto 0 40px 0; height: 45%; }
+[data-one-feature-card="sms"] [data-one-feature-art-region] { display: flex; align-items: center; justify-content: center; }
 [data-one-sms-core] { display: flex; width: 44px; height: 44px; align-items: center; justify-content: center; border-radius: 999px; background: #ff3b30; color: #fff; font-size: 13px; font-weight: 700; }
 [data-one-feature-cta] { padding-top: 20px; }
 [data-one-feature-cta] button { width: 100%; height: 52px; border: 0; border-radius: 999px; background: #007aff; color: white; font-size: 17px; font-weight: 700; }
@@ -115,6 +117,7 @@ test.describe("One Location onboarding feature story", () => {
     expect(appSource).not.toContain("front desk");
     expect(appSource).not.toContain("Hotel Grand");
     expect(appSource).not.toContain("feature-checkin-house-transparent");
+    expect(appSource).not.toContain("data-one-checkin-hotel");
   });
 
   test("the artwork is not positioned from the viewport", async ({ page }) => {
@@ -124,15 +127,13 @@ test.describe("One Location onboarding feature story", () => {
       await awaitProductFont(page);
 
       const measured = await page.evaluate(() => {
-        const rows = [...document.querySelectorAll("[data-one-feature-row]")].map((row) =>
-          row.getBoundingClientRect(),
-        );
-        const artRects = [...document.querySelectorAll("[data-one-use-case-art]")].map((art) =>
-          art.getBoundingClientRect(),
-        );
-        return rows.every((row, index) => {
-          const art = artRects[index];
-          return art.top >= row.top + 12 && art.bottom <= row.bottom - 12;
+        const artNodes = [...document.querySelectorAll("[data-one-use-case-art], [data-one-feature-art-region]")];
+        return artNodes.every((artNode) => {
+          const card = artNode.closest("[data-one-use-case-card]");
+          if (!card) return false;
+          const cardRect = card.getBoundingClientRect();
+          const art = artNode.getBoundingClientRect();
+          return art.top >= cardRect.top && art.bottom <= cardRect.bottom + 1;
         });
       });
 
@@ -147,7 +148,7 @@ test.describe("One Location onboarding feature story", () => {
       await awaitProductFont(page);
 
       await expect(page.locator("[data-one-story-container]")).toBeVisible();
-      await expect(page.locator("[data-one-feature-row]")).toHaveCount(3);
+      await expect(page.locator("[data-one-use-case-card]")).toHaveCount(3);
       await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
 
       const measured = await page.evaluate(() => {
@@ -155,14 +156,14 @@ test.describe("One Location onboarding feature story", () => {
         const cta = document
           .querySelector("[data-one-feature-cta]")!
           .getBoundingClientRect();
-        const rows = [...document.querySelectorAll("[data-one-feature-row]")].map((row) =>
-          row.getBoundingClientRect(),
+        const cards = [...document.querySelectorAll("[data-one-use-case-card]")].map((card) =>
+          card.getBoundingClientRect(),
         );
         return {
           horizontalOverflow: doc.scrollWidth > doc.clientWidth + 1,
           shellVisibility: getComputedStyle(document.querySelector("[data-app-bottom-shell]")!)
             .visibility,
-          minRowHeight: Math.min(...rows.map((row) => row.height)),
+          minCardHeight: Math.min(...cards.map((card) => card.height)),
           ctaBottom: cta.bottom,
           viewportHeight: window.innerHeight,
         };
@@ -170,7 +171,7 @@ test.describe("One Location onboarding feature story", () => {
 
       expect(measured.horizontalOverflow).toBe(false);
       expect(measured.shellVisibility).toBe("hidden");
-      expect(measured.minRowHeight).toBeGreaterThanOrEqual(w <= 340 ? 118 : 126);
+      expect(measured.minCardHeight).toBeGreaterThanOrEqual(w <= 340 ? 130 : 150);
       if (w >= 390 && h >= 844) {
         expect(measured.ctaBottom).toBeLessThanOrEqual(measured.viewportHeight);
       }
