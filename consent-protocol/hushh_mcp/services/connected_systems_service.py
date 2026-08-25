@@ -4525,8 +4525,8 @@ class ConnectedSystemsService:
             "readback": intent.get("readback_result") or {},
             "errorCode": intent.get("error_code"),
             "errorMessage": intent.get("error_message"),
-            "createdAt": intent.get("created_at"),
-            "updatedAt": intent.get("updated_at"),
+            "createdAt": _iso(intent.get("created_at")),
+            "updatedAt": _iso(intent.get("updated_at")),
         }
 
     def _upsert_binding_for_intent(
@@ -4562,10 +4562,26 @@ class ConnectedSystemsService:
             "status": binding.get("status"),
             "createdIntentId": binding.get("created_intent_id"),
             "lastIntentId": binding.get("last_intent_id"),
-            "createdAt": binding.get("created_at"),
-            "updatedAt": binding.get("updated_at"),
-            "deletedAt": binding.get("deleted_at"),
+            "createdAt": _iso(binding.get("created_at")),
+            "updatedAt": _iso(binding.get("updated_at")),
+            "deletedAt": _iso(binding.get("deleted_at")),
         }
+
+
+def _iso(value: Any) -> str | None:
+    """Stringify a DB-driver datetime before it leaves this service.
+
+    The Connected Systems specialist is voice/tool reachable; a raw datetime
+    surviving into a tool result crashes the live session's plain
+    json.dumps with no result ever reaching the user.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return str(value.astimezone(timezone.utc).isoformat())
+    return str(value)
 
 
 def _payload_summary(intent: dict[str, Any]) -> dict[str, Any]:

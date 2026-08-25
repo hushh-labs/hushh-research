@@ -180,6 +180,22 @@ class ConsentDBService:
                 return {}
         return {}
 
+    @staticmethod
+    def _iso(value: Any) -> str | None:
+        """Stringify a DB-driver datetime before it leaves this service.
+
+        Consent Center rows reach the live voice agent too; a raw datetime
+        surviving into a tool result crashes the session's plain json.dumps
+        with no result ever reaching the user.
+        """
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            return str(value.astimezone(timezone.utc).isoformat())
+        return str(value)
+
     @classmethod
     def _effective_pending_timeout_at(cls, row: Dict[str, Any]) -> int | None:
         poll_timeout_at = row.get("poll_timeout_at")
@@ -373,7 +389,7 @@ class ConsentDBService:
             "requesterWebsiteUrl": metadata.get("requester_website_url"),
             "scope": row.get("scope"),
             "scopeDescription": row.get("scope_description"),
-            "requestedAt": row.get("issued_at"),
+            "requestedAt": cls._iso(row.get("issued_at")),
             "pollTimeoutAt": poll_timeout_at,
             "approvalTimeoutAt": poll_timeout_at,
             "approvalTimeoutMinutes": metadata.get("approval_timeout_minutes"),

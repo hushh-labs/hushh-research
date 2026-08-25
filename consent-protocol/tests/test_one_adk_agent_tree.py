@@ -65,13 +65,16 @@ from hushh_mcp.one_adk.agent_tree import (
     open_screen,
 )
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
-from hushh_mcp.services.connections_service import ConnectionsService
+from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.live_voice_context import (
     clear_live_voice_context,
     publish_live_voice_context,
     read_live_voice_context,
 )
-from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+from hushh_mcp.services.one_location_agent_service import (
+    OneLocationAgentError,
+    OneLocationAgentService,
+)
 from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
 
 
@@ -2486,6 +2489,340 @@ class TestBackendDirectConnectionActions:
         assert "zachary" in result["message"].lower()
 
 
+class TestBackendDirectActionResultSubject:
+    """The action-result directive's `subject` field, so the browser's
+    action card can show who a backend-direct action was about instead of
+    just the spoken message text. Populated from the exact same resolved
+    display names each branch already joins into its message -- see
+    _execute_backend_direct_mutation's per-branch subject tuple element."""
+
+    def _authorized_state(self) -> dict:
+        return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
+
+    def _auth_patch(self):
+        return patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=(True, None, SimpleNamespace(user_id="user_1"))),
+        )
+
+    def _parked_subject(self, state: dict, action_id: str):
+        parked = state[f"{_STATE_PENDING_DIRECTIVE}:{action_id}:result"]
+        return parked["payload"].get("subject")
+
+    @pytest.mark.asyncio
+    async def test_circle_only_actions_carry_no_subject(self):
+        # No person is named -- leave_circle acts on a circle, not someone.
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(OneLocationCircleService, "leave_circle", autospec=True),
+        ):
+            await run_app_action("location.leave_circle", {"circle": "family"}, _tool_context(state))
+        assert self._parked_subject(state, "location.leave_circle") is None
+
+    @pytest.mark.asyncio
+    async def test_single_person_action_carries_their_resolved_name(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_eligible_direct_connections",
+                autospec=True,
+                return_value=[{"userId": "u1", "displayName": "Sarah Chen"}],
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "create_member_invites",
+                autospec=True,
+                return_value={"addedUserIds": ["u1"]},
+            ),
+        ):
+            await run_app_action(
+                "location.add_to_circle",
+                {"circle": "family", "person": "Sarah"},
+                _tool_context(state),
+            )
+        assert self._parked_subject(state, "location.add_to_circle") == {"name": "Sarah Chen"}
+
+    @pytest.mark.asyncio
+    async def test_multi_person_action_joins_every_resolved_name(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_verified_recipients",
+                autospec=True,
+                return_value=[
+                    {"userId": "u1", "displayName": "Sarah Chen", "keyId": "k1"},
+                    {"userId": "u2", "displayName": "Abdul Gaffar", "keyId": "k2"},
+                ],
+            ),
+            patch.object(
+                OneLocationAgentService,
+                "create_grant",
+                autospec=True,
+                side_effect=[{"id": "g1"}, {"id": "g2"}],
+            ),
+        ):
+            await run_app_action(
+                "location.share_selected",
+                {"person": "Sarah Chen and Abdul", "duration_hours": "1"},
+                _tool_context(state),
+            )
+        assert self._parked_subject(state, "location.share_selected") == {
+            "name": "Sarah Chen and Abdul Gaffar"
+        }
+
+    @pytest.mark.asyncio
+    async def test_connect_send_request_subject_names_who_it_actually_reached(self):
+        # The most structurally different branch: outcomes are bucketed by
+        # relationship (sent / already-connected / blocked / not-found), so
+        # the subject must still name the people the action was about, not
+        # just those it sent a fresh request to.
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "search_directory",
+                autospec=True,
+                return_value={
+                    "items": [
+                        {"userId": "u1", "displayName": "Sarah Chen", "relationship": "none"}
+                    ],
+                    "hasMore": False,
+                },
+            ),
+            patch.object(ConnectionsService, "create_request", autospec=True),
+        ):
+            await run_app_action(
+                "connect.send_request", {"person": "Sarah"}, _tool_context(state)
+            )
+        assert self._parked_subject(state, "connect.send_request") == {"name": "Sarah Chen"}
+
+    @pytest.mark.asyncio
+    async def test_remove_connection_subject_arrives_only_on_the_confirmed_completion(self):
+        # The first, unconfirmed call is a "blocked" ask, not a completion --
+        # no action_result directive exists yet for subject to attach to.
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[{"connectionId": "cx1", "displayName": "Roopmann"}],
+            ),
+            patch.object(ConnectionsService, "remove_connection", autospec=True),
+        ):
+            await run_app_action(
+                "connect.remove_connection", {"person": "roopmann"}, _tool_context(state)
+            )
+            assert f"{_STATE_PENDING_DIRECTIVE}:connect.remove_connection:result" not in state
+            await run_app_action(
+                "connect.remove_connection",
+                {"person": "roopmann", "confirmed": True},
+                _tool_context(state),
+            )
+        assert self._parked_subject(state, "connect.remove_connection") == {"name": "Roopmann"}
+
+
+class TestBackendDirectPartialFailureResilience:
+    """A multi-person mutation loop must never let one person's failure lose
+    or hide what already happened to the others -- an unprotected loop that
+    aborts on the first exception leaves earlier successes unreported (One
+    says "that didn't go through" about something that actually did) and,
+    worse for location.share_selected specifically, can leave an
+    already-created grant with no publish directive: the recipient sees
+    "waiting for location" forever with nothing left to retry."""
+
+    def _authorized_state(self) -> dict:
+        return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
+
+    def _auth_patch(self):
+        return patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=(True, None, SimpleNamespace(user_id="user_1"))),
+        )
+
+    @pytest.mark.asyncio
+    async def test_share_selected_reports_who_succeeded_and_publishes_only_their_envelope(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_verified_recipients",
+                autospec=True,
+                return_value=[
+                    {"userId": "u1", "displayName": "Sarah Chen", "keyId": "k1"},
+                    {"userId": "u2", "displayName": "Bob Diaz", "keyId": "k2"},
+                ],
+            ),
+            patch.object(
+                OneLocationAgentService,
+                "create_grant",
+                autospec=True,
+                side_effect=[{"id": "g1"}, RuntimeError("stale recipient key")],
+            ),
+        ):
+            result = await run_app_action(
+                "location.share_selected",
+                {"person": "Sarah Chen and Bob", "duration_hours": "1"},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        assert "Sarah Chen" in result["message"]
+        assert "Bob Diaz" in result["message"]  # named in the "could not complete" note
+        assert "try again" in result["message"].lower()
+        publish_key = f"{_STATE_PENDING_DIRECTIVE}:location.share_selected:publish"
+        shares = state[publish_key]["payload"]["shares"]
+        # Only Sarah's grant was actually created -- Bob's failed recipient
+        # must never get a publish directive parked for a grant that does
+        # not exist, and Sarah's must not be lost because Bob failed after her.
+        assert [s["grantId"] for s in shares] == ["g1"]
+        assert self._parked_subject(state, "location.share_selected") == {"name": "Sarah Chen"}
+
+    @pytest.mark.asyncio
+    async def test_share_selected_reports_failed_when_everyone_fails(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_verified_recipients",
+                autospec=True,
+                return_value=[{"userId": "u1", "displayName": "Sarah Chen", "keyId": "k1"}],
+            ),
+            patch.object(
+                OneLocationAgentService,
+                "create_grant",
+                autospec=True,
+                side_effect=RuntimeError("stale recipient key"),
+            ),
+        ):
+            result = await run_app_action(
+                "location.share_selected",
+                {"person": "Sarah", "duration_hours": "1"},
+                _tool_context(state),
+            )
+        assert result["status"] == "failed"
+        publish_key = f"{_STATE_PENDING_DIRECTIVE}:location.share_selected:publish"
+        assert publish_key not in state
+
+    @pytest.mark.asyncio
+    async def test_stop_share_reports_who_succeeded_when_one_of_two_fails(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_active_owner_grants",
+                autospec=True,
+                return_value=[
+                    {"id": "g1", "recipientDisplayName": "Sarah Chen"},
+                    {"id": "g2", "recipientDisplayName": "Bob Diaz"},
+                ],
+            ),
+            patch.object(
+                OneLocationAgentService,
+                "revoke_grant",
+                autospec=True,
+                side_effect=[None, RuntimeError("connection pool exhausted")],
+            ),
+        ):
+            result = await run_app_action(
+                "location.stop_share", {"person": "Sarah Chen and Bob"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "Sarah Chen" in result["message"]
+        assert "Bob Diaz" in result["message"]
+        assert "try again" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_remove_connection_reports_who_succeeded_when_one_of_two_fails(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[
+                    {"connectionId": "cx1", "displayName": "Sarah Chen"},
+                    {"connectionId": "cx2", "displayName": "Bob Diaz"},
+                ],
+            ),
+            patch.object(
+                ConnectionsService,
+                "remove_connection",
+                autospec=True,
+                side_effect=[None, RuntimeError("connection pool exhausted")],
+            ),
+        ):
+            result = await run_app_action(
+                "connect.remove_connection",
+                {"person": "Sarah Chen and Bob", "confirmed": True},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        assert "Sarah Chen" in result["message"]
+        assert "Bob Diaz" in result["message"]
+        assert "try again" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_connect_send_request_reports_who_succeeded_when_one_of_two_fails(self):
+        state = self._authorized_state()
+
+        def fake_search_directory(self, user_id, *, query, page, limit):
+            people = {
+                "Sarah": {"userId": "u1", "displayName": "Sarah Chen", "relationship": "none"},
+                "Bob": {"userId": "u2", "displayName": "Bob Diaz", "relationship": "none"},
+            }
+            return {"items": [people[query]], "hasMore": False}
+
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "search_directory",
+                autospec=True,
+                side_effect=fake_search_directory,
+            ),
+            patch.object(
+                ConnectionsService,
+                "create_request",
+                autospec=True,
+                side_effect=[None, RuntimeError("connection pool exhausted")],
+            ),
+        ):
+            result = await run_app_action(
+                "connect.send_request", {"person": "Sarah and Bob"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "Sarah Chen" in result["message"]
+        assert "Bob Diaz" in result["message"]
+        assert "try again" in result["message"].lower()
+
+    def _parked_subject(self, state: dict, action_id: str):
+        parked = state[f"{_STATE_PENDING_DIRECTIVE}:{action_id}:result"]
+        return parked["payload"].get("subject")
+
+
 class TestBackendDirectLocationReadTools:
     """list_my_location_circles / list_my_location_shares /
     list_location_shared_with_me / list_pending_location_requests -- plain
@@ -2701,6 +3038,66 @@ class TestBackendDirectLocationReadTools:
         assert result["status"] == "blocked"
         list_mock.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_a_db_hiccup_reading_circles_fails_clean_instead_of_killing_the_session(self):
+        # A read tool with no exception boundary lets a raised error escape
+        # straight into Gemini Live's tool-response serialization, which has
+        # none of its own -- the whole live session dies with no error ever
+        # reaching the user, the same way the datetime-serialization bug did.
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                side_effect=RuntimeError("connection pool exhausted"),
+            ),
+        ):
+            result = await list_my_location_circles(_tool_context(state))
+        assert result["status"] == "failed"
+        assert "try again" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_a_known_service_error_reading_shares_returns_its_own_message(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_active_owner_grants",
+                autospec=True,
+                side_effect=OneLocationAgentError("LOCATION_STATE_UNAVAILABLE", "Try again shortly."),
+            ),
+        ):
+            result = await list_my_location_shares(_tool_context(state))
+        assert result == {"status": "failed", "message": "Try again shortly."}
+
+    @pytest.mark.asyncio
+    async def test_get_location_circle_members_fails_clean_on_an_unexpected_error(self):
+        # Distinct from the not_found/ambiguous paths above, which are
+        # OneLocationCircleError -- this is the catch-all for everything
+        # else, e.g. a DB failure inside get_circle after the name resolved.
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "get_circle",
+                autospec=True,
+                side_effect=RuntimeError("connection pool exhausted"),
+            ),
+        ):
+            result = await get_location_circle_members("Family", _tool_context(state))
+        assert result["status"] == "failed"
+        assert "try again" in result["message"].lower()
+
 
 class TestBackendDirectConnectionReadTools:
     """list_my_connections / list_pending_connection_requests."""
@@ -2764,6 +3161,37 @@ class TestBackendDirectConnectionReadTools:
             result = await list_my_connections(_tool_context(state))
         assert result["status"] == "blocked"
         list_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_db_hiccup_reading_connections_fails_clean_instead_of_killing_the_session(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                side_effect=RuntimeError("connection pool exhausted"),
+            ),
+        ):
+            result = await list_my_connections(_tool_context(state))
+        assert result["status"] == "failed"
+        assert "try again" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_a_known_service_error_reading_requests_returns_its_own_message(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_requests",
+                autospec=True,
+                side_effect=ConnectionsError("CONNECTIONS_STATE_UNAVAILABLE", "Try again shortly."),
+            ),
+        ):
+            result = await list_pending_connection_requests(_tool_context(state))
+        assert result == {"status": "failed", "message": "Try again shortly."}
 
 
 class TestSettledActionJourneys:
