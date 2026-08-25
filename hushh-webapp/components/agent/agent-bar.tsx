@@ -49,6 +49,7 @@ import {
 import { AGENT_CONVERSATION_REQUEST_EVENT } from "@/lib/agent/agent-voice-settings";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { validateMorphyAxAssessment } from "@/lib/morphy-ax";
+import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
   KAI_MARKET_PATH,
@@ -303,6 +304,15 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const [retryNonce, setRetryNonce] = useState(0);
   const [pendingConfirmation, setPendingConfirmation] =
     useState<PendingVoiceConfirmation | null>(null);
+  // A confirm raised purely from a spoken turn -- no physical tap -- mounts
+  // this dialog wherever the bottom chrome's auto-hide progress currently
+  // sits. Without this, a card raised while the chrome was scrolled away
+  // stayed translated off-screen with nothing bringing it back, the same
+  // defect app-bottom-shell.tsx already prevents for a real tap via
+  // onPointerDownCapture.
+  useEffect(() => {
+    if (pendingConfirmation) snapKaiBottomChromeVisible();
+  }, [pendingConfirmation]);
   // The journey approval lives in module scope, not component state: it has
   // to survive the navigation it exists to span, and a ref does not survive a
   // remount. See lib/voice/journey-approval-grant.ts.
@@ -1932,6 +1942,19 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const pendingConfirmationPlanSteps = pendingConfirmation?.plan?.steps ?? [];
   const pendingActionNeedsTrustedActivation =
     pendingAction?.activation_policy === "trusted_activation_required";
+  // Broader than trusted activation: also true when a confirm_required
+  // action needs a hard tap only because of the person's own
+  // require_tap_confirmation setting (lib/agent/confirmation-tap-policy.ts).
+  // requiresHardTapConfirmation() is the one place that decision is already
+  // made correctly (agent-bar.tsx:1342 uses it to decide whether to keep the
+  // confirmation pending for a tap); without this second check, a card in
+  // that state rendered "say yes to continue" with no Cancel/Authorize
+  // buttons at all -- a real dead end, since a spoken yes never settles it.
+  const pendingActionNeedsHardTap = requiresHardTapConfirmation(
+    pendingAction,
+    runtime?.oneVoiceContextSnapshot.voice_settings.require_tap_confirmation ===
+      true,
+  );
   const pendingActionLabel = pendingAction?.label || "Continue this action";
 
   // The specific reason (mic blocked, no device, setup timeout) now lives in
@@ -2219,9 +2242,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
             {pendingActionNeedsTrustedActivation
               ? "This tap opens the provider window and keeps One active here."
-              : pendingConfirmationPlanSteps.length > 1
-                ? "Sensitive values stay hidden. Say yes to run these steps, or no to cancel."
-                : "Sensitive values stay hidden. Say yes to run this, or no to cancel."}
+              : pendingActionNeedsHardTap
+                ? "Sensitive values stay hidden. Tap Authorize to continue, or Cancel."
+                : pendingConfirmationPlanSteps.length > 1
+                  ? "Sensitive values stay hidden. Say yes to run these steps, or no to cancel."
+                  : "Sensitive values stay hidden. Say yes to run this, or no to cancel."}
           </p>
           {/* Every step is named before anything runs, so one approval is a
               list the person can read rather than an open-ended permission. */}
@@ -2249,12 +2274,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           ) : null}
           {pendingConfirmation.nudgedAt ? (
             <p className="mt-2 text-[12px] font-medium text-muted-foreground/80">
-              {pendingActionNeedsTrustedActivation
+              {pendingActionNeedsHardTap
                 ? "Still there? Tap the button above or Cancel when you're ready."
                 : "Still there? Say yes to continue or no to cancel."}
             </p>
           ) : null}
-          {pendingActionNeedsTrustedActivation ? (
+          {pendingActionNeedsHardTap ? (
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button
                 type="button"
