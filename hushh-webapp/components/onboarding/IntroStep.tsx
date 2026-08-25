@@ -11,10 +11,10 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 import styles from "./IntroStep.module.css";
 
 /* ────────────────────────────────────────────────────────────
- * Welcome ("/"). A restrained, Foundation-warm canvas carries one centered
- * brand anchor, one "One" moment, and one clear next action. The public
- * destinations below the CTA are a real navigation group with equal targets,
- * not footer text that happens to be clickable.
+ * Welcome ("/"). A restrained, Foundation-warm canvas carries one brand row,
+ * one "One" moment, and one clear next action. The public destinations sit
+ * beside the wordmark as a real navigation group with equal targets, not
+ * footer text that happens to be clickable.
  * ──────────────────────────────────────────────────────────── */
 
 // One's four motions, shown as a quiet typographic rhythm — never as chips,
@@ -83,11 +83,22 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
       <OnboardingHeroBackground />
 
       <div className={styles.stage}>
-        {/* One centered brand anchor keeps the page calm on both compact and
-            wide surfaces; the old wordmark/emoji pair read as two competing
-            logos rather than one header. */}
+        {/* Brand row: wordmark plus the public destinations, one nav group
+            instead of a header logo and a separate footer link row. */}
         <div className={styles.brand}>
           <HushhWordmark className={styles.wordmark} />
+
+          <nav aria-label="Explore Hussh" className={styles.links}>
+            <Link href={ROUTES.RESEARCH} className={styles.link}>
+              Research
+            </Link>
+            <Link href={ROUTES.BLOG} className={styles.link}>
+              Blog
+            </Link>
+            <Link href={ROUTES.DEVELOPERS} className={styles.link}>
+              Developers
+            </Link>
+          </nav>
         </div>
 
         {/* ── Typography-led hero. No cards, no fake metrics. ── */}
@@ -162,33 +173,6 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
             </span>
             <MaterialRipple variant="gradient" effect="fill" className="z-10" />
           </button>
-
-          {/* Public destinations share the CTA width and use equal hit areas.
-              That preserves discoverable navigation on small screens without
-              letting the longest label push its siblings out of rhythm. */}
-          <nav
-            aria-label="Explore Hussh"
-            className={styles.links}
-          >
-            <Link
-              href={ROUTES.RESEARCH}
-              className={styles.link}
-            >
-              Research
-            </Link>
-            <Link
-              href={ROUTES.BLOG}
-              className={styles.link}
-            >
-              Blog
-            </Link>
-            <Link
-              href={ROUTES.DEVELOPERS}
-              className={styles.link}
-            >
-              Developers
-            </Link>
-          </nav>
         </div>
       </div>
     </main>
