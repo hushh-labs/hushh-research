@@ -36,17 +36,28 @@ describe("what a spoken Location action is allowed to do", () => {
     expect(getKaiActionById(SHARE)?.risk_level).toBe("high");
   });
 
-  it("gives the share a duration to say and no way to name a recipient", () => {
+  it("lets a spoken name resolve a recipient, but duration is still always asked", () => {
     const action = getKaiActionById(SHARE);
     const slots = Object.keys(action?.goal?.slot_schema || {});
+    const personInput = action?.goal?.required_inputs?.find((spec) => spec.slot === "person");
+    const durationInput = action?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
 
-    // Duration is the only thing voice supplies. WHO the share goes to comes
-    // from what the person selected with their own hands in the composer.
-    // A recipient slot here -- under any name -- would mean a misheard
-    // sentence could send someone's live location to the wrong person, which
-    // is exactly the failure this design exists to make impossible.
-    expect(slots).toEqual(["duration_hours"]);
-    expect(slots.join(" ")).not.toMatch(/recipient|person|contact|name|who/i);
+    // A named person now resolves through the same tiered matcher already
+    // trusted for location.send_request and connect.send_request: exact,
+    // then word-boundary, then word-alignment, refusing rather than guessing
+    // on an ambiguous name. That -- not the absence of a person slot -- is
+    // what keeps a misheard sentence from reaching a grant unseen. It stays
+    // optional, so with nobody named this still falls through to whoever the
+    // person selected with their own hands in the composer. What still makes
+    // either path safe is execution_policy staying confirm_required (see
+    // above): the resolved name is shown back before a grant is created.
+    // Duration stays required regardless -- "share with them" alone still
+    // gets asked how long, every time.
+    expect(slots).toEqual(["person", "duration_hours"]);
+    expect(personInput?.required).toBe(false);
+    expect(durationInput?.required).toBe(true);
   });
 
   it("offers exactly the durations SHARE_VOICE_DURATION_VALUES accepts, and always asks", () => {
