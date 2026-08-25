@@ -186,6 +186,7 @@ export function LiveShareStatusCard({
     };
 
   const openManageFromKeyboard = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.target !== event.currentTarget) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     onManage();
