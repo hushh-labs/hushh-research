@@ -910,7 +910,7 @@ function resolveTopShellBreadcrumbInner(
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "PKM" }],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Memory" }],
     };
   }
 
