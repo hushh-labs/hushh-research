@@ -1,5 +1,5 @@
 {
-  "contract_name": "uat_integrated_schema",
+  "contract_name": "dev_minimum_schema",
   "expected_migration_version": 175,
   "migration_version_policy": "minimum",
   "required_functions": [
@@ -61,6 +61,13 @@
       "source",
       "last_synced_at",
       "created_at",
+      "updated_at"
+    ],
+    "contact_sync_lookup_budgets": [
+      "user_id",
+      "bucket_kind",
+      "bucket_start",
+      "lookup_count",
       "updated_at"
     ],
     "actor_verified_email_aliases": [

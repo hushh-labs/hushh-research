@@ -18,7 +18,11 @@ function currentPoint() {
   };
 }
 
-function recipient(userId: string, displayName: string): OneLocationRecipient {
+function recipient(
+  userId: string,
+  displayName: string,
+  connectedFromContacts = false,
+): OneLocationRecipient {
   return {
     userId,
     displayName,
@@ -27,6 +31,7 @@ function recipient(userId: string, displayName: string): OneLocationRecipient {
     publicKeyJwk: { kty: "EC" },
     keyAlgorithm: "ECDH-ES+A256GCM",
     canReceiveLocation: true,
+    connectedFromContacts,
   };
 }
 
@@ -36,7 +41,7 @@ function viewModel(
 ): LocationHubViewModel {
   const point = currentPoint();
   const recipients = [
-    recipient("user-aarav", "Aarav Mehta"),
+    recipient("user-aarav", "Aarav Mehta", true),
     recipient("user-maya", "Maya Chen"),
   ];
   return {
@@ -58,6 +63,20 @@ function viewModel(
 describe("CheckInFlow nearby private-sharing handoff", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("identifies a connected person who came from contact sync", () => {
+    render(
+      <CheckInFlow
+        vm={viewModel(vi.fn())}
+        entrySource="nearby"
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByLabelText("Connected from your contacts"),
+    ).toBeInTheDocument();
   });
 
   it("keeps Trusted out of private Check-In while preserving direct contacts and deliberate Circles", () => {

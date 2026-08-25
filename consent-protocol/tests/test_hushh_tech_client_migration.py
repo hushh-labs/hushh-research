@@ -176,6 +176,11 @@ def test_release_runner_selects_the_safe_base_or_explicit_uat_overlay(
             ("170_first.sql",),
             ("170_second.sql",),
         )
+    with pytest.raises(RuntimeError, match="must be strictly increasing"):
+        migrate._assert_monotonic_release_lane(
+            ("170_first.sql", "169_second.sql"),
+            label="test",
+        )
     with pytest.raises(ValueError, match="Unsupported release environment"):
         migrate.release_migration_files("development")
 

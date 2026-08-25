@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Loader2, UsersRound } from "lucide-react";
 
+import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import {
   ContactAvatar,
   EmptyStateCard,
@@ -146,8 +147,13 @@ export function SelectedContactsSheet({
                   <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
                     <ContactAvatar label={label} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
-                        {label}
+                      <span className="flex min-w-0 items-start gap-1.5">
+                        <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
+                          {label}
+                        </span>
+                        {recipient.connectedFromContacts ? (
+                          <ContactSourceBadge className="mt-px shrink-0" />
+                        ) : null}
                       </span>
                       {subtitle ? (
                         <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">

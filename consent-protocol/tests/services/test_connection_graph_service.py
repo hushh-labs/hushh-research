@@ -156,6 +156,12 @@ def test_contact_sync_cancels_only_requests_without_pending_scope_review():
     assert "NOT EXISTS" in request_cancellation_sql
     assert "FROM connection_scope_proposals proposal" in request_cancellation_sql
     assert "proposal.status = 'pending'" in request_cancellation_sql
+    assert "proposal.expires_at > NOW()" in request_cancellation_sql
+    assert "expired_proposals AS" in request_cancellation_sql
+    assert "proposal.expires_at <= NOW()" in request_cancellation_sql
+    assert "INSERT INTO connection_scope_proposal_events" in request_cancellation_sql
+    assert "'EXPIRED'" in request_cancellation_sql
+    assert "'scope_review_window_expired'" in request_cancellation_sql
 
 
 def test_contact_sync_activation_filters_revoked_conflicts_from_every_projection():
@@ -260,6 +266,48 @@ def test_ensure_named_circle_origin_is_idempotent_and_does_not_touch_trusted_edg
     assert "ON CONFLICT (connection_id, origin_key)" in origin_insert
     assert all("trusted_connections" not in sql for sql, _ in conn.calls)
     assert any("supersededByConnectionId" in sql for sql, _ in conn.calls)
+
+
+def test_ensure_direct_origin_preserves_accepted_request_and_live_scope_reviews():
+    connection_id = "00000000-0000-4000-8000-000000000002"
+    request_id = "00000000-0000-4000-8000-000000000003"
+    conn = _Connection(
+        [
+            [{"id": connection_id, "user_a_id": "user-a", "user_b_id": "user-b"}],
+            [],
+            [],
+            [{"id": connection_id, "user_a_id": "user-a", "user_b_id": "user-b"}],
+            [
+                {
+                    "active_origin_count": 1,
+                    "direct_origin_count": 1,
+                    "circle_origin_count": 0,
+                    "circles": [],
+                    "aggregate_source": "request",
+                }
+            ],
+            [],
+        ]
+    )
+
+    ensure_connection_origin(
+        conn,
+        user_a_id="user-a",
+        user_b_id="user-b",
+        kind=ORIGIN_DIRECT_REQUEST,
+        source_ref=request_id,
+    )
+
+    cancellation_sql, cancellation_params = next(
+        (sql, params) for sql, params in conn.calls if "UPDATE connection_requests" in sql
+    )
+    assert "eligible_requests AS MATERIALIZED" in cancellation_sql
+    assert "expired_proposals AS" in cancellation_sql
+    assert "'EXPIRED'" in cancellation_sql
+    assert "proposal.expires_at > NOW()" in cancellation_sql
+    assert "NOT EXISTS" in cancellation_sql
+    assert "request.id::text <> CAST(:preserved_request_id AS TEXT)" in cancellation_sql
+    assert cancellation_params["preserved_request_id"] == request_id
 
 
 def test_revoke_direct_origin_preserves_circle_aggregate():

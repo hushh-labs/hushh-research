@@ -30,6 +30,7 @@ import {
   UsersRound,
 } from "lucide-react";
 
+import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -147,6 +148,7 @@ function ContactRow({
   locked,
   completed,
   label,
+  fromContacts,
   isLast,
   onToggle,
 }: {
@@ -155,6 +157,7 @@ function ContactRow({
   locked: boolean;
   completed: boolean;
   label: string;
+  fromContacts?: boolean;
   isLast: boolean;
   onToggle: () => void;
 }) {
@@ -181,8 +184,13 @@ function ContactRow({
         {initialsOf(label)}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[16px] font-semibold text-foreground">
-          {label}
+        <span className="flex min-w-0 items-start gap-1.5">
+          <span className="min-w-0 flex-1 truncate text-[16px] font-semibold text-foreground">
+            {label}
+          </span>
+          {fromContacts ? (
+            <ContactSourceBadge className="mt-px shrink-0" />
+          ) : null}
         </span>
         {completed ? (
           <span className="block truncate text-[12px] text-emerald-600 dark:text-emerald-400">
@@ -751,6 +759,7 @@ export function CheckInFlow({
                 locked={retryLocked}
                 completed={completedRecipientIds.includes(recipient.userId)}
                 label={vm.recipientLabel(recipient)}
+                fromContacts={recipient.connectedFromContacts}
                 isLast={index === filtered.length - 1}
                 onToggle={() => toggle(recipient.userId)}
               />

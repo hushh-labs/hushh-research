@@ -635,6 +635,20 @@ def test_migration_registers_combined_consent_provenance_budget_and_safe_rollbac
     assert "THEN 'circle_invite'" in rollback
     assert "175_contact_sync_connection_provenance.sql" in manifest["ordered_migrations"]
     assert "175_contact_sync_connection_provenance.sql" in manifest["groups"]["iam"]
+    for contract_name in (
+        "dev_minimum_schema",
+        "prod_core_schema",
+        "uat_integrated_schema",
+    ):
+        contract = json.loads((ROOT / "db" / "contracts" / f"{contract_name}.json").read_text())
+        assert contract["contract_name"] == contract_name
+        assert contract["required_tables"]["contact_sync_lookup_budgets"] == [
+            "user_id",
+            "bucket_kind",
+            "bucket_start",
+            "lookup_count",
+            "updated_at",
+        ]
 
 
 def test_account_deletion_explicitly_purges_the_fk_free_abuse_budget() -> None:

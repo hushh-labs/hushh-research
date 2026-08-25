@@ -330,6 +330,7 @@ export function SmsContactsFlow({
                       <ContactRow
                         label={label}
                         subtitle={recipientSubtitle(recipient)}
+                        fromContacts={recipient.connectedFromContacts}
                         selected={selectedIds.has(recipient.userId)}
                         ready={isRecipientShareReady(recipient)}
                         busy={busyKey === "sms-contact:" + recipient.userId}

@@ -27,6 +27,7 @@ const recipients: OneLocationRecipient[] = [
     publicKeyJwk: { kty: "EC" },
     keyAlgorithm: "fixture",
     canReceiveLocation: true,
+    connectedFromContacts: true,
   },
   {
     userId: "available",
@@ -80,6 +81,7 @@ function circleSelection(
         publicKeyJwk: { kty: "EC" },
         keyAlgorithm: "fixture",
         canReceiveLocation: true,
+        connectedFromContacts: person.userId === "aarav",
       },
     })),
     excluded: [
@@ -219,6 +221,21 @@ describe("SmsContactsFlow", () => {
     expect(onAdd).toHaveBeenCalledWith("available");
   });
 
+  it("identifies contact-synced people in the directory and review sheet", async () => {
+    render(<SmsContactsFlow {...baseProps} />);
+
+    openAllContacts();
+    expect(
+      screen.getByLabelText("Connected from your contacts"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("sms-selected-pill"));
+    const sheet = await screen.findByTestId("sms-selected-sheet");
+    expect(
+      within(sheet).getByLabelText("Connected from your contacts"),
+    ).toBeInTheDocument();
+  });
+
   describe("per-Circle person picker", () => {
     it("picks individual members instead of taking the whole Circle", async () => {
       // The reported gap: a Circle offered one "Add" that took every member.
@@ -256,6 +273,9 @@ describe("SmsContactsFlow", () => {
         "aarav",
         "maya",
       ]);
+      expect(
+        within(list).getByLabelText("Connected from your contacts"),
+      ).toBeInTheDocument();
     });
 
     it("resolves the roster only when the Circle is opened", async () => {

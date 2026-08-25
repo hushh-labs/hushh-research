@@ -615,6 +615,70 @@ class ConnectionsService:
             for row in rows
         ]
 
+    def _expire_pending_scope_proposals(self, request_id: str) -> int:
+        """Settle review choices whose consent window elapsed.
+
+        Acceptance owns the parent request lock. This compare-and-transition
+        still makes a concurrent maintenance sweep harmless: only the winner
+        receives rows and therefore only the winner writes EXPIRED events.
+        """
+        rows = self._execute_many(
+            """
+            UPDATE connection_scope_proposals
+            SET status = 'expired', resolved_at = COALESCE(resolved_at, NOW())
+            WHERE connection_request_id = :request_id
+              AND status = 'pending'
+              AND expires_at <= NOW()
+            RETURNING id
+            """,
+            {"request_id": request_id},
+        )
+        for row in rows:
+            self._record_scope_event(
+                str(row.get("id") or ""),
+                event_type="EXPIRED",
+                actor_user_id=None,
+                reason="scope_review_window_expired",
+            )
+        return len(rows)
+
+    def _reviewable_scope_proposals(self, request_id: str) -> list[dict[str, Any]]:
+        """Lock and return only still-current bilateral scope choices."""
+        return self._execute_many(
+            """
+            SELECT id, scope_handle, capability_key, direction,
+                   owner_user_id, receiver_user_id, status, expires_at
+            FROM connection_scope_proposals
+            WHERE connection_request_id = :request_id
+              AND status = 'pending'
+              AND expires_at > NOW()
+            ORDER BY created_at ASC, id ASC
+            FOR UPDATE
+            """,
+            {"request_id": request_id},
+        )
+
+    def _scope_proposal_history_exists(self, request_id: str) -> bool:
+        """Return whether a request ever carried a bilateral scope choice.
+
+        Expiry maintenance may settle a proposal before a caller retries the
+        request. The immutable proposal row is therefore the durable signal
+        that a now-empty pending request was a scope-review envelope, rather
+        than an ordinary connection request.
+        """
+        return bool(
+            self._execute_one(
+                """
+                SELECT id
+                FROM connection_scope_proposals
+                WHERE connection_request_id = :request_id
+                ORDER BY created_at ASC, id ASC
+                LIMIT 1
+                """,
+                {"request_id": request_id},
+            )
+        )
+
     def expire_due_capabilities(self) -> int:
         """Expire proposal-bound capability projections atomically.
 
@@ -628,7 +692,7 @@ class ConnectionsService:
                 """
                 UPDATE connection_scope_proposals
                 SET status = 'expired', resolved_at = COALESCE(resolved_at, NOW())
-                WHERE status = 'active' AND expires_at <= NOW()
+                WHERE status IN ('pending', 'active') AND expires_at <= NOW()
                 RETURNING id
                 """
             )
@@ -831,6 +895,37 @@ class ConnectionsService:
             self._assert_directory_visible(requester_user_id, target)
 
         with self._transaction():
+            transaction_connection = getattr(self, "_transaction_connection", None)
+            # Contact sync, disconnect, and request creation share this sorted
+            # per-user gate. Whichever action wins is fully visible to the next
+            # one, so a stale client cannot leave a redundant pending request
+            # immediately after an automatic connection is created.
+            active_connection = None
+            if transaction_connection is not None:
+                lock_connection_graph_users(
+                    transaction_connection,
+                    user_ids={requester_user_id, target},
+                )
+                active_connection = self._execute_one(
+                    """
+                    SELECT id
+                    FROM connections
+                    WHERE user_a_id = LEAST(:a, :b)
+                      AND user_b_id = GREATEST(:a, :b)
+                      AND status = 'active'
+                    LIMIT 1
+                    """,
+                    {"a": requester_user_id, "b": target},
+                )
+            requested_scopes = self._resolve_scope_handles(target, requested_scope_handles)
+            offered_scopes = self._resolve_scope_handles(requester_user_id, offered_scope_handles)
+            if active_connection and not requested_scopes and not offered_scopes:
+                raise ConnectionsError(
+                    "CONNECTION_ALREADY_CONNECTED",
+                    "You are already connected with this person.",
+                    status_code=409,
+                )
+
             # Idempotent: if a pending request already exists (either direction), return it.
             existing = self._execute_one(
                 """
@@ -841,15 +936,119 @@ class ConnectionsService:
                     (requester_user_id = :a AND addressee_user_id = :b)
                     OR (requester_user_id = :b AND addressee_user_id = :a)
                   )
+                ORDER BY created_at ASC, id ASC
                 LIMIT 1
+                FOR UPDATE
                 """,
                 {"a": requester_user_id, "b": target},
             )
             if existing:
-                return self._request_payload(existing)
+                # A pending request is idempotent only when it represents the
+                # same bilateral scope envelope. Returning an older request
+                # for a newly selected scope is a false success: the new scope
+                # was never proposed. Runtime transactions settle expired
+                # choices, lock the remaining proposal set, and compare it in
+                # the existing request's direction before returning it.
+                if transaction_connection is not None:
+                    existing_request_id = str(existing.get("id") or "")
+                    proposals = self._reviewable_scope_proposals(existing_request_id)
+                    expired_count = self._expire_pending_scope_proposals(existing_request_id)
+                    caller_requested = {scope["handle"] for scope in requested_scopes}
+                    caller_offered = {scope["handle"] for scope in offered_scopes}
+                    stale_scope_envelope = bool(expired_count)
+                    if (
+                        not proposals
+                        and not stale_scope_envelope
+                        and active_connection
+                        and (caller_requested or caller_offered)
+                    ):
+                        stale_scope_envelope = self._scope_proposal_history_exists(
+                            existing_request_id
+                        )
+                    if not proposals and stale_scope_envelope:
+                        cancelled = self._execute_one(
+                            """
+                            UPDATE connection_requests
+                            SET status = 'cancelled',
+                                responded_at = COALESCE(responded_at, NOW()),
+                                updated_at = NOW(),
+                                metadata = COALESCE(metadata, '{}'::jsonb)
+                                  || jsonb_build_object(
+                                    'supersededReason', 'scope_review_expired'
+                                  )
+                            WHERE id = CAST(:request_id AS UUID)
+                              AND status = 'pending'
+                            RETURNING id
+                            """,
+                            {"request_id": existing_request_id},
+                        )
+                        if not cancelled:
+                            raise ConnectionsError(
+                                "CONNECTION_SCOPE_REVIEW_STALE",
+                                "A connection scope changed or expired. Review the request again.",
+                                status_code=409,
+                            )
+                        # Continue below and create a fresh request envelope in
+                        # this same transaction. The expired proposal audit and
+                        # parent cancellation therefore commit with its replacement.
+                        existing = None
+                    else:
+                        existing_requested = {
+                            str(proposal.get("scope_handle") or "")
+                            for proposal in proposals
+                            if str(proposal.get("direction") or "") == "requested"
+                        }
+                        existing_offered = {
+                            str(proposal.get("scope_handle") or "")
+                            for proposal in proposals
+                            if str(proposal.get("direction") or "") == "offered"
+                        }
+                        same_direction = str(existing.get("requester_user_id") or "") == (
+                            requester_user_id
+                        )
+                        has_scopes = bool(
+                            existing_requested
+                            or existing_offered
+                            or caller_requested
+                            or caller_offered
+                        )
+                        if has_scopes and (
+                            not same_direction
+                            or existing_requested != caller_requested
+                            or existing_offered != caller_offered
+                        ):
+                            raise ConnectionsError(
+                                "CONNECTION_SCOPE_REVIEW_ALREADY_PENDING",
+                                "A different connection scope review is already pending.",
+                                status_code=409,
+                            )
+                if existing:
+                    return self._request_payload(existing)
 
-            requested_scopes = self._resolve_scope_handles(target, requested_scope_handles)
-            offered_scopes = self._resolve_scope_handles(requester_user_id, offered_scope_handles)
+            # `accept_request` owns the pending-request row rather than this
+            # graph gate. If it was already accepting the row when our first
+            # connection read ran, the pending SELECT above waits for that
+            # transaction and then sees no pending row. Re-read the canonical
+            # graph after that wait so its newly committed connection cannot
+            # be followed by a redundant unscoped request.
+            if transaction_connection is not None and active_connection is None:
+                active_connection = self._execute_one(
+                    """
+                    SELECT id
+                    FROM connections
+                    WHERE user_a_id = LEAST(:a, :b)
+                      AND user_b_id = GREATEST(:a, :b)
+                      AND status = 'active'
+                    LIMIT 1
+                    """,
+                    {"a": requester_user_id, "b": target},
+                )
+                if active_connection and not requested_scopes and not offered_scopes:
+                    raise ConnectionsError(
+                        "CONNECTION_ALREADY_CONNECTED",
+                        "You are already connected with this person.",
+                        status_code=409,
+                    )
 
             row = self._execute_one(
                 """
@@ -940,9 +1139,11 @@ class ConnectionsService:
         Exact radius was checked against encrypted anchors immediately before
         this call. The presence versions bind that assessment to this transaction:
         if either owner checks out, expires, or checks in elsewhere first, no
-        request is written. Both presence rows are locked in canonical owner-id
-        order so opposite-direction requests cannot race past one another. The
-        nearby source is deliberately not copied into durable request metadata.
+        request is written. The alias is resolved without a row lock, then the
+        same sorted graph gate as contact sync is acquired before both presence
+        rows are locked and revalidated. Opposite-direction and contact-sync
+        writes therefore cannot race past one another. The nearby source is
+        deliberately not copied into durable request metadata.
         """
 
         requester = (requester_user_id or "").strip()
@@ -963,11 +1164,10 @@ class ConnectionsService:
         }
         db = get_db()
         with db.engine.begin() as conn:
-            # READ COMMITTED takes a fresh snapshot per statement. Acquiring and
-            # consuming the canonical pair locks first means the mutation query
-            # below can see a reverse pending request committed by a waiter that
-            # held these same locks immediately before this transaction.
-            conn.execute(
+            # Resolve the opaque alias before the shared graph gate without
+            # holding a presence row. Taking a presence lock first would invert
+            # account-reset's graph-gate -> presence order and create a deadlock.
+            candidate_rows = conn.execute(
                 text(
                     """
                     SELECT p.owner_user_id
@@ -982,11 +1182,23 @@ class ConnectionsService:
                       AND p.status = 'active'
                       AND p.expires_at > NOW()
                     ORDER BY p.owner_user_id
-                    FOR UPDATE OF p
                     """
                 ),
                 params,
             ).fetchall()
+            candidate_owner_ids = {
+                str(self._row_mapping(row).get("owner_user_id") or "").strip()
+                for row in candidate_rows
+            }
+            candidate_targets = sorted(candidate_owner_ids - {requester})
+            if requester not in candidate_owner_ids or len(candidate_targets) != 1:
+                return None
+            target_user_id = candidate_targets[0]
+            lock_connection_graph_users(
+                conn,
+                user_ids={requester, target_user_id},
+            )
+            params = {**params, "target_user_id": target_user_id}
 
             result = conn.execute(
                 text(
@@ -1019,6 +1231,7 @@ class ConnectionsService:
                       JOIN locked target
                         ON target.participant_alias = CAST(:participant_alias AS UUID)
                        AND target.owner_user_id <> viewer.owner_user_id
+                       AND target.owner_user_id = :target_user_id
                       WHERE viewer.owner_user_id = :requester_user_id
                         AND viewer.version = :requester_presence_version
                         AND target.version = :target_presence_version
@@ -1380,6 +1593,7 @@ class ConnectionsService:
         actor_user_id: str,
         selected_requested_scope_handles: list[str] | None,
         selected_offered_scope_handles: list[str] | None,
+        proposals: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         selected_requested = {
             str(handle or "").strip() for handle in (selected_requested_scope_handles or [])
@@ -1387,23 +1601,17 @@ class ConnectionsService:
         selected_offered = {
             str(handle or "").strip() for handle in (selected_offered_scope_handles or [])
         }
-        proposals = self._execute_many(
-            """
-            SELECT id, scope_handle, capability_key, direction, owner_user_id, receiver_user_id, status
-            FROM connection_scope_proposals
-            WHERE connection_request_id = :request_id AND status = 'pending'
-            ORDER BY created_at ASC, id ASC
-            """,
-            {"request_id": request_id},
+        reviewable_proposals = (
+            self._reviewable_scope_proposals(request_id) if proposals is None else proposals
         )
         known_requested = {
             str(proposal.get("scope_handle") or "")
-            for proposal in proposals
+            for proposal in reviewable_proposals
             if str(proposal.get("direction") or "") == "requested"
         }
         known_offered = {
             str(proposal.get("scope_handle") or "")
-            for proposal in proposals
+            for proposal in reviewable_proposals
             if str(proposal.get("direction") or "") == "offered"
         }
         if not selected_requested.issubset(known_requested) or not selected_offered.issubset(
@@ -1415,7 +1623,7 @@ class ConnectionsService:
                 status_code=409,
             )
         results: list[dict[str, Any]] = []
-        for proposal in proposals:
+        for proposal in reviewable_proposals:
             direction = str(proposal.get("direction") or "")
             scope_handle = str(proposal.get("scope_handle") or "")
             selected = scope_handle in (
@@ -1441,15 +1649,23 @@ class ConnectionsService:
                     # for any separate materialization contract.
                     activated = True
                 next_status = "active" if activated else "declined"
-            self._execute_one(
+            transitioned = self._execute_one(
                 """
                 UPDATE connection_scope_proposals
                 SET status = :status, resolved_at = NOW()
-                WHERE id = CAST(:proposal_id AS UUID) AND status = 'pending'
+                WHERE id = CAST(:proposal_id AS UUID)
+                  AND status = 'pending'
+                  AND expires_at > NOW()
                 RETURNING id
                 """,
                 {"status": next_status, "proposal_id": str(proposal.get("id") or "")},
             )
+            if not transitioned:
+                raise ConnectionsError(
+                    "CONNECTION_SCOPE_REVIEW_STALE",
+                    "A connection scope changed or expired. Review the request again.",
+                    status_code=409,
+                )
             self._record_scope_event(
                 str(proposal.get("id") or ""),
                 event_type="ACTIVATED" if next_status == "active" else "DECLINED",
@@ -1767,6 +1983,95 @@ class ConnectionsService:
             {"user_a": user_a_id, "user_b": user_b_id},
         )
 
+    def _cancel_pending_pair_requests(
+        self,
+        *,
+        user_a_id: str,
+        user_b_id: str,
+        actor_user_id: str,
+    ) -> int:
+        """Settle every still-reviewable envelope when a pair disconnects.
+
+        The graph advisory gate is already held by the caller. Expired choices
+        retain expiry semantics; current choices are declined by the explicit
+        disconnect. Cancelling the parent in the same statement prevents a
+        later acceptance from silently recreating the relationship or a grant.
+        """
+        rows = self._execute_many(
+            """
+            WITH pending_requests AS MATERIALIZED (
+              SELECT request.id
+              FROM connection_requests request
+              WHERE request.status = 'pending'
+                AND (
+                  (request.requester_user_id = :user_a
+                   AND request.addressee_user_id = :user_b)
+                  OR
+                  (request.requester_user_id = :user_b
+                   AND request.addressee_user_id = :user_a)
+                )
+              ORDER BY request.created_at ASC, request.id ASC
+              FOR UPDATE
+            ),
+            expired_proposals AS (
+              UPDATE connection_scope_proposals proposal
+              SET status = 'expired',
+                  resolved_at = COALESCE(proposal.resolved_at, NOW())
+              FROM pending_requests request
+              WHERE proposal.connection_request_id = request.id
+                AND proposal.status = 'pending'
+                AND proposal.expires_at <= NOW()
+              RETURNING proposal.id
+            ),
+            expired_events AS (
+              INSERT INTO connection_scope_proposal_events (
+                connection_scope_proposal_id, event_type,
+                actor_user_id, reason
+              )
+              SELECT id, 'EXPIRED', NULL, 'scope_review_window_expired'
+              FROM expired_proposals
+              RETURNING id
+            ),
+            declined_proposals AS (
+              UPDATE connection_scope_proposals proposal
+              SET status = 'declined',
+                  resolved_at = COALESCE(proposal.resolved_at, NOW())
+              FROM pending_requests request
+              WHERE proposal.connection_request_id = request.id
+                AND proposal.status = 'pending'
+                AND (proposal.expires_at IS NULL OR proposal.expires_at > NOW())
+              RETURNING proposal.id
+            ),
+            declined_events AS (
+              INSERT INTO connection_scope_proposal_events (
+                connection_scope_proposal_id, event_type,
+                actor_user_id, reason
+              )
+              SELECT id, 'DECLINED', :actor_user_id, 'connection_disconnected'
+              FROM declined_proposals
+              RETURNING id
+            )
+            UPDATE connection_requests request
+            SET status = 'cancelled',
+                responded_at = COALESCE(request.responded_at, NOW()),
+                updated_at = NOW(),
+                metadata = COALESCE(request.metadata, '{}'::jsonb)
+                  || jsonb_build_object(
+                    'supersededReason', 'connection_disconnected'
+                  )
+            FROM pending_requests pending
+            WHERE request.id = pending.id
+              AND request.status = 'pending'
+            RETURNING request.id
+            """,
+            {
+                "user_a": user_a_id,
+                "user_b": user_b_id,
+                "actor_user_id": actor_user_id,
+            },
+        )
+        return len(rows)
+
     def accept_request(
         self,
         user_id: str,
@@ -1777,7 +2082,41 @@ class ConnectionsService:
     ) -> dict[str, Any]:
         user_id = (user_id or "").strip()
         with self._transaction():
-            req = self._load_request(request_id, for_update=True)
+            transaction_connection = getattr(self, "_transaction_connection", None)
+            if transaction_connection is not None:
+                # Read the immutable participants before taking any row lock so
+                # every graph writer can acquire the same sorted advisory gate
+                # first. Locking the request before the connection row creates
+                # the inverse of contact-sync/disconnect ordering and can
+                # deadlock accept against either path.
+                candidate = self._load_request(request_id, for_update=False)
+                if str(candidate.get("addressee_user_id")) != user_id:
+                    raise ConnectionsError(
+                        "CONNECTION_NOT_ADDRESSEE",
+                        "Only the addressee can accept.",
+                        status_code=403,
+                    )
+                candidate_requester = str(candidate.get("requester_user_id") or "")
+                candidate_addressee = str(candidate.get("addressee_user_id") or "")
+                lock_connection_graph_users(
+                    transaction_connection,
+                    user_ids={candidate_requester, candidate_addressee},
+                )
+                req = self._load_request(request_id, for_update=True)
+                if (
+                    str(req.get("requester_user_id") or "") != candidate_requester
+                    or str(req.get("addressee_user_id") or "") != candidate_addressee
+                ):
+                    raise ConnectionsError(
+                        "CONNECTION_REQUEST_CHANGED",
+                        "The connection request changed while it was being reviewed.",
+                        status_code=409,
+                    )
+            else:
+                # Lightweight unit doubles do not expose a transaction
+                # connection. Preserve their single-read behavior; every real
+                # runtime database goes through the gated path above.
+                req = self._load_request(request_id, for_update=True)
             if str(req.get("addressee_user_id")) != user_id:
                 raise ConnectionsError(
                     "CONNECTION_NOT_ADDRESSEE", "Only the addressee can accept.", status_code=403
@@ -1794,7 +2133,9 @@ class ConnectionsService:
                     "CONNECTION_NOT_PENDING", "Request is no longer pending.", status_code=409
                 )
 
-            pending_proposals = self._proposal_items(str(req.get("id") or ""))
+            canonical_request_id = str(req.get("id") or "")
+            self._expire_pending_scope_proposals(canonical_request_id)
+            pending_proposals = self._reviewable_scope_proposals(canonical_request_id)
             if pending_proposals and (
                 selected_requested_scope_handles is None or selected_offered_scope_handles is None
             ):
@@ -1875,10 +2216,11 @@ class ConnectionsService:
             # 88 of 390 accepts.
             self._join_trusted_system_circles(user_a_id=user_a, user_b_id=user_b)
             scope_results = self._resolve_scope_proposals(
-                request_id=str(req.get("id") or ""),
+                request_id=canonical_request_id,
                 actor_user_id=user_id,
                 selected_requested_scope_handles=selected_requested_scope_handles,
                 selected_offered_scope_handles=selected_offered_scope_handles,
+                proposals=pending_proposals,
             )
             self._execute_one(
                 """
@@ -3065,6 +3407,12 @@ class ConnectionsService:
                 row = candidate
             user_a = row.get("user_a_id")
             user_b = row.get("user_b_id")
+            if transaction_connection is not None:
+                self._cancel_pending_pair_requests(
+                    user_a_id=str(user_a or ""),
+                    user_b_id=str(user_b or ""),
+                    actor_user_id=user_id,
+                )
             self._revoke_pair_capabilities(
                 user_a_id=str(user_a or ""),
                 user_b_id=str(user_b or ""),

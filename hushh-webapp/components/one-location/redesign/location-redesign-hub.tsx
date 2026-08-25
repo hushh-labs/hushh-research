@@ -4050,7 +4050,14 @@ function ShareFlow({
             : undefined
         }
         leading={<Avatar initials={initialsFrom(label)} />}
-        title={label}
+        title={
+          <span className="flex min-w-0 items-start gap-1.5">
+            <span className="min-w-0 flex-1 truncate">{label}</span>
+            {r.connectedFromContacts ? (
+              <ContactSourceBadge className="mt-px shrink-0" />
+            ) : null}
+          </span>
+        }
         // Only says something when there is something to say. A row that is
         // ready needs no sentence explaining that it is ready — but a row whose
         // share is already running has a number worth reading, and it is the
@@ -4541,6 +4548,7 @@ function SelectionDot({ selected }: { selected: boolean }) {
 
 function RequestRecipientListRow({
   name,
+  fromContacts,
   subtitle,
   tone,
   statusLabel,
@@ -4556,6 +4564,7 @@ function RequestRecipientListRow({
   expandedContent,
 }: {
   name: string;
+  fromContacts?: boolean;
   subtitle?: string;
   tone: "ready" | "pending" | "neutral";
   statusLabel?: string;
@@ -4587,8 +4596,13 @@ function RequestRecipientListRow({
       <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
         <ContactAvatar label={name} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
-            {name}
+          <span className="flex min-w-0 items-start gap-1.5">
+            <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
+              {name}
+            </span>
+            {fromContacts ? (
+              <ContactSourceBadge className="mt-px shrink-0" />
+            ) : null}
           </span>
           {subtitle ? (
             <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
@@ -5045,6 +5059,7 @@ function AskFlow({
                 <RequestRecipientListRow
                   key={r.userId}
                   name={recipientLabel}
+                  fromContacts={r.connectedFromContacts}
                   subtitle={
                     status.selectable && status.tone === "ready"
                       ? undefined
@@ -5229,8 +5244,11 @@ function SelectedRecipientsRail({
                 className="flex min-h-14 items-center gap-3 px-4 py-2.5"
               >
                 <ContactAvatar label={label} className="h-8 w-8 text-[13px]" />
-                <span className="min-w-0 flex-1 text-[17px] font-normal leading-[22px] text-foreground">
-                  {label}
+                <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-foreground">
+                  <span className="min-w-0 flex-1 truncate">{label}</span>
+                  {recipient.connectedFromContacts ? (
+                    <ContactSourceBadge className="mt-px shrink-0" />
+                  ) : null}
                 </span>
               </div>
             );

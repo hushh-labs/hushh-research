@@ -2120,7 +2120,10 @@ describe("OneLocationAgentPage", () => {
     // already running. The remaining time on the row is what makes that
     // consequence visible before it is chosen.
     const sharing = locationState();
-    const [trustedB] = sharing.recipients;
+    const trustedB = {
+      ...sharing.recipients[0]!,
+      connectedFromContacts: true,
+    };
     mockGetState.mockResolvedValue({
       ...sharing,
       recipients: [
@@ -2168,6 +2171,9 @@ describe("OneLocationAgentPage", () => {
     expect(within(alreadySharing).getByText("Already sharing")).toBeTruthy();
     expect(within(alreadySharing).getByText("1")).toBeTruthy();
     expect(within(alreadySharing).getByText("Trusted B")).toBeTruthy();
+    expect(
+      within(alreadySharing).getByLabelText("Connected from your contacts"),
+    ).toBeTruthy();
     // The same words the Active shares screen uses for the same grant. Two
     // screens describing one share must not disagree about how long is left.
     expect(within(alreadySharing).getByText("Until you stop")).toBeTruthy();

@@ -271,22 +271,68 @@ class ConnectionGraphService:
 
         # An already-connected pair must not keep showing an actionable request.
         # The existing schema supports `cancelled`, so use it rather than adding
-        # a parallel status solely for Circle supersession.
+        # a parallel status solely for Circle supersession. Direct acceptance
+        # records the request id as its source_ref; preserve that one locked
+        # request so the accepting transaction can transition it to `accepted`
+        # after its capability choices are resolved.
+        preserved_request_id = (
+            normalized_source_ref if origin_kind == ORIGIN_DIRECT_REQUEST else None
+        )
         conn.execute(
             text(
                 """
-                UPDATE connection_requests
+                WITH eligible_requests AS MATERIALIZED (
+                  SELECT request.id
+                  FROM connection_requests request
+                  WHERE request.status = 'pending'
+                    AND (
+                      CAST(:preserved_request_id AS TEXT) IS NULL
+                      OR request.id::text <> CAST(:preserved_request_id AS TEXT)
+                    )
+                    AND (
+                      (request.requester_user_id = :user_a
+                       AND request.addressee_user_id = :user_b)
+                      OR
+                      (request.requester_user_id = :user_b
+                       AND request.addressee_user_id = :user_a)
+                    )
+                ),
+                expired_proposals AS (
+                  UPDATE connection_scope_proposals proposal
+                  SET status = 'expired',
+                      resolved_at = COALESCE(proposal.resolved_at, NOW())
+                  FROM eligible_requests eligible
+                  WHERE proposal.connection_request_id = eligible.id
+                    AND proposal.status = 'pending'
+                    AND proposal.expires_at <= NOW()
+                  RETURNING proposal.id
+                ),
+                expired_events AS (
+                  INSERT INTO connection_scope_proposal_events (
+                    connection_scope_proposal_id, event_type,
+                    actor_user_id, reason
+                  )
+                  SELECT id, 'EXPIRED', NULL, 'scope_review_window_expired'
+                  FROM expired_proposals
+                  RETURNING id
+                )
+                UPDATE connection_requests request
                 SET status = 'cancelled',
-                    responded_at = COALESCE(responded_at, NOW()),
+                    responded_at = COALESCE(request.responded_at, NOW()),
                     updated_at = NOW(),
-                    metadata = metadata || jsonb_build_object(
+                    metadata = COALESCE(request.metadata, '{}'::jsonb)
+                      || jsonb_build_object(
                       'supersededByConnectionId', :connection_id
                     )
-                WHERE status = 'pending'
-                  AND (
-                    (requester_user_id = :user_a AND addressee_user_id = :user_b)
-                    OR
-                    (requester_user_id = :user_b AND addressee_user_id = :user_a)
+                FROM eligible_requests eligible
+                WHERE request.id = eligible.id
+                  AND request.status = 'pending'
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM connection_scope_proposals proposal
+                    WHERE proposal.connection_request_id = request.id
+                      AND proposal.status = 'pending'
+                      AND proposal.expires_at > NOW()
                   )
                 """
             ),
@@ -294,6 +340,7 @@ class ConnectionGraphService:
                 "connection_id": connection_id,
                 "user_a": user_a,
                 "user_b": user_b,
+                "preserved_request_id": preserved_request_id,
             },
         )
         return cls.recompute_connection(conn, connection_id=connection_id)
@@ -481,42 +528,71 @@ class ConnectionGraphService:
         conn.execute(
             text(
                 """
+                WITH eligible_requests AS MATERIALIZED (
+                  SELECT request.id, connection.id AS connection_id
+                  FROM connection_requests request
+                  JOIN connections connection
+                    ON (
+                      (request.requester_user_id = connection.user_a_id
+                       AND request.addressee_user_id = connection.user_b_id)
+                      OR
+                      (request.requester_user_id = connection.user_b_id
+                       AND request.addressee_user_id = connection.user_a_id)
+                    )
+                  WHERE request.status = 'pending'
+                    AND connection.status = 'active'
+                    AND (
+                      (connection.user_a_id = :requester_user_id
+                       AND connection.user_b_id = ANY(
+                         CAST(:target_user_ids AS TEXT[])
+                       ))
+                      OR
+                      (connection.user_b_id = :requester_user_id
+                       AND connection.user_a_id = ANY(
+                         CAST(:target_user_ids AS TEXT[])
+                       ))
+                    )
+                ),
+                expired_proposals AS (
+                  UPDATE connection_scope_proposals proposal
+                  SET status = 'expired',
+                      resolved_at = COALESCE(proposal.resolved_at, NOW())
+                  FROM eligible_requests eligible
+                  WHERE proposal.connection_request_id = eligible.id
+                    AND proposal.status = 'pending'
+                    AND proposal.expires_at <= NOW()
+                  RETURNING proposal.id
+                ),
+                expired_events AS (
+                  INSERT INTO connection_scope_proposal_events (
+                    connection_scope_proposal_id, event_type,
+                    actor_user_id, reason
+                  )
+                  SELECT id, 'EXPIRED', NULL, 'scope_review_window_expired'
+                  FROM expired_proposals
+                  RETURNING id
+                )
                 UPDATE connection_requests request
                 SET status = 'cancelled',
                     responded_at = COALESCE(request.responded_at, NOW()),
                     updated_at = NOW(),
                     metadata = request.metadata || jsonb_build_object(
-                      'supersededByConnectionId', connection.id::text
+                      'supersededByConnectionId', eligible.connection_id::text
                     )
-                FROM connections connection
-                WHERE request.status = 'pending'
-                  AND connection.status = 'active'
-                  AND (
-                    (connection.user_a_id = :requester_user_id
-                     AND connection.user_b_id = ANY(
-                       CAST(:target_user_ids AS TEXT[])
-                     ))
-                    OR
-                    (connection.user_b_id = :requester_user_id
-                     AND connection.user_a_id = ANY(
-                       CAST(:target_user_ids AS TEXT[])
-                     ))
-                  )
-                  AND (
-                    (request.requester_user_id = connection.user_a_id
-                     AND request.addressee_user_id = connection.user_b_id)
-                    OR
-                    (request.requester_user_id = connection.user_b_id
-                     AND request.addressee_user_id = connection.user_a_id)
-                  )
+                FROM eligible_requests eligible
+                WHERE request.id = eligible.id
+                  AND request.status = 'pending'
                   -- Contact sync settles only the base relationship. Preserve
                   -- capability-bearing requests so the addressee can still
-                  -- review every proposed scope explicitly.
+                  -- review every current proposed scope explicitly. Expired
+                  -- proposals are settled and audited by the CTEs above; they
+                  -- cannot keep an already-connected request open forever.
                   AND NOT EXISTS (
                     SELECT 1
                     FROM connection_scope_proposals proposal
                     WHERE proposal.connection_request_id = request.id
                       AND proposal.status = 'pending'
+                      AND proposal.expires_at > NOW()
                   )
                 """
             ),

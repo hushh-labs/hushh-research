@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth
 from api.routes.one.connections import router
+from hushh_mcp.services.connections_service import ConnectionsError
 
 
 def _client():
@@ -27,6 +28,25 @@ def test_create_request_returns_request_payload():
         resp = client.post("/api/one/connections/requests", json={"addressee_user_id": "user-b"})
     assert resp.status_code == 200
     assert resp.json()["request"]["id"] == "req-1"
+
+
+def test_create_request_returns_typed_conflict_when_pair_is_already_connected():
+    client = _client()
+    with patch("api.routes.one.connections.ConnectionsService") as svc_cls:
+        svc_cls.return_value.create_request.side_effect = ConnectionsError(
+            "CONNECTION_ALREADY_CONNECTED",
+            "You are already connected with this person.",
+            status_code=409,
+        )
+        resp = client.post("/api/one/connections/requests", json={"addressee_user_id": "user-b"})
+
+    assert resp.status_code == 409
+    assert resp.json() == {
+        "detail": {
+            "code": "CONNECTION_ALREADY_CONNECTED",
+            "message": "You are already connected with this person.",
+        }
+    }
 
 
 def test_directory_lists_items():
