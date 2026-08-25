@@ -3596,6 +3596,54 @@ export class ApiService {
   }
 
   /**
+   * Choose to have hussh host this person's private agent, for now.
+   *
+   * The third door, and the one that makes day zero reachable for someone who
+   * arrives with a Google account and nothing else. Their agent is still their
+   * own instance running the same image, sealed with keys only that pod holds —
+   * and it can be moved into their own project later without losing anything it
+   * has learned.
+   *
+   * The assurance sentence comes back FROM the server rather than being written
+   * here, so the page renders the claim the server actually stands behind. The
+   * honest claim for this tier is "hussh does not read this pod"; "hussh cannot
+   * read this pod" is the one only the user-owned targets earn.
+   */
+  static async selectHostedCloud(): Promise<{
+    deploymentTarget: string;
+    assurance: string;
+    migratable: boolean;
+    nextStep: string;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/hosted/select",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    if (!response.ok) {
+      // Same verbatim-reason revival as the BYOC door: the 409 "verify your
+      // phone first" is a normal step of this journey, not a fault, and a
+      // generic string would strand the person with no next move.
+      const body = await response.json().catch(() => null);
+      const msg =
+        typeof body?.detail === "string"
+          ? body.detail
+          : (body?.detail?.message ?? "");
+      throw new Error(msg || "HOSTED_SELECT_FAILED");
+    }
+    return response.json();
+  }
+
+  /**
    * Run one turn on this person's own pod, through the private relay.
    *
    * The pod is `internal` ingress with no public binding, so the hub is the only

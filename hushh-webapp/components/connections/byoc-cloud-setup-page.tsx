@@ -114,6 +114,15 @@ export function ByocCloudSetupPage() {
     rationale: string;
   } | null>(null);
   const [switching, setSwitching] = useState(false);
+  // Which door this person is taking. Null means they have not chosen, which is
+  // a real third state and not the same as having chosen their own cloud — the
+  // page used to assume BYOC by construction, so someone who arrived with a
+  // Google account and nothing else had no way through this step at all.
+  const [choice, setChoice] = useState<"own" | "hosted" | null>(null);
+  const [hostedSaving, setHostedSaving] = useState(false);
+  const [hosted, setHosted] = useState<Awaited<
+    ReturnType<typeof ApiService.selectHostedCloud>
+  > | null>(null);
   // The live stage record of the background setup job. Fetched on mount (a
   // person can leave and come back mid-job) and polled every 2s while running.
   const [job, setJob] = useState<Awaited<
@@ -207,6 +216,14 @@ export function ByocCloudSetupPage() {
     if (reason) setError(reason);
   }, [searchParams]);
 
+  // Someone arriving from "Move it to my cloud" has already chosen; showing them
+  // the choice again would ask a question they just answered. Their agent keeps
+  // running on the hosted tier until their own project is proven, so this is the
+  // first half of the move, not a switch that strands them mid-way.
+  useEffect(() => {
+    if (searchParams.get("intent") === "migrate") setChoice("own");
+  }, [searchParams]);
+
   const handleProjectNamed = useCallback(async (projectId: string) => {
     setSaving(true);
     setError(null);
@@ -250,12 +267,44 @@ export function ByocCloudSetupPage() {
     }
   }, []);
 
+  const chooseHosted = useCallback(async () => {
+    setError(null);
+    setHostedSaving(true);
+    try {
+      const result = await ApiService.selectHostedCloud();
+      setHosted(result);
+      if (user?.uid) {
+        // The server just wrote the durable `cloud` marker; refresh the shared
+        // bootstrap so the hub and every other surface flip to the truth
+        // without a reload — the same refresh the BYOC path does on its proof.
+        await PreVaultUserStateService.bootstrapState(user.uid, {
+          force: true,
+        }).catch(() => undefined);
+      }
+    } catch (err) {
+      // The server's reason verbatim. "Verify your phone number first" is a
+      // normal step of this journey, and replacing it with a generic apology
+      // strands the person with no next move.
+      const reason =
+        err instanceof Error && err.message && err.message !== "HOSTED_SELECT_FAILED"
+          ? err.message
+          : null;
+      setError(
+        reason ?? "We could not set that up just now. Try again in a moment.",
+      );
+    } finally {
+      setHostedSaving(false);
+    }
+  }, [user?.uid]);
+
   // A cloud is "done" here either because THIS session just proved it, or
-  // because the durable marker says a prior session did. Both are proven
-  // states; the footer treats them identically.
+  // because the durable marker says a prior session did, or because the person
+  // chose to have hussh host it (which needs no proof — there is nothing to
+  // authorize). All three are settled states; the footer treats them the same.
   const connectedNow = saved?.authorized === true;
   const connectedBefore = existing !== null && !switching;
-  const authorized = connectedNow || connectedBefore;
+  const hostedChosen = hosted !== null;
+  const authorized = connectedNow || connectedBefore || hostedChosen;
 
   const finish = useCallback(() => {
     const requested = requestInternalAppNavigation({
@@ -281,8 +330,8 @@ export function ByocCloudSetupPage() {
     >
       <AppPageHeaderRegion>
         <PageHeader
-          title="Your cloud"
-          description="Your private agent runs in your own Google Cloud project. Your compute, your bill, your data."
+          title="Where your agent lives"
+          description="Your own Google Cloud project, or hosted by hussh. Either way it is your agent, and you can move it later."
           accent="neutral"
         />
       </AppPageHeaderRegion>
@@ -339,8 +388,64 @@ export function ByocCloudSetupPage() {
               Switch project
             </button>
           </div>
-        ) : (
+        ) : hostedChosen ? (
+          <div
+            className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
+            data-testid="hosted-cloud-chosen"
+          >
+            <p className="text-sm font-semibold">Hosted by hussh</p>
+            <p className="text-sm text-[var(--app-text-secondary)]">
+              {hosted.assurance}
+            </p>
+            <button
+              type="button"
+              className="text-sm underline underline-offset-4"
+              onClick={() => {
+                setHosted(null);
+                setChoice("own");
+              }}
+              data-testid="hosted-cloud-switch"
+            >
+              Use my own cloud instead
+            </button>
+          </div>
+        ) : choice === "own" ? (
           <ByocCloudCard onProjectNamed={handleProjectNamed} />
+        ) : (
+          // The choice, and the reason this page stopped assuming one. Both
+          // doors write the same durable marker, so neither is a lesser path
+          // through setup — the difference is who owns the compute, and it is
+          // reversible in one click either way.
+          <div className="space-y-3" data-testid="cloud-tier-choice">
+            <button
+              type="button"
+              className="w-full space-y-1 rounded-2xl border border-[var(--app-border)] p-4 text-left"
+              onClick={() => setChoice("own")}
+              data-testid="cloud-tier-own"
+            >
+              <p className="text-sm font-semibold">Your own Google Cloud</p>
+              <p className="text-sm text-[var(--app-text-secondary)]">
+                Your project, your compute, your bill. hussh cannot read your agent,
+                because the keys never leave it and the project is not ours.
+              </p>
+            </button>
+            <button
+              type="button"
+              className="w-full space-y-1 rounded-2xl border border-[var(--app-border)] p-4 text-left disabled:opacity-60"
+              onClick={() => void chooseHosted()}
+              disabled={hostedSaving}
+              data-testid="cloud-tier-hosted"
+            >
+              <p className="text-sm font-semibold">
+                {hostedSaving ? "Setting that up…" : "Host it with hussh"}
+              </p>
+              <p className="text-sm text-[var(--app-text-secondary)]">
+                Your own instance on hussh&rsquo;s infrastructure, sealed with keys
+                only your agent holds. hussh does not read it, and you can move it to
+                your own cloud any time, with everything it has learned.
+              </p>
+            </button>
+          </div>
         )}
 
         {saving ? (

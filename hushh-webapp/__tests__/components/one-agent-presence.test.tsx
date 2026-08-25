@@ -132,4 +132,54 @@ describe("OneAgentPresence", () => {
     expect(screen.queryByLabelText("Your Agent One")).toBeNull();
     expect(screen.queryByText("Reserved")).toBeNull();
   });
+  // ---- where the agent lives ------------------------------------------------
+  //
+  // A hosted agent has no user-project coordinates, so before the hosted tier
+  // existed this surface said NOTHING about where such an agent lived -- and
+  // where it lives is the product, not an implementation detail.
+
+  it("says where a hosted agent lives, and offers the move", async () => {
+    mockStatus.mockResolvedValue({
+      state: "active",
+      hushhId: "ha1_abc",
+      deploymentTarget: "gcp",
+    });
+    render(<OneAgentPresence />);
+
+    expect(await screen.findByTestId("one-agent-hosted-identity")).toBeTruthy();
+    expect(screen.getByTestId("one-agent-migrate")).toBeTruthy();
+  });
+
+  it("makes the claim the hosted tier actually earns", async () => {
+    // "hussh does not read this pod" is honest for a pod hussh operates.
+    // "hussh cannot read this pod" is the sentence only the user-owned targets
+    // earn, and the difference is the whole point of the move button.
+    mockStatus.mockResolvedValue({
+      state: "active",
+      hushhId: "ha1_abc",
+      deploymentTarget: "gcp",
+    });
+    render(<OneAgentPresence />);
+
+    const line = await screen.findByTestId("one-agent-hosted-identity");
+    expect(line.textContent).toMatch(/sealed to your agent/i);
+    expect(line.textContent).not.toMatch(/cannot read/i);
+  });
+
+  it("prefers the person's own project when they have one", async () => {
+    // A user-owned row must never render the hosted line, even transiently:
+    // telling someone who owns their compute that hussh hosts it is the one
+    // wrong answer this surface can give.
+    mockStatus.mockResolvedValue({
+      state: "active",
+      hushhId: "ha1_abc",
+      deploymentTarget: "user_gcp",
+      cloudProject: "their-own-project",
+      cloudRegion: "us-central1",
+    });
+    render(<OneAgentPresence />);
+
+    expect(await screen.findByTestId("one-agent-cloud-identity")).toBeTruthy();
+    expect(screen.queryByTestId("one-agent-hosted-identity")).toBeNull();
+  });
 });

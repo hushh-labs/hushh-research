@@ -770,11 +770,11 @@ export function OneSetupHub() {
                 {!cloudComplete ? (
                   <SetupNavigationTile
                     id="cloud"
-                    title="Your cloud"
+                    title="Where your agent lives"
                     description={
                       cloudSetupRunning
                         ? "Being set up in the background. Keep going; this finishes on its own."
-                        : "Run your private agent in your own Google Cloud project. Your compute, your bill."
+                        : "Your own Google Cloud project, or hosted by hussh for now. You can move it later."
                     }
                     href={ROUTES.ONE_SETUP_CLOUD}
                     voiceControlId="one_setup_tile_cloud"

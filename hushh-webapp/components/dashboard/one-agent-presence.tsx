@@ -123,7 +123,13 @@ export function OneAgentPresence() {
   // No `userId` on purpose: the Feed owns registering the deployment in the
   // background-work rail, and one owner is better than two components agreeing.
   // The chip is a reader here, not a second reporter.
-  const { state: followed, health, cloud, hushhId } = useAgentDeploymentFollow();
+  const {
+    state: followed,
+    health,
+    cloud,
+    hushhId,
+    deploymentTarget,
+  } = useAgentDeploymentFollow();
   const state: AgentState | null = toAgentState(followed);
   // Warm the pod from the home surface too, on mount and on app resume, so a returning
   // person's agent is already awake by the time they open the composer. This only
@@ -230,6 +236,24 @@ export function OneAgentPresence() {
             {cloud.credentialMode === "user_adc"
               ? ", thinking with your own project's Vertex AI"
               : ""}
+          </span>
+        ) : deploymentTarget === "gcp" ? (
+          // A hosted agent has no user-project coordinates, so without this
+          // branch the surface said NOTHING about where it lives -- and where
+          // it lives is the product. The claim is the one this tier earns: it
+          // is sealed to keys hussh does not hold, and it is movable.
+          <span
+            className="mt-0.5 block text-[12px] leading-snug text-muted-foreground/80"
+            data-testid="one-agent-hosted-identity"
+          >
+            Hosted by hussh, sealed to your agent&rsquo;s own keys.{" "}
+            <a
+              className="underline underline-offset-2"
+              href={`${ROUTES.ONE_SETUP_CLOUD}?intent=migrate`}
+              data-testid="one-agent-migrate"
+            >
+              Move it to my cloud
+            </a>
           </span>
         ) : null}
       </span>

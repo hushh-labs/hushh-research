@@ -104,7 +104,17 @@ export function useAgentDeploymentFollow(options?: {
   following: boolean;
   hushhId: string | null;
   health: string | null;
-  cloud: { project: string; region: string | null; credentialMode: string | null } | null;
+  cloud: {
+    project: string;
+    region: string | null;
+    credentialMode: string | null;
+  } | null;
+  // WHICH door this person took. Separate from `cloud` because a hosted agent
+  // has no user-project coordinates to report and would otherwise be
+  // indistinguishable from a person who has not chosen yet -- so the surface
+  // would say nothing at all about where their agent lives, which is exactly
+  // what it did before the hosted tier existed.
+  deploymentTarget: string | null;
 } {
   const enabled = options?.enabled ?? true;
   const userId = options?.userId ?? null;
@@ -124,6 +134,7 @@ export function useAgentDeploymentFollow(options?: {
     region: string | null;
     credentialMode: string | null;
   } | null>(null);
+  const [deploymentTarget, setDeploymentTarget] = useState<string | null>(null);
   // Refs, not state: these drive the loop and must not themselves re-trigger it.
   const previousRef = useRef<string | null>(null);
   const startedAtRef = useRef<number>(Date.now());
@@ -158,6 +169,9 @@ export function useAgentDeploymentFollow(options?: {
                   credentialMode: res?.credentialMode ? String(res.credentialMode) : null,
                 }
               : null,
+          );
+          setDeploymentTarget(
+            res?.deploymentTarget ? String(res.deploymentTarget) : null,
           );
         }
       } catch (error) {
@@ -288,7 +302,7 @@ export function useAgentDeploymentFollow(options?: {
     // a fresh deadline and its own background-task card.
   }, [enabled, userId]);
 
-  return { state, following, hushhId, health, cloud };
+  return { state, following, hushhId, health, cloud, deploymentTarget };
 }
 
 export { DEPLOYMENT_POLL_INTERVAL_MS };
