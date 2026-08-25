@@ -66,7 +66,11 @@ export function TaskFlowHeader({
               <ChevronRight className="h-5 w-5 rotate-180" />
             </button>
           ) : null}
-          {eyebrow ? <p className={SCREEN_EYEBROW}>{eyebrow}</p> : null}
+          {eyebrow ? (
+            <p className={cn(SCREEN_EYEBROW, "shrink-0 whitespace-nowrap")}>
+              {eyebrow}
+            </p>
+          ) : null}
         </div>
       ) : null}
       <h1 className={SCREEN_TITLE}>{title}</h1>

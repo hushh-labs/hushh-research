@@ -12,7 +12,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterator
+from typing import Any, Iterator, cast
 from uuid import UUID
 
 from sqlalchemy import text
@@ -37,6 +37,17 @@ from hushh_mcp.types import AgentID, UserID
 from mcp_modules.log_redaction import redact_log_field, redact_log_value
 
 logger = logging.getLogger(__name__)
+
+# hushh_mcp.operons.* is still quarantined from mypy (follow_imports=skip),
+# so UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE erases to Any on import, and
+# any `x == UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE` comparison then
+# infers as Any too -- silently defeating the bool return type of every
+# function that returns one directly. A same-name `cast()` reassignment
+# does NOT fix this: mypy joins a module global's type across every static
+# binding of that name in the file, so the import's Any keeps winning at
+# every OTHER function's usage site even after a local reassignment. A
+# distinct name sidesteps that join entirely.
+_UNTIL_STOPPED_DURATION_MODE: str = cast(str, UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE)
 
 # Capability scope minted into the per-grant HCT consent token. Live-location
 # viewing is the authority the recipient device exercises when reading
@@ -615,7 +626,10 @@ def _identity_notification_label(
     # email rung. Same ladder, one read instead of two.
     from hushh_mcp.services.requester_identity import label_from_identity_row
 
-    return label_from_identity_row(row, fallback=fallback)
+    # requester_identity is itself still quarantined from mypy
+    # (hushh_mcp.services.* follow_imports=skip), so its otherwise-correct
+    # `-> str` return erases to Any here even though the value is real.
+    return cast(str, label_from_identity_row(row, fallback=fallback))
 
 
 def _notification_safe_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -722,7 +736,7 @@ def _classify_share_kind(reason: str | None) -> str:
 
 
 def _is_until_stopped_share(duration_mode: str | None) -> bool:
-    return duration_mode == UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+    return duration_mode == _UNTIL_STOPPED_DURATION_MODE
 
 
 def _resolve_share_duration(
@@ -811,7 +825,9 @@ def _remaining_label(expires_at: Any, *, now: datetime | None = None) -> str:
     remaining = (parsed - (now or _utcnow())).total_seconds()
     if remaining <= 0:
         return ""
-    return format_duration_label(remaining / 3600.0)
+    # format_duration_label lives in the still-quarantined operons.location
+    # module, so its real `-> str` return erases to Any without this cast.
+    return cast(str, format_duration_label(remaining / 3600.0))
 
 
 def _access_ask_summary(
@@ -876,7 +892,7 @@ def _share_duration_change_direction(
 def _grant_expires_at_is_past(row: dict[str, Any]) -> bool:
     expires_at_raw = row.get("expires_at")
     if expires_at_raw is None:
-        return str(row.get("duration_mode") or "") != UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+        return str(row.get("duration_mode") or "") != _UNTIL_STOPPED_DURATION_MODE
     expires_at = _parse_datetime(expires_at_raw, field_name="expires_at")
     return expires_at <= _utcnow()
 
@@ -884,7 +900,7 @@ def _grant_expires_at_is_past(row: dict[str, Any]) -> bool:
 def _payload_expires_at_is_past(grant: dict[str, Any]) -> bool:
     expires_at_raw = grant.get("expiresAt")
     if not expires_at_raw:
-        return str(grant.get("durationMode") or "") != UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+        return str(grant.get("durationMode") or "") != _UNTIL_STOPPED_DURATION_MODE
     expires_at = _parse_datetime(expires_at_raw, field_name="expiresAt")
     return expires_at <= _utcnow()
 
@@ -1489,10 +1505,16 @@ class OneLocationAgentService:
 
         if not owner_user_id:
             return ""
-        return label_from_identity_row(
-            self._identity_row(owner_user_id),
-            allow_email_handle=False,
-            fallback="",
+        # See _identity_notification_label: requester_identity is still
+        # quarantined from mypy, so its real `-> str` return erases to Any
+        # without this cast.
+        return cast(
+            str,
+            label_from_identity_row(
+                self._identity_row(owner_user_id),
+                allow_email_handle=False,
+                fallback="",
+            ),
         )
 
     def _identity_row(self, user_id: str) -> dict[str, Any] | None:
@@ -2477,7 +2499,9 @@ class OneLocationAgentService:
             "capabilityScopes": _loads_json(row.get("capability_scopes")) or [],
             "durationMode": duration_mode,
             "durationHours": (
-                float(row.get("duration_hours")) if row.get("duration_hours") is not None else None
+                float(duration_hours_raw)
+                if (duration_hours_raw := row.get("duration_hours")) is not None
+                else None
             ),
             "expiresAt": _iso(row.get("expires_at")),
             "createdAt": _iso(row.get("created_at")),
@@ -3786,11 +3810,14 @@ class OneLocationAgentService:
         # Privacy gate: a user who turned marketplace visibility OFF
         # (marketplace_public_profiles.is_discoverable = FALSE) disappears from
         # the directory too, UNLESS the owner has an explicit trusted edge.
-        return self.search_directory_candidates(
-            owner_user_id=owner_user_id,
-            page=1,
-            limit=limit,
-        )["items"]
+        return cast(
+            "list[dict[str, Any]]",
+            self.search_directory_candidates(
+                owner_user_id=owner_user_id,
+                page=1,
+                limit=limit,
+            )["items"],
+        )
 
     def search_directory_candidates(
         self,
@@ -5025,6 +5052,7 @@ class OneLocationAgentService:
             "recipient_display_name": recipient.get("display_name"),
             "recipient_phone_number": recipient.get("phone_number"),
         }
+        row: dict[str, Any] | None
         if enforce_connection:
             row = self._create_enforced_grant_row(
                 owner_user_id=owner_user_id,
@@ -5079,8 +5107,15 @@ class OneLocationAgentService:
                 """,
                 grant_params,
             )
-        grant = self._grant_payload(row)
-        if not grant:
+        # Named distinctly from the early-return `grant` above: that one is
+        # this same function's own recursive result once the writer guard is
+        # held, this one is the row this call itself just wrote. Both are
+        # real dict[str, Any] payloads -- reusing one name across the two
+        # would make mypy infer the type from whichever assignment it sees
+        # first and flag the other as incompatible (the same class of issue
+        # UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE's join hit above).
+        created_grant = self._grant_payload(row)
+        if not created_grant:
             raise OneLocationAgentError(
                 "LOCATION_GRANT_CREATE_FAILED",
                 "Could not create the location share.",
@@ -5092,7 +5127,7 @@ class OneLocationAgentService:
                 owner_user_id=owner_user_id,
                 actor_user_id=owner_user_id,
                 recipient_user_id=recipient_user_id,
-                grant_id=grant["id"],
+                grant_id=created_grant["id"],
                 event_type="location_share_created",
                 metadata={
                     "duration_hours": _duration_metadata_value(duration),
@@ -5113,14 +5148,14 @@ class OneLocationAgentService:
         # stored so a recipient is never told a location is available too early.
         if not _key_writer_guarded and reason != "request_approved" and resolved_kind != "sos":
             self._send_location_share_created_notification(
-                grant=grant,
+                grant=created_grant,
                 owner_user_id=owner_user_id,
                 recipient_user_id=recipient_user_id,
                 duration=_duration_metadata_value(duration),
                 reason=reason,
                 resolved_kind=resolved_kind,
             )
-        return grant
+        return created_grant
 
     def create_grant_with_initial_envelope(
         self,
@@ -5795,8 +5830,14 @@ class OneLocationAgentService:
                 **envelope_fields,
             },
         )
-        envelope_payload = self._envelope_payload(row)
-        if not envelope_payload:
+        # Named distinctly from the early-return `envelope_payload` above:
+        # that one is this same function's own recursive result once the
+        # writer guard is held, this one is the row this call itself just
+        # wrote. Reusing one name across the two would make mypy infer the
+        # type from whichever assignment it sees first and flag the other as
+        # incompatible (see create_grant's grant/created_grant above).
+        stored_envelope = self._envelope_payload(row)
+        if not stored_envelope:
             raise OneLocationAgentError(
                 "LOCATION_ENVELOPE_STORE_FAILED",
                 "Could not store the encrypted envelope.",
@@ -5808,17 +5849,17 @@ class OneLocationAgentService:
             SET latest_envelope_id = CAST(:envelope_id AS UUID), updated_at = NOW()
             WHERE id = CAST(:grant_id AS UUID)
             """,
-            {"grant_id": grant_id, "envelope_id": envelope_payload["id"]},
+            {"grant_id": grant_id, "envelope_id": stored_envelope["id"]},
         )
         self._insert_event(
             owner_user_id=owner_user_id,
             actor_user_id=owner_user_id,
-            recipient_user_id=envelope_payload["recipientUserId"],
+            recipient_user_id=stored_envelope["recipientUserId"],
             grant_id=grant_id,
-            envelope_id=envelope_payload["id"],
+            envelope_id=stored_envelope["id"],
             event_type="location_envelope_updated",
             metadata={
-                "source_platform": envelope_payload["sourcePlatform"],
+                "source_platform": stored_envelope["sourcePlatform"],
                 "recipient_key_id": recipient_key_id,
             },
         )
@@ -5831,7 +5872,7 @@ class OneLocationAgentService:
                 "grant": self._grant_payload(
                     {
                         **grant_row,
-                        "latest_envelope_id": envelope_payload["id"],
+                        "latest_envelope_id": stored_envelope["id"],
                     }
                 )
                 or {"id": grant_id, "expiresAt": _iso(grant_row.get("expires_at"))},
@@ -5844,15 +5885,15 @@ class OneLocationAgentService:
             if _key_writer_guarded:
                 # Deferred: the caller sends it after the write commits and
                 # records the outcome there.
-                envelope_payload["_post_commit_notification"] = notification_args
+                stored_envelope["_post_commit_notification"] = notification_args
             else:
                 # Direct route path (POST .../envelopes), which is the one
                 # runSosPanic drives. Record reachability so the sender can be
                 # told which contacts the alert actually reached.
-                envelope_payload["recipientAlerted"] = (
+                stored_envelope["recipientAlerted"] = (
                     self._send_location_share_created_notification(**notification_args)
                 )
-        return envelope_payload
+        return stored_envelope
 
     def view_latest_envelope(
         self, *, recipient_user_id: str, grant_id: str, allow_empty: bool = False
@@ -7634,6 +7675,80 @@ class OneLocationAgentService:
             "capabilityScopes": LOCATION_CAPABILITY_SCOPES,
         }
 
+    def list_active_owner_grants(self, *, owner_user_id: str) -> list[dict[str, Any]]:
+        """The owner's own active shares, for a caller that needs only this.
+
+        A narrow twin of the ``owner_grants`` section inside ``list_state`` --
+        same SQL, same row shaping -- for callers that would otherwise have to
+        pay for all ten of that call's parallel sections (grants, requests,
+        circles, invites, referrals...) just to look one active grant up by
+        name. Voice's backend-direct stop_share tool is exactly that caller;
+        `list_state` is already flagged as a heavy, DB-pool-pressuring call in
+        this codebase, and adding a second voice-triggered path through it
+        would make that worse, not safer.
+        """
+        rows = self._execute_many(
+            """
+            SELECT
+              g.*,
+              r.display_name AS recipient_display_name,
+              r.phone_number AS recipient_phone_number
+            FROM one_location_share_grants g
+            LEFT JOIN actor_identity_cache r ON r.user_id = g.recipient_user_id
+            WHERE g.owner_user_id = :owner_user_id
+              AND g.status = 'active'
+            ORDER BY g.created_at DESC
+            LIMIT 50
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+        return [payload for row in rows if (payload := self._grant_payload(row))]
+
+    def list_active_recipient_grants(self, *, recipient_user_id: str) -> list[dict[str, Any]]:
+        """Who is currently sharing their location with me -- see list_active_owner_grants.
+
+        The received-side twin: same narrow-read reasoning, just the other
+        half of the grant relationship (scoped by recipient, joined to the
+        owner's identity instead of the recipient's).
+        """
+        rows = self._execute_many(
+            """
+            SELECT
+              g.*,
+              o.display_name AS owner_display_name,
+              o.phone_number AS owner_phone_number
+            FROM one_location_share_grants g
+            LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
+            WHERE g.recipient_user_id = :recipient_user_id
+              AND g.status = 'active'
+            ORDER BY g.created_at DESC
+            LIMIT 50
+            """,
+            {"recipient_user_id": recipient_user_id},
+        )
+        return [payload for row in rows if (payload := self._grant_payload(row))]
+
+    def list_pending_owner_requests(self, *, owner_user_id: str) -> list[dict[str, Any]]:
+        """The owner's own pending access requests -- see list_active_owner_grants."""
+        rows = self._execute_many(
+            """
+            SELECT
+              req.*,
+              requester.display_name AS requester_display_name,
+              requester.phone_number AS requester_phone_number,
+              extended.expires_at AS extends_grant_expires_at
+            FROM one_location_access_requests req
+            LEFT JOIN actor_identity_cache requester ON requester.user_id = req.requester_user_id
+            LEFT JOIN one_location_share_grants extended ON extended.id = req.extends_grant_id
+            WHERE req.owner_user_id = :owner_user_id
+              AND req.status = 'pending'
+            ORDER BY req.requested_at DESC
+            LIMIT 50
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+        return [payload for row in rows if (payload := self._request_payload(row))]
+
     def revoke_grant(self, *, owner_user_id: str, grant_id: str) -> dict[str, Any]:
         row = self._execute_one(
             """
@@ -7686,8 +7801,8 @@ class OneLocationAgentService:
                 "share_kind": revoked_share_kind or "standard",
             },
         )
-        notification_user_id = (
-            recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")
+        notification_user_id = str(
+            (recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")) or ""
         )
         self._send_metadata_notification(
             user_id=notification_user_id,
@@ -7830,8 +7945,8 @@ class OneLocationAgentService:
                 "counterpart_label": recipient_label,
             },
         )
-        notification_user_id = (
-            recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")
+        notification_user_id = str(
+            (recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")) or ""
         )
         self._send_metadata_notification(
             user_id=notification_user_id,
@@ -8323,12 +8438,18 @@ class OneLocationAgentService:
                 "Refresh and review this request.",
                 status_code=422,
             )
-        if automatic and int(auto_approve_rule_version) < 1:
-            raise OneLocationAgentError(
-                "LOCATION_AUTO_APPROVE_RULE_INVALID",
-                "Auto-approve is unavailable. Review this request.",
-                status_code=422,
-            )
+        if automatic:
+            # The `automatic and ... is None` raise above already guarantees
+            # this; mypy can't chain that proof across two separate
+            # if-statements without narrowing the value directly.
+            if auto_approve_rule_version is None:
+                raise AssertionError("automatic approval reached with no rule version")
+            if int(auto_approve_rule_version) < 1:
+                raise OneLocationAgentError(
+                    "LOCATION_AUTO_APPROVE_RULE_INVALID",
+                    "Auto-approve is unavailable. Review this request.",
+                    status_code=422,
+                )
         if automatic and (duration_hours is not None or duration_mode is not None):
             raise OneLocationAgentError(
                 "LOCATION_AUTO_APPROVE_DURATION_OVERRIDE_INVALID",
@@ -8389,6 +8510,11 @@ class OneLocationAgentService:
             automatic_circle_id: str | None = None
             automatic_enabled_at: datetime | None = None
             if automatic:
+                # See the `automatic and ... is None` raise earlier in this
+                # function -- same invariant, re-checked because it doesn't
+                # carry across this closure's own `if automatic:` scope.
+                if auto_approve_rule_version is None:
+                    raise AssertionError("automatic approval reached with no rule version")
                 automatic_preference = self._lock_current_auto_approve_preference(
                     user_id=owner_user_id,
                     expected_rule_version=int(auto_approve_rule_version),
@@ -8516,7 +8642,9 @@ class OneLocationAgentService:
                 request_id=request_id,
                 event_type="location_access_approved",
                 metadata={
-                    "duration_hours": granted_hours,
+                    # data is an FCM payload (str values only) -- stringify the
+                    # float duration rather than pass it through raw.
+                    "duration_hours": str(granted_hours) if granted_hours is not None else None,
                     "duration_mode": granted_mode,
                     "counterpart_label": requester_label,
                     "owner_label": owner_label,
@@ -8565,7 +8693,9 @@ class OneLocationAgentService:
                 "grant_id": grant["id"],
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
-                "duration_hours": granted_hours,
+                # data is an FCM payload (str values only) -- stringify the
+                # float duration rather than pass it through raw.
+                "duration_hours": str(granted_hours) if granted_hours is not None else None,
                 "duration_mode": granted_mode,
                 "expires_at": grant.get("expiresAt"),
                 "is_extension": "true" if was_extension else None,
@@ -8636,7 +8766,9 @@ class OneLocationAgentService:
                 "request_id": request_id,
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
-                "requested_duration_hours": denied_hours,
+                # data is an FCM payload (str values only) -- stringify the
+                # float duration rather than pass it through raw.
+                "requested_duration_hours": str(denied_hours) if denied_hours is not None else None,
                 "requested_duration_mode": denied_mode,
                 "is_extension": "true" if was_extension else None,
             },
