@@ -124,7 +124,7 @@ overlays. Production never inherits an overlay by default:
   - validated read-only
 - `uat_integrated_schema.json`
   - exact policy
-  - tracks `ordered_migrations` plus `environment_overlays.uat`
+  - tracks the numeric-order union of `ordered_migrations` and `environment_overlays.uat`
 - `dev_minimum_schema.json`
   - minimum policy
   - remains on the production base lane unless a separate dev overlay is added

@@ -909,9 +909,11 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage />);
 
     expect(
-      screen.getByRole("heading", { name: /checking your gmail connection/i }),
+      screen.getByRole("heading", { name: /checking your gmail status/i }),
     ).toBeTruthy();
-    expect(screen.getByText(/this should only take a moment/i)).toBeTruthy();
+    expect(
+      screen.getByText(/your inbox and receipts will appear here as they are ready/i),
+    ).toBeTruthy();
   });
 
   it("keeps previously synced receipts visible with reconnect guidance after Gmail disconnects", async () => {

@@ -343,7 +343,11 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "with clients, picks, and requests) and Investor (personal portfolio "
     "review). Route ALL finance, advisor, and investing requests through "
     "Finance.\n"
-    "- Email: approval drafts and client request workflows.\n"
+    "- Email: approval drafts and client request workflows. When a person explicitly "
+    "asks to write, draft, or send a personal Gmail email, call open_gmail_email_draft "
+    "with their exact request. It opens an editable draft only; it never sends "
+    "automatically. Do not delegate personal Gmail sends to the platform Email "
+    "specialist.\n"
     "- Calendar: your connected Google Calendar. For calendar summaries, event "
     "lookups, availability, or free slots, use the Calendar tools. For scheduling, rescheduling, "
     "or cancellation, collect a title, time-zone-qualified start and end, and any "
@@ -365,8 +369,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "cannot interpret. Its Connections subagent handles the trusted-people "
     "graph itself; both surface in the Consent Center.\n"
     "- Connected Systems: CRM and external system workflows.\n\n"
-    "Gmail receipt sync is paused. It has no active One, voice, Search, or "
-    "Agent Chat action: do not claim receipt access or call a Gmail tool.\n\n"
+    "Gmail receipt sync and inbox search are paused. Do not claim receipt or "
+    "inbox access, and do not call a tool for either. This does not limit the "
+    "open_gmail_email_draft tool for an explicit personal-email request.\n\n"
     # Section 4: tool invocation conditions, one tool per sentence.
     "Delegate naturally: when a request belongs to a specialist's domain, call "
     "that specialist's tool with the user's request, except KYC which is an "
@@ -1166,6 +1171,47 @@ async def open_screen(screen: str, tool_context: ToolContext) -> dict[str, Any]:
     }
 
 
+async def open_gmail_email_draft(request: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Open an editable Gmail draft for an explicit personal-email request.
+
+    This is intentionally a client-only draft directive. It never contacts Gmail,
+    creates a Gmail-native draft, or sends an email. The browser still requires a
+    current vault-owner token to request a generated draft and an explicit final
+    Send email click before the provider API is called.
+    """
+
+    user_id = str(tool_context.state.get(STATE_USER_ID) or "").strip()
+    instruction = str(request or "").strip()
+    if not user_id:
+        return {
+            "status": "authentication_required",
+            "message": "Sign in and unlock your vault before drafting an email.",
+        }
+    if not instruction:
+        return {
+            "status": "missing_request",
+            "message": "Ask for the email you want to draft.",
+        }
+
+    # The model performs the semantic decision to call this tool. Keep only the
+    # current explicit instruction in ephemeral client state; no draft values or
+    # recipients are persisted by this directive.
+    tool_context.state[f"{STATE_PENDING_DIRECTIVE}:gmail_email_draft"] = {
+        "kind": "prompt",
+        "payload": {
+            "kind": "gmail_email_draft",
+            "instruction": instruction[:12_000],
+        },
+    }
+    return {
+        "status": "draft_opened",
+        "message": (
+            "An editable Gmail draft is open. It will not send until the person "
+            "reviews it and presses Send email."
+        ),
+    }
+
+
 async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
     """Ask the Email specialist about inbox tasks, approval drafts, or client request workflows."""
     return await _specialist_turn("agent_email", request, tool_context)
@@ -1484,6 +1530,7 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         start_app_goal,
         continue_app_goal,
         list_app_actions,
+        open_gmail_email_draft,
         AgentTool(agent=_build_finance_agent(model=specialist_model)),
         ask_email_agent,
         ask_location_agent,

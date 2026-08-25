@@ -52,6 +52,29 @@ interface PersonaContextValue {
 const PersonaContext = createContext<PersonaContextValue | null>(null);
 const PERSONA_TRANSITION_TIMEOUT_MS = 4_000;
 
+function scheduleWhenIdle(task: () => void): () => void {
+  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+    const requestIdle = window.requestIdleCallback as (
+      callback: IdleRequestCallback,
+      options?: IdleRequestOptions,
+    ) => number;
+    const cancelIdle = window.cancelIdleCallback as (handle: number) => void;
+    const handle = requestIdle(task, { timeout: 4_000 });
+    return () => cancelIdle(handle);
+  }
+  const timeout = globalThis.setTimeout(task, 1_000);
+  return () => globalThis.clearTimeout(timeout);
+}
+
+function isGmailRoute(pathname: string | null): boolean {
+  const path = String(pathname || "").toLowerCase();
+  return (
+    path.startsWith("/one/gmail") ||
+    path.startsWith("/one/setup/gmail") ||
+    path.startsWith("/one/email")
+  );
+}
+
 function readCachedPersona(userId: string) {
   const cache = CacheService.getInstance();
   return {
@@ -205,8 +228,14 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    if (isGmailRoute(pathname)) {
+      return scheduleWhenIdle(() => {
+        void refresh();
+      });
+    }
     void refresh();
-  }, [refresh]);
+    return undefined;
+  }, [pathname, refresh]);
 
   useEffect(() => {
     if (authLoading || !isAuthenticated || !user) return;

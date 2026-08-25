@@ -452,11 +452,11 @@ export function DataTable<TData, TValue>({
       </div>
 
       {hasMultiplePages && (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
           <div
             aria-live="polite"
             aria-atomic="true"
-            className="flex w-full flex-nowrap items-center justify-between gap-3 text-xs text-muted-foreground sm:text-sm"
+            className="flex w-full items-center justify-between gap-3 text-xs text-muted-foreground sm:w-auto sm:justify-start sm:text-sm"
             data-slot="data-table-range-controls"
           >
             <DropdownMenu>
@@ -464,7 +464,7 @@ export function DataTable<TData, TValue>({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-8 min-w-[64px] justify-between px-2 text-xs sm:min-w-[80px] sm:px-3 sm:text-sm"
+                  className="h-8 min-w-[64px] justify-between px-2 text-xs sm:min-w-[72px] sm:px-2.5 sm:text-sm"
                   data-no-route-swipe
                   aria-label="Rows per page"
                 >
@@ -489,13 +489,13 @@ export function DataTable<TData, TValue>({
           </div>
 
           <div
-            className="flex w-full flex-nowrap items-center justify-between gap-3"
+            className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end"
             data-slot="data-table-page-controls"
           >
-            <Pagination className="mx-0 w-auto justify-end">
+            <Pagination className="mx-0 w-auto">
               <PaginationContent
                 data-no-route-swipe
-                className="flex-wrap gap-y-1"
+                className="flex-nowrap gap-1"
               >
                 <PaginationItem>
                   <PaginationPrevious
@@ -518,7 +518,7 @@ export function DataTable<TData, TValue>({
                   item === "ellipsis" ? (
                     <PaginationItem
                       key={`ellipsis-${index}`}
-                      className="hidden sm:flex"
+                      className="hidden md:flex"
                     >
                       <PaginationEllipsis />
                     </PaginationItem>
@@ -526,7 +526,7 @@ export function DataTable<TData, TValue>({
                     <PaginationItem
                       key={item}
                       className={
-                        item === currentPage ? undefined : "hidden sm:flex"
+                        item === currentPage ? undefined : "hidden md:flex"
                       }
                     >
                       <PaginationLink

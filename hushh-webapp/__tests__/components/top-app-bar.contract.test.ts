@@ -95,9 +95,7 @@ describe("Top app bar responsive contract", () => {
     expect(tabs).toContain(
       "calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%)",
     );
-    expect(tabs).not.toContain(
-      ': `translate3d(${activeIndex * 100}%, 0, 0)`',
-    );
+    expect(tabs).not.toContain(": `translate3d(${activeIndex * 100}%, 0, 0)`");
     expect(source).not.toContain("topChromeHideDistance");
     expect(source).toContain('data-testid="app-top-shell-layout"');
     expect(source).not.toContain("max-xl:hidden");
@@ -143,7 +141,7 @@ describe("Top app bar responsive contract", () => {
     );
     expect(back).toContain('return action(breadcrumb.backHref, "replace")');
     expect(back).toContain("params.navigate(action);");
-    expect(source).toContain("replace: action.mode === \"replace\"");
+    expect(source).toContain('replace: action.mode === "replace"');
     expect(source).toContain('source: "tap"');
     // The resolver owns whether back is a screen change or an in-place close.
     // Both call sites pass its answer through; neither hardcodes a mode.
@@ -209,9 +207,7 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain(
       "header.getBoundingClientRect().bottom <= readTopShellReservedHeight()",
     );
-    expect(source).toContain(
-      "'[data-testid=\"app-top-shell-layout\"]'",
-    );
+    expect(source).toContain("'[data-testid=\"app-top-shell-layout\"]'");
     expect(source).toContain("shell?.getBoundingClientRect().height");
     expect(source).not.toContain(
       'getPropertyValue("--top-shell-reserved-height");\n  const value = Number.parseFloat(raw);',
@@ -227,9 +223,13 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain(
       'model.mode === "bar-with-tabs" && primaryHeaderOutOfView;',
     );
-    expect(source).toContain('data-top-app-bar-tabs-only={tabsOnlyChrome || undefined}');
+    expect(source).toContain(
+      "data-top-app-bar-tabs-only={tabsOnlyChrome || undefined}",
+    );
     expect(source).toContain('"calc(var(--top-inset) + var(--top-tabs-h))"');
-    expect(source).toContain('paddingTop: tabsOnlyChrome ? "var(--top-inset)" : "0px"');
+    expect(source).toContain(
+      'paddingTop: tabsOnlyChrome ? "var(--top-inset)" : "0px"',
+    );
   });
 
   it("keeps background activity visible and adds locked-vault unlock action", () => {
@@ -267,14 +267,10 @@ describe("Top app bar responsive contract", () => {
       '<ShellActionSurface variant="icon" aria-label="Account actions">',
     );
     expect(source).toContain('variant="destructive"');
-    expect(source).toContain(
-      'className="overflow-hidden rounded-[14px] p-1"',
-    );
+    expect(source).toContain('className="overflow-hidden rounded-[14px] p-1"');
     expect(signOutItemSource).toContain("cursor-pointer");
     expect(signOutItemSource).toContain("rounded-[10px]");
-    expect(signOutItemSource).toContain(
-      "hover:!bg-[color:var(--app-accent)]",
-    );
+    expect(signOutItemSource).toContain("hover:!bg-[color:var(--app-accent)]");
     expect(signOutItemSource).toContain(
       "hover:!text-[color:var(--app-accent-fg)]",
     );
@@ -300,9 +296,7 @@ describe("Top app bar responsive contract", () => {
     );
     expect(signOutItemSource).toContain("focus-visible:ring-inset");
     expect(deleteItemSource).toContain("focus-visible:ring-inset");
-    expect(source).not.toContain(
-      'className="text-red-600 focus:text-red-600"',
-    );
+    expect(source).not.toContain('className="text-red-600 focus:text-red-600"');
     expect(source).not.toContain(
       'return { label: "Get started", interactive: false as const };',
     );
@@ -311,11 +305,15 @@ describe("Top app bar responsive contract", () => {
   it("preserves deterministic breadcrumb navigation contracts", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
     const back = read("lib/navigation/top-shell-back.ts");
+    const breadcrumbs = read("lib/navigation/top-shell-breadcrumbs.ts");
 
     expect(source).toContain("breadcrumb: topShellBreadcrumb");
     expect(source).toContain("navigateTopShellBack({");
     expect(back).toContain("navigate: (action: TopShellBackAction) => void;");
     expect(back).toContain("params.navigate(action);");
+    expect(breadcrumbs).toContain(
+      'items: [{ label: fromProfile ? "Profile" : "One" }],',
+    );
     expect(source).not.toContain("history.back()");
   });
 

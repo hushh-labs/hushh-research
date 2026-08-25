@@ -1,4 +1,4 @@
--- Operational rollback for migration 170.
+-- Operational rollback for migration 172.
 --
 -- Normal rollback disables the UAT cohort and leaves these additive tables in
 -- place. This down path is intentionally limited to empty environments so it

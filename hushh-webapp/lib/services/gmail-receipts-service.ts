@@ -83,6 +83,8 @@ export interface GmailConnectionStatus {
   google_email?: string | null;
   google_sub?: string | null;
   scope_csv: string;
+  /** Google granted the Gmail send provider scope during the shared connection. */
+  send_permission_granted?: boolean;
   last_sync_at?: string | null;
   last_sync_status: "idle" | "queued" | "running" | "completed" | "failed" | "canceled";
   last_sync_error?: string | null;

@@ -652,6 +652,42 @@
     }
   },
   {
+    "route": "/one/email",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/email/email-agent-page-client.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.email",
+      "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/one/calendar",
     "mode": "standard",
     "shellVerification": {

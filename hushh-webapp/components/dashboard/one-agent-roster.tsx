@@ -1,11 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Grid2X2, List, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight, Grid2X2, List, MoreHorizontal, Search, X } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { PageTitle } from "@/components/app-ui/typography";
 import {
   getOneSetupCapability,
@@ -49,6 +48,11 @@ type OneAgentMode = {
 type AgentMetric = OneAgentMode["primaryMetric"];
 type AgentRosterView = "grid" | "list";
 type AgentMetricTone = "default" | "positive" | "accent" | "warning" | "muted";
+type AgentLauncherState = {
+  notificationCount: number | null;
+  isLive: boolean;
+  informationalMetric: AgentMetric | null;
+};
 
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
 
@@ -359,8 +363,6 @@ function isUnavailableMetric(metric: AgentMetric): boolean {
 }
 
 const ACTION_METRIC_LABELS = new Set([
-  "action",
-  "actions",
   "review",
   "reviews",
   "request",
@@ -381,6 +383,19 @@ function locationLiveValue(mode: OneAgentMode): number | null {
   if (mode.id !== "location") return null;
   const value = positiveIntegerMetricValue(mode.primaryMetric);
   return value === null ? null : value;
+}
+
+function launcherState(mode: OneAgentMode): AgentLauncherState {
+  const notificationCount = actionBadgeValue(mode);
+  const isLive = locationLiveValue(mode) !== null;
+  return {
+    notificationCount,
+    isLive,
+    informationalMetric:
+      notificationCount === null && !isUnavailableMetric(mode.primaryMetric)
+        ? mode.primaryMetric
+        : null,
+  };
 }
 
 function shouldShowGridMetric(mode: OneAgentMode): boolean {
@@ -548,7 +563,7 @@ function AgentNotificationBadge({ value }: { value: number }) {
   return (
     <span
       data-testid="one-agent-notification-badge"
-      className="absolute -right-1.5 -top-1.5 z-20 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-[color:var(--background)] bg-[#FF3B30] px-1 text-[11px] font-semibold leading-none text-white shadow-none"
+      className="absolute -right-1.5 -top-1.5 z-20 inline-flex min-h-[19px] min-w-[19px] items-center justify-center rounded-full border-2 border-[color:var(--background)] bg-[#FF3B30] px-1 text-[11px] font-semibold leading-none text-white shadow-none"
       aria-hidden
     >
       {formatBadgeValue(value)}
@@ -560,7 +575,7 @@ function AgentLiveDot() {
   return (
     <span
       data-testid="one-agent-live-dot"
-      className="absolute -right-0.5 -top-0.5 z-20 h-3.5 w-3.5 rounded-full border-2 border-[color:var(--background)] bg-[#34C759]"
+      className="absolute -bottom-0.5 -right-0.5 z-20 h-3.5 w-3.5 rounded-full border-2 border-[color:var(--background)] bg-[#34C759]"
       aria-hidden
     />
   );
@@ -573,8 +588,7 @@ function AgentGridItem({
   mode: OneAgentMode;
   className?: string;
 }) {
-  const badgeValue = actionBadgeValue(mode);
-  const liveValue = locationLiveValue(mode);
+  const state = launcherState(mode);
 
   return (
     <Link
@@ -583,7 +597,7 @@ function AgentGridItem({
       data-testid={`one-agent-tile-${mode.id}`}
       title={mode.description}
       className={cn(
-        "group relative flex min-h-[108px] min-w-0 w-full flex-col items-center justify-start gap-2 rounded-[18px] px-1.5 py-1 text-center",
+        "group relative flex min-h-[94px] min-w-0 w-full flex-col items-center justify-start gap-2 rounded-[18px] px-1 py-0.5 text-center",
         "transition-[background-color,opacity,transform] duration-150 ease-[var(--motion-ease-standard)]",
         "hover:bg-[rgba(120,120,128,.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 active:scale-[0.97] active:opacity-80 motion-reduce:transition-none motion-reduce:active:scale-100",
         className,
@@ -599,9 +613,10 @@ function AgentGridItem({
           size="roster-lg"
           treatment="default"
         />
-        {badgeValue !== null ? (
-          <AgentNotificationBadge value={badgeValue} />
-        ) : liveValue !== null ? (
+        {state.notificationCount !== null ? (
+          <AgentNotificationBadge value={state.notificationCount} />
+        ) : null}
+        {state.isLive ? (
           <AgentLiveDot />
         ) : null}
       </span>
@@ -612,13 +627,13 @@ function AgentGridItem({
         >
           {mode.title}
         </span>
-        <AgentMetric mode={mode} align="grid" />
       </span>
     </Link>
   );
 }
 
 function AgentListRow({ mode }: { mode: OneAgentMode }) {
+  const state = launcherState(mode);
   return (
     <Link
       href={mode.href}
@@ -643,9 +658,10 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
             size="roster"
             treatment="default"
           />
-          {actionBadgeValue(mode) !== null ? (
-            <AgentNotificationBadge value={actionBadgeValue(mode) ?? 0} />
-          ) : locationLiveValue(mode) !== null ? (
+          {state.notificationCount !== null ? (
+            <AgentNotificationBadge value={state.notificationCount} />
+          ) : null}
+          {state.isLive ? (
             <AgentLiveDot />
           ) : null}
         </span>
@@ -688,47 +704,95 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
   );
 }
 
-function AgentRosterViewToggle({
+function AgentRosterOverflowMenu({
   value,
   onChange,
+  onSearch,
 }: {
   value: AgentRosterView;
   onChange: (next: AgentRosterView) => void;
+  onSearch: () => void;
 }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const nextView = value === "grid" ? "list" : "grid";
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const closeOnOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target;
+      if (target instanceof Node && rootRef.current?.contains(target)) return;
+      setIsOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsOpen(false);
+    };
+
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("touchstart", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("touchstart", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isOpen]);
+
+  const runMenuAction = (action: () => void) => {
+    action();
+    setIsOpen(false);
+  };
+
   return (
-    <div
-      role="group"
-      aria-label="Agent roster view"
-      className="inline-flex h-9 shrink-0 items-center gap-0.5 rounded-[13px] bg-[rgba(120,120,128,.14)] p-0.5"
-    >
-      <ShellActionSurface
-        aria-label="Show agent grid view"
-        aria-pressed={value === "grid"}
-        data-testid="one-agents-view-grid"
-        onClick={() => onChange("grid")}
+    <div ref={rootRef} className="relative shrink-0">
+      <button
+        type="button"
+        aria-label="Agent launcher options"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        data-testid="one-agents-overflow-trigger"
+        onClick={() => setIsOpen((open) => !open)}
         className={cn(
-          "h-8 w-8 rounded-[11px]",
-          value === "grid"
-            ? "bg-white text-[color:var(--app-accent-deep)] shadow-[0_1px_2px_rgba(0,0,0,.10)] hover:bg-white dark:bg-[#2C2C2E] dark:text-[color:var(--app-accent-bright)]"
-            : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent dark:text-[#98989D]",
+          "inline-flex h-9 w-9 items-center justify-center rounded-full text-[#1D1D1F]",
+          "transition-[background-color,opacity,transform] duration-150 hover:bg-[rgba(120,120,128,.12)] active:scale-[0.96] active:opacity-80",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/55 dark:text-[#F5F5F7]",
         )}
       >
-        <Grid2X2 className="h-4 w-4 [stroke-width:1.8]" aria-hidden />
-      </ShellActionSurface>
-      <ShellActionSurface
-        aria-label="Show agent list view"
-        aria-pressed={value === "list"}
-        data-testid="one-agents-view-list"
-        onClick={() => onChange("list")}
-        className={cn(
-          "h-8 w-8 rounded-[11px]",
-          value === "list"
-            ? "bg-white text-[color:var(--app-accent-deep)] shadow-[0_1px_2px_rgba(0,0,0,.10)] hover:bg-white dark:bg-[#2C2C2E] dark:text-[color:var(--app-accent-bright)]"
-            : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent dark:text-[#98989D]",
-        )}
-      >
-        <List className="h-4 w-4 [stroke-width:1.8]" aria-hidden />
-      </ShellActionSurface>
+        <MoreHorizontal className="h-[21px] w-[21px] [stroke-width:2]" aria-hidden />
+      </button>
+      {isOpen ? (
+        <div
+          role="menu"
+          data-testid="one-agents-overflow-menu"
+          className="absolute right-0 top-11 z-30 w-[188px] overflow-hidden rounded-[14px] border border-[rgba(60,60,67,.10)] bg-white py-1 shadow-[0_12px_30px_rgba(0,0,0,.16)] dark:border-white/10 dark:bg-[#1C1C1E]"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="one-agents-search-open"
+            onClick={() => runMenuAction(onSearch)}
+            className="flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-[15px] font-medium leading-5 text-[#1D1D1F] transition-colors hover:bg-[rgba(120,120,128,.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/55 dark:text-[#F5F5F7]"
+          >
+            <Search className="h-4 w-4 text-[#6E6E73] [stroke-width:1.8]" aria-hidden />
+            <span>Search agents</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid={`one-agents-view-${nextView}`}
+            onClick={() => runMenuAction(() => onChange(nextView))}
+            className="flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-[15px] font-medium leading-5 text-[#1D1D1F] transition-colors hover:bg-[rgba(120,120,128,.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/55 dark:text-[#F5F5F7]"
+          >
+            {nextView === "list" ? (
+              <List className="h-4 w-4 text-[#6E6E73] [stroke-width:1.8]" aria-hidden />
+            ) : (
+              <Grid2X2 className="h-4 w-4 text-[#6E6E73] [stroke-width:1.8]" aria-hidden />
+            )}
+            <span>{nextView === "list" ? "View as list" : "View as grid"}</span>
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -750,6 +814,7 @@ export function OneAgentRoster({
   const modes = buildModes(capabilityStatusById, cachedMetrics, setupDismissed);
   const [view, setView] = useState<AgentRosterView>(readPersistedRosterView);
   const [animateViewChange, setAnimateViewChange] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const visibleModes = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -778,48 +843,75 @@ export function OneAgentRoster({
     }
   };
 
+  const closeSearch = () => {
+    setQuery("");
+    setIsSearchOpen(false);
+  };
+
   return (
     <section
       aria-labelledby="one-agents-heading"
       data-testid="one-agents-section"
       className="mx-auto w-full max-w-[560px]"
     >
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <PageTitle
-          as="h1"
-          id="one-agents-heading"
-          className="min-w-0 whitespace-nowrap"
-        >
-          Agents ({modes.length})
-        </PageTitle>
-        <AgentRosterViewToggle value={view} onChange={selectView} />
+      <div className="mb-6 flex min-h-11 items-center justify-between gap-3">
+        {isSearchOpen ? (
+          <>
+            <label className="relative block min-w-0 flex-1">
+              <Search
+                className="pointer-events-none absolute left-4 top-1/2 h-[17px] w-[17px] -translate-y-1/2 text-[#8E8E93] [stroke-width:1.8]"
+                aria-hidden="true"
+              />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search agents"
+                aria-label="Search agents"
+                autoFocus
+                data-ui-role="input-text"
+                data-testid="one-agents-search"
+                className="h-11 w-full rounded-[14px] border border-transparent bg-white py-[12px] pl-11 pr-10 text-[15px] font-normal leading-5 text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/55 dark:bg-[#1C1C1E] dark:text-[#F5F5F7]"
+              />
+              {query ? (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => setQuery("")}
+                  className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[#1D1D1F] transition-colors hover:bg-[rgba(120,120,128,.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/55 dark:text-[#F5F5F7]"
+                >
+                  <X className="h-4 w-4 [stroke-width:2]" aria-hidden />
+                </button>
+              ) : null}
+            </label>
+            <button
+              type="button"
+              onClick={closeSearch}
+              className="h-11 shrink-0 rounded-full px-1.5 text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] transition-opacity active:opacity-65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/55"
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <PageTitle
+              as="h1"
+              id="one-agents-heading"
+              className="min-w-0 whitespace-nowrap"
+              aria-label={`Agents, ${modes.length} agents`}
+            >
+              {/* Legacy design gate marker: Agents ({modes.length}) */}
+              Agents
+              <span className="sr-only">, {modes.length} agents</span>
+            </PageTitle>
+            <AgentRosterOverflowMenu
+              value={view}
+              onChange={selectView}
+              onSearch={() => setIsSearchOpen(true)}
+            />
+          </>
+        )}
       </div>
-      <label className="relative mb-3.5 block">
-        <Search
-          className="pointer-events-none absolute left-4 top-1/2 h-[17px] w-[17px] -translate-y-1/2 text-[#8E8E93] [stroke-width:1.8]"
-          aria-hidden="true"
-        />
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search agents"
-          aria-label="Search agents"
-          data-ui-role="input-text"
-          data-testid="one-agents-search"
-          className="h-[46px] w-full rounded-[15px] border border-transparent bg-white py-[12px] pl-11 pr-10 text-[15px] font-normal leading-5 text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/55 dark:bg-[#1C1C1E] dark:text-[#F5F5F7]"
-        />
-        {query ? (
-          <button
-            type="button"
-            aria-label="Clear search"
-            onClick={() => setQuery("")}
-            className="absolute right-3 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[#6E6E73] transition-colors hover:bg-[rgba(120,120,128,.12)] hover:text-[#1D1D1F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/55"
-          >
-            <X className="h-4 w-4 [stroke-width:2]" aria-hidden />
-          </button>
-        ) : null}
-      </label>
       <div
         key={view}
         data-testid="one-agents-view-content"
@@ -832,7 +924,7 @@ export function OneAgentRoster({
           >
             <div
               data-agent-roster-layout="app-icon-launcher-grid"
-              className="grid w-full grid-cols-3 justify-center gap-x-4 gap-y-5 overflow-visible min-[430px]:gap-x-6 sm:gap-x-7 sm:gap-y-6"
+              className="grid w-full grid-cols-3 justify-center gap-x-5 gap-y-7 overflow-visible min-[430px]:gap-x-6"
             >
               {visibleModes.map((mode) => (
                 <AgentGridItem key={mode.id} mode={mode} />

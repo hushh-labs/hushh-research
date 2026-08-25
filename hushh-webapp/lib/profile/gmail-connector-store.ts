@@ -46,6 +46,8 @@ interface GmailConnectorEntry {
   activeTaskRouteHref: string | null;
   suppressedRunId: string | null;
   isRefreshing: boolean;
+  /** Memory-only marker for an in-flight direct OAuth callback. */
+  isOAuthCompletionPending: boolean;
   isPolling: boolean;
   pollAttempts: number;
 }
@@ -55,6 +57,7 @@ export interface GmailConnectorView {
   syncRun: GmailSyncRun | null;
   statusError: string | null;
   loadingStatus: boolean;
+  oauthCompletionPending: boolean;
   refreshingStatus: boolean;
   syncingRun: boolean;
   isStale: boolean;
@@ -79,6 +82,7 @@ export interface UseGmailConnectorStatusResult {
   syncRun: GmailSyncRun | null;
   presentation: ReturnType<typeof resolveGmailConnectionPresentation>;
   loadingStatus: boolean;
+  oauthCompletionPending: boolean;
   refreshingStatus: boolean;
   syncingRun: boolean;
   isStale: boolean;
@@ -113,6 +117,7 @@ const EMPTY_CONNECTOR_VIEW: GmailConnectorView = {
   syncRun: null,
   statusError: null,
   loadingStatus: false,
+  oauthCompletionPending: false,
   refreshingStatus: false,
   syncingRun: false,
   isStale: true,
@@ -345,6 +350,7 @@ function readPersistedState(): Record<string, GmailConnectorEntry> {
             ? value.suppressedRunId
             : null,
         isRefreshing: false,
+        isOAuthCompletionPending: false,
         isPolling: false,
         pollAttempts: 0,
       };
@@ -359,6 +365,7 @@ function toPersistedEntry(entry: GmailConnectorEntry): GmailConnectorEntry {
   return {
     ...entry,
     isRefreshing: false,
+    isOAuthCompletionPending: false,
     isPolling: false,
     pollAttempts: 0,
   };
@@ -399,6 +406,7 @@ function getOrCreateEntry(userId: string): GmailConnectorEntry {
     activeTaskRouteHref: null,
     suppressedRunId: null,
     isRefreshing: false,
+    isOAuthCompletionPending: false,
     isPolling: false,
     pollAttempts: 0,
   };
@@ -854,7 +862,10 @@ export function getConnectorView(
     status: rawStatus,
     syncRun,
     statusError: entry?.statusError || null,
-    loadingStatus: Boolean(entry?.isRefreshing) && !rawStatus,
+    loadingStatus:
+      Boolean(entry?.isOAuthCompletionPending) ||
+      (Boolean(entry?.isRefreshing) && !rawStatus),
+    oauthCompletionPending: Boolean(entry?.isOAuthCompletionPending),
     refreshingStatus: Boolean(entry?.isRefreshing) && Boolean(rawStatus),
     syncingRun: Boolean(
       (entry?.isPolling && activeTaskKind !== "gmail_backfill") ||
@@ -867,7 +878,9 @@ export function getConnectorView(
     activeTaskRouteHref: entry?.activeTaskRouteHref || null,
     presentation: resolveGmailConnectionPresentation({
       status: rawStatus,
-      loading: Boolean(entry?.isRefreshing) && !rawStatus,
+      loading:
+        Boolean(entry?.isOAuthCompletionPending) ||
+        (Boolean(entry?.isRefreshing) && !rawStatus),
       errorText: entry?.statusError || null,
     }),
   };
@@ -954,6 +967,10 @@ export function primeConnectorStatus(params: {
       ? currentEntry.suppressedRunId
       : null,
     isRefreshing: false,
+    isOAuthCompletionPending:
+      params.source === "oauth_return"
+        ? false
+        : currentEntry.isOAuthCompletionPending,
   });
 
   if (latestRun && hasActiveRun(latestRun) && !shouldKeepSuppressedRun) {
@@ -977,6 +994,34 @@ export function primeConnectorStatus(params: {
       });
     }
   }
+}
+
+/**
+ * Keep a direct OAuth return out of its transitional screen while the
+ * verified exchange completes. The callback code/state remain solely in the
+ * in-flight component closure and this marker is never persisted.
+ */
+export function beginGmailOAuthCompletion(userId: string): void {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) return;
+  updateEntry(normalizedUserId, {
+    isOAuthCompletionPending: true,
+    isRefreshing: false,
+    statusError: null,
+  });
+}
+
+/** Mark a direct OAuth callback as failed without exposing provider detail. */
+export function failGmailOAuthCompletion(userId: string, message: string): void {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) return;
+  updateEntry(normalizedUserId, {
+    isOAuthCompletionPending: false,
+    isRefreshing: false,
+    statusError: sanitizeGmailUserMessage(message, {
+      fallback: "Gmail connection could not be completed. Try again from Gmail.",
+    }),
+  });
 }
 
 export function clearConnectorStatus(userId: string): void {
@@ -1106,6 +1151,7 @@ export function useGmailConnectorStatus(
     syncRun: snapshot.syncRun,
     presentation,
     loadingStatus: snapshot.loadingStatus,
+    oauthCompletionPending: snapshot.oauthCompletionPending,
     refreshingStatus: snapshot.refreshingStatus,
     syncingRun: snapshot.syncingRun,
     isStale: snapshot.isStale,

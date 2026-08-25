@@ -68,7 +68,11 @@ export type AgentChatStreamHandlers = {
   onSources?: (sources: AgentSource[]) => void;
 };
 
-const SSE_OPEN_TIMEOUT_MS = 10_000;
+// A fresh Agent runtime may need to resolve the vault-backed runtime contract
+// and prepare the first persisted turn before FastAPI can open the SSE
+// response. The Next proxy permits this route for two minutes; keep the
+// browser-side guard finite, but do not reject a healthy cold start at 10s.
+const SSE_OPEN_TIMEOUT_MS = 45_000;
 const SSE_FIRST_MEANINGFUL_TIMEOUT_MS = 25_000;
 const SSE_INACTIVITY_TIMEOUT_MS = 45_000;
 
@@ -319,7 +323,10 @@ export async function consumeAgentChatStream(
         conversationId: conversationId || "",
         model: model || undefined,
       });
-      return false;
+      // The backend only emits `start` after it has authenticated the request,
+      // resolved the runtime, and prepared the conversation. It is therefore
+      // meaningful liveness, even if model token generation starts later.
+      return true;
     }
     if (event === "token") {
       const token = readString(payload, "token");

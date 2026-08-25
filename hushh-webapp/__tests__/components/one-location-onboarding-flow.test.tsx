@@ -105,7 +105,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "Be easy to reach when it actually matters.",
+        name: "Share your location easily with anyone.",
       }),
     ).toBeTruthy();
     expect(screen.getByTestId("location-agent-heading-icon")).toBeTruthy();
@@ -187,7 +187,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(widths).toEqual(["none", "none", "max-w-[430px]", "none"]);
   });
 
-  it("keeps the mobile feature screen readable without forced card compression", () => {
+  it("keeps the feature step calm, compact, and free of hotel-specific clutter", () => {
     renderFlow();
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
@@ -208,126 +208,58 @@ describe("OneLocationOnboardingFlow", () => {
       "pt-[max(var(--app-safe-area-top-effective,0px),12px)]",
     );
 
+    const featureNavigation = document.querySelector(
+      "[data-one-onboarding-navigation]",
+    );
+    expect(featureNavigation?.className).toContain("max-w-[700px]");
+    expect(document.querySelector("[data-one-feature-subtitle]")).toBeNull();
+    expect(document.querySelector("[data-one-feature-lower-grid]")).toBeTruthy();
+
     const featureScroll = document.querySelector("[data-one-feature-scroll]");
     expect(featureScroll?.className).toContain("overflow-y-auto");
     expect(featureScroll?.className).toContain("overflow-x-hidden");
     expect(featureScroll?.className).toContain("flex-col");
     expect(featureScroll?.className).toContain("flex-1");
-    const featureGrid = document.querySelector("[data-one-feature-grid]");
-    expect(featureGrid?.className).toContain("mt-6");
-    expect(featureGrid?.className).toContain("shrink-0");
-    const featureNavigation = document.querySelector(
-      "[data-one-onboarding-navigation]",
-    );
-    expect(featureNavigation?.className).toContain("max-w-[1040px]");
-    const lowerGrid = document.querySelector("[data-one-feature-lower-grid]");
-    expect(lowerGrid?.className).toContain("grid-cols-2");
-    expect(document.querySelector("[data-one-feature-subtitle]")).toBeNull();
+
+    const storyContainer = document.querySelector("[data-one-story-container]");
+    expect(storyContainer?.className).toContain("mt-5");
+    expect(storyContainer?.className).toContain("max-w-[700px]");
+    expect(storyContainer?.className).toContain("grid");
+    expect(storyContainer?.className).toContain("gap-3");
+
     const featureCta = document.querySelector("[data-one-feature-cta]");
     expect(featureCta?.className).not.toContain("mt-auto");
-    expect(featureCta?.querySelector("button")?.className).toContain(
-      "h-[58px]",
-    );
+    expect(featureCta?.className).toContain("max-w-[430px]");
+    expect(featureCta?.querySelector("button")?.className).toContain("h-[52px]");
+
     const responsiveStyles =
       featureSurface?.querySelector("style")?.textContent;
     expect(responsiveStyles).not.toContain(
       "var(--onboarding-agent-bar-clearance)",
     );
-    expect(responsiveStyles).toContain("grid-template-rows: auto");
-    expect(responsiveStyles).not.toContain(
-      "grid-template-rows: minmax(0, 0.82fr) minmax(0, 1fr)",
-    );
+    expect(responsiveStyles).not.toContain("oneSmsCore");
+    expect(responsiveStyles).toContain("@media (max-width: 340px)");
     expect(responsiveStyles).toContain("@media (min-width: 768px)");
-    expect(responsiveStyles).toContain("flex: 0 0 auto");
-    expect(responsiveStyles).toContain("font-size: clamp(14px, 9.5cqw, 15px)");
-    expect(responsiveStyles).toContain("--type-agent-title-size: 34px");
-    expect(responsiveStyles).not.toContain("--foundation-title1-size");
-    expect(responsiveStyles).not.toContain("aspect-ratio: 2.5 / 1");
-    expect(responsiveStyles).not.toContain("aspect-ratio: 1.6 / 1");
-    expect(responsiveStyles).toContain("grid-template-areas:");
-    expect(responsiveStyles).toContain("aspect-ratio: auto");
     expect(responsiveStyles).toContain(
-      "grid-template-columns: repeat(3, minmax(0, 1fr))",
+      'grid-template-areas: "share checkin sms"',
     );
-    expect(responsiveStyles).toContain('"share checkin sms"');
-    expect(responsiveStyles).toContain("min-height: 390px");
-    expect(responsiveStyles).toContain("height: 54%");
-    expect(responsiveStyles).not.toContain("width: 58%");
-    expect(responsiveStyles).toContain("font-size: 20px");
-    expect(responsiveStyles).toContain("font-size: 15px");
-    expect(responsiveStyles).toContain("margin-top: 8px");
-    expect(responsiveStyles).toContain("margin-top: 6px");
-    expect(responsiveStyles).toContain(
-      "font-size: clamp(15px, calc(5vw - 4.5px), 17px)",
-    );
-    expect(responsiveStyles).toContain("inset: auto 0 42px 0");
-    expect(responsiveStyles).toContain("align-items: flex-start");
-    expect(responsiveStyles).toContain("--one-feature-copy-gap: 12px");
-    expect(responsiveStyles).toContain("gap: var(--one-feature-copy-gap)");
-    expect(responsiveStyles).toContain("--one-feature-copy-gap: 8px");
-    expect(responsiveStyles).toContain("--one-feature-copy-gap: 4px");
-    expect(responsiveStyles).toContain(
-      "@media (max-width: 431px) and (max-height: 560px)",
-    );
-    expect(responsiveStyles).toContain("@media (max-width: 380px)");
-    expect(responsiveStyles).toContain("grid-template-columns: minmax(0, 1fr)");
-    expect(responsiveStyles).toContain("height: 54%");
 
     const cards = document.querySelectorAll("[data-one-use-case-card]");
     expect(cards).toHaveLength(3);
-    for (const card of cards) {
-      expect(card.className).toContain("aspect-");
-      expect(card.className).toContain("w-full");
-      expect(card.className).toContain("flex-col");
-      expect(card.className).toContain("[container-type:inline-size]");
-      expect(
-        card.querySelector("[data-one-use-case-alert]")?.className,
-      ).toContain("w-max");
-      expect(
-        card.querySelector("[data-one-use-case-alert] span.whitespace-nowrap")
-          ?.className,
-      ).toContain("min-w-max");
-      expect(
-        card.querySelector("[data-one-use-case-alert] .truncate"),
-      ).toBeNull();
-      expect(
-        card.querySelector("[data-one-feature-status-row]")?.className,
-      ).toContain("mt-auto");
-      const titleLines = card.querySelectorAll("[data-one-feature-title-line]");
-      expect(titleLines).toHaveLength(2);
-      for (const line of titleLines) {
-        expect(line.className).toContain("whitespace-nowrap");
-      }
-    }
+    expect(cards[0]?.className).toContain("aspect-[1.56/1]");
+    expect(cards[1]?.className).toContain("aspect-[0.68/1]");
+    expect(cards[2]?.className).toContain("aspect-[0.68/1]");
+    expect(document.querySelectorAll("[data-one-feature-status-row]")).toHaveLength(0);
+    expect(document.querySelectorAll("[data-one-feature-title-line]").length).toBeGreaterThan(0);
 
     expect(
-      Array.from(
-        screen
-          .getByTestId("location-use-case-trip")
-          .querySelectorAll("[data-one-feature-title-line]"),
-      ).map((line) => line.textContent),
-    ).toEqual(["Can\u2019t explain", "where you are?"]);
-    expect(
-      Array.from(
-        screen
-          .getByTestId("location-use-case-checkin")
-          .querySelectorAll("[data-one-feature-title-line]"),
-      ).map((line) => line.textContent),
-    ).toEqual(["Dreading the", "check-in queue?"]);
-    expect(
-      Array.from(
-        screen
-          .getByTestId("location-use-case-sos")
-          .querySelectorAll("[data-one-feature-title-line]"),
-      ).map((line) => line.textContent),
-    ).toEqual(["Need help but", "can\u2019t talk?"]);
-
-    expect(
-      screen.getByRole("heading", { name: "Keep your people updated." }),
+      screen.getByRole("heading", {
+        name: "Keep your people updated.",
+      }),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "Can\u2019t explain where you are?",
+        name: "Can’t explain where you are?",
       }),
     ).toBeTruthy();
     expect(
@@ -335,29 +267,39 @@ describe("OneLocationOnboardingFlow", () => {
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "Dreading the check-in queue?",
+        name: "Stuck waiting in line?",
       }),
     ).toBeTruthy();
+    expect(screen.getByText("Check in on spot. Your Circle knows.")).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "Need help but can\u2019t talk?",
+        name: "Need help but can’t talk?",
       }),
     ).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Check in early, pick up your key, and skip the front desk.",
-      ),
-    ).toBeTruthy();
-    expect(
-      screen.getByText("Send an SMS with your location in seconds."),
-    ).toBeTruthy();
+    expect(screen.getByText("Send an SMS with your location in seconds.")).toBeTruthy();
 
+    expect(screen.queryByText("When plans change,")).toBeNull();
+    expect(screen.queryByText("stay close.")).toBeNull();
     expect(screen.getByText("Share location")).toBeTruthy();
     expect(screen.getByText("Check in")).toBeTruthy();
-    expect(screen.getByText("SMS \u00b7 Save My Soul")).toBeTruthy();
-    expect(screen.getByText("Sharing with Mom, Driver +1")).toBeTruthy();
-    expect(screen.getByText("Checked in at Hotel Grand")).toBeTruthy();
-    expect(screen.getByText("Alerted 3 contacts")).toBeTruthy();
+    expect(screen.getByText("SMS · Save My Soul")).toBeTruthy();
+    expect(screen.queryByText("Dreading the check-in queue?")).toBeNull();
+    expect(
+      screen.queryByText(
+        "Check in early, pick up your key, and skip the front desk.",
+      ),
+    ).toBeNull();
+    expect(screen.queryByText("Checked in at Hotel Grand")).toBeNull();
+    expect(screen.queryByText("Sharing with Mom, Driver +1")).toBeNull();
+    expect(screen.queryByText("Alerted 3 contacts")).toBeNull();
+    expect(screen.queryByText("Sharing with Circle")).toBeNull();
+    expect(screen.queryByText("Arrival sent")).toBeNull();
+    expect(screen.queryByText("Alerted Circle")).toBeNull();
+    expect(
+      document.querySelector(
+        'img[src="/one-location/onboarding/feature-checkin-house-transparent.webp"]',
+      ),
+    ).toBeNull();
 
     const smsCard = screen.getByTestId("location-use-case-sos");
     const smsCore = smsCard.querySelector("[data-one-sms-core]");
@@ -369,47 +311,27 @@ describe("OneLocationOnboardingFlow", () => {
       "[data-one-sms-radar-clearance]",
     );
     const smsRadar = smsCard.querySelector("[data-one-sms-radar]");
-    expect(smsArtRegion?.className).toContain("flex-1");
+    expect(smsArtRegion?.className).toContain("items-center");
     expect(smsRadarClearance?.className).toContain("h-[108px]");
     expect(smsRadarClearance?.className).toContain("w-[108px]");
     expect(smsRadar?.className).toContain("h-20");
-    expect(smsRadar?.className).not.toContain("absolute");
+    expect(smsRadar?.className).toContain("w-20");
     expect(smsCore?.className).not.toContain("animation:");
     expect(smsLabel?.className).not.toContain("animation:");
-    expect(smsPulse?.className).toContain("animation:oneSmsCore");
+    expect(smsPulse).toBeNull();
     expect(smsRadarRings).toHaveLength(2);
     for (const ring of smsRadarRings) {
       expect(ring.className).toContain("animation:oneSmsRadar");
     }
 
-    for (const testId of [
-      "location-use-case-trip",
-      "location-use-case-checkin",
-      "location-use-case-sos",
-    ]) {
-      expect(screen.getByTestId(testId).className).toContain(
-        "bg-[color:var(--app-primary-surface)]",
-      );
-    }
-
     const checkInCard = screen.getByTestId("location-use-case-checkin");
     expect(checkInCard.querySelector("[data-one-checkin-pin]")).toBeNull();
     expect(checkInCard.querySelector("[data-one-checkin-map-backdrop]")).toBeTruthy();
+    expect(checkInCard.querySelector("[data-one-checkin-destination]")).toBeTruthy();
     expect(
       checkInCard.querySelector("[data-one-use-case-art]")?.className,
-    ).toContain("h-[52%]");
-    const hotelArt = checkInCard.querySelector(
-      'img[src="/one-location/onboarding/feature-checkin-house-transparent.webp"]',
-    );
-    const hotelFrame = checkInCard.querySelector("[data-one-checkin-art]");
-    expect(hotelArt).toBeTruthy();
-    expect(hotelFrame?.className).toContain("w-[54%]");
-    expect(hotelFrame).toHaveStyle({
-      perspective: "320px",
-      perspectiveOrigin: "50% 100%",
-    });
-    expect(hotelArt).toHaveStyle({ transform: "rotateY(8deg)" });
-    expect(hotelArt?.className).not.toContain("rotate-");
+    ).toContain("bottom-0");
+    expect(checkInCard.querySelector("[data-one-checkin-illustration]")).toBeTruthy();
 
     const shareCard = screen.getByTestId("location-use-case-trip");
     for (const asset of [
@@ -428,7 +350,6 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
     expect(screen.queryByText("Connected Person")).toBeNull();
   });
-
   it("requests only missing permissions as screen two opens", () => {
     const props = renderFlow();
 

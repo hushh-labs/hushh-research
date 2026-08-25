@@ -72,9 +72,39 @@ REQUIRED_TEMPLATE_IDS = (
     "investor_advisor_disclosure_v1",
 )
 
+_CONNECT_ATTEMPTS = 3
+_CONNECT_TIMEOUT_SECONDS = 10
+
+
+async def _connect_with_retry() -> asyncpg.Connection:
+    """Tolerate a Cloud SQL proxy reconnect while local preflight is starting."""
+
+    for attempt in range(1, _CONNECT_ATTEMPTS + 1):
+        try:
+            return await asyncpg.connect(
+                get_database_url(),
+                ssl=get_database_ssl(),
+                timeout=_CONNECT_TIMEOUT_SECONDS,
+            )
+        except (asyncpg.PostgresConnectionError, OSError) as exc:
+            if attempt == _CONNECT_ATTEMPTS:
+                raise RuntimeError(
+                    "database connection was unavailable after "
+                    f"{_CONNECT_ATTEMPTS} attempts ({type(exc).__name__})"
+                ) from exc
+            print(
+                "Database connection reset during IAM schema verification; "
+                f"retrying ({attempt}/{_CONNECT_ATTEMPTS})..."
+            )
+            await asyncio.sleep(attempt)
+
 
 async def main() -> int:
-    conn = await asyncpg.connect(get_database_url(), ssl=get_database_ssl())
+    try:
+        conn = await _connect_with_retry()
+    except RuntimeError as exc:
+        print(f"IAM schema verification FAILED: {exc}")
+        return 1
     try:
         failures: list[str] = []
 
