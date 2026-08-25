@@ -111,6 +111,40 @@ const CONNECT_SURFACES = (["all", "circles"] as const).map((value) => ({
 
 const CONNECT_SURFACE_PARAM = "tab";
 
+const CONNECT_SEARCH_QUERY_STORAGE_KEY = "hushh:connect:people-search-query";
+
+// The People search box is local state, not URL state (unlike surface/
+// circle flow, which live in the query string) -- typed text does not
+// belong in browser history. But that means leaving to a person's detail
+// screen and using the shared back control, which remounts this page, used
+// to drop it: the box came back empty even though the person had just been
+// searching. sessionStorage survives the remount without turning a keystroke
+// into a navigable state. Split out as named functions (rather than inline
+// in the component) so the storage contract is unit-testable without
+// rendering the full page.
+export function readStoredConnectSearchQuery(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.sessionStorage.getItem(CONNECT_SEARCH_QUERY_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function writeStoredConnectSearchQuery(query: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (query) {
+      window.sessionStorage.setItem(CONNECT_SEARCH_QUERY_STORAGE_KEY, query);
+    } else {
+      window.sessionStorage.removeItem(CONNECT_SEARCH_QUERY_STORAGE_KEY);
+    }
+  } catch {
+    // Best-effort: a blocked sessionStorage (private mode) just means the
+    // query is not restored later, not a broken search.
+  }
+}
+
 /**
  * The padding override the inner strip needs, reused here so both strips on
  * this surface share one rule rather than drifting apart.
@@ -388,7 +422,10 @@ export default function ConnectPageClient() {
     count: number;
   }>({ loading: true, error: null, count: 0 });
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState<string>(readStoredConnectSearchQuery);
+  useEffect(() => {
+    writeStoredConnectSearchQuery(query);
+  }, [query]);
   const debouncedQuery = useDebouncedValue(query, 300);
 
   const [people, setPeople] = useState<DirectoryPerson[]>([]);

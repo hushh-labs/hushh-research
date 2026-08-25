@@ -4190,7 +4190,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": null
+      "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/receipts",
@@ -4280,7 +4280,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": null
+      "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/regulatory",

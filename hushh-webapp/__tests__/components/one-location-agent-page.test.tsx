@@ -13,6 +13,7 @@ import { ApiError } from "@/lib/services/api-client";
 // The rungs themselves, not a copy of their labels: Ask and Share must offer
 // the same ladder, so the test reads the same list the component does.
 import { ROUTES } from "@/lib/navigation/routes";
+import { INTERNAL_APP_NAVIGATION_REQUEST_EVENT } from "@/lib/utils/browser-navigation";
 
 function openDropdownMenu(trigger: HTMLElement) {
   fireEvent.keyDown(trigger, { key: "Enter", code: "Enter" });
@@ -2680,10 +2681,18 @@ describe("OneLocationAgentPage", () => {
     expect(mockReverseGeocode).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves setup with browser Back without marking onboarding complete or skipped", async () => {
+  it("leaves setup through the shared top-shell back resolver, not browser history, without marking onboarding complete or skipped", async () => {
+    // Was router.back(): WKWebView has no native history stack for Next
+    // routes (lib/navigation/top-shell-back.ts), so leaving the onboarding
+    // takeover that way could strand a native user on it (issue #5921).
     const onSetupComplete = vi.fn();
     const onSetupSkip = vi.fn();
     window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+    const onNavigationRequest = vi.fn();
+    window.addEventListener(
+      INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+      onNavigationRequest,
+    );
 
     render(
       <OneLocationAgentPage
@@ -2699,12 +2708,20 @@ describe("OneLocationAgentPage", () => {
       }),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    expect(mockRouterBack).toHaveBeenCalledTimes(1);
+    expect(mockRouterBack).not.toHaveBeenCalled();
+    expect(onNavigationRequest).toHaveBeenCalledTimes(1);
+    expect(
+      (onNavigationRequest.mock.calls[0][0] as CustomEvent).detail,
+    ).toMatchObject({ href: ROUTES.ONE_HOME, replace: false });
     expect(onSetupSkip).not.toHaveBeenCalled();
     expect(onSetupComplete).not.toHaveBeenCalled();
     expect(
       window.localStorage.getItem("one_location_onboarding_v2:user_a"),
     ).toBe("1");
+    window.removeEventListener(
+      INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+      onNavigationRequest,
+    );
   });
 
   it("does not replay Location onboarding after setup completes into the workspace", async () => {
