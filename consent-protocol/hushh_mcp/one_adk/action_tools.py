@@ -395,22 +395,53 @@ async def _run_backend_direct_action(
     except _BackendDirectError as exc:
         record_failed_action(session_id, clean_id, fingerprint, exc.message)
         logger.info("one_adk_action_decision action=%s status=failed reason=%s", clean_id, exc.code)
+        _park_action_result_directive(tool_context, clean_id, status="failed", message=exc.message)
         return {"status": "failed", "message": exc.message}
     except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
         record_failed_action(session_id, clean_id, fingerprint, "unexpected_error")
         logger.exception(
             "one_adk_action_decision action=%s status=failed reason=unexpected", clean_id
         )
-        return {
-            "status": "failed",
-            "message": f"{label} did not go through. Try again in a moment.",
-        }
+        failure_message = f"{label} did not go through. Try again in a moment."
+        _park_action_result_directive(
+            tool_context, clean_id, status="failed", message=failure_message
+        )
+        return {"status": "failed", "message": failure_message}
 
     record_completed_action(session_id, clean_id, fingerprint)
     logger.info("one_adk_action_decision action=%s status=completed backend_direct=true", clean_id)
+    _park_action_result_directive(
+        tool_context, clean_id, status="completed", message=result_message
+    )
     return {
         "status": "completed",
         "message": result_message,
+    }
+
+
+def _park_action_result_directive(
+    tool_context: ToolContext,
+    action_id: str,
+    *,
+    status: Literal["completed", "failed"],
+    message: str,
+) -> None:
+    """Give a backend-direct mutation the same on-screen visibility any other
+    action already gets, without a browser round trip.
+
+    A BACKEND_DIRECT_ACTION_IDS mutation already knows its true outcome by
+    the time this runs -- there is nothing for the browser to execute or
+    settle back, unlike a `kind: "action"` directive. This rides the exact
+    same turn-boundary `hussh:pending_directive` -> `clientDirective`
+    delivery every other directive already uses (adk_live.py), just a kind
+    the browser renders as an already-terminal step instead of dispatching
+    to a local handler. adk_live.py's settlement-tracking/GC bookkeeping
+    must treat this kind as never awaiting a settlement -- there is nothing
+    for the browser to report back.
+    """
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:{action_id}:result"] = {
+        "kind": "action_result",
+        "payload": {"actionId": action_id, "status": status, "message": message},
     }
 
 
