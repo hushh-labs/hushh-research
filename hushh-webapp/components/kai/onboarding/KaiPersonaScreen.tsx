@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Shield, TrendingUp, LineChart, type LucideIcon } from "lucide-react";
 
 import type { RiskProfile } from "@/lib/services/kai-profile-service";
@@ -52,7 +53,7 @@ export function KaiPersonaScreen(props: {
   riskProfile: RiskProfile;
   onLaunchDashboard: () => void;
   onEditAnswers?: () => void;
-  terminalFooter?: React.ReactNode;
+  terminalFooter?: ReactNode;
 }) {
   const cfg = PERSONA_CONFIG[props.riskProfile];
   const icon = cfg.icon;
@@ -60,16 +61,16 @@ export function KaiPersonaScreen(props: {
   return (
     <main
       data-top-content-anchor="true"
-      className="flex min-h-[100dvh] w-full max-w-full flex-col bg-transparent px-4 sm:px-6 pt-[var(--top-content-pad)] pb-[var(--app-screen-footer-pad)]"
+      className="w-full bg-transparent flex flex-col min-h-[calc(100dvh-var(--app-scroll-bottom-pad,0px))] px-5 pt-[var(--top-content-pad)] pb-[var(--app-scroll-bottom-pad)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
     >
-      <div className="mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[25rem] flex-1 flex-col justify-between py-2 sm:py-4">
-        <section className="my-auto w-full text-center">
+      <div className="mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-scroll-bottom-pad,0px))] w-full max-w-[25rem] flex-1 flex-col py-4 sm:py-6">
+        <section className="w-full text-center flex-1 flex flex-col justify-start pt-1 sm:pt-3">
           <div className="mx-auto flex w-full flex-col items-center">
             <div
-              className={`grid h-[52px] w-[52px] place-items-center rounded-[17px] ${cfg.accent}`}
+              className={`grid h-[48px] w-[48px] sm:h-[52px] sm:w-[52px] place-items-center rounded-[16px] ${cfg.accent}`}
               aria-hidden="true"
             >
-              <Icon icon={icon} size={26} />
+              <Icon icon={icon} size={24} />
             </div>
 
             <div className="mt-4 flex flex-col items-center text-center">
@@ -84,7 +85,7 @@ export function KaiPersonaScreen(props: {
               </p>
             </div>
 
-            <div className="mt-7 w-full space-y-3">
+            <div className="mt-6 w-full space-y-3">
               <Button
                 type="button"
                 variant="none"
@@ -121,7 +122,7 @@ export function KaiPersonaScreen(props: {
           </div>
         </section>
         {props.terminalFooter ? (
-          <div className="w-full shrink-0">{props.terminalFooter}</div>
+          <div className="w-full shrink-0 pt-3">{props.terminalFooter}</div>
         ) : null}
       </div>
     </main>
