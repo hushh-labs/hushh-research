@@ -11,10 +11,13 @@ describe("app shell bottom-clearance contract", () => {
   );
 
   it("reserves the existing Agent Bar footprint for hidden-shell scroll roots", () => {
-    expect(source).toContain("const bottomChromeHidden = hidesPersistentChrome;");
+    expect(source).toContain(
+      "const bottomChromeHidden = hidesPersistentChrome || focusedSosChromeFlow;",
+    );
     expect(source).not.toContain(
       "const bottomChromeHidden = hidesPersistentChrome || focusedLocationSmsFlow;",
     );
+    expect(source).toContain("const focusedSosChromeFlow =");
     expect(source).toContain('"--app-scroll-bottom-pad": hidesPersistentChrome');
     expect(source).toContain(
       '"--bottom-chrome-stack-height": effectiveHideCommandBar',

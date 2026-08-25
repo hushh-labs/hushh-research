@@ -258,6 +258,8 @@ import {
 } from "@/lib/one-location/nearby-check-in-availability";
 import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { ROUTES } from "@/lib/navigation/routes";
+import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { resolveOnboardingMapPoint } from "@/lib/one-location/onboarding-map-point";
 // One rule, one place: Connect owns the Circle screens now and needs the
 // same judgement about what an API failure may say to a person.
@@ -2469,6 +2471,30 @@ export function OneLocationAgentPageContent({
 }: OneLocationAgentPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // Leaving the onboarding takeover from its first screen used to call
+  // router.back(). WKWebView has no native history stack for Next routes
+  // (see lib/navigation/top-shell-back.ts), so on native that could no-op
+  // and strand the person on the takeover. Route through the same resolver
+  // the top-bar back arrow uses instead, with a One-home fallback so there
+  // is always a way out.
+  const handleOnboardingBack = useCallback(() => {
+    const navigated = navigateTopShellBack({
+      pathname: ROUTES.ONE_LOCATION,
+      searchParams,
+      navigate: (action) => {
+        requestInternalAppNavigation({
+          href: action.href,
+          replace: action.mode === "replace",
+          scroll: false,
+          source: "tap",
+          transitionMode: action.transitionMode,
+        });
+      },
+    });
+    if (!navigated) {
+      router.push(ROUTES.ONE_HOME);
+    }
+  }, [router, searchParams]);
   const auth = useRequireAuth();
   const {
     deliveryMode: notificationDeliveryMode,
@@ -12678,7 +12704,7 @@ export function OneLocationAgentPageContent({
           // unlocked workspace persists it immediately.
           onLocationReady={promptSaveLocationDuringOnboarding}
           onRequestNotifications={handleLocationOnboardingNotifications}
-          onBack={() => router.back()}
+          onBack={handleOnboardingBack}
           onComplete={dismissLocationOnboarding}
           onSkip={skipLocationOnboarding}
           requireLocationToComplete={mode === "setup"}

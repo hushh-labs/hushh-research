@@ -123,7 +123,7 @@ export function SetupNavigationTile({
           icon={icon}
           tone={tone}
           isActive={isComplete}
-          size="menu"
+          size="setup"
         />
       }
       title={title}
@@ -218,7 +218,7 @@ export function CapabilitySetupTile({
           icon={icon}
           tone={tone}
           isActive={isCapabilitySetupComplete(status)}
-          size="menu"
+          size="setup"
         />
       }
       title={title}

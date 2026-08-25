@@ -107,6 +107,9 @@ const EVERYONE = Array.from({ length: 10 }, (_, index) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A leaked search query in sessionStorage would silently seed the next
+  // test's render, the same way a leaked `?tab=` would.
+  window.sessionStorage.clear();
   // A fresh URL per test: the outer tab is read from it, so a leaked
   // `?tab=circles` would silently render the wrong surface for everything
   // that ran after it.
@@ -217,6 +220,54 @@ describe("Connect — People", () => {
       ).toBeNull(),
     );
     expect(await screen.findByText("Page 1")).toBeTruthy();
+  });
+
+  it("restores a typed search query after the page remounts", async () => {
+    // Regression: navigating to a person's detail screen and using the
+    // shared back control remounts this page. The search box is local
+    // React state, not URL state, so it used to come back empty even
+    // though the person had just been searching (issue #5921).
+    const { unmount } = render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "Person 9" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+
+    unmount();
+
+    render(<ConnectPageClient />);
+    expect(
+      (screen.getByLabelText("Search people") as HTMLInputElement).value,
+    ).toBe("Person 9");
+    await waitFor(() =>
+      expect(mocks.searchDirectory).toHaveBeenLastCalledWith(
+        expect.objectContaining({ query: "Person 9" }),
+      ),
+    );
+  });
+
+  it("clears the stored search query once the box is emptied", async () => {
+    const { unmount } = render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "Person 9" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(3));
+
+    unmount();
+
+    render(<ConnectPageClient />);
+    expect(
+      (screen.getByLabelText("Search people") as HTMLInputElement).value,
+    ).toBe("");
   });
 
   it("renders every person the directory returned, in the order it returned them", async () => {
