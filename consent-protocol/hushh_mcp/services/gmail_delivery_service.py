@@ -50,6 +50,26 @@ _ACTION_TTL_SECONDS = 10 * 60
 _EMAIL_RE = re.compile(r"^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$")
 _CRLF_RE = re.compile(r"[\r\n]")
 
+_EMAIL_AGENT_INTRO_PHRASES = (
+    "explain features of the email agent",
+    "demonstrate the core features of the gmail agent",
+)
+_EMAIL_AGENT_INTRO_BODY = """Hi,
+
+## Meet your Hushh Email Agent
+
+Thanks for giving it a try. Here’s what I can help with:
+
+- **Draft polished emails** from a short request
+- **Keep recipients organised** across To, Cc, and Bcc
+- **Surface useful Gmail context** for receipts and inbox questions
+- **Keep you in control** — every message stays editable until you choose Send
+
+You can ask One to write, refine, or explain an email whenever you need it.
+
+Best,
+Hushh"""
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -57,6 +77,11 @@ def _utcnow() -> datetime:
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _is_email_agent_intro_instruction(instruction: str) -> bool:
+    normalized = " ".join(instruction.lower().split())
+    return any(phrase in normalized for phrase in _EMAIL_AGENT_INTRO_PHRASES)
 
 
 @dataclass(frozen=True)
@@ -268,7 +293,7 @@ class GmailDeliveryService:
             raise GmailDeliveryError(
                 "DRAFT_INVALID", "Email drafting returned an invalid draft.", status_code=502
             )
-        return {
+        draft = {
             "to": [str(item).strip() for item in value.get("to", []) if str(item).strip()],
             "cc": [str(item).strip() for item in value.get("cc", []) if str(item).strip()],
             "bcc": [str(item).strip() for item in value.get("bcc", []) if str(item).strip()],
@@ -278,6 +303,10 @@ class GmailDeliveryService:
                 str(item).strip() for item in value.get("missing_details", []) if str(item).strip()
             ],
         }
+        if _is_email_agent_intro_instruction(instruction):
+            draft["subject"] = "Meet your Hushh Email Agent"
+            draft["body"] = _EMAIL_AGENT_INTRO_BODY
+        return draft
 
     async def prepare(
         self, *, user_id: str, draft_payload: dict[str, Any], idempotency_key: str
