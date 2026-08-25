@@ -833,12 +833,7 @@ function resolveTopShellBreadcrumbInner(
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      items: [
-        fromProfile
-          ? { label: "Profile", href: ROUTES.PROFILE }
-          : { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Location" },
-      ],
+      items: [{ label: fromProfile ? "Profile" : "One" }],
     };
   }
 
@@ -910,7 +905,7 @@ function resolveTopShellBreadcrumbInner(
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "PKM" }],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Memory" }],
     };
   }
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
@@ -35,8 +35,15 @@ function buildStatusMap(
 }
 
 function openAgentListView() {
-  fireEvent.click(screen.getByLabelText("Show agent list view"));
+  fireEvent.click(screen.getByRole("button", { name: "Agent launcher options" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "View as list" }));
   return screen.getByTestId("one-agents-list");
+}
+
+function openAgentSearch() {
+  fireEvent.click(screen.getByRole("button", { name: "Agent launcher options" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Search agents" }));
+  return screen.getByTestId("one-agents-search");
 }
 
 describe("OneDashboardPage", () => {
@@ -108,9 +115,13 @@ describe("OneDashboardPage", () => {
     expect(screen.queryByTestId("one-agents-list")).toBeNull();
     expect(container.textContent).not.toContain("Finish setup");
 
-    const heading = screen.getByRole("heading", { name: "Agents (9)" });
-    expect(heading.textContent).toBe("Agents (9)");
-    expect(heading.querySelector(".sr-only")).toBeNull();
+    const heading = screen.getByRole("heading", { name: "Agents, 9 agents" });
+    expect(heading.textContent).toBe("Agents, 9 agents");
+    expect(heading.querySelector(".sr-only")).toBeTruthy();
+    expect(container.textContent).not.toContain("Agents (9)");
+    expect(screen.queryByTestId("one-agents-search")).toBeNull();
+    expect(screen.queryByTestId("one-agents-view-grid")).toBeNull();
+    expect(screen.getByRole("button", { name: "Agent launcher options" })).toBeTruthy();
 
     const expectedOrder = [
       "finance",
@@ -183,21 +194,20 @@ describe("OneDashboardPage", () => {
       );
     }
 
-    expect(screen.getByText("RFAI")).toBeTruthy();
-    expect(screen.getByText("+355.6%")).toBeTruthy();
-    expect(screen.getByText("2")).toBeTruthy();
-    expect(screen.getByText("live")).toBeTruthy();
-    expect(screen.getByText("31")).toBeTruthy();
-    expect(screen.getByText("saved")).toBeTruthy();
+    const gridScope = within(screen.getByTestId("one-agents-grid"));
+    expect(gridScope.queryByText("RFAI")).toBeNull();
+    expect(gridScope.queryByText("+355.6%")).toBeNull();
+    expect(gridScope.queryByText("2")).toBeNull();
+    expect(gridScope.queryByText("live")).toBeNull();
+    expect(gridScope.queryByText("31")).toBeNull();
+    expect(gridScope.queryByText("saved")).toBeNull();
     expect(screen.queryByText("0 actions")).toBeNull();
     expect(screen.queryByText("0 approvals waiting")).toBeNull();
     expect(screen.queryByText("status not loaded")).toBeNull();
     expect(screen.queryByText("Checking...")).toBeNull();
     expect(screen.queryByText("Ready")).toBeNull();
     expect(screen.queryByText("Explore")).toBeNull();
-    expect(screen.getAllByTestId("one-agent-notification-badge").length).toBe(
-      4,
-    );
+    expect(screen.queryByTestId("one-agent-notification-badge")).toBeNull();
     expect(screen.getByTestId("one-agent-live-dot")).toBeTruthy();
     expect(container.querySelector(".material-ripple")).toBeNull();
     expect(screen.queryByRole("link", { name: "Open One Agent" })).toBeNull();
@@ -209,14 +219,8 @@ describe("OneDashboardPage", () => {
     );
 
     expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
-    expect(screen.getByLabelText("Show agent grid view")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByLabelText("Show agent list view")).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
+    expect(screen.queryByTestId("one-agents-view-grid")).toBeNull();
+    expect(screen.queryByTestId("one-agents-view-list")).toBeNull();
 
     unmount();
     window.localStorage.setItem("hushh:one-agent-roster-view", "list");
@@ -229,7 +233,8 @@ describe("OneDashboardPage", () => {
       "motion-step-enter",
     );
 
-    fireEvent.click(screen.getByLabelText("Show agent grid view"));
+    fireEvent.click(screen.getByRole("button", { name: "Agent launcher options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "View as grid" }));
     expect(screen.getByTestId("one-agents-view-content")).toHaveClass(
       "motion-step-enter",
     );
@@ -262,12 +267,10 @@ describe("OneDashboardPage", () => {
     expect(financeIcon.querySelector("svg")?.className.baseVal).toContain(
       "!text-white",
     );
-    expect(screen.getAllByTestId("one-agent-notification-badge").length).toBe(
-      2,
-    );
+    expect(screen.queryByTestId("one-agent-notification-badge")).toBeNull();
   });
 
-  it("filters by title, description, metric value, and metric label without opening another search", () => {
+  it("opens search from overflow and filters by title, description, metric value, and metric label", () => {
     const userId = "dashboard-search-user";
     CacheService.getInstance().set(
       CACHE_KEYS.KAI_MARKET_HOME_BASELINE(userId, 7),
@@ -286,7 +289,10 @@ describe("OneDashboardPage", () => {
       <OneDashboardPage displayName="Kushal Trivedi" userId={userId} />,
     );
 
-    fireEvent.change(screen.getByTestId("one-agents-search"), {
+    expect(screen.queryByTestId("one-agents-search")).toBeNull();
+    const search = openAgentSearch();
+
+    fireEvent.change(search, {
       target: { value: "location" },
     });
     expect(screen.getByTestId("one-agent-tile-location")).toBeTruthy();
@@ -317,7 +323,7 @@ describe("OneDashboardPage", () => {
   it("shows a quiet empty state for unmatched search", () => {
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
 
-    fireEvent.change(screen.getByTestId("one-agents-search"), {
+    fireEvent.change(openAgentSearch(), {
       target: { value: "not an agent" },
     });
 
@@ -336,5 +342,41 @@ describe("OneDashboardPage", () => {
     );
 
     expect(screen.queryByText(/winner/i)).toBeNull();
+  });
+
+  it("shows real unresolved counts as dynamic badges without turning setup fallbacks into badges", () => {
+    const userId = "dashboard-notification-badge-user";
+    CacheService.getInstance().set(
+      CACHE_KEYS.PENDING_CONSENTS(userId),
+      [{ id: "pending-1" }, { id: "pending-2" }],
+    );
+
+    const { rerender } = render(
+      <OneDashboardPage
+        displayName="Kushal Trivedi"
+        userId={userId}
+        capabilityStatusById={buildStatusMap({
+          finance: { state: "not-started", requiresUnlock: true },
+          calendar: { state: "blocked", prerequisite: "oauth" },
+        })}
+      />,
+    );
+
+    expect(screen.getAllByTestId("one-agent-notification-badge")).toHaveLength(2);
+    expect(screen.getAllByText("2")).toHaveLength(2);
+
+    CacheService.getInstance().set(CACHE_KEYS.PENDING_CONSENTS(userId), []);
+    rerender(
+      <OneDashboardPage
+        displayName="Kushal Trivedi"
+        userId={userId}
+        capabilityStatusById={buildStatusMap({
+          finance: { state: "not-started", requiresUnlock: true },
+          calendar: { state: "blocked", prerequisite: "oauth" },
+        })}
+      />,
+    );
+
+    expect(screen.queryByTestId("one-agent-notification-badge")).toBeNull();
   });
 });
