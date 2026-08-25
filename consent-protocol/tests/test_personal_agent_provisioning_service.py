@@ -14,7 +14,9 @@ from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services import personal_agent_identity_service as ident
 from hushh_mcp.services.personal_agent_grant_service import PersonalAgentDisabledError
 from hushh_mcp.services.personal_agent_provisioning_service import (
+    FEED_EVENT_FAILED,
     PersonalAgentProvisioningService,
+    user_safe_failure_reason,
 )
 from hushh_mcp.services.pod_connector_keypair_service import generate_pod_keypair
 
@@ -467,3 +469,77 @@ async def test_deprovision_clean_teardown_records_unreclaimed_false():
 
     assert result["unreclaimed"] is False
     assert registry.tombstones[0]["metadata"] == {"unreclaimed": False}
+
+
+# --- Boot-failure classification (graceful degradation) ---------------------------
+# The platform's own verdict that a pod's revision failed to start is a different
+# truth from a slow boot or a typo, and it gets its own closed-vocabulary reason so
+# the feed can say so without ever carrying the exception's text.
+
+
+async def test_a_pod_boot_failure_records_failed_with_its_own_reason(monkeypatch):
+    from hushh_mcp.services.compute_backend import PodBootFailedError
+
+    events: list[dict] = []
+
+    async def _capture(**kw):
+        events.append(kw)
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_provisioning_service."
+        "record_provisioning_feed_event_safe",
+        _capture,
+    )
+
+    boom = PodBootFailedError("pod one-pod-x failed to start: exec format error")
+
+    class _BootFailingBackend:
+        backend_id = "gcp"
+
+        async def provision(self, spec):  # noqa: ARG002
+            raise boom
+
+        async def deprovision(self, external_agent_id):
+            return None
+
+        async def get(self, external_agent_id):
+            return None
+
+        def render_deploy_config(self, spec):
+            return {}
+
+        async def health(self):
+            return True
+
+    registry, grant = FakeRegistry(), FakeGrant()
+    svc = PersonalAgentProvisioningService(
+        registry=registry, grant=grant, backend=_BootFailingBackend()
+    )
+    pod = _pod_key()
+
+    with pytest.raises(PodBootFailedError) as excinfo:
+        await svc.provision(
+            user_id=_UID,
+            phone_e164=_PHONE,
+            pod_public_key_b64=pod.public_key_b64,
+            pod_key_id=pod.key_id,
+        )
+
+    # Re-raised UNCHANGED -- the feed is a projection, never an error handler.
+    assert excinfo.value is boom
+    # The row lands at 'provisioning_failed', legible to the sweep and the owner.
+    assert [u["status"] for u in registry.upserts][-1] == "provisioning_failed"
+    # And the feed line carries the boot failure's OWN reason, not 'temporary_issue'.
+    failed = [e for e in events if e["event_type"] == FEED_EVENT_FAILED]
+    assert len(failed) == 1
+    assert failed[0]["reason"] == "pod_boot_failed"
+
+
+def test_user_safe_failure_reason_vocabulary():
+    from hushh_mcp.services.compute_backend import PodBootFailedError
+
+    # The new branch, and the two pre-existing mappings it must not disturb. The
+    # literals matter: these are the wire values the webapp renderer branches on.
+    assert user_safe_failure_reason(PodBootFailedError("platform verdict")) == "pod_boot_failed"
+    assert user_safe_failure_reason(ValueError("bad input")) == "invalid_details"
+    assert user_safe_failure_reason(RuntimeError("transient")) == "temporary_issue"

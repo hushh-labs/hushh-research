@@ -860,6 +860,9 @@ async def _delete_firebase_auth_user(user_id: str) -> str:
 
 
 _SUBSTRATE_TOMBSTONE_STATUS = "substrate_torn_down"
+# Status-scoped reclaim marker for a PARTIAL substrate teardown: it names the survivors
+# but never short-circuits a retry (the idempotency guard checks only the status above).
+_SUBSTRATE_INCOMPLETE_STATUS = "substrate_teardown_incomplete"
 
 
 async def _teardown_byoc_substrate(
@@ -910,18 +913,23 @@ async def _teardown_byoc_substrate(
             deleter=build_gcp_deleter(token=token, project=project, region=region),
             dry_run=False,
         )
+        failed = list(summary.get("failed") or [])
         logger.info(
-            "personal_agent.substrate_teardown user=%s project=%s executed=%s actions=%s",
+            "personal_agent.substrate_teardown user=%s project=%s executed=%s actions=%s failed=%d",
             user_id,
             project,
             summary.get("executed"),
             len(summary.get("planned") or []),
+            len(failed),
         )
         # Record the substrate-orphan tombstone ONLY when a real teardown ran (both guards
-        # were open). With the flag off, execute_teardown returns executed=False, nothing
-        # was deleted, and no tombstone is written -- so the marker never lies. Best-effort
-        # inside the same try: a tombstone failure must never block account deletion.
-        if summary.get("executed"):
+        # were open) AND every resource is confirmed gone. Withholding it on a partial run
+        # means a retried deletion re-runs the whole plan, and each already-gone resource
+        # resolves as 404-ok, so retry re-attempts exactly the survivors. With the flag
+        # off, execute_teardown returns executed=False, nothing was deleted, and no
+        # tombstone is written -- so the marker never lies. Best-effort inside the same
+        # try: a tombstone failure must never block account deletion.
+        if summary.get("executed") and not failed:
             await registry.tombstone(
                 hushh_id=hushh_id,
                 external_agent_id=None,
@@ -932,14 +940,63 @@ async def _teardown_byoc_substrate(
                     "resources": [a.get("id") for a in actions],
                 },
             )
-        return {"executed": bool(summary.get("executed")), "actions": len(actions)}
+        out: dict[str, Any] = {"executed": bool(summary.get("executed")), "actions": len(actions)}
+        if summary.get("executed") and failed:
+            trimmed = [
+                {"type": f.get("type"), "id": f.get("id"), "reason": f.get("reason")}
+                for f in failed
+            ]
+            logger.error(
+                "personal_agent.substrate_teardown_INCOMPLETE user=%s project=%s failed=%d",
+                user_id,
+                project,
+                len(failed),
+            )
+            # The reclaim marker sits in its OWN try/except: a DB hiccup on this insert
+            # must never route to the generic handler and drop the failed subset from
+            # the summary -- preserving that subset is the whole point.
+            try:
+                await registry.tombstone(
+                    hushh_id=hushh_id,
+                    external_agent_id=None,
+                    status=_SUBSTRATE_INCOMPLETE_STATUS,
+                    metadata={"project": project, "region": region, "failed": trimmed},
+                )
+            except Exception:  # noqa: BLE001 - the marker is best-effort; the summary is not
+                logger.warning("personal_agent.substrate_incomplete_marker_failed user=%s", user_id)
+            out["incomplete"] = True
+            out["failed"] = trimmed
+        return out
     except Exception as exc:  # noqa: BLE001 - deletion must complete regardless
         logger.warning(
             "personal_agent.substrate_teardown_failed user=%s err=%s",
             user_id,
             type(exc).__name__,
         )
-        return {"executed": False, "reason": type(exc).__name__}
+        # Conservative: an exception mid-teardown can never read as clean erase, even
+        # when it fired before anything BYOC was confirmed. Over-report, never under.
+        return {"executed": False, "reason": type(exc).__name__, "incomplete": True}
+
+
+def _surface_substrate_teardown(details: dict, pa: Any, user_id: str) -> None:
+    """Surface a PARTIAL substrate teardown into the deletion response, loudly.
+
+    The compute result can be clean while resources survive in the person's own
+    project, so the incomplete flag must fire from the substrate summary too --
+    on BOTH delete-order paths."""
+    sub = pa.get("substrate_teardown") if isinstance(pa, dict) else None
+    if not (isinstance(sub, dict) and sub.get("incomplete")):
+        return
+    details["personal_agent_teardown_incomplete"] = True
+    if sub.get("failed"):
+        details["substrate_teardown_failed"] = sub["failed"]
+    logger.error(
+        "Account deletion completed but %d substrate resource(s) survive in the "
+        "person's project for user=%s (named in the substrate_teardown_incomplete "
+        "tombstone, reclaimable)",
+        len(sub.get("failed") or []),
+        user_id,
+    )
 
 
 async def _deprovision_personal_agent(
@@ -1415,11 +1472,13 @@ async def delete_account(
                     "deletion tombstone, nameable for reclaim)",
                     user_id,
                 )
+            _surface_substrate_teardown(details, pa_first, user_id)
             await _finalize_personal_agent_row_delete(user_id)
         else:
             # Legacy order: deprovision LAST, revoke=False (cascade already wiped audit).
             legacy_pa = await _deprovision_personal_agent(user_id)
             details["personal_agent"] = legacy_pa.get("status")
+            _surface_substrate_teardown(details, legacy_pa, user_id)
         # Fail-loud on Firebase identity orphan: the encrypted account is already
         # gone, so we keep the 200, but surface the incomplete cleanup so callers can
         # alert/retry instead of silently treating the identity as removed.

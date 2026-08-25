@@ -295,6 +295,47 @@ python3 scripts/ops/verify-env-secrets-parity.py \
   --require-voice --require-reviewer-smoke
 ```
 
+### Ed25519 consent-token signing (dev-only cutover)
+
+Non-repudiation is staged on dev: `scripts/deploy/backend-deploy.sh` flips
+`CONSENT_TOKEN_SIGNING_ALG=ed25519` **only** on the dev lane and **only when both
+key secrets already exist** in `hushh-pda-dev`, so a deploy before the mint stays
+HMAC and says so in the build log. UAT and production carry none of this by
+construction (every value is dev-block-scoped and empty elsewhere;
+`tests/test_consent_signing_dev_rollout_contract.py` keeps that a red/green fact).
+
+The two secrets and their exact shapes (they must come from ONE keypair — a
+mismatched pair verifies at the hub and fail-closes in every pod):
+
+| Secret | Shape |
+|---|---|
+| `CONSENT_ED25519_PRIVATE_KEY` | base64 of the raw 32-byte Ed25519 seed |
+| `CONSENT_ED25519_PUBLIC_KEYS` | JSON `{kid: b64_raw_32_public}` map |
+
+Mint (and rotate) with the checked-in script — the seed rides stdin into Secret
+Manager and is never printed:
+
+```bash
+cd consent-protocol
+uv run python scripts/ops/mint_consent_ed25519_key.py --project hushh-pda-dev
+# rotation: mint -2 alongside -1, deploy + re-render pods, then drop -1 after
+# outstanding tokens expire
+uv run python scripts/ops/mint_consent_ed25519_key.py --project hushh-pda-dev \
+  --kid hushh-consent-dev-2 --rotate
+```
+
+Then grant the dev runtime read on both (same pattern as `HUSSH_POD_KEY_MASTER`)
+and redeploy dev. Two standing caveats:
+
+* **Pods receive verification keys at render time only** (`gcp_backend` injects
+  `CONSENT_ED25519_PUBLIC_KEYS` from hub env into each render), so every key
+  event — first flip, every rotation — ends with a pod re-render. Un-re-rendered
+  pods keep working for turns (verification is hub-relayed) but their local a2a
+  door fail-closes on ed25519 tokens until re-rendered.
+* **Rollback** is deleting both secrets and redeploying: the existence gate
+  reverts issuance to HMAC byte-identically. Outstanding ed25519 tokens then fail
+  closed and dev's synthetic users re-consent — designed behavior, not a defect.
+
 ## Phase 4 — Deploy service account + GitHub wiring
 
 ```bash

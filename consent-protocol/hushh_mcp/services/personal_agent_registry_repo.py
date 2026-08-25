@@ -47,6 +47,12 @@ _ACTIVE_POD_STATUSES = ("provisioning", "connecting", "provisioned")
 # which is exactly what the guard beside it now does on every run.
 _STALLED_POD_STATUSES = ("provisioning", "provisioning_failed")
 
+# Failure code written by mark_provisioning_failed when a 'connecting' row blew its
+# handshake deadline, and read back by the reconcile sweep's retry gate: a heal
+# re-provisions to the SAME digest the dead pod already runs, so auto-retry would
+# converge on the same dead boot and flap the owner's surface connecting<->failed.
+REASON_HANDSHAKE_TIMEOUT = "handshake_timeout"
+
 
 class PersonalAgentRegistryRepo:
     """CRUD over the personal-agent registry and deletion tombstones."""
@@ -368,6 +374,62 @@ class PersonalAgentRegistryRepo:
         }
         response = self._db().table(_REGISTRY).update(data).eq("user_id", normalized).execute()
         return bool(response.data or [])
+
+    async def mark_provisioning_failed(
+        self, *, user_id: str, reason: str, detail: str = ""
+    ) -> bool:
+        """A 'connecting' row past its handshake deadline is recorded as failed.
+
+        CONDITIONAL on the row still being 'connecting' so a key attach that lands
+        between the sweep's read and this write wins the race (0 rows matched ->
+        False). Same direct-UPDATE shape as ``mark_needs_reinit``; no new status
+        value, so the status vocabulary is untouched. The failure marker rides
+        ``backend_metadata`` (merged in Python -- a JSONB update replaces the whole
+        column) and is only ever read for provisioning_failed rows, so a later
+        resurrection by a slow key attach leaves it inert.
+        """
+        normalized = str(user_id or "").strip()
+        if not normalized:
+            return False
+        row = await self.get(normalized)
+        if not row or str(row.get("status") or "") != "connecting":
+            return False
+        now = datetime.now(timezone.utc).isoformat()
+        metadata = dict(row.get("backend_metadata") or {})
+        metadata["failure"] = {
+            "code": reason,
+            "detail": " ".join(str(detail).split())[:200],
+            "at": now,
+        }
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .update(
+                {
+                    "status": "provisioning_failed",
+                    "backend_metadata": metadata,
+                    "updated_at": now,
+                }
+            )
+            .eq("user_id", normalized)
+            .eq("status", "connecting")
+            .execute()
+        )
+        if not (response.data or []):
+            return False
+        # Same funnel as upsert: the journey trace must record the terminal verdict,
+        # and `append` cannot raise into this path by contract.
+        from hushh_mcp.services.pod_lifecycle_log import append  # noqa: PLC0415
+
+        await append(
+            normalized,
+            stage="failed",
+            registry_status="provisioning_failed",
+            event="terminal",
+            hushh_id=str(row.get("hushh_id") or "") or None,
+            reason=reason,
+        )
+        return True
 
     async def fetch_liveness_candidates(self, *, limit: int = 200) -> list[dict]:
         """Rows that own (or are standing up) a host, for the liveness sweep to judge.

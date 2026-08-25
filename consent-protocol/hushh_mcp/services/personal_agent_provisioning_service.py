@@ -63,6 +63,7 @@ from hushh_mcp.services.compute_backend import (
     BackendHandle,
     ComputeBackend,
     NullBackend,
+    PodBootFailedError,
     PodSpec,
 )
 from hushh_mcp.services.personal_agent_grant_service import (
@@ -144,6 +145,12 @@ _FEED_ACTOR_LABEL = "Private agent"
 # rendered straight back to the user.
 FEED_REASON_INVALID_DETAILS = "invalid_details"
 FEED_REASON_TEMPORARY = "temporary_issue"
+# The platform's own verdict that the pod's revision failed to start -- distinct
+# from a slow boot, which stays "temporary". Provider-neutral by construction.
+FEED_REASON_POD_BOOT_FAILED = "pod_boot_failed"
+# A host that became Ready but whose pod never published its key within the
+# handshake deadline; written by the reconcile sweep's overdue transition.
+FEED_REASON_POD_UNRESPONSIVE = "pod_unresponsive"
 
 
 class SubstrateNotReadyError(RuntimeError):
@@ -174,6 +181,8 @@ class PersonalAgentCloudNotAuthorizedError(RuntimeError):
 
 def user_safe_failure_reason(exc: BaseException) -> str:
     """Coarse reason code for a failed transition -- never derived from the message."""
+    if isinstance(exc, PodBootFailedError):
+        return FEED_REASON_POD_BOOT_FAILED
     return FEED_REASON_INVALID_DETAILS if isinstance(exc, ValueError) else FEED_REASON_TEMPORARY
 
 

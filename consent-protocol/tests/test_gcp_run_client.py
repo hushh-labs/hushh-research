@@ -18,6 +18,31 @@ def test_service_url_extraction():
     assert GcpRunClient.service_url({"status": {}}) is None
 
 
+def test_ready_failure_distinguishes_false_from_unknown():
+    """`wait_ready` answers (False, svc) for BOTH a definitive startup failure and a
+    plain timeout. `ready_failure` is the parser that makes the tri-state legible:
+    only Ready=='False' -- the platform's own verdict -- reads as a failure; True,
+    Unknown, an absent Ready condition, and no service at all are all None, because
+    a slow boot must never be promoted to a dead one."""
+
+    def _svc(status: str, message: str | None = None) -> dict:
+        condition: dict = {"type": "Ready", "status": status}
+        if message is not None:
+            condition["message"] = message
+        return {"status": {"conditions": [condition]}}
+
+    assert (
+        GcpRunClient.ready_failure(_svc("False", "container failed to start and listen"))
+        == "container failed to start and listen"
+    )
+    # A verdict with no message is still a verdict, with the documented fallback.
+    assert GcpRunClient.ready_failure(_svc("False")) == "startup failed"
+    assert GcpRunClient.ready_failure(_svc("True")) is None
+    assert GcpRunClient.ready_failure(_svc("Unknown")) is None
+    assert GcpRunClient.ready_failure({"status": {"conditions": []}}) is None
+    assert GcpRunClient.ready_failure(None) is None
+
+
 def test_load_operator_credentials_requires_env(monkeypatch):
     # With the key env absent AND no attached identity to fall back to -- the
     # outside-GCP / CI case -- the loader must fail closed rather than silently

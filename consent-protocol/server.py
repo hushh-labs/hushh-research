@@ -970,6 +970,12 @@ async def startup_personal_agent_reconcile_worker() -> None:
         # Long enough that a healthy provision (wait_ready caps at 150s) is never
         # mistaken for a dead one and retried underneath itself.
         _stalled_after_seconds = 600
+        # How long a row may sit in 'connecting' before the handshake is declared
+        # dead rather than slow: 12x wait_ready's 150s cap, 3x the status route's
+        # 600s overdue warning, and >=4 failed key-collection passes at the 300s
+        # cadence. Nested deliberately: warn at 600s, fail at 1800s, stop retrying
+        # failed rows at 48h.
+        _connecting_failed_after_seconds = 1800
 
         async def fetch_stalled() -> list:
             cutoff = datetime.now(timezone.utc).timestamp() - _stalled_after_seconds
@@ -1045,6 +1051,7 @@ async def startup_personal_agent_reconcile_worker() -> None:
                     collect_pod_key_if_pending,
                 )
 
+                advanced = None
                 try:
                     advanced = await collect_pod_key_if_pending(row)
                     logger.info(
@@ -1065,7 +1072,70 @@ async def startup_personal_agent_reconcile_worker() -> None:
                         type(exc).__name__,
                         detail,
                     )
+                if advanced in (None, "connecting"):
+                    # The row did not LEAVE connecting this pass. `upsert` stamps
+                    # updated_at on every transition and heartbeats never touch it,
+                    # so it IS time-in-state -- past the deadline the handshake is
+                    # declared dead rather than slow, and the row becomes the
+                    # 'failed' state the owner's rebuild affordance already renders.
+                    raw = str((row or {}).get("updated_at") or "").strip()
+                    try:
+                        entered = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                    except ValueError:
+                        # Unparseable: keep waiting -- the same conservative
+                        # direction as the 48h cap.
+                        return
+                    if entered.tzinfo is None:
+                        entered = entered.replace(tzinfo=timezone.utc)
+                    waited = (datetime.now(timezone.utc) - entered).total_seconds()
+                    if waited >= _connecting_failed_after_seconds:
+                        from hushh_mcp.services.personal_agent_registry_repo import (
+                            REASON_HANDSHAKE_TIMEOUT,
+                        )
+
+                        marked = await registry.mark_provisioning_failed(
+                            user_id=user_id,
+                            reason=REASON_HANDSHAKE_TIMEOUT,
+                            detail=f"no pod key after {int(waited)}s in connecting",
+                        )
+                        if marked:
+                            from hushh_mcp.services.personal_agent_provisioning_service import (
+                                FEED_EVENT_FAILED,
+                                FEED_REASON_POD_UNRESPONSIVE,
+                                record_provisioning_feed_event_safe,
+                            )
+
+                            await record_provisioning_feed_event_safe(
+                                user_id=user_id,
+                                event_type=FEED_EVENT_FAILED,
+                                reason=FEED_REASON_POD_UNRESPONSIVE,
+                            )
+                            logger.error(
+                                "personal_agent.handshake_failed hushh_id=%s service=%s "
+                                "waited_s=%d -- host Ready but the pod never published "
+                                "its key; marked provisioning_failed. Recovery is the "
+                                "owner's rebuild affordance.",
+                                (row or {}).get("hushh_id") or "<none>",
+                                (row or {}).get("external_agent_id") or "<none>",
+                                int(waited),
+                            )
                 return
+
+            if str((row or {}).get("status") or "") == "provisioning_failed":
+                failure = ((row or {}).get("backend_metadata") or {}).get("failure") or {}
+                if str(failure.get("code") or "") == "handshake_timeout":
+                    # Terminal, not retryable: a re-provision heals to the SAME
+                    # digest the dead pod already runs, so auto-retry converges on
+                    # the same dead boot and would flap the owner's surface
+                    # connecting<->failed every ~35 min until the 48h cap. A row
+                    # whose NEXT failure happens before a handle exists keeps this
+                    # marker too -- acceptable, the owner is already in the
+                    # explicit-recovery flow.
+                    logger.info(
+                        "personal_agent_reconcile.skip reason=handshake_timeout hushh_id=%s",
+                        (row or {}).get("hushh_id") or "<none>",
+                    )
+                    return
 
             from hushh_mcp.services.actor_identity_service import ActorIdentityService
 

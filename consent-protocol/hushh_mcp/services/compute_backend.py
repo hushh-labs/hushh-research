@@ -228,6 +228,15 @@ class BackendHandle:
     attestation_ref: Optional[str] = None
 
 
+class PodBootFailedError(RuntimeError):
+    """The platform returned a DEFINITIVE verdict that the pod's revision failed to
+    start (e.g. Cloud Run Ready==False). Distinct from a slow boot, which times out
+    with no verdict and stays retryable. Lives here, not in a provider module,
+    because the provisioning service must classify it for the user-safe failure
+    reason and Layer 1 may not name a cloud (test_deployment_boundary_holds).
+    """
+
+
 @dataclass(frozen=True)
 class BackendStatus:
     """Health/liveness of a provisioned host, for the reconcile loop."""

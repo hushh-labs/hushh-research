@@ -26,6 +26,7 @@ from hushh_mcp.services.compute_backend import (
     PodSpec,
 )
 from hushh_mcp.services.gcp_backend import GcpBackend
+from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 
 MIN_SCALE = "autoscaling.knative.dev/minScale"
 
@@ -40,6 +41,12 @@ def _min_scale(config: dict) -> int:
 
 def _backend(default_min: int = 0) -> GcpBackend:
     return GcpBackend(project="p", image="i", live=False, min_instances=default_min)
+
+
+def _byoc_backend(default_min: int = 0) -> UserGcpBackend:
+    return UserGcpBackend(
+        user_project="acme-user-proj", image="i", live=False, min_instances=default_min
+    )
 
 
 def test_two_people_on_one_deployment_get_different_warm_floors():
@@ -74,18 +81,26 @@ def test_an_unknown_tier_defers_instead_of_guessing():
         assert _min_scale(config) == default
 
 
+@pytest.mark.parametrize("make_backend", [_backend, _byoc_backend], ids=["managed", "byoc"])
 @pytest.mark.parametrize(
-    "tier,expected", [(RESOURCE_TIER_WARM, "warm"), (RESOURCE_TIER_ECONOMY, "economy")]
+    "tier,expected",
+    [(None, "economy"), (RESOURCE_TIER_WARM, "warm"), (RESOURCE_TIER_ECONOMY, "economy")],
+    ids=["default-spec", "warm", "economy"],
 )
 @pytest.mark.asyncio
-async def test_the_row_records_the_tier_the_pod_actually_got(tier, expected):
+async def test_the_row_records_the_tier_the_pod_actually_got(make_backend, tier, expected):
     """A row that disagrees with the artifact is worse than either being wrong.
 
     `livenessMode` is what `pod_liveness_service` judges the pod by. If the artifact
     holds a warm instance while the row says `economy`, that pod's silence reads as
     healthy forever and auto-heal never looks at it again.
+
+    BOTH tiers, because the BYOC handle simply omitted the field: the registry
+    column's `warm` default then stuck to every user-owned row, and the liveness
+    sweep probed -- woke, billed -- healthy sleeping economy pods. `None` is the
+    default spec every production caller passes, so it is the case that was wrong.
     """
-    handle = await _backend(default_min=0).provision(_spec(resource_tier=tier))
+    handle = await make_backend(default_min=0).provision(_spec(resource_tier=tier))
     assert (handle.backend_metadata or {}).get("livenessMode") == expected
 
 

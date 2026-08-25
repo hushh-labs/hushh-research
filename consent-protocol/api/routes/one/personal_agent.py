@@ -183,14 +183,15 @@ def _diagnostic_detail(exc: BaseException) -> str:
 def _warn_if_handshake_is_overdue(row: Optional[dict], status: str) -> None:
     """Say so when a row has been waiting on its pod for longer than it should.
 
-    Observation only -- it writes nothing. `connecting` means the host EXISTS and is
-    mid-handshake, so anything that mutated the row here risks replacing a running
-    service, which is exactly why the retry sweep leaves this state alone.
+    Observation only -- it writes nothing. That no-mutation property is a security
+    invariant of this route (a pure reader the browser polls), which is why the
+    escalation is deliberately NOT driven from here: this 600s warning is the EARLY
+    signal, and the reconcile sweep marks the row ``provisioning_failed`` after
+    1800s of time-in-connecting (``_connecting_failed_after_seconds``, server.py).
 
-    Age is measured from ``created_at``. The repo never writes ``updated_at`` and the
-    column has no ON UPDATE trigger, so it equals ``created_at`` and would measure the
-    same thing while implying it measured something better. This is therefore the age
-    of the whole journey, not time-in-state, and is named that way.
+    Age is measured from ``created_at`` -- the age of the whole journey, named that
+    way. (``updated_at`` IS stamped by the repo on every transition, so the sweep
+    uses it for time-in-state; this early warning keeps the journey-age framing.)
     """
     if status != "connecting" or not row:
         return

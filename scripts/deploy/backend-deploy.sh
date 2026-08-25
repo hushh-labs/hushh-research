@@ -323,9 +323,18 @@ user_gcp_substrate_apply=""
 pod_ingress=""
 pod_lifecycle_log=""
 personal_agent_reconcile=""
+personal_agent_reachability=""
 dev_phone_test_numbers=""
 dev_pod_state_bucket=""
 dev_pod_key_master_secret=""
+# Ed25519 consent-token issuance (Phase 6), DEV ONLY. Pre-initialised for `set -u`
+# like every dev-lane local above; assigned only inside the dev block, and only when
+# BOTH secrets already exist, so a deploy before the key mint stays HMAC instead of
+# making sign_payload raise on every issuance.
+consent_signing_alg=""
+consent_ed25519_kid=""
+dev_consent_ed25519_private_secret=""
+dev_consent_ed25519_public_keys_secret=""
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   # The simulation opt-in. hussh-managed pods are the SIMULATION tier under
   # docs/reference/architecture/private-agent-north-star.md, so GcpBackend now
@@ -449,6 +458,28 @@ if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   # documented as the recovery path while enabled NOWHERE -- the promise
   # "we'll retry automatically" was false in every environment.
   personal_agent_reconcile="true"
+  # Let the wake path DISTINGUISH a gone pod (service deleted) from a cold one.
+  # Off, a deleted host reports "waking" forever and the returning user hangs; on,
+  # a confirmed-gone verdict flips the row to needs_reinit and the app offers the
+  # recovery affordance. The check is bounded and fails toward "waking", never
+  # toward a spurious fresh setup that would change the person's agent identity.
+  personal_agent_reachability="true"
+  # Ed25519 consent-token signing: non-repudiation staged on dev (Phase 6). The
+  # flip is EXISTENCE-GATED on both secrets so the mint's timing can never break a
+  # deploy, and deleting the two secrets + redeploying is the whole rollback (the
+  # existence gate reverts issuance to HMAC byte-identically). The kid literal
+  # must match the mint script's default -- the rollout contract test pins both.
+  if gcloud secrets describe CONSENT_ED25519_PRIVATE_KEY --project="$PROJECT_ID" >/dev/null 2>&1 \
+    && gcloud secrets describe CONSENT_ED25519_PUBLIC_KEYS --project="$PROJECT_ID" >/dev/null 2>&1; then
+    consent_signing_alg="ed25519"
+    consent_ed25519_kid="hushh-consent-dev-1"
+    dev_consent_ed25519_private_secret="CONSENT_ED25519_PRIVATE_KEY"
+    dev_consent_ed25519_public_keys_secret="CONSENT_ED25519_PUBLIC_KEYS"
+  else
+    # stderr: advisory diagnostics never ride stdout (the simulation-lane tests
+    # execute this block and parse stdout as KEY=value pairs).
+    echo "Ed25519 consent signing: secrets absent; issuance stays HMAC." >&2
+  fi
 fi
 append_optional_env "PERSONAL_AGENT_ENABLED" "${personal_agent_enabled}"
 append_optional_env "PERSONAL_AGENT_BACKEND" "${personal_agent_backend}"
@@ -470,6 +501,15 @@ append_optional_env "HUSSH_USER_GCP_SUBSTRATE_APPLY" "${user_gcp_substrate_apply
 append_optional_env "HUSSH_POD_INGRESS" "${pod_ingress}"
 append_optional_env "POD_LIFECYCLE_LOG_ENABLED" "${pod_lifecycle_log}"
 append_optional_env "PERSONAL_AGENT_RECONCILE_ENABLED" "${personal_agent_reconcile}"
+append_optional_env "PERSONAL_AGENT_REACHABILITY_GATE" "${personal_agent_reachability}"
+# Ed25519 consent signing (dev only; every value is empty elsewhere). The PRIVATE
+# key rides Secret Manager only -- never an env literal -- and the PUBLIC map is
+# mounted as hub env, which is exactly what gcp_backend's pod render reads to hand
+# verification keys to every pod rendered after the flip.
+append_optional_env "CONSENT_TOKEN_SIGNING_ALG" "${consent_signing_alg}"
+append_optional_env "CONSENT_ED25519_KID" "${consent_ed25519_kid}"
+append_optional_secret "${dev_consent_ed25519_private_secret}" "CONSENT_ED25519_PRIVATE_KEY"
+append_optional_secret "${dev_consent_ed25519_public_keys_secret}" "CONSENT_ED25519_PUBLIC_KEYS"
 # The other half of durable state. A SECRET, not an env literal: it derives every
 # managed pod's sealing keys, so it is the one value that must never appear in a
 # deploy log or a service description. append_optional_secret probes Secret Manager

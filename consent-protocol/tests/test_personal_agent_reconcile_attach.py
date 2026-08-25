@@ -18,22 +18,32 @@ sweep" is exactly the change during which someone helpfully wires the other half
 from __future__ import annotations
 
 import inspect
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 import server
+from hushh_mcp.services.personal_agent_provisioning_service import FEED_EVENT_FAILED
 from hushh_mcp.services.personal_agent_registry_repo import (
     _ACTIVE_POD_STATUSES,
     _STALLED_POD_STATUSES,
+    REASON_HANDSHAKE_TIMEOUT,
     PersonalAgentRegistryRepo,
 )
 
 
 class _Query:
-    """Records the filter chain instead of talking to Postgres."""
+    """Records the filter chain instead of talking to Postgres.
+
+    `update`/`eq` recording rides alongside the select recorders so the same fake
+    can pin `mark_provisioning_failed`'s conditional UPDATE: filters after an
+    `update()` land in `update_eq` and its `execute()` answers with `update_rows`,
+    while the read chain keeps answering with `rows`.
+    """
 
     def __init__(self, sink: dict) -> None:
         self.sink = sink
+        self._updating = False
 
     def table(self, name):
         self.sink["table"] = name
@@ -41,6 +51,16 @@ class _Query:
 
     def select(self, *cols, **_kw):
         self.sink["select"] = cols
+        return self
+
+    def update(self, data, **_kw):
+        self._updating = True
+        self.sink["update"] = data
+        return self
+
+    def eq(self, column, value):
+        key = "update_eq" if self._updating else "eq"
+        self.sink.setdefault(key, {})[column] = value
         return self
 
     def in_(self, column, values):
@@ -56,8 +76,10 @@ class _Query:
         return self
 
     def execute(self):
+        rows = self.sink.get("update_rows" if self._updating else "rows", [])
+
         class _R:
-            data = self.sink.get("rows", [])
+            data = rows
 
         return _R()
 
@@ -302,3 +324,256 @@ async def test_the_retry_provisions_for_a_verified_owner(wired, monkeypatch):
 
     await wired["retry"]("u1")
     assert provisioned == [("u1", "+15551234567")]
+
+
+# -- the handshake deadline (graceful degradation) ---------------------------------
+# A `connecting` row whose pod never publishes its key used to sit there forever:
+# the sweep re-pulled it each pass, collected nothing, and said nothing. Past 1800s
+# of time-in-state the handshake is now declared dead rather than slow -- the row
+# becomes `provisioning_failed` (which the owner's rebuild affordance already
+# renders) and the marker gates the sweep so the dead pod is never auto-healed into
+# a connecting<->failed flap.
+
+
+def _connecting_row(*, minutes_old: float) -> dict:
+    return {
+        "user_id": "u1",
+        "hushh_id": "ha1deadline",
+        "external_agent_id": "one-pod-ha1deadline",
+        "status": "connecting",
+        # `upsert` stamps updated_at on every transition and heartbeats never touch
+        # it, so this IS time-in-state.
+        "updated_at": (datetime.now(timezone.utc) - timedelta(minutes=minutes_old)).isoformat(),
+    }
+
+
+def _wire_connecting_pass(monkeypatch, *, row, advanced=None, mark_returns=True):
+    """One sweep pass over `row`: canned registry read, canned key collection, and
+    recorders in place of the failure write and the feed projection."""
+
+    async def _get(self, user_id):  # noqa: ARG001 - the class-method signature
+        return row
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo.get",
+        _get,
+    )
+
+    async def _collect(_row):
+        return advanced
+
+    monkeypatch.setattr("hushh_mcp.services.pod_key_collector.collect_pod_key_if_pending", _collect)
+
+    marked: list[dict] = []
+
+    async def _mark(self, *, user_id, reason, detail=""):  # noqa: ARG001
+        marked.append({"user_id": user_id, "reason": reason, "detail": detail})
+        return mark_returns
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo."
+        "PersonalAgentRegistryRepo.mark_provisioning_failed",
+        _mark,
+    )
+
+    events: list[dict] = []
+
+    async def _feed(**kw):
+        events.append(kw)
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_provisioning_service."
+        "record_provisioning_feed_event_safe",
+        _feed,
+    )
+    return marked, events
+
+
+async def test_an_overdue_connecting_row_is_marked_failed(wired, monkeypatch):
+    """31 minutes in `connecting` with no key collected this pass: the sweep records
+    the handshake as dead -- and never constructs a provisioning service, because a
+    dead handshake is a terminal verdict, not a retry."""
+    marked, _events = _wire_connecting_pass(monkeypatch, row=_connecting_row(minutes_old=31))
+    constructed: list = []
+
+    class _NeverConstructed:
+        def __init__(self, **kwargs):
+            constructed.append(kwargs)
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_provisioning_service.PersonalAgentProvisioningService",
+        _NeverConstructed,
+    )
+
+    await wired["retry"]("u1")
+
+    assert [m["reason"] for m in marked] == [REASON_HANDSHAKE_TIMEOUT]
+    assert marked[0]["user_id"] == "u1"
+    assert constructed == []
+
+
+async def test_a_fresh_connecting_row_is_left_alone(wired, monkeypatch):
+    """Two minutes in: key collection alone this pass. The deadline exists to bound
+    a stall, never to shortcut a boot that is simply still happening."""
+    marked, events = _wire_connecting_pass(monkeypatch, row=_connecting_row(minutes_old=2))
+
+    await wired["retry"]("u1")
+
+    assert marked == []
+    assert events == []
+
+
+async def test_a_connecting_row_that_advances_is_never_failed(wired, monkeypatch):
+    """The deadline only applies to a row that did NOT leave `connecting` this pass.
+    A key that finally lands -- however late -- is a success, not a timeout."""
+    marked, events = _wire_connecting_pass(
+        monkeypatch, row=_connecting_row(minutes_old=31), advanced="provisioned"
+    )
+
+    await wired["retry"]("u1")
+
+    assert marked == []
+    assert events == []
+
+
+async def test_the_overdue_transition_emits_the_failed_feed_event(wired, monkeypatch):
+    """The feed line follows the WRITE, not the attempt: exactly one failed event
+    when `mark_provisioning_failed` returned True, and none when the conditional
+    update matched nothing (a key attach won the race, so nothing failed)."""
+    marked, events = _wire_connecting_pass(
+        monkeypatch, row=_connecting_row(minutes_old=31), mark_returns=True
+    )
+    await wired["retry"]("u1")
+
+    assert marked, "the deadline must have fired for this test to mean anything"
+    assert events == [
+        {"user_id": "u1", "event_type": FEED_EVENT_FAILED, "reason": "pod_unresponsive"}
+    ]
+
+    lost_race, events_after_lost_race = _wire_connecting_pass(
+        monkeypatch, row=_connecting_row(minutes_old=31), mark_returns=False
+    )
+    await wired["retry"]("u1")
+
+    assert lost_race, "the write was attempted and refused"
+    assert events_after_lost_race == []
+
+
+async def test_a_handshake_failed_row_is_never_auto_reprovisioned(wired, monkeypatch):
+    """The anti-flap gate: a re-provision heals to the SAME digest the dead pod
+    already runs, so auto-retry would cycle connecting<->failed every ~35 minutes.
+    The marked row returns BEFORE the identity read, before everything."""
+    row = {
+        "user_id": "u1",
+        "hushh_id": "ha1deadline",
+        "status": "provisioning_failed",
+        "backend_metadata": {
+            "failure": {"code": "handshake_timeout", "detail": "no pod key", "at": "2026-08-25"}
+        },
+    }
+
+    async def _get(self, user_id):  # noqa: ARG001
+        return row
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo.get",
+        _get,
+    )
+
+    consulted: list = []
+
+    class _Identity:
+        def __init__(self):
+            consulted.append("constructed")
+
+        async def get_many(self, user_ids):  # noqa: ARG002
+            consulted.append("read")
+            return {}
+
+    monkeypatch.setattr("hushh_mcp.services.actor_identity_service.ActorIdentityService", _Identity)
+
+    provisioned: list = []
+
+    class _Provisioning:
+        def __init__(self, **kwargs):
+            provisioned.append(kwargs)
+
+        async def provision(self, **kw):
+            provisioned.append(kw)
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_provisioning_service.PersonalAgentProvisioningService",
+        _Provisioning,
+    )
+
+    await wired["retry"]("u1")
+
+    assert consulted == [], "the gate must return before ActorIdentityService is consulted"
+    assert provisioned == []
+
+
+async def test_mark_provisioning_failed_is_conditional_on_connecting(repo, monkeypatch):
+    """The write is race-safe by construction: `.eq(user_id).eq(status,'connecting')`
+    so a key attach that lands between the sweep's read and this write wins (zero
+    matched rows -> False, nothing written). The failure marker is merged over the
+    existing backend_metadata, never a wholesale replace."""
+    r, sink = repo
+    sink["rows"] = [
+        {
+            "user_id": "u1",
+            "hushh_id": "ha1deadline",
+            "status": "connecting",
+            "backend_metadata": {"keyless": True},
+        }
+    ]
+    sink["update_rows"] = [{"user_id": "u1"}]
+
+    appended: list[dict] = []
+
+    async def _append(user_id, **kw):
+        appended.append({"user_id": user_id, **kw})
+
+    monkeypatch.setattr("hushh_mcp.services.pod_lifecycle_log.append", _append)
+
+    ok = await r.mark_provisioning_failed(
+        user_id="u1",
+        reason=REASON_HANDSHAKE_TIMEOUT,
+        detail="no pod key after 1860s in connecting",
+    )
+
+    assert ok is True
+    assert sink["update_eq"] == {"user_id": "u1", "status": "connecting"}
+    payload = sink["update"]
+    assert payload["status"] == "provisioning_failed"
+    assert "updated_at" in payload
+    failure = payload["backend_metadata"]["failure"]
+    assert failure["code"] == REASON_HANDSHAKE_TIMEOUT
+    assert failure["detail"] == "no pod key after 1860s in connecting"
+    assert failure["at"]
+    # Merged over the existing metadata -- a JSONB update replaces the whole column,
+    # so dropping this key here is what losing someone's pod facts looks like.
+    assert payload["backend_metadata"]["keyless"] is True
+    # The terminal verdict reaches the journey narrative, once, on success.
+    assert [a["event"] for a in appended] == ["terminal"]
+    assert appended[0]["registry_status"] == "provisioning_failed"
+    assert appended[0]["reason"] == REASON_HANDSHAKE_TIMEOUT
+
+    # The lost-race case: the conditional update matched zero rows, so the attach's
+    # write stands, nothing is recorded as failed, and no narrative is appended.
+    sink2: dict = {
+        "rows": [
+            {
+                "user_id": "u1",
+                "hushh_id": "ha1deadline",
+                "status": "connecting",
+                "backend_metadata": {},
+            }
+        ],
+        "update_rows": [],
+    }
+    r2 = PersonalAgentRegistryRepo()
+    monkeypatch.setattr(r2, "_db", lambda: _Query(sink2))
+    appended.clear()
+
+    assert await r2.mark_provisioning_failed(user_id="u1", reason=REASON_HANDSHAKE_TIMEOUT) is False
+    assert appended == []

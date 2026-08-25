@@ -111,10 +111,13 @@ credential — **is deleted from the architecture rather than mitigated.**
 
 ### The uncomfortable part, recorded so nobody discovers it later
 
-**The path being banned from production is the only one that works today.** `GcpBackend` is
-live-wired and functional; `UserGcpBackend.provision` and `AnypointBackend._execute` both
-raise `NotImplementedError` when live. This directive does not restrict working code — it
-declares that the two paths which must carry production are the two that have never run.
+**The path being banned from production is the only one that works today.**
+*(Updated 2026-08-25: no longer true of `UserGcpBackend` — `_execute_live` is real,
+copies the digest-pinned image into the user's own registry, and served the first
+live BYOC pod, Agent One, in a project hussh owns no IAM in. `AnypointBackend._execute`
+still raises `NotImplementedError` when live.)* `GcpBackend` is live-wired and
+functional as the SIMULATION tier; the schema fence below now has a deliberate guard
+rather than an accident.
 
 And the only thing keeping hussh-managed pods out of production right now is an
 **accident**: `personal_agent_registry` lives in the parked migration lane, so UAT and
@@ -198,15 +201,15 @@ Practical consequences that follow, and are therefore requirements rather than n
 Isolation, authority, identity, capability, portability, economics — the same
 decomposition, now scored against persistent per-person pods rather than a stateless fleet.
 
-| Requirement | What the vision demands | Current state |
+| Requirement | What the vision demands | Current state (updated 2026-08-25) |
 |---|---|---|
 | **Isolation** | one person's holdings unreachable from another's | met — separate service, no shared credential, zero-permission identity |
-| **Authority** | consented, scoped, revocable, non-repudiable | partial — primitive strong, body empty, signing symmetric, primary audit chain unshipped |
-| **Identity** | the pod proves *which* person's agent it is, in any project | **absent** — fleet-shared service account proves only "a pod" |
-| **Capability** | the full agent ecosystem runs *inside* the pod | **absent** — 2 of 12 tools succeed; specialists depend on a database the pod deliberately cannot reach |
-| **Persistence** | memory survives restarts and compounds | **absent** — agent memory is an in-process list, erased every restart |
-| **Portability** | same platform, three targets, by configuration | **absent** — config baked into the image |
-| **Economics** | cost per person far below value per person | at risk — warm tier is the default |
+| **Authority** | consented, scoped, revocable, non-repudiable | partial — primitive strong, pod proposes/hub authorizes; Ed25519 signing staged on dev (existence-gated flip, `test_consent_signing_dev_rollout_contract`) |
+| **Identity** | the pod proves *which* person's agent it is, in any project | shown — BYOC pods run as a per-person service account + X25519 key; `verify_pod_identity` binds the asserted HusshID to it (`runtime_service_account` in the registry row) |
+| **Capability** | the full agent ecosystem runs *inside* the pod | partial — the pod runs the ENTIRE agent tree in-process (Finance/Kai, RIA, Investor, search, action tools, recall); the DB-backed dispatch specialists (email, location, nav, connections, calendar) remain hub-bound behind a staged door-by-door plan |
+| **Persistence** | memory survives restarts and compounds | shown — the tier-agnostic key resolver is wired, the first live pod served `memoryEnabled=true`, and the evolution simulation measures recall 1.0 across two restarts with a negative control |
+| **Portability** | same platform, three targets, by configuration | shown — Agent One served in the user's own project from the user's own registry (digest-pinned copy, no hussh runtime dependency) |
+| **Economics** | cost per person far below value per person | improving — economy (minScale 0) is the default and BYOC handles now record `livenessMode`, so the sweep never probes/wakes/bills a healthy sleeping pod |
 
 Note the change from the previous framing: **persistence is now a named requirement.** It
 was not one when the target was a stateless fleet, which is exactly how it went missing.

@@ -393,5 +393,17 @@ class GcpRunClient:
         return False, last
 
     @staticmethod
+    def ready_failure(svc: Optional[dict[str, Any]]) -> Optional[str]:
+        """The Ready condition's message when the revision DEFINITIVELY failed
+        (Ready status == 'False'). None for True, Unknown, or absent -- a timeout
+        with no verdict is a slow boot, not a failure.
+        """
+        conditions = ((svc or {}).get("status") or {}).get("conditions") or []
+        ready = next((c for c in conditions if c.get("type") == "Ready"), None)
+        if ready and ready.get("status") == "False":
+            return str(ready.get("message") or "startup failed")
+        return None
+
+    @staticmethod
     def service_url(svc: Optional[dict[str, Any]]) -> Optional[str]:
         return ((svc or {}).get("status") or {}).get("url")

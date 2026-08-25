@@ -42,6 +42,7 @@ from hushh_mcp.services.compute_backend import (
     BACKEND_USER_GCP,
     BackendHandle,
     BackendStatus,
+    PodBootFailedError,
     PodSpec,
 )
 from hushh_mcp.services.gcp_backend import (
@@ -49,6 +50,9 @@ from hushh_mcp.services.gcp_backend import (
     GcpBackend,
     _env,
     _flag,
+    _liveness_mode,
+    _min_instances_for,
+    _rendered_min_scale,
     _service_name,
 )
 
@@ -785,6 +789,13 @@ class UserGcpBackend:
                 "ingress": "internal",
                 "bootstrap": "pending",
                 "keyless": True,
+                # Same tier resolution the renderer will apply, so the row records the
+                # rule this pod will be judged under. Without it the registry column's
+                # 'warm' default sticks and the liveness sweep probes -- and therefore
+                # wakes and bills -- a healthy sleeping economy pod.
+                "livenessMode": _liveness_mode(
+                    _min_instances_for(spec, self._inner._min_instances)
+                ),
             },
         )
 
@@ -848,6 +859,23 @@ class UserGcpBackend:
         ready, svc = await asyncio.to_thread(client.wait_ready, name)
         if ready:
             spec.emit_stage("host_serving")
+        else:
+            # The real parser, not the client instance: it is a pure function of the
+            # service JSON, and test doubles for the client need not carry it.
+            from hushh_mcp.services.gcp_run_client import GcpRunClient  # noqa: PLC0415
+
+            boot_failure = GcpRunClient.ready_failure(svc)
+            if boot_failure is not None:
+                # Ready==False is the platform's verdict, not a slow boot. Proceeding
+                # used to record 'connecting' for a host that will 503 forever. Raise
+                # BEFORE the invoker binding -- a dead service gets no invite -- and
+                # let provision()'s existing except-path record 'provisioning_failed'
+                # + the failed feed event. The created service is left in place: the
+                # heal path (get_service -> replace, digest-converging) and the
+                # owner's rebuild both handle it.
+                raise PodBootFailedError(
+                    f"pod {name} failed to start: {' '.join(boot_failure.split())[:200]}"
+                )
         # The hushh gateway is invited onto this ONE service. Without it the pod exists
         # and is reachable by nobody, which reads as a provisioning success and behaves
         # as a dead agent -- the same failure the managed tier hit and logged for.
@@ -898,6 +926,10 @@ class UserGcpBackend:
                 # -- the first point in this system where that header becomes a control
                 # rather than a consistency check.
                 "runtime_service_account": self._pod_service_account(spec),
+                # Read back from the config actually deployed -- the same contract as
+                # the managed tier's handles -- so the liveness sweep judges this pod
+                # under the rule it was built with (economy silence is healthy sleep).
+                "livenessMode": _liveness_mode(_rendered_min_scale(config)),
             },
         )
 
@@ -990,6 +1022,9 @@ class UserGcpBackend:
                     f"{pod_service_account_id(hushh_id)}@"
                     f"{self._user_project}.iam.gserviceaccount.com"
                 ),
+                # The tier the adopted pod ACTUALLY runs at, read from its own live
+                # service (minScale absent means 0 on Cloud Run) -- never a guess.
+                "livenessMode": _liveness_mode(_rendered_min_scale(svc)),
             },
         )
 

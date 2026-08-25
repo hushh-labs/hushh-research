@@ -29,7 +29,7 @@ from hushh_mcp.services.byoc_key_custody import (  # noqa: E402
     unwrap_dek,
     wrap_dek,
 )
-from hushh_mcp.services.compute_backend import PodSpec  # noqa: E402
+from hushh_mcp.services.compute_backend import PodBootFailedError, PodSpec  # noqa: E402
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend  # noqa: E402
 from hushh_mcp.services.user_gcp_bootstrap import (  # noqa: E402
     BOOTSTRAP_ROLES,
@@ -1207,6 +1207,10 @@ async def test_a_pod_that_fails_its_startup_probe_is_not_reported_live() -> None
     # The image copy is exercised by its own suite; here it is stubbed so this test stays
     # about the wait_ready unpacking. Returns a digest, as the real copy does.
     backend._ensure_pod_image = lambda _spec, _recorded=None: "sha256:" + "a" * 64  # noqa: SLF001
-    handle = await backend._execute_live(_spec())  # noqa: SLF001
-    assert handle.status != "live", "a pod that failed its startup probe is not live"
-    assert handle.backend_metadata["url"] == ""
+    # The contract has since tightened: Ready=='False' is the platform's DEFINITIVE
+    # verdict, so _execute_live now raises rather than returning any handle at all --
+    # provision()'s except-path records 'provisioning_failed' with its own reason.
+    # (A verdict-less timeout still returns a 'deploying' handle; that case is pinned
+    # by test_a_slow_boot_still_returns_a_deploying_handle.)
+    with pytest.raises(PodBootFailedError):
+        await backend._execute_live(_spec())  # noqa: SLF001

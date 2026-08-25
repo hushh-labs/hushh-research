@@ -9,9 +9,11 @@ import pytest
 from hushh_mcp.services.compute_backend import (
     BACKEND_USER_GCP,
     ComputeBackend,
+    PodBootFailedError,
     PodSpec,
     resolve_compute_backend,
 )
+from hushh_mcp.services.gcp_run_client import GcpRunClient
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 
 
@@ -256,3 +258,88 @@ async def test_discover_is_none_in_plan_mode():
     # Plan mode holds no impersonated client; there is nothing to discover.
     planned = UserGcpBackend(user_project="acme", live=False)
     assert await planned.discover("ha1abc") is None
+
+
+# -- the boot verdict in the live path ---------------------------------------------
+# `wait_ready` returning (False, svc) covers two truths that need opposite endings:
+# Ready=='False' is the platform's DEFINITIVE verdict that the revision failed to
+# start, while a timeout with no verdict is merely a slow boot. Conflating them
+# recorded 'connecting' for a host that will 503 forever.
+
+
+class _BootVerdictClient:
+    """A Cloud Run client whose existing service answers `wait_ready` with a canned
+    Ready condition. The REAL `ready_failure` parser rides along, because that is
+    the classification `_execute_live` consults (via `type(client)`) -- a fake one
+    here would test the fake."""
+
+    ready_failure = staticmethod(GcpRunClient.ready_failure)
+    service_url = staticmethod(GcpRunClient.service_url)
+
+    def __init__(self, ready_condition: dict | None) -> None:
+        self._svc = {
+            "metadata": {"name": "one-pod-ha1abc234def"},
+            "status": {
+                "url": "https://one-pod-ha1abc234def.run.app",
+                "conditions": [ready_condition] if ready_condition else [],
+            },
+        }
+        self.invited: list = []
+
+    def get_service(self, name):  # noqa: ARG002
+        return self._svc
+
+    @staticmethod
+    def merge_for_replace(existing, desired):  # noqa: ARG004
+        return desired
+
+    def replace_service(self, name, config):  # noqa: ARG002
+        return self._svc
+
+    def wait_ready(self, name):  # noqa: ARG002
+        return False, self._svc
+
+    def set_invoker_binding(self, name, member):
+        self.invited.append((name, member))
+
+
+def _live_backend(monkeypatch, client: _BootVerdictClient) -> UserGcpBackend:
+    live = UserGcpBackend(
+        user_project="acme-user-proj",
+        image="gcr.io/hushh-pda-dev/one-pod:slim-x",
+        hushh_invoker_sa="consent-plane@hushh.iam.gserviceaccount.com",
+        live=True,
+    )
+    monkeypatch.setattr(live, "_client", lambda: client)
+    # The image copy is Artifact Registry I/O; its digest is all the render needs.
+    monkeypatch.setattr(
+        live, "_ensure_pod_image", lambda spec, recorded_digest=None: "sha256:" + "a" * 64
+    )
+    return live
+
+
+async def test_a_definitively_failed_boot_raises_rather_than_reporting_deploying(monkeypatch):
+    client = _BootVerdictClient(
+        {"type": "Ready", "status": "False", "message": "container failed to start and listen"}
+    )
+    live = _live_backend(monkeypatch, client)
+
+    with pytest.raises(PodBootFailedError, match="failed to start"):
+        await live._execute_live(_spec())
+
+    # A dead service gets no invite: the raise lands BEFORE the invoker binding, so
+    # provision()'s except-path records 'provisioning_failed' instead of 'connecting'.
+    assert client.invited == []
+
+
+async def test_a_slow_boot_still_returns_a_deploying_handle(monkeypatch):
+    # Ready=='Unknown' is a timeout with NO verdict -- a slow boot, not a failure,
+    # and it must never be promoted to one.
+    client = _BootVerdictClient({"type": "Ready", "status": "Unknown"})
+    live = _live_backend(monkeypatch, client)
+
+    handle = await live._execute_live(_spec())
+
+    assert handle.status == "deploying"
+    # The path continued past the verdict check: the gateway invite still happened.
+    assert client.invited
