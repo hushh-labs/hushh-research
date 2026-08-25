@@ -60,8 +60,11 @@ def build_report(prod_contract_path: Path, integrated_contract_path: Path) -> di
     missing_functions = sorted(integrated_functions - prod_functions)
     base = manifest.get("ordered_migrations") or []
     uat_overlay = (manifest.get("environment_overlays") or {}).get("uat") or []
-    base_head = int(base[-1].split("_", 1)[0]) if base else None
-    uat_head = int(uat_overlay[-1].split("_", 1)[0]) if uat_overlay else base_head
+    base_versions = [int(name.split("_", 1)[0]) for name in base]
+    overlay_versions = [int(name.split("_", 1)[0]) for name in uat_overlay]
+    base_head = max(base_versions) if base_versions else None
+    merged_versions = base_versions + overlay_versions
+    uat_head = max(merged_versions) if merged_versions else None
     expected_overlay_tables = sorted(UAT_ONLY_TABLES)
     overlay_is_exact = missing_tables == expected_overlay_tables
     versions_match_lanes = (

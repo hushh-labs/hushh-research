@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 174,
+  "expected_migration_version": 175,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -53,6 +53,9 @@
       "last_active_persona",
       "investor_marketplace_opt_in",
       "contact_discoverable",
+      "contact_sync_consent_enabled_at",
+      "contact_sync_consent_rule_version",
+      "contact_sync_consent_contract_version",
       "created_at",
       "updated_at"
     ],
@@ -1261,6 +1264,13 @@
       "updated_at",
       "revoked_at",
       "metadata"
+    ],
+    "contact_sync_lookup_budgets": [
+      "user_id",
+      "bucket_kind",
+      "bucket_start",
+      "lookup_count",
+      "updated_at"
     ],
     "kai_plaid_items": [
       "item_id",

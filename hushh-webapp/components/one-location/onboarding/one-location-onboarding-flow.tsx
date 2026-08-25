@@ -19,6 +19,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
 import {
   READY_CODE_CLASSNAME,
@@ -76,6 +77,7 @@ export type OnboardingCircleInvite = {
 export type OnboardingContactMatch = {
   userId: string;
   displayName: string;
+  connectionStatus: "connected" | "request_required" | "suppressed";
 };
 
 /**
@@ -1120,6 +1122,10 @@ function ContactsScreen({
   onContinue: () => void;
   leaving: boolean;
 }) {
+  const MATCH_PAGE_SIZE = 100;
+  const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_PAGE_SIZE);
+  useEffect(() => setVisibleMatchCount(MATCH_PAGE_SIZE), [matches]);
+  const visibleMatches = matches.slice(0, visibleMatchCount);
   const primed = state.kind === "idle" || state.kind === "busy";
   const contactOperationBusy = state.kind === "busy";
   const navigationDisabled = leaving || contactOperationBusy;
@@ -1157,7 +1163,7 @@ function ContactsScreen({
           {primed
             ? "Find contacts already on One."
             : state.kind === "matched"
-              ? "Add anyone you trust."
+              ? "Connected matches are ready. You can request the rest."
               : "You can always find people later from the People tab."}
         </p>
 
@@ -1177,7 +1183,9 @@ function ContactsScreen({
                   <p className="text-[14px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
                     One sends a protected match code and the last four digits,
                     not names or full phone numbers. Your contact list is never
-                    stored, and nobody is contacted for you.
+                    stored. A match connects automatically only when that person
+                    has allowed contact connections; otherwise you can choose
+                    whether to send a request.
                   </p>
                   <PrimaryButton onClick={onSync} disabled={leaving}>
                     {source === "google"
@@ -1192,33 +1200,63 @@ function ContactsScreen({
 
         {state.kind === "matched" ? (
           <ul className="mt-6 space-y-2" data-testid="onboarding-contact-matches">
-            {matches.map((match) => {
+            {visibleMatches.map((match) => {
               const added = addedUserIds.includes(match.userId);
               const adding = addingUserIds.includes(match.userId);
+              const connected = match.connectionStatus === "connected";
+              const requestRequired = match.connectionStatus === "request_required";
               return (
                 <li
                   key={match.userId}
                   className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
                 >
-                  <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[#151b26] dark:text-[color:var(--app-label)]">
-                    {match.displayName}
+                  <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-medium text-[#151b26] dark:text-[color:var(--app-label)]">
+                    <span className="min-w-0 truncate">{match.displayName}</span>
+                    {connected ? <ContactSourceBadge /> : null}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => onAdd(match.userId)}
-                    disabled={added || adding || leaving}
-                    className="press-scale inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
-                  >
-                    {adding ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : added ? (
-                      <Check className="h-4 w-4" strokeWidth={2.5} />
-                    ) : null}
-                    {added ? "Requested" : adding ? "Adding" : "Add"}
-                  </button>
+                  {requestRequired ? (
+                    <button
+                      type="button"
+                      onClick={() => onAdd(match.userId)}
+                      disabled={added || adding || leaving}
+                      className="press-scale inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                    >
+                      {adding ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : added ? (
+                        <Check className="h-4 w-4" strokeWidth={2.5} />
+                      ) : null}
+                      {added ? "Requested" : adding ? "Sending" : "Request"}
+                    </button>
+                  ) : (
+                    <span className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold text-[#5c626c] dark:text-[#aeb8c7]">
+                      {connected ? (
+                        <Check className="h-4 w-4 text-emerald-600" />
+                      ) : null}
+                      {connected ? "Connected" : "Not connected"}
+                    </span>
+                  )}
                 </li>
               );
             })}
+            {visibleMatches.length < matches.length ? (
+              <li className="flex flex-col items-center gap-2 pt-2">
+                <span className="text-xs text-[#73777f]" aria-live="polite">
+                  Showing {visibleMatches.length} of {matches.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setVisibleMatchCount((current) =>
+                      Math.min(current + MATCH_PAGE_SIZE, matches.length),
+                    )
+                  }
+                  className="press-scale min-h-11 rounded-full border border-[#e4e6e9] px-5 text-sm font-semibold dark:border-white/[0.08]"
+                >
+                  Show more
+                </button>
+              </li>
+            ) : null}
           </ul>
         ) : null}
 

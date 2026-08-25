@@ -25,6 +25,11 @@ import {
   CACHE_KEYS,
   CACHE_TTL,
 } from "@/lib/services/cache-service";
+import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import {
+  readLocationWorkspaceMemory,
+  writeLocationWorkspaceMemory,
+} from "@/lib/one-location/location-workspace-memory";
 
 describe("CacheSyncService mutation cascades", () => {
   const userId = "test-user-123";
@@ -97,6 +102,26 @@ describe("CacheSyncService mutation cascades", () => {
 
     const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
     expect(invalidatedKeys).toContain(CACHE_KEYS.CONNECTIONS_INCOMING(userId));
+  });
+
+  it("onConnectionGraphMutated also invalidates the combined One Location projection", () => {
+    const invalidateLocation = vi.spyOn(OneLocationStateResource, "invalidate");
+    writeLocationWorkspaceMemory(userId, {
+      myLocationPoint: {
+        latitude: 1,
+        longitude: 2,
+        capturedAt: "2026-08-25T00:00:00Z",
+        sourcePlatform: "web",
+      },
+      decryptedPoints: {},
+    });
+
+    CacheSyncService.onConnectionGraphMutated(userId);
+
+    expect(invalidateLocation).toHaveBeenCalledWith(userId);
+    const invalidatedKeys = spyInvalidate.mock.calls.map((call) => call[0]);
+    expect(invalidatedKeys).toContain(CACHE_KEYS.CONNECTIONS_INCOMING(userId));
+    expect(readLocationWorkspaceMemory(userId).myLocationPoint).toBeNull();
   });
 
   // ---------- 2. onPersonaStateChanged without preservePersonaState ----------

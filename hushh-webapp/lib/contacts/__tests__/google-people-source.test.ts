@@ -174,7 +174,7 @@ describe("googlePeopleContactSource", () => {
     expect(result.defaultRegion).toBeNull();
   });
 
-  it("drops contacts with no phone number", async () => {
+  it("retains returned people with no usable phone as uncheckable rows", async () => {
     respondWith({
       connections: [
         { resourceName: "a", names: [{ displayName: "Has" }], phoneNumbers: [{ value: "+911" }] },
@@ -184,9 +184,30 @@ describe("googlePeopleContactSource", () => {
     });
 
     const result = await googlePeopleContactSource("tok")({ limit: 500 });
-    // A contact with no number cannot produce a digest, so carrying it would
-    // only inflate the count reported back to the person.
-    expect(result.contacts).toHaveLength(1);
+    expect(result.contacts).toHaveLength(3);
+    expect(result.contacts.map((contact) => contact.phoneNumbers)).toEqual([
+      ["+911"],
+      [],
+      [],
+    ]);
+  });
+
+  it("applies the read limit to person rows, including people with no phone", async () => {
+    respondWith({
+      connections: [
+        { resourceName: "a", names: [{ displayName: "None 1" }], phoneNumbers: [] },
+        { resourceName: "b", names: [{ displayName: "None 2" }], phoneNumbers: [] },
+        { resourceName: "c", names: [{ displayName: "Has" }], phoneNumbers: [{ value: "+911" }] },
+      ],
+      totalPeople: 3,
+    });
+
+    const result = await googlePeopleContactSource("tok")({ limit: 2 });
+
+    expect(result.contacts).toHaveLength(2);
+    expect(result.contacts.every((contact) => contact.phoneNumbers.length === 0)).toBe(true);
+    expect(result.totalAvailable).toBe(3);
+    expect(result.truncated).toBe(true);
   });
 
   it("follows pages and reports truncation honestly", async () => {

@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import type { LocationHubViewModel } from "@/components/one-location/redesign/location-redesign-hub";
-import type { OneLocationRecipient } from "@/lib/one-location/types";
+import type {
+  OneLocationCircleSummary,
+  OneLocationRecipient,
+} from "@/lib/one-location/types";
 
 function currentPoint() {
   return {
@@ -15,7 +18,11 @@ function currentPoint() {
   };
 }
 
-function recipient(userId: string, displayName: string): OneLocationRecipient {
+function recipient(
+  userId: string,
+  displayName: string,
+  connectedFromContacts = false,
+): OneLocationRecipient {
   return {
     userId,
     displayName,
@@ -24,6 +31,7 @@ function recipient(userId: string, displayName: string): OneLocationRecipient {
     publicKeyJwk: { kty: "EC" },
     keyAlgorithm: "ECDH-ES+A256GCM",
     canReceiveLocation: true,
+    connectedFromContacts,
   };
 }
 
@@ -33,7 +41,7 @@ function viewModel(
 ): LocationHubViewModel {
   const point = currentPoint();
   const recipients = [
-    recipient("user-aarav", "Aarav Mehta"),
+    recipient("user-aarav", "Aarav Mehta", true),
     recipient("user-maya", "Maya Chen"),
   ];
   return {
@@ -55,6 +63,63 @@ function viewModel(
 describe("CheckInFlow nearby private-sharing handoff", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("identifies a connected person who came from contact sync", () => {
+    render(
+      <CheckInFlow
+        vm={viewModel(vi.fn())}
+        entrySource="nearby"
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByLabelText("Connected from your contacts"),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps Trusted out of private Check-In while preserving direct contacts and deliberate Circles", () => {
+    const onCheckIn = vi.fn<LocationHubViewModel["onCheckIn"]>();
+    const vm = viewModel(onCheckIn);
+    const circles: OneLocationCircleSummary[] = [
+      {
+        id: "trusted-circle",
+        name: "Trusted",
+        kind: "other",
+        role: "owner",
+        memberCount: 5000,
+        memberLimit: null,
+        systemKind: "trusted",
+      },
+      {
+        id: "family-circle",
+        name: "Family",
+        kind: "family",
+        role: "owner",
+        memberCount: 3,
+        memberLimit: 100,
+        systemKind: null,
+      },
+      {
+        id: "sms-circle",
+        name: "SMS Circle",
+        kind: "other",
+        role: "owner",
+        memberCount: 4,
+        memberLimit: 100,
+        isSystem: true,
+        systemKind: "sms",
+      },
+    ];
+    vm.circles = circles;
+
+    render(<CheckInFlow vm={vm} entrySource="nearby" onClose={vi.fn()} />);
+
+    expect(screen.queryByText("Trusted")).not.toBeInTheDocument();
+    expect(screen.getByText("Family")).toBeInTheDocument();
+    expect(screen.getByText("SMS Circle")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Aarav Mehta/ })).toBeEnabled();
   });
 
   it("recenters a confirmed check-in without capturing location again", async () => {

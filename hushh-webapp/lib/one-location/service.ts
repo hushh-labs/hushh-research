@@ -23,10 +23,13 @@ import type {
   OneLocationCircleInvite,
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnections,
+  OneLocationCircleEligibleConnectionsPage,
   OneLocationCircleInviteCode,
   OneLocationCircleInvitePreview,
   OneLocationCircleKind,
   OneLocationCircleMemberInvite,
+  OneLocationCircleMemberPage,
+  OneLocationCircleOverview,
   OneLocationCircleSummary,
   OneLocationEncryptedEnvelope,
   OneLocationStoredEnvelope,
@@ -42,6 +45,7 @@ import type {
   OneLocationPublicInvite,
   OneLocationPublicInviteSubmission,
   OneLocationRecipient,
+  OneLocationRecipientPage,
   OneLocationReferral,
   OneLocationShareDurationMode,
   OneLocationState,
@@ -422,6 +426,23 @@ export class OneLocationService {
     return response.recipients ?? [];
   }
 
+  static async listRecipientsPage(params: {
+    vaultOwnerToken: string;
+    page?: number;
+    limit?: number;
+    query?: string;
+  }): Promise<OneLocationRecipientPage> {
+    const search = new URLSearchParams({
+      page: String(params.page ?? 1),
+      limit: String(params.limit ?? 50),
+    });
+    if (params.query?.trim()) search.set("query", params.query.trim());
+    return apiJson<OneLocationRecipientPage>(
+      `/api/one/location/recipients?${search.toString()}`,
+      { headers: authHeaders(params.vaultOwnerToken) },
+    );
+  }
+
   static async listCircles(
     vaultOwnerToken: string,
   ): Promise<OneLocationCircleSummary[]> {
@@ -441,6 +462,35 @@ export class OneLocationService {
       { headers: authHeaders(params.vaultOwnerToken) },
     );
     return response.circle;
+  }
+
+  static async getCircleOverview(params: {
+    vaultOwnerToken: string;
+    circleId: string;
+  }): Promise<OneLocationCircleOverview> {
+    const response = await apiJson<{ circle: OneLocationCircleOverview }>(
+      `/api/one/location/circles/${encodeURIComponent(params.circleId)}/overview`,
+      { headers: authHeaders(params.vaultOwnerToken) },
+    );
+    return response.circle;
+  }
+
+  static async listCircleMembersPage(params: {
+    vaultOwnerToken: string;
+    circleId: string;
+    page?: number;
+    limit?: number;
+    query?: string;
+  }): Promise<OneLocationCircleMemberPage> {
+    const search = new URLSearchParams({
+      page: String(params.page ?? 1),
+      limit: String(params.limit ?? 50),
+    });
+    if (params.query?.trim()) search.set("query", params.query.trim());
+    return apiJson<OneLocationCircleMemberPage>(
+      `/api/one/location/circles/${encodeURIComponent(params.circleId)}/members?${search.toString()}`,
+      { headers: authHeaders(params.vaultOwnerToken) },
+    );
   }
 
   /**
@@ -475,9 +525,12 @@ export class OneLocationService {
    */
   static async ensureTrustedSystemCircle(params: {
     vaultOwnerToken: string;
-  }): Promise<OneLocationCircleDetail> {
-    const response = await apiJson<{ circle: OneLocationCircleDetail }>(
-      "/api/one/location/circles/trusted",
+    summaryOnly?: boolean;
+  }): Promise<OneLocationCircleDetail | OneLocationCircleOverview> {
+    const response = await apiJson<{
+      circle: OneLocationCircleDetail | OneLocationCircleOverview;
+    }>(
+      `/api/one/location/circles/trusted${params.summaryOnly ? "?summaryOnly=true" : ""}`,
       { method: "POST", headers: authHeaders(params.vaultOwnerToken) },
     );
     return response.circle;
@@ -683,6 +736,42 @@ export class OneLocationService {
           ? Number(response.remainingCapacity)
           : (response.eligibleConnections ?? response.connections ?? []).length,
       ),
+    };
+  }
+
+  static async listNamedCircleEligibleConnectionsPage(params: {
+    vaultOwnerToken: string;
+    circleId: string;
+    page?: number;
+    limit?: number;
+    query?: string;
+  }): Promise<OneLocationCircleEligibleConnectionsPage> {
+    const search = new URLSearchParams({
+      page: String(params.page ?? 1),
+      limit: String(params.limit ?? 50),
+    });
+    if (params.query?.trim()) search.set("query", params.query.trim());
+    const response = await apiJson<{
+      eligibleConnections?: OneLocationCircleEligibleConnections["eligibleConnections"];
+      connections?: OneLocationCircleEligibleConnections["eligibleConnections"];
+      pendingInvites?: OneLocationCircleMemberInvite[];
+      remainingCapacity?: number;
+      page?: number;
+      hasMore?: boolean;
+      totalCount?: number;
+    }>(
+      `/api/one/location/circles/${encodeURIComponent(params.circleId)}/eligible-connections?${search.toString()}`,
+      { headers: authHeaders(params.vaultOwnerToken) },
+    );
+    const eligibleConnections =
+      response.eligibleConnections ?? response.connections ?? [];
+    return {
+      eligibleConnections,
+      pendingInvites: response.pendingInvites ?? [],
+      remainingCapacity: Math.max(0, Number(response.remainingCapacity ?? 0)),
+      page: Math.max(1, Number(response.page ?? params.page ?? 1)),
+      hasMore: Boolean(response.hasMore),
+      totalCount: Math.max(0, Number(response.totalCount ?? eligibleConnections.length)),
     };
   }
 
