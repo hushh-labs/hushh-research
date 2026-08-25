@@ -258,6 +258,15 @@ export default function ProfileGmailOAuthReturnPageClient({
       // the Gmail URL or storage would make the faster handoff less safe.
       beginGmailOAuthCompletion(user.uid);
       router.replace(ROUTES.GMAIL);
+    } else {
+      // The main Gmail window already has its shell mounted. Bring it forward
+      // while this popup safely finishes the exchange, rather than leaving the
+      // person staring at a transient callback window.
+      try {
+        window.opener?.focus();
+      } catch {
+        // Browser focus policy is best effort; settlement still follows.
+      }
     }
 
     void (async () => {
