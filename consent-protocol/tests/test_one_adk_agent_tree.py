@@ -1968,6 +1968,163 @@ class TestBackendDirectConnectionActions:
         called_request_ids = {c.kwargs["request_id"] for c in cancel_mock.call_args_list}
         assert called_request_ids == {"req1", "req2"}
 
+    @pytest.mark.asyncio
+    async def test_send_request_resolves_via_directory_search_and_sends(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "search_directory",
+                autospec=True,
+                return_value={
+                    "items": [
+                        {"userId": "u1", "displayName": "Sarah Chen", "relationship": "none"}
+                    ],
+                    "hasMore": False,
+                },
+            ) as search_mock,
+            patch.object(ConnectionsService, "create_request", autospec=True) as create_mock,
+        ):
+            result = await run_app_action(
+                "connect.send_request", {"person": "Sarah"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "Sarah Chen" in result["message"]
+        assert search_mock.call_args.kwargs["query"] == "Sarah"
+        create_mock.assert_called_once()
+        assert create_mock.call_args.args[1] == "user_1"
+        assert create_mock.call_args.kwargs == {"addressee_user_id": "u1"}
+
+    @pytest.mark.asyncio
+    async def test_send_request_handles_multiple_people_in_one_turn(self):
+        state = self._authorized_state()
+
+        def fake_search_directory(self, user_id, *, query, page, limit):
+            people = {
+                "Sarah": {"userId": "u1", "displayName": "Sarah Chen", "relationship": "none"},
+                "Abdul": {"userId": "u2", "displayName": "Abdul Gaffar", "relationship": "none"},
+            }
+            return {"items": [people[query]], "hasMore": False}
+
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "search_directory",
+                autospec=True,
+                side_effect=fake_search_directory,
+            ),
+            patch.object(ConnectionsService, "create_request", autospec=True) as create_mock,
+        ):
+            result = await run_app_action(
+                "connect.send_request", {"person": "Sarah Chen and Abdul"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "Sarah Chen" in result["message"]
+        assert "Abdul Gaffar" in result["message"]
+        assert create_mock.call_count == 2
+        called_ids = {c.kwargs["addressee_user_id"] for c in create_mock.call_args_list}
+        assert called_ids == {"u1", "u2"}
+
+    @pytest.mark.asyncio
+    async def test_send_request_reports_already_connected_as_success_not_failure(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "search_directory",
+                autospec=True,
+                return_value={
+                    "items": [
+                        {"userId": "u1", "displayName": "Sarah Chen", "relationship": "connected"}
+                    ],
+                    "hasMore": False,
+                },
+            ),
+            patch.object(ConnectionsService, "create_request", autospec=True) as create_mock,
+        ):
+            result = await run_app_action(
+                "connect.send_request", {"person": "Sarah"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "already connected" in result["message"].lower()
+        create_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_request_blocks_a_pending_outgoing_request_without_resending(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "search_directory",
+                autospec=True,
+                return_value={
+                    "items": [
+                        {
+                            "userId": "u1",
+                            "displayName": "Sarah Chen",
+                            "relationship": "pending_outgoing",
+                        }
+                    ],
+                    "hasMore": False,
+                },
+            ),
+            patch.object(ConnectionsService, "create_request", autospec=True) as create_mock,
+        ):
+            result = await run_app_action(
+                "connect.send_request", {"person": "Sarah"}, _tool_context(state)
+            )
+        assert result["status"] == "failed"
+        assert "waiting on them" in result["message"].lower()
+        create_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_request_reports_ambiguous_matches_instead_of_guessing(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "search_directory",
+                autospec=True,
+                return_value={
+                    "items": [
+                        {"userId": "u1", "displayName": "Sarah Chen", "relationship": "none"},
+                        {"userId": "u2", "displayName": "Sarah Lee", "relationship": "none"},
+                    ],
+                    "hasMore": False,
+                },
+            ),
+            patch.object(ConnectionsService, "create_request", autospec=True) as create_mock,
+        ):
+            result = await run_app_action(
+                "connect.send_request", {"person": "Sarah"}, _tool_context(state)
+            )
+        assert result["status"] == "failed"
+        assert "more than one person" in result["message"].lower()
+        create_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_request_names_the_person_it_could_not_find(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "search_directory",
+                autospec=True,
+                return_value={"items": [], "hasMore": False},
+            ),
+        ):
+            result = await run_app_action(
+                "connect.send_request", {"person": "Zachary"}, _tool_context(state)
+            )
+        assert result["status"] == "failed"
+        assert "zachary" in result["message"].lower()
+
 
 class TestBackendDirectLocationReadTools:
     """list_my_location_circles / list_my_location_shares /
