@@ -1458,6 +1458,112 @@ class TestBackendDirectGrantActions:
         assert result["status"] == "failed"
         assert "nobody is waiting" in result["message"].lower()
 
+    @pytest.mark.asyncio
+    async def test_stop_share_handles_multiple_people_in_one_turn(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_active_owner_grants",
+                autospec=True,
+                return_value=[
+                    {"id": "g1", "recipientDisplayName": "Sarah Chen"},
+                    {"id": "g2", "recipientDisplayName": "Abdul Gaffar"},
+                ],
+            ),
+            patch.object(OneLocationAgentService, "revoke_grant", autospec=True) as revoke_mock,
+        ):
+            result = await run_app_action(
+                "location.stop_share", {"person": "Sarah Chen and Abdul"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "Sarah Chen" in result["message"]
+        assert "Abdul Gaffar" in result["message"]
+        assert revoke_mock.call_count == 2
+        called_grant_ids = {c.kwargs["grant_id"] for c in revoke_mock.call_args_list}
+        assert called_grant_ids == {"g1", "g2"}
+
+    @pytest.mark.asyncio
+    async def test_stop_share_reports_names_it_could_not_match_alongside_the_ones_that_worked(
+        self,
+    ):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_active_owner_grants",
+                autospec=True,
+                return_value=[{"id": "g1", "recipientDisplayName": "Sarah Chen"}],
+            ),
+            patch.object(OneLocationAgentService, "revoke_grant", autospec=True) as revoke_mock,
+        ):
+            result = await run_app_action(
+                "location.stop_share", {"person": "Sarah Chen and Zachary"}, _tool_context(state)
+            )
+        # Whoever DID resolve is still acted on -- a name that fails to
+        # resolve must never silently withhold the ones that did.
+        assert result["status"] == "completed"
+        assert "Sarah Chen" in result["message"]
+        assert "Zachary" in result["message"]
+        revoke_mock.assert_called_once()
+        assert revoke_mock.call_args.kwargs == {"owner_user_id": "user_1", "grant_id": "g1"}
+
+    @pytest.mark.asyncio
+    async def test_approve_request_handles_multiple_people_in_one_turn(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_pending_owner_requests",
+                autospec=True,
+                return_value=[
+                    {"id": "r1", "requesterDisplayName": "Sarah Chen"},
+                    {"id": "r2", "requesterDisplayName": "Abdul Gaffar"},
+                ],
+            ),
+            patch.object(OneLocationAgentService, "approve_request", autospec=True) as approve_mock,
+        ):
+            result = await run_app_action(
+                "location.approve_request",
+                {"person": "Sarah Chen and Abdul"},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        assert "Sarah Chen" in result["message"]
+        assert "Abdul Gaffar" in result["message"]
+        assert approve_mock.call_count == 2
+        called_request_ids = {c.kwargs["request_id"] for c in approve_mock.call_args_list}
+        assert called_request_ids == {"r1", "r2"}
+
+    @pytest.mark.asyncio
+    async def test_decline_request_handles_multiple_people_in_one_turn(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_pending_owner_requests",
+                autospec=True,
+                return_value=[
+                    {"id": "r1", "requesterDisplayName": "Sarah Chen"},
+                    {"id": "r2", "requesterDisplayName": "Abdul Gaffar"},
+                ],
+            ),
+            patch.object(OneLocationAgentService, "deny_request", autospec=True) as deny_mock,
+        ):
+            result = await run_app_action(
+                "location.decline_request",
+                {"person": "Sarah Chen and Abdul"},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        assert deny_mock.call_count == 2
+        called_request_ids = {c.kwargs["request_id"] for c in deny_mock.call_args_list}
+        assert called_request_ids == {"r1", "r2"}
+
 
 class TestBackendDirectCircleMembershipActions:
     """location.create_circle / add_to_circle / rename_circle."""
@@ -1783,6 +1889,84 @@ class TestBackendDirectConnectionActions:
             )
         assert result["status"] == "failed"
         assert "no pending request" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_remove_connection_confirmation_names_every_resolved_person(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[
+                    {"connectionId": "cx1", "displayName": "Sarah Chen"},
+                    {"connectionId": "cx2", "displayName": "Abdul Gaffar"},
+                ],
+            ),
+            patch.object(ConnectionsService, "remove_connection", autospec=True) as remove_mock,
+        ):
+            result = await run_app_action(
+                "connect.remove_connection",
+                {"person": "Sarah Chen and Abdul"},
+                _tool_context(state),
+            )
+        assert result["status"] == "blocked"
+        assert "sarah chen" in result["message"].lower()
+        assert "abdul gaffar" in result["message"].lower()
+        remove_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_remove_connection_confirmed_removes_every_resolved_person(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[
+                    {"connectionId": "cx1", "displayName": "Sarah Chen"},
+                    {"connectionId": "cx2", "displayName": "Abdul Gaffar"},
+                ],
+            ),
+            patch.object(ConnectionsService, "remove_connection", autospec=True) as remove_mock,
+        ):
+            result = await run_app_action(
+                "connect.remove_connection",
+                {"person": "Sarah Chen and Abdul", "confirmed": True},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        assert remove_mock.call_count == 2
+        called_connection_ids = {c.kwargs["connection_id"] for c in remove_mock.call_args_list}
+        assert called_connection_ids == {"cx1", "cx2"}
+
+    @pytest.mark.asyncio
+    async def test_cancel_request_handles_multiple_people_in_one_turn(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_requests",
+                autospec=True,
+                return_value=[
+                    {"id": "req1", "counterpartDisplayName": "Sarah Chen"},
+                    {"id": "req2", "counterpartDisplayName": "Abdul Gaffar"},
+                ],
+            ),
+            patch.object(ConnectionsService, "cancel_request", autospec=True) as cancel_mock,
+        ):
+            result = await run_app_action(
+                "connect.cancel_request",
+                {"person": "Sarah Chen and Abdul"},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        assert cancel_mock.call_count == 2
+        called_request_ids = {c.kwargs["request_id"] for c in cancel_mock.call_args_list}
+        assert called_request_ids == {"req1", "req2"}
 
 
 class TestBackendDirectLocationReadTools:
