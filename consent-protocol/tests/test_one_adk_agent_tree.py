@@ -23,9 +23,12 @@ import pytest
 from hushh_mcp.adk_bridge.contract import A2ADirective, SpecialistTurnResult
 from hushh_mcp.one_adk import agent_tree as _tree
 from hushh_mcp.one_adk.action_tools import (
+    _STATE_CONSENT_TOKEN,
     _STATE_GOAL_RUN,
     _STATE_PENDING_DIRECTIVE,
     _STATE_SCREEN,
+    _STATE_USER_ID,
+    BACKEND_DIRECT_ACTION_IDS,
     _directive_flags,
     _is_journey_startable,
     _journey_slots,
@@ -52,11 +55,14 @@ from hushh_mcp.one_adk.agent_tree import (
     open_screen,
 )
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
+from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.live_voice_context import (
     clear_live_voice_context,
     publish_live_voice_context,
     read_live_voice_context,
 )
+from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
 
 
 class TestAgentTreeShape:
@@ -779,6 +785,8 @@ class TestRunAppAction:
     def test_state_keys_stay_in_sync_with_agent_tree(self):
         assert _STATE_PENDING_DIRECTIVE == _tree.STATE_PENDING_DIRECTIVE
         assert _STATE_SCREEN == _tree.STATE_SCREEN
+        assert _STATE_USER_ID == STATE_USER_ID
+        assert _STATE_CONSENT_TOKEN == STATE_CONSENT_TOKEN
 
     @pytest.mark.asyncio
     async def test_unknown_action_never_infers_a_fallback(self):
@@ -1072,6 +1080,685 @@ class TestRunAppAction:
             state[f"{_STATE_PENDING_DIRECTIVE}:route.consents"]["payload"]["actionId"]
             == "route.consents"
         )
+
+
+def test_every_backend_direct_action_id_still_exists_in_the_action_gateway() -> None:
+    """A future manifest regen that drops or renames one of these ids would
+    otherwise fail silently -- get_action_gateway_action() would start
+    returning None and run_app_action would answer "unknown_action" with no
+    test anywhere noticing. This is the one guard standing between a
+    contract change and a voice action quietly going dark."""
+    for action_id in BACKEND_DIRECT_ACTION_IDS:
+        assert get_action_gateway_action(action_id) is not None, (
+            f"{action_id} is in BACKEND_DIRECT_ACTION_IDS but missing from the "
+            "generated action gateway manifest"
+        )
+
+
+class TestBackendDirectCircleActions:
+    """location.leave_circle / location.delete_circle bypass the client
+    directive entirely and mutate through OneLocationCircleService directly.
+    No client_directive should ever be parked for these two."""
+
+    def _authorized_state(self) -> dict:
+        return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
+
+    def _valid_token(self, user_id: str = "user_1"):
+        return (True, None, SimpleNamespace(user_id=user_id))
+
+    @pytest.mark.asyncio
+    async def test_leave_circle_executes_directly_and_parks_nothing(self):
+        state = self._authorized_state()
+        with (
+            patch(
+                "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+                new=AsyncMock(return_value=self._valid_token()),
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(OneLocationCircleService, "leave_circle", autospec=True) as leave_mock,
+        ):
+            result = await run_app_action(
+                "location.leave_circle", {"circle": "family"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "Family" in result["message"]
+        # autospec'd instance methods record the instance as the first
+        # positional arg -- assert on the keyword args a real caller used.
+        leave_mock.assert_called_once()
+        assert leave_mock.call_args.kwargs == {"user_id": "user_1", "circle_id": "c1"}
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
+
+    @pytest.mark.asyncio
+    async def test_delete_circle_executes_directly(self):
+        state = self._authorized_state()
+        with (
+            patch(
+                "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+                new=AsyncMock(return_value=self._valid_token()),
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Roommates"}],
+            ),
+            patch.object(OneLocationCircleService, "delete_circle", autospec=True) as delete_mock,
+        ):
+            result = await run_app_action(
+                "location.delete_circle", {"circle": "roommates"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        delete_mock.assert_called_once()
+        assert delete_mock.call_args.kwargs == {"owner_user_id": "user_1", "circle_id": "c1"}
+
+    @pytest.mark.asyncio
+    async def test_refuses_without_a_consent_token(self):
+        state = {STATE_USER_ID: "user_1"}  # no STATE_CONSENT_TOKEN
+        result = await run_app_action(
+            "location.leave_circle", {"circle": "family"}, _tool_context(state)
+        )
+        assert result["status"] == "blocked"
+        assert "locked" in result["message"].lower()
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
+
+    @pytest.mark.asyncio
+    async def test_refuses_when_token_fails_revalidation(self):
+        state = self._authorized_state()
+        with patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=(False, "expired", None)),
+        ):
+            result = await run_app_action(
+                "location.leave_circle", {"circle": "family"}, _tool_context(state)
+            )
+        assert result["status"] == "blocked"
+
+    @pytest.mark.asyncio
+    async def test_refuses_when_token_belongs_to_a_different_user(self):
+        # Structurally shouldn't happen, but must refuse rather than trust it.
+        state = self._authorized_state()
+        with patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=self._valid_token(user_id="someone_else")),
+        ):
+            result = await run_app_action(
+                "location.leave_circle", {"circle": "family"}, _tool_context(state)
+            )
+        assert result["status"] == "blocked"
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_circle_name_is_reported_not_guessed(self):
+        state = self._authorized_state()
+        with (
+            patch(
+                "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+                new=AsyncMock(return_value=self._valid_token()),
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[
+                    {"id": "c1", "name": "Family Trip"},
+                    {"id": "c2", "name": "Family Reunion"},
+                ],
+            ),
+        ):
+            result = await run_app_action(
+                "location.leave_circle", {"circle": "family"}, _tool_context(state)
+            )
+        assert result["status"] == "failed"
+        assert "more than one circle" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_unknown_circle_name_names_the_real_ones(self):
+        state = self._authorized_state()
+        with (
+            patch(
+                "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+                new=AsyncMock(return_value=self._valid_token()),
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+        ):
+            result = await run_app_action(
+                "location.leave_circle", {"circle": "coworkers"}, _tool_context(state)
+            )
+        assert result["status"] == "failed"
+        assert "Family" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_service_failure_is_recorded_so_an_immediate_retry_is_refused(self):
+        state = self._authorized_state()
+        # The already_failed loop-guard is keyed by tool_context.session.id;
+        # the shared _tool_context() helper doesn't set one, so build a
+        # context with a real session id here to actually exercise it.
+        ctx = SimpleNamespace(state=state, session=SimpleNamespace(id="session_1"))
+        with (
+            patch(
+                "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+                new=AsyncMock(return_value=self._valid_token()),
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "leave_circle",
+                autospec=True,
+                side_effect=RuntimeError("db exploded"),
+            ),
+        ):
+            first = await run_app_action("location.leave_circle", {"circle": "family"}, ctx)
+            assert first["status"] == "failed"
+            second = await run_app_action("location.leave_circle", {"circle": "family"}, ctx)
+        assert second["status"] == "already_failed"
+
+    @pytest.mark.asyncio
+    async def test_executes_from_a_completely_different_screen_no_navigation_needed(self):
+        # The whole point of going backend-direct: the person can be looking
+        # at Connect, Kai, anywhere -- there is no browser-side local handler
+        # to be on-screen for, so neither the screen-reachability guard nor
+        # the available_action_ids inventory check should apply here.
+        state = self._authorized_state()
+        state[_STATE_SCREEN] = "one_connect"
+        state["hussh:voice_context"] = {
+            "screen": "one_connect",
+            "available_action_ids": ["connect.search_people", "route.one_location"],
+        }
+        with (
+            patch(
+                "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+                new=AsyncMock(return_value=self._valid_token()),
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(OneLocationCircleService, "leave_circle", autospec=True),
+        ):
+            result = await run_app_action(
+                "location.leave_circle", {"circle": "family"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+
+
+class TestBackendDirectGrantActions:
+    """location.stop_share / approve_request / decline_request go straight
+    through OneLocationAgentService, resolved against the owner's own narrow
+    grant/request lists rather than the heavy list_state call."""
+
+    def _authorized_state(self) -> dict:
+        return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
+
+    def _valid_token(self) -> tuple:
+        return (True, None, SimpleNamespace(user_id="user_1"))
+
+    def _auth_patch(self):
+        return patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=self._valid_token()),
+        )
+
+    @pytest.mark.asyncio
+    async def test_stop_share_resolves_by_name_and_revokes_the_right_grant(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_active_owner_grants",
+                autospec=True,
+                return_value=[{"id": "g1", "recipientDisplayName": "Roopmann"}],
+            ),
+            patch.object(OneLocationAgentService, "revoke_grant", autospec=True) as revoke_mock,
+        ):
+            result = await run_app_action(
+                "location.stop_share", {"person": "roopmann"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "Roopmann" in result["message"]
+        assert revoke_mock.call_args.kwargs == {"owner_user_id": "user_1", "grant_id": "g1"}
+
+    @pytest.mark.asyncio
+    async def test_stop_share_reports_ambiguous_matches_instead_of_guessing(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_active_owner_grants",
+                autospec=True,
+                return_value=[
+                    {"id": "g1", "recipientDisplayName": "Sarah Chen"},
+                    {"id": "g2", "recipientDisplayName": "Sarah Lee"},
+                ],
+            ),
+        ):
+            result = await run_app_action(
+                "location.stop_share", {"person": "sarah"}, _tool_context(state)
+            )
+        assert result["status"] == "failed"
+        assert "more than one active share" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_stop_share_names_nobody_when_no_active_share_matches(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService, "list_active_owner_grants", autospec=True, return_value=[]
+            ),
+        ):
+            result = await run_app_action(
+                "location.stop_share", {"person": "nobody"}, _tool_context(state)
+            )
+        assert result["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_approve_request_grants_exactly_what_was_asked(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_pending_owner_requests",
+                autospec=True,
+                return_value=[{"id": "r1", "requesterDisplayName": "Asker"}],
+            ),
+            patch.object(OneLocationAgentService, "approve_request", autospec=True) as approve_mock,
+        ):
+            result = await run_app_action(
+                "location.approve_request", {"person": "asker"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "Asker" in result["message"]
+        # None/None means "give them what they asked for" -- a voice approval
+        # never renegotiates duration, unlike the browser's Approve control.
+        assert approve_mock.call_args.kwargs == {
+            "owner_user_id": "user_1",
+            "request_id": "r1",
+            "approval_mode": "manual",
+            "duration_hours": None,
+            "duration_mode": None,
+        }
+
+    @pytest.mark.asyncio
+    async def test_decline_request_denies_the_matched_request(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_pending_owner_requests",
+                autospec=True,
+                return_value=[{"id": "r1", "requesterDisplayName": "Asker"}],
+            ),
+            patch.object(OneLocationAgentService, "deny_request", autospec=True) as deny_mock,
+        ):
+            result = await run_app_action(
+                "location.decline_request", {"person": "asker"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert deny_mock.call_args.kwargs == {"owner_user_id": "user_1", "request_id": "r1"}
+
+    @pytest.mark.asyncio
+    async def test_decline_request_names_nobody_waiting_when_unmatched(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_pending_owner_requests",
+                autospec=True,
+                return_value=[],
+            ),
+        ):
+            result = await run_app_action(
+                "location.decline_request", {"person": "nobody"}, _tool_context(state)
+            )
+        assert result["status"] == "failed"
+        assert "nobody is waiting" in result["message"].lower()
+
+
+class TestBackendDirectCircleMembershipActions:
+    """location.create_circle / add_to_circle / rename_circle."""
+
+    def _authorized_state(self) -> dict:
+        return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
+
+    def _auth_patch(self):
+        return patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=(True, None, SimpleNamespace(user_id="user_1"))),
+        )
+
+    @pytest.mark.asyncio
+    async def test_create_circle_creates_with_the_spoken_name_and_kind(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(OneLocationCircleService, "list_circles", autospec=True, return_value=[]),
+            patch.object(
+                OneLocationCircleService,
+                "create_circle",
+                autospec=True,
+                return_value={"id": "c1", "name": "Book Club"},
+            ) as create_mock,
+        ):
+            result = await run_app_action(
+                "location.create_circle",
+                {"name": "Book Club", "kind": "friends"},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        assert "Book Club" in result["message"]
+        assert create_mock.call_args.kwargs == {
+            "owner_user_id": "user_1",
+            "name": "Book Club",
+            "kind": "friends",
+        }
+
+    @pytest.mark.asyncio
+    async def test_create_circle_is_a_no_op_success_when_the_name_already_exists(self):
+        # Exact name only, matching the browser handler: a duplicate is
+        # answered, not silently merged into or re-created.
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(OneLocationCircleService, "create_circle", autospec=True) as create_mock,
+        ):
+            result = await run_app_action(
+                "location.create_circle", {"name": "family"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "already have a circle" in result["message"].lower()
+        create_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_add_to_circle_resolves_the_circle_and_the_people_then_invites_them(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_eligible_direct_connections",
+                autospec=True,
+                return_value=[{"userId": "u1", "displayName": "Priya Singh"}],
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "create_member_invites",
+                autospec=True,
+                return_value={"addedUserIds": ["u1"]},
+            ) as invite_mock,
+        ):
+            result = await run_app_action(
+                "location.add_to_circle",
+                {"circle": "family", "person": "priya"},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        assert "Priya Singh" in result["message"]
+        assert invite_mock.call_args.kwargs == {
+            "actor_user_id": "user_1",
+            "circle_id": "c1",
+            "invitee_user_ids": ["u1"],
+        }
+
+    @pytest.mark.asyncio
+    async def test_add_to_circle_reports_ambiguous_people_instead_of_guessing(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "list_eligible_direct_connections",
+                autospec=True,
+                return_value=[
+                    {"userId": "u1", "displayName": "Sarah Chen"},
+                    {"userId": "u2", "displayName": "Sarah Lee"},
+                ],
+            ),
+            patch.object(
+                OneLocationCircleService, "create_member_invites", autospec=True
+            ) as invite_mock,
+        ):
+            result = await run_app_action(
+                "location.add_to_circle",
+                {"circle": "family", "person": "sarah"},
+                _tool_context(state),
+            )
+        assert result["status"] == "failed"
+        assert "more than one person" in result["message"].lower()
+        invite_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rename_circle_renames_to_the_spoken_name(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "update_circle",
+                autospec=True,
+                return_value={"id": "c1", "name": "The Family"},
+            ) as update_mock,
+        ):
+            result = await run_app_action(
+                "location.rename_circle",
+                {"circle": "family", "name": "The Family"},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        assert "The Family" in result["message"]
+        assert update_mock.call_args.kwargs == {
+            "owner_user_id": "user_1",
+            "circle_id": "c1",
+            "name": "The Family",
+        }
+
+    @pytest.mark.asyncio
+    async def test_rename_circle_is_a_no_op_success_when_already_called_that(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(OneLocationCircleService, "update_circle", autospec=True) as update_mock,
+        ):
+            result = await run_app_action(
+                "location.rename_circle",
+                {"circle": "family", "name": "family"},
+                _tool_context(state),
+            )
+        assert result["status"] == "completed"
+        assert "already called that" in result["message"].lower()
+        update_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rename_circle_refuses_a_name_already_used_by_another_circle(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[
+                    {"id": "c1", "name": "Family"},
+                    {"id": "c2", "name": "Roommates"},
+                ],
+            ),
+            patch.object(OneLocationCircleService, "update_circle", autospec=True) as update_mock,
+        ):
+            result = await run_app_action(
+                "location.rename_circle",
+                {"circle": "family", "name": "roommates"},
+                _tool_context(state),
+            )
+        assert result["status"] == "failed"
+        assert "already have a circle" in result["message"].lower()
+        update_mock.assert_not_called()
+
+
+class TestBackendDirectConnectionActions:
+    """connect.remove_connection (two-step confirm) / connect.cancel_request."""
+
+    def _authorized_state(self) -> dict:
+        return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
+
+    def _auth_patch(self):
+        return patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=(True, None, SimpleNamespace(user_id="user_1"))),
+        )
+
+    @pytest.mark.asyncio
+    async def test_remove_connection_first_call_asks_and_touches_nothing(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[{"connectionId": "cx1", "displayName": "Roopmann"}],
+            ),
+            patch.object(ConnectionsService, "remove_connection", autospec=True) as remove_mock,
+        ):
+            result = await run_app_action(
+                "connect.remove_connection", {"person": "roopmann"}, _tool_context(state)
+            )
+        assert result["status"] == "blocked"
+        assert "roopmann" in result["message"].lower()
+        remove_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_remove_connection_unconfirmed_refusal_does_not_block_a_confirmed_retry(self):
+        # The not-yet-confirmed response must not trip the already-failed
+        # loop guard -- a real "yes" a moment later has to still go through.
+        state = self._authorized_state()
+        ctx = SimpleNamespace(state=state, session=SimpleNamespace(id="session_1"))
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[{"connectionId": "cx1", "displayName": "Roopmann"}],
+            ),
+            patch.object(ConnectionsService, "remove_connection", autospec=True) as remove_mock,
+        ):
+            first = await run_app_action("connect.remove_connection", {"person": "roopmann"}, ctx)
+            assert first["status"] == "blocked"
+            second = await run_app_action(
+                "connect.remove_connection",
+                {"person": "roopmann", "confirmed": True},
+                ctx,
+            )
+        assert second["status"] == "completed"
+        assert remove_mock.call_args.kwargs == {"user_id": "user_1", "connection_id": "cx1"}
+
+    @pytest.mark.asyncio
+    async def test_remove_connection_ambiguous_name_is_never_confirmed_or_removed(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[
+                    {"connectionId": "cx1", "displayName": "Sarah Chen"},
+                    {"connectionId": "cx2", "displayName": "Sarah Lee"},
+                ],
+            ),
+            patch.object(ConnectionsService, "remove_connection", autospec=True) as remove_mock,
+        ):
+            result = await run_app_action(
+                "connect.remove_connection",
+                {"person": "sarah", "confirmed": True},
+                _tool_context(state),
+            )
+        assert result["status"] == "failed"
+        assert "more than one connection" in result["message"].lower()
+        remove_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cancel_request_cancels_the_matched_outgoing_request(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_requests",
+                autospec=True,
+                return_value=[{"id": "req1", "counterpartDisplayName": "Asker"}],
+            ),
+            patch.object(ConnectionsService, "cancel_request", autospec=True) as cancel_mock,
+        ):
+            result = await run_app_action(
+                "connect.cancel_request", {"person": "asker"}, _tool_context(state)
+            )
+        assert result["status"] == "completed"
+        assert "Asker" in result["message"]
+        assert cancel_mock.call_args.kwargs == {"user_id": "user_1", "request_id": "req1"}
+
+    @pytest.mark.asyncio
+    async def test_cancel_request_names_no_pending_request_when_unmatched(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(ConnectionsService, "list_requests", autospec=True, return_value=[]),
+        ):
+            result = await run_app_action(
+                "connect.cancel_request", {"person": "nobody"}, _tool_context(state)
+            )
+        assert result["status"] == "failed"
+        assert "no pending request" in result["message"].lower()
 
 
 class TestSettledActionJourneys:

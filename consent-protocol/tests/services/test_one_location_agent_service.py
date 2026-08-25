@@ -784,6 +784,68 @@ def test_list_verified_recipients_sources_from_connections(
     assert out and out[0]["userId"] == "friend"
 
 
+def test_list_active_owner_grants_is_scoped_to_this_owner_and_active_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Voice's backend-direct stop_share tool calls this instead of list_state
+    # specifically to avoid list_state's ten parallel sections -- assert the
+    # query stays narrow (one owner, one status) and the row still comes back
+    # shaped through _grant_payload, not raw.
+    svc = OneLocationAgentService()
+    captured: dict[str, object] = {}
+
+    def fake_execute_many(sql: str, params: dict | None = None) -> list[dict]:
+        captured["sql"] = sql
+        captured["params"] = params
+        return [
+            {
+                "id": "grant-1",
+                "owner_user_id": "owner",
+                "recipient_user_id": "friend",
+                "recipient_display_name": "Friend",
+                "status": "active",
+                "metadata": "{}",
+            }
+        ]
+
+    monkeypatch.setattr(svc, "_execute_many", fake_execute_many)
+    out = svc.list_active_owner_grants(owner_user_id="owner")
+    assert "g.owner_user_id = :owner_user_id" in captured["sql"]
+    assert "g.status = 'active'" in captured["sql"]
+    assert captured["params"] == {"owner_user_id": "owner"}
+    assert len(out) == 1
+    assert out[0]["id"] == "grant-1"
+    assert out[0]["recipientDisplayName"] == "Friend"
+
+
+def test_list_pending_owner_requests_is_scoped_to_this_owner_and_pending_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = OneLocationAgentService()
+    captured: dict[str, object] = {}
+
+    def fake_execute_many(sql: str, params: dict | None = None) -> list[dict]:
+        captured["sql"] = sql
+        captured["params"] = params
+        return [
+            {
+                "id": "request-1",
+                "owner_user_id": "owner",
+                "requester_user_id": "asker",
+                "requester_display_name": "Asker",
+                "status": "pending",
+            }
+        ]
+
+    monkeypatch.setattr(svc, "_execute_many", fake_execute_many)
+    out = svc.list_pending_owner_requests(owner_user_id="owner")
+    assert "req.owner_user_id = :owner_user_id" in captured["sql"]
+    assert "req.status = 'pending'" in captured["sql"]
+    assert captured["params"] == {"owner_user_id": "owner"}
+    assert out[0]["requesterDisplayName"] == "Asker"
+    assert out[0]["id"] == "request-1"
+
+
 class EnvelopeReadProbe(OneLocationAgentService):
     #: When False the grant is live but no envelope row exists yet — the state a
     #: recipient sits in between being granted access and the owner's first fix.

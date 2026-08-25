@@ -7634,6 +7634,56 @@ class OneLocationAgentService:
             "capabilityScopes": LOCATION_CAPABILITY_SCOPES,
         }
 
+    def list_active_owner_grants(self, *, owner_user_id: str) -> list[dict[str, Any]]:
+        """The owner's own active shares, for a caller that needs only this.
+
+        A narrow twin of the ``owner_grants`` section inside ``list_state`` --
+        same SQL, same row shaping -- for callers that would otherwise have to
+        pay for all ten of that call's parallel sections (grants, requests,
+        circles, invites, referrals...) just to look one active grant up by
+        name. Voice's backend-direct stop_share tool is exactly that caller;
+        `list_state` is already flagged as a heavy, DB-pool-pressuring call in
+        this codebase, and adding a second voice-triggered path through it
+        would make that worse, not safer.
+        """
+        rows = self._execute_many(
+            """
+            SELECT
+              g.*,
+              r.display_name AS recipient_display_name,
+              r.phone_number AS recipient_phone_number
+            FROM one_location_share_grants g
+            LEFT JOIN actor_identity_cache r ON r.user_id = g.recipient_user_id
+            WHERE g.owner_user_id = :owner_user_id
+              AND g.status = 'active'
+            ORDER BY g.created_at DESC
+            LIMIT 50
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+        return [payload for row in rows if (payload := self._grant_payload(row))]
+
+    def list_pending_owner_requests(self, *, owner_user_id: str) -> list[dict[str, Any]]:
+        """The owner's own pending access requests -- see list_active_owner_grants."""
+        rows = self._execute_many(
+            """
+            SELECT
+              req.*,
+              requester.display_name AS requester_display_name,
+              requester.phone_number AS requester_phone_number,
+              extended.expires_at AS extends_grant_expires_at
+            FROM one_location_access_requests req
+            LEFT JOIN actor_identity_cache requester ON requester.user_id = req.requester_user_id
+            LEFT JOIN one_location_share_grants extended ON extended.id = req.extends_grant_id
+            WHERE req.owner_user_id = :owner_user_id
+              AND req.status = 'pending'
+            ORDER BY req.requested_at DESC
+            LIMIT 50
+            """,
+            {"owner_user_id": owner_user_id},
+        )
+        return [payload for row in rows if (payload := self._request_payload(row))]
+
     def revoke_grant(self, *, owner_user_id: str, grant_id: str) -> dict[str, Any]:
         row = self._execute_one(
             """
