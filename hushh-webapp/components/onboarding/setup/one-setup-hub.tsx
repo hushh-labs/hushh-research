@@ -408,7 +408,8 @@ export function OneSetupHub() {
     <AppPageShell
       as="main"
       width="reading"
-      className="relative isolate"
+      fitContent
+      className="relative isolate max-w-[600px] pb-[calc(20px+env(safe-area-inset-bottom))]"
       nativeTest={{
         routeId: "/one/setup",
         marker: "native-route-one-setup",
@@ -475,19 +476,25 @@ export function OneSetupHub() {
           <>
             {total > 0 ? (
               <div
-                className={styles.segmentedProgress}
+                className={styles.setupProgress}
                 role="progressbar"
                 aria-valuemin={0}
                 aria-valuemax={total}
                 aria-valuenow={done}
                 aria-label={`${done} of ${total} set up`}
               >
-                {Array.from({ length: total }).map((_, index) => (
+                <div className={styles.setupProgressLabel}>
+                  {done} of {total} complete
+                </div>
+                <div className={styles.setupProgressTrack} aria-hidden>
                   <span
-                    key={index}
-                    data-filled={index < done ? "true" : undefined}
+                    className={styles.setupProgressFill}
+                    style={{
+                      width:
+                        total > 0 ? `${Math.round((done / total) * 100)}%` : "0%",
+                    }}
                   />
-                ))}
+                </div>
               </div>
             ) : null}
             <div className={styles.flatChecklist}>

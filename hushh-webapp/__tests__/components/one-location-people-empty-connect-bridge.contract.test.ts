@@ -51,7 +51,7 @@ function peopleEmptyState(src: string): string {
 describe("link 1 — People search hands over to Connect", () => {
   const block = peopleEmptyState(HUB);
 
-  it("asks the question the person is actually asking", () => {
+  it("names the empty result plainly", () => {
     expect(block).toContain("No matching people");
     expect(block).toContain("Try another name.");
   });
@@ -59,10 +59,17 @@ describe("link 1 — People search hands over to Connect", () => {
   it("offers the way into Connect", () => {
     expect(block).toContain("action=");
     expect(block).toContain("Manage connections");
+    expect(block).toContain(
+      'data-voice-control-id="one-location-empty-connect-bridge"',
+    );
   });
 
   it("offers the same bridge when there are no connections at all", () => {
-    expect(block).toContain("Add people");
+    expect(block).toContain("addPeopleEmptyAction");
+    expect(HUB).toContain("Add people");
+    expect(HUB).toContain(
+      'data-voice-control-id="one-location-add-connections"',
+    );
   });
 
   it("routes through the hub's single Connect entry point", () => {

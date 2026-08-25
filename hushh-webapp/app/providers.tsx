@@ -148,19 +148,21 @@ function AppShellFrame({ children }: ProvidersProps) {
     [shellPathname],
   );
   const routeLayoutMode = routeLayout.mode;
-  // Chrome visibility is a property of the ROUTE, not of the `?action=` flow
-  // open inside it. Every Location task flow keeps the shell's back control,
-  // breadcrumb and avatar.
+  // Chrome visibility is primarily route-owned. A small set of focused
+  // Location flows still keeps the top shell while clearing bottom chrome.
   const hidesPersistentChrome = routeLayout.persistentChrome === "none";
   const locationAction = String(searchParams?.get("action") || "").trim();
-  const focusedLocationSmsFlow =
+  const focusedLocationChromeFlow =
     shellPathname === ROUTES.ONE_LOCATION &&
-    (locationAction === "sos" || locationAction === "sms-contacts");
-  // Query-scoped Location flows may hide navigation, but the persistent Agent
-  // Bar must stay mounted so a live voice task can settle after navigation.
+    (locationAction === "sos" ||
+      locationAction === "sms-contacts" ||
+      locationAction === "create-circle" ||
+      locationAction === "circle-detail");
+  // Focused query-scoped Location flows clear the bottom command/navigation
+  // stack while keeping the top shell route context.
   const bottomChromeHidden = hidesPersistentChrome;
   const effectiveHideCommandBar =
-    chromeState.hideCommandBar || focusedLocationSmsFlow;
+    chromeState.hideCommandBar || focusedLocationChromeFlow;
   const topShellRouteProfile = useMemo(() => {
     const query = searchParams?.toString() ?? "";
     return resolveTopShellRouteProfile(
@@ -498,7 +500,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                           <AppTopShell model={topShellModel} />
                         </Suspense>
                       ) : null}
-                      {!hidesPersistentChrome ? (
+                      {!hidesPersistentChrome && !effectiveHideCommandBar ? (
                         <Suspense fallback={null}>
                           <KaiCommandBarGlobal />
                         </Suspense>
