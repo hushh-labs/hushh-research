@@ -31,10 +31,19 @@ CREATE TABLE IF NOT EXISTS pod_migration_jobs (
     user_id TEXT PRIMARY KEY,
     job_id TEXT NOT NULL,
     hushh_id TEXT NOT NULL,
-    -- Where it is going. The source is whatever the registry row says today, so
-    -- it is deliberately not duplicated here -- one writer of that truth.
+    -- Where it is going.
     target_project TEXT NOT NULL,
     target_region TEXT,
+    -- Where it is coming FROM, captured at freeze time.
+    --
+    -- Duplicating a registry fact is normally the wrong instinct, and it is the
+    -- right one here: standing up the destination rewrites the row's host
+    -- coordinates, so by the time the export runs the row no longer knows where
+    -- the source pod is. Reading the source address from the row would then
+    -- export from the pod that has no history yet -- an empty bundle, reported
+    -- as a successful move. The ticket is the only place this can be held.
+    source_pod_url TEXT,
+    source_service TEXT,
     status TEXT NOT NULL DEFAULT 'running',
     stage TEXT NOT NULL DEFAULT 'starting',
     stages JSONB NOT NULL DEFAULT '[]'::jsonb,
