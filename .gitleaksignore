@@ -1,3 +1,5 @@
 # Non-secret key-algorithm labels from the SMS contacts test fixture in PR #4655.
 900247e8948d1a33d4d0d65f12fc60436b5b032f:hushh-webapp/components/one-location/redesign/__tests__/sms-contacts-flow.test.tsx:generic-api-key:16
 900247e8948d1a33d4d0d65f12fc60436b5b032f:hushh-webapp/components/one-location/redesign/__tests__/sms-contacts-flow.test.tsx:generic-api-key:26
+# Synthetic idempotency-key fixture for Gmail delivery tests; never a credential.
+72d1e7c060c7c8aaffafc768f232572afc9b16f5:consent-protocol/tests/services/test_gmail_delivery_service.py:generic-api-key:133

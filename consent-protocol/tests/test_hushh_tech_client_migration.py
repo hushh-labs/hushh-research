@@ -1,4 +1,4 @@
-"""Static UAT-overlay release-contract tests for migration 170.
+"""Static UAT-overlay release-contract tests for migration 172.
 
 The UAT release runner replays the base lane plus this isolated overlay, so
 this suite verifies additive, replay-safe DDL and the frozen service columns.
@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION_NAME = "170_hushh_tech_uat_client_foundation.sql"
-ROLLBACK_NAME = "170_hushh_tech_uat_client_foundation.rollback.sql"
+MIGRATION_NAME = "174_hushh_tech_uat_client_foundation.sql"
+ROLLBACK_NAME = "174_hushh_tech_uat_client_foundation.rollback.sql"
 MIGRATION = ROOT / "db" / "migrations" / MIGRATION_NAME
 ROLLBACK = ROOT / "db" / "migrations" / "rollback" / ROLLBACK_NAME
 MANIFEST = ROOT / "db" / "release_migration_manifest.json"
@@ -111,6 +111,10 @@ def _ddl_without_literals(sql: str) -> str:
     return _SINGLE_QUOTED.sub("''", _statements_only(sql))
 
 
+def _migration_version(name: str) -> int:
+    return int(name.split("_", 1)[0])
+
+
 def test_migration_is_registered_only_in_the_uat_overlay() -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     ordered = manifest["ordered_migrations"]
@@ -128,14 +132,18 @@ def test_migration_is_registered_only_in_the_uat_overlay() -> None:
     assert ROLLBACK_NAME not in overlay
 
 
-def test_only_uat_contract_advances_and_names_the_frozen_columns() -> None:
+def test_contract_heads_follow_the_base_and_numeric_uat_merge() -> None:
     dev = json.loads((CONTRACTS / "dev_minimum_schema.json").read_text(encoding="utf-8"))
     prod = json.loads((CONTRACTS / "prod_core_schema.json").read_text(encoding="utf-8"))
     uat = json.loads((CONTRACTS / "uat_integrated_schema.json").read_text(encoding="utf-8"))
 
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    base_head = int(manifest["ordered_migrations"][-1].split("_", 1)[0])
-    uat_head = int(manifest["environment_overlays"]["uat"][-1].split("_", 1)[0])
+    base_versions = [_migration_version(name) for name in manifest["ordered_migrations"]]
+    overlay_versions = [
+        _migration_version(name) for name in manifest["environment_overlays"]["uat"]
+    ]
+    base_head = max(base_versions)
+    uat_head = max(base_versions + overlay_versions)
 
     assert dev["expected_migration_version"] == base_head
     assert prod["expected_migration_version"] == base_head
@@ -161,7 +169,18 @@ def test_release_runner_selects_the_safe_base_or_explicit_uat_overlay(
 
     assert production == migrate.BASE_RELEASE_MIGRATION_FILES
     assert MIGRATION_NAME not in production
-    assert uat == production + (MIGRATION_NAME,)
+    assert uat == tuple(sorted(production + (MIGRATION_NAME,), key=_migration_version))
+    assert uat.index(MIGRATION_NAME) < uat.index("175_contact_sync_connection_provenance.sql")
+    with pytest.raises(RuntimeError, match="migration versions must be unique"):
+        migrate._merge_release_migration_files(
+            ("170_first.sql",),
+            ("170_second.sql",),
+        )
+    with pytest.raises(RuntimeError, match="must be strictly increasing"):
+        migrate._assert_monotonic_release_lane(
+            ("170_first.sql", "169_second.sql"),
+            label="test",
+        )
     with pytest.raises(ValueError, match="Unsupported release environment"):
         migrate.release_migration_files("development")
 

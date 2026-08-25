@@ -13,6 +13,7 @@ import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import type {
   OneLocationCircleMember,
+  OneLocationCircleSummary,
   OneLocationRecipient,
 } from "@/lib/one-location/types";
 
@@ -26,6 +27,7 @@ const recipients: OneLocationRecipient[] = [
     publicKeyJwk: { kty: "EC" },
     keyAlgorithm: "fixture",
     canReceiveLocation: true,
+    connectedFromContacts: true,
   },
   {
     userId: "available",
@@ -79,6 +81,7 @@ function circleSelection(
         publicKeyJwk: { kty: "EC" },
         keyAlgorithm: "fixture",
         canReceiveLocation: true,
+        connectedFromContacts: person.userId === "aarav",
       },
     })),
     excluded: [
@@ -162,6 +165,45 @@ describe("SmsContactsFlow", () => {
     expect(screen.getByText("Neelesh")).toBeInTheDocument();
   });
 
+  it("never exposes the auto-managed Trusted Circle as an emergency SMS bulk source", () => {
+    const circles: OneLocationCircleSummary[] = [
+      {
+        id: "trusted-circle",
+        name: "Trusted",
+        kind: "other",
+        role: "owner",
+        memberCount: 5000,
+        memberLimit: null,
+        systemKind: "trusted",
+      },
+      {
+        id: "family-circle",
+        name: "Family",
+        kind: "family",
+        role: "owner",
+        memberCount: 3,
+        memberLimit: 100,
+        systemKind: null,
+      },
+      {
+        id: "sms-circle",
+        name: "SMS Circle",
+        kind: "other",
+        role: "owner",
+        memberCount: 4,
+        memberLimit: 100,
+        isSystem: true,
+        systemKind: "sms",
+      },
+    ];
+
+    render(<SmsContactsFlow {...baseProps} circles={circles} />);
+
+    expect(screen.queryByText("Trusted")).not.toBeInTheDocument();
+    expect(screen.getByText("Family")).toBeInTheDocument();
+    expect(screen.getByText("SMS Circle")).toBeInTheDocument();
+  });
+
   it("opens on All Contacts when the account has no Circles", () => {
     // Landing on an empty tab makes the screen look broken before the person
     // has done anything.
@@ -177,6 +219,21 @@ describe("SmsContactsFlow", () => {
     openAllContacts();
     fireEvent.click(screen.getByRole("button", { name: "Add Neelesh" }));
     expect(onAdd).toHaveBeenCalledWith("available");
+  });
+
+  it("identifies contact-synced people in the directory and review sheet", async () => {
+    render(<SmsContactsFlow {...baseProps} />);
+
+    openAllContacts();
+    expect(
+      screen.getByLabelText("Connected from your contacts"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("sms-selected-pill"));
+    const sheet = await screen.findByTestId("sms-selected-sheet");
+    expect(
+      within(sheet).getByLabelText("Connected from your contacts"),
+    ).toBeInTheDocument();
   });
 
   describe("per-Circle person picker", () => {
@@ -216,6 +273,9 @@ describe("SmsContactsFlow", () => {
         "aarav",
         "maya",
       ]);
+      expect(
+        within(list).getByLabelText("Connected from your contacts"),
+      ).toBeInTheDocument();
     });
 
     it("resolves the roster only when the Circle is opened", async () => {

@@ -93,6 +93,106 @@ describe("named Circle flows", () => {
     vi.clearAllMocks();
   });
 
+  it("renders viewer-relative contact provenance in a Circle roster", async () => {
+    const onLoad = vi.fn(async () => ({
+      ...circle("circle-1", "Family"),
+      memberCount: 2,
+      members: [
+        ...circle("circle-1", "Family").members,
+        {
+          userId: "contact-user",
+          displayName: "Asha Contact",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+          relationship: "connected" as const,
+          connectedFromContacts: true,
+        },
+      ],
+    }));
+
+    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
+
+    expect(await screen.findByText("Asha Contact")).toBeTruthy();
+    expect(screen.getByLabelText("Connected from your contacts")).toBeTruthy();
+  });
+
+  it("uses bounded member pages and keeps duplicate names addressable by user id", async () => {
+    const onLoad = vi.fn(async () => circle("circle-1", "Legacy"));
+    const onLoadOverview = vi.fn(async () => ({
+      ...circle("circle-1", "Family"),
+      members: undefined,
+      memberCount: 5000,
+    }));
+    const onLoadMembersPage = vi.fn(
+      async (
+        _circleId: string,
+        options: { page: number; limit: number; query?: string },
+      ) => ({
+        items:
+          options.query === "nobody"
+            ? []
+            : options.page === 1
+              ? [
+                  {
+                    userId: "same-1",
+                    displayName: "Same Name",
+                    role: "member" as const,
+                    phoneVerified: true,
+                    secureLocationReady: true,
+                  },
+                ]
+              : [
+                  {
+                    userId: "same-2",
+                    displayName: "Same Name",
+                    role: "member" as const,
+                    phoneVerified: true,
+                    secureLocationReady: true,
+                    connectedFromContacts: true,
+                  },
+                ],
+        page: options.page,
+        hasMore: options.page === 1,
+        totalCount: options.query === "nobody" ? 0 : 5000,
+      }),
+    );
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(onLoad)}
+        onLoadOverview={onLoadOverview}
+        onLoadMembersPage={onLoadMembersPage}
+      />,
+    );
+
+    expect(await screen.findByText("Same Name")).toBeTruthy();
+    expect(onLoad).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByTestId("one-location-circle-members-load-more"),
+    );
+    await waitFor(() =>
+      expect(screen.getAllByText("Same Name")).toHaveLength(2),
+    );
+    expect(screen.getByLabelText("Connected from your contacts")).toBeTruthy();
+    expect(onLoadMembersPage).toHaveBeenCalledWith(
+      "circle-1",
+      expect.objectContaining({ page: 2, limit: 50 }),
+    );
+
+    fireEvent.change(screen.getByLabelText("Search members"), {
+      target: { value: "nobody" },
+    });
+    await waitFor(() =>
+      expect(screen.getByText("No members found")).toBeTruthy(),
+    );
+    const retainedSearch = screen.getByLabelText("Search members");
+    expect(retainedSearch).toHaveValue("nobody");
+    fireEvent.change(retainedSearch, { target: { value: "" } });
+    expect(screen.getByLabelText("Search members")).toHaveValue("");
+  });
+
   it("creates a typed Circle and keeps a failed submission recoverable", async () => {
     const onSubmit = vi
       .fn()
@@ -152,6 +252,7 @@ describe("named Circle flows", () => {
               userId: "conn-1",
               displayName: "Asha Meena",
               connectionOrigin: "one" as const,
+              connectedFromContacts: true,
             },
             {
               userId: "conn-2",
@@ -165,10 +266,9 @@ describe("named Circle flows", () => {
       />,
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Add people" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     expect(await screen.findByText("Asha Meena")).toBeTruthy();
+    expect(screen.getByLabelText("Connected from your contacts")).toBeTruthy();
 
     // "Asha Meena" and "Neel Shah" BOTH contain an "n", so a substring filter
     // returned both and one-letter search looked broken. Only Neel's name
@@ -200,17 +300,12 @@ describe("named Circle flows", () => {
     const onJoin = vi.fn(async () => undefined);
 
     render(
-      <JoinCircleFlow
-        busy={false}
-        onResolve={onResolve}
-        onJoin={onJoin}
-      />,
+      <JoinCircleFlow busy={false} onResolve={onResolve} onJoin={onJoin} />,
     );
 
     fireEvent.change(screen.getByLabelText("Circle invite code"), {
       target: {
-        value:
-          "Join my BEST TEAM EVER Circle on One with code 2345-6789-ABCD.",
+        value: "Join my BEST TEAM EVER Circle on One with code 2345-6789-ABCD.",
       },
     });
     fireEvent.click(screen.getByRole("button", { name: "Preview circle" }));
@@ -225,9 +320,7 @@ describe("named Circle flows", () => {
     expect(onResolve).toHaveBeenCalledWith("2345-6789-ABCD");
 
     fireEvent.click(screen.getByRole("button", { name: "Join circle" }));
-    await waitFor(() =>
-      expect(onJoin).toHaveBeenCalledWith("2345-6789-ABCD"),
-    );
+    await waitFor(() => expect(onJoin).toHaveBeenCalledWith("2345-6789-ABCD"));
   });
 
   it("pre-fills the code input from initialCode (a shared /circle/join link)", () => {
@@ -247,11 +340,9 @@ describe("named Circle flows", () => {
 
   it("ignores a stale preview and joins the exact code that was reviewed", async () => {
     let resolveFirst:
-      | ((value: OneLocationCircleInvitePreview) => void)
-      | undefined;
+      ((value: OneLocationCircleInvitePreview) => void) | undefined;
     let resolveSecond:
-      | ((value: OneLocationCircleInvitePreview) => void)
-      | undefined;
+      ((value: OneLocationCircleInvitePreview) => void) | undefined;
     const first = new Promise<OneLocationCircleInvitePreview>((resolve) => {
       resolveFirst = resolve;
     });
@@ -265,11 +356,7 @@ describe("named Circle flows", () => {
     const onJoin = vi.fn(async () => undefined);
 
     render(
-      <JoinCircleFlow
-        busy={false}
-        onResolve={onResolve}
-        onJoin={onJoin}
-      />,
+      <JoinCircleFlow busy={false} onResolve={onResolve} onJoin={onJoin} />,
     );
 
     const input = screen.getByLabelText("Circle invite code");
@@ -305,9 +392,7 @@ describe("named Circle flows", () => {
     expect(screen.queryByText("Stale Circle")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Join circle" }));
-    await waitFor(() =>
-      expect(onJoin).toHaveBeenCalledWith("BCDE-FGHJ-KMNP"),
-    );
+    await waitFor(() => expect(onJoin).toHaveBeenCalledWith("BCDE-FGHJ-KMNP"));
   });
 
   it("ignores a stale detail response after the selected Circle changes", async () => {
@@ -323,9 +408,7 @@ describe("named Circle flows", () => {
       circleId === "circle-one" ? first : second,
     );
     const props = detailProps(onLoad);
-    const view = render(
-      <CircleDetailFlow circleId="circle-one" {...props} />,
-    );
+    const view = render(<CircleDetailFlow circleId="circle-one" {...props} />);
 
     view.rerender(<CircleDetailFlow circleId="circle-two" {...props} />);
     await act(async () => {
@@ -399,7 +482,9 @@ describe("named Circle flows", () => {
     const joinButton = screen.getByRole("button", { name: "Join" });
     fireEvent.click(joinButton);
     fireEvent.click(joinButton);
-    await waitFor(() => expect(onAcceptInvite).toHaveBeenCalledWith("invite-1"));
+    await waitFor(() =>
+      expect(onAcceptInvite).toHaveBeenCalledWith("invite-1"),
+    );
     expect(onAcceptInvite).toHaveBeenCalledTimes(1);
 
     view.rerender(
@@ -566,9 +651,7 @@ describe("named Circle flows", () => {
       />,
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Add people" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     expect(await screen.findByText("Asha Meena")).toBeTruthy();
     expect(screen.getByText("Neel Shah")).toBeTruthy();
     expect(screen.getByText("Pending Friend")).toBeTruthy();
@@ -587,17 +670,13 @@ describe("named Circle flows", () => {
       expect(onCancelMemberInvite).toHaveBeenCalledWith("pending-1"),
     );
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /Asha Meena/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /Asha Meena/i }));
     expect(
       screen.getByRole("button", {
         name: /Asha Meena/i,
       }),
     ).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(
-      screen.getByRole("button", { name: /Neel Shah/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /Neel Shah/i }));
     fireEvent.click(screen.getByRole("button", { name: "Add 2 people" }));
 
     await waitFor(() =>
@@ -782,9 +861,7 @@ describe("named Circle flows", () => {
       />,
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Add people" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     expect(await screen.findByText("Asha Meena")).toBeTruthy();
 
     const asha = screen.getByRole("button", {
@@ -797,9 +874,7 @@ describe("named Circle flows", () => {
     fireEvent.click(asha);
     expect(asha).toHaveAttribute("aria-pressed", "true");
     expect(neel).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Add 1 person" }),
-    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
   });
 
   it("renders Circle full even if a stale eligible row is returned", async () => {
@@ -821,9 +896,7 @@ describe("named Circle flows", () => {
       />,
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Add people" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     expect(await screen.findByText("No room left in this Circle")).toBeTruthy();
     expect(screen.queryByText("Stale Candidate")).toBeNull();
   });
@@ -865,9 +938,7 @@ describe("named Circle flows", () => {
       />,
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Add people" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     const asha = await screen.findByRole("button", {
       name: /Asha Meena/i,
     });
@@ -879,9 +950,10 @@ describe("named Circle flows", () => {
     );
     expect(screen.queryByText("Asha Meena")).toBeNull();
     expect(await screen.findByText("Neel Shah")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: /Neel Shah/i }),
-    ).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: /Neel Shah/i })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
     expect(
       within(screen.getByRole("dialog", { name: "Add people" })).getByRole(
         "button",
@@ -973,7 +1045,9 @@ describe("named Circle flows", () => {
 
     fireEvent.change(input, { target: { value: "Typed then abandoned" } });
     fireEvent.keyDown(input, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByLabelText("Circle name")).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Circle name")).toBeNull(),
+    );
     expect(onRename).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
@@ -1077,9 +1151,7 @@ describe("named Circle flows", () => {
     // accessibility tree and to nothing else. A grey, disabled, button-shaped
     // "Connected" beside every name was the report this row was rebuilt for.
     expect(screen.queryByRole("button", { name: /^Connected$/ })).toBeNull();
-    expect(
-      screen.queryByTestId("circle-member-connect-known-user"),
-    ).toBeNull();
+    expect(screen.queryByTestId("circle-member-connect-known-user")).toBeNull();
 
     // Waiting on them is news, but nothing here can advance it: a status, not
     // a control.
@@ -1391,9 +1463,7 @@ describe("named Circle flows", () => {
 
     // Single selection.
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Asha Meena/i }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: /Asha Meena/i }));
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
@@ -1407,12 +1477,8 @@ describe("named Circle flows", () => {
 
     // Multiple selection — reopening starts from a cleared selection.
     fireEvent.click(screen.getByRole("button", { name: "Add people" }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Asha Meena/i }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: /Neel Shah/i }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: /Asha Meena/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Neel Shah/i }));
     fireEvent.click(screen.getByRole("button", { name: "Add 2 people" }));
 
     await waitFor(() =>
@@ -1423,6 +1489,57 @@ describe("named Circle flows", () => {
     );
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Add people" })).toBeNull(),
+    );
+  });
+
+  it("keeps Circle detail invitations within the 20-person API batch", async () => {
+    const invitees = Array.from({ length: 21 }, (_, index) => ({
+      connectionId: `connection-${index + 1}`,
+      userId: `user-${index + 1}`,
+      displayName: `Person ${String(index + 1).padStart(2, "0")}`,
+    }));
+    const onInviteConnections = vi.fn(async () => undefined);
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => ({
+          ...circle("circle-1", "Meena Family"),
+          memberLimit: 100,
+        }))}
+        onLoadEligibleConnections={vi.fn(async () => ({
+          eligibleConnections: invitees,
+          pendingInvites: [],
+          remainingCapacity: 99,
+        }))}
+        onInviteConnections={onInviteConnections}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
+    expect(
+      await screen.findByText(/Add up to 20 people at a time/i),
+    ).toBeTruthy();
+    for (const invitee of invitees.slice(0, 20)) {
+      fireEvent.click(
+        within(
+          screen.getByTestId(`one-location-circle-eligible-${invitee.userId}`),
+        ).getByRole("button"),
+      );
+    }
+    expect(
+      within(
+        screen.getByTestId("one-location-circle-eligible-user-21"),
+      ).getByRole("button"),
+    ).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add 20 people" }));
+
+    await waitFor(() =>
+      expect(onInviteConnections).toHaveBeenCalledWith(
+        "circle-1",
+        invitees.slice(0, 20).map((invitee) => invitee.userId),
+      ),
     );
   });
 
@@ -1451,9 +1568,7 @@ describe("named Circle flows", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Asha Meena/i }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: /Asha Meena/i }));
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
     await waitFor(() =>
@@ -1509,9 +1624,7 @@ describe("named Circle flows", () => {
       />,
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Add people" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     fireEvent.click(
       await screen.findByRole("button", {
         name: /Friend User/i,
@@ -1550,12 +1663,8 @@ describe("named Circle flows", () => {
     );
 
     expect(await screen.findByText("SMS Circle")).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: /Leave circle/i }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: /Delete circle/i }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Leave circle/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Delete circle/i })).toBeNull();
     expect(
       screen.queryByText(/managed for you, so it can.t be left or deleted/i),
     ).toBeNull();
@@ -1574,7 +1683,6 @@ describe("named Circle flows", () => {
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Leave circle/i })).toBeNull();
   });
-
 });
 
 describe("a Trusted Circle offers no control that cannot work", () => {
@@ -1626,7 +1734,9 @@ describe("a Trusted Circle offers no control that cannot work", () => {
     // Circle -- `isOwner && circle.isSystem` -- let it fall through to a Delete
     // button that the API and a database trigger both refuse.
     const onLoad = vi.fn(async () => trustedCircle());
-    render(<CircleDetailFlow circleId="trusted-circle" {...detailProps(onLoad)} />);
+    render(
+      <CircleDetailFlow circleId="trusted-circle" {...detailProps(onLoad)} />,
+    );
 
     await screen.findByText("Trusted");
     expect(screen.queryByRole("button", { name: /Delete circle/i })).toBeNull();
@@ -1642,7 +1752,9 @@ describe("a Trusted Circle offers no control that cannot work", () => {
     // LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION: membership is derived from
     // the connection, so a removal would be undone by the next reconcile.
     const onLoad = vi.fn(async () => trustedCircle());
-    render(<CircleDetailFlow circleId="trusted-circle" {...detailProps(onLoad)} />);
+    render(
+      <CircleDetailFlow circleId="trusted-circle" {...detailProps(onLoad)} />,
+    );
 
     await screen.findByText("Asha");
     expect(
@@ -1722,7 +1834,9 @@ describe("a roster row can take back a request it sent", () => {
       />,
     );
 
-    const cancel = await screen.findByTestId("circle-member-cancel-waiting-user");
+    const cancel = await screen.findByTestId(
+      "circle-member-cancel-waiting-user",
+    );
     expect(cancel).toBeTruthy();
     // And the bare status is gone, so the row carries one control, not both.
     expect(
@@ -1804,9 +1918,10 @@ describe("an impatient second tap never makes a second Circle", () => {
     // success toasts.
     let release: (() => void) | undefined;
     const onSubmit = vi.fn(
-      () => new Promise<void>((resolve) => {
-        release = () => resolve();
-      }),
+      () =>
+        new Promise<void>((resolve) => {
+          release = () => resolve();
+        }),
     );
 
     render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
@@ -1935,14 +2050,4 @@ describe("a Circle with only the current user stays compact", () => {
     expect(screen.queryByRole("button", { name: /Add people/i })).toBeNull();
   });
 
-  it("keeps the search empty state when a search really was run", async () => {
-    const onLoad = vi.fn(async () => circle("circle-1", "K Family"));
-    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
-
-    await screen.findByText("K Family");
-    const search = screen.queryByTestId("one-location-circle-member-search");
-    if (!search) return;
-    fireEvent.change(search, { target: { value: "zzzzzz" } });
-    expect(await screen.findByText("No members found")).toBeTruthy();
-  });
 });

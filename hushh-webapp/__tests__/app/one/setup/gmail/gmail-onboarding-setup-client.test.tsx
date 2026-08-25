@@ -18,6 +18,22 @@ vi.mock("@/components/onboarding/setup/capability-cinematic-intro", () => ({
   ),
 }));
 
+vi.mock("@/components/vault/capability-vault-prerequisite", () => ({
+  CapabilityVaultPrerequisite: ({
+    capabilityLabel,
+    routeKey,
+    children,
+  }: {
+    capabilityLabel: string;
+    routeKey: string;
+    children: ReactNode;
+  }) => (
+    <div data-testid="gmail-vault-prerequisite" data-label={capabilityLabel} data-route={routeKey}>
+      {children}
+    </div>
+  ),
+}));
+
 vi.mock("@/components/onboarding/setup/setup-capability-coordinator", () => ({
   SetupCapabilityLoading: () => <div>Loading Gmail setup</div>,
   useSetupCapabilityCoordinator: () => ({
@@ -35,6 +51,14 @@ describe("GmailOnboardingSetupClient", () => {
     render(<GmailOnboardingSetupClient />);
 
     expect(screen.getByText("Gmail setup workspace")).toBeTruthy();
+    expect(screen.getByTestId("gmail-vault-prerequisite")).toHaveAttribute(
+      "data-route",
+      "/one/setup/gmail",
+    );
+    expect(screen.getByTestId("gmail-vault-prerequisite")).toHaveAttribute(
+      "data-label",
+      "Gmail",
+    );
     await waitFor(() => expect(replace).not.toHaveBeenCalled());
   });
 });

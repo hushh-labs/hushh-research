@@ -27,6 +27,11 @@ type CapabilityVaultPrerequisiteProps = {
   capabilityLabel: string;
   routeKey: string;
   children: ReactNode;
+  /**
+   * Safe, non-interactive route chrome that may render while the vault owner
+   * token is being checked. It must not read protected route data.
+   */
+  checkingFallback?: ReactNode;
   allowVaultCreation?: boolean;
 };
 
@@ -43,6 +48,7 @@ export function CapabilityVaultPrerequisite({
   capabilityLabel,
   routeKey,
   children,
+  checkingFallback,
   allowVaultCreation = true,
 }: CapabilityVaultPrerequisiteProps) {
   const router = useRouter();
@@ -147,7 +153,7 @@ export function CapabilityVaultPrerequisite({
     return <RouteLoadingState label="Redirecting to sign in…" />;
   }
   if (state === "checking") {
-    return <RouteLoadingState label={`Preparing ${capabilityLabel}…`} />;
+    return checkingFallback ?? <RouteLoadingState label={`Preparing ${capabilityLabel}…`} />;
   }
   if (vaultHandoffPending) {
     return <RouteLoadingState label={`Opening ${capabilityLabel}…`} />;

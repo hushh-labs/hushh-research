@@ -162,6 +162,33 @@ def test_location_turn_is_delegated(monkeypatch):
     assert events == ["start", "token", "specialist_directive", "complete"]
 
 
+def test_gmail_draft_turn_emits_the_editable_draft_directive(monkeypatch):
+    service = _MinimalFakeService()
+    service.one_events = [
+        OneTextStreamEvent(
+            kind="directive",
+            directive=OneTextDirective(
+                kind="prompt",
+                payload={
+                    "kind": "gmail_email_draft",
+                    "instruction": "Draft an email for the current request",
+                },
+            ),
+        ),
+    ]
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+
+    response = TestClient(_make_app()).post(
+        "/agent/chat/stream",
+        json={"user_id": "u1", "message": "Please write an email"},
+    )
+
+    assert response.status_code == 200
+    assert _parse_sse(response.text) == ["start", "token", "specialist_directive", "complete"]
+    assert '"delegate_agent_id": "one"' in response.text
+    assert '"kind": "gmail_email_draft"' in response.text
+
+
 def test_explicit_delegate_agent_id_is_delegated(monkeypatch):
     """Generated One Goal contracts can force a wired specialist without re-classifying text."""
 

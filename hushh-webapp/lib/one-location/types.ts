@@ -64,6 +64,14 @@ export type OneLocationRecipient = {
   profileHeadline?: string | null;
   verificationBadge?: string | null;
   lastInteractionAt?: string | null;
+  connectedFromContacts?: boolean;
+};
+
+export type OneLocationRecipientPage = {
+  items: OneLocationRecipient[];
+  page: number;
+  hasMore: boolean;
+  totalCount: number;
 };
 
 export type OneLocationViewerCapabilities = {
@@ -367,6 +375,7 @@ export type OneLocationCircleMember = {
   relationship?: OneLocationCircleMemberRelationship;
   /** False when there is nothing to request: self, connected, or already pending. */
   canConnect?: boolean;
+  connectedFromContacts?: boolean;
 };
 
 export type OneLocationCircleMemberRelationship =
@@ -381,6 +390,20 @@ export type OneLocationCircleDetail = OneLocationCircleSummary & {
   activeInviteCode?: OneLocationCircleInviteCode | null;
   /** True only for a legacy active code that must be explicitly rotated by the owner. */
   inviteCodeNeedsOwnerRotation?: boolean;
+};
+
+/** Circle metadata/capabilities returned without materializing its roster. */
+export type OneLocationCircleOverview = OneLocationCircleSummary & {
+  activeInviteCode?: OneLocationCircleInviteCode | null;
+  /** True only for a legacy active code that must be explicitly rotated by the owner. */
+  inviteCodeNeedsOwnerRotation?: boolean;
+};
+
+export type OneLocationCircleMemberPage = {
+  items: OneLocationCircleMember[];
+  page: number;
+  hasMore: boolean;
+  totalCount: number;
 };
 
 export type OneLocationCircleInviteCode = {
@@ -406,6 +429,7 @@ export type OneLocationCircleEligibleConnection = {
   displayName: string;
   photoUrl?: string | null;
   connectedAt?: string | null;
+  connectedFromContacts?: boolean;
 };
 
 export type OneLocationCircleMemberInviteStatus =
@@ -438,6 +462,13 @@ export type OneLocationCircleEligibleConnections = {
   pendingInvites: OneLocationCircleMemberInvite[];
   remainingCapacity: number;
 };
+
+export type OneLocationCircleEligibleConnectionsPage =
+  OneLocationCircleEligibleConnections & {
+    page: number;
+    hasMore: boolean;
+    totalCount: number;
+  };
 
 export type OneLocationNetworkConnection = {
   id: string;

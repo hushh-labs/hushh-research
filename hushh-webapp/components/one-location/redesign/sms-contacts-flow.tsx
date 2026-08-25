@@ -97,11 +97,18 @@ export function SmsContactsFlow({
   recipientSubtitle,
   isRecipientShareReady,
 }: SmsContactsFlowProps) {
+  // Defense in depth for direct callers: Trusted is auto-populated by contact
+  // sync and can contain thousands of people, so it must never become a bulk
+  // emergency-SMS selector. User-managed and SMS Circles stay available.
+  const selectableCircles = useMemo(
+    () => circles.filter((circle) => circle.systemKind !== "trusted"),
+    [circles],
+  );
   // Circles first, as the issue orders them -- unless there are none, in
   // which case landing on an empty tab makes the screen look broken before
   // the person has done anything.
   const [tab, setTab] = useState<SmsContactsTab>(() =>
-    circles.length ? "circles" : "all-contacts",
+    selectableCircles.length ? "circles" : "all-contacts",
   );
   const [pendingRemoval, setPendingRemoval] =
     useState<OneLocationRecipient | null>(null);
@@ -126,11 +133,15 @@ export function SmsContactsFlow({
   const visibleCircles = useMemo(
     () =>
       sortByContactMode(
-        filterByContactQuery(circles, circleQuery, (circle) => circle.name),
+        filterByContactQuery(
+          selectableCircles,
+          circleQuery,
+          (circle) => circle.name,
+        ),
         circleSort,
         (circle) => circle.name,
       ),
-    [circleQuery, circleSort, circles],
+    [circleQuery, circleSort, selectableCircles],
   );
 
   const visibleContacts = useMemo(
@@ -236,7 +247,7 @@ export function SmsContactsFlow({
               data-testid="sms-circles-panel"
             >
               <ContactListControls
-                sourceCount={circles.length}
+                sourceCount={selectableCircles.length}
                 query={circleQuery}
                 onQueryChange={setCircleQuery}
                 sortMode={circleSort}
@@ -319,6 +330,7 @@ export function SmsContactsFlow({
                       <ContactRow
                         label={label}
                         subtitle={recipientSubtitle(recipient)}
+                        fromContacts={recipient.connectedFromContacts}
                         selected={selectedIds.has(recipient.userId)}
                         ready={isRecipientShareReady(recipient)}
                         busy={busyKey === "sms-contact:" + recipient.userId}

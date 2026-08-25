@@ -95,6 +95,14 @@ interface VaultProviderProps {
   children: ReactNode;
 }
 
+function isGmailRoute(routePath: string): boolean {
+  return (
+    routePath.startsWith("/one/gmail") ||
+    routePath.startsWith("/one/setup/gmail") ||
+    routePath.startsWith("/one/email")
+  );
+}
+
 export function VaultProvider({ children }: VaultProviderProps) {
   // Access Auth Context to listen for logout
   const { user } = useAuth();
@@ -294,24 +302,49 @@ export function VaultProvider({ children }: VaultProviderProps) {
       return;
     }
 
-    void import("@/lib/kai/kai-financial-resource")
-      .then(({ KaiFinancialResourceService }) =>
-        KaiFinancialResourceService.hydrateFromSecureCache({
-          userId: user.uid,
-          vaultKey,
-        })
-      )
-      .catch(() => null);
+    const hydrateFinancialCaches = () => {
+      void import("@/lib/kai/kai-financial-resource")
+        .then(({ KaiFinancialResourceService }) =>
+          KaiFinancialResourceService.hydrateFromSecureCache({
+            userId: user.uid,
+            vaultKey,
+          })
+        )
+        .catch(() => null);
 
-    void import("@/lib/pkm/pkm-domain-resource")
-      .then(({ PkmDomainResourceService }) =>
-        PkmDomainResourceService.hydrateFromSecureCache({
-          userId: user.uid,
-          domain: "financial",
-          vaultKey,
-        })
-      )
-      .catch(() => null);
+      void import("@/lib/pkm/pkm-domain-resource")
+        .then(({ PkmDomainResourceService }) =>
+          PkmDomainResourceService.hydrateFromSecureCache({
+            userId: user.uid,
+            domain: "financial",
+            vaultKey,
+          })
+        )
+        .catch(() => null);
+    };
+
+    const routePath =
+      typeof window === "undefined" ? "" : window.location.pathname;
+    if (!isGmailRoute(routePath)) {
+      hydrateFinancialCaches();
+      return;
+    }
+
+    // Gmail needs its connection status immediately after unlock. Financial
+    // cache hydration is unrelated to that decision, so leave it until the
+    // browser has yielded rather than competing for the first backend slots.
+    if ("requestIdleCallback" in window) {
+      const requestIdle = window.requestIdleCallback as (
+        callback: IdleRequestCallback,
+        options?: IdleRequestOptions,
+      ) => number;
+      const cancelIdle = window.cancelIdleCallback as (handle: number) => void;
+      const idleHandle = requestIdle(hydrateFinancialCaches, { timeout: 4_000 });
+      return () => cancelIdle(idleHandle);
+    }
+
+    const timeoutId = globalThis.setTimeout(hydrateFinancialCaches, 1_000);
+    return () => globalThis.clearTimeout(timeoutId);
   }, [user?.uid, vaultKey]);
 
   useEffect(() => {
@@ -481,6 +514,22 @@ export function VaultProvider({ children }: VaultProviderProps) {
         const scheduleWarm = () => {
           void prefetchDashboardData(user.uid, token, key, warmRoutePath);
         };
+
+        if (isGmailRoute(routePath)) {
+          // Gmail's protected route resource fetches connection status as soon
+          // as the owner token reaches React state. Keep the dashboard/PKM/RIA/
+          // location warmups off that critical path.
+          if ("requestIdleCallback" in window) {
+            const requestIdle = window.requestIdleCallback as (
+              callback: IdleRequestCallback,
+              options?: IdleRequestOptions,
+            ) => number;
+            requestIdle(scheduleWarm, { timeout: 4_000 });
+          } else {
+            globalThis.setTimeout(scheduleWarm, 1_000);
+          }
+          return;
+        }
 
         // Warm the current route's caches immediately after unlock so the first
         // paint of the revealed page (e.g. /one, /consents) hits a warm cache

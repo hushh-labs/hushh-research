@@ -90,6 +90,7 @@ export function resolveCircleRecipientSelection(params: {
           member.keyAlgorithm || "ECDH-P256-AES256-GCM", // gitleaks:allow - public algorithm identifier
         keyRegisteredAt: member.keyRegisteredAt,
         canReceiveLocation: true,
+        connectedFromContacts: member.connectedFromContacts,
       },
     });
   }

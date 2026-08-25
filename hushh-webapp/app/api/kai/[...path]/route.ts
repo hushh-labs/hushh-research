@@ -14,6 +14,13 @@ const GMAIL_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(15_000, {
   developmentFloorMs: 15_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_TIMEOUT_MS",
 });
+// Nudges do a bounded live inbox read after the Gmail shell has rendered. Give
+// that non-blocking panel enough time for Google to answer instead of turning a
+// healthy, merely slow mailbox into a false load failure.
+const GMAIL_NUDGES_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
+  developmentFloorMs: 30_000,
+  overrideEnvKey: "HUSHH_KAI_GMAIL_NUDGES_TIMEOUT_MS",
+});
 const GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS",
@@ -157,6 +164,9 @@ function resolveKaiUpstreamTimeoutMs(path: string): number | null {
   }
   if (path === "gmail/connect/complete") {
     return GMAIL_CONNECT_COMPLETE_TIMEOUT_MS;
+  }
+  if (path.startsWith("gmail/nudges/")) {
+    return GMAIL_NUDGES_TIMEOUT_MS;
   }
   if (isGmailPath(path)) {
     return GMAIL_PROXY_TIMEOUT_MS;

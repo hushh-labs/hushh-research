@@ -272,6 +272,31 @@ class NamedCircleCodeRequest(_CamelModel):
     code: str = Field(min_length=12, max_length=32)
 
 
+class CircleMemberPageItem(_CamelModel):
+    user_id: str = Field(alias="userId")
+    display_name: str = Field(alias="displayName")
+    photo_url: str | None = Field(default=None, alias="photoUrl")
+    role: str
+    joined_at: str | None = Field(default=None, alias="joinedAt")
+    phone_verified: bool = Field(alias="phoneVerified")
+    secure_location_ready: bool = Field(alias="secureLocationReady")
+    key_id: str | None = Field(default=None, alias="keyId")
+    public_key_jwk: dict[str, Any] | None = Field(default=None, alias="publicKeyJwk")
+    key_algorithm: str = Field(alias="keyAlgorithm")
+    key_registered_at: str | None = Field(default=None, alias="keyRegisteredAt")
+    can_receive_location: bool = Field(alias="canReceiveLocation")
+    relationship: str
+    can_connect: bool = Field(alias="canConnect")
+    connected_from_contacts: bool = Field(alias="connectedFromContacts")
+
+
+class CircleMembersPageResponse(_CamelModel):
+    items: list[CircleMemberPageItem]
+    page: int
+    has_more: bool = Field(alias="hasMore")
+    total_count: int = Field(alias="totalCount")
+
+
 class CreateCircleMemberInvitesRequest(_CamelModel):
     circle_id: UUID = Field(alias="circleId")
     invitee_user_ids: list[_CircleInviteeUserId] = Field(
@@ -664,12 +689,24 @@ def purge_location_retention(request: Request, older_than_hours: float = 12):
 
 @router.get("/location/recipients")
 def list_verified_location_recipients(
+    response: Response,
+    page: int | None = Query(default=None, ge=1),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    query: str | None = Query(default=None, max_length=160),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
-        return {
-            "recipients": _service().list_verified_recipients(owner_user_id=_user_id(token_data))
-        }
+        response.headers["Cache-Control"] = "private, no-store"
+        service = _service()
+        owner_user_id = _user_id(token_data)
+        if all(value is None for value in (page, limit, query)):
+            return {"recipients": service.list_verified_recipients(owner_user_id=owner_user_id)}
+        return service.list_verified_recipients_page(
+            owner_user_id=owner_user_id,
+            query=query or "",
+            page=page or 1,
+            limit=limit or 50,
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -722,19 +759,82 @@ def get_named_location_circle(
         raise _handle_error(exc) from exc
 
 
+@router.get("/location/circles/{circle_id}/overview")
+def get_named_location_circle_overview(
+    circle_id: _CircleId,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Return Circle metadata/capabilities without a partial or complete roster."""
+
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "circle": _circle_service().get_circle_overview(
+                user_id=_user_id(token_data), circle_id=circle_id
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get(
+    "/location/circles/{circle_id}/members",
+    response_model=CircleMembersPageResponse,
+    response_model_by_alias=True,
+)
+def list_named_location_circle_members(
+    circle_id: _CircleId,
+    response: Response,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=50, ge=1, le=100),
+    query: str = Query(default="", max_length=160),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return _circle_service().list_circle_members_page(
+            user_id=_user_id(token_data),
+            circle_id=circle_id,
+            query=query,
+            page=page,
+            limit=limit,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.get("/location/circles/{circle_id}/eligible-connections")
 def list_named_circle_eligible_connections(
     circle_id: _CircleId,
+    response: Response,
+    page: int | None = Query(default=None, ge=1),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    query: str | None = Query(default=None, max_length=160),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
+        response.headers["Cache-Control"] = "private, no-store"
         actor_user_id = _user_id(token_data)
         service = _circle_service()
-        return {
-            "eligibleConnections": service.list_eligible_direct_connections(
+        if all(value is None for value in (page, limit, query)):
+            eligible_connections = service.list_eligible_direct_connections(
                 actor_user_id=actor_user_id,
                 circle_id=circle_id,
-            ),
+            )
+            page_metadata: dict[str, Any] = {}
+        else:
+            paged = service.list_eligible_direct_connections_page(
+                actor_user_id=actor_user_id,
+                circle_id=circle_id,
+                query=query or "",
+                page=page or 1,
+                limit=limit or 50,
+            )
+            eligible_connections = paged.pop("items")
+            page_metadata = paged
+        return {
+            "eligibleConnections": eligible_connections,
             "pendingInvites": service.list_member_invites(
                 user_id=actor_user_id,
                 circle_id=circle_id,
@@ -744,6 +844,7 @@ def list_named_circle_eligible_connections(
                 actor_user_id=actor_user_id,
                 circle_id=circle_id,
             ),
+            **page_metadata,
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -915,6 +1016,7 @@ def ensure_sms_system_circle_route(
 def ensure_trusted_system_circle_route(
     request: Request,
     response: Response,
+    summary_only: bool = Query(default=False, alias="summaryOnly"),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """Find-or-create the caller's Trusted Circle and top up its roster.
@@ -940,6 +1042,7 @@ def ensure_trusted_system_circle_route(
         return {
             "circle": _circle_service().ensure_trusted_system_circle(
                 owner_user_id=_user_id(token_data),
+                summary_only=summary_only,
             )
         }
     except Exception as exc:

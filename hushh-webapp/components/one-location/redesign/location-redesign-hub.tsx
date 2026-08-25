@@ -89,8 +89,11 @@ import type {
   OneLocationCircleInvite,
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnections,
+  OneLocationCircleEligibleConnectionsPage,
   OneLocationCircleInviteCode,
   OneLocationCircleInvitePreview,
+  OneLocationCircleMemberPage,
+  OneLocationCircleOverview,
   OneLocationCircleKind,
   OneLocationCircleMemberInvite,
   OneLocationCircleSummary,
@@ -115,6 +118,7 @@ import {
   TrustNoteCard,
 } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
+import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import {
   initialsFrom,
   RequestCard,
@@ -300,6 +304,10 @@ export type LocationHubViewModel = {
   incomingCircleMemberInvitesError: string | null;
   incomingCircleMemberInviteFocusResolved: boolean;
   visibleRecipients: OneLocationRecipient[];
+  recipientPageHasMore: boolean;
+  recipientPageTotalCount: number;
+  recipientPageLoading: boolean;
+  onLoadMoreRecipients: () => void | Promise<void>;
   visibleShareRecipients: OneLocationRecipient[];
   activeOwnerGrants: OneLocationGrant[];
   /**
@@ -373,6 +381,13 @@ export type LocationHubViewModel = {
   onRequestPermission: () => void;
   onOpenLocationSettings: () => void;
   onSyncContacts: () => void;
+  contactSyncSummary?: {
+    matchedCount: number;
+    connectedCount: number;
+    unknownCount: number;
+    partial: boolean;
+  } | null;
+  onViewContactSyncResults?: () => void;
   /** Legacy composer only: pre-flights device permission, then opens review. */
   onOpenShareReview: () => void;
   /**
@@ -446,6 +461,13 @@ export type LocationHubViewModel = {
   /* Durable named Circles. Legacy one-person Circle invites above remain
      isolated for backward compatibility. */
   onLoadNamedCircle: (circleId: string) => Promise<OneLocationCircleDetail>;
+  onLoadNamedCircleOverview: (
+    circleId: string,
+  ) => Promise<OneLocationCircleOverview>;
+  onLoadNamedCircleMembersPage: (
+    circleId: string,
+    options: { page: number; limit: number; query?: string },
+  ) => Promise<OneLocationCircleMemberPage>;
   onCreateNamedCircle: (
     name: string,
     kind: OneLocationCircleKind,
@@ -466,7 +488,7 @@ export type LocationHubViewModel = {
   ) => Promise<OneLocationCircleInviteCode>;
   onCopyNamedCircleCode: (code: string) => Promise<void>;
   onShareNamedCircleCode: (
-    circle: OneLocationCircleDetail,
+    circle: OneLocationCircleOverview,
     code: string,
   ) => Promise<void>;
   /** Share a Circle's invite code from a surface that only knows its id. */
@@ -489,6 +511,10 @@ export type LocationHubViewModel = {
   onLoadNamedCircleEligibleConnections: (
     circleId: string,
   ) => Promise<OneLocationCircleEligibleConnections>;
+  onLoadNamedCircleEligibleConnectionsPage: (
+    circleId: string,
+    options: { page: number; limit: number; query?: string },
+  ) => Promise<OneLocationCircleEligibleConnectionsPage>;
   onInviteNamedCircleConnections: (
     circleId: string,
     inviteeUserIds: string[],
@@ -1046,6 +1072,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     () => vm.circles.find((circle) => circle.isSystem)?.id ?? null,
     [vm.circles],
   );
+  // Trusted can grow to thousands of auto-synced connections. It is a useful
+  // provenance view, not a safe "select everyone" source for emergency SMS.
+  // Ordinary and SMS Circles remain available for deliberate roster choices.
+  const smsCircleChoices = useMemo(
+    () => vm.circles.filter((circle) => circle.systemKind !== "trusted"),
+    [vm.circles],
+  );
   useEffect(() => {
     if (flow !== "sms-contacts" || !smsSystemCircleId) return;
     openCircleDetail(smsSystemCircleId, "replace");
@@ -1294,7 +1327,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "sms-contacts" ? (
           <SmsContactsFlow
             recipients={vm.smsContactCandidates}
-            circles={vm.circles}
+            circles={smsCircleChoices}
             selectedUserIds={vm.smsContactUserIds}
             busyKey={vm.busy}
             onAdd={vm.onAddSmsContact}
@@ -1336,6 +1369,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             busy={vm.busy === "namedCircle"}
             onBack={() => closeFlow("people")}
             onLoad={vm.onLoadNamedCircle}
+            onLoadOverview={vm.onLoadNamedCircleOverview}
+            onLoadMembersPage={vm.onLoadNamedCircleMembersPage}
             onRename={vm.onRenameNamedCircle}
             onGenerateCode={vm.onGenerateNamedCircleCode}
             onCopyCode={vm.onCopyNamedCircleCode}
@@ -1356,6 +1391,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             }}
             onRemoveMember={vm.onRemoveNamedCircleMember}
             onLoadEligibleConnections={vm.onLoadNamedCircleEligibleConnections}
+            onLoadEligibleConnectionsPage={
+              vm.onLoadNamedCircleEligibleConnectionsPage
+            }
             onInviteConnections={vm.onInviteNamedCircleConnections}
             onCancelMemberInvite={vm.onCancelNamedCircleMemberInvite}
             onLeave={vm.onLeaveNamedCircle}
@@ -2886,6 +2924,7 @@ function StopGrantTextButton({
 /** One person in the People list: avatar (+ live dot) · name · status · action. */
 function PersonRow({
   name,
+  fromContacts,
   subtitle,
   active,
   first,
@@ -2893,6 +2932,7 @@ function PersonRow({
   expansion,
 }: {
   name: string;
+  fromContacts?: boolean;
   subtitle: string;
   /** True when there's a live connection (you're sharing or they're sharing). */
   active: boolean;
@@ -2927,9 +2967,14 @@ function PersonRow({
           ) : null}
         </div>
         <div className="min-w-0 flex-1 space-y-0.5">
-          <p className="break-words text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground">
-            {name}
-          </p>
+          <div className="flex min-w-0 items-start gap-1.5">
+            <p className="min-w-0 flex-1 break-words text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground">
+              {name}
+            </p>
+            {fromContacts ? (
+              <ContactSourceBadge className="mt-px shrink-0" />
+            ) : null}
+          </div>
           <p className="break-words text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
             {subtitle}
           </p>
@@ -3134,8 +3179,17 @@ export function PeopleHub({
           }}
           className="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-[color:var(--app-primary-label)] focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]"
         >
-          {vm.busy === "contactSync" ? "Finding contacts…" : "Find contacts"}
+          {vm.busy === "contactSync"
+            ? "Finding contacts…"
+            : vm.contactSyncSummary
+              ? "Sync contacts again"
+              : "Find contacts"}
         </DropdownMenuItem>
+        {vm.contactSyncSummary && vm.onViewContactSyncResults ? (
+          <DropdownMenuItem onSelect={() => vm.onViewContactSyncResults?.()}>
+            View contact sync results
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem
           onSelect={() => onInvite()}
           data-voice-control-id="one-location-action-invite"
@@ -3186,8 +3240,22 @@ export function PeopleHub({
               id="one-location-connections-heading"
               className="col-start-1 row-start-1 text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]"
             >
-              Connections
+              Connections · {vm.recipientPageTotalCount}
             </h2>
+
+            {vm.contactSyncSummary && vm.onViewContactSyncResults ? (
+              <button
+                type="button"
+                className="col-start-2 row-start-1 min-h-11 justify-self-end rounded-full px-2 text-[13px] font-medium text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]"
+                onClick={vm.onViewContactSyncResults}
+              >
+                {vm.contactSyncSummary.unknownCount
+                  ? `${vm.contactSyncSummary.unknownCount} need confirmation · View results`
+                  : vm.contactSyncSummary.connectedCount
+                    ? `${vm.contactSyncSummary.connectedCount} connected · View results`
+                    : `${vm.contactSyncSummary.matchedCount} matched · View results`}
+              </button>
+            ) : null}
 
             <div className="col-start-3 row-start-1 justify-self-end sm:col-start-4">
               {addConnectionsMenu}
@@ -3237,6 +3305,7 @@ export function PeopleHub({
                       <PersonRow
                         key={r.userId}
                         name={name}
+                        fromContacts={r.connectedFromContacts}
                         expansion={
                           shareGroup && !singleGrant ? (
                             <div id={lanesId} hidden={!lanesExpanded}>
@@ -3348,6 +3417,19 @@ export function PeopleHub({
                   />
                 </div>
               )}
+              {vm.recipientPageHasMore ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={vm.recipientPageLoading}
+                  isLoading={vm.recipientPageLoading}
+                  onClick={() => void vm.onLoadMoreRecipients()}
+                  className="mt-3 h-11 w-full rounded-full"
+                  data-testid="one-location-people-load-more"
+                >
+                  Load more connections
+                </Button>
+              ) : null}
             </div>
           </section>
 
@@ -3968,7 +4050,14 @@ function ShareFlow({
             : undefined
         }
         leading={<Avatar initials={initialsFrom(label)} />}
-        title={label}
+        title={
+          <span className="flex min-w-0 items-start gap-1.5">
+            <span className="min-w-0 flex-1 truncate">{label}</span>
+            {r.connectedFromContacts ? (
+              <ContactSourceBadge className="mt-px shrink-0" />
+            ) : null}
+          </span>
+        }
         // Only says something when there is something to say. A row that is
         // ready needs no sentence explaining that it is ready — but a row whose
         // share is already running has a number worth reading, and it is the
@@ -4459,6 +4548,7 @@ function SelectionDot({ selected }: { selected: boolean }) {
 
 function RequestRecipientListRow({
   name,
+  fromContacts,
   subtitle,
   tone,
   statusLabel,
@@ -4474,6 +4564,7 @@ function RequestRecipientListRow({
   expandedContent,
 }: {
   name: string;
+  fromContacts?: boolean;
   subtitle?: string;
   tone: "ready" | "pending" | "neutral";
   statusLabel?: string;
@@ -4505,8 +4596,13 @@ function RequestRecipientListRow({
       <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
         <ContactAvatar label={name} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
-            {name}
+          <span className="flex min-w-0 items-start gap-1.5">
+            <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
+              {name}
+            </span>
+            {fromContacts ? (
+              <ContactSourceBadge className="mt-px shrink-0" />
+            ) : null}
           </span>
           {subtitle ? (
             <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
@@ -4963,6 +5059,7 @@ function AskFlow({
                 <RequestRecipientListRow
                   key={r.userId}
                   name={recipientLabel}
+                  fromContacts={r.connectedFromContacts}
                   subtitle={
                     status.selectable && status.tone === "ready"
                       ? undefined
@@ -5147,8 +5244,11 @@ function SelectedRecipientsRail({
                 className="flex min-h-14 items-center gap-3 px-4 py-2.5"
               >
                 <ContactAvatar label={label} className="h-8 w-8 text-[13px]" />
-                <span className="min-w-0 flex-1 text-[17px] font-normal leading-[22px] text-foreground">
-                  {label}
+                <span className="flex min-w-0 flex-1 items-start gap-1.5 text-[17px] font-normal leading-[22px] text-foreground">
+                  <span className="min-w-0 flex-1 truncate">{label}</span>
+                  {recipient.connectedFromContacts ? (
+                    <ContactSourceBadge className="mt-px shrink-0" />
+                  ) : null}
                 </span>
               </div>
             );

@@ -46,11 +46,15 @@ _HUSHH_TECH_PRODUCT_PREFIX = "/api/v1/products/hushh-tech/"
 _TYPED_RATE_LIMIT_PATHS = (
     _HUSHH_TECH_PRODUCT_PREFIX,
     "/api/marketplace/contacts/match",
+    "/api/one/connections/contact-sync",
 )
 
 _TYPED_RATE_LIMIT_MESSAGES = {
     "/api/marketplace/contacts/match": (
         "You have checked your contacts a few times just now. Give it a minute and try again."
+    ),
+    "/api/one/connections/contact-sync": (
+        "You have checked many contacts recently. Give it a little time and try again."
     ),
 }
 

@@ -22,6 +22,12 @@ dynamic `attr.*` scope that already exists in the vault owner's shareable scope
 inventory. It is not a free-form email agent and does not own platform consent
 policy.
 
+Personal Gmail drafting and sending is a different product boundary: it uses
+the owner's canonical receipt Gmail connection, an in-app local send switch,
+and an exact per-message final confirmation. It never sends as `one@hushh.ai`
+and does not reuse this KYC workflow. See
+[Owner-Approved Gmail Email](../one/gmail-owner-approved-email.md).
+
 ## Current Runtime
 
 - Backend owner: `consent-protocol/hushh_mcp/services/one_email_kyc_service.py`.
