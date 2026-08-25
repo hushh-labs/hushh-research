@@ -57,11 +57,11 @@ function renderCircles(circles: OneLocationCircleSummary[]) {
 }
 
 describe("the circle row's second line", () => {
-  it("is the member count and nothing else", () => {
+  it("says Only you when nobody else is in the Circle", () => {
     // `memberCount` includes the viewer, so a circle of one is a circle with
     // nobody else in it yet -- the exact row in the report.
     renderCircles([circle({ memberCount: 1 })]);
-    expect(screen.getByText("0 members")).toBeTruthy();
+    expect(screen.getByText("Only you")).toBeTruthy();
   });
 
   it("never names the category the person did not choose", () => {
@@ -77,13 +77,13 @@ describe("the circle row's second line", () => {
     }
   });
 
-  it("still counts everyone but the viewer, and says member once", () => {
+  it("still counts everyone but the viewer, and says person once", () => {
     renderCircles([
       circle({ id: "c_two", name: "Two", memberCount: 2 }),
       circle({ id: "c_four", name: "Four", memberCount: 4 }),
     ]);
-    expect(screen.getByText("1 member")).toBeTruthy();
-    expect(screen.getByText("3 members")).toBeTruthy();
+    expect(screen.getByText("1 person")).toBeTruthy();
+    expect(screen.getByText("3 people")).toBeTruthy();
   });
 
   it("uses the red SMS identity for the Save My Soul system Circle", () => {
@@ -98,7 +98,14 @@ describe("the circle row's second line", () => {
     ]);
 
     expect(screen.getByText("SMS")).toBeTruthy();
-    expect(screen.getByText("Save My Soul · 1 member")).toBeTruthy();
+    expect(screen.getByText("Save My Soul · 1 person")).toBeTruthy();
     expect(screen.queryByTestId("siren")).toBeNull();
+  });
+
+  it("uses a neutral identity for ordinary Circles", () => {
+    renderCircles([
+      circle({ id: "c_neutral", name: "Trusted", systemKind: "trusted" }),
+    ]);
+    expect(screen.getByTestId("one-location-circle-neutral-mark")).toBeTruthy();
   });
 });
