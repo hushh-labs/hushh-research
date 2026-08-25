@@ -80,6 +80,18 @@ function formattingIcon(action: FormattingAction) {
 const LINK_RE = /^\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^)\s]+)\)$/i;
 const INLINE_TOKEN_RE = /(\[[^\]]+\]\((?:https?:\/\/|mailto:)[^)\s]+\)|\*\*[^*]+\*\*|\*[^*]+\*|\+\+[^+]+\+\+)/g;
 
+// Inline styles are intentional: the delivery HTML is rendered by Gmail and
+// cannot rely on the application's Tailwind classes.
+const EMAIL_BLOCK_STYLES = {
+  h1: "margin:0 0 18px;font-size:24px;line-height:1.25",
+  h2: "margin:0 0 14px;font-size:20px;line-height:1.3",
+  h3: "margin:0 0 12px;font-size:16px;line-height:1.4",
+  list: "margin:0 0 16px;padding-left:24px",
+  listItem: "margin:0 0 8px",
+  paragraph: "margin:0 0 16px;line-height:1.6",
+  quote: "margin:0 0 16px;padding-left:16px;color:#5f6368",
+} as const;
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -237,23 +249,23 @@ export function richEmailHtmlFromMarkdown(value: string): string {
   return parseBlocks(value)
     .map((block) => {
       if (block.kind === "heading") {
-        return `<h${block.level}>${inlineHtml(block.text)}</h${block.level}>`;
+        return `<h${block.level} style="${EMAIL_BLOCK_STYLES[`h${block.level}`]}">${inlineHtml(block.text)}</h${block.level}>`;
       }
       if (block.kind === "list") {
         const tag = block.ordered ? "ol" : "ul";
-        return `<${tag}>${block.items
-          .map((item) => `<li>${inlineHtml(item)}</li>`)
+        return `<${tag} style="${EMAIL_BLOCK_STYLES.list}">${block.items
+          .map((item) => `<li style="${EMAIL_BLOCK_STYLES.listItem}">${inlineHtml(item)}</li>`)
           .join("")}</${tag}>`;
       }
       if (block.kind === "quote") {
-        return `<blockquote>${block.lines.map(inlineHtml).join("<br>")}</blockquote>`;
+        return `<blockquote style="${EMAIL_BLOCK_STYLES.quote}">${block.lines.map(inlineHtml).join("<br>")}</blockquote>`;
       }
       if (block.kind === "aligned") {
-        return `<p style="text-align:${block.alignment}">${block.lines
+        return `<p style="${EMAIL_BLOCK_STYLES.paragraph};text-align:${block.alignment}">${block.lines
           .map(inlineHtml)
           .join("<br>")}</p>`;
       }
-      return `<p>${block.lines.map(inlineHtml).join("<br>")}</p>`;
+      return `<p style="${EMAIL_BLOCK_STYLES.paragraph}">${block.lines.map(inlineHtml).join("<br>")}</p>`;
     })
     .join("");
 }

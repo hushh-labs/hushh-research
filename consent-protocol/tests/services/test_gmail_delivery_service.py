@@ -8,8 +8,10 @@ import httpx
 import pytest
 
 from hushh_mcp.services.gmail_delivery_service import (
+    _EMAIL_AGENT_INTRO_BODY,
     GmailDeliveryError,
     GmailDeliveryService,
+    _is_email_agent_intro_instruction,
     _message_for,
     normalize_draft,
 )
@@ -180,6 +182,36 @@ def test_rich_email_html_is_sanitized_and_sent_as_multipart_alternative():
     assert rendered.get_content_type() == "multipart/alternative"
     assert rendered.get_body(preferencelist=("plain",)).get_content().strip() == "Message"
     assert rendered.get_body(preferencelist=("html",)).get_content().strip() == draft.html_body
+
+
+def test_delivery_keeps_only_the_reviewed_email_block_styles():
+    draft = normalize_draft(
+        {
+            **_envelope(),
+            "html_body": (
+                '<h2 style="margin: 0 0 14px; font-size: 20px; line-height: 1.3">Welcome</h2>'
+                '<ul style="margin:0 0 16px;padding-left:24px"><li style="margin:0 0 8px">First</li></ul>'
+                '<p style="margin:0 0 16px;line-height:1.6;text-align:center">Centered</p>'
+                '<p style="color:red">discarded style</p>'
+            ),
+        }
+    )
+
+    assert draft.html_body == (
+        '<h2 style="margin:0 0 14px;font-size:20px;line-height:1.3">Welcome</h2>'
+        '<ul style="margin:0 0 16px;padding-left:24px"><li style="margin:0 0 8px">First</li></ul>'
+        '<p style="margin:0 0 16px;line-height:1.6;text-align:center">Centered</p>'
+        "<p>discarded style</p>"
+    )
+
+
+def test_email_agent_intro_template_has_real_email_structure():
+    assert _is_email_agent_intro_instruction(
+        "Can you send an email to 'person@example.com', In the email explain features of the email agent."
+    )
+    assert not _is_email_agent_intro_instruction("Explain email agent features in a chat reply.")
+    assert "\n\n- **Draft polished emails**" in _EMAIL_AGENT_INTRO_BODY
+    assert _EMAIL_AGENT_INTRO_BODY.endswith("Best,\nHushh")
 
 
 def test_html_only_edit_changes_the_reviewed_envelope_hmac(monkeypatch):
